@@ -426,7 +426,7 @@ AES-256-GCM 加密存 `mail-secrets.json`（0600）。v1 明文会自动迁移�
 
 **Q100：怎么备份？**
 
-`LAWMIND_WORKSPACE_DIR=<工作区> pnpm lawmind:backup <路径>`。默认不含环境文件（防密钥泄漏）。
+`LAWMIND_WORKSPACE_DIR=<工作区> bash scripts/lawmind/lawmind-backup.sh <路径>`。默认不含环境文件（防密钥泄漏）。**它不是 `pnpm` 脚本**（`package.json` 里没有这个入口）。
 
 **Q101：换机器要注意什么？**
 

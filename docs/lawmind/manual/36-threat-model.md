@@ -6,7 +6,7 @@
 
 ## 36.1 信任边界在哪
 
-先划清边界。系统里有五个信任级别：
+先划清边界。系统里有六个信任级别：
 
 | 级别     | 谁                       | 信任程度                             |
 | -------- | ------------------------ | ------------------------------------ |
@@ -174,7 +174,7 @@
 | 分块       | 大文件分块，重组时再验一次哈希                                 |
 | 成员资格   | 不是成员就不放材料（既没钥匙，也不该看别人的密文）             |
 | 密钥轮换   | 移除成员后换密钥并重新分发                                     |
-| 角色能力   | 七种角色，能力白名单（`readonly` 能力为空数组）                |
+| 角色能力   | 六种角色，能力白名单（`readonly` 能力为空数组）                |
 
 **代码位置**：`matter-replica/crypto-envelope.ts`、`member-keys.ts`、`invite-key-wrap.ts`、`materials-relay.ts`、`materials-cdc.ts`、`membership.ts`、`matter-cloud/server.ts`。
 
@@ -219,7 +219,7 @@
 | 密钥来源分级 | `env` > `file` > `derived`；**derived 不是信任根** |
 | CLI 拒绝     | 签名 CLI 默认拒绝用 derived 密钥                   |
 | 包清单       | 另一套 sha256 校验机制（本地信任根，不下载远程）   |
-| 保留名       | 外部工具不许顶替 24 个核心工具名                   |
+| 保留名       | 外部工具不许顶替 25 个核心工具名                   |
 
 **代码位置**：`skills/skill-runtime.ts`、`skills/bundle-manifest.ts`、`agent/tools/reserved-tool-names.ts`。
 

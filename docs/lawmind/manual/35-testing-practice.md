@@ -254,7 +254,7 @@ pnpm exec vitest run <你改的目录>
 | 测试                                    | 锁什么                   |
 | --------------------------------------- | ------------------------ |
 | `deliverables/registry.test.ts`         | 27 个 spec 的顺序        |
-| `deliverables/item-judgments.test.ts`   | 150 项判定表「一处不漏」 |
+| `guardian/item-judgments.test.ts`       | 150 项判定表「一处不漏」 |
 | `turn-orchestrator-cassettes.test.ts`   | 编排行为                 |
 | `lawmind-server-cors-structure.test.ts` | 手写 writeHead 的 CORS   |
 | `check-file-size.mjs`                   | 文件大小棘轮             |

@@ -150,6 +150,8 @@ keyfile 目录之外的密钥：~/.lawmind/keys/*.key（0600）
 
 审计写在 `<工作区>/audit/YYYY-MM-DD.jsonl`（按天分文件），开了完整性链时每行带 `previousHash` / `eventHash` / `hashAlg`。
 
+**全表共 74 个事件**，即 `src/lawmind/types.ts` 的 `AuditEventKind` 联合成员数——**这份表是照那个联合一个成员一个成员抄的**，不是按名字猜的。判断某个字符串算不算审计事件，最快的办法就是去那个联合里搜。
+
 ### 核心事件
 
 | 事件            | 什么时候                                        |
@@ -159,24 +161,26 @@ keyfile 目录之外的密钥：~/.lawmind/keys/*.key（0600）
 | `safe_command`  | 桌面壳的 shell 动作（**单独文件**，不进哈希链） |
 | `outbound_http` | 每次出站 HTTP（不记 body、不记 query）          |
 
-### 任务与草稿
+### 任务、检索与草稿
 
-| 事件                                                                                     | 什么时候       |
-| ---------------------------------------------------------------------------------------- | -------------- |
-| `task.created`                                                                           | 建任务         |
-| `agent.instruction`                                                                      | 收到指令       |
-| `draft.created`                                                                          | 建草稿         |
-| `draft.saved`                                                                            | 草稿落盘       |
-| `draft.content_edited`                                                                   | 正文被编辑     |
-| `draft.reviewed`                                                                         | 审核签批       |
-| `draft.review_labeled`                                                                   | 打审核标签     |
-| `draft.review_reopened`                                                                  | 重开审核       |
-| `draft.citation_integrity`                                                               | 引用完整性检查 |
-| `draft.reasoning_graph_missing`                                                          | 推理图缺失     |
-| `draft.scaffold_density`                                                                 | 骨架密度检查   |
-| `draft.auto_delivered`                                                                   | 自动交付       |
-| `draft.peer_review_required` / `draft.peer_review_skipped`                               | 强制互审       |
-| `draft.revision_dispatched` / `draft.revision_completed` / `draft.revision_agent_failed` | 后台修订三步   |
+| 事件                                                                                     | 什么时候        |
+| ---------------------------------------------------------------------------------------- | --------------- |
+| `task.created`                                                                           | 建任务          |
+| `task.confirmed` / `task.rejected`                                                       | 任务被确认/驳回 |
+| `research.started` / `research.completed`                                                | 深度研究起止    |
+| `triage.created` / `triage.confirmed`                                                    | 分诊创建与确认  |
+| `draft.created`                                                                          | 建草稿          |
+| `draft.content_edited`                                                                   | 正文被编辑      |
+| `draft.reviewed`                                                                         | 审核签批        |
+| `draft.review_labeled`                                                                   | 打审核标签      |
+| `draft.review_reopened`                                                                  | 重开审核        |
+| `draft.citation_integrity`                                                               | 引用完整性检查  |
+| `draft.reasoning_graph_missing`                                                          | 推理图缺失      |
+| `draft.auto_delivered`                                                                   | 自动交付        |
+| `draft.peer_review_required` / `draft.peer_review_skipped`                               | 强制互审        |
+| `draft.revision_dispatched` / `draft.revision_completed` / `draft.revision_agent_failed` | 后台修订三步    |
+
+**注意 `draft.saved` 与 `draft.scaffold_density` 不是审计事件。** 前者只在索引测试里当文档 kind 用，后者是验收检查 key（本附录 C.6 也把它当检查项用）。同理 `agent.instruction` 是 E2E 测试路由里的任务 kind。**这三处是本表以前最容易误判的地方**——照名字看着都像审计事件。
 
 ### 交付
 
@@ -194,8 +198,9 @@ keyfile 目录之外的密钥：~/.lawmind/keys/*.key（0600）
 | `matter.write_failed`      | 案件写入失败             |
 | `matter.projection_failed` | 投影（JSON→CASE.md）失败 |
 | `matter.spec.invalid`      | schema 校验失败          |
-| `matter.field_set`         | 字段被设置               |
 | `deliverable.spec.invalid` | 交付物规格不合法         |
+
+**`matter.field_set` 不是审计事件**——它是案件副本的操作 kind（`matter-replica/types.ts`）。名字像，但归属不同。
 
 ### 记忆与学习
 
@@ -212,6 +217,15 @@ keyfile 目录之外的密钥：~/.lawmind/keys/*.key（0600）
 | `golden.example_promoted`                                | 提升黄金样本                 |
 | `contract_revision_accumulation_failed`                  | 合同修订积累失败             |
 
+### 质量与平台
+
+| 事件                     | 什么时候         |
+| ------------------------ | ---------------- |
+| `quality.benchmark_run`  | 基准跑完         |
+| `quality.snapshot`       | 质量快照落盘     |
+| `platform.gate_snapshot` | 门禁快照         |
+| `mcp.servers_updated`    | MCP 服务器配置变 |
+
 ### 路由与门禁
 
 | 事件                                           | 什么时候       |
@@ -221,12 +235,11 @@ keyfile 目录之外的密钥：~/.lawmind/keys/*.key（0600）
 
 ### 自动化
 
-| 事件                               | 什么时候               |
-| ---------------------------------- | ---------------------- |
-| `automation.run_failed`            | 自动化运行失败         |
-| `automation_confirmations_missing` | 六个确认项没填全       |
-| `automation_from_work_failed`      | 从工作记录建自动化失败 |
-| `automation_send`                  | 自动化外发             |
+| 事件                    | 什么时候       |
+| ----------------------- | -------------- |
+| `automation.run_failed` | 自动化运行失败 |
+
+**`automation_confirmations_missing` 与 `automation_from_work_failed` 是 API 错误码，`automation_send` 是渲染层队列 kind**——三个都不是审计事件。自动化真正落进审计链的只有 `automation.run_failed`。
 
 ### 协作
 
@@ -341,7 +354,7 @@ keyfile 目录之外的密钥：~/.lawmind/keys/*.key（0600）
 | 必核清单没勾完不许签批                           | `deliverables/verification-checklist.ts`       |
 | 治理路径不许改                                   | `runtime/protected-workspace-rels.ts`          |
 | 可写根白名单                                     | `electron/fs-bridge.mjs` / `server` 侧对应实现 |
-| 只读模式工具白名单（29 个）                      | `agent/permission-mode.ts`                     |
+| 只读模式工具白名单（32 个）                      | `agent/permission-mode.ts`                     |
 | 外发只有 `send_email` 机械暂停                   | `platform/lawyer-outbound-decision.ts`         |
 | 伦理墙拦住外发                                   | `policy/ethics-wall.ts`                        |
 

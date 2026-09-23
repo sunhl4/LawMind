@@ -68,7 +68,7 @@
 pnpm lawmind:ui-copy-lint
 ```
 
-它扫渲染层的文案，按 `BANNED_PATTERNS`（10 条模式）拦截。
+它扫渲染层的文案，按 `BANNED_PATTERNS`（14 条模式）拦截。
 
 **维护规矩是单向的**：
 

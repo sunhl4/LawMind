@@ -190,7 +190,7 @@ pnpm lawmind:release-readiness            # 发布就绪（如果是发版场景
 | 许可   | `~/.lawmind/license.json`                                                                        |
 
 ```bash
-LAWMIND_WORKSPACE_DIR=<工作区> pnpm lawmind:backup <输出.tar.gz>
+LAWMIND_WORKSPACE_DIR=<工作区> bash scripts/lawmind/lawmind-backup.sh <输出.tar.gz>
 ```
 
 备份默认**不含** `.env.lawmind`。要含得设 `LAWMIND_BACKUP_INCLUDE_ENV=1`。

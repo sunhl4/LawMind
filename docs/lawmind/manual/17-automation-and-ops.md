@@ -340,7 +340,7 @@ tick 间隔 30 秒（`DAEMON_TICK_INTERVAL_MS`）。心跳超过 3 个周期（9
 
 ### 备份
 
-`pnpm lawmind:backup`（脚本是 `scripts/lawmind/lawmind-backup.sh`，注意它不在 package.json 的 `lawmind:*` 里，要直接跑）。
+`bash scripts/lawmind/lawmind-backup.sh`（**没有 `pnpm lawmind:backup` 这个入口**——它不在 `package.json` 的 `lawmind:*` 里，要直接跑脚本）。
 
 - 参数：输出 tar.gz 路径（可选）。
 - 环境变量：`LAWMIND_WORKSPACE_DIR`（必填）、`LAWMIND_BACKUP_INCLUDE_ENV=1`（连环境文件一起备）。

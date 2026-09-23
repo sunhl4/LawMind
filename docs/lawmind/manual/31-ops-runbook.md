@@ -39,14 +39,16 @@ pnpm lawmind:ops acceptance-pack
 ## 31.3 备份（按需 / 定期）
 
 ```bash
-LAWMIND_WORKSPACE_DIR=<工作区> pnpm lawmind:backup /path/to/backup-$(date +%F).tar.gz
+LAWMIND_WORKSPACE_DIR=<工作区> bash scripts/lawmind/lawmind-backup.sh /path/to/backup-$(date +%F).tar.gz
 ```
 
 **默认不含 `.env.lawmind`。** 要含得加：
 
 ```bash
-LAWMIND_BACKUP_INCLUDE_ENV=1 LAWMIND_WORKSPACE_DIR=<工作区> pnpm lawmind:backup <路径>
+LAWMIND_BACKUP_INCLUDE_ENV=1 LAWMIND_WORKSPACE_DIR=<工作区> bash scripts/lawmind/lawmind-backup.sh <路径>
 ```
+
+**注意这里不是 `pnpm` 脚本。** `package.json` 里**没有** `lawmind:backup` 这个入口（所以照 `pnpm lawmind:backup` 敲会 command not found），要像上面这样直接跑 bash 脚本。第 17.5 节讲脚本清单时点过这件事。
 
 **确认方法**：解开看有没有 `BACKUP-MANIFEST.txt`，再看关键目录在不在（`matters/`、`cases/`、`drafts/`）。
 

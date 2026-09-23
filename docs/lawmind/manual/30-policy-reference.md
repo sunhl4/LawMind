@@ -154,12 +154,13 @@
 
 ## 30.10 审计
 
-| 键                       | 说明                                            |
-| ------------------------ | ----------------------------------------------- |
-| `auditExportCadenceHint` | 导出节奏提示（写进治理报告）                    |
-| `auditExternalAnchorUrl` | 外锚地址（也可放 `lawmind/desk-settings.json`） |
+| 键                       | 说明                         |
+| ------------------------ | ---------------------------- |
+| `auditExportCadenceHint` | 导出节奏提示（写进治理报告） |
 
 审计链密钥用环境变量 `LAWMIND_AUDIT_CHAIN_KEY`（不能放工作区里）。
+
+**注意 `auditExternalAnchorUrl` 不在策略文件里。** 它是**工作日设置**的键（`lawmind/desk-settings.json`，schema 在 `src/lawmind/learning/desk-settings.ts`），由桌面主进程读出来再转成环境变量 `LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL` 传给服务端。写进 `lawmind.policy.json` 会被**整键忽略**，而且不报错——这是本节最容易踩的坑。
 
 ## 30.11 案件副本
 
@@ -187,7 +188,6 @@
   "networkAllowlistEnforced": true,
 
   "toolSandbox": true,
-  "strictDangerousToolApproval": true,
 
   "agentMandatoryRules": "所有引用必须能回溯到本案检索结果或材料；金额必须写出来源；不得改写事实。",
   "agentMaxToolCallsPerTurn": 40,
@@ -218,6 +218,10 @@
 ```
 
 **注意**：这个示例里的路径和域名都是示意，实际要按你们的网络环境改。
+
+**还有一条**：上面示例里我特意**没有**写 `strictDangerousToolApproval`——因为它**不是策略键**，而是 Edition 功能键（`src/lawmind/policy/edition.ts:70`：solo 关、firm/private 开）。写进 `lawmind.policy.json` 会被当未知键忽略，**而且不报错**。
+
+同理要小心的还有 `acceptanceGateStrict`、`citationGateStrict`、`forcePeerReview`、`reviewCampaignParallel` 这一组：它们都先是 Edition 功能键，名字相近的**策略覆盖项**才在 `workspace-policy.ts` 里有定义（比如 `wordAddinAutoRun`、`guardianTrackedRedline`、`ethicsWall`、`matterReplica` 确实是策略键）。**拿不准就查 `workspace-policy.ts` 的类型定义，别按名字猜。**
 
 ## 30.13 一个容易忽略的细节
 

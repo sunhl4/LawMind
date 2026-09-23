@@ -15,18 +15,23 @@
 | 位置              | 版本常量                       | 现在是                           |
 | ----------------- | ------------------------------ | -------------------------------- |
 | 索引 schema       | `SEARCH_INDEX_SCHEMA_VERSION`  | 3                                |
+| 法条参数表        | `STATUTE_PARAMS_VERSION`       | 3                                |
+| Word 改稿清单一族 | `WORD_REVISION_PACK_VERSION`   | 2                                |
 | 策略文件          | `schemaVersion`                | 1                                |
 | 工作日设置        | `DESK_SETTINGS_SCHEMA_VERSION` | 1                                |
 | 立场库            | `STANCE_SCHEMA_VERSION`        | 1                                |
 | 路由默认          | `ROUTING_DEFAULTS_VERSION`     | 1                                |
 | 学习队列          | `FILE_VERSION`                 | 1                                |
 | 合同修订包        | `SCHEMA_VERSION`               | 1                                |
-| 工作流版本        | `version`                      | 1                                |
-| Word 改稿清单一族 | `WORD_REVISION_PACK_VERSION`   | 2                                |
+| 案件团队名册      | `TEAM_ROSTER_VERSION`          | 1                                |
+| 诉讼费分档表      | `LITIGATION_FEE_VERSION`       | 1                                |
+| 校准特征口径      | `FEATURE_VERSION`              | 1                                |
 | 导出格式          | 格式标记字符串                 | `LawMind audit export format: 2` |
 | 审计回放          | `schemaVersion`                | 1                                |
 
 **改数据结构时先在这里找找有没有对应版本号**，有就该考虑要不要抬。
+
+**注意「工作流」这一类没有版本号。** 工作流模板（`agent/collaboration/builtin-workflow-templates.ts`、`workspace-workflow-templates.ts`）的类型定义里没有 `version` 字段——所以改模板结构时没有版本常量可抬，只能靠「新增字段有才加」那条纪律（39.1）来保兼容。这是本表里**唯一一处「应该有但没有」**的地方。
 
 ## 39.3 已经做过的迁移
 

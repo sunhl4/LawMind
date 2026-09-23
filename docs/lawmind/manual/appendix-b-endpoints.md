@@ -130,7 +130,7 @@
 | `/api/workspace/practice-playbook`             | GET / POST | 执业口径                       |
 | `/api/mail/providers`                          | GET        | 邮箱服务商预设                 |
 | `/api/mail/accounts`                           | GET / POST | 邮箱账号                       |
-| `/api/mail/matters`                            | GET        | 邮件相关案件                   |
+| `/api/mail/matters/:matterId/attachments`      | GET        | 某案件的邮件附件               |
 | `/api/ethics-wall`                             | GET        | 伦理墙状态                     |
 | `/api/ethics-wall/acknowledge`                 | POST       | 律师确认（模型不许调）         |
 
@@ -259,18 +259,18 @@
 
 ## B.11 自动办件与任务队列
 
-| 端点                                | 方法                        | 说明                                                  |
-| ----------------------------------- | --------------------------- | ----------------------------------------------------- |
-| `/api/automations`                  | GET / POST / PATCH / DELETE | 自动办件 CRUD                                         |
-| `/api/automations/presets`          | GET                         | 预设                                                  |
-| `/api/automations/from-instruction` | POST                        | 从指令推断                                            |
-| `/api/automations/mail/seed`        | POST                        | **仅开发**（`LAWMIND_MAIL_SEED=1`）                   |
-| `/api/automations/inbox`            | GET                         | 结果收件箱                                            |
-| `/api/automations/:id/runs`         | GET                         | 运行历史                                              |
-| `/api/jobs`                         | GET                         | 任务队列（`limit` / `status` / `since` / `matterId`） |
-| `/api/jobs/:id`                     | GET                         | 任务详情                                              |
-| `/api/jobs/:id/stream`              | GET                         | 任务进度 SSE（25 秒心跳）                             |
-| `/api/jobs/:id/cancel`              | POST                        | 取消                                                  |
+| 端点                                | 方法                        | 说明                                                             |
+| ----------------------------------- | --------------------------- | ---------------------------------------------------------------- |
+| `/api/automations`                  | GET / POST / PATCH / DELETE | 自动办件 CRUD                                                    |
+| `/api/automations/presets`          | GET                         | 预设                                                             |
+| `/api/automations/from-instruction` | POST                        | 从指令推断                                                       |
+| `/api/automations/mail/seed`        | POST                        | **仅开发**（`LAWMIND_MAIL_SEED=1`）                              |
+| `/api/automations/inbox/:id/action` | POST                        | 收件箱处置（`inbox` 数据本身在 `GET /api/automations` 的响应里） |
+| `/api/automations/:id/runs`         | GET                         | 运行历史                                                         |
+| `/api/jobs`                         | GET                         | 任务队列（`limit` / `status` / `since` / `matterId`）            |
+| `/api/jobs/:id`                     | GET                         | 任务详情                                                         |
+| `/api/jobs/:id/stream`              | GET                         | 任务进度 SSE（25 秒心跳）                                        |
+| `/api/jobs/:id/cancel`              | POST                        | 取消                                                             |
 
 ## B.12 审批与判断项
 

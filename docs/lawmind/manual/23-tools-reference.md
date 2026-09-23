@@ -209,7 +209,7 @@ solo 版没有内置工商数据源。接法：`LAWMIND_COMPANY_REGISTRY_URL` + 
 
 三条约束：
 
-1. **不许占用保留名。** 24 个核心工具名不许被外部实现顶替（`reserved-tool-names.ts`）。
+1. **不许占用保留名。** 25 个核心工具名不许被外部实现顶替（`reserved-tool-names.ts`）。
 2. **写类 MCP 工具默认剥离，除非显式 `allowWrites`，而且仍要审批。**
 3. **MCP 故障不许拖垮核心工具表。** 挂载 MCP 的调用被 try/catch 包着，失败只影响它自己。
 

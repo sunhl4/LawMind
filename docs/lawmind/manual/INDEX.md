@@ -130,18 +130,18 @@
 
 ### 3.1 日常（律师/实施）
 
-| 命令                       | 干什么                                                                                                             | 看                                             |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
-| `pnpm lawmind:desktop`     | 起桌面应用（开发态）                                                                                               | 2.1                                            |
-| `pnpm lawmind:doctor`      | 无界面体检；`--fix` 修会话历史里的工具配对                                                                         | 17.5                                           |
-| `pnpm lawmind:ops`         | 工作区概览 / `doctor` / `export-dashboard` / `acceptance-pack` / `matter-consistency` / `matter-repair-projection` | 17.5                                           |
-| `pnpm lawmind:backup`      | 打 tar.gz（**注意：不在 `lawmind:*` 脚本里，要直接跑脚本**）                                                       | 17.5                                           |
-| `pnpm lawmind:local:token` | 拿 CLI 的只读凭据                                                                                                  | 17.5；第 67.5 节（为什么只给凭据不给安装密钥） |
-| `pnpm lawmind:license`     | 离线许可状态                                                                                                       | 59.15                                          |
-| `pnpm lawmind:setup`       | 快速配置                                                                                                           | 2.14                                           |
-| `pnpm lawmind:setup:team`  | 团队环境                                                                                                           | 27                                             |
-| `pnpm lawmind:onboard`     | 首跑引导                                                                                                           | 2                                              |
-| `pnpm lawmind:env:check`   | 环境检查（`--strict`）                                                                                             | 17.5                                           |
+| 命令                                     | 干什么                                                                                                             | 看                                             |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| `pnpm lawmind:desktop`                   | 起桌面应用（开发态）                                                                                               | 2.1                                            |
+| `pnpm lawmind:doctor`                    | 无界面体检；`--fix` 修会话历史里的工具配对                                                                         | 17.5                                           |
+| `pnpm lawmind:ops`                       | 工作区概览 / `doctor` / `export-dashboard` / `acceptance-pack` / `matter-consistency` / `matter-repair-projection` | 17.5                                           |
+| `bash scripts/lawmind/lawmind-backup.sh` | 打 tar.gz（**注意：不在 `lawmind:*` 脚本里，要直接跑脚本**）                                                       | 17.5                                           |
+| `pnpm lawmind:local:token`               | 拿 CLI 的只读凭据                                                                                                  | 17.5；第 67.5 节（为什么只给凭据不给安装密钥） |
+| `pnpm lawmind:license`                   | 离线许可状态                                                                                                       | 59.15                                          |
+| `pnpm lawmind:setup`                     | 快速配置                                                                                                           | 2.14                                           |
+| `pnpm lawmind:setup:team`                | 团队环境                                                                                                           | 27                                             |
+| `pnpm lawmind:onboard`                   | 首跑引导                                                                                                           | 2                                              |
+| `pnpm lawmind:env:check`                 | 环境检查（`--strict`）                                                                                             | 17.5                                           |
 
 ### 3.2 开发与验证
 

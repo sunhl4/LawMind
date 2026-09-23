@@ -399,7 +399,7 @@ preApproveToolNames: ["apply_surgical_edits", "render_tracked_draft", "prepare_o
 
 ### 成员与角色
 
-七种角色（`MATTER_REPLICA_ROLES`）：
+六种角色（`MATTER_REPLICA_ROLES`）：
 
 | 角色        | 中文         | 能力                                              |
 | ----------- | ------------ | ------------------------------------------------- |

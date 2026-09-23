@@ -155,6 +155,8 @@
 | `LAWMIND_SKIP_AUTO_UPDATE`                     | `1` 关闭应用内更新                                 | 关                                |
 | `LAWMIND_DOWNLOAD_PAGE_URL`                    | 下载页地址                                         | jsDelivr 上的页面                 |
 | `LAWMIND_DESKTOP_ACTOR_ID`                     | 审计归属，默认 `lawyer:desktop`                    | —                                 |
+| `LAWMIND_ENGINE_ACTOR_ID`                      | 审计归属（**优先级高于** `DESKTOP` 那个）          | 无                                |
+| `LAWMIND_PACKAGED`                             | 打包态标记，由桌面壳给本机服务端子进程设 `1`       | 无                                |
 | `LAWMIND_ENABLE_COLLABORATION`                 | `false` 关闭协作                                   | 开                                |
 | `LAWMIND_REPO_ROOT`                            | 仓库根（开发/CLI）                                 | 无                                |
 
@@ -228,6 +230,7 @@
 | `LAWMIND_PLATFORM_API_TOKEN` / `LAWMIND_PLATFORM_ACCESS_TOKEN` | 代理凭据                                                                 |
 | `LAWMIND_PLATFORM_AUTHORITY_PROXY`                             | 法源走代理                                                               |
 | `LAWMIND_PLATFORM_PROVIDER_*_API_KEY`                          | 代理形态的供应商密钥（DASHSCOPE / DEEPSEEK / MOONSHOT / OPENAI / ZHIPU） |
+| `LAWMIND_PLATFORM_QWEN_API_KEY`                                | DashScope 的**别名**（`models/platform-providers.ts` 两名字都认）        |
 | `LAWMIND_COMMERCIAL_BFF_PORT`                                  | 商业 BFF 端口                                                            |
 | `LAWMIND_BUILD_CHANNEL`                                        | `oss` / `commercial` 构建隔离                                            |
 

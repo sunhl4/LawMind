@@ -262,7 +262,7 @@ rg "^describe|^\s+it\(" src/lawmind/memory/adoption-service.test.ts
 
 ### 技巧六：注意两份镜像
 
-`runtime/protected-workspace-rels.ts` 与 `electron/fs-bridge.mjs` 是两份手抄常量，改一处必须改另一处，而且**没有测试保证一致**。
+`runtime/protected-workspace-rels.ts` 与 `electron/fs-bridge.mjs` 是两份手抄常量，改一处必须改另一处。**有一道守卫**：`electron/fs-bridge.test.ts` 会逐项比对两侧的拒写文案、错误码与白名单——所以只改一边会红（见 29.22）。
 
 ## 34.11 两个常见误解
 
@@ -279,7 +279,7 @@ rg "^describe|^\s+it\(" src/lawmind/memory/adoption-service.test.ts
 - **`agent/tool-name-sets.ts` 在 `agent/` 下，不在 `tools/` 下。**
 - **`integration/`（单数）只有测试；`integrations/`（复数）才是连接器。**
 - **`matter-ops/storage.ts` 绕过写协议。** 别模仿。
-- **两份清单要手工同步。** 改一处看另一处。
+- **两份清单要手工同步。** 改一处看另一处——`electron/fs-bridge.test.ts` 会替你抓漏改的一侧。
 - **`index.ts` 不是全部能力。**
 - **`engine/` 那条路和 `agent/` 那条路是并行的两套。** 改之前先确认你改的是产品在用的那条。
 - **测试标题是最好的文档。** 先看测试再看实现。
