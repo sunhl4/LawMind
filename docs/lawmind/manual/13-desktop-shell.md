@@ -293,7 +293,7 @@ WRITABLE_ROOT_KEYS = new Set(["workspace", "project"]);
 
 `lawmind-root.mjs` 和 `brand.mjs` 里有一个不太直观的设计。
 
-开发态的 userData 固定在 `Application Support/Electron/LawMind`。为什么叫 `Electron`？注释：
+开发态的 userData 固定在 `Application Support/Electron`（**不是** `…/Electron/LawMind`——`Electron` 是 Electron 自己的 userData 目录名，`LawMind` 是 LawMind 建在其下的数据根 `lawMindRoot`，两个概念别混）。为什么保留 `Electron` 这个名字？注释：
 
 > Keep unpackaged userData on the historical Electron folder so renaming `CFBundleName` / `app.setName` does not migrate workspace or `.env.lawmind`.
 

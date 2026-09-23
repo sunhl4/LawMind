@@ -476,7 +476,7 @@ base64url(payload JSON) + "." + base64url(签名)
 | `judgmentEscalationPosture` | policy → `LAWMIND_JUDGMENT_ESCALATION_POSTURE` → 版本（solo `advisory`，其他 `block`） | 按版本   |
 | `citationMode`              | `LAWMIND_CITATION_MODE` → policy → 版本                                                | 按版本   |
 
-三值是 `off` / `shadow` / `on`（`parseMode` 也接受 `0/false/no` 和 `1/true/escalate`）。
+**注意这张表里有两套取值，别混**：前三行的 `judgmentTiering` / `judgmentEscalation` / `judgmentEscalationPosture` 用 `off` / `shadow` / `on`（`parseMode` 也接受 `0/false/no` 和 `1/true/escalate`）；而 `citationMode` 是另一套——**`grounded` / `assisted` / `off`**（`policy/citation-mode.ts`），默认按版本（private_deploy `grounded`，其余 `assisted`）。
 
 关于 `shadow` 这个中间态的意义：**先只记录、不改变结论**，攒够数据再切 `on`。这是很克制的一种上线方式。
 
