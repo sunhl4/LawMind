@@ -15,22 +15,32 @@ const CORE_SET = new Set<string>(CORE_MODEL_TOOL_NAMES);
 const WEB_SEARCH_TOOL_NAMES = new Set(["web_search", "search_statute_web", "url_dossier"]);
 
 /**
+ * 协作类能力：只在 `enableCollaboration` 打开时才注册进工具表
+ * （见 `legal-tools.ts` 里那一段条件 `tools.push(...)`）。门控必须与注册同源，
+ * 否则协作关着时菜单仍然列着它们 —— 模型照菜单启用，落到一个不存在的工具上。
+ */
+const COLLABORATION_TOOL_NAMES = new Set(["delegate_task", "notify_assistant"]);
+
+/**
  * 可披露能力目录（**单一真相源**，`list_more_tools` 与系统提示词都走这里）。
  *
  * 门控必须一致，否则会出现两类事故：目录里有的能力实际取不到（骗模型），或提示词里
  * 列了关着的能力（骗模型另一种方式）。所以过滤规则只写一份：
  *  - `web_search` 系列要联网开关打开；
+ *  - 协作类要 `enableCollaboration` 打开（与注册表同源）；
  *  - `run_analysis` 要工作区策略允许分析脚本；
  *  - `run_compute` 高安全模式下不可用；
  *  - 给了 `registeredNames` 时再与注册表求交（提示词用得上：别列没注册的工具）。
  */
 export function enableableToolCatalog(opts: {
   allowWebSearch?: boolean;
+  collaborationEnabled?: boolean;
   workspaceDir?: string;
   registeredNames?: Iterable<string>;
 }): Array<{ name: string; hint: string }> {
   const allowScripts = opts.workspaceDir ? isAnalysisScriptsAllowed(opts.workspaceDir) : false;
   const highSec = opts.workspaceDir ? isHighSecurityMode(opts.workspaceDir) : false;
+  const collaboration = opts.collaborationEnabled === true;
   const registered = opts.registeredNames ? new Set(opts.registeredNames) : undefined;
   const out: Array<{ name: string; hint: string }> = [];
   for (const row of DISCLOSED_TOOL_HINTS) {
@@ -38,6 +48,9 @@ export function enableableToolCatalog(opts: {
       continue;
     }
     if (registered && !registered.has(row.name)) {
+      continue;
+    }
+    if (COLLABORATION_TOOL_NAMES.has(row.name) && !collaboration) {
       continue;
     }
     if (row.name === "run_analysis" && !allowScripts) {
@@ -93,6 +106,7 @@ export const listMoreTools: AgentTool = {
   async execute(params, ctx) {
     const catalog = enableableToolCatalog({
       allowWebSearch: ctx?.allowWebSearch,
+      collaborationEnabled: ctx?.collaborationEnabled,
       workspaceDir: ctx?.workspaceDir,
     });
     const requested = parseRequestedNames(params);

@@ -10,6 +10,7 @@ import { addCustomModel, setRetrievalModelId } from "../../models/custom-store.j
 import type { ResearchBundle } from "../../types.js";
 import type { AgentContext } from "../types.js";
 import { buildLawMindRetrievalAdaptersFromEnvForTest } from "./engine-tools.js";
+import { DISCLOSED_TOOL_HINTS } from "./governance.js";
 import { createLegalToolRegistry } from "./legal-tools.js";
 
 function tmpWorkspace(): string {
@@ -154,6 +155,51 @@ describe("Engine-Bridge Tools", () => {
   it("total tool count is 69 (54 legal + 15 engine) without web/collaboration extras", () => {
     const registry = createLegalToolRegistry();
     expect(registry.size()).toBe(69);
+  });
+
+  /**
+   * 菜单（`DISCLOSED_TOOL_HINTS`）与注册表的一致性。
+   *
+   * 提示词里的「可按需启用」与 `list_more_tools` 都从这份菜单取名字。提示词那条路会与
+   * 注册表求交，但 `list_more_tools.execute` 只传门控、**不传注册表** —— 也就是说
+   * 「列了却打不开」这种假菜单只在 `list_more_tools` 一侧漏得过去。
+   *
+   * 与其把注册表一路塞进 `AgentContext`（牵动 orchestrator 与每处 ctx 构造），
+   * 不如在这里钉死事实：**菜单里的每个名字都必须真的注册过**。谁加了菜单没加实现，
+   * 这条就红——两条路径都被守住。
+   *
+   * 两类例外（都是**条件注册**，由 `enableableToolCatalog` 的开关单独门控）：
+   *  - 联网三件套：`allowWebSearch`；
+   *  - 协作两件：`enableCollaboration`。
+   * 它们不在这条断言里，但下面另有专门用例守「开关关着时不许出现在菜单里」。
+   */
+  it("菜单里的每个能力都真的注册过（不出现「列了却打不开」的假菜单）", () => {
+    const CONDITIONAL = new Set([
+      "web_search",
+      "search_statute_web",
+      "url_dossier",
+      "delegate_task",
+      "notify_assistant",
+    ]);
+    const registry = createLegalToolRegistry();
+    const registered = new Set(registry.listDefinitions().map((def) => def.name));
+    const missing = DISCLOSED_TOOL_HINTS.filter(
+      (row) => !CONDITIONAL.has(row.name) && !registered.has(row.name),
+    ).map((row) => row.name);
+    expect(missing, `这些菜单项没有对应实现：${missing.join("、")}`).toEqual([]);
+  });
+
+  it("协作关着时菜单不含协作能力（此前会列出来，模型启用即失败）", async () => {
+    const { enableableToolCatalog } = await import("./legal/list-more-tools.js");
+    const off = enableableToolCatalog({ workspaceDir: "/tmp/lm-menu" }).map((r) => r.name);
+    expect(off).not.toContain("delegate_task");
+    expect(off).not.toContain("notify_assistant");
+    const on = enableableToolCatalog({
+      workspaceDir: "/tmp/lm-menu",
+      collaborationEnabled: true,
+    }).map((r) => r.name);
+    expect(on).toContain("delegate_task");
+    expect(on).toContain("notify_assistant");
   });
 });
 
