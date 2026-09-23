@@ -5,7 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { attachEnabledMcpServers } from "../mcp/mcp-client-bridge.js";
 import { hiddenPolicyToolNames } from "../policy/analysis-scripts.js";
-import { applyCompactReinjectionToSession } from "./compact-reinjection.js";
+import { applyCompactReinjectionToSession, TASK_PIN_CHAR_CAP } from "./compact-reinjection.js";
 import { autoCompactSessionHistory } from "./compact.js";
 import { estimateTokenBudget } from "./context-budget.js";
 import { resolveToolSandboxEnabled } from "./dangerous-tool-policy.js";
@@ -230,6 +230,20 @@ export async function runTurn(opts: {
     !opts.preApproveToolName &&
     !(opts.preApproveToolNames && opts.preApproveToolNames.length > 0) &&
     !/【从检查点继续】/.test(instruction);
+  // ── 任务锚点（钉子）──────────────────────────────────────────────
+  // 首次确定后**持久化**，此后跨任意次压缩原样存活（写进重注块 → 落到 system[0]）。
+  // 换任务时更新：否则长会话里钉着一个早已做完的目标，反而误导。
+  // 无任务回合（单字 / 纯确认）不动钉子。
+  {
+    const pinText = instruction.trim().replace(/\s+/g, " ");
+    const shouldPin =
+      pinText.length > 0 &&
+      !noTaskTurn &&
+      (!session.taskPin?.text || isTaskSwitchUtterance(instruction));
+    if (shouldPin) {
+      session.taskPin = { text: pinText.slice(0, TASK_PIN_CHAR_CAP), at: new Date().toISOString() };
+    }
+  }
 
   const ctx: AgentContext = {
     workspaceDir: config.workspaceDir,

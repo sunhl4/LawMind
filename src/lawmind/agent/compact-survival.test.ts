@@ -168,6 +168,60 @@ describe("压缩生存不变量（连续多次压缩）", () => {
     }
   });
 
+  it("任务锚点是「钉子」：连压 6 次后仍在系统段（不靠摘要传承）", () => {
+    const ws = workspace();
+    const session = createLongSession();
+
+    for (let round = 1; round <= 6; round += 1) {
+      // 加压：每轮 40 条律师发言，远超「末 8 条」要点窗口，摘要也无从搭车。
+      for (let i = 0; i < 40; i += 1) {
+        session.conversationHistory.push({
+          role: "user",
+          content: `第${round}-${i} 条补充：请继续核对付款与违约，并逐条对照第三条。`,
+          timestamp: ts(i),
+        });
+      }
+      const result = autoCompactSessionHistory(session, ws, { maxHistoryMessages: 8 });
+      expect(result.compacted, `第 ${round} 轮没压缩`).toBe(true);
+      session.conversationHistory = result.messages;
+      session.needsCompactReinjection = true;
+      applyCompactReinjectionToSession(session, { mandatoryRulesActive: true });
+
+      // 钉子写在**系统段**（system[0] 只保留首条，所以它是跨任意次压缩原样存活的）。
+      const system = session.conversationHistory.find((m) => m.role === "system")?.content ?? "";
+      expect(system, `第 ${round} 轮：任务锚点不在系统段`).toContain(
+        "任务锚点（原文钉住，不因摘要改写）",
+      );
+      expect(system, `第 ${round} 轮：任务锚点内容丢了`).toContain("三方义务分配");
+      // 待澄清键也钉在同一处：它决定「能不能起草」，绝不能只靠摘要传承。
+      expect(system, `第 ${round} 轮：待澄清键不在系统段`).toContain(CLARIFY_KEY);
+    }
+  });
+
+  it("任务锚点有长度帽，不会把系统段养肥", () => {
+    const ws = workspace();
+    const session = createLongSession();
+    // 极长首条发言
+    session.conversationHistory[1] = {
+      role: "user",
+      content: "请".repeat(20_000),
+      timestamp: ts(),
+    };
+    inflate(session, 1);
+    const result = autoCompactSessionHistory(session, ws, { maxHistoryMessages: 8 });
+    session.conversationHistory = result.messages;
+    session.needsCompactReinjection = true;
+    applyCompactReinjectionToSession(session, { mandatoryRulesActive: true });
+    const system = session.conversationHistory.find((m) => m.role === "system")?.content ?? "";
+    const pinStart = system.indexOf("任务锚点（原文钉住");
+    if (pinStart >= 0) {
+      // 从锚点标题到该行结束不得超过帽（600）+ 标题与两侧措辞的余量。
+      const lineEnd = system.indexOf("\n", pinStart);
+      const line = system.slice(pinStart, lineEnd < 0 ? undefined : lineEnd);
+      expect(line.length).toBeLessThan(1_200);
+    }
+  });
+
   it("引用即使只出现在被丢弃的工具回包里，也能跨轮传递下去", () => {
     const ws = workspace();
     const session = createLongSession();

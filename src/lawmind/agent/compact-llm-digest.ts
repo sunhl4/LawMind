@@ -64,6 +64,16 @@ export async function enhanceCompactDigestWithLlm(opts: {
   dropped: AgentMessage[];
   contextTokens?: number;
   abortSignal?: AbortSignal;
+  /**
+   * 尝试次数上限。手动整理可以多试几次（律师在等一个有质量的摘要），
+   * **回合内必须为 1**：那是在工具轮边界上同步等的，重试会把延迟叠进对话。
+   */
+  maxAttempts?: number;
+  /**
+   * 超时上限（毫秒）。不设时用模型窗口推导的 sidecar 超时（默认 120s）。
+   * 回合内应显著更短——超时就回落提取式，绝不拖住对话。
+   */
+  timeoutCapMs?: number;
 }): Promise<{ digest: string; usedLlm: boolean }> {
   const extractive = opts.extractiveDigest.trim();
   if (!extractive || !isCompactLlmDigestEnabled()) {
@@ -71,10 +81,17 @@ export async function enhanceCompactDigestWithLlm(opts: {
   }
 
   const cap = resolveCompactDigestCharCap(opts.contextTokens);
-  const limits = resolveClassifySidecarLimits({
+  const sidecar = resolveClassifySidecarLimits({
     contextTokens: opts.contextTokens ?? opts.model.contextTokens,
     timeoutMs: opts.model.timeoutMs,
   });
+  const limits = {
+    ...sidecar,
+    timeoutMs:
+      typeof opts.timeoutCapMs === "number" && opts.timeoutCapMs > 0
+        ? Math.min(sidecar.timeoutMs, opts.timeoutCapMs)
+        : sidecar.timeoutMs,
+  };
 
   const snippet = dialogueSnippet(opts.dropped, Math.floor(cap * 0.6));
   const userContent = [
@@ -94,7 +111,10 @@ export async function enhanceCompactDigestWithLlm(opts: {
     usedLlm: false,
   });
 
-  const attempts = modelAttemptBudget();
+  const attempts = Math.max(
+    1,
+    Math.min(opts.maxAttempts ?? modelAttemptBudget(), modelAttemptBudget()),
+  );
   let lastSummary = "";
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {

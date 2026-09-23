@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { compactDigestPath } from "./compact.js";
 import {
   applyMidTurnCompact,
+  elideOversizedMessages,
   MID_TURN_COMPACT_MAX,
   midTurnBudgetOverTrigger,
   shouldCompactMidTurn,
@@ -142,6 +143,83 @@ describe("shouldCompactMidTurn", () => {
     expect(shouldCompactMidTurn({ ...base, used: 50_000, measuredUsed: 90_000 })).toBe(true);
     // 真实占用更小时不放宽：估算偏大也该整理（保守方向）。
     expect(shouldCompactMidTurn({ ...base, used: 90_000, measuredUsed: 10_000 })).toBe(true);
+  });
+});
+
+describe("elideOversizedMessages（no_reduction 兜底）", () => {
+  function sessionWith(
+    contents: Array<{ role: "user" | "assistant"; text: string }>,
+  ): AgentSession {
+    const now = "t";
+    return {
+      sessionId: "s-elide",
+      actorId: "lawyer",
+      turns: [],
+      conversationHistory: [
+        { role: "system", content: "sys", timestamp: now },
+        ...contents.map((c) => ({ role: c.role, content: c.text, timestamp: now })),
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  it("超大正文就地中间省略，头尾都留（不是砍尾）", () => {
+    const head = "合同首部：甲方某某公司，案号（2026）京01民初123号。";
+    const middle = "冗长条款正文。".repeat(3_000);
+    const tail = "合同尾部：诉请金额 100 万元，具状人张三。";
+    const session = sessionWith([
+      { role: "user", text: head + middle + tail },
+      { role: "assistant", text: "已读，请确认审查重点。" },
+      { role: "assistant", text: "（随后两轮仍是当下在办的上下文）" },
+    ]);
+
+    const out = elideOversizedMessages(session, 32_000);
+    expect(out.elidedCount).toBe(1);
+    expect(out.charsRemoved).toBeGreaterThan(0);
+    const content = session.conversationHistory[1]?.content ?? "";
+    // 法律文书两端信息最密：两端必须都在（对齐 elideMiddle 的取向）。
+    expect(content).toContain(head);
+    expect(content).toContain(tail);
+    expect(content).toContain("中间省略");
+    expect(content.length).toBeLessThan((head + middle + tail).length);
+  });
+
+  it("不动尾部若干条（那是当下正在办的那几轮）", () => {
+    const huge = "请".repeat(20_000);
+    const session = sessionWith([
+      { role: "user", text: huge },
+      ...Array.from({ length: 8 }, () => ({ role: "user" as const, text: huge })),
+    ]);
+    elideOversizedMessages(session, 16_000);
+    const tailMsg = session.conversationHistory[session.conversationHistory.length - 1];
+    expect(tailMsg?.content).toBe(huge);
+  });
+
+  it("不碰 tool 消息（配对安全）", () => {
+    const huge = "x".repeat(50_000);
+    const now = "t";
+    const session: AgentSession = {
+      sessionId: "s",
+      actorId: "lawyer",
+      turns: [],
+      conversationHistory: [
+        { role: "system", content: "sys", timestamp: now },
+        { role: "tool", content: huge, timestamp: now },
+        { role: "user", content: huge, timestamp: now },
+        { role: "assistant", content: "尾1", timestamp: now },
+        { role: "assistant", content: "尾2", timestamp: now },
+        { role: "assistant", content: "尾3", timestamp: now },
+        { role: "assistant", content: "尾4", timestamp: now },
+        { role: "assistant", content: "尾5", timestamp: now },
+        { role: "assistant", content: "尾6", timestamp: now },
+        { role: "assistant", content: "尾7", timestamp: now },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+    elideOversizedMessages(session, 16_000);
+    expect(session.conversationHistory[1]?.content).toBe(huge);
   });
 });
 

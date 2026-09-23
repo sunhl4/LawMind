@@ -23,6 +23,7 @@ import {
   DEFAULT_MID_TURN_COMPACT_TRIGGER_RATIO,
 } from "./context-budget.js";
 import { pruneSessionToolResults } from "./session-tool-result-prune.js";
+import { elideMiddle } from "./text-elide.js";
 import type { AgentMessage, AgentSession } from "./types.js";
 
 /** 一个回合里最多整理几次；超出后只做工具结果瘦身，避免压缩本身开始空转。 */
@@ -33,8 +34,17 @@ export type MidTurnCompactPrune = { prunedCount: number; charsRemoved: number };
 export type MidTurnCompactOutcome =
   | {
       applied: false;
-      reason: "below_trigger" | "cap" | "round_start" | "pruned_enough" | "no_reduction";
+      reason:
+        | "below_trigger"
+        | "cap"
+        | "round_start"
+        | "pruned_enough"
+        | "no_reduction"
+        /** 压不动（单条巨型消息）→ 已就地中间省略，腾出了空间。 */
+        | "elided";
       prune?: MidTurnCompactPrune;
+      /** 就地省略的统计（`reason === "elided"` 时有值）。 */
+      elide?: { elidedCount: number; charsRemoved: number };
     }
   | {
       applied: true;
@@ -45,6 +55,10 @@ export type MidTurnCompactOutcome =
       boundaryId: string;
       firstKeptTimestamp?: string;
       firstKeptRole?: AgentMessage["role"];
+      /** 提取式蒸馏正文：调用方可据此做模型摘要（对齐 Codex 的模型摘要）。 */
+      droppedDigest?: string;
+      /** 被丢弃的原始消息：模型摘要的输入。 */
+      droppedSpan?: AgentMessage[];
     };
 
 export function midTurnBudgetOverTrigger(input: {
@@ -59,6 +73,57 @@ export function midTurnBudgetOverTrigger(input: {
   const limit = Math.max(1, input.effectiveLimit);
   const ratio = input.triggerRatio ?? DEFAULT_MID_TURN_COMPACT_TRIGGER_RATIO;
   return input.used / limit >= ratio;
+}
+
+/**
+ * 尾部保留条数：那是「当前正在办」的上下文，省略它会直接改变模型当下的判断。
+ *
+ * 刻意只留 2 条（不是更大的数）：`no_reduction` 恰恰发生在**历史很短**的时候
+ * （单条巨型消息占满窗口），保护太多就等于什么都不动，加固形同虚设 —— 这是实测出来的。
+ */
+const ELIDE_KEEP_TAIL = 2;
+
+/** 单条正文超过这个量（或有效窗口的 1/8）才值得省略。 */
+function elideThresholdChars(effectiveLimit: number): number {
+  return Math.max(4_000, Math.floor(effectiveLimit * 0.125));
+}
+
+/**
+ * `no_reduction` 的兜底：不丢消息，而是把**超大单条正文**就地中间省略（头尾都留）。
+ *
+ * 为什么需要：单条巨型消息（把一份合同整段粘进来、或一次超长工具回包被内联）会让
+ * 「保留尾部」的压缩压不动 —— 旧的处置是放弃（记 `no_reduction`），于是水位继续顶，
+ * 直到模型自己报上下文溢出。这里改成就地瘦身：复用 `elideMiddle`（Codex
+ * `truncate_middle_with_token_budget` 同形），只动 user/assistant 正文，
+ * 不碰 tool 消息（配对安全），也不动尾部（当下正在办的那几轮）。
+ */
+export function elideOversizedMessages(
+  session: AgentSession,
+  effectiveLimit: number,
+): { elidedCount: number; charsRemoved: number } {
+  const threshold = elideThresholdChars(effectiveLimit);
+  const history = session.conversationHistory;
+  const lastEditable = Math.max(0, history.length - ELIDE_KEEP_TAIL);
+  let elidedCount = 0;
+  let charsRemoved = 0;
+  for (let i = 0; i < lastEditable; i += 1) {
+    const msg = history[i];
+    if (!msg || (msg.role !== "user" && msg.role !== "assistant")) {
+      continue;
+    }
+    const content = msg.content ?? "";
+    if (content.length <= threshold) {
+      continue;
+    }
+    const result = elideMiddle(content, threshold);
+    if (!result.elided || result.elidedChars <= 0) {
+      continue;
+    }
+    history[i] = { ...msg, content: result.text };
+    elidedCount += 1;
+    charsRemoved += result.elidedChars;
+  }
+  return { elidedCount, charsRemoved };
 }
 
 export function shouldCompactMidTurn(input: {
@@ -179,7 +244,19 @@ export function applyMidTurnCompact(
   });
   const dropped = compactResult.droppedMessageCount ?? 0;
   if (!compactResult.compacted || dropped <= 0) {
-    // 尾巴自身就超窗口（例如单条巨型消息）：压了也不减，别把摘要再堆进去。
+    // 尾巴自身就超窗口（单条巨型消息）：别把摘要再堆进去，改成就地中间省略。
+    const elided = elideOversizedMessages(session, before.effectiveLimit);
+    if (elided.elidedCount > 0) {
+      record("mid_turn_elided", {
+        roundIndex: opts.roundIndex,
+        used: before.used,
+        effectiveLimit: before.effectiveLimit,
+        elidedCount: elided.elidedCount,
+        charsRemoved: elided.charsRemoved,
+        ...(prune ? { prunedCount: prune.prunedCount } : {}),
+      });
+      return { applied: false, reason: "elided", prune, elide: elided };
+    }
     record("mid_turn_no_reduction", {
       roundIndex: opts.roundIndex,
       used: before.used,
@@ -225,5 +302,7 @@ export function applyMidTurnCompact(
     boundaryId,
     firstKeptTimestamp: compactResult.firstKeptTimestamp,
     firstKeptRole: compactResult.firstKeptRole,
+    ...(compactResult.droppedDigest ? { droppedDigest: compactResult.droppedDigest } : {}),
+    ...(compactResult.droppedSpan?.length ? { droppedSpan: compactResult.droppedSpan } : {}),
   };
 }

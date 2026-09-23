@@ -475,6 +475,66 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
+  it("context: 回合内的模型摘要真的跑了，且它的输出进了下一次请求", async () => {
+    await withTestLawMind(
+      (b) => b.withMaxHistory(8),
+      async (h) => {
+        fs.writeFileSync(
+          path.join(h.workspaceDir, "lawmind.policy.json"),
+          `${JSON.stringify({ schemaVersion: 1, context: { midTurnCompactTriggerRatio: 0.02 } })}\n`,
+          "utf8",
+        );
+        // 堆足量的历史：提取式摘要素材必须超过 600 字符的下限，否则会（正确地）
+        // 跳过模型调用——那正是另一个用例覆盖的路径。
+        const history: AgentMessage[] = [{ role: "system", content: "sys", timestamp: ts() }];
+        for (let i = 0; i < 24; i += 1) {
+          // 每条都够长：提取式摘要必须越过 600 字符门槛，否则（正确地）跳过模型调用。
+          history.push(
+            {
+              role: "user",
+              content: `历史轮 ${i}：请继续核对付款节奏与违约金的计算口径，并逐条对照第三条约定的比例；如有偏差请写明依据与建议的修正幅度。`,
+              timestamp: ts(),
+            },
+            {
+              role: "assistant",
+              content: `历史答 ${i}：已核对第 ${i} 项，建议按第三条约定的比例计算，并保留书面记录备查；偏差处已标注来源条款与计算过程。`,
+              timestamp: ts(),
+            },
+          );
+        }
+        h.seedHistory(history, { matterId: "m-llm-digest" });
+
+        // 第 1 次调用 = 回合开始；第 2 次 = 工具轮边界整理后（真的模型摘要：这里喂一段
+        // 带哨兵的话）；第 3 次 = 拿到模型摘要后继续办的那一轮。
+        h.enqueue(
+          cassetteToolCall("search_statute", { q: "违约金" }),
+          cassetteAssistant(
+            "MODEL-DIGEST-SENTINEL：律师要写解除条款，已定位第23条，仍在核对付款。",
+          ),
+          cassetteAssistant("已按检索结果继续完成交付。"),
+        );
+        const result = await h.runTurn("继续不澄清。根据此前依据写结论。", {
+          matterId: "m-llm-digest",
+        });
+
+        expect(result.turn.status).toBe("completed");
+        // 请求数证明「多了一次模型调用」——就是摘要那次（Codex 的模型摘要同形）。
+        expect(h.requests.length).toBe(3);
+        // 断言摘要**落到请求体**：模型下一轮看到的是模型写的摘要，不是提取式要点。
+        expect(h.request(2).contains("MODEL-DIGEST-SENTINEL")).toBe(true);
+        // 提取式要点仍在（作为兜底骨架保留，不是被替换掉）。
+        expect(h.request(2).contains("上一轮整理稿") || h.request(2).contains("律师要点")).toBe(
+          true,
+        );
+
+        const pressure = summarizeContextPressure(h.workspaceDir);
+        expect(pressure.compactions.llmDigest.attempted).toBe(1);
+        expect(pressure.compactions.llmDigest.used).toBe(1);
+        expect(pressure.compactions.llmDigest.fellBack).toBe(0);
+      },
+    );
+  });
+
   it("context: a budget-deferral reply is bounced back and never becomes the turn's answer", async () => {
     const DEFERRAL_REPLY =
       "说明：本轮上下文预算已接近上限，若需我起草或修改具体条款（竞业限制解除条款、三方义务分配），请另开一轮并告知协议主体结构，我会直接落到 Word 稿。";

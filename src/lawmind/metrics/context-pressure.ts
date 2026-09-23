@@ -46,6 +46,13 @@ export type ContextPressureOutcome =
   | "mid_turn_no_reduction"
   /** 本回合整理次数到上限。 */
   | "mid_turn_cap"
+  /**
+   * 回合内的**模型摘要**尝试（含失败/超时回落）。看 `meta.usedLlm` 与 `meta.latencyMs`：
+   * 前者判断质量是否真的拿到了，后者判断它有没有拖慢对话。
+   */
+  | "mid_turn_llm_digest"
+  /** 压不动（单条巨型消息）→ 就地中间省略腾空间（不丢消息）。 */
+  | "mid_turn_elided"
   /** 识别到模型以上下文为由退让。 */
   | "deferral_detected"
   /** 已把隐藏反弹塞回下一轮采样。 */
@@ -107,6 +114,15 @@ export type ContextPressureSummary = {
     pruneOnly: number;
     noReduction: number;
     cap: number;
+    /** 压不动时靠「就地中间省略」腾出空间的次数。 */
+    elided: number;
+    /** 模型摘要：尝试次数、成功（真用了模型输出）次数、回落次数、P95 延迟。 */
+    llmDigest: {
+      attempted: number;
+      used: number;
+      fellBack: number;
+      latencyP95Ms: number | null;
+    };
   };
   deferrals: {
     detected: number;
@@ -156,7 +172,14 @@ export function summarizeContextPressure(
     windowTo: page.windowTo,
     events: rows.length,
     turnsWithPressure: 0,
-    compactions: { midTurn: 0, pruneOnly: 0, noReduction: 0, cap: 0 },
+    compactions: {
+      midTurn: 0,
+      pruneOnly: 0,
+      noReduction: 0,
+      cap: 0,
+      elided: 0,
+      llmDigest: { attempted: 0, used: 0, fellBack: 0, latencyP95Ms: null },
+    },
     deferrals: { detected: 0, bounced: 0, reachedLawyer: 0 },
     forks: { created: 0, blocked: 0, blockedByCode: {} },
     deferralReachRate: null,
@@ -164,6 +187,8 @@ export function summarizeContextPressure(
   };
 
   const turns = new Set<string>();
+  /** 模型摘要延迟样本，用于 P95（不问「平均」——被极端值拖住的平均数会掩盖卡顿）。 */
+  const llmDigestLatencies: number[] = [];
   for (const row of rows) {
     const turnId = typeof row.taskId === "string" ? row.taskId.trim() : "";
     if (turnId) {
@@ -182,6 +207,22 @@ export function summarizeContextPressure(
       case "mid_turn_cap":
         summary.compactions.cap += 1;
         break;
+      case "mid_turn_elided":
+        summary.compactions.elided += 1;
+        break;
+      case "mid_turn_llm_digest": {
+        summary.compactions.llmDigest.attempted += 1;
+        if (row.meta?.usedLlm === true) {
+          summary.compactions.llmDigest.used += 1;
+        } else {
+          summary.compactions.llmDigest.fellBack += 1;
+        }
+        const latency = row.meta?.latencyMs;
+        if (typeof latency === "number" && Number.isFinite(latency) && latency >= 0) {
+          llmDigestLatencies.push(latency);
+        }
+        break;
+      }
       case "deferral_detected":
         summary.deferrals.detected += 1;
         break;
@@ -207,6 +248,11 @@ export function summarizeContextPressure(
   }
 
   summary.turnsWithPressure = turns.size;
+  if (llmDigestLatencies.length > 0) {
+    const sorted = [...llmDigestLatencies].toSorted((a, b) => a - b);
+    summary.compactions.llmDigest.latencyP95Ms =
+      sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ?? null;
+  }
   summary.deferralReachRate = ratio(summary.deferrals.reachedLawyer, summary.deferrals.detected);
   const attempted = summary.compactions.midTurn + summary.compactions.noReduction;
   summary.compactionEffectiveness = ratio(summary.compactions.midTurn, attempted);

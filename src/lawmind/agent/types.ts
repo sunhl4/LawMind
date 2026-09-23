@@ -443,6 +443,17 @@ export type AgentSession = {
    */
   lastBoundCapabilityId?: import("../skills/lawyer-capability-lock.js").LawyerCapabilityId;
   /**
+   * 任务锚点（钉子）：本会话**第一条真实任务指令**的原文，或律师明确「换任务」时的最新指令。
+   *
+   * 为什么必须**持久化**而不是每次从历史重推：原始发言在第一次压缩后就离开了历史，
+   * 重推会抓到一条无关的填充发言并固化下来（实测踩过）。钉子的价值就在于
+   * 「任意次压缩后仍是同一句原文」，所以它必须只确定一次、稳定不变。
+   */
+  taskPin?: {
+    text: string;
+    at: string;
+  };
+  /**
    * 本会话已「另起新对话并带上文」到了哪个会话（源会话侧指针）。
    * 侧栏显示「→ 由此续接」；同时作为 fork 的幂等键（`nonce`）。
    */

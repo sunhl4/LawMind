@@ -25,6 +25,11 @@ import type { ToolCallRef } from "../runtime/tool-concurrency.js";
 import { contextUsesHostFileLedger } from "../runtime/tool-pipeline.js";
 import type { ClarificationQuestion } from "../types.js";
 import { claimAndApplyWorkGoal } from "../work/goal.js";
+import {
+  enhanceCompactDigestWithLlm,
+  isCompactLlmDigestEnabled,
+  replaceDroppedDigestInMessages,
+} from "./compact-llm-digest.js";
 import { estimateTokenBudget, resolveContextPolicy } from "./context-budget.js";
 import {
   CONTEXT_DEFERRAL_BOUNCE_MAX,
@@ -85,6 +90,18 @@ export function resolveStrictUpstreamToolStreaming(
 export function shouldWarnToolBudget(used: number, maxToolCalls: number): boolean {
   return maxToolCalls > 0 && used >= Math.ceil(maxToolCalls * 0.8);
 }
+
+/**
+ * 回合内模型摘要的下限：提取式摘要比这还短时已经够用，不值得在工具轮边界
+ * 多花一次模型调用（延迟直接叠进律师的等待）。
+ */
+export const MID_TURN_LLM_DIGEST_MIN_CHARS = 600;
+
+/**
+ * 回合内模型摘要的超时上限。这是**同步等**的位置，所以显著短于手动整理的 sidecar 超时；
+ * 超时即回落提取式，绝不拖住对话（Codex 在 loop boundary 也是同步做的，但它没设这个帽）。
+ */
+export const MID_TURN_LLM_DIGEST_TIMEOUT_MS = 15_000;
 
 export type ModelToolLoopResult = {
   finalReply: string;
@@ -165,7 +182,7 @@ export async function runModelToolLoop(opts: {
    * 压缩后**继续本回合**，而不是让模型「收口」再把活儿退回律师。
    * 返回 true 表示历史已被重写。
    */
-  const compactMidTurn = (roundIndex: number, force = false): boolean => {
+  const compactMidTurn = async (roundIndex: number, force = false): Promise<boolean> => {
     if (midTurnCompactions >= MID_TURN_COMPACT_MAX) {
       return false;
     }
@@ -207,6 +224,15 @@ export async function runModelToolLoop(opts: {
       });
     }
     if (!outcome.applied) {
+      // 压不动时改走「就地中间省略」：复用既有的 overflow_prune 提示（律师看到的仍是
+      // 「上下文较满，已精简后继续」），不新增界面、也不假装做了整段压缩。
+      if (outcome.elide && outcome.elide.charsRemoved > 0) {
+        opts.emitEvent({
+          type: "overflow_prune",
+          prunedCount: outcome.elide.elidedCount,
+          charsRemoved: outcome.elide.charsRemoved,
+        });
+      }
       return false;
     }
     midTurnCompactions += 1;
@@ -232,6 +258,53 @@ export async function runModelToolLoop(opts: {
         roundIndex,
       },
     });
+
+    // ── 回合内的模型摘要（对齐 Codex 的「模型摘要」；Cursor 的自摘要同向）──────
+    // 提取式摘要在「因果与决策理由」上会丢东西，这正是长任务变笨的主因。
+    // 但这里是在工具轮边界**同步等**，所以三条硬约束：
+    //   1) **不重试**（attempts=1）——重试的延迟会直接叠进律师的等待；
+    //   2) **限时**（15s 上限）——超时即回落提取式；
+    //   3) **够大才做**——摘要太短时提取式已经够用，不值得多花一次调用。
+    // 失败/超时/被中止一律回落，绝不因此中断回合（fork 与手动整理同一取向）。
+    if (outcome.droppedDigest && isCompactLlmDigestEnabled()) {
+      const worthIt = outcome.droppedDigest.length >= MID_TURN_LLM_DIGEST_MIN_CHARS;
+      const model = opts.config.model;
+      if (worthIt && model.model) {
+        const startedAt = Date.now();
+        let usedLlm = false;
+        try {
+          const enhanced = await enhanceCompactDigestWithLlm({
+            model,
+            extractiveDigest: outcome.droppedDigest,
+            dropped: outcome.droppedSpan ?? [],
+            contextTokens: model.contextTokens ?? policyForTurn()?.context?.contextTokens,
+            abortSignal: opts.abortSignal,
+            maxAttempts: 1,
+            timeoutCapMs: MID_TURN_LLM_DIGEST_TIMEOUT_MS,
+          });
+          if (enhanced.usedLlm) {
+            opts.session.conversationHistory = replaceDroppedDigestInMessages(
+              opts.session.conversationHistory,
+              enhanced.digest,
+            );
+            usedLlm = true;
+          }
+        } catch {
+          /* 回落提取式：绝不因摘要失败中断回合 */
+        }
+        recordContextPressure(opts.config.workspaceDir, "mid_turn_llm_digest", {
+          turnId: opts.turn.turnId,
+          ...(opts.session.matterId ? { matterId: opts.session.matterId } : {}),
+          sessionId: opts.session.sessionId,
+          meta: {
+            usedLlm,
+            latencyMs: Date.now() - startedAt,
+            extractiveChars: outcome.droppedDigest.length,
+            roundIndex,
+          },
+        });
+      }
+    }
     return true;
   };
 
@@ -322,7 +395,7 @@ export async function runModelToolLoop(opts: {
       opts.turn.status !== "awaiting_approval" &&
       pendingClarificationQuestions.length === 0
     ) {
-      compactMidTurn(roundIndex);
+      await compactMidTurn(roundIndex);
     }
     const step = rebuildStepContext({
       session: opts.session,
@@ -561,7 +634,7 @@ export async function runModelToolLoop(opts: {
           meta: { bouncesSoFar: bounces, roundIndex },
         });
         if (bounces < CONTEXT_DEFERRAL_BOUNCE_MAX) {
-          compactMidTurn(roundIndex, true);
+          await compactMidTurn(roundIndex, true);
           opts.turn.contextDeferralBounces = bounces + 1;
           agentMsg.hiddenFromLawyer = true;
           const deferralBounce = {

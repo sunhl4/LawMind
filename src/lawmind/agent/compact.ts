@@ -6,6 +6,7 @@ import { readDraft } from "../drafts/index.js";
 import { caseFilePath } from "../memory/index.js";
 import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
 import { insertBeforeLastUserMessage, isCompactSyntheticUserMessage } from "./compact-insert.js";
+import { TASK_PIN_CHAR_CAP } from "./compact-reinjection.js";
 import { estimateTokenBudget, resolveContextPolicy } from "./context-budget.js";
 import {
   alignCutIndexToToolGroups,
@@ -371,6 +372,25 @@ export function autoCompactSessionHistory(
     const sliced = sliceKeepingToolGroups(nonSystem, opts.maxHistoryMessages);
     droppedSpan = sliced.dropped;
     nonSystem = sliced.kept;
+  }
+
+  // ── 任务锚点（钉子）在这里补齐 ─────────────────────────────────────
+  // 压缩正是「原始任务陈述即将离开窗口」的那一刻，也是最后能可靠读到它的地方。
+  // 只补不改：runTurn 在首轮就已确定钉子（首选来源）；这里覆盖的是直接调用压缩的
+  // 入口（手动整理、回合内整理、单测），让机制不依赖「必须先跑过一轮」。
+  if (!session.taskPin?.text) {
+    const pool = droppedSpan.length > 0 ? droppedSpan : session.conversationHistory;
+    for (const msg of pool) {
+      if (msg.role !== "user") {
+        continue;
+      }
+      const text = (msg.content ?? "").trim().replace(/\s+/g, " ");
+      if (!text || isCompactSyntheticUserMessage(text)) {
+        continue;
+      }
+      session.taskPin = { text: text.slice(0, TASK_PIN_CHAR_CAP), at: new Date().toISOString() };
+      break;
+    }
   }
 
   const digestCap = resolveCompactDigestCharCap(opts.contextTokens);

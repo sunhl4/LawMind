@@ -87,9 +87,43 @@ describe("summarizeContextPressure", () => {
     pressure(ws, "mid_turn_cap", { turnId: "t6" });
 
     const summary = summarizeContextPressure(ws);
-    expect(summary.compactions).toEqual({ midTurn: 3, pruneOnly: 1, noReduction: 1, cap: 1 });
+    expect(summary.compactions).toMatchObject({
+      midTurn: 3,
+      pruneOnly: 1,
+      noReduction: 1,
+      cap: 1,
+    });
     // 3 成功 / (3 成功 + 1 压了不减) = 0.75
     expect(summary.compactionEffectiveness).toBeCloseTo(0.75, 6);
+  });
+
+  it("模型摘要：区分「真用了」与「回落」，延迟给 P95（不问平均）", () => {
+    const ws = workspace();
+    const withLatency = (outcome: string, meta: Record<string, unknown>): void =>
+      pressure(ws, outcome, { turnId: `t-${Math.random()}`, meta });
+    withLatency("mid_turn_llm_digest", { usedLlm: true, latencyMs: 1_200 });
+    withLatency("mid_turn_llm_digest", { usedLlm: true, latencyMs: 2_000 });
+    withLatency("mid_turn_llm_digest", { usedLlm: false, latencyMs: 15_000 });
+
+    const summary = summarizeContextPressure(ws);
+    expect(summary.compactions.llmDigest.attempted).toBe(3);
+    // 「真用了模型输出」与「回落提取式」必须分开看：只看 attempted 会误判质量。
+    expect(summary.compactions.llmDigest.used).toBe(2);
+    expect(summary.compactions.llmDigest.fellBack).toBe(1);
+    // P95 落在最慢那档（15s 超时是真实存在的上限）。
+    expect(summary.compactions.llmDigest.latencyP95Ms).toBe(15_000);
+  });
+
+  it("没有模型摘要事件时 latencyP95 为 null（不产 0）", () => {
+    const ws = workspace();
+    pressure(ws, "mid_turn_compact", { turnId: "t1" });
+    const summary = summarizeContextPressure(ws);
+    expect(summary.compactions.llmDigest).toEqual({
+      attempted: 0,
+      used: 0,
+      fellBack: 0,
+      latencyP95Ms: null,
+    });
   });
 
   it("分叉拒绝按原因归类（运维要能看出卡在哪一环）", () => {
