@@ -180,12 +180,6 @@ export type RunTurnEvent =
       bounceCount: number;
     }
   | {
-      /** 模型以上下文预算为由退回律师 → 隐藏反弹回同回合续办（见 `context-deferral.ts`）。 */
-      type: "context_deferral_bounce";
-      roundIndex: number;
-      bounceCount: number;
-    }
-  | {
       type: "model_error";
       roundIndex: number;
       message: string;

@@ -267,6 +267,12 @@ export type StreamingChatCallbacks = {
     maxToolCalls: number;
     level: "warn";
   }) => void;
+  /**
+   * 退让被识别并反弹：**清掉已经流到屏上的那句推诿**，让下一轮的真实答复从干净
+   * 气泡开始（`onDelta` 是追加式，所以清空即可）。事件本身同时会带一条
+   * `compact_boundary(midTurn)`，律师看到的是「已整理上下文，继续办理」而不是推诿。
+   */
+  onContextDeferralBounce?: (info: { roundIndex: number; bounceCount: number }) => void;
   onCompactBoundary?: (info: {
     sessionSummaryPath?: string;
     droppedMessageCount?: number;
@@ -446,6 +452,15 @@ export async function sendChatTurnStream(
             midTurn: parsed.midTurn === true ? true : undefined,
             roundIndex: typeof parsed.roundIndex === "number" ? parsed.roundIndex : undefined,
           });
+          break;
+        }
+        case "context_deferral_bounce": {
+          if (typeof parsed.roundIndex === "number") {
+            callbacks.onContextDeferralBounce?.({
+              roundIndex: parsed.roundIndex,
+              bounceCount: typeof parsed.bounceCount === "number" ? parsed.bounceCount : 1,
+            });
+          }
           break;
         }
         case "overflow_prune": {
