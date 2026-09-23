@@ -75,6 +75,27 @@ jobs:
       # `##[error]Input required and not supplied: run` 并在 44s 内失败 ——
       # 一条真机用例都没跑，却让 PR 上显示「真机 e2e 红」。把命令挪进这一步。
       - name: Electron golden path
+        id: electron_e2e
+        continue-on-error: true
         uses: coactions/setup-xvfb@v1
         with:
           run: pnpm --filter lawmind-desktop test:e2e:electron
+
+      # 真机红必须留下可诊断的现场：Playwright 的 trace/error-context、以及
+      # `lawmind/daemon.log`。2026-09-23 第一次真跑时只有一行「Test timeout」，
+      # 没有任何工件，无法判断卡在关窗还是后台启动 —— 那正是这条要解决的问题。
+      - name: Upload E2E diagnostics
+        if: steps.electron_e2e.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lawmind-desktop-e2e-electron-diagnostics
+          path: |
+            apps/lawmind-desktop/test-results/**
+            apps/lawmind-desktop/playwright-report/**
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # 工件与结论分开：先留现场，再按真实结果失败（不把失败吞掉）。
+      - name: Fail if Electron E2E failed
+        if: steps.electron_e2e.outcome == 'failure'
+        run: exit 1
