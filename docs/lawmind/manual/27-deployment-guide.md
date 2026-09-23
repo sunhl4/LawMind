@@ -215,7 +215,7 @@ pnpm lawmind:bundle:desktop-server
 建议每月跑一次：
 
 ```bash
-pnpm lawmind:ops status --deep
+pnpm lawmind:doctor --deep
 pnpm lawmind:doctor
 pnpm lawmind:ops matter-consistency
 ```

@@ -19,14 +19,14 @@
 
 ## 30.2 出口与联网
 
-| 键                         | 类型                                     | 说明                              |
-| -------------------------- | ---------------------------------------- | --------------------------------- |
-| `egressMode`               | `"open"` / `"allowlisted"` / `"offline"` | 出网总模式（**上限**）            |
-| `allowWebSearch`           | boolean                                  | 联网偏好（不是上限）              |
-| `networkAllowlist`         | string[]                                 | 允许的域名（支持 `.后缀`）        |
-| `networkAllowlistEnforced` | boolean                                  | 是否强制白名单                    |
-| `outboundAllowedDomains`   | string[]                                 | 外发允许的收件域名                |
-| `highSecurityMode`         | boolean                                  | **废弃**，`true` 等价于 `offline` |
+| 键                         | 类型                                     | 说明                                                          |
+| -------------------------- | ---------------------------------------- | ------------------------------------------------------------- |
+| `egressMode`               | `"open"` / `"allowlisted"` / `"offline"` | 出网总模式（**上限**）                                        |
+| `allowWebSearch`           | boolean                                  | 联网偏好（不是上限）                                          |
+| `networkAllowlist`         | string[]                                 | 允许的域名（写裸后缀如 `gov.cn` 即含其子域；`*.gov.cn` 等价） |
+| `networkAllowlistEnforced` | boolean                                  | 是否强制白名单                                                |
+| `outboundAllowedDomains`   | string[]                                 | 外发允许的收件域名                                            |
+| `highSecurityMode`         | boolean                                  | **废弃**，`true` 等价于 `offline`                             |
 
 **`egressMode` 和 `allowWebSearch` 的关系**（第 29 章那个坑）：
 

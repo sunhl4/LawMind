@@ -23,10 +23,10 @@
 
 ```bash
 pnpm lawmind:doctor --json
-pnpm lawmind:ops status --deep
+pnpm lawmind:doctor --deep
 ```
 
-`--json` 适合贴给支持人员。`ops status --deep` 会多查一些东西。
+`--json` 适合贴给支持人员。`doctor --deep` 会多查一些东西（**注意不是 `ops status --deep`**——`status` 不消费这个旗标，`--deep` 只在 `doctor` 子命令里生效）。
 
 ## D.1 启动类
 
