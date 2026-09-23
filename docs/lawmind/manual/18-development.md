@@ -243,6 +243,8 @@ cassette 的做法（借自 Codex 的 `test_codex`）：
 
 `scripts/lawmind/lawmind-platform-contracts-check.ts` 断言 `src/lawmind/platform/contracts.ts` 和对应文档里必须有那些必需的符号和字段。防的是「契约漂了但没人发现」。
 
+**它没有独立的 `pnpm` 入口**——在 `package.json` 里搜不到 `lawmind:platform-contracts-check`。它是 `pnpm lawmind:multitask:validate` 里的一步（`scripts/lawmind/lawmind-multitask-validate.ts:166-171`，标记 `required: true`）。要单独跑就得直接 `node --import tsx scripts/lawmind/lawmind-platform-contracts-check.ts`。
+
 ### 文档 lint
 
 `markdownlint-cli2`，配置在 `.markdownlint-cli2.jsonc`。扫的范围是 `docs/**/*.md`、`docs/**/*.mdx`、`README.md`。

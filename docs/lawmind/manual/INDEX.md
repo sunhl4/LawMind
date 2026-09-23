@@ -155,7 +155,7 @@
 | `pnpm lawmind:check:renderer-node`                 | 渲染层不许值导入 node 模块                                                                         | 18.6                                          |
 | `pnpm lawmind:check:renderer-css`                  | CSS 同步检查                                                                                       | 18.6                                          |
 | `pnpm lawmind:ui-copy-lint`                        | 律师面文案禁词                                                                                     | 18.6；第 32 章（口径来源）                    |
-| `pnpm lawmind:platform-contracts-check`            | 断言契约符号与字段                                                                                 | 18.6                                          |
+| `pnpm lawmind:multitask:validate`                  | 含契约检查（`lawmind-platform-contracts-check.ts` 是其中一步，**没有独立的 pnpm 入口**）           | 18.6；第 67.8 节（发布门）                    |
 | `pnpm lawmind:compiler-gate`                       | 离线编译器门（规则数 ≥20、影子样本 ≥10、缺陷召回必须 =1）                                          | 12.17（门禁脚本表）                           |
 | `pnpm lawmind:skills:census` / `:golden` / `:sign` | 技能普查 / 金标 / 签名                                                                             | 第 70.10 节（签名三种来源）                   |
 | `pnpm lawmind:sbom`                                | 软件物料清单                                                                                       | 27                                            |
