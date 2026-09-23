@@ -174,6 +174,61 @@ describe("apply_file_ops 改名/搬移/复制", () => {
       true,
     );
   });
+
+  it("复制文件夹后撤销：整棵复制件删除（记录的是树字节和，撤销必须用同一把尺子）", async () => {
+    const workspaceDir = tmp("lm-fops-copy-dir-undo-");
+    seedMatter(workspaceDir, "甲案");
+    writeRel(workspaceDir, "cases/甲案/materials/岚江公司/起诉状.txt", "诉请");
+    writeRel(workspaceDir, "cases/甲案/materials/岚江公司/证据目录.txt", "证据");
+
+    const result = await applyFileOps.execute(
+      {
+        ops: [
+          {
+            from: "cases/甲案/materials/岚江公司",
+            to: "cases/甲案/materials/岚江公司（对照）",
+            copy: true,
+          },
+        ],
+      },
+      ctx(workspaceDir, "甲案"),
+    );
+    expect(result.ok, JSON.stringify(result.error)).toBe(true);
+    const writeId = (result.data as { writeId: string }).writeId;
+    const copyDir = path.join(workspaceDir, "cases", "甲案", "materials", "岚江公司（对照）");
+    expect(fs.existsSync(path.join(copyDir, "起诉状.txt"))).toBe(true);
+
+    const reverted = await revertDeskWrite(workspaceDir, "甲案", writeId);
+    expect(reverted.ok, JSON.stringify(reverted)).toBe(true);
+    // 复制件（整棵树）删掉；原件一个字不动。
+    expect(fs.existsSync(copyDir)).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(workspaceDir, "cases", "甲案", "materials", "岚江公司", "起诉状.txt"),
+      ),
+    ).toBe(true);
+  });
+
+  it("复制文件夹被律师改过（往复制件里加过东西）：撤销不删除", async () => {
+    const workspaceDir = tmp("lm-fops-copy-dir-edited-");
+    seedMatter(workspaceDir, "甲案");
+    writeRel(workspaceDir, "cases/甲案/materials/原卷/正文.txt", "orig");
+
+    const result = await applyFileOps.execute(
+      {
+        ops: [{ from: "cases/甲案/materials/原卷", to: "cases/甲案/materials/副本卷", copy: true }],
+      },
+      ctx(workspaceDir, "甲案"),
+    );
+    const writeId = (result.data as { writeId: string }).writeId;
+    writeRel(workspaceDir, "cases/甲案/materials/副本卷/律师批注.txt", "批注");
+
+    const reverted = await revertDeskWrite(workspaceDir, "甲案", writeId);
+    expect(reverted.ok).toBe(false);
+    expect(fs.existsSync(path.join(workspaceDir, "cases", "甲案", "materials", "副本卷"))).toBe(
+      true,
+    );
+  });
 });
 
 describe("apply_file_ops 围栏", () => {
