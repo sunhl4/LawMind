@@ -24,7 +24,7 @@
 | `deliverableIds`          | string[]       | 关联交付物                                          |
 | `queueItemIds`            | string[]       | 关联待办                                            |
 | `matterKind`              | enum?          | `contract` / `litigation` / `general`               |
-| `practiceTags`            | string[]?      | 业务标签（≤12）                                     |
+| `practiceTags`            | string[]?      | 业务标签（**≤12 由 API 层限**，见下）               |
 | `causeOfAction`           | string?        | 案由（≤200）                                        |
 | `counterparty`            | string?        | 对方当事人（≤200）                                  |
 | `parties`                 | MatterParty[]? | 当事人（≤32）                                       |
@@ -34,6 +34,8 @@
 **`status` 七态**：`intake`（收案）、`active`（进行中）、`waiting_on_client`（等客户）、`waiting_on_firm`（等所内）、`under_review`（审核中）、`delivered`（已交付）、`closed`（已结案）。
 
 **重要**：`core/contracts.ts` 里的 `Matter` 类型**没有** `causeOfAction` / `counterparty` / `parties` 三个字段，而 `MatterRecord` 有。也就是说这三个字段是后来加的，只在 storage 那一层。读代码时注意别以为它们不存在。
+
+**还有一处分层要看清**：`practiceTags` 的「≤12」**不在 storage schema 里**——`schemas.ts` 与 `schema.ts` 都只写了 `z.array(z.string()).optional()`，没设上限。真正的 12 来自 API 边界（`platform/local-api-schemas.ts`：每条 `max(40)`、数组 `max(12)`）。所以**绕过 API 直接写 `matter.json` 可以塞进去超过 12 个标签**，storage 层不拦。这类「约束在哪个层」的差别，正是本章开头说的两套 schema 不一致的延伸。
 
 ## 28.2 当事人与案号
 
