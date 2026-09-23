@@ -34,8 +34,9 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm --filter lawmind-desktop exec playwright install chromium --with-deps
 
+      # 同 desktop-e2e：`setup-xvfb` 必须带 `with.run`，否则整步报错、
+      # 真机用例一条都不跑（此前本 workflow 每次定时都是这个形态的失败）。
       - name: Electron E2E (bundled server + renderer)
         uses: coactions/setup-xvfb@v1
-
-      - name: Run Electron E2E
-        run: pnpm lawmind:desktop:e2e:electron
+        with:
+          run: pnpm lawmind:desktop:e2e:electron

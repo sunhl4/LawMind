@@ -18,6 +18,7 @@ import {
   newDeskWriteId,
   type WorkspaceFileOp,
 } from "../../../desk/desk-write-journal.js";
+import { measureFileTree } from "../../../desk/file-tree-measure.js";
 
 export const FILE_OPS_MAX_OPS = 50;
 export const FILE_OPS_MAX_COPY_FILES = 200;
@@ -80,59 +81,10 @@ export function isSameOrInside(parentAbs: string, childAbs: string): boolean {
 
 /** 目录树的文件数与字节数（软链跳过）。`overflow` 为真表示超过复制上限。 */
 export function measureTree(abs: string): { files: number; bytes: number; overflow: boolean } {
-  let st: fs.Stats;
-  try {
-    st = fs.lstatSync(abs);
-  } catch {
-    return { files: 0, bytes: 0, overflow: false };
-  }
-  if (st.isFile()) {
-    return { files: 1, bytes: st.size, overflow: false };
-  }
-  if (!st.isDirectory()) {
-    return { files: 0, bytes: 0, overflow: false };
-  }
-  let files = 0;
-  let bytes = 0;
-  let overflow = false;
-  const visit = (dir: string): void => {
-    if (overflow) {
-      return;
-    }
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const ent of entries) {
-      if (overflow) {
-        return;
-      }
-      if (ent.isSymbolicLink()) {
-        continue;
-      }
-      const child = path.join(dir, ent.name);
-      if (ent.isDirectory()) {
-        visit(child);
-        continue;
-      }
-      if (!ent.isFile()) {
-        continue;
-      }
-      files += 1;
-      try {
-        bytes += fs.statSync(child).size;
-      } catch {
-        /* skip unreadable */
-      }
-      if (files > FILE_OPS_MAX_COPY_FILES || bytes > FILE_OPS_MAX_COPY_TOTAL_BYTES) {
-        overflow = true;
-      }
-    }
-  };
-  visit(abs);
-  return { files, bytes, overflow };
+  return measureFileTree(abs, {
+    maxFiles: FILE_OPS_MAX_COPY_FILES,
+    maxBytes: FILE_OPS_MAX_COPY_TOTAL_BYTES,
+  });
 }
 
 /** 逐条校验：能办的分到 solved，办不了的连同原因分到 skipped（不静默丢弃）。 */

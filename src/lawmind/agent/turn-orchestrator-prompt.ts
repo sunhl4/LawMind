@@ -319,6 +319,7 @@ export async function prepareTurnPromptContext(opts: {
   // 不必靠中文关键词命中或自己猜到要问 list_more_tools（与目录同一份门控）。
   const enableableTools = enableableToolCatalog({
     allowWebSearch: config.allowWebSearch === true,
+    collaborationEnabled: config.enableCollaboration === true,
     workspaceDir: config.workspaceDir,
     registeredNames: registry.listDefinitions().map((def) => def.name),
   }).filter((row) => !availableNames.has(row.name));
