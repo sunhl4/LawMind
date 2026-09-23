@@ -54,7 +54,7 @@ type ResearchBundle = {
 
 来源类型（`SourceKind`）八种：`statute`、`regulation`、`case`、`memo`、`contract`、`web`、`workspace`、`unknown`。
 
-结论（`ResearchClaim`）只有四个字段：`text`、`sourceIds`、`confidence`、`model`（`general` 或 `legal`）。注意 `sourceIds` 是**数组且有来源**，这是上面那条约束的落地形式。
+结论（`ResearchClaim`）有五个字段：`text`、`sourceIds`、`confidence`、`model`（`general` 或 `legal`），以及一个可选的 `demo`（标记这条结论来自演示语料）。注意 `sourceIds` 是**数组且有来源**，这是上面那条约束的落地形式。
 
 ## 10.3 适配器机制
 
@@ -496,9 +496,9 @@ LawMind 的索引是 SQLite 的 **FTS5 全文检索**，位置 `<工作区>/lawm
 
 ### 培训材料的脱敏门
 
-如果要用案件材料做培训课件，`desensitize-matter.ts` 会扫一遍泄漏风险。识别七类：手机号、身份证、银行账号、邮箱、金额、姓名线索、案号。
+如果要用案件材料做培训课件，`desensitize-matter.ts` 会扫一遍泄漏风险。**实际有六类检测器**：手机号、身份证、银行账号、邮箱、金额、案号。其中**手机号和身份证是 blocker**（硬拦），其余是警告。扫描上限 40 条发现。必须脱敏并声明后才能继续：
 
-其中**手机号和身份证是 blocker**（硬拦），其余是警告。扫描上限 40 条发现。必须脱敏并声明后才能继续：
+**注意 `name_hint`（姓名线索）只在 `kind` 联合类型里存在，没有任何检测器会产出它**——所以别指望它拦姓名。要挡姓名得靠人工或另加规则。
 
 ```text
 培训课件使用案件材料前须脱敏。…请脱敏后在指令中注明「已脱敏」再继续。

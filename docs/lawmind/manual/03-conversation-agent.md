@@ -165,7 +165,7 @@
 
 ## 3.12 已知坑
 
-- `RunTurnEvent` 里 `context_deferral_bounce` 被声明了两次（重复成员），对消费方无害，但修改该联合类型时注意别误判。
+- `RunTurnEvent` 的成员在类型里各只声明一次。容易误判的是**服务端**（`lawmind-server-route-chat.ts`）里同一事件会出现两次——一次在 `case`，一次在 `sseWriteEvent`——那是分发逻辑，不是重复成员。修改该联合类型时按 `turn-orchestrator-events.ts` 数。
 - 工具预算不再触发检查点（`shouldCheckpointToolBudget` 恒 `false`）；`skipToolBudgetCheckpoint` 仅为兼容旧会话保留。
 - 中途指示、中途钉选走侧车文件而非会话 JSON，删除会话时要一并清理（`session-delete-cascade.ts`）。
 - 承前分叉在存在未决授权时**必须**拒绝，否则新会话会带着一个无法回应的悬空授权。

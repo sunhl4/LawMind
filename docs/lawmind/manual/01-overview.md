@@ -117,7 +117,7 @@ LawMind 是一个**本地优先的律师工作台**：律师提出交办并提�
 | 记忆真相源    | `MEMORY.md`、`LAWYER_PROFILE.md`、`FIRM_PROFILE.md`、`CLIENT_PROFILE.md`、`memory/YYYY-MM-DD.md`、`cases/<id>/CASE.md`  | Markdown 人工可读，写入收敛到记忆采纳服务                           |
 | 派生 / 可重建 | `src/lawmind/indexing/`（SQLite FTS5）、`src/lawmind/cases/` 索引、`src/lawmind/metrics/` 统计、`src/lawmind/insights/` | 删掉可从真相源重建；不把派生层当事实                                |
 
-检索索引是 **FTS5 全文检索（非向量）**，且 Markdown / JSONL 始终是真相源，索引可重建（`GET /api/search/workspace/rebuild`）。
+检索索引是 **FTS5 全文检索（非向量）**，且 Markdown / JSONL 始终是真相源，索引可重建（`POST /api/search/workspace/rebuild`）。
 
 ## 1.8 三档 Edition 与功能门禁
 
@@ -286,16 +286,16 @@ Router → Memory → Retrieval → Reasoning → Artifact
 
 ## 1.17 补充：几个「一眼会看错」的地方
 
-| 看起来像                                       | 实际是                                           |
-| ---------------------------------------------- | ------------------------------------------------ |
-| `src/lawmind/integration/`                     | **只有测试**，不是运行时能力                     |
-| `src/lawmind/legal/`                           | 单个文件（免责声明文案）                         |
-| `src/lawmind/review/`                          | 单个文件（CLI 审核门）                           |
-| `agent/tool-name-sets.ts`                      | 在 `agent/` 下，**不在 `tools/` 下**             |
-| `platform/local-api-schemas.ts`                | 服务端和引擎共享的 zod schema                    |
-| `lawmind/policy.json`                          | 真实名字是 **`lawmind.policy.json`，在工作区根** |
-| `LAWMINd_*` 之类                               | 全大写 `LAWMIND_*`，小写是笔误                   |
-| `context_deferral_bounce` 在事件联合里出现两次 | 重复成员，无害                                   |
+| 看起来像                        | 实际是                                                         |
+| ------------------------------- | -------------------------------------------------------------- |
+| `src/lawmind/integration/`      | **只有测试**，不是运行时能力                                   |
+| `src/lawmind/legal/`            | 单个文件（免责声明文案）                                       |
+| `src/lawmind/review/`           | 单个文件（CLI 审核门）                                         |
+| `agent/tool-name-sets.ts`       | 在 `agent/` 下，**不在 `tools/` 下**                           |
+| `platform/local-api-schemas.ts` | 服务端和引擎共享的 zod schema                                  |
+| `lawmind/policy.json`           | 真实名字是 **`lawmind.policy.json`，在工作区根**               |
+| `LAWMINd_*` 之类                | 全大写 `LAWMIND_*`，小写是笔误                                 |
+| `context_deferral_bounce`       | 事件成员**只声明一次**；别把服务端 switch 里的两处当成重复成员 |
 
 ## 1.18 补充：这家产品明确不做什么
 

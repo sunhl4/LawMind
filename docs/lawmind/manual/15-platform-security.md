@@ -74,9 +74,9 @@ URL 中禁止嵌入凭据
 | IPv6 链路本地 `fe80:`                                                                               | —                            |
 | `metadata`、`metadata.google.internal`、`metadata.goog`、`metadata.aws.internal`、`169.254.169.254` | 云元数据主机名               |
 
-**默认拒绝但可以放开**（`allowLocalNetwork: true` 时允许）：`127.0.0.0/8`、`10/8`、`172.16–31`、`192.168/16`、IPv6 回环与 `fc`/`fd`。
+**默认放行，置 `false` 才拒绝**：`127.0.0.0/8`、`10/8`、`172.16–31`、`192.168/16`、IPv6 回环与 `fc`/`fd`。原因是桌面版需要连本机服务（`options.allowLocalNetwork ?? true`，`platform/README.md` 也写明「默认 true，桌面版需要」）。**别误以为私网默认被挡**——要挡得显式传 `allowLocalNetwork: false`。
 
-主机名匹配支持三种形式：精确、`.后缀`、`host.endsWith("." + 条目)`。
+主机名匹配：精确、裸后缀（`gov.cn` 含其子域）、`*.后缀`（等价于裸后缀）。
 
 ### DNS 二次校验
 

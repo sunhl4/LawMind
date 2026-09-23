@@ -152,7 +152,7 @@ toOpenAITools({ names }); // 转成 OpenAI tools schema，按名字排序
 
 `sorted by name` 不是随手写的：工具表顺序稳定，提示缓存才稳定。
 
-**保留名字**在 `src/lawmind/agent/tools/reserved-tool-names.ts`，一共 24 个（`apply_surgical_edits`、`write_document`、`send_email`、`render_tracked_draft`、`draft_document`、`update_draft`、`prepare_outbound_mail`、`render_document`、`analyze_document`、`write_spreadsheet`、`render_chart`、`run_analysis`、`run_compute`、`calculate`、`execute_workflow`、`search_host`、`read_host_file`、`list_dir`、`explore_folder`、`draft_worker`、`import_host_file`、`run_host_command`、`relocate_matter_materials`、`apply_file_ops`、`update_plan`）。外部工具想注册这些名字，会直接抛：
+**保留名字**在 `src/lawmind/agent/tools/reserved-tool-names.ts`，一共 25 个（`apply_surgical_edits`、`write_document`、`send_email`、`render_tracked_draft`、`draft_document`、`update_draft`、`prepare_outbound_mail`、`render_document`、`analyze_document`、`write_spreadsheet`、`render_chart`、`run_analysis`、`run_compute`、`calculate`、`execute_workflow`、`search_host`、`read_host_file`、`list_dir`、`explore_folder`、`draft_worker`、`import_host_file`、`run_host_command`、`relocate_matter_materials`、`apply_file_ops`、`update_plan`）。外部工具想注册这些名字，会直接抛：
 
 ```text
 RESERVED_TOOL_NAME: <name> is implemented only by LawMind execute()
@@ -166,10 +166,10 @@ RESERVED_TOOL_NAME: <name> is implemented only by LawMind execute()
 
 | 集合                    | 数量 | 作用                                                       |
 | ----------------------- | ---- | ---------------------------------------------------------- |
-| `WRITE_TOOLS`           | 31   | 会改工作区状态或产出交付物的工具；驱动审批和运行模式判定   |
+| `WRITE_TOOLS`           | 36   | 会改工作区状态或产出交付物的工具；驱动审批和运行模式判定   |
 | `MATTER_SCOPE_REQUIRED` | 15   | 没绑定案件就不许用；触发「请先选案件」的报错               |
 | `BACKGROUND_JOB_TOOLS`  | 1    | 只有 `execute_workflow`，必须暴露 job 状态、可取消、有审计 |
-| `IDEMPOTENT_READ_TOOLS` | 37   | 只读且可重放；决定重试策略                                 |
+| `IDEMPOTENT_READ_TOOLS` | 36   | 只读且可重放；决定重试策略                                 |
 | `DESK_WRITE_TOOL_NAMES` | 11   | 写工作台的档案类工具；也是「对话补档案」那一波的核心       |
 
 `MATTER_SCOPE_REQUIRED` 的 15 个是：`search_matter`、`read_case_file`、`add_case_note`、`get_matter_summary`、`list_mail_inbox`、`list_mail_attachments`、`apply_legal_events`、`compile_intake_brief`、`apply_intake_brief`、`update_matter_profile`、`revert_desk_write`、`propose_organize_plan`、`execute_organize_plan`、`relocate_matter_materials`、`apply_file_ops`。
@@ -267,7 +267,7 @@ RESERVED_TOOL_NAME: <name> is implemented only by LawMind execute()
 | `readonly` | 只读。只能看不能写                                 |
 | `research` | 研究。只读工具加 `research_task` / `deep_research` |
 
-只读模式允许的 29 个工具是一个白名单，包含各种 `search_*`、`read_*`、`list_*`、`analyze_document`、`compare_documents`、`calculate`、`update_plan` 等。研究模式就是在这个白名单上再加两个检索工具。
+只读模式允许的 32 个工具是一个白名单，包含各种 `search_*`、`read_*`、`list_*`、`analyze_document`、`compare_documents`、`calculate`、`update_plan` 等。研究模式就是在这个白名单上再加两个检索工具。
 
 被拦住时给模型的说明写得挺实在，不是一句「权限不足」：
 
@@ -354,7 +354,7 @@ readyToUse: false
 
 `readyToUse: false` 这个字段就是明确告诉界面：**别显示成「可以发了」**。
 
-审批的四种「待办种类」（`LawMindRequiresActionKind`）：`clarification`、`tool_approval`、`matter_approval`、`workflow_blocked`、`judgment_escalation`、`continue_tools`。其中 `continue_tools` 是历史遗留（工具预算检查点已经取消），只在恢复旧会话时可能出现。
+审批的六种「待办种类」（`LawMindRequiresActionKind`）：`clarification`、`tool_approval`、`matter_approval`、`workflow_blocked`、`judgment_escalation`、`continue_tools`。其中 `continue_tools` 是历史遗留（工具预算检查点已经取消），只在恢复旧会话时可能出现。
 
 ## 5.13 和「门禁分类」的关系
 

@@ -372,7 +372,7 @@ pnpm lawmind:local:token [--json] [--status] [--client cli]
 pnpm lawmind:matter-replica:probe [--strict]
 ```
 
-它建两个临时工作区加一个中继目录，跑十项跨机器检查（编号 X1–X10，另外有两个对照组 C1/C2）。`--strict` 下失败会退出码 1。
+它建两个临时工作区加一个中继目录，跑十二项跨机器检查（编号 X1–X12，另外有两个对照组 C1/C2）。`--strict` 下失败会退出码 1。
 
 这是案件副本功能唯一的端到端验证手段——单测覆盖不到「两台机器 + 中继」这种拓扑。
 

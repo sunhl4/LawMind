@@ -227,7 +227,7 @@ cassette 的做法（借自 Codex 的 `test_codex`）：
 
 `pnpm lawmind:ui-copy-lint`（`scripts/lawmind/lawmind-ui-copy-lint.mjs`）。
 
-它机械拦截「工程师语言回潮」——路径、英文枚举、门禁术语不许出现在律师可见面。禁词清单的口径来源是 `docs/LAWMIND-TERMINOLOGY.md`，脚本里的 `BANNED_PATTERNS` 是它 10 条模式的实现。
+它机械拦截「工程师语言回潮」——路径、英文枚举、门禁术语不许出现在律师可见面。禁词清单的口径来源是 `docs/LAWMIND-TERMINOLOGY.md`，脚本里的 `BANNED_PATTERNS` 是它 14 条模式的实现（6 条路径类 + 8 条术语类）。
 
 存量合法用例登记在 `scripts/lawmind/ui-copy-lint-allowlist.json`，要写理由。
 

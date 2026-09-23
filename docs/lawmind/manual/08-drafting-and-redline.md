@@ -156,7 +156,7 @@ Surgical 类型的 hunk 会显示上下文——`SURGICAL_CONTEXT_CHARS = 30`，
 | `drafts/<taskId>.guardian.json`     | 独立审稿记录 |
 | `drafts/<taskId>.outline.json`      | 大纲         |
 
-`listDrafts` **会排除**这些侧车，只列本体。`deleteDraft` 则会一并删掉上面这一串——删草稿就是全删。
+`listDrafts` **会排除**这些侧车，只列本体。`deleteDraft` 会删本体加 **5 个**侧车（`research` / `reasoning` / `redline` / `clauses` / `guardian`）——**但不删 `.outline.json` 与 `.redline-plan.json`**。所以更准确的说法是「删草稿会删掉大部分侧车，但大纲和修订计划会留下」，不会「全删」。这一点在 `src/lawmind/drafts/index.ts` 的 `deleteDraft` 候选列表里看得很清楚（那个列表就是 6 项）。
 
 ## 8.7 修订提案：hunk 是怎么长出来的
 
@@ -649,7 +649,7 @@ if (draft.contractEdit) return false; // 修订稿不跑
 
 - 引号定义：`"XX"系指...`（动词有 `系指|是指|指|即为|即|为`）
 - 括号别名：`XX（以下简称YY）`
-- 角色词：一份 31 个词的清单（`CONTRACT_ROLE_WORDS`），涵盖甲方乙方丙方丁方、买方卖方、需方供方、发包人承包人、出租人承租人、出卖人买受人、委托方受托方、许可方被许可方、披露方接收方、出借人借款人、保证人、服务方、供应方、采购方。
+- 角色词：一份 27 个词的清单（`CONTRACT_ROLE_WORDS`），涵盖甲方乙方丙方丁方、买方卖方、需方供方、发包人承包人、出租人承租人、出卖人买受人、委托方受托方、许可方被许可方、披露方接收方、出借人借款人、保证人、服务方、供应方、采购方。
 
 **第二层：对齐。** `alignTerminology` 做确定性替换。
 
@@ -665,7 +665,7 @@ if (draft.contractEdit) return false; // 修订稿不跑
 
 ### 出处链
 
-每个段落带一条「它是怎么变成现在这样的」记录（`provenance.ts`）。事件类型九种：`upload`、`extraction`、`ai_suggest`、`lawyer_edit`、`lawyer_accept`、`self_revise`、`import`、`export`。
+每个段落带一条「它是怎么变成现在这样的」记录（`provenance.ts`）。事件类型八种：`upload`、`extraction`、`ai_suggest`、`lawyer_edit`、`lawyer_accept`、`self_revise`、`import`、`export`。
 
 作用者三种：`user`、`model`、`system`。
 

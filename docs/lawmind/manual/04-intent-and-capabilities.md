@@ -2,7 +2,7 @@
 
 第 3 章讲了一个回合怎么跑；本章回答「这个回合该怎么跑」——律师说一句话，系统如何决定用哪一个能力。
 
-> 这一章讲**产品面**（律师会看到什么、边界在哪）。逐文件的实现精读在**第 70.1–70.9 节**：书面七级顺序与实际十七个分支的差别、19 项专用信号、73 个金标用例、交件意图、文件类型判定、短话分类。这一章里凡是涉及「哪个文件、哪个函数」的段落，都在那里有更完整的版本。
+> 这一章讲**产品面**（律师会看到什么、边界在哪）。逐文件的实现精读在**第 70.1–70.9 节**：书面七级顺序与实际十七个分支的差别、20 项专用信号、73 个金标用例、交件意图、文件类型判定、短话分类。这一章里凡是涉及「哪个文件、哪个函数」的段落，都在那里有更完整的版本。
 
 ## 4.1 定位：不选办件，直接说事
 
@@ -50,7 +50,7 @@ LawMind 的默认路径里**没有办件菜单**，也没有「改路由」按�
 
 致命误绑对是 `contract.review` ↔ `litigation.draft`：**诉状头压过正文里的「合同」二字**（起诉状里到处引用合同，所以正文出现「合同」说明不了任何事）。
 
-专用识别有一张映射表（19 项，节选）：劳动金额 → `labor.calc`、期限 → `period.calc`、发票 → `ops.invoice`、传票/12368 → `ops.court_sms`、知产 → `ip.dispute`、并购 → `deal.ma`、数据/广告合规 → `compliance.data` / `compliance.ads`、办案周报 → `matter.status`、家事 → `family.matter`、招股 → `capital.markets`、治理 → `corp.governance`、民事/破产/刑事阶段 → `litigation.draft`、案卷归位 → `matter.intake`、谈话 → `litigation.talk`、快问 → `analysis.quick`、表格汇总 → `materials.draft`、检索备忘 → `research.memo`。
+专用识别有一张映射表（20 项，节选）：劳动金额 → `labor.calc`、期限 → `period.calc`、发票 → `ops.invoice`、传票/12368 → `ops.court_sms`、知产 → `ip.dispute`、并购 → `deal.ma`、数据/广告合规 → `compliance.data` / `compliance.ads`、办案周报 → `matter.status`、家事 → `family.matter`、招股 → `capital.markets`、治理 → `corp.governance`、民事/破产/刑事阶段 → `litigation.draft`、案卷归位 → `matter.intake`、谈话 → `litigation.talk`、快问 → `analysis.quick`、表格汇总 → `materials.draft`、检索备忘 → `research.memo`。
 
 文件形态的默认能力表（11 项，节选）：合同 → `contract.review`，诉状 → `litigation.draft`，函件 → `letter.draft`。
 
@@ -60,7 +60,7 @@ LawMind 的默认路径里**没有办件菜单**，也没有「改路由」按�
 
 peek 有两个上限：最多 4 份文件、每份 8000 字。它只在「文件名判不出类型」时才用来升级判定。
 
-文件形态的判定在 `src/lawmind/intent/document-genre.ts`，十三条文件名规则**顺序不可换**（发票排最前、诉状排在合同之前）。实现细节见第 70.6 节。
+文件形态的判定在 `src/lawmind/intent/document-genre.ts`，11 条文件名规则**顺序不可换**（发票排最前、诉状排在合同之前）。实现细节见第 70.6 节。
 
 ## 4.6 能力目录与渐进披露
 

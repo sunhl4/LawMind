@@ -108,7 +108,7 @@ LawMind 把「应用数据」与「随仓库的开发工作区」刻意分开：
 
 三条通道要分清：
 
-- **对话 / 推理模型**：`GET/POST /api/models`、`/api/models/default`、`/api/models/worker`。`workerModel` 是「本轮有工具要广告时」优先使用的模型（见第 3 章）。
+- **对话 / 推理模型**：`GET /api/models` 读，`PATCH /api/models/default`、`/api/models/worker`、`/api/models/retrieval` 写（**没有 POST**）。`workerModel` 是「本轮有工具要广告时」优先使用的模型（见第 3 章）。
 - **检索通道**：`/api/models/retrieval`，`single` 与 `dual` 两档。法源侧的 NPC（国家法律法规数据库）hybrid 默认开，`LAWMIND_OPEN_LAW_NPC=0` 才关。
 - **联网检索**：设置「安全」里的联网策略；配置 `LAWMIND_WEB_SEARCH_API_KEY` 或 `BRAVE_API_KEY` 后 `web_search` 才会出现在本回合工具表。
 
@@ -154,7 +154,7 @@ LawMind 把「应用数据」与「随仓库的开发工作区」刻意分开：
 | 模型报 502 / 连不通                    | 先跑连接体检（设置 → 系统健康）；确认网络、Base URL 与模型名；出口受网络白名单约束时需放行 |
 | macOS 打不开安装包                     | 未公证 / 未签名包需右键 → 打开；正式包应已 Developer ID 签名并公证                         |
 | Word 插件找不到服务                    | 本机 API 端口被重选，侧载 `manifest.xml` 钉的是旧端口；看端口漂移诊断（第 8、14 章）       |
-| 改了文件但检索搜不到                   | 检索是 FTS5 派生索引，需重建：`GET /api/search/workspace/rebuild`                          |
+| 改了文件但检索搜不到                   | 检索是 FTS5 派生索引，需重建：`POST /api/search/workspace/rebuild`                         |
 | 对话很长后答案开始「忘事」             | 触发了上下文压缩（compact）；对话里会出现压缩提示，必要时用「承前分叉」（第 3 章）         |
 
 ## 2.9 实现：首跑与配置的代码路径

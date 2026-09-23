@@ -329,7 +329,7 @@ LLM 增强是可选的（抽取式摘要打底，LLM 只做升级）。
 ## 43.11 已知坑（本章相关）
 
 - **`runtime.ts` 只是 barrel。** 别在它里面找实现。
-- **`RunTurnEvent` 里 `context_deferral_bounce` 声明了两次**（重复成员，无害）。
+- **`RunTurnEvent` 的成员各只声明一次**；服务端里同一事件出现两次（`case` + `sseWriteEvent`）是分发逻辑，别当成重复成员。
 - **`shouldCheckpointToolBudget` 恒为 false。**
 - **`interrupted` 是视图不是落盘状态。**
 - **中途注入只在轮次开始 claim 生效。**
