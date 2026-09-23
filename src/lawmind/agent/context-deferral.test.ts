@@ -3,6 +3,7 @@ import {
   CONTEXT_DEFERRAL_BOUNCE_MARKER,
   dropContextDeferralBounces,
   formatContextDeferralBounce,
+  formatContextDeferralHandoff,
   isContextBudgetDeferralReply,
   isContextDeferralBounceMessage,
 } from "./context-deferral.js";
@@ -20,6 +21,21 @@ describe("isContextBudgetDeferralReply", () => {
     expect(isContextBudgetDeferralReply("上下文已接近上限，请重开会话再继续。")).toBe(true);
     expect(isContextBudgetDeferralReply("窗口快满了，建议分次交办。")).toBe(true);
     expect(isContextBudgetDeferralReply("token 不足，下一轮再发材料吧。")).toBe(true);
+    // 放宽后要覆盖的真实变体（早期只认「另开一轮」等少数说法，这些会溜到律师面前）。
+    expect(isContextBudgetDeferralReply("说明：本轮内容过多，建议分两次处理，先给主体部分。")).toBe(
+      true,
+    );
+    expect(isContextBudgetDeferralReply("为避免篇幅过长，本次先到这里，下次继续。")).toBe(true);
+    expect(isContextBudgetDeferralReply("会话窗口有限，建议分批交办。")).toBe(true);
+    expect(isContextBudgetDeferralReply("本条指令涉及材料较多，可否拆段处理？")).toBe(true);
+  });
+
+  it("放宽后仍不误伤：法律正文里的「分批 / 分段 / 分次」不算退让", () => {
+    // 这两组词在合同与程序里都常见，只有同时命中「水线」类词才算退让。
+    expect(isContextBudgetDeferralReply("价款分两次支付，首期 30%。")).toBe(false);
+    expect(isContextBudgetDeferralReply("判决分两段说理，第二段关于违约金。")).toBe(false);
+    expect(isContextBudgetDeferralReply("建议分批次交货，每批验收后付款。")).toBe(false);
+    expect(isContextBudgetDeferralReply("仲裁请求可分段主张，先主张货款。")).toBe(false);
   });
 
   it("不把正常交付 / 法律正文里的「预算」误判", () => {
@@ -41,6 +57,40 @@ describe("formatContextDeferralBounce", () => {
     expect(text.startsWith(CONTEXT_DEFERRAL_BOUNCE_MARKER)).toBe(true);
     expect(text).toContain("工具轮边界");
     expect(text).toContain("另开一轮");
+  });
+});
+
+describe("formatContextDeferralHandoff", () => {
+  it("只写可核对的事实，不替模型掩饰、也不编进度", () => {
+    const text = formatContextDeferralHandoff({
+      toolCallsExecuted: 7,
+      planOpen: ["写解除条款", "分配三方义务"],
+      compactCount: 3,
+    });
+    expect(text).toContain("本轮已执行 7 次工具调用");
+    expect(text).toContain("清单未完成：写解除条款；分配三方义务");
+    expect(text).toContain("这段对话已整理过 3 次上下文");
+    // 必须给出正确的继续方式（带上文新对话），而不是让律师自己猜。
+    expect(text).toContain("另起新对话（带上文）");
+    expect(text).toContain("草稿、案件档案与待办都留在原处");
+    // 不假装完成。
+    expect(text).not.toContain("已完成");
+  });
+
+  it("没有清单时如实说没有，不编一个", () => {
+    const text = formatContextDeferralHandoff({ toolCallsExecuted: 0 });
+    expect(text).toContain("没有留下可核对的清单");
+    expect(text).not.toContain("这段对话已整理过");
+  });
+
+  it("清单过长时截断并标明还有更多", () => {
+    const text = formatContextDeferralHandoff({
+      toolCallsExecuted: 1,
+      planOpen: Array.from({ length: 12 }, (_, i) => `步骤${i}`),
+    });
+    expect(text).toContain("步骤7");
+    expect(text).not.toContain("步骤8");
+    expect(text).toContain("等");
   });
 });
 

@@ -17,6 +17,7 @@ import {
 } from "../intent/delivery-intent.js";
 import { INTENT_HYPOTHESIS_HEADING, UNDERSTAND_FIRST_HEADING } from "../intent/understand-first.js";
 import { WORKING_BRIEF_HEADING } from "../intent/working-brief.js";
+import { summarizeContextPressure } from "../metrics/context-pressure.js";
 import { buildAgentFleetSummary } from "../platform/build-agent-fleet.js";
 import { FOLDER_EXPLORE_GATE_ERROR } from "../runtime/tool-pipeline.js";
 import { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
@@ -462,6 +463,14 @@ describe("turn-orchestrator cassettes (admission)", () => {
         // 压缩后接着跑完，而不是停在这一轮；送出的历史仍是可发送的配对态。
         expect(h.requests.length).toBe(2);
         expect(orphanToolCallIds(h.request(1).messages())).toEqual([]);
+
+        // 接线证明：整理**真的**写了可度量的口径（本仓吃过「声明了但永远不写」的亏，
+        // 所以每新增一个观测口径都必须有产出点的端到端断言，而不只是单测）。
+        const pressure = summarizeContextPressure(h.workspaceDir);
+        expect(pressure.present).toBe(true);
+        expect(pressure.compactions.midTurn).toBe(1);
+        expect(pressure.turnsWithPressure).toBe(1);
+        expect(pressure.windowTo).toBeTruthy();
       },
     );
   });
@@ -501,12 +510,61 @@ describe("turn-orchestrator cassettes (admission)", () => {
           (m) => m.hiddenFromLawyer !== true && m.role !== "system",
         );
         expect(visible.some((m) => (m.content ?? "").includes("另开一轮"))).toBe(false);
+
+        // 退让被识别 + 已反弹，且**没有**到达律师（reachedLawyer 应为 0，但 present 为真）。
+        const pressure = summarizeContextPressure(h.workspaceDir);
+        expect(pressure.present).toBe(true);
+        expect(pressure.deferrals.detected).toBe(1);
+        expect(pressure.deferrals.bounced).toBe(1);
+        expect(pressure.deferrals.reachedLawyer).toBe(0);
+        expect(pressure.deferralReachRate).toBe(0);
         // 反弹消息只服务下一轮采样：收口后不再留在历史里。
         expect(
           (h.session()?.conversationHistory ?? []).some((m) =>
             (m.content ?? "").startsWith(CONTEXT_DEFERRAL_BOUNCE_MARKER),
           ),
         ).toBe(false);
+      },
+    );
+  });
+
+  it("context: 反弹用尽后退让到达律师，但交接是结构化事实、不是模型的推诿原文", async () => {
+    const DEFERRAL_REPLY =
+      "说明：本轮上下文预算已接近上限，请另开一轮并告知协议主体结构，我会直接落到 Word 稿。";
+    await withTestLawMind(
+      (b) => b.withMaxHistory(8),
+      async (h) => {
+        h.seedHistory([{ role: "system", content: "sys", timestamp: ts() }], {
+          matterId: "m-handoff",
+        });
+        // 三轮都退让：前两轮被反弹，第三轮用尽 → 到达律师。
+        h.enqueue(
+          cassetteAssistant(DEFERRAL_REPLY),
+          cassetteAssistant(DEFERRAL_REPLY),
+          cassetteAssistant(DEFERRAL_REPLY),
+        );
+        const result = await h.runTurn("起草竞业限制解除条款与三方义务分配。", {
+          matterId: "m-handoff",
+        });
+
+        // fail-open 是刻意的（绝不无限循环），但**交接必须诚实**：不假装完成。
+        expect(result.turn.status).toBe("paused");
+        expect(result.reply).toContain("本轮因上下文压力停下");
+        expect(result.reply).toContain("本轮已执行");
+        // 正确的继续方式必须给出，而不是让律师自己猜。
+        expect(result.reply).toContain("另起新对话（带上文）");
+        expect(result.reply).toContain("草稿、案件档案与待办都留在原处");
+        // 模型的推诿原文不得成为本回合答复。
+        expect(result.reply).not.toContain("另开一轮");
+        expect(result.reply).not.toContain("请另开一轮");
+        // 也不得把「已完成」写在脸上。
+        expect(result.reply).not.toContain("已完成");
+
+        const pressure = summarizeContextPressure(h.workspaceDir);
+        expect(pressure.deferrals.detected).toBe(3);
+        expect(pressure.deferrals.bounced).toBe(2);
+        expect(pressure.deferrals.reachedLawyer).toBe(1);
+        expect(pressure.deferralReachRate).toBeCloseTo(1 / 3, 6);
       },
     );
   });

@@ -262,7 +262,12 @@ export function buildPostCompactSystemNote(opts: {
     lines.push(`- linkedTaskId: ${opts.linkedTaskId}`);
   }
   if (opts.pendingClarificationKeys?.length) {
-    lines.push(`- pendingClarification: ${opts.pendingClarificationKeys.join(", ")}`);
+    // 措辞必须与承前种子（`session-carryover.ts` 的状态头）一致：把「活的门禁」
+    // 写成裸键名，模型无法区分「上一轮的一句备注」与「现在仍生效的硬门禁」。
+    // 压缩路径与分叉路径对同一件事说不同的话，正是静默失效的温床。
+    lines.push(
+      `- 待澄清键（仍生效，未答齐前不得起草/渲染）: ${opts.pendingClarificationKeys.join(", ")}`,
+    );
   }
   lines.push("- 交付物验收与 render 门禁仍须遵守当前草稿 acceptance 状态。");
   if (opts.workspaceDir) {

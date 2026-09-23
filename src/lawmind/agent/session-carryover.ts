@@ -25,6 +25,7 @@
  */
 
 import { emit } from "../audit/index.js";
+import { recordContextPressure } from "../metrics/context-pressure.js";
 import type { LawMindRequiresAction } from "../platform/requires-action.js";
 import {
   buildDroppedSpanDigest,
@@ -291,6 +292,11 @@ export type ForkWithCarryoverResult =
       blockingActions?: string[];
     };
 
+/** 拒绝分叉：记一条可对账的 fork_blocked（原因进 meta.code），再原样返回。 */
+function blockFork(code: ForkBlockedCode): ForkWithCarryoverResult {
+  return { ok: false, code, message: BLOCKED_MESSAGES[code] };
+}
+
 const BLOCKED_MESSAGES: Record<ForkBlockedCode, string> = {
   source_not_found: "找不到要续接的对话。",
   turn_live: "当前对话还在办理中，先停稳再另起新对话（避免读到半轮历史）。",
@@ -318,7 +324,7 @@ export async function forkSessionWithCarryover(opts: {
 }): Promise<ForkWithCarryoverResult> {
   const source = loadSession(opts.workspaceDir, opts.sourceSessionId);
   if (!source) {
-    return { ok: false, code: "source_not_found", message: BLOCKED_MESSAGES.source_not_found };
+    return blockFork("source_not_found");
   }
 
   const nonce = opts.clientNonce?.trim();
@@ -345,10 +351,15 @@ export async function forkSessionWithCarryover(opts: {
     isSessionTurnLive(opts.workspaceDir, source.sessionId) ||
     source.turns.some((turn) => turn.status === "running")
   ) {
-    return { ok: false, code: "turn_live", message: BLOCKED_MESSAGES.turn_live };
+    return blockFork("turn_live");
   }
   const blocking = blockingActionsForFork(source.pendingRequiresAction);
   if (blocking.length > 0) {
+    recordContextPressure(opts.workspaceDir, "fork_blocked", {
+      ...(source.matterId ? { matterId: source.matterId } : {}),
+      sessionId: source.sessionId,
+      meta: { code: "pending_authorization", blocking: blocking.join(",") },
+    });
     return {
       ok: false,
       code: "pending_authorization",
@@ -450,6 +461,18 @@ export async function forkSessionWithCarryover(opts: {
     /* 审计失败不阻塞律师已经拿到的结果 */
   }
 
+  recordContextPressure(opts.workspaceDir, "fork_created", {
+    ...(draft.migrated.matterId ? { matterId: draft.migrated.matterId } : {}),
+    sessionId: source.sessionId,
+    meta: {
+      to: target.sessionId,
+      digestSource,
+      droppedMessageCount: draft.stats.droppedMessageCount,
+      seedChars,
+      migratedKeys: Object.keys(draft.migrated).length,
+      reused: false,
+    },
+  });
   return {
     ok: true,
     session: target,

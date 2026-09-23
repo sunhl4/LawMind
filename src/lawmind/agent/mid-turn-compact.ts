@@ -12,6 +12,7 @@
  *   2. 压缩不减反增时（尾巴本身超窗口）宁可不动，也不把摘要再堆进去。
  */
 
+import { recordContextPressure } from "../metrics/context-pressure.js";
 import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
 import { resolveAgentMandatoryRulesForPrompt } from "../policy/workspace-policy.js";
 import { applyCompactReinjectionToSession } from "./compact-reinjection.js";
@@ -111,11 +112,24 @@ export function applyMidTurnCompact(
     maxCompactions?: number;
     /** 上一轮 provider 回报的真实 prompt tokens（见 `shouldCompactMidTurn`）。 */
     measuredUsed?: number;
+    /** 观测归属：回合 id（用于「有压力的回合数」）。 */
+    turnId?: string;
   },
 ): MidTurnCompactOutcome {
   const policy = opts.policy ?? null;
   const budgetOpts = { contextTokens: opts.contextTokens };
   const before = estimateTokenBudget(session, policy, budgetOpts);
+  const record = (
+    outcome: Parameters<typeof recordContextPressure>[1],
+    meta?: Record<string, string | number | boolean | null>,
+  ): void => {
+    recordContextPressure(workspaceDir, outcome, {
+      ...(opts.turnId ? { turnId: opts.turnId } : {}),
+      ...(session.matterId ? { matterId: session.matterId } : {}),
+      sessionId: session.sessionId,
+      ...(meta ? { meta } : {}),
+    });
+  };
   if (
     !shouldCompactMidTurn({
       roundIndex: opts.roundIndex,
@@ -148,6 +162,10 @@ export function applyMidTurnCompact(
         triggerRatio: opts.triggerRatio,
       })
     ) {
+      record("mid_turn_prune_only", {
+        prunedCount: pruned.prunedCount,
+        charsRemoved: pruned.charsRemoved,
+      });
       return { applied: false, reason: "pruned_enough", prune };
     }
   }
@@ -162,6 +180,12 @@ export function applyMidTurnCompact(
   const dropped = compactResult.droppedMessageCount ?? 0;
   if (!compactResult.compacted || dropped <= 0) {
     // 尾巴自身就超窗口（例如单条巨型消息）：压了也不减，别把摘要再堆进去。
+    record("mid_turn_no_reduction", {
+      roundIndex: opts.roundIndex,
+      used: before.used,
+      effectiveLimit: before.effectiveLimit,
+      ...(prune ? { prunedCount: prune.prunedCount } : {}),
+    });
     return { applied: false, reason: "no_reduction", prune };
   }
 
@@ -184,6 +208,14 @@ export function applyMidTurnCompact(
     roundIndex: opts.roundIndex,
   };
 
+  record("mid_turn_compact", {
+    roundIndex: opts.roundIndex,
+    droppedMessageCount: dropped,
+    usedBefore: before.used,
+    effectiveLimit: before.effectiveLimit,
+    ...(prune ? { prunedCount: prune.prunedCount, charsRemoved: prune.charsRemoved } : {}),
+    ...(opts.measuredUsed ? { measuredUsed: opts.measuredUsed } : {}),
+  });
   return {
     applied: true,
     prune,

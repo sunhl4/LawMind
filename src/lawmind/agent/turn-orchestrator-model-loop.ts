@@ -2,6 +2,7 @@
  * Main model ↔ tool loop for runTurn (extracted from turn-orchestrator).
  */
 
+import { recordContextPressure } from "../metrics/context-pressure.js";
 import {
   mergeUsageSnapshots,
   usageFromProvider,
@@ -29,6 +30,7 @@ import {
   CONTEXT_DEFERRAL_BOUNCE_MAX,
   dropContextDeferralBounces,
   formatContextDeferralBounce,
+  formatContextDeferralHandoff,
   isContextBudgetDeferralReply,
 } from "./context-deferral.js";
 import { applyMidTurnCompact, MID_TURN_COMPACT_MAX } from "./mid-turn-compact.js";
@@ -169,6 +171,15 @@ export async function runModelToolLoop(opts: {
     }
     const policy = policyForTurn();
     const { midTurnCompactTriggerRatio } = resolveContextPolicy(policy);
+    if (midTurnCompactions >= MID_TURN_COMPACT_MAX && force) {
+      // 只在「模型已证明没空间」时记 cap：那是真正触到上限的信号。
+      recordContextPressure(opts.config.workspaceDir, "mid_turn_cap", {
+        turnId: opts.turn.turnId,
+        ...(opts.session.matterId ? { matterId: opts.session.matterId } : {}),
+        sessionId: opts.session.sessionId,
+        meta: { compactionsDone: midTurnCompactions, roundIndex },
+      });
+    }
     let outcome: ReturnType<typeof applyMidTurnCompact>;
     try {
       outcome = applyMidTurnCompact(opts.session, opts.config.workspaceDir, {
@@ -180,6 +191,7 @@ export async function runModelToolLoop(opts: {
         compactionsDone: midTurnCompactions,
         force,
         triggerRatio: midTurnCompactTriggerRatio,
+        turnId: opts.turn.turnId,
         // 估算器偏小时以真实占用为准（Codex：阈值/占用都要贴有效窗口）。
         ...(lastMeasuredPromptTokens > 0 ? { measuredUsed: lastMeasuredPromptTokens } : {}),
       });
@@ -541,6 +553,13 @@ export async function runModelToolLoop(opts: {
       const deferralText = assistantMsg.content ?? "";
       if (isContextBudgetDeferralReply(deferralText)) {
         const bounces = opts.turn.contextDeferralBounces ?? 0;
+        recordContextPressure(opts.config.workspaceDir, "deferral_detected", {
+          turnId: opts.turn.turnId,
+          ...(opts.session.matterId ? { matterId: opts.session.matterId } : {}),
+          sessionId: opts.session.sessionId,
+          detail: deferralText.trim().slice(0, 200),
+          meta: { bouncesSoFar: bounces, roundIndex },
+        });
         if (bounces < CONTEXT_DEFERRAL_BOUNCE_MAX) {
           compactMidTurn(roundIndex, true);
           opts.turn.contextDeferralBounces = bounces + 1;
@@ -558,8 +577,34 @@ export async function runModelToolLoop(opts: {
             roundIndex,
             bounceCount: opts.turn.contextDeferralBounces,
           });
+          recordContextPressure(opts.config.workspaceDir, "deferral_bounced", {
+            turnId: opts.turn.turnId,
+            ...(opts.session.matterId ? { matterId: opts.session.matterId } : {}),
+            sessionId: opts.session.sessionId,
+            meta: { bounceCount: opts.turn.contextDeferralBounces, roundIndex },
+          });
           continue;
         }
+        // 反弹用尽：不把模型的推诿原文丢给律师，换成可核对的事实 + 正确的继续方式。
+        // fail-open 是刻意的（绝不无限循环），但**交接必须诚实**。
+        const planOpen =
+          opts.session.turnPlan?.items
+            .filter((item) => item.status !== "completed")
+            .map((item) => item.step) ?? [];
+        recordContextPressure(opts.config.workspaceDir, "deferral_reached_lawyer", {
+          turnId: opts.turn.turnId,
+          ...(opts.session.matterId ? { matterId: opts.session.matterId } : {}),
+          sessionId: opts.session.sessionId,
+          detail: deferralText.trim().slice(0, 200),
+          meta: { bounces: bounces, toolCallsExecuted: opts.turn.toolCallsExecuted },
+        });
+        // 回弹用尽的这一轮不再冒充「已完成」的正文：置为 paused，交给律师定夺要不要带上文续办。
+        opts.turn.status = "paused";
+        finalReply = formatContextDeferralHandoff({
+          toolCallsExecuted: opts.turn.toolCallsExecuted,
+          planOpen,
+        });
+        break;
       }
       finalReply = assistantMsg.content ?? "";
       opts.turn.status = "completed";

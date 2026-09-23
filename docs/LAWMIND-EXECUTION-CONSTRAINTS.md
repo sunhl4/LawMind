@@ -560,5 +560,7 @@ pnpm exec vitest run \
 19. **上下文用量 UI 对齐 Codex / Cursor**（2026-09-23）：圆环常驻；面板给「模型窗口 / 可用 / 自动整理线」三元组 + 分层用量（各桶之和 = `used`）+ 上次整理事实 + 诚实提示（反复整理掉准确率、长任务宜另起新对话）。`/context-budget` 的分母跟 compose 选中的模型（`?modelId=`），切模型即刷新。`replaceDroppedDigestInMessages` 曾只认 `system` 角色而生产插的是 `user`，导致 LLM 摘要静默不生效——已修并加回归。
 20. **另起新对话并带上文**（2026-09-23）：上下文过多时给一次性建议（`lastCompact.midTurn || compactCount >= 2`，同一会话只提示一次），或从用量面板主动触发。新会话带三段续接种子（状态头 / 对话蒸馏 / 重读指针，合成 user 消息且律师不可见）；**闸门状态迁移**（待澄清键、已确认答案、清单、绑定办件、已披露工具表）与**拦截**（待批准授权 / 升级 / 工作流结论 / 检查点续跑 / 回合在跑 → 409）是本功能的红线。双向指针 `forkedTo` / `carriedOverFrom` + `audit` 的 `session.forked_with_carryover`；`clientNonce` 幂等。见 `src/lawmind/agent/session-carryover.ts`。
 21. **触发口径与预留随窗口**（2026-09-23）：回合内整理用 provider 的 `usage.prompt_tokens` 当天花板；有效窗口的预留按 `min(20k+13k, 窗口×25%)` 封顶（32k 窗口可用从 8k → 24k）。对齐 Codex「阈值/占用都要贴有效窗口」（#40095）。
+22. **上下文压力可度量 + 交接诚实**（2026-09-23）：新增 `context_pressure` 口径与 `GET /api/metrics/context-pressure`（缺来源 → `present:false`、比率 `null`，绝不产出 0；刻意不给 per-turn 比率，理由见模块注释与 `metrics/README.md`）；退让识别放宽到真实变体并用法律正文反例钉住不误伤；反弹用尽后改为 `paused` + 结构化事实交接（不再把模型推诿原文交给律师）。**每个观测口径都要有产出点的端到端断言**——本仓吃过「声明了但永远不写」（`checklist`/`citation_mode` 已删）的亏。
+23. **压缩生存不变量**（2026-09-23）：`agent/compact-survival.test.ts` 连压 4 次断言引用 / 律师交办 / 待澄清键 / 红线重注仍在。首次运行即抓到真实不对称：压缩路径把待澄清键写成裸键名，而分叉路径写「仍生效，未答齐前不得起草/渲染」——已统一措辞（同一件事两个消费者说不同的话，正是静默失效的温床）。
 
 若某一条手改后效果「没变」，先看：是不是锁路径根本没注入它；是不是只改了 md 索引壳；是不是旧会话还在用旧的静态 prompt 前缀（看 `LAWMIND_AGENT_BEHAVIOR_EPOCH`）。
