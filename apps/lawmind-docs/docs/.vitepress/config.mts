@@ -82,6 +82,7 @@ export default defineConfig({
     nav: [
       { text: "快速指南", link: "/LAWMIND-LAWYER-QUICKSTART" },
       { text: "交付", link: "/LAWMIND-DELIVERY" },
+      { text: "手册", link: "/lawmind/manual/README" },
       { text: "数据处理", link: "/archive/LAWMIND-DATA-PROCESSING" },
       {
         text: "下载",
@@ -127,6 +128,14 @@ export default defineConfig({
         text: "Multitask 与发布",
         collapsed: true,
         items: multitask,
+      },
+      {
+        text: "功能与实现手册",
+        collapsed: true,
+        items: [
+          { text: "总目录", link: "/lawmind/manual/README" },
+          { text: "总索引", link: "/lawmind/manual/INDEX" },
+        ],
       },
       {
         text: "工程笔记",
