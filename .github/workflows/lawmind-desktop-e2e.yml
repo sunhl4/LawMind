@@ -71,8 +71,10 @@ jobs:
       - name: Bundle server and build renderer
         run: pnpm lawmind:bundle:desktop-server && pnpm --filter lawmind-desktop build:renderer
 
+      # `setup-xvfb` 的契约是「把命令交给它跑」：少了 `with.run` 会直接
+      # `##[error]Input required and not supplied: run` 并在 44s 内失败 ——
+      # 一条真机用例都没跑，却让 PR 上显示「真机 e2e 红」。把命令挪进这一步。
       - name: Electron golden path
         uses: coactions/setup-xvfb@v1
-
-      - name: Run Electron E2E
-        run: pnpm --filter lawmind-desktop test:e2e:electron
+        with:
+          run: pnpm --filter lawmind-desktop test:e2e:electron
