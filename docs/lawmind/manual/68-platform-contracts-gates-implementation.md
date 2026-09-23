@@ -884,7 +884,7 @@ actionId  sessionId  matterId?  toolName?  title  summary
 
 315 行，做两件事。
 
-**第一件：参数名的中文映射**（`ARG_LABELS`）：
+**第一件：参数名的中文映射**（`KEY_LABEL_ZH`）：
 
 | 参数                         | 中文     |
 | ---------------------------- | -------- |
@@ -1144,7 +1144,7 @@ NODE_PATH  SYSTEMROOT  COMSPEC  APPDATA  LOCALAPPDATA
 ```text
 ① 精确拒绝七项（LAWMIND_LOCAL_API_TOKEN / SKIP_API_AUTH / DESKTOP_PORT
    / INSTALLATION_SECRET / EPOCH / REVOKED_CLIENTS / INSTANCE_ID）
-② 前缀匹配：SAFE_COMMAND_SECRET_PREFIX_RE（17 家服务商）
+② 前缀匹配：SAFE_COMMAND_SECRET_PREFIX_RE（19 家服务商）
 ③ LAWMIND_ 前缀里的密钥：/^LAWMIND_.*(_KEY|_TOKEN|_SECRET|_PASSWORD)$/
 ④ 可选放行：allowLawmindSecrets（显式打开才继承 LAWMIND_*）
 ```
@@ -1158,7 +1158,7 @@ NODE_PATH  SYSTEMROOT  COMSPEC  APPDATA  LOCALAPPDATA
 
 **「比单个 token 更敏感」**——因为安装密钥是**派生根**，泄了等于全泄。这是第 67.4 节那个派生式设计的直接后果。
 
-**第 ② 项那 17 家服务商前缀**列得很全（OPENAI / ANTHROPIC / AZURE / GOOGLE / GEMINI / DEEPSEEK / DASHSCOPE / QWEN / MOONSHOT / ZHIPU / MISTRAL / GROQ / COHERE / XAI / PERPLEXITY / BRAVE / TAVILY / SERPER / EXA）——**所以「换一家模型服务」不需要改代码**，只要它的 key 前缀在这张表里。
+**第 ② 项那 19 家服务商前缀**列得很全（OPENAI / ANTHROPIC / AZURE / GOOGLE / GEMINI / DEEPSEEK / DASHSCOPE / QWEN / MOONSHOT / ZHIPU / MISTRAL / GROQ / COHERE / XAI / PERPLEXITY / BRAVE / TAVILY / SERPER / EXA）——**所以「换一家模型服务」不需要改代码**，只要它的 key 前缀在这张表里。
 
 ### 命令路径解析的四种情况
 
@@ -1412,7 +1412,7 @@ allowSendEmailAfterApproval: /发信|发送|邮件给客户/.test(raw)
 - **挡 shell 要两张名单**（禁 shell 命令 + 禁代码执行参数），缺一不可。
 - **宿主环境变量是白名单继承**（默认不继承）。
 - **安装密钥比单个 token 更敏感**（它是派生根）。
-- **密钥前缀表列了 17 家服务商**——换模型服务不用改代码。
+- **密钥前缀表列了 19 家服务商**——换模型服务不用改代码。
 - **邮件短路径的教练话里那个「条数不限」是特意加的**（防模型漏改）。
 - **快车道一个工具都不禁。**
 - **自由对话拿不到邮件**，所以随口提邮件合同会被分流到自动办件。
