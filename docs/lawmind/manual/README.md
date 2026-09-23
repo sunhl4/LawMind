@@ -116,7 +116,7 @@
 | 30  | `30-policy-reference.md`              | 策略文件字段参考（全字段 + 律所版完整示例 + 排查顺序）                              |
 | 31  | `31-ops-runbook.md`                   | 运维手册（巡检、备份恢复、重建索引、修漂移、密钥轮换、升级关停）                    |
 | 32  | `32-terminology-and-copy.md`          | 术语与文案实践（一动作一词、禁词表、五条好文案规律、检查表）                        |
-| 33  | `33-cookbook.md`                      | 任务速查手册（按 12 类任务给步骤与注意点）                                          |
+| 33  | `33-cookbook.md`                      | 任务速查手册（按 11 类任务给步骤与注意点）                                          |
 | 34  | `34-developer-code-tour.md`           | 开发者代码导览（三条阅读路线 + 七站 + 按功能找文件索引 + 阅读技巧）                 |
 | 35  | `35-testing-practice.md`              | 测试与质量实践（测试索引、cassette 写法、棘轮、失败排查、反模式清单）               |
 | 36  | `36-threat-model.md`                  | 安全威胁模型（11 类威胁 × 对策/代码位置/剩余风险 + 对策总表）                       |
@@ -133,7 +133,7 @@
 
 第 43–52 章覆盖产品主链路上的模块（Agent、改稿、案件、安全、交付、检索、工具、渲染、确定性计算）。
 第 53–62 章补齐其余模块（经典流水线、推理层、模型层、本机访问、存储与渲染、分类与标准、其余小模块与全局契约、协作与工作流执行器、工具层判定逻辑、渲染层交互契约）。
-第 63–65 章覆盖桌面端本地服务端（骨架、101 条主路由、54 个其余路由文件）。
+第 63–65 章覆盖桌面端本地服务端（骨架、101 条主路由、49 个其余路由文件）。
 第 66–67 章覆盖 Electron 桌面壳（进程与 IPC 桥面、端口契约与凭据派生、macOS 签名公证）。
 第 68–71 章覆盖平台层 41 个文件、意图/技能/历史扫描三个模块，以及 VitePress 文档站。
 
@@ -158,10 +158,10 @@
 | 59  | `59-remaining-modules-implementation.md`            | 其余模块与全局契约：`core/` 生命周期十二转移、`tasks/`、`work/`、`insights/` 洞察链、`product/` 黄金旅程、`sources/`、`ops/`、`review-campaign/` 角色权重、`assistants/`、`license/`、`matter-cloud/` 端点能力表、三个全局契约文件                               |
 | 60  | `60-collaboration-orchestrator-implementation.md`   | `agent/collaboration/` + `orchestrator/` + `tools/coordination/`：两个发送模式与十一个参数、不可信包装、委派七态与三条终态守卫、十四份内置工作流逐表、种子升级判据、执行器主循环与三条门、七个协作工具                                                           |
 | 61  | `61-legal-tools-implementation.md`                  | `agent/tools/legal/` 三十八个文件：八类检索判定与四条上限、七个工台写穿工具、邮件唯一硬闸门、本机授权舞步、文件四道围栏、三条材料整理禁区、表格图表六条上限、十二个计算 op 的边界话术、九个审查表动作、五个 worker 工具                                          |
-| 62  | `62-renderer-contracts.md`                          | 渲染层交互契约：五个一级面板的结构与 testid、六个「有判定逻辑」的组件逐条分支、首跑四步五组、51 个 localStorage + 4 个 sessionStorage 键、一处「不算拖放」的误判、测试守着的契约清单                                                                             |
+| 62  | `62-renderer-contracts.md`                          | 渲染层交互契约：五个一级面板的结构与 testid、六个「有判定逻辑」的组件逐条分支、首跑四步五组、33 个 localStorage + 4 个 sessionStorage 键、一处「不算拖放」的误判、测试守着的契约清单                                                                             |
 | 63  | `63-server-skeleton-implementation.md`              | 本地服务端骨架：两个协议族的原因、启动二十四步、请求十三步、令牌桶、两道鉴权门、作业六态与三条守卫、进程崩溃两种态度、守护进程两层结构、SSE 总线、两个路径段校验、Word 取件四条安全线                                                                            |
 | 64  | `64-main-routes-implementation.md`                  | 101 条主路由：对话十九步与十三个错误码、会话控制面十四条、意图预览的类型契约修复、文书台三道门、案件二十四条与聚合、记录列表的注册顺序、后台改稿的重试与点检、验收门那个「`passed` 不是 `ok`」事故、首屏载荷                                                     |
-| 65  | `65-remaining-routes-implementation.md`             | 其余 54 个路由文件：健康与诊断、本机与文件、Word 插件七态、自动办件与邮件、协作与专案组十九端点、案件副本与云、学习与记忆、判定与审计、审批与设置、以及十六个单点文件                                                                                            |
+| 65  | `65-remaining-routes-implementation.md`             | 其余 49 个路由文件：健康与诊断、本机与文件、Word 插件七态、自动办件与邮件、协作与专案组十九端点、案件副本与云、学习与记忆、判定与审计、审批与设置、以及十六个单点文件                                                                                            |
 | 66  | `66-electron-shell-implementation.md`               | Electron 进程与桥面：启动十二步、单实例锁、导航护栏与那道「远程页面会继承 preload」的推理、DevTools 陷阱、CSP 两套、36 个 IPC 通道、文件桥九步围栏、拖放导入五条上限、安全命令四条白名单、密钥保管为何用 safeStorage                                             |
 | 67  | `67-port-credentials-packaging-implementation.md`   | 端口契约与凭据派生：2026-09-21 故障的完整因果链（三个事实相乘）、端口漂移五步与三态占用者、HMAC 派生与「为什么不用 OAuth+PKCE」、四个客户端的最小权限、CLI 凭据文件、崩溃监督两层结构、macOS 签名与公证（adhoc vs Developer ID、两份 entitlements 的唯一差别）   |
 | 68  | `68-platform-contracts-gates-implementation.md`     | 平台层（一）：十二种门禁与三种判定、七个安全硬门、门禁分类的默认方向、「验证器说停了」的识别、执行态七分支、内容信任、出网受众与特权、SSRF 八条网段拒绝、六类待办卡片、参数中文映射、三种工具锁、判断项升级通道、三张命令名单、四条指令生成器全文                |
@@ -176,8 +176,8 @@
 | A    | `appendix-a-env-vars.md`         | 环境变量全表（按用途分三张表 + 默认值 + 三个易错点 + 核对方法）      |
 | B    | `appendix-b-endpoints.md`        | HTTP 端点全表（16 组 + 错误码速查 + 核对方法）                       |
 | C    | `appendix-c-files-and-events.md` | 工作区文件布局、审计事件全表、门禁全表、派生数据、三处独立审计       |
-| D    | `appendix-d-faq.md`              | 排障手册（按症状组织 12 类 + 两件基本功）                            |
-| E    | `appendix-e-test-inventory.md`   | 测试清单与分布（918 个测试文件的分组统计 + 关键测试说明 + 三种用法） |
+| D    | `appendix-d-faq.md`              | 排障手册（按症状组织 11 类 + 两件基本功）                            |
+| E    | `appendix-e-test-inventory.md`   | 测试清单与分布（923 个测试文件的分组统计 + 关键测试说明 + 三种用法） |
 
 ## 写作约定
 

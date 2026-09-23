@@ -1,6 +1,9 @@
 # 附录 A 环境变量全表
 
-本附录按用途分组列出仓库里出现过的 `LAWMIND_*` 环境变量。来源是从代码里机械提取的（`rg -o "LAWMIND_[A-Z0-9_]+"`），所以**这份清单就是代码里真实存在的变量名**。
+本附录按用途分组列出仓库里出现过的 `LAWMIND_*` 环境变量。**提取方式是机械的**（`rg -o "LAWMIND_[A-Z0-9_]+"`），所以主体就是代码里真实存在的变量名——但这类提取有两个已知盲点，用之前值得知道：
+
+- **它会剥掉前缀**：`VITE_LAWMIND_INTERNAL_EXPERIMENT_UI` 在代码里全名带 `VITE_`（`apps/lawmind-desktop/src/renderer/global.d.ts:7`），本表里写的是去前缀的形式。从 Vite 前端读的变量都要按实际全名写。
+- **它会漏掉不在同名字面量里的读取**（例如经对象/动态键访问的），也可能混进表名里出现过、但代码里并不存在的名字。**拿这份表当线索，不要当凭证**——真要确认某个变量有没有用，`rg` 一次最稳。
 
 用法说明：
 
@@ -21,7 +24,6 @@
 | `LAWMIND_AGENT_TEMPERATURE`    | 采样温度                                             |
 | `LAWMIND_AGENT_TIMEOUT_MS`     | 模型调用超时，默认 120000                            |
 | `LAWMIND_AGENT_MAX_TOOL_CALLS` | 每轮工具调用上限，默认 80（上限也是 80）             |
-| `LAWMIND_WORKER_MODEL`         | 需要广告工具时优先用的模型（worker 模型）            |
 | `LAWMIND_MODEL_CONTEXT_TOKENS` | 上下文窗口大小，默认 128000                          |
 | `LAWMIND_MODEL_PROVIDERS`      | 启用的模型供应商列表                                 |
 
@@ -209,11 +211,14 @@
 
 ### 路由与模型角色
 
-| 变量                                                                                                                                                                                 | 说明                 |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
-| `LAWMIND_ROUTER_MODE` / `LAWMIND_ROUTER_MODEL` / `LAWMIND_ROUTER_BASE_URL` / `LAWMIND_ROUTER_API_KEY` / `LAWMIND_ROUTER_TEMPERATURE` / `LAWMIND_ROUTER_TIMEOUT_MS`                   | 路由模型配置         |
-| `LAWMIND_REASONING_MODE` / `LAWMIND_REASONING_MODEL` / `LAWMIND_REASONING_BASE_URL` / `LAWMIND_REASONING_API_KEY` / `LAWMIND_REASONING_TEMPERATURE` / `LAWMIND_REASONING_TIMEOUT_MS` | 推理模型配置         |
-| `LAWMIND_DEFAULT_UPSTREAM_MODEL` / `LAWMIND_DEFAULT_BUILTIN_MODEL_ID` / `LAWMIND_DEFAULT_PLATFORM_MODEL_ID` / `LAWMIND_BUILTIN_MODELS` / `LAWMIND_PLATFORM_MODELS`                   | 默认模型与内置模型表 |
+| 变量                                                                                                                                                                                 | 说明                                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `LAWMIND_ROUTER_MODE` / `LAWMIND_ROUTER_MODEL` / `LAWMIND_ROUTER_BASE_URL` / `LAWMIND_ROUTER_API_KEY` / `LAWMIND_ROUTER_TEMPERATURE` / `LAWMIND_ROUTER_TIMEOUT_MS`                   | 路由模型配置                                                                                                       |
+| `LAWMIND_REASONING_MODE` / `LAWMIND_REASONING_MODEL` / `LAWMIND_REASONING_BASE_URL` / `LAWMIND_REASONING_API_KEY` / `LAWMIND_REASONING_TEMPERATURE` / `LAWMIND_REASONING_TIMEOUT_MS` | 推理模型配置                                                                                                       |
+| `LAWMIND_DEFAULT_UPSTREAM_MODEL` / `LAWMIND_DEFAULT_BUILTIN_MODEL_ID` / `LAWMIND_DEFAULT_PLATFORM_MODEL_ID` / `LAWMIND_BUILTIN_MODELS` / `LAWMIND_PLATFORM_MODELS`                   | 默认模型与内置模型表                                                                                               |
+| `LAWMIND_DECISION_MODEL_API_KEY` / `LAWMIND_DECISION_MODEL_ID`                                                                                                                       | 判定模型（`models/decision-model.ts`、`policy/workspace-policy.ts`）。密钥也可写进策略文件的 `decisionModelApiKey` |
+
+**注意：没有 `LAWMIND_WORKER_MODEL` 这个环境变量。** 工具循环里的「worker 模型」不是靠环境变量选的，而是工作区模型设置里的 `workerModelId`（`models/custom-store.ts:146`、`models/types.ts:68`），在设置页配置。这是本附录最容易让人白找一圈的一处——照 `LAWMIND_WORKER_MODEL` 去 grep 会一无所获。
 
 ### 平台代理（私有化/商业通道）
 

@@ -601,9 +601,11 @@ rank(spec):
 
 而且提交与跳过**都会调** `applyPostFirstrunPermissionDefaults({ executable: true })`——**首跑直接给可执行权限**（第 2.2 节那条「不再弹首跑向导」的配套）。
 
-## 62.4 存储：51 个 localStorage 键与 4 个 sessionStorage 键
+## 62.4 存储：本节逐条列出的 33 个 localStorage 键与 4 个 sessionStorage 键
 
-这一节单独列，因为**「什么被记住了」是律师能感知的行为**。
+**先说清口径**：渲染层里形如 `lawmind.*` / `lm.*` 的存储键字面量，2026-09-23 静态数出约 **44 个**（非测试文件）。本节只逐条讲**有行为含义**的那些，不去凑总数——边角键（面板宽度之类）列全了没有增量信息。
+
+下面按用途分六组。
 
 ### localStorage 按用途分六组
 
