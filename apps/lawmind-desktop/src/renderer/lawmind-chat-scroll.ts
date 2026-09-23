@@ -104,11 +104,36 @@ export function pinChatMessagesToLatest(opts?: {
     }
     for (const el of containers) {
       const stop = () => cancel();
+      // 律师一动手就停：不跟他抢滚动条。
+      //
+      // 覆盖口径（此前只有 wheel / touchstart，键盘与拖滚动条这两类**不**取消，
+      // 于是「上翻看 §3」的律师在重挂载后最多 30 帧内会被拽回底部）：
+      //  - 滚轮 / 触摸拖动；
+      //  - 拖滚动条（mousedown 落在滚动容器上）；
+      //  - 键盘翻页（PageUp/PageDown/Home/End/↑/↓ 与带修饰键的同类）。
+      const onKeydown = (e: KeyboardEvent) => {
+        if (
+          e.key === "PageUp" ||
+          e.key === "PageDown" ||
+          e.key === "Home" ||
+          e.key === "End" ||
+          e.key === "ArrowUp" ||
+          e.key === "ArrowDown" ||
+          e.key === " " ||
+          e.key === "Spacebar"
+        ) {
+          cancel();
+        }
+      };
       el.addEventListener("wheel", stop, { passive: true });
       el.addEventListener("touchstart", stop, { passive: true });
+      el.addEventListener("mousedown", stop, { passive: true });
+      el.addEventListener("keydown", onKeydown);
       detachListeners.push(() => {
         el.removeEventListener("wheel", stop);
         el.removeEventListener("touchstart", stop);
+        el.removeEventListener("mousedown", stop);
+        el.removeEventListener("keydown", onKeydown);
       });
     }
   };
