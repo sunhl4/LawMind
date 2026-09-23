@@ -106,6 +106,8 @@ export type UseLawmindChatSendInput = {
     firstKeptTimestamp?: string;
     digestCharCount?: number;
     boundaryId?: string;
+    midTurn?: boolean;
+    roundIndex?: number;
   }) => void;
   onStreamToolBudget?: (info: { used: number; maxToolCalls: number }) => void;
   /** After a turn finishes (success or failure) — e.g. refresh action-summary / sticky review. */

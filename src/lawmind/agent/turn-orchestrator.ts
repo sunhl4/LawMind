@@ -760,6 +760,8 @@ export async function runTurn(opts: {
       emitEvent,
       abortRequested,
       abortSignal: turnAbortSignal,
+      maxHistoryMessages: maxHistory,
+      linkedTaskId: linkedTaskIdForCtx,
     });
 
     if (loop.aborted) {

@@ -164,11 +164,26 @@ export type RunTurnEvent =
       firstKeptRole?: AgentMessage["role"];
       digestCharCount?: number;
       boundaryId?: string;
+      /** 工具轮边界压缩（本回合内），不是回合开始那一次。见 `mid-turn-compact.ts`。 */
+      midTurn?: boolean;
+      roundIndex?: number;
     }
   | {
       type: "overflow_prune";
       prunedCount: number;
       charsRemoved: number;
+    }
+  | {
+      /** 模型以上下文预算为由退回律师 → 隐藏反弹回同回合续办（见 `context-deferral.ts`）。 */
+      type: "context_deferral_bounce";
+      roundIndex: number;
+      bounceCount: number;
+    }
+  | {
+      /** 模型以上下文预算为由退回律师 → 隐藏反弹回同回合续办（见 `context-deferral.ts`）。 */
+      type: "context_deferral_bounce";
+      roundIndex: number;
+      bounceCount: number;
     }
   | {
       type: "model_error";

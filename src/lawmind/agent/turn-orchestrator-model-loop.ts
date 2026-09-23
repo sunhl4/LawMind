@@ -9,6 +9,10 @@ import {
 } from "../models/model-usage.js";
 import { makeContextPinId } from "../platform/compose-context-pin.js";
 import {
+  readWorkspacePolicyFile,
+  type LawMindWorkspacePolicy,
+} from "../policy/workspace-policy.js";
+import {
   applySameTurnVerifyHistoryCollapse,
   collapseSameTurnVerifyHistoryForTurnEnd,
   formatSameTurnCompletionBounce,
@@ -20,7 +24,14 @@ import type { ToolCallRef } from "../runtime/tool-concurrency.js";
 import { contextUsesHostFileLedger } from "../runtime/tool-pipeline.js";
 import type { ClarificationQuestion } from "../types.js";
 import { claimAndApplyWorkGoal } from "../work/goal.js";
-import { estimateTokenBudget } from "./context-budget.js";
+import { estimateTokenBudget, resolveContextPolicy } from "./context-budget.js";
+import {
+  CONTEXT_DEFERRAL_BOUNCE_MAX,
+  dropContextDeferralBounces,
+  formatContextDeferralBounce,
+  isContextBudgetDeferralReply,
+} from "./context-deferral.js";
+import { applyMidTurnCompact, MID_TURN_COMPACT_MAX } from "./mid-turn-compact.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import { claimAndApplyPendingContextPins, appendContextPins } from "./session-context-inject.js";
 import { claimAndApplyPendingSteer } from "./session-context-steer.js";
@@ -108,6 +119,9 @@ export async function runModelToolLoop(opts: {
   abortRequested: () => boolean;
   /** Aborts in-flight model HTTP when Stop is pressed. */
   abortSignal?: AbortSignal;
+  /** 回合内自动压缩需要与回合开始同源的保留条数 / 关联任务。 */
+  maxHistoryMessages: number;
+  linkedTaskId?: string;
 }): Promise<ModelToolLoopResult> {
   let loopCount = 0;
   let turnUsage: ModelUsageSnapshot | undefined;
@@ -122,8 +136,91 @@ export async function runModelToolLoop(opts: {
   let openAITools = opts.openAITools;
   let previousToolNames: string[] | null = null;
   const pinIds: string[] = [];
+  /** 本回合已做过的工具轮边界压缩次数（上限见 `mid-turn-compact.ts`）。 */
+  let midTurnCompactions = 0;
+  /** 上一轮 provider 回报的真实 prompt 占用；估算偏小时用它当天花板。 */
+  let lastMeasuredPromptTokens = 0;
+  let turnPolicy: LawMindWorkspacePolicy | null | undefined;
+  const policyForTurn = (): LawMindWorkspacePolicy | null => {
+    if (turnPolicy === undefined) {
+      try {
+        turnPolicy = readWorkspacePolicyFile(opts.config.workspaceDir);
+      } catch {
+        turnPolicy = null;
+      }
+    }
+    return turnPolicy ?? null;
+  };
   const collapseHistoryForEnd = (): void => {
     collapseSameTurnVerifyHistoryForTurnEnd(opts.session, opts.turn);
+    // 退让反弹只服务下一轮采样，收口时清掉（与 same-turn verify 同取向）。
+    opts.session.conversationHistory = dropContextDeferralBounces(opts.session.conversationHistory);
+    opts.turn.messages = dropContextDeferralBounces(opts.turn.messages);
+  };
+
+  /**
+   * 工具轮边界自动整理上下文（Codex mid-turn trigger / Cursor self-summarization）：
+   * 压缩后**继续本回合**，而不是让模型「收口」再把活儿退回律师。
+   * 返回 true 表示历史已被重写。
+   */
+  const compactMidTurn = (roundIndex: number, force = false): boolean => {
+    if (midTurnCompactions >= MID_TURN_COMPACT_MAX) {
+      return false;
+    }
+    const policy = policyForTurn();
+    const { midTurnCompactTriggerRatio } = resolveContextPolicy(policy);
+    let outcome: ReturnType<typeof applyMidTurnCompact>;
+    try {
+      outcome = applyMidTurnCompact(opts.session, opts.config.workspaceDir, {
+        maxHistoryMessages: opts.maxHistoryMessages,
+        policy,
+        linkedTaskId: opts.linkedTaskId,
+        contextTokens: opts.config.model.contextTokens ?? policy?.context?.contextTokens,
+        roundIndex,
+        compactionsDone: midTurnCompactions,
+        force,
+        triggerRatio: midTurnCompactTriggerRatio,
+        // 估算器偏小时以真实占用为准（Codex：阈值/占用都要贴有效窗口）。
+        ...(lastMeasuredPromptTokens > 0 ? { measuredUsed: lastMeasuredPromptTokens } : {}),
+      });
+    } catch {
+      // 整理失败不拖垮本回合：工具轮继续，水位问题下一轮再试。
+      return false;
+    }
+    if (outcome.prune && outcome.prune.charsRemoved > 0) {
+      opts.emitEvent({
+        type: "overflow_prune",
+        prunedCount: outcome.prune.prunedCount,
+        charsRemoved: outcome.prune.charsRemoved,
+      });
+    }
+    if (!outcome.applied) {
+      return false;
+    }
+    midTurnCompactions += 1;
+    opts.emitEvent({
+      type: "compact_boundary",
+      sessionSummaryPath: outcome.sessionSummaryPath,
+      droppedMessageCount: outcome.droppedMessageCount,
+      firstKeptTimestamp: outcome.firstKeptTimestamp,
+      firstKeptRole: outcome.firstKeptRole,
+      digestCharCount: outcome.digestCharCount,
+      boundaryId: outcome.boundaryId,
+      midTurn: true,
+      roundIndex,
+    });
+    emitTurnLifecycle({
+      phase: "after_compact",
+      sessionId: opts.session.sessionId,
+      turnId: opts.turn.turnId,
+      detail: {
+        boundaryId: outcome.boundaryId,
+        droppedMessageCount: outcome.droppedMessageCount,
+        midTurn: true,
+        roundIndex,
+      },
+    });
+    return true;
   };
 
   const closeOnModelFailure = (err: unknown, roundIndex: number): void => {
@@ -205,6 +302,16 @@ export async function runModelToolLoop(opts: {
     if (opts.turnContext.matterId) {
       opts.ctx.matterId = opts.turnContext.matterId;
     }
+    // ── 工具轮边界整理上下文（Codex mid-turn compact）：压完继续本轮，
+    //    不要让模型在「窗口快满」时把活儿退回律师（客户事故：请另开一轮）。
+    //    待批准 / 待澄清时不动历史（审批卡与澄清问题还没有结论）。
+    if (
+      !opts.abortRequested() &&
+      opts.turn.status !== "awaiting_approval" &&
+      pendingClarificationQuestions.length === 0
+    ) {
+      compactMidTurn(roundIndex);
+    }
     const step = rebuildStepContext({
       session: opts.session,
       registry: opts.registry,
@@ -266,7 +373,7 @@ export async function runModelToolLoop(opts: {
         : opts.config.model;
 
     const callModelRound = () => {
-      const budget = estimateTokenBudget(opts.session, null, {
+      const budget = estimateTokenBudget(opts.session, policyForTurn(), {
         contextTokens: modelForRound.contextTokens ?? opts.config.model.contextTokens,
       });
       return callModelWithRetry(
@@ -290,7 +397,7 @@ export async function runModelToolLoop(opts: {
             } catch {
               /* 落盘失败不阻塞自愈：内存已修复，后续 saveSession 仍会写入 */
             }
-            const repairedBudget = estimateTokenBudget(opts.session, null, {
+            const repairedBudget = estimateTokenBudget(opts.session, policyForTurn(), {
               contextTokens: modelForRound.contextTokens ?? opts.config.model.contextTokens,
             });
             return deriveModelMessagesForSampling(opts.session, repairedBudget);
@@ -357,6 +464,10 @@ export async function runModelToolLoop(opts: {
       break;
     }
     turnUsage = mergeUsageSnapshots(turnUsage, usageFromProvider(response.usage));
+    const measuredPromptTokens = usageFromProvider(response.usage)?.promptTokens ?? 0;
+    if (measuredPromptTokens > 0) {
+      lastMeasuredPromptTokens = measuredPromptTokens;
+    }
 
     const choice = response.choices[0];
     if (!choice) {
@@ -423,6 +534,32 @@ export async function runModelToolLoop(opts: {
         opts.session.conversationHistory.push(bounceMsg);
         opts.turn.messages.push(bounceMsg);
         continue;
+      }
+      // 客户事故：模型以上下文预算为由把活儿退回律师（「请另开一轮」）。
+      // 先给它腾出窗口（工具轮边界压缩），再把一条隐藏的反弹消息塞回下一轮；
+      // 上限之后才如实收下它的回复（fail-open，不无限循环）。
+      const deferralText = assistantMsg.content ?? "";
+      if (isContextBudgetDeferralReply(deferralText)) {
+        const bounces = opts.turn.contextDeferralBounces ?? 0;
+        if (bounces < CONTEXT_DEFERRAL_BOUNCE_MAX) {
+          compactMidTurn(roundIndex, true);
+          opts.turn.contextDeferralBounces = bounces + 1;
+          agentMsg.hiddenFromLawyer = true;
+          const deferralBounce = {
+            role: "user" as const,
+            content: formatContextDeferralBounce(),
+            timestamp: new Date().toISOString(),
+            hiddenFromLawyer: true,
+          };
+          opts.session.conversationHistory.push(deferralBounce);
+          opts.turn.messages.push(deferralBounce);
+          opts.emitEvent({
+            type: "context_deferral_bounce",
+            roundIndex,
+            bounceCount: opts.turn.contextDeferralBounces,
+          });
+          continue;
+        }
       }
       finalReply = assistantMsg.content ?? "";
       opts.turn.status = "completed";
@@ -535,7 +672,7 @@ export async function runModelToolLoop(opts: {
     }
   }
 
-  collapseSameTurnVerifyHistoryForTurnEnd(opts.session, opts.turn);
+  collapseHistoryForEnd();
 
   if (opts.abortRequested() || opts.abortSignal?.aborted) {
     return {

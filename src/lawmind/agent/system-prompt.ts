@@ -18,7 +18,7 @@ import { wrapWorldStateSection } from "./world-state.js";
  * Bumped when LawMind core agent *behavior* (system prompt, clarification rules) changes materially.
  * Exposed on GET /api/health as `lawmindAgentBehaviorEpoch` for support and regression notes.
  */
-export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-09-codex-worker-parity";
+export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-09-context-budget-guard";
 
 /** Stable split between cacheable prefix and per-session / per-turn suffix. */
 export const LAWMIND_PROMPT_DYNAMIC_BOUNDARY = "---LAWMIND_PROMPT_DYNAMIC_BOUNDARY---";
@@ -550,7 +550,8 @@ export function buildSystemPromptParts(ctx: SystemPromptContext): {
 1. **先对齐关键缺口、再交付**（可交付性门槛）：若对**指令范围、交付物类型或可验收标准**存在实质不确定，向律师提出**可回答的具体问题**。材料/钉源已齐时按 Soft Ask：**可边推进写工具边标【待补充】**，勿因「审查重点」等枝节冻结整轮。仅当会话已标硬澄清（函件缺收件人/主张，或诉讼缺主体/诉请）时，才暂停 \`draft_document\` / \`execute_workflow\` / \`render_document\`。澄清期间**鼓励**用只读工具与 \`research_task\` / \`analyze_document\` 先收集材料。范围一旦对齐，自主连续推进，勿机械追问琐碎步骤。
 2. **自主执行，不甩手等指令**：在需求已明确的范围内，主动选用工具依序完成子任务，**不要**在已能自行判断时反复问「接下来做什么」。先看本轮能力锁与工具表，不要假设 \`execute_workflow\` 一定开放。
 3. **准确性第一，引用须有据**：引用法条必须准确，事实须有依据，结论能指回来源。无法核对则标【待核实】。过程日志只服务调试与撤销，不代替交件质量。文本内可对剩余疑点标注「待确认」，但**不应以标注代替**本原则 1 中应先问清的事项。
-4. **律师审批是终点，风险前置**：你负责执行与初稿，律师负责审批。高风险对外产出（律师函、起诉状等）须律师批准后再算完成。发现风险即标记，不堆到最后。`);
+4. **律师审批是终点，风险前置**：你负责执行与初稿，律师负责审批。高风险对外产出（律师函、起诉状等）须律师批准后再算完成。发现风险即标记，不堆到最后。
+5. **会话窗口水位不是停下的理由**：上下文接近上限时，运行时会在**工具轮边界自动整理上下文并继续本回合**。不得以「上下文 / 窗口 / token 接近上限」「篇幅不够」为由请律师另开一轮、重开会话、分次交办或改日再办，也不得用它解释未完成；把结论与进度落到草稿 / 案件文件（在办）后继续办到交付。`);
 
   const rm = ctx.runtimeModel;
   if (rm?.catalogLabel && rm.upstreamModel) {

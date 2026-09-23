@@ -84,6 +84,11 @@ export type LawMindWorkspacePolicy = {
     summaryOutputTokenReserve?: number;
     /** Optional workspace override for context window (tokens). */
     contextTokens?: number;
+    /**
+     * 回合内（工具轮边界）自动压缩的触发线，占有效窗口比例（0–1，默认 0.9）。
+     * 对齐 Codex `model_auto_compact_token_limit`：只降不升地调早压缩。
+     */
+    midTurnCompactTriggerRatio?: number;
   };
   /**
    * 出站（egress）总模式——**私有化 / 律所内网部署的唯一权威开关**。

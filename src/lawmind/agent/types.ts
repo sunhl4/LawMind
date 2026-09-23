@@ -322,6 +322,11 @@ export type AgentTurn = {
    * The turn is not complete while `red` is true (bounce or pause instead).
    */
   sameTurnVerify?: import("../runtime/same-turn-verify.js").SameTurnVerifyTurnState;
+  /**
+   * 上下文退让反弹次数（`context-deferral.ts`）：模型以上下文预算为由把活儿退回
+   * 律师时，同一回合内反弹回去继续办；超过上限后如实收下其回复。
+   */
+  contextDeferralBounces?: number;
   /** 律师待处理动作（澄清、工具批准等） */
   requiresAction?: LawMindRequiresAction[];
   /** 中断时待批准的工具调用（用于 resume） */
@@ -393,6 +398,9 @@ export type AgentSession = {
     firstKeptRole?: AgentMessage["role"];
     digestCharCount?: number;
     sessionSummaryPath?: string;
+    /** 工具轮边界压缩（不是回合开始那一次）；见 `mid-turn-compact.ts`。 */
+    midTurn?: boolean;
+    roundIndex?: number;
   };
   /**
    * Plan→Execute 交接（计划模式产出）：写入 session.json，便于刷新 / 跨端同工作区恢复。
@@ -434,6 +442,33 @@ export type AgentSession = {
    * stays on the same path without the lawyer re-selecting.
    */
   lastBoundCapabilityId?: import("../skills/lawyer-capability-lock.js").LawyerCapabilityId;
+  /**
+   * 本会话已「另起新对话并带上文」到了哪个会话（源会话侧指针）。
+   * 侧栏显示「→ 由此续接」；同时作为 fork 的幂等键（`nonce`）。
+   */
+  forkedTo?: {
+    sessionId: string;
+    at: string;
+    title?: string;
+    nonce?: string;
+    digestSource?: "llm" | "extractive" | "none";
+    digestChars?: number;
+    droppedMessageCount?: number;
+  };
+  /**
+   * 本会话是从哪条会话续接来的（新会话侧指针）。律师侧「续接来源」卡片据此渲染；
+   * `digestPreview` 只是预览，完整整理稿在 `conversationHistory` 的合成消息里。
+   */
+  carriedOverFrom?: {
+    sessionId: string;
+    at: string;
+    title?: string;
+    digestSource?: "llm" | "extractive" | "none";
+    digestChars?: number;
+    droppedMessageCount?: number;
+    seedChars?: number;
+    digestPreview?: string;
+  };
 };
 
 // ─────────────────────────────────────────────

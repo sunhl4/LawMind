@@ -274,6 +274,9 @@ export type StreamingChatCallbacks = {
     firstKeptTimestamp?: string;
     digestCharCount?: number;
     boundaryId?: string;
+    /** 工具轮边界整理（本回合内续跑），不是回合开始那一次。 */
+    midTurn?: boolean;
+    roundIndex?: number;
   }) => void;
   onPlanUpdate?: (plan: AgentTurnPlan) => void;
   onIntent?: (intent: ChatCompiledIntent) => void;
@@ -440,6 +443,8 @@ export async function sendChatTurnStream(
             digestCharCount:
               typeof parsed.digestCharCount === "number" ? parsed.digestCharCount : undefined,
             boundaryId: typeof parsed.boundaryId === "string" ? parsed.boundaryId : undefined,
+            midTurn: parsed.midTurn === true ? true : undefined,
+            roundIndex: typeof parsed.roundIndex === "number" ? parsed.roundIndex : undefined,
           });
           break;
         }

@@ -245,11 +245,12 @@ export function formatRemainingTokensNote(used: number, limit: number): string {
   const safeUsed = Math.max(0, Math.floor(used));
   const safeLimit = Math.max(1, Math.floor(limit));
   const remaining = Math.max(0, safeLimit - safeUsed);
-  const ratio = safeUsed / safeLimit;
+  // 水位不是停工信号：运行时会在工具轮边界自动整理上下文并继续本回合
+  // （见 `mid-turn-compact.ts`）。请律师另开会话/分次交办一律不得出现在回复里。
   const tail =
-    ratio >= 1
-      ? "优先用工具读文件，勿整段 dump；先收口本回合结论。"
-      : "优先用工具读文件，勿整段 dump。";
+    "这是事实通报，不是让你收工的指令：运行时会在工具轮边界自动整理上下文并继续本回合；" +
+    "优先用工具读文件、勿整段 dump，把结论与进度落到草稿或案件文件；" +
+    "不得以「上下文接近上限」为由请律师另开一轮、重开会话或分次交办。";
   return `【窗口】大约还剩 ${remaining} token（已用 ${safeUsed}/${safeLimit}）。${tail}`;
 }
 

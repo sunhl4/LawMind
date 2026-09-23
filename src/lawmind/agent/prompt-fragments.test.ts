@@ -92,13 +92,17 @@ describe("prompt-fragments", () => {
   it("appends remaining-token notes only at sample time", () => {
     const note = formatRemainingTokensNote(1_000, 8_000);
     expect(note).toContain("还剩 7000 token");
-    expect(note).not.toContain("先收口");
+    expect(note).not.toContain("请另开");
     const messages = withEphemeralBudgetNote([{ role: "user" as const, content: "审合同" }], note);
     expect(messages).toHaveLength(2);
     expect(messages[1]?.content).toContain("还剩 7000");
     expect(shouldInjectRemainingTokensNote(1_000, 8_000)).toBe(false);
     expect(shouldInjectRemainingTokensNote(7_000, 8_000)).toBe(true);
-    expect(formatRemainingTokensNote(8_000, 8_000)).toContain("先收口");
+    // 越线时不得再给「先收口」这种收工信号：水位由运行时在工具轮边界处理。
+    const atLimit = formatRemainingTokensNote(8_000, 8_000);
+    expect(atLimit).not.toContain("先收口");
+    expect(atLimit).toContain("不是让你收工的指令");
+    expect(atLimit).toContain("另开一轮");
   });
 
   it("scales working-desk fragment caps with the model window", () => {
