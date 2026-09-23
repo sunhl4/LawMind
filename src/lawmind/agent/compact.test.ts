@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { appendQueueItem } from "../adapters/matter-storage/index.js";
 import { persistDraft } from "../drafts/index.js";
 import type { ArtifactDraft } from "../types.js";
+import { replaceDroppedDigestInMessages } from "./compact-llm-digest.js";
 import {
   autoCompactSessionHistory,
   buildDroppedSpanDigest,
@@ -151,6 +152,39 @@ describe("autoCompactSessionHistory", () => {
     expect(out.compacted).toBe(true);
     const roles = out.messages.map((m) => m.role).join(",");
     expect(roles).toContain("tool");
+  });
+
+  it("蒸馏块按 user 角色插入，LLM 摘要能就地替换（生产路径回归）", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-compact-digest-"));
+    const now = new Date().toISOString();
+    const history: AgentMessage[] = [{ role: "system", content: "sys", timestamp: now }];
+    for (let i = 0; i < 12; i += 1) {
+      history.push(
+        { role: "user", content: `请审查第 ${i} 条违约金条款`, timestamp: now },
+        { role: "assistant", content: `第 ${i} 条建议改为……`, timestamp: now },
+      );
+    }
+    const session: AgentSession = {
+      sessionId: "s-digest",
+      actorId: "test",
+      turns: [],
+      matterId: "m-digest",
+      conversationHistory: history,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const out = autoCompactSessionHistory(session, ws, { maxHistoryMessages: 4 });
+    expect(out.compacted).toBe(true);
+    const digestIndex = out.messages.findIndex((m) =>
+      (m.content ?? "").includes("【压缩前对话蒸馏】"),
+    );
+    expect(digestIndex).toBeGreaterThanOrEqual(0);
+    // 生产路径插成 user（合成用户轮）。若这里回退成 system，替换逻辑又会静默失效。
+    expect(out.messages[digestIndex]?.role).toBe("user");
+
+    const next = replaceDroppedDigestInMessages(out.messages, "【压缩前对话蒸馏】摘要：新");
+    expect(next[digestIndex]?.content).toContain("摘要：新");
   });
 
   it("keeps a multi-tool batch whole when the tail cut lands inside it", () => {

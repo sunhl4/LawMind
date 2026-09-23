@@ -254,6 +254,9 @@ export async function handleRecordRoutes({
         assistantId: session.assistantId?.trim() || DEFAULT_ASSISTANT_ID,
         matterId: session.matterId,
         messages: sessionHistoryToSimpleMessages(session),
+        // 「续接来源」卡片（律师可核对带过来了什么）与「→ 由此续接」双向指针。
+        ...(session.carriedOverFrom ? { carriedOverFrom: session.carriedOverFrom } : {}),
+        ...(session.forkedTo ? { forkedTo: session.forkedTo } : {}),
       },
       c,
     );
@@ -332,6 +335,9 @@ export async function handleRecordRoutes({
         updatedAt: session.updatedAt,
         turnCount: session.turns.length,
         lastPreview: preview || undefined,
+        // 「→ 由此续接」：这条对话已被另起的新对话承前（见 session-carryover.ts）。
+        // 侧栏据此在行上标注，避免律师在两条几乎同名的对话里点错。
+        forkedToSessionId: session.forkedTo?.sessionId,
       };
     });
     sendJson(res, 200, { ok: true, sessions }, c);

@@ -20,7 +20,9 @@ import { WORKING_BRIEF_HEADING } from "../intent/working-brief.js";
 import { buildAgentFleetSummary } from "../platform/build-agent-fleet.js";
 import { FOLDER_EXPLORE_GATE_ERROR } from "../runtime/tool-pipeline.js";
 import { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
+import { CONTEXT_DEFERRAL_BOUNCE_MARKER } from "./context-deferral.js";
 import { MAIL_CONTRACT_FAST_PATH_DENIED_HINT } from "./mail-contract-fast-path.js";
+import { CARRYOVER_SEED_MARKER, forkSessionWithCarryover } from "./session-carryover.js";
 import { formatSteerUserMessage } from "./session-context-steer.js";
 import { loadSession, saveSession } from "./session.js";
 import {
@@ -412,6 +414,145 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(req.contains(CITATION)).toBe(true);
         expect(req.contains(COMPACT_REINJECTION_MARKER)).toBe(true);
         expect(req.contains("压缩前引用") || req.contains("压缩前对话蒸馏")).toBe(true);
+      },
+    );
+  });
+
+  it("context: mid-turn compact rewrites history at the tool-round boundary and keeps running", async () => {
+    await withTestLawMind(
+      (b) => b.withMaxHistory(8),
+      async (h) => {
+        // 只把「回合内整理」的触发线压到很低：本轮断言的是机制（边界压缩 + 续跑），
+        // 不依赖系统提示词体积 —— 第 2 轮必然越线。
+        fs.writeFileSync(
+          path.join(h.workspaceDir, "lawmind.policy.json"),
+          `${JSON.stringify({ schemaVersion: 1, context: { midTurnCompactTriggerRatio: 0.02 } })}\n`,
+          "utf8",
+        );
+        const history: AgentMessage[] = [{ role: "system", content: "sys", timestamp: ts() }];
+        for (let i = 0; i < 10; i += 1) {
+          history.push(
+            { role: "user", content: `历史轮 ${i}：继续讨论付款节奏`, timestamp: ts() },
+            { role: "assistant", content: `历史答 ${i}：可分期。`, timestamp: ts() },
+          );
+        }
+        const seeded = h.seedHistory(history, { matterId: "m-midturn" });
+        expect(seeded.conversationHistory.length).toBeGreaterThan(20);
+
+        h.enqueue(
+          cassetteToolCall("search_statute", { q: "违约" }),
+          cassetteAssistant("已按检索结果继续完成交付。"),
+        );
+        const boundaries: Array<{ midTurn?: boolean; roundIndex?: number }> = [];
+        const result = await h.runTurn("继续不澄清。根据此前依据写结论。", {
+          matterId: "m-midturn",
+          onEvent: (ev) => {
+            if (ev.type === "compact_boundary") {
+              boundaries.push({ midTurn: ev.midTurn, roundIndex: ev.roundIndex });
+            }
+          },
+        });
+
+        expect(result.turn.status).toBe("completed");
+        expect(result.reply).toContain("继续完成交付");
+        // 回合开始那次压缩不带 midTurn；工具轮边界这次必须带，且落在第 2 轮。
+        expect(boundaries.map((b) => b.midTurn === true)).toEqual([false, true]);
+        expect(boundaries[1]?.roundIndex).toBe(2);
+        expect(h.session()?.lastCompactBoundary?.midTurn).toBe(true);
+        // 压缩后接着跑完，而不是停在这一轮；送出的历史仍是可发送的配对态。
+        expect(h.requests.length).toBe(2);
+        expect(orphanToolCallIds(h.request(1).messages())).toEqual([]);
+      },
+    );
+  });
+
+  it("context: a budget-deferral reply is bounced back and never becomes the turn's answer", async () => {
+    const DEFERRAL_REPLY =
+      "说明：本轮上下文预算已接近上限，若需我起草或修改具体条款（竞业限制解除条款、三方义务分配），请另开一轮并告知协议主体结构，我会直接落到 Word 稿。";
+    await withTestLawMind(
+      (b) => b.withMaxHistory(8),
+      async (h) => {
+        h.seedHistory([{ role: "system", content: "sys", timestamp: ts() }], {
+          matterId: "m-defer",
+        });
+        h.enqueue(
+          cassetteToolCall("search_statute", { q: "竞业限制" }),
+          cassetteAssistant(DEFERRAL_REPLY),
+          cassetteAssistant("已按检索结果写完解除条款与三方义务分配，交付见在办。"),
+        );
+        const bounces: Array<{ bounceCount: number; roundIndex: number }> = [];
+        const result = await h.runTurn("起草竞业限制解除条款与三方义务分配。", {
+          matterId: "m-defer",
+          onEvent: (ev) => {
+            if (ev.type === "context_deferral_bounce") {
+              bounces.push({ bounceCount: ev.bounceCount, roundIndex: ev.roundIndex });
+            }
+          },
+        });
+
+        expect(result.turn.status).toBe("completed");
+        expect(result.reply).toContain("已按检索结果写完");
+        expect(result.reply).not.toContain("另开一轮");
+        expect(bounces).toEqual([{ bounceCount: 1, roundIndex: 2 }]);
+        // 反弹消息进下一轮采样（模型看得见），律师气泡看不见。
+        expect(h.requests.length).toBe(3);
+        expect(h.request(2).contains(CONTEXT_DEFERRAL_BOUNCE_MARKER)).toBe(true);
+        const visible = (h.session()?.conversationHistory ?? []).filter(
+          (m) => m.hiddenFromLawyer !== true && m.role !== "system",
+        );
+        expect(visible.some((m) => (m.content ?? "").includes("另开一轮"))).toBe(false);
+        // 反弹消息只服务下一轮采样：收口后不再留在历史里。
+        expect(
+          (h.session()?.conversationHistory ?? []).some((m) =>
+            (m.content ?? "").startsWith(CONTEXT_DEFERRAL_BOUNCE_MARKER),
+          ),
+        ).toBe(false);
+      },
+    );
+  });
+
+  it("carryover: forked session sends the seed + migrated clarification keys in its first request", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        const now = new Date().toISOString();
+        const seeded = h.seedHistory(
+          [
+            { role: "system", content: "sys", timestamp: now },
+            {
+              role: "user",
+              content: "起草竞业限制解除条款，依据《劳动合同法》第23条。",
+              timestamp: now,
+            },
+            { role: "assistant", content: `已定位 ${CITATION}。`, timestamp: now },
+          ],
+          { matterId: "m-carry" },
+        );
+        // 源会话仍在硬澄清态：迁移丢了就等于静默放开起草门禁。
+        seeded.pendingClarificationKeys = ["竞业限制补偿标准"];
+        saveSession(h.workspaceDir, seeded);
+
+        const forked = await forkSessionWithCarryover({
+          workspaceDir: h.workspaceDir,
+          sourceSessionId: seeded.sessionId,
+        });
+        expect(forked.ok).toBe(true);
+        if (!forked.ok) {
+          return;
+        }
+
+        h.enqueue(cassetteAssistant("继续写解除条款。"));
+        await h.runTurn("继续不澄清。请根据此前依据写结论。", {
+          sessionId: forked.session.sessionId,
+          matterId: "m-carry",
+        });
+
+        // 第一次请求就带着续接事实：状态头 + 蒸馏里的法条锚点 + 待澄清键。
+        expect(h.request(0).contains(CARRYOVER_SEED_MARKER)).toBe(true);
+        expect(h.request(0).contains(CITATION)).toBe(true);
+        expect(h.request(0).contains("待澄清键")).toBe(true);
+        expect(h.request(0).contains("竞业限制补偿标准")).toBe(true);
+        expect(h.request(0).contains(`sessions/${seeded.sessionId}.json`)).toBe(true);
       },
     );
   });

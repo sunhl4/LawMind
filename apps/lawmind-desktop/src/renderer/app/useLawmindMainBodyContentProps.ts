@@ -23,6 +23,7 @@ import type {
 } from "../lawmind-agents-desk";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "../lawmind-requires-action";
 import type { ChatMsg } from "../lawmind-chat";
+import type { ChatContextForkProps } from "../LawmindContextForkSuggestion";
 import type { FileChatContextItem } from "../lawmind-file-chat-context";
 import type { TruthSourceContextPin } from "../../../../../src/lawmind/platform/compose-context-pin.ts";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
@@ -124,6 +125,7 @@ export type UseLawmindMainBodyContentPropsInput = {
   copyMessage: (text: string, index: number) => void | Promise<void>;
   sendChatMessage: (msg: string) => void | Promise<void>;
   streamCompactLabels: string[];
+  contextFork?: ChatContextForkProps;
   fileChatContextItems: FileChatContextItem[];
   composeTruthPins: TruthSourceContextPin[];
   addFileToChatContext: (payload: Pick<FileChatContextItem, "root" | "relPath" | "kind">) => void;
@@ -260,6 +262,7 @@ export function useLawmindMainBodyContentProps(
     copyMessage,
     sendChatMessage,
     streamCompactLabels,
+    contextFork,
     fileChatContextItems,
     composeTruthPins,
     addFileToChatContext,
@@ -466,6 +469,7 @@ export function useLawmindMainBodyContentProps(
       textareaRef,
       onSendClarificationMessage: sendChatMessage,
       streamCompactLabels,
+      contextFork,
       fileChatContextItems,
       composeTruthPins,
       onAddFileToChatContext: addFileToChatContext,
@@ -662,6 +666,7 @@ export function useLawmindMainBodyContentProps(
       copyMessage,
       sendChatMessage,
       streamCompactLabels,
+      contextFork,
       fileChatContextItems,
       composeTruthPins,
       addFileToChatContext,

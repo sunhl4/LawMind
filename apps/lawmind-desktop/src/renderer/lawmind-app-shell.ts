@@ -11,9 +11,28 @@ import { useLawmindBackgroundWatch } from "./useLawmindBackgroundWatch";
 import { useLawmindChatSessions } from "./useLawmindChatSessions";
 import { useLawmindChatSend } from "./useLawmindChatSend";
 import { useLawmindComposeExtras } from "./useLawmindComposeExtras";
+import { resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
 import { useLawmindDetailDomain, useLawmindRecordsDomain } from "./lawmind-app-shell-domains";
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
 import { DESK_WRITE_TOOL_NAMES } from "../../../../src/lawmind/agent/tool-name-sets.ts";
+import { shouldSuggestContextFork } from "./LawmindContextForkSuggestion";
+import {
+  dismissForkSuggestion,
+  isForkSuggestionDismissed,
+} from "./lawmind-context-fork-pref";
+
+/**
+ * 幂等 nonce 由渲染端生成：renderer 不得 value-import 引擎模块
+ * （`session-carryover.ts` 会拖进 node:crypto / fs，见
+ * `renderer-node-builtins.test.ts`）。只要求「同一源会话重复点击得同一串」。
+ */
+function newForkNonce(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `n-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
 import { writeAllowWebSearchPreference } from "./lawmind-web-search-prefs.js";
 import { retrievalShareLabel } from "./lawmind-settings-models.ts";
 import type { HealthPayload } from "./lawmind-app-data.js";
@@ -90,6 +109,7 @@ export function useLawmindAppShell() {
     setChatSessionsLoading,
     loadSessionMessagesIntoState,
     refreshChatSessionListForAssistant,
+    carriedOverFromBySession,
   } = useLawmindChatShell({
     apiBase: config?.apiBase,
     selectedAssistantId,
@@ -307,6 +327,8 @@ export function useLawmindAppShell() {
     apiBase: config?.apiBase,
     sessionId: activeChatSessionIdForExtras,
     matterId: contextMatterId,
+    // 分母跟 compose 选中的模型（与 /api/chat 请求体同一个值）；切模型即刷新。
+    modelId: resolveComposeModelSelectValue(modelCatalog, selectedModelId),
     onCompactMessages: (rows) => {
       const msgs = rows
         .filter((m) => m.role === "user" || m.role === "assistant")
@@ -321,6 +343,10 @@ export function useLawmindAppShell() {
   const [streamCompactNoticesByAssistant, setStreamCompactNoticesByAssistant] = useState<
     Record<string, string[]>
   >({});
+  /** 建议卡关掉后要重渲染（判定读的是 localStorage，不是 state，故只取 setter）。 */
+  const [, bumpContextForkVersion] = useState(0);
+  /** 同一源会话复用同一个 nonce：连点两次只复用一个新会话，不造第二份。 */
+  const forkNonceRef = useRef<{ sessionId: string; nonce: string } | null>(null);
 
   const {
     abortChatSend,
@@ -365,9 +391,13 @@ export function useLawmindAppShell() {
         typeof info.droppedMessageCount === "number" ? info.droppedMessageCount : 0;
       const label = info.overflowPrune
         ? "上下文较满，已精简后继续"
-        : dropped > 0
-          ? `对话已自动压缩（约 ${dropped} 条较早消息已折叠）`
-          : "对话已自动压缩以腾出上下文空间";
+        : info.midTurn
+          ? dropped > 0
+            ? `上下文已整理（折叠约 ${dropped} 条较早消息），本回合未中断，继续办理`
+            : "上下文已整理，本回合未中断，继续办理"
+          : dropped > 0
+            ? `对话已自动压缩（约 ${dropped} 条较早消息已折叠）`
+            : "对话已自动压缩以腾出上下文空间";
       setStreamCompactNoticesByAssistant((prev) => ({
         ...prev,
         [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), label],
@@ -396,6 +426,46 @@ export function useLawmindAppShell() {
     assistants,
     setMessagesByAssistant,
   });
+
+  /**
+   * 另起新对话并带上文：源会话的整理稿作为续接种子进新会话，然后切过去。
+   * 失败（回合在跑 / 有待批准授权）如实说明——不静默丢授权。
+   */
+  const handleForkWithCarryover = useCallback(async () => {
+    const sourceSessionId = sessionByAssistant[selectedAssistantId];
+    if (!sourceSessionId) {
+      return;
+    }
+    if (forkNonceRef.current?.sessionId !== sourceSessionId) {
+      forkNonceRef.current = { sessionId: sourceSessionId, nonce: newForkNonce() };
+    }
+    const result = await composeExtras.forkWithCarryover({
+      clientNonce: forkNonceRef.current.nonce,
+    });
+    if (!result.ok) {
+      setStreamCompactNoticesByAssistant((prev) => ({
+        ...prev,
+        [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), result.message],
+      }));
+      return;
+    }
+    await refreshChatSessionListForAssistant(selectedAssistantId);
+    await selectChatSession(result.sessionId, selectedAssistantId);
+    const carried =
+      typeof result.stats?.droppedMessageCount === "number" && result.stats.droppedMessageCount > 0
+        ? `（已带上 ${result.stats.droppedMessageCount} 条对话的整理稿）`
+        : "（已带上整理稿）";
+    setStreamCompactNoticesByAssistant((prev) => ({
+      ...prev,
+      [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), `已另起新对话${carried}`],
+    }));
+  }, [
+    composeExtras,
+    refreshChatSessionListForAssistant,
+    selectChatSession,
+    selectedAssistantId,
+    sessionByAssistant,
+  ]);
 
   const copyMessage = useCallback(async (text: string, index: number) => {
     await navigator.clipboard.writeText(text);
@@ -500,6 +570,21 @@ export function useLawmindAppShell() {
       reviewRefreshVersion,
       composeExtras,
       streamCompactLabels: streamCompactNoticesByAssistant[selectedAssistantId] ?? [],
+      contextFork: {
+        ...(carriedOverFromBySession[activeChatSessionIdForExtras ?? ""]
+          ? { carriedOverFrom: carriedOverFromBySession[activeChatSessionIdForExtras ?? ""] }
+          : {}),
+        // 一次性建议：已被压过（回合内）或压了 >= 2 次，且律师没关过这张卡。
+        showSuggestion:
+          !isForkSuggestionDismissed(activeChatSessionIdForExtras) &&
+          shouldSuggestContextFork(composeExtras.contextBudget),
+        busy: composeExtras.forkBusy,
+        onFork: () => void handleForkWithCarryover(),
+        onDismiss: () => {
+          dismissForkSuggestion(activeChatSessionIdForExtras);
+          bumpContextForkVersion((v) => v + 1);
+        },
+      },
     },
     derived: {
       canUseFilesystemBridge,

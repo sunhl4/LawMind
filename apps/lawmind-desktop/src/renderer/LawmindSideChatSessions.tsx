@@ -20,6 +20,8 @@ export type SideChatSessionRow = {
   sessionId: string;
   title: string;
   lastPreview?: string;
+  /** 已被「另起新对话（带上文）」承前到哪条（见 `session-carryover.ts`）。 */
+  forkedToSessionId?: string;
 };
 
 export type LawmindSideChatSessionsProps = {
@@ -361,6 +363,15 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
                   onContextMenu={(e) => openContextMenu(e, row)}
                 >
                   <span className="lm-side-chat-session-title">{row.title}</span>
+                  {row.forkedToSessionId ? (
+                    <span
+                      className="lm-side-chat-session-forked"
+                      data-testid={`lm-side-chat-session-forked-${row.sessionId}`}
+                      title="已用「另起新对话（带上文）」承前；点开可回到那条新对话"
+                    >
+                      → 由此续接
+                    </span>
+                  ) : null}
                   {row.lastPreview ? (
                     <span className="lm-side-chat-session-preview">{row.lastPreview}</span>
                   ) : null}

@@ -15,7 +15,13 @@ import {
   isCompactLlmDigestEnabled,
   replaceDroppedDigestInMessages,
 } from "../../../src/lawmind/agent/compact-llm-digest.js";
-import { estimateTokenBudget } from "../../../src/lawmind/agent/context-budget.js";
+import {
+  estimateTokenBudget,
+  estimateTokenBudgetBreakdown,
+  resolveContextPolicy,
+} from "../../../src/lawmind/agent/context-budget.js";
+import { readSessionEvents } from "../../../src/lawmind/agent/session-event-log.js";
+import { forkSessionWithCarryover } from "../../../src/lawmind/agent/session-carryover.js";
 import { getLiveTurnProgress } from "../../../src/lawmind/agent/live-turn-progress.js";
 import { queuePendingContextPins } from "../../../src/lawmind/agent/session-context-inject.js";
 import { queuePendingSteer } from "../../../src/lawmind/agent/session-context-steer.js";
@@ -55,13 +61,22 @@ const compactBodySchema = z.object({
   useLlmDigest: z.boolean().optional(),
 });
 
-function resolveSessionEnvelope(workspaceDir: string, envFile?: string) {
+const forkBodySchema = z.object({
+  title: z.string().trim().max(200).optional(),
+  clientNonce: z.string().trim().max(120).optional(),
+  useLlmDigest: z.boolean().optional(),
+});
+
+function resolveSessionEnvelope(workspaceDir: string, envFile?: string, modelId?: string) {
   const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
-  const resolved = resolveAgentModelById(lawMindRoot);
-  return resolveCapabilityEnvelope({
-    contextTokens: resolved.model?.contextTokens ?? undefined,
-    timeoutMs: resolved.model?.timeoutMs,
-  });
+  const resolved = resolveAgentModelById(lawMindRoot, modelId);
+  return {
+    resolved,
+    envelope: resolveCapabilityEnvelope({
+      contextTokens: resolved.model?.contextTokens ?? undefined,
+      timeoutMs: resolved.model?.timeoutMs,
+    }),
+  };
 }
 
 const messagesMutateSchema = z.object({
@@ -113,6 +128,7 @@ export async function handleSessionExtendedRoutes({
   pathname,
   req,
   res,
+  url,
   c,
 }: LawmindRouteContext): Promise<boolean> {
   const { workspaceDir } = ctx;
@@ -126,11 +142,28 @@ export async function handleSessionExtendedRoutes({
       return true;
     }
     const policy = readWorkspacePolicyFile(workspaceDir);
-    const envelope = resolveSessionEnvelope(workspaceDir, ctx.envFile);
+    // A6：分母必须跟 compose 里**选中的那个模型**（请求体同样带 modelId 发给 /api/chat），
+    // 而不是设置里的默认模型——两者可以不同，旧口径会让圆环显示错误的窗口与阈值。
+    const modelIdParam = url.searchParams.get("modelId")?.trim();
+    const { resolved, envelope } = resolveSessionEnvelope(
+      workspaceDir,
+      ctx.envFile,
+      modelIdParam || undefined,
+    );
     const budget = estimateTokenBudget(session, policy, {
       contextTokens: envelope.contextTokens,
       charsPerToken: envelope.charsPerToken,
     });
+    // A3：分层用量（律对话 / 工具回包 / 钉选 / 清单 / 系统规则……），与 used 同口径。
+    const breakdown = estimateTokenBudgetBreakdown(session, {
+      charsPerToken: envelope.charsPerToken,
+    });
+    const { autoCompactBufferTokens, summaryOutputTokenReserve, midTurnCompactTriggerRatio } =
+      resolveContextPolicy(policy);
+    // A7：本会话压过几次、上次是什么时候——只给「已整理过」的事实，不还原摘要正文。
+    const compactCount = readSessionEvents(workspaceDir, sessionId).filter(
+      (record) => record.event.type === "compact_boundary",
+    ).length;
     sendJson(
       res,
       200,
@@ -139,6 +172,93 @@ export async function handleSessionExtendedRoutes({
         ...budget,
         contextTokens: envelope.contextTokens,
         maxOutputTokens: envelope.maxOutputTokens,
+        /** 实际参与本次估算的模型（律师在 compose 里选的那个）。 */
+        modelId: resolved.resolvedModelId,
+        breakdown,
+        // A4：原始窗口 / 可用窗口 / 自动整理线（回合开始 + 回合内）三元组。
+        window: {
+          contextTokens: envelope.contextTokens,
+          maxOutputTokens: envelope.maxOutputTokens,
+          summaryOutputTokenReserve,
+          autoCompactBufferTokens,
+          usableLimit: budget.effectiveLimit,
+          autoCompactLimit: budget.effectiveLimit,
+          midTurnCompactLimit: Math.max(
+            1,
+            Math.floor(budget.effectiveLimit * midTurnCompactTriggerRatio),
+          ),
+        },
+        compactCount,
+        lastCompact: session.lastCompactBoundary ?? null,
+      },
+      c,
+    );
+    return true;
+  }
+
+  // 另起新对话并带上文：把源会话蒸馏成续接种子注入新会话（见 agent/session-carryover.ts）。
+  const forkMatch = /^\/api\/sessions\/([^/]+)\/fork-with-carryover$/.exec(pathname);
+  if (forkMatch && req.method === "POST") {
+    const sourceSessionId = forkMatch[1] ?? "";
+    let body: z.infer<typeof forkBodySchema> = {};
+    try {
+      const raw = await readJsonBody(req);
+      const parsed = forkBodySchema.safeParse(raw ?? {});
+      if (parsed.success) {
+        body = parsed.data;
+      }
+    } catch {
+      body = {};
+    }
+    const { resolved, envelope } = resolveSessionEnvelope(workspaceDir, ctx.envFile);
+    const result = await forkSessionWithCarryover({
+      workspaceDir,
+      sourceSessionId,
+      title: body.title,
+      clientNonce: body.clientNonce,
+      contextTokens: envelope.contextTokens,
+      enhanceDigest:
+        body.useLlmDigest === false || !resolved.model || !isCompactLlmDigestEnabled()
+          ? undefined
+          : async ({ draft }) => {
+              if (!draft.extractiveDigest.trim()) {
+                return undefined;
+              }
+              const enhanced = await enhanceCompactDigestWithLlm({
+                model: resolved.model!,
+                extractiveDigest: draft.extractiveDigest,
+                dropped: draft.dropped,
+                contextTokens: envelope.contextTokens,
+              });
+              return enhanced.usedLlm ? enhanced.digest : undefined;
+            },
+    });
+    if (!result.ok) {
+      const status = result.code === "source_not_found" ? 404 : 409;
+      sendJson(
+        res,
+        status,
+        {
+          ok: false,
+          code: result.code,
+          message: result.message,
+          ...(result.blockingActions ? { blockingActions: result.blockingActions } : {}),
+        },
+        c,
+      );
+      return true;
+    }
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        sessionId: result.session.sessionId,
+        title: result.session.title,
+        reused: result.reused,
+        digestSource: result.digestSource,
+        migrated: result.migrated,
+        stats: result.stats,
       },
       c,
     );
@@ -386,9 +506,10 @@ export async function handleSessionExtendedRoutes({
       distill = false;
     }
     const policy = readWorkspacePolicyFile(workspaceDir);
-    const envelope = resolveSessionEnvelope(workspaceDir, ctx.envFile);
-    const lawMindRoot = resolveLawMindRoot(workspaceDir, ctx.envFile);
-    const resolvedModel = resolveAgentModelById(lawMindRoot);
+    const { resolved: resolvedModel, envelope } = resolveSessionEnvelope(
+      workspaceDir,
+      ctx.envFile,
+    );
     const beforeMessages = [...session.conversationHistory];
     const previewSession = {
       ...session,
