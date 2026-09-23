@@ -121,6 +121,100 @@ describe("buildDroppedSpanDigest", () => {
   });
 });
 
+describe("buildDroppedSpanDigest · 任务保留与摘要接续（对照 Codex）", () => {
+  const TASK = "把竞业限制解除条款与三方义务分配写出来，落到 Word 稿";
+  const CITATION = "《劳动合同法》第23条";
+
+  function filler(n: number): AgentMessage[] {
+    return Array.from({ length: n }, (_, i) => ({
+      role: "user" as const,
+      content: `第${i}轮律师发言：请继续核对付款与违约`,
+      timestamp: `t${i}`,
+    }));
+  }
+
+  it("任务陈述按原文保留，即便律师发言远超「末 8 条」窗口", () => {
+    const dropped: AgentMessage[] = [
+      { role: "user", content: TASK, timestamp: "t0" },
+      ...filler(30),
+    ];
+    const digest = buildDroppedSpanDigest(dropped, 10_000);
+    expect(digest).toContain("### 任务与目标（原文保留，最早一条律师发言）");
+    expect(digest).toContain("三方义务分配");
+    // 末 8 条要点里当然不会有它（那是「最近」窗口），说明它是靠任务段活下来的。
+    const lawyerSection = digest.split("### 律师要点")[1] ?? "";
+    expect(lawyerSection.includes(TASK)).toBe(false);
+  });
+
+  it("此前的整理稿不被当成律师发言，而是单独接续", () => {
+    const priorDigest = `【压缩前对话蒸馏】共丢弃约 12 条消息\n\n### 任务与目标（原文保留，最早一条律师发言）\n- ${TASK}`;
+    const dropped: AgentMessage[] = [
+      { role: "user", content: priorDigest, timestamp: "t0" },
+      { role: "user", content: "本轮新要求：再核对管辖条款", timestamp: "t1" },
+      ...filler(10),
+    ];
+    const digest = buildDroppedSpanDigest(dropped, 10_000);
+    expect(digest).toContain("### 上一轮整理稿（接续保留，非律师新发言）");
+    // 关键：它没有混进「律师要点」，否则会被按 1200 字符截断并与真实发言抢窗口。
+    const lawyerSection = digest.split("### 律师要点")[1]?.split("###")[0] ?? "";
+    expect(lawyerSection).not.toContain("上一轮整理稿");
+    expect(lawyerSection).not.toContain("【压缩前对话蒸馏】");
+    // 但它带来的任务陈述不能丢。
+    expect(digest).toContain("三方义务分配");
+  });
+
+  it("红线重注 / 续接种子 / 退让反弹同样不算律师发言", () => {
+    const dropped: AgentMessage[] = [
+      { role: "user", content: "## 压缩后红线重注（仍有效）\n- 规则仍有效。", timestamp: "t0" },
+      { role: "user", content: "【前序对话续接】律师从上一段对话另起了新会话。", timestamp: "t1" },
+      { role: "user", content: "【上下文预算】上下文水位不是停下的理由。", timestamp: "t2" },
+      { role: "user", content: "真实发言：再核对违约金", timestamp: "t3" },
+    ];
+    const digest = buildDroppedSpanDigest(dropped, 10_000);
+    const lawyerSection = digest.split("### 律师要点")[1]?.split("###")[0] ?? "";
+    expect(lawyerSection).toContain("真实发言");
+    expect(lawyerSection).not.toContain("红线重注");
+    expect(lawyerSection).not.toContain("前序对话续接");
+    // 生效的红线由 `applyCompactReinjectionToSession` 在调用方重注（不是这里）。
+    expect(digest.startsWith("【压缩前对话蒸馏】")).toBe(true);
+  });
+
+  it("段落顺序 = 截断优先级：超预算先丢工具名，任务与引用保留", () => {
+    // 每行都要够长，否则总量压不到预算以下 —— 那样就测不到「切尾巴」。
+    const longLines: AgentMessage[] = Array.from({ length: 20 }, (_, i) => ({
+      role: "user" as const,
+      content: `第${i}轮律师发言：${"请继续核对付款与违约条款的细节。".repeat(6)}`,
+      timestamp: `L${i}`,
+    }));
+    const dropped: AgentMessage[] = [
+      { role: "user", content: `${TASK}，依据 ${CITATION}`, timestamp: "t0" },
+      ...longLines,
+      {
+        role: "assistant",
+        content: "",
+        timestamp: "t1",
+        toolCalls: [{ id: "c1", name: "search_statute", arguments: {} }],
+      },
+    ];
+    const digest = buildDroppedSpanDigest(dropped, 900);
+    expect(digest.length).toBeLessThanOrEqual(900);
+    expect(digest).toContain("三方义务分配");
+    expect(digest).toContain(CITATION);
+    // 尾巴上的工具名是第一个被切掉的（它丢了不影响答对）。
+    expect(digest).not.toContain("### 曾调用工具");
+    expect(digest).toContain("[蒸馏截断]");
+  });
+
+  it("任务段有额度上限，不会把整段摘要吃掉", () => {
+    const hugeTask = "请".repeat(50_000);
+    const digest = buildDroppedSpanDigest(
+      [{ role: "user", content: hugeTask, timestamp: "t0" }],
+      2_000,
+    );
+    expect(digest.length).toBeLessThanOrEqual(2_000);
+  });
+});
+
 describe("autoCompactSessionHistory", () => {
   it("preserves tool_use/tool_result pairs at boundary", () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-compact-"));

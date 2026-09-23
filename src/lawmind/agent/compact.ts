@@ -5,7 +5,7 @@ import { validateDraftAgainstSpec } from "../deliverables/index.js";
 import { readDraft } from "../drafts/index.js";
 import { caseFilePath } from "../memory/index.js";
 import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
-import { insertBeforeLastUserMessage } from "./compact-insert.js";
+import { insertBeforeLastUserMessage, isCompactSyntheticUserMessage } from "./compact-insert.js";
 import { estimateTokenBudget, resolveContextPolicy } from "./context-budget.js";
 import {
   alignCutIndexToToolGroups,
@@ -88,6 +88,10 @@ export function buildDroppedSpanDigest(dropped: AgentMessage[], maxChars: number
   const toolNames = new Set<string>();
   const lawyerLines: string[] = [];
   const assistantLines: string[] = [];
+  /** 任务陈述候选：被丢弃区段里**最早的真实**律师发言（原文保留，见下）。 */
+  const taskLines: string[] = [];
+  /** 此前的整理稿：**不当作律师发言**，单独接续（见下）。 */
+  const carriedDigests: string[] = [];
 
   for (const msg of dropped) {
     if (msg.role === "assistant" && msg.toolCalls?.length) {
@@ -108,8 +112,21 @@ export function buildDroppedSpanDigest(dropped: AgentMessage[], maxChars: number
     if (!text) {
       continue;
     }
+    // ── 合成消息（上次的整理稿 / 红线重注 / 续接种子 / 退让反弹）─────────────
+    // 与 Codex 的 `collect_user_messages()` 同一取向：**此前的摘要不算用户消息**
+    // （上游是 `filter(… previous summaries)`）。不这么做会有两个后果，实测都出现过：
+    //   1. 旧摘要在下一轮被当成一条「律师要点」再按行截断 → **摘要的摘要**逐层衰减；
+    //   2. 它还要与真实律师发言争抢「末 N 条」窗口，一挤就整条丢。
+    // 这里改为**单独接续**：原样带上、显式标注来源，不再伪装成律师发言。
+    if (isCompactSyntheticUserMessage(text)) {
+      carriedDigests.push(text);
+      continue;
+    }
     const lineCap = Math.min(1_200, Math.max(400, Math.floor(maxChars * 0.06)));
     if (msg.role === "user") {
+      if (taskLines.length < 2) {
+        taskLines.push(text);
+      }
       lawyerLines.push(text.slice(0, lineCap));
     } else if (msg.role === "assistant") {
       assistantLines.push(text.slice(0, lineCap));
@@ -118,9 +135,30 @@ export function buildDroppedSpanDigest(dropped: AgentMessage[], maxChars: number
 
   const header = `【压缩前对话蒸馏】共丢弃约 ${dropped.length} 条消息（含工具轮）；以下为提取要点，完整细节以案件文件与工具重读为准。`;
   const sections: string[] = [header];
+
+  // ── 段落顺序 = 截断优先级 ────────────────────────────────────────────
+  // 超预算时是 `slice(0, maxChars)`：**切的是尾巴**，所以越靠前越不会被丢。
+  // 排序依据是「丢了会不会让模型答非所问」：任务目标最高，引用次之
+  // （法律场景引用错 = 错误交付），其后是历史整理稿、要点、结论，工具名最低。
+  if (taskLines.length > 0) {
+    // 任务陈述按**原文**保留（不按行截断）：Codex 保最多 20k token 的原始用户消息，
+    // 正是为了「目标不丢」。提取式要点里一句「请继续核对付款」替代不了「要做什么」。
+    const taskCap = Math.min(4_000, Math.max(800, Math.floor(maxChars * 0.25)));
+    sections.push(
+      `### 任务与目标（原文保留，最早一条律师发言）\n${taskLines
+        .map((line) => `- ${line.slice(0, taskCap)}`)
+        .join("\n")}`,
+    );
+  }
   const citations = collectDroppedCitationAnchors(dropped);
   if (citations.length > 0) {
     sections.push(`### 压缩前引用\n${citations.join("；")}`);
+  }
+  if (carriedDigests.length > 0) {
+    const carriedCap = Math.max(400, Math.floor(maxChars * 0.35));
+    // 沿用原文（含它自己的分节），让模型看得出这是「上一轮整理稿」而不是律师新说的话。
+    const carried = carriedDigests.join("\n\n");
+    sections.push(`### 上一轮整理稿（接续保留，非律师新发言）\n${carried.slice(0, carriedCap)}`);
   }
   if (lawyerLines.length > 0) {
     const keep = lawyerLines.slice(-8);

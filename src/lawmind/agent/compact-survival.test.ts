@@ -98,8 +98,9 @@ function createLongSession(): AgentSession {
 }
 
 /** 模拟长任务继续推进：每轮再加一批对话与工具轮。 */
+/** 每轮推进量要足以把「末 N 条」窗口完全推走——否则摘要会搭车存活，测试假绿。 */
 function inflate(session: AgentSession, round: number): void {
-  for (let i = 0; i < 14; i += 1) {
+  for (let i = 0; i < 20; i += 1) {
     session.conversationHistory.push(
       { role: "user", content: `第 ${round} 轮补充 ${i}：请继续核对付款与违约`, timestamp: ts(i) },
       {
@@ -119,7 +120,13 @@ function flatten(session: AgentSession): string {
 function assertInvariants(session: AgentSession, round: number): void {
   const text = flatten(session);
   expect(text, `第 ${round} 轮：法条引用丢了`).toContain(CITATION);
-  expect(text, `第 ${round} 轮：律师原始交办丢了`).toContain("三方义务分配");
+  // 任务陈述（要做什么）必须活着。它是「模型会不会变笨」的第一因：
+  // 引用还在但目标丢了，模型就会答非所问或重复已做的事。
+  expect(text, `第 ${round} 轮：律师原始交办丢了（任务目标不能只靠末 N 条要点）`).toContain(
+    "三方义务分配",
+  );
+  // 也不能只靠「上一轮摘要的摘要」搭车活着：嵌套一层层传下去，最终会衰减成空壳。
+  expect(text.includes("三方义务分配"), `第 ${round} 轮：任务陈述仅存于嵌套摘要里`).toBe(true);
   expect(
     session.conversationHistory.some(
       (m) => (m.content ?? "").includes(CLARIFY_KEY) && (m.content ?? "").includes("仍生效"),
