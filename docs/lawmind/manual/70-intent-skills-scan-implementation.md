@@ -1442,7 +1442,7 @@ HistoricalHabitCandidate 一条习惯：clauseType / preferredLanguage / occurre
                              / latestMtimeMs / conflictResolved / samplePaths / matterIds
 ```
 
-那个 `matterIds` 的注释值得记：
+那个 `matterIds` 的注释：
 
 ```text
 /** 贡献接受 hunk 的不同案件（由 draft 文件解析），供立场证据跨案件门槛使用。 */

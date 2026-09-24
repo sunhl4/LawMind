@@ -26,7 +26,7 @@
 
 ### 五个 builder 与它们的 id 格式
 
-`core/contracts.ts` 还导出五个「从 `MatterIndex` 造对象」的函数。它们的 **id 格式是约定**，值得记：
+`core/contracts.ts` 还导出五个「从 `MatterIndex` 造对象」的函数。它们的 **id 格式是约定**：
 
 | 函数                                   | id 格式                                                                                             |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------- |
@@ -56,7 +56,7 @@
 | `blocked`        | `pending_review` | **Reopen review**            |
 | `rendered`       | `pending_review` | **Reopen review**            |
 
-**最后三条是全表最值得注意的**，而且源码里专门有一行注释：
+**最后三条最关键**，源码里专门有一行注释：
 
 ```text
 // 重开审核（reopenDraftReview）：律师把已签批/已阻塞/已渲染的交付物退回待审核。
@@ -151,7 +151,7 @@ const BUILT_IN_ROLES = ASSISTANT_PRESETS.map(presetToRole);
 
 ### `TaskRecord` 与那个上限
 
-`tasks/index.ts` 导出九个函数，其中一个常量很值得记：
+`tasks/index.ts` 导出九个函数，其中一个常量：
 
 ```ts
 MAX_AGENT_INSTRUCTION_SUMMARY_CHARS = 4000;
@@ -227,7 +227,7 @@ LawyerWorkSource = "chat" | "mail" | "file" | "compare" | "automation";
 
 `LawyerWork` 的字段：`workId`、`title`、`goal`、`status`、`sessionId?`、`taskId?`、`draftId?`、`matterId?`、`capabilityId?`、`source`、`createdAt`、`updatedAt`。
 
-**`capabilityId` 的注释值得记**：
+**`capabilityId` 的注释**：
 
 ```text
 /** 办件流程锁，供「存成自动办件」复用同一能力。 */
@@ -727,7 +727,7 @@ LAWMIND_ATTORNEY_DISCLAIMER_EXPORT_FOOTER      ← 导出文件用
 | `/v1/matters/:id/blobs/:sha256`      | GET  | 成员                                                  |
 | `/v1/matters/:id/blobs/:sha256`      | PUT  | `upload_materials`                                    |
 
-**两处细节值得记**：
+**两处细节**：
 
 1. **`membership` 的 GET 排除 `external`**——外协看不到完整名册。
 2. **删材料的墓碑需要单独的能力**（`delete_materials`）——**删比传更敏感**。

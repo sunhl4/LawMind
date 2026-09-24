@@ -56,7 +56,7 @@ const BUILT_IN_ROLES = ASSISTANT_PRESETS.map(presetToRole);
 
 ### 可用工具都是「不限制」
 
-有一点值得注意：**六个 Role 的 `allowedToolNames` 全部是 `undefined`**，也就是不限制。
+有一点：**六个 Role 的 `allowedToolNames` 全部是 `undefined`**，也就是不限制。
 
 这看似和「岗位化」矛盾，但和第 1 章的引导原则一致：**不靠白名单限制模型，而靠技能和审核清单引导。** 真要拦，用工具管线的其他中间件（审批、权限模式、角色上限）来做。
 
@@ -102,7 +102,7 @@ const BUILT_IN_ROLES = ASSISTANT_PRESETS.map(presetToRole);
 
 ### 派活的参数
 
-`delegate_task` 的参数里有几个值得注意：
+`delegate_task` 的参数里有几个要点：
 
 | 参数                | 说明                      |
 | ------------------- | ------------------------- |

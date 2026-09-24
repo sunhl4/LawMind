@@ -63,7 +63,7 @@
 | `memory-sources.ts`            | 生成「记忆来源分层」报告                                    |
 | `memory-md-migrate.ts`         | 迁移过期的库存 MEMORY.md 口径                               |
 
-**`prompt-windows.ts` 那一串数字**值得记（它们决定「模型能看到多少记忆」）：
+**`prompt-windows.ts` 那一串数字**（它们决定「模型能看到多少记忆」）：
 
 | 窗口                     | 值    |
 | ------------------------ | ----- |

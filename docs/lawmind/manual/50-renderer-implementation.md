@@ -157,7 +157,7 @@ export const lawmindQueryKeys = {
 };
 ```
 
-两个约定值得注意：
+两个约定：
 
 1. **每个 key 都带 `apiBase`**。因为本地服务可能换端口，换了端口就应该重新取（缓存不能跨实例复用）。
 2. **前缀统一 `lawmind`**，便于整体失效（`invalidateQueries({ queryKey: ["lawmind"] })`）。

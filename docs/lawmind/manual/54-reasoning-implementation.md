@@ -158,7 +158,7 @@ memo.research / memo.internal / labor.calc / period.calc / analysis.table
 | `deadline`                  | `锚点日 + N 单位 = 到期日`                                               | 跳过工作日（注：工作日不折算）                        |
 | `penalty_asymmetry`         | 同基数：`最大率 ÷ 最小率 = 倍数`；不同基数：`基数集合 X ≠ Y → 不可比`    | ≥2 处逾期违约金                                       |
 
-**`limitation_deadline` 用的 3 年来自参数表**（`lint/statute-params.ts` 的 `DEFAULT_LIMITATION`，依据民法典第 188 条），而不是写死在推理层。这条链路值得记住：**参数集中在 lint 的 statute-params，推理层引用它**。
+**`limitation_deadline` 用的 3 年来自参数表**（`lint/statute-params.ts` 的 `DEFAULT_LIMITATION`，依据民法典第 188 条），而不是写死在推理层。这条链路：**参数集中在 lint 的 statute-params，推理层引用它**。
 
 ### 三个上限
 

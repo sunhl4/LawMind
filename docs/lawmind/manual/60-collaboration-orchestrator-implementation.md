@@ -248,7 +248,7 @@ peerReviewDefault is set, pairs become an allowlist.
 | `compliance-research-memo` | matter | `report.compliance` | medium   | —      | —          | —              |
 | `renewal-monitor`          | matter | `document.general`  | low      | **是** | —          | —              |
 
-**三处值得注意**：
+**三处要点**：
 
 1. **只有一份模板带预批准工具**（`mail-contract-redline`），而那三个里**不含 `send_email`**。模板里的注释专门写了这件事：
 
@@ -430,7 +430,7 @@ collapse to short path.
 ⑥ 批后再查一次中断
 ```
 
-**第 ④ 步那个「等 1 秒」值得注意**：就绪步骤为空但有正在跑的——说明要等。它用 `setTimeout(1000)` 轮询而不是事件通知。**这是简单可靠的做法**（步骤不算多）。
+**第 ④ 步那个「等 1 秒」**：就绪步骤为空但有正在跑的——说明要等。它用 `setTimeout(1000)` 轮询而不是事件通知。**这是简单可靠的做法**（步骤不算多）。
 
 **第 ⑥ 步「批后再查一次」**：一个批次可能要跑几分钟，跑完必须再确认律师有没有点停。
 

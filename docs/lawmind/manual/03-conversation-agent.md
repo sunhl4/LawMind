@@ -125,7 +125,7 @@
 - 实时进度：`applyLiveTurnEvent`，对应 `GET /api/sessions/:id/live-turn` 的轮询。
 - 桌面：`opts.onEvent` → `/api/chat` 的 SSE 流。
 
-会话持久化以 `sessions/<id>.json` 为真相源（`session.ts`）。会话结构里有几个值得记住的字段：`disclosedToolNames`（已披露工具）、`lastCompactBoundary`（最近压缩边界）、`worldStateBaseline` / `worldStateEpoch`（世界状态基线）、`lastConfirmedAnswers`、`forkedTo` / `carriedOverFrom`、`planHandoff`、`turnPlan`。
+会话持久化以 `sessions/<id>.json` 为真相源（`session.ts`）。会话结构里几个关键字段：`disclosedToolNames`（已披露工具）、`lastCompactBoundary`（最近压缩边界）、`worldStateBaseline` / `worldStateEpoch`（世界状态基线）、`lastConfirmedAnswers`、`forkedTo` / `carriedOverFrom`、`planHandoff`、`turnPlan`。
 
 两条回合中途的注入通道都走**侧车文件**，因为它们必须在 `saveSession` 之后仍然存在：
 

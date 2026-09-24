@@ -311,7 +311,7 @@ Playwright 的 `_electron.launch()` 会**静默忽略** `--user-data-dir`（因�
 
 > 与 `LAWMIND_SKIP_API_AUTH` 同一姿态：测试可隔离，生产不可被环境变量改状态。
 
-这条原则值得记：**凡是能让测试好写的环境变量，生产环境一律不认。**
+这条原则：**凡是能让测试好写的环境变量，生产环境一律不认。**
 
 ## 13.9 端口漂移：一次真实故障的产物
 
@@ -405,7 +405,7 @@ Word 加载项的侧载清单把端口钉死（http://localhost:<旧>/word-addin
 | `mac-gatekeeper.mjs` + `after-pack-mac.mjs` + `after-all-artifact-build-mac.mjs` | macOS 签名与公证（见 13.11）                                                                                                                               |
 | `brand.mjs`                                                                      | 品牌读取（`branding/manifest.json`）                                                                                                                       |
 
-`safe-shell-command.mjs` 有一条注释很值得记：
+`safe-shell-command.mjs` 有一条注释：
 
 > 独立文件，避免写入引擎哈希链日审计而把链打断。
 

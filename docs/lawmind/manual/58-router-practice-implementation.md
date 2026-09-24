@@ -85,7 +85,7 @@ draft.ppt  summarize.case  analyze.contract  unknown
 | `CRIMINAL_ROUTE_RE` | `/(取保候审\|会见申请\|审查起诉意见\|刑事辩护提纲\|死刑复核\|侦查阶段)/`                                                  |
 | `QUICK_TRIAGE_RE`   | `/(违法吗\|合法吗\|能不能告\|能不能起诉\|有没有责任\|怎么维权\|是否构成\|算不算违法\|这算不算问题)/`                      |
 
-**`CRIMINAL_ROUTE_RE` 有一条注释值得注意**：
+**`CRIMINAL_ROUTE_RE` 有一条注释**：
 
 ```text
 /** Kind/deliverable routing only — do not steal generic 查一下审查起诉. */
@@ -198,7 +198,7 @@ if (escalation) return { ...resolved, requiresConfirmation: true }
 ④ requiresConfirmation = 高风险 || unknown || （模型给的布尔值）
 ```
 
-**第 ④ 步的写法值得注意**：模型的布尔值**只能加不能减**——`high` 或 `unknown` 时一定为真，模型说 false 也不管用。这是「安全方向只加严」的落地。
+**第 ④ 步的写法**：模型的布尔值**只能加不能减**——`high` 或 `unknown` 时一定为真，模型说 false 也不管用。这是「安全方向只加严」的落地。
 
 ## 58.3 三路分歧：不需要概率也能拿到的信号
 
@@ -353,7 +353,7 @@ escalation → 返回 { ...resolved, requiresConfirmation: true }
 | 21    | 合同/协议/授权书                       | `contract.general`     |
 | 22    | 兜底                                   | `document.general`     |
 
-**三条「且非」值得记**：
+**三条「且非」**：
 
 - 起诉状要 `且非（大纲|提纲）`——「起诉状大纲」是提纲不是起诉状。
 - 法律意见书要 `且非（查一下|检索|法条）`——「查一下法律意见」是检索任务。
@@ -556,7 +556,7 @@ Caller still opens the lawyer queue; title should mention 互审 when applied.
 
 3. **记两条事件**：审计 `draft.peer_review_required` + 协作事件 `delegation.created`
 
-那行「对照本所口径与作者角色职责」值得注意：它**同时点了两个参照**——本所口径（`practice/`）和作者角色职责（`core/role.ts`）。所以互审不是泛泛地看，而是有明确比对对象。
+那行「对照本所口径与作者角色职责」**同时点了两个参照**：——本所口径（`practice/`）和作者角色职责（`core/role.ts`）。所以互审不是泛泛地看，而是有明确比对对象。
 
 ## 58.8 分诊：五条规则与三档
 

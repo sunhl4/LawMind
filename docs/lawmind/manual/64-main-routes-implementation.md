@@ -352,7 +352,7 @@ historyText 为空 → 从 session.conversationHistory.slice(-8) 拼
 `lawmind-server-route-intent.test.ts`（含上述边界说明）。
 ```
 
-三层值得记：
+三层：
 
 1. **问题**：类型要求已归一形状，但请求体允许两种形状。
 2. **诚实的定性**：`⚠️ 这是类型契约修复，不是已证实的用户可见缺陷。` 而且解释了为什么（下游用鸭子类型，两种形状都容得下）。
@@ -469,7 +469,7 @@ LAWMIND_ALLOW_CHECKLIST_BYPASS === "1" / "true" / VITEST === "true" → 允许�
    / contractRevisionAccumulatedId / contractRevisionAccumulationWarning
 ```
 
-**第 ⑩ 步那三个 `*Skipped` / `*Failed` 字段很值得注意**：签批本身成功了，但「顺手做的档案追加」可能失败。**主操作与副作用分开报告**，不让副作用失败把签批判成失败。
+**第 ⑩ 步那三个 `*Skipped` / `*Failed` 字段**：签批本身成功了，但「顺手做的档案追加」可能失败。**主操作与副作用分开报告**，不让副作用失败把签批判成失败。
 
 ### 删草稿的门
 
@@ -1152,7 +1152,7 @@ presets     助手预设
 records     四个计数：任务 / 草稿 / 案件 / 待审核
 ```
 
-`health` 里面有二十来个字段，其中几个值得记：
+`health` 里面有二十来个字段，其中几个：
 
 ```text
 missingApiKey = !modelConfigured        ← 注意这是取反

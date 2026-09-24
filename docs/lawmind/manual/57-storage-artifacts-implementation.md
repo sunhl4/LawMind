@@ -451,7 +451,7 @@ letter. 开头   → "律师函/函件类 / 工作稿"
 ⑤ H1「审阅备注」+ 每条备注
 ```
 
-**第 ④ 步那个分叉值得注意**：开了 `includeProvenance` 时，出处是**Word 批注**而不是正文——这样律师看到的正文是干净的，出处挂在批注里（可关掉）。
+**第 ④ 步那个分叉**：开了 `includeProvenance` 时，出处是**Word 批注**而不是正文——这样律师看到的正文是干净的，出处挂在批注里（可关掉）。
 
 ### 文件名
 
@@ -918,7 +918,7 @@ Packaged desktop apps and `pnpm install` vendor a platform build under
 | ④   | `LAWMIND_REPO_ROOT` + 仓库 vendor 路径                    |
 | ⑤   | `opts.cwd` 或 `process.cwd()` 下的 vendor 路径            |
 
-**「Electron 注入环境变量，引擎做兜底」**这个分工值得记：**打包的桌面应用靠注入，CLI 靠查找**。
+**「Electron 注入环境变量，引擎做兜底」**这个分工：**打包的桌面应用靠注入，CLI 靠查找**。
 
 ### 两个平台差异
 

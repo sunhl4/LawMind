@@ -257,7 +257,7 @@ job id 有安全校验：长度 ≤128、不含 `/`、`\`、`..`，必须匹配 
 
 ### 重启后怎么处理
 
-`loadJobsFromDiskOnStartup` 的行为值得记：
+`loadJobsFromDiskOnStartup` 的行为：
 
 - 上次进程留下的**非终态**任务（`queued` / `running`）会被标成 `failed`，错误是 `interrupted_by_restart`，并写明完成时间。
 - `scheduled` 的任务**保留**（排期还有效）。

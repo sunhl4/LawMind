@@ -311,7 +311,7 @@ describe("服务端 CORS 结构守卫")
   it("守卫本身有效：漏写 `...c` 的样本必须被判为不合规（且注释里的 `...c` 不能算数）")
 ```
 
-第二条尤其值得注意：**它验证「守卫本身有效」**——用一个故意漏写的样本确认守卫会报警。而且「注释里的 `...c` 不能算数」，所以要剥掉注释再匹配。
+第二条尤其关键：**它验证「守卫本身有效」**——用一个故意漏写的样本确认守卫会报警。而且「注释里的 `...c` 不能算数」，所以要剥掉注释再匹配。
 
 失败消息把后果说清了：
 
@@ -409,7 +409,7 @@ missing_api_key            未配置模型 API Key
 
 **三条是不一样的情况**，所以分了三个码。这个拆分在 `route-chat` 里被直接用作 503 响应。
 
-而 `buildAgentConfig` 里有一个「配置清洗」值得记：
+而 `buildAgentConfig` 里有一个「配置清洗」：
 
 ```text
 maxTokens 缺失 或 <= 4096 → 覆盖
@@ -623,7 +623,7 @@ subscribeWorkflowJobUpdates(jobId, listener) → () => void
 | 并发上限 | **没有常量**。每个作业用 `setImmediate` 起，取消靠 `shouldAbort` 轮询 |
 | SSE 缓冲 | `sse-bus.ts` 的 `SSE_REPLAY_LIMIT = 64`                               |
 
-**「没有并发上限」值得注意**：这里的作业**不是串行**的。串行只在 Word 插件取件那一条链上（第 63.16 节）。
+**「没有并发上限」**：这里的作业**不是串行**的。串行只在 Word 插件取件那一条链上（第 63.16 节）。
 
 ### 十一个审计细节字符串
 
@@ -673,7 +673,7 @@ invalid_request_body       model_unavailable       model_network_error
 
 而作为 `error` 字段（非 `code`）发的还有：`rate_limited`、`invalid_host`、`unauthorized`、`forbidden`、`unsupported_media_type`、`not found`。
 
-**这处不一致值得记**：六道关的响应里 `error` 和 `code` 都会填，但填的值有时一样（`invalid_host`）有时不一样（`not found` vs `no_route`）。**客户端应该只依赖 `code`。**
+**这处不一致**：六道关的响应里 `error` 和 `code` 都会填，但填的值有时一样（`invalid_host`）有时不一样（`not found` vs `no_route`）。**客户端应该只依赖 `code`。**
 
 ## 63.8 一处值得单独讲的边界：zod 的 path 里有 symbol
 
@@ -689,7 +689,7 @@ invalid_request_body       model_unavailable       model_network_error
 之前声明的 `(string | number)[]` 比现实窄，正好把这条边界掩盖了。
 ```
 
-**三层信息都值得记**：
+**三层信息**：
 
 1. **现象**：`Array#join` 遇到 symbol 会抛 `TypeError`。
 2. **根因**：`issue.path` 的真实类型是 `PropertyKey[]`（含 symbol），而声明写窄了。
@@ -927,7 +927,7 @@ Doctor / health 扩展字段（纯函数，便于单测；由 lawmind-local-serv
 | `buildMultitaskObservabilitySummary`                                                      | 多任务可观测                                               |
 | `countAuditJsonlFiles` / `countResearchSnapshots` / `countClientProfileFilesUnderClients` | 三个计数器                                                 |
 
-### 三个值得记的数字与细节
+### 三个关键数字与细节
 
 **① `MATTER_CONSISTENCY_HEALTH_LIMIT = 12`**——案件一致性问题的列表只报前 12 条。**体检不是完整报告，是信号。**
 
@@ -1130,7 +1130,7 @@ enqueue_unavailable        → 桌面端尚未就绪（模型或工作流入队�
 ⑫ 把 jobId 写回请求记录
 ```
 
-**第 ⑨ 步「取代同源的其他请求」值得注意**：同一个 Word 文件被点了两次「审这份」，后一次会取代前一次。**避免两条请求对同一份文件各出一稿。**
+**第 ⑨ 步「取代同源的其他请求」**：同一个 Word 文件被点了两次「审这份」，后一次会取代前一次。**避免两条请求对同一份文件各出一稿。**
 
 ## 63.17 主路由注册表与两个上下文类型
 
@@ -1161,7 +1161,7 @@ LawmindRouteContext = {
 结果是一个**假错误**掩盖了真问题（长此以往「这条链真的没接线」也会被当成噪声）。
 ```
 
-**「假错误掩盖真问题」**——这是一个很值得记的教训：**类型声明过宽会制造假错误，而假错误会让真错误淹没在噪声里。**
+**「假错误掩盖真问题」**——这是一个教训：**类型声明过宽会制造假错误，而假错误会让真错误淹没在噪声里。**
 
 ## 63.18 那张「被引用但不在骨架里」的表
 

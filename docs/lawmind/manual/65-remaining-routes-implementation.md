@@ -2,7 +2,7 @@
 
 第 64 章讲了主链路的十个文件（101 条路由）。这一章讲**其余 49 个文件**。
 
-这些文件的特点是「一个文件管一个功能面」。所以这一章按**功能集群**分组，每个集群先说它解决什么问题，再列路由，再挑值得记的判定逻辑。
+这些文件的特点是「一个文件管一个功能面」。所以这一章按**功能集群**分组，每个集群先说它解决什么问题，再列路由，再挑要紧的判定逻辑。
 
 先给一张总表，看每个集群有多少条路由：
 
@@ -711,7 +711,7 @@ initial_not_found / final_not_found / invalid_matter_id / finalize_failed → 40
 
 **路径越界是 403（不许），文件找不到是 400（请求有问题）**。
 
-一条兜底文案值得记：
+一条兜底文案：
 
 ```text
 （由验收草稿转入，未单独列要点）
@@ -744,7 +744,7 @@ GET /api/judgment/escalations   待定夺列表（草稿最多 200）
 GET /api/judgment/tiering       分档统计
 ```
 
-而 `task` 的载荷里有几个字段值得记：
+而 `task` 的载荷里有几个字段：
 
 ```text
 escalationChannel: "off" | "on"
@@ -956,7 +956,7 @@ GET    /api/templates/uploaded
 
 **「id must be like upload/firm-brief」这句直接把一个合法例子给了**——比说「格式不对」有用。
 
-九条拒绝里两条值得记：
+九条拒绝里两条：
 
 ```text
 only .docx scan supported        扫描只支持 docx
@@ -1028,7 +1028,7 @@ GET /api/roles  +  GET /api/roles/:roleId   内置角色列表与详情
 
 ## 65.10 J 集群：其余单点
 
-这一组文件大多只有一两条路由，但它们各自有一个值得记的点。
+这一组文件大多只有一两条路由，但它们各自有一个要点。
 
 ### `route-models.ts`：八条与一段很长的提示
 
@@ -1158,7 +1158,7 @@ missing_clarification + { key }
 
 **「422 而非 400」**：请求本身没问题，是业务上还缺东西。
 
-**`route-sources.ts`**：三条。它的头注释是全部文件里最长的一段（讲「来源锚点」的意义），里面有一句值得记：
+**`route-sources.ts`**：三条。它的头注释是全部文件里最长的一段（讲「来源锚点」的意义），里面有一句：
 
 ```text
 This is the trust moat that closes the gap with Harvey / Spellbook style verifiable provenance.
@@ -1189,7 +1189,7 @@ work_missing_matter + "先指定案件，才能存成自动办件。"
 
 **「先指定案件」**——因为自动办件要按案件跑。
 
-**`route-tools-registry.ts`**：一条。但它的默认值值得记：
+**`route-tools-registry.ts`**：一条。但它的默认值：
 
 ```text
 allowDangerousToolsWithoutApproval: false

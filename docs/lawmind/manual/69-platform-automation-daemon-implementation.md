@@ -827,7 +827,7 @@ AssistantGrowthReportView   { windowDays, assistants }
 
 它做的事**从导出名就能看出来**：`buildAgentFleetSummary`。
 
-### 优先级的具体数字（这张表值得记）
+### 优先级的具体数字
 
 | 来源                         | 优先级 |
 | ---------------------------- | ------ |

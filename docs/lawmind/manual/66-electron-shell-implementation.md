@@ -25,7 +25,7 @@
 ⑫  singleInstanceOk → 装 window-all-closed / before-quit / activate
 ```
 
-**第 ⑦ 步的写法值得注意**：`allowMultiInstance || requestSingleInstanceLock()` 是**短路**——所以开了多实例开关时**根本不请求锁**。
+**第 ⑦ 步的写法**：`allowMultiInstance || requestSingleInstanceLock()` 是**短路**——所以开了多实例开关时**根本不请求锁**。
 
 ### 三个窗口尺寸常量
 

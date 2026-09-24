@@ -197,7 +197,7 @@ SMTP 安全端口：465, 587
 
 加密密钥来自 `LAWMIND_MAIL_SECRETS_KEY`，或者本机密钥文件 `~/.lawmind/keys/mail-secrets.key`。
 
-两条值得记的处理：
+两处处理：
 
 **第一，v1 明文会自动迁移。**
 

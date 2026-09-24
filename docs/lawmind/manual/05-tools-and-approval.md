@@ -207,7 +207,7 @@ RESERVED_TOOL_NAME: <name> is implemented only by LawMind execute()
 | 17  | `subprocessSandboxMiddleware` | 高风险工具丢子进程跑                                 | 沙箱不可用就直接拒绝执行                                                     |
 | 18  | `executeMiddleware`           | 真正调用 `tool.execute`                              | `Tool error: …`                                                              |
 
-几点值得注意的顺序逻辑：
+顺序上的几点：
 
 - **审批放在 schema 校验之前**（11 在 13 前面）。也就是说，一个参数还没校验的调用也能进审批队列。这样设计是为了让律师先看到「它想干什么」，而不是等校验完才排队。
 - **审计包在执行外面**（15 在 18 前面）。但注意它的**写入时机是 `await next()` 之后**——`auditMiddleware` 会拿到工具结果，把 `ok` 与 `error` 一起写进 `tool_call` 事件（`tool-pipeline.ts:757-777`）。所以它记的是**这次调用的结果**，不是「发起过」。工具抛异常时它也会兜住并记 `ok: false`。
@@ -276,7 +276,7 @@ RESERVED_TOOL_NAME: <name> is implemented only by LawMind execute()
 确需起草、导出或外发时，请律师把权限模式切换为标准后再执行。
 ```
 
-代码里有一条注释值得记住：**权限模式不是操作系统级的牢笼**。它拦的是「写」，读路径仍然靠 `isPathInsideRoot` 那条根围栏来兜。别以为切了只读就万事大吉。
+代码里有一条注释：**权限模式不是操作系统级的牢笼**。它拦的是「写」，读路径仍然靠 `isPathInsideRoot` 那条根围栏来兜。别以为切了只读就万事大吉。
 
 另外，`noTaskTurn` 会把那一轮的工具表权限模式**强制**成 `readonly`。所以闲谈回合不但闸门拒写，连工具表里都不给写工具。
 

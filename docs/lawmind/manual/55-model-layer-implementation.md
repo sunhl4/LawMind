@@ -158,7 +158,7 @@ provider: "openai-compatible";
 | `custom_model_invalid_model_name` | 模型名不合法 |
 | `model_id_required`               | id 缺        |
 
-`custom_model_invalid_model_name` 的判据值得记（**三条任一命中就拒**）：
+`custom_model_invalid_model_name` 的判据（**三条任一命中就拒**）：
 
 ```text
 ① 匹配 /^(custom|builtin|platform|env):/i     ← 不许用别人的前缀

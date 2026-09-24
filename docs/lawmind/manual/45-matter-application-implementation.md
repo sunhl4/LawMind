@@ -23,7 +23,7 @@
 | 完成     | `setDailyPlanItemDone`、`markDailyPlanSourceDone`                                |
 | 类型     | `DailyPlanItemSource`、`DailyPlanItem`、`DailyPlan`                              |
 
-**`markDailyPlanSourceDone` 值得注意**：它处理「由来源反向勾完成」——期限办完了，把计划里对应那条也勾掉。来源三种：`mail` / `deadline` / `approval`。
+**`markDailyPlanSourceDone`**：它处理「由来源反向勾完成」——期限办完了，把计划里对应那条也勾掉。来源三种：`mail` / `deadline` / `approval`。
 
 ### 期限（4 个文件）
 

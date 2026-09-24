@@ -579,7 +579,7 @@ officecli → resolveOfficeCliBin({ explicit })   ← 走第 57 章那个解析�
 
 ## 56.10 本机访问日志
 
-`host-log.ts` 很小，但有三点值得记。
+`host-log.ts` 很小，但有三点。
 
 ### 八个动作
 
