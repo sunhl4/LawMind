@@ -147,13 +147,15 @@ if (!acceptanceReport.ready || (reasoningReport.required && !reasoningReport.rea
 
 除了「章节齐不齐」，高风险交付物还有一道**推理门**：草稿背后得有一个说得清的推理图（IRAC 那种结构）。
 
-哪些类型要过？三组：
+哪些类型要过？**两组常量，覆盖 5 种类型**：
 
 | 组         | 类型                                                     |
 | ---------- | -------------------------------------------------------- |
 | 函件类     | `letter.counsel`、`letter.reply`                         |
 | 高风险类   | `letter.demand`、`contract.review`、`litigation.outline` |
-| 其他 22 种 | **不需要**                                               |
+| 其余 22 种 | **不需要**                                               |
+
+**注意「高风险」不等于「要过推理门」**：`litigation.complaint`、`litigation.answer`、`litigation.brief`、`memo.opinion` 都是 high 风险，但都不带 `reasoningGate`。判断依据只看 spec 里有没有那个字段，不看 `defaultRiskLevel`。
 
 推理门的配置长这样（以高风险类为例）：
 

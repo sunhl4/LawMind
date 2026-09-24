@@ -33,13 +33,16 @@
 
 ### 顶栏（`LawmindAppHeader.tsx`）
 
-| 元素           | 干什么                               |
-| -------------- | ------------------------------------ |
-| 五个工作面切换 | 对话 / 工作台 / 在办 / 会议室 / 改稿 |
-| 案件驾舱开关   | 打开案件详情面板                     |
-| 版面开关       | 隐藏/显示侧栏、对话栏等              |
-| 助手切换       | 换当前助手                           |
-| 模型选择入口   | 打开模型选择器                       |
+| 元素           | 干什么                                                                         |
+| -------------- | ------------------------------------------------------------------------------ |
+| 一级工作面切换 | **三个**：对话 / 工作台 / 在办（`lm-tab-workspace` / `-desk` / `-agents`）     |
+| 次级工作面 tab | 会议室、改稿——**只在已经打开过时才出现**（`lm-tab-meeting` / `lm-tab-review`） |
+| 案件驾舱开关   | 打开案件详情面板                                                               |
+| 版面开关       | 隐藏/显示侧栏、对话栏等                                                        |
+| 助手切换       | 换当前助手                                                                     |
+| 模型选择入口   | 打开模型选择器                                                                 |
+
+**「五个工作面」是导航模型的说法（第 2.4 节），顶栏一级 tab 只有三个。** 会议室和改稿不占一级对等位置——代码注释写明了这一点，它们以 `lm-tab-secondary` 的形式在打开后出现。找「会议室在哪」时别在一级 tab 里找。
 
 版面开关有一个保护：**聊天栏和编辑栏不能同时隐藏**——都隐藏时会弹一个恢复提示（`workspace-layout.spec.ts` 测的就是这个）。
 
@@ -139,7 +142,7 @@
 
 ### 案件驾舱（`matter/`）
 
-58 个文件，主要的：
+58 个文件，主要的（**这一节只列 `matter/` 下的**；名字带 `Matter` 但目录在 `renderer/` 根的，见对应工作面那节，比如会议室那四个 `MatterTeamMeeting*`）：
 
 | 组件                                                 | 作用                                                   |
 | ---------------------------------------------------- | ------------------------------------------------------ |
@@ -160,7 +163,6 @@
 | `MatterOpsBrief.tsx`                                 | Matter Ops（KPI + RAID + 计划 + 基线）                 |
 | `MatterTheoryLitePanel.tsx`                          | 案件理论                                               |
 | `MatterTeamRosterStrip.tsx`                          | 本案团队条                                             |
-| `MatterTeamMeetingPanel.tsx`                         | 案件内会议室                                           |
 | `MatterReplicaPanel.tsx`                             | 成员协作面板（Firm 门控）                              |
 | `MatterLocalDocIndex.tsx`                            | 本机文档索引                                           |
 | `LawmindMatterHealthCard.tsx`                        | 健康卡（「无安全分」那张）                             |
@@ -189,19 +191,30 @@
 
 ## 24.5 会议室（`meeting`）
 
-| 组件                                           | 作用               |
-| ---------------------------------------------- | ------------------ |
-| `app/MeetingView.tsx`                          | 会议室视图         |
-| `matter/MatterTeamMeetingPanel.tsx`            | 案件内会议面板     |
-| `matter/MatterTeamMeetingSetupSection.tsx`     | 设置段（选参会人） |
-| `matter/MatterTeamMeetingMaterialsSection.tsx` | 材料段             |
-| `matter/MatterTeamMeetingThreadSection.tsx`    | 时间线段           |
+| 组件                                    | 作用               |
+| --------------------------------------- | ------------------ |
+| `app/MeetingView.tsx`                   | 会议室视图         |
+| `MatterTeamMeetingPanel.tsx`            | 案件内会议面板     |
+| `MatterTeamMeetingSetupSection.tsx`     | 设置段（选参会人） |
+| `MatterTeamMeetingMaterialsSection.tsx` | 材料段             |
+| `MatterTeamMeetingThreadSection.tsx`    | 时间线段           |
+| `useMatterTeamMeetingDeliberation.ts`   | 发言编排的 hook    |
+
+**注意这几个组件都在 `renderer/` 根目录，不在 `renderer/matter/` 下**——只有名字带 `Matter`，路径不带。
 
 界面上的测试 id 有 `lm-meeting-view`、`lm-meeting-group-adhoc`、`lm-meeting-group-matter`、`lm-meeting-scope-matter-<案件id>`——可以看出它按「临时 / 案件」两种范围分组。
 
 交互：开始讨论 → 参会者依次发言进时间线 → 可以打断（显示「已终止当前发言」）→ 暂停 → 继续 → 结束。
 
-会话和参会人存在 localStorage（换机器就没了）。
+**数据存在哪，要分三样看**（这里容易记混）：
+
+| 什么                                   | 存哪                                                                                                        | 换机器还在吗 |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------ |
+| 发言记录（时间线本体）                 | **文件**：`cases/<matterId>/team-meeting.jsonl`；临时讨论落 `meetings/adhoc/team-meeting.jsonl`             | 在           |
+| 参会人名册                             | **服务端**：`/api/matters/team-roster`（GET 读 / PUT 写）                                                   | 在           |
+| 参会会话映射（每个参会者对应哪个会话） | **sessionStorage**：`lawmind.teamMeeting.session.<matterId>`、`lawmind.teamMeeting.participants.<matterId>` | **不在**     |
+
+所以「换机器就没了」只对第三样成立——别把它当成「会议记录不持久」。发言记录是落盘的。
 
 ## 24.6 改稿（`review`）
 
@@ -364,5 +377,5 @@
 - **改稿三栏全关是被禁止的。** store 里有 `hasVisibleReviewPaneAfter` 保护。
 - **`MatterQualityCockpit` 只在 Firm / Private 渲染。** Solo 看不到，不是 bug。
 - **`MatterReplicaPanel` 在 Solo 不渲染。**
-- **会议会话和参会人存在 localStorage。** 换机器就没了，别当持久数据。
+- **会议发言记录是落盘的**（`cases/<matterId>/team-meeting.jsonl`），参会人名册走服务端 `/api/matters/team-roster`。**只有「参会会话映射」在 sessionStorage 里**（换机器就没了）——别把整场会议当临时数据。
 - **首跑偏好会写进记忆。** 那不是「随便选选」的表单，它会变成之后的默认口径。

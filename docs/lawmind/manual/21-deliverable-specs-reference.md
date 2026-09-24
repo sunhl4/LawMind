@@ -130,7 +130,7 @@
 - **必要章节（4 个，全部 blocker）**：争点、结论、引用、保留意见。
 - **验收标准**：争点、结论、引用、保留意见均为必要章节。
 - **占位符**：必须在外发前解决。
-- **推理门**：**不需要**（注意：`memo.opinion` 不在推理门的三组里）。
+- **推理门**：**不需要**（注意：`memo.opinion` 不在任何一组推理门里——它虽然风险是 high，但推理结构已经体现在那四节 blocker 里）。
 
 这是**要求最严**的一份规格：四节全是 blocker。但它不需要推理门——这可能是因为意见书的推理结构已经在那四节里体现了。
 
@@ -139,7 +139,7 @@
 - 输出 `docx`，风险 medium。
 - **必要章节（6 个 blocker）**：事项、命题矩阵、现行法条、正向类案、反向类案、结论。
 - **验收标准**：须含命题、现行法条、正反类案与结论；**无命中也保留栏目并标待核实**。
-- **推理门**：需要。
+- **推理门**：**不需要**（它没有 `reasoningGate`；六个 blocker 章节已把方法论固化住）。
 
 六节里「命题矩阵」和「正反类案」是它的特色——它们把方法论固化进了结构。
 
@@ -241,13 +241,15 @@
 
 按「风险」和「是否要推理门」分类：
 
-| 风险       | 类型                                                                                                                                                                                                                                | 要不要推理门                                               |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| **high**   | `letter.demand`、`letter.counsel`、`letter.reply`、`litigation.outline`、`litigation.complaint`、`litigation.answer`、`litigation.brief`、`memo.opinion`                                                                            | 前四个要；后四个不要                                       |
-| **medium** | `contract.rental`、`contract.general`、`contract.nda`、`contract.review`、`report.compliance`、`matter.exhibit_list`、`memo.research`、`memo.internal`、`labor.calc`、`period.calc`、`analysis.table`、`review.table`、`report.esg` | `contract.review`、`report.compliance`、`memo.research` 要 |
-| **low**    | `report.general`、`report.learning`、`ppt.training`、`matter.timeline`、`meeting.minutes`、`document.general`                                                                                                                       | 都不要                                                     |
+| 风险       | 类型                                                                                                                                                                                                                                | 要不要推理门              |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| **high**   | `letter.demand`、`letter.counsel`、`letter.reply`、`litigation.outline`、`litigation.complaint`、`litigation.answer`、`litigation.brief`、`memo.opinion`                                                                            | 前四个要；后四个不要      |
+| **medium** | `contract.rental`、`contract.general`、`contract.nda`、`contract.review`、`report.compliance`、`matter.exhibit_list`、`memo.research`、`memo.internal`、`labor.calc`、`period.calc`、`analysis.table`、`review.table`、`report.esg` | 只有 `contract.review` 要 |
+| **low**    | `report.general`、`report.learning`、`ppt.training`、`matter.timeline`、`meeting.minutes`、`document.general`                                                                                                                       | 都不要                    |
 
-推理门总共有三组：`LETTER_SHARED`（`letter.counsel`、`letter.reply`）、`REASONING_GATE_HIGH_RISK`（`letter.demand`、`contract.review`、`litigation.outline`）、以及 `report.compliance` 和 `memo.research` 各自的。其余 22 种不需要。
+推理门**一共两组常量、覆盖 5 种类型**：`LETTER_SHARED`（`letter.counsel`、`letter.reply`）与 `REASONING_GATE_HIGH_RISK`（`letter.demand`、`contract.review`、`litigation.outline`）。其余 **22 种都不需要**。
+
+**别把「高风险」和「要过推理门」划等号**：`litigation.complaint`、`litigation.answer`、`litigation.brief`、`memo.opinion` 同属 high 风险，但都不带 `reasoningGate`（`registry.ts` 里只有那三处 `REASONING_GATE_HIGH_RISK`）。
 
 ## 21.11 必核清单对照
 

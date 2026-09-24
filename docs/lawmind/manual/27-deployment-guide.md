@@ -50,10 +50,11 @@ LAWMIND_AGENT_API_KEY=...
   "egressMode": "allowlisted",
   "networkAllowlist": ["api.deepseek.com", "flk.npc.gov.cn"],
   "networkAllowlistEnforced": true,
-  "auditIntegrityExport": true,
   "toolSandbox": true
 }
 ```
+
+**注意示例里没有 `auditIntegrityExport`。** 它名字像策略键，其实是 **Edition 功能键**（`policy/edition.ts:54`，三档默认都开），写进 `lawmind.policy.json` 会被当未知键忽略。同类容易写错的还有 `strictDangerousToolApproval`、`acceptanceGateStrict`、`citationGateStrict`。**判断办法**：在 `policy/workspace-policy.ts` 里搜得到才是策略键（第 30 章有一节专门讲这个坑）。
 
 **几个键的作用**：
 

@@ -237,7 +237,7 @@
 1. **建名册**：`ensureMembershipWithOwner` 建成员名册，存 `cases/<案件id>/replica/membership.json`。
 2. **发邀请**：`createInvite` 生成 16 位邀请码，有效期 14 天。同时把案件密钥用邀请包裹包起来（v2）。
 3. **接受邀请**：同事输入邀请码，`acceptInviteByToken` 解开案件密钥、装进本地、上报名册操作。
-4. **成员密钥**：每个律师有自己的 ed25519 密钥对（`~/.lawmind/lawyer-keys.json`）。案件密钥给每个成员单独包裹（`wrapMatterKeyForMember`），所以**一把钥匙只开一个人的锁**。
+4. **成员密钥**：每个律师有自己的 ed25519 密钥对，存在**工作区内**的 `lawmind/lawyer-keys.json`（`matter-replica/member-keys.ts:60`——注意不是家目录）。案件密钥给每个成员单独包裹（`wrapMatterKeyForMember`），所以**一把钥匙只开一个人的锁**。
 5. **同步**：每 30 秒 tick，单案件最小间隔 15 秒，防抖 1.5 秒。只对有名册的案件自动同步。
 6. **操作日志**：所有变更以 op 形式追加到 `ops.jsonl`，中继只看到密文。
 7. **材料**：按 sha256 内容寻址上传；接收端**重算哈希比对**，不符就记 `collab.integrity_rejected` 并拒收。
