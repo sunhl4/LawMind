@@ -319,18 +319,20 @@ repairTranscriptChain(messages)
 
 ### 十个导出常量的实际值
 
-| 常量                 | 值                | 对应   |
-| -------------------- | ----------------- | ------ |
-| `LEGAL_BODY_FONT`    | `SimSun`          | 宋体   |
-| `LEGAL_HEADING_FONT` | `SimHei`          | 黑体   |
-| `LEGAL_LATIN_FONT`   | `Times New Roman` | 西文   |
-| `SZ_BODY`            | **24**            | 12pt   |
-| `SZ_H1`              | 32                | 16pt   |
-| `SZ_H2`              | 28                | 14pt   |
-| `SZ_TITLE`           | 44                | 22pt   |
-| `SZ_SMALL`           | 21                | 10.5pt |
-| `COLOR_TEXT`         | `000000`          | 黑     |
-| `COLOR_CITATION`     | `404040`          | 深灰   |
+| 常量                 | 值                | 对应   | 实际用没用       |
+| -------------------- | ----------------- | ------ | ---------------- |
+| `LEGAL_BODY_FONT`    | `SimSun`          | 宋体   | 是               |
+| `LEGAL_HEADING_FONT` | `SimHei`          | 黑体   | 是               |
+| `LEGAL_LATIN_FONT`   | `Times New Roman` | 西文   | **否（死常量）** |
+| `SZ_BODY`            | **24**            | 12pt   | 是               |
+| `SZ_H1`              | 32                | 16pt   | 是               |
+| `SZ_H2`              | 28                | 14pt   | 是               |
+| `SZ_TITLE`           | 44                | 22pt   | 是               |
+| `SZ_SMALL`           | 21                | 10.5pt | 是               |
+| `COLOR_TEXT`         | `000000`          | 黑     | 是               |
+| `COLOR_CITATION`     | `404040`          | 深灰   | 是               |
+
+**`LEGAL_LATIN_FONT` 定义了但没人用**（`rg LEGAL_LATIN_FONT` 只查到定义那一行）。所以**别以为导出的 Word 会显式设西文字体**——`render-docx.ts` 只设 `font: LEGAL_BODY_FONT`（SimSun），西文走的是 Word 主题默认或 SimSun 自带的西文字形。文件头注释那句「西文**可配合** Times New Roman」是设想，不是现状；要真的设西文字体，得在 `render-docx.ts` 里加 `ascii`/`hAnsi` 属性。
 
 **字号是 half-points**——注释专门写了这个换算：
 

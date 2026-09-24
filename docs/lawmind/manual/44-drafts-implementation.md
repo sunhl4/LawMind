@@ -8,19 +8,21 @@
 
 导出：
 
-| 符号                                                | 作用                                     |
-| --------------------------------------------------- | ---------------------------------------- |
-| `MINIMAL_ANCHOR_CHARS = 4`                          | 认为「没动」的最短公共片段               |
-| `MINIMAL_EDIT_MAX_UNCHANGED_RUN = 6`                | 一处改动内允许的连续未改文字上限         |
-| `computeMinimalEditSpans(before, after)`            | 算最短改动（返回 `MinimalChangeSpan[]`） |
-| `longestUnchangedRunInside(span)`                   | 一处 span 里最长的未改连续文字           |
-| `auditMinimalEditSpans(params)`                     | 审计（返回 `MinimalEditViolation[]`）    |
-| `INSERT_ANCHOR_CHARS = 6`                           | 纯插入的锚点长度                         |
-| `expressInsertAsAnchorReplace(params)`              | 把纯插入改写成「锚点整体替换」           |
-| `insertPointInAfterText(span)`                      | 纯插入在改后文本里的插入点               |
-| `MINIMAL_EDIT_RULE_LINE` / `MINIMAL_EDIT_RULE_TEXT` | 给模型看的两条规则文本                   |
+| 符号                                                | 作用                                                                        |
+| --------------------------------------------------- | --------------------------------------------------------------------------- |
+| `MINIMAL_ANCHOR_CHARS = 4`                          | 认为「没动」的最短公共片段                                                  |
+| `MINIMAL_EDIT_MAX_UNCHANGED_RUN = 6`                | 一处改动内允许的连续未改文字上限                                            |
+| `computeMinimalEditSpans(before, after)`            | 算最短改动（返回 `MinimalChangeSpan[]`）                                    |
+| `longestUnchangedRunInside(span)`                   | 一处 span 里最长的未改连续文字                                              |
+| `auditMinimalEditSpans(params)`                     | 审计（返回 `MinimalEditViolation[]`）                                       |
+| `INSERT_ANCHOR_CHARS = 6`                           | 纯插入的锚点长度                                                            |
+| `expressInsertAsAnchorReplace(params)`              | 把纯插入改写成「锚点整体替换」                                              |
+| `insertPointInAfterText(span)`                      | 纯插入在改后文本里的插入点                                                  |
+| `MINIMAL_EDIT_RULE_LINE` / `MINIMAL_EDIT_RULE_TEXT` | 两条规则文本的**文本副本**——注释说是给模型看，但**全仓无人 import**（见下） |
 
 **内部还有三个常量**（不导出）：`ANCHOR_MAX_CHARS = 120`、`ANCHOR_MAX_OCCURRENCES = 16`、`MAX_SPANS = 400`。
+
+**那两个 `MINIMAL_EDIT_RULE_*` 是「死人」**：它们确实定义了规则文本，注释也写着「进提示词」「技能/文档用」，但全仓没有任何地方 import（`rg MINIMAL_EDIT_RULE_` 只查到定义与自引用）。**真正进模型上下文的是 `drafts/contract-redline-craft.ts` 的 `CONTRACT_REDLINE_CRAFT_SKILL`**（第 8.3 与第 20 章都提过）。改口径要改那一处，别改这里。
 
 **读它的顺序**：先读文件头（算法说明与两条可证明性质），再读 `computeMinimalEditSpans`，最后读测试里的 200 组随机对照。
 

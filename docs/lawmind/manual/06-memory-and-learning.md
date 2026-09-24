@@ -69,7 +69,19 @@
 
 你在界面上能直接看到这个区分：`GET /api/memory/sources` 返回每一层的 `{ id, label, relativePath, exists, charCount, inAgentSystemPrompt, hint }`，`LawmindMemorySourcesPanel.tsx` 把它渲染成「来源面板」。
 
-每个进提示词的层都有字符上限（`prompt-windows.ts` 里的 `PROMPT_WINDOW`）：律师档案 6000 字、案件上下文 8000 字、今日日志 3000 字、助手档案 3000 字……这些数字不是随便定的，是为了让提示词不至于被记忆挤爆。
+每个进提示词的层都有字符上限，定义在 `prompt-windows.ts` 的 `PROMPT_WINDOW`。**这里有个容易看错的地方：每层通常有两个数，只有小的那个真的进提示词。**
+
+| 层              | 进提示词（真正生效）                | 全文窗                       | 谁在读                                                  |
+| --------------- | ----------------------------------- | ---------------------------- | ------------------------------------------------------- |
+| 律师档案        | `lawyerFingerprintChars` **800**    | `lawyerProfileChars` 6000    | 指纹：`turn-orchestrator-prompt.ts`；全文窗**无消费点** |
+| 案件 CASE       | `matterIndexChars` **1600**         | `matterContextChars` 8000    | 索引帽 / 进展修剪上限，同一个文件                       |
+| 今日 / 昨日日志 | `dayLogIndexChars` **600**          | `dayLogChars` 3000           | 指纹：prompt + 检索适配器；全文窗**无消费点**           |
+| 客户档案        | `clientFingerprintChars` **800**    | `clientProfileChars` 4000    | 指纹：prompt + 检索适配器；全文窗**无消费点**           |
+| 助手档案        | `assistantFingerprintChars` **800** | `assistantProfileChars` 3000 | 指纹：prompt；全文窗**无消费点**                        |
+
+也就是说：**「律师档案 6000 字」这种说法会把人带偏 8 倍。** 实际进提示词的是 800 字指纹，模型要读全文得走 `read_workspace_file`。上表「无消费点」的三项是定义了但全仓没人读的常量——查 `rg lawyerProfileChars` 只能查到它自己的定义。
+
+这些数字不是随便定的，是为了让提示词不至于被记忆挤爆。窗口还会按模型上下文伸缩（`scalePromptWindows`，clamp 在 0.5–2.5 倍）。
 
 而且**超帽必须带溢出指针**，不许静默截断（源码注释原话：`超帽必须带溢出指针（工具名 + 路径），禁止静默 slice。`）。意思是被截掉的部分会告诉模型「完整内容请用某工具读某路径」，而不是悄悄消失。
 
@@ -443,6 +455,8 @@ CASE.md 的「八、工作进展记录」超过上限（`PROMPT_WINDOW.caseProgr
 ```text
 - _（更早 N 条已轮转省略；完整历史见 progress-archive.md）_
 ```
+
+**注意这是两层修剪，别只看 80**：80 是**文件级轮转**的上限（超过才挪去 archive）；真正进提示词时 `windowCaseMarkdownForPrompt` 还会再收到 **24 条**（内部常量 `keep = 24`），并补一行「更早 N 条进展已省略」。所以提示词里看到的进展永远不超过 24 条——轮转是为了让文件有界，24 是为了让 token 有界。
 
 ### MEMORY.md 的迁移
 

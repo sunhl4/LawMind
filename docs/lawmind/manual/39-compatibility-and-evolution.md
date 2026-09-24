@@ -24,12 +24,14 @@
 | 学习队列          | `FILE_VERSION`                 | 1                                |
 | 合同修订包        | `SCHEMA_VERSION`               | 1                                |
 | 案件团队名册      | `TEAM_ROSTER_VERSION`          | 1                                |
-| 诉讼费分档表      | `LITIGATION_FEE_VERSION`       | 1                                |
+| 诉讼费分档表      | `LITIGATION_FEE_VERSION`       | 1（人工标记，无人读取）          |
 | 校准特征口径      | `FEATURE_VERSION`              | 1                                |
 | 导出格式          | 格式标记字符串                 | `LawMind audit export format: 2` |
 | 审计回放          | `schemaVersion`                | 1                                |
 
 **改数据结构时先在这里找找有没有对应版本号**，有就该考虑要不要抬。
+
+**一个区别要留意**：这张表里多数常量是**代码会读的**（比如 `SEARCH_INDEX_SCHEMA_VERSION` 会参与陈旧判断），但也有一类是**纯人工标记**——`LITIGATION_FEE_VERSION` 就是（`rg LITIGATION_FEE_VERSION` 只查到定义，没有任何读取点）。它的作用是在改费率时给人一个「抬版本号」的钩子，程序不会因为版本没抬而拒绝；所以别指望靠它拦住忘记迁移的人。
 
 **注意「工作流」这一类没有版本号。** 工作流模板（`agent/collaboration/builtin-workflow-templates.ts`、`workspace-workflow-templates.ts`）的类型定义里没有 `version` 字段——所以改模板结构时没有版本常量可抬，只能靠「新增字段有才加」那条纪律（39.1）来保兼容。这是本表里**唯一一处「应该有但没有」**的地方。
 

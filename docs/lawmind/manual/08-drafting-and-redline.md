@@ -90,12 +90,14 @@ export const MINIMAL_EDIT_MAX_UNCHANGED_RUN = 6; // 一处改动内允许的未�
 
 `auditMinimalEditSpans(params)` 返回 `MinimalEditViolation` 列表。它是后面几个边界共用的检查器。
 
-规则文本也集中在一处（`MINIMAL_EDIT_RULE_LINE` / `MINIMAL_EDIT_RULE_TEXT`），提示词里引用的就是这两条：
+规则文本的**权威版本**是 `CONTRACT_REDLINE_CRAFT_SKILL`（`src/lawmind/drafts/contract-redline-craft.ts`）——它是一段代码常量，会被注入到合同改稿的 agent 上下文里：
 
 ```text
 最短改动（硬约束）：只把真正变动的字标成删除/新增，中间没动的字不得包进改动里；
 一句话里改几个字就只改那几个字。引擎会按此重算，不接受整句删写。
 ```
+
+**注意这里有个坑**：`minimal-edit-script.ts` 里还有两个同名主题的常量 `MINIMAL_EDIT_RULE_LINE` / `MINIMAL_EDIT_RULE_TEXT`，注释写着「进提示词」「技能/文档用」——但**全仓没有任何地方 import 它们**（`rg MINIMAL_EDIT_RULE_` 只会查到定义那一处）。改它们不会影响模型的任何行为。要改改稿口径，改 `CONTRACT_REDLINE_CRAFT_SKILL`、`mail-contract-short-path-instruction.ts` 与 `mail-contract-fast-path.ts` 里那几处内联文案（第 20 章也提过前者）。
 
 ```text
 判定门槛：一处改动内若夹了 ≥6 个连续未改文字，即视为未最小化，会被自动拆分。
