@@ -8,16 +8,16 @@
 
 设置 → 系统健康。里面的字段直接对应代码里的状态：
 
-| 字段                           | 看什么                              |
-| ------------------------------ | ----------------------------------- |
-| `doctor.process.degraded`      | 有没有未处理的 Promise 拒绝         |
-| `doctor.searchIndex`           | 索引是否陈旧（`staleReason`）       |
-| `doctor.authorityCorpus`       | 法源是 sample-ready 还是 configured |
-| `doctor.rateLimit`             | 有没有被限流                        |
-| `doctor.saltmatterConsistency` | 案件投影有没有漂移                  |
-| `policy.applied`               | 策略文件里哪几项真的生效了          |
-| `envHint`                      | 环境文件的实际路径与是否存在        |
-| `edition.source`               | 版本是 policy 定的还是环境变量定的  |
+| 字段                       | 看什么                              |
+| -------------------------- | ----------------------------------- |
+| `doctor.process.degraded`  | 有没有未处理的 Promise 拒绝         |
+| `doctor.searchIndex`       | 索引是否陈旧（`staleReason`）       |
+| `doctor.authorityCorpus`   | 法源是 sample-ready 还是 configured |
+| `doctor.rateLimit`         | 有没有被限流                        |
+| `doctor.matterConsistency` | 案件投影有没有漂移                  |
+| `policy.applied`           | 策略文件里哪几项真的生效了          |
+| `envHint`                  | 环境文件的实际路径与是否存在        |
+| `edition.source`           | 版本是 policy 定的还是环境变量定的  |
 
 ### 跑一次命令行体检
 
@@ -119,7 +119,9 @@ pnpm lawmind:env:check --strict
 
 ### 症状：`/api/health` 里 `doctor.process.degraded` 是 true
 
-**原因**：有过 `unhandledRejection`。**注意这是「不退出只降级」的那一类**——服务还活着，但有未处理的 Promise 拒绝。
+**原因**：`uncaughtExceptions` 或 `unhandledRejections` **任一非零**——`degraded` 就是「两者之和不为零」。
+
+两类信号的处理方式不同（写在 `lawmind-process-policy.ts` 的头注释里）：`unhandledRejection` 是**不退出只降级**——本服务有大量 best-effort 后台任务，孤立 rejection 多为单任务失败，可用性优先；`uncaughtException` 则是**干净退出**由监督层重启。两者都算进 `degraded`。
 
 **查**：看服务日志里的 `[lawmind-local-server] unhandledRejection:`。
 
@@ -445,7 +447,7 @@ POST /api/matters/repair-projections
 pnpm lawmind:matter-replica:probe --strict
 ```
 
-它会建两个临时工作区加一个中继，跑十项检查（X1–X10）。
+它会建两个临时工作区加一个中继，跑十二项检查（X1–X12）。
 
 ## D.10 数据与备份
 
