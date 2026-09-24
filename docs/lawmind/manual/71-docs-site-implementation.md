@@ -110,7 +110,7 @@ if (fs.existsSync(lmSrc)) {
 docs/lawmind/manual/*.md  →  apps/lawmind-docs/docs/lawmind/manual/*.md
 ```
 
-**本手册那 78 个文件是自动被带过去的，不需要改同步脚本、不需要登记。**
+**本手册那 79 个文件是自动被带过去的，不需要改同步脚本、不需要登记。**
 
 而路径是**原样保留**的——所以手册在站上的地址是 `/lawmind/manual/README`、`/lawmind/manual/01-overview` 这样。
 
@@ -238,7 +238,7 @@ Citation & matter detail / Phase C governance / Phase D operability
 
 **所以「工程笔记」这一组实际是 `docs/lawmind/` 的入口**。本手册也在那个目录下（`/lawmind/manual/`），但它**不靠这一组登记**——2026-09-23 起，导航新增了顶层的「手册」项（指向 `/lawmind/manual/README`），侧栏也新增了独立的「功能与实现手册」组（只放总目录与总索引两个入口）。
 
-**这里有个取舍值得记**：手册有 78 个文件，**没有把 71 章逐一列进侧栏**。列了会把侧栏撑成一本电话簿；不列，人就得靠手册自己的 `README`/`INDEX` 往下走。现在的选择是「导航给一个总入口，章级导航交给手册内部」。真要逐章翻侧栏，改 `config.mts` 的 `items` 即可——同步已经把全部 md 带过去了，地址是现成的。
+**这里有个取舍值得记**：手册有 79 个文件，**没有把 71 章逐一列进侧栏**。列了会把侧栏撑成一本电话簿；不列，人就得靠手册自己的 `README`/`INDEX` 往下走。现在的选择是「导航给一个总入口，章级导航交给手册内部」。真要逐章翻侧栏，改 `config.mts` 的 `items` 即可——同步已经把全部 md 带过去了，地址是现成的。
 
 ### 主题与配色
 

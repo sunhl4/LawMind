@@ -67,7 +67,7 @@
 
 **失败处理**：用户中断 → 中断结果；上下文溢出（`isContextOverflowError`）→ 裁剪工具结果一次后重试；其他 → `closeOnModelFailure` 发 `model_error` 并落助手错误气泡。
 
-**模型没调工具**的三种分支：
+**模型没调工具**的四种分支：
 
 - 有待澄清问题 → `awaiting_clarification`。
 - 同一回合验证未过 → 转 `paused`，或插入一条对律师隐藏的回弹说明后 `continue`。
@@ -82,13 +82,17 @@
 
 同一回合里，模型能看到的工具是下面这条**单链**的产物（顺序不可交换，只会逐级收窄）：
 
-1. `resolveAssistantTooling`：助手的 `Role.allowedToolNames`，缺失时回落到岗位预设。
-2. `resolvePlaybookToolLock`：流程锁只做否决（deny-list）。
-3. `intersectAllowedToolNames`：子助手继承父回合的允许集，只收窄不放大。
-4. `withUpdatePlanControlTool`：确保计划控制工具可用。
-5. `hiddenPolicyToolNames`：策略隐藏项。
-6. `session.disclosedToolNames = mergeTurnDisclosedToolNames(...)`：本轮披露集（含 `list_more_tools` 启用的能力）。
-7. `resolveModelToolNames({ registeredNames, allowNames, permissionMode, disclosedNames, denyNames })`。
+| #   | 做什么                                                                                                         | 代码位置                         |
+| --- | -------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| 1   | `resolveAssistantTooling`：助手的 `Role.allowedToolNames`，缺失时回落到岗位预设                                | `agent/turn-orchestrator.ts`     |
+| 2   | `resolvePlaybookToolLock`：流程锁只做否决（deny-list）                                                         | `platform/playbook-tool-lock.ts` |
+| 3   | `intersectAllowedToolNames`：子助手继承父回合的允许集，只收窄不放大                                            | `agent/turn-orchestrator.ts`     |
+| 4   | `withUpdatePlanControlTool`：确保计划控制工具可用                                                              | `agent/turn-orchestrator.ts`     |
+| 5   | `hiddenPolicyToolNames`：策略隐藏项                                                                            | `policy/analysis-scripts.ts`     |
+| 6   | `session.disclosedToolNames = mergeTurnDisclosedToolNames(...)`：本轮披露集（含 `list_more_tools` 启用的能力） | `agent/turn-orchestrator.ts`     |
+| 7   | `resolveModelToolNames({ registeredNames, allowNames, permissionMode, disclosedNames, denyNames })`            | `agent/turn-step-context.ts`     |
+
+**调试「模型为什么看不到某个工具」时，按这张表从上往下查**：第 1、2 步管「助手/流程允不允许」，第 5 步管「策略藏了什么」，第 6 步管「披露了没有」，第 7 步才是最终合并。`rebuildStepContext`（`turn-step-context.ts`）每轮都会重跑这条链。
 
 补充规则：
 
@@ -170,7 +174,7 @@
 - 中途指示、中途钉选走侧车文件而非会话 JSON，删除会话时要一并清理（`session-delete-cascade.ts`）。
 - 承前分叉在存在未决授权时**必须**拒绝，否则新会话会带着一个无法回应的悬空授权。
 
-## 3.13 补充：消息历史是怎么组织的
+## 3.13 消息历史是怎么组织的
 
 会话里的消息分三类，理解这个分类对排查「模型为什么没看到某条信息」很关键：
 
@@ -184,7 +188,7 @@
 
 **派生消息的生成**：`deriveModelMessagesForSampling(session, budget)` 会按预算裁剪历史。裁剪时会**保护工具调用配对**——不能出现「有调用没结果」的情况，否则模型 API 会拒。
 
-## 3.14 补充：工具结果怎么进历史
+## 3.14 工具结果怎么进历史
 
 一次工具调用的完整往返是两条消息：
 
@@ -204,7 +208,7 @@ tool 消息（带 toolCallResponses）
 
 「结果太大就溢出到文件」这条很实用：一份大材料的内容不会整段进历史，历史里只留一句「完整内容在 xxx」。
 
-## 3.15 补充：几种「回合没正常结束」的情况
+## 3.15 几种「回合没正常结束」的情况
 
 | 现象                   | 落盘状态                    | 律师看到               | 怎么恢复                               |
 | ---------------------- | --------------------------- | ---------------------- | -------------------------------------- |
@@ -217,7 +221,7 @@ tool 消息（带 toolCallResponses）
 
 **`interrupted` 不是落盘的原始状态**，它是读的时候给孤儿轮次的一个视图（第 28 章也提过）。
 
-## 3.16 补充：会话的四种「续跑」入口
+## 3.16 会话的四种「续跑」入口
 
 | 入口             | 什么时候用                   |
 | ---------------- | ---------------------------- |
@@ -228,7 +232,7 @@ tool 消息（带 toolCallResponses）
 
 **注意**：审批续跑不是「重新开始」，而是把卡住的那次工具调用放行，从断点继续。这是「恢复」和「重跑」的区别。
 
-## 3.17 补充：一次回合里模型能看到什么
+## 3.17 一次回合里模型能看到什么
 
 按系统提示的组装顺序（第 3.7 节讲了工具表，这里讲提示）：
 
@@ -254,9 +258,9 @@ tool 消息（带 toolCallResponses）
 
 **两张表的结构**：静态前缀和动态后缀之间有一个分隔标记（`LAWMIND_PROMPT_DYNAMIC_BOUNDARY`），组装时按它切开。
 
-## 3.18 补充：上下文用量的四个桶
+## 3.18 上下文用量的十个桶
 
-`estimateTokenBudgetBreakdown` 把用量按桶拆开（界面上的用量表就是它）：
+`estimateTokenBudgetBreakdown` 把用量按桶拆开（界面上的用量表就是它）。桶的顺序与名称来自 `TOKEN_BUDGET_BUCKET_ORDER`（`context-budget.ts`），**共十个**：
 
 | 桶         | 装什么                               |
 | ---------- | ------------------------------------ |

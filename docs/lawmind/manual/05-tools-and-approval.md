@@ -53,7 +53,7 @@ export function toolRequiresLawyerPause(name?: string): boolean {
 
 ## 5.3 内行看门道：审批是「参数绑定」的
 
-这里有个设计值得单独说，因为它直接影响你会不会被重复问。
+这里有个设计直接影响你会不会被反复问同一件事。
 
 审批缓存的键长这样（`src/lawmind/agent/approval-cache-key.ts`）：
 
@@ -210,7 +210,7 @@ RESERVED_TOOL_NAME: <name> is implemented only by LawMind execute()
 几点值得注意的顺序逻辑：
 
 - **审批放在 schema 校验之前**（11 在 13 前面）。也就是说，一个参数还没校验的调用也能进审批队列。这样设计是为了让律师先看到「它想干什么」，而不是等校验完才排队。
-- **审计放在执行之前**（15 在 18 前面）。记的是「发起了这次调用」，不是「成功了」。失败了也留痕。
+- **审计包在执行外面**（15 在 18 前面）。但注意它的**写入时机是 `await next()` 之后**——`auditMiddleware` 会拿到工具结果，把 `ok` 与 `error` 一起写进 `tool_call` 事件（`tool-pipeline.ts:757-777`）。所以它记的是**这次调用的结果**，不是「发起过」。工具抛异常时它也会兜住并记 `ok: false`。
 - **沙箱是最后一道**（17）。前面所有检查都在主进程做，只有真正执行才可能进子进程。
 
 ### 防空转的两条预算
@@ -282,19 +282,15 @@ RESERVED_TOOL_NAME: <name> is implemented only by LawMind execute()
 
 ## 5.10 实现：沙箱子进程
 
-`src/lawmind/runtime/tool-sandbox.ts` 负责把高风险工具丢进子进程跑。哪些算高风险？
+`src/lawmind/runtime/tool-sandbox.ts` 负责把高风险工具丢进子进程跑。哪些算高风险由 `SUBPROCESS_SANDBOX_TOOL_NAMES` 决定（定义在 `src/lawmind/agent/dangerous-tool-policy.ts:18`，**七个**）：
 
-```ts
-SUBPROCESS_SANDBOX_TOOL_NAMES = {
-  render_document,
-  render_tracked_draft,
-  execute_workflow,
-  draft_document,
-  add_case_note,
-  run_analysis,
-  run_compute,
-};
+```text
+render_document          render_tracked_draft    execute_workflow
+draft_document           add_case_note           run_analysis
+run_compute
 ```
+
+`read_project_file` 与 `analyze_document` **刻意留在主进程**——它们是只读、且延迟敏感，进子进程只会更慢（代码注释原话：`readonly, latency-sensitive`）。
 
 开关有三态（`describeToolSandboxStatus`）：环境变量 `LAWMIND_TOOL_SANDBOX=1` → `{enabled:true, source:"env"}`；或者 `lawmind.policy.json` 里 `toolSandbox: true` → `{source:"policy"}`；都不是就是 `{enabled:false, source:"off"}`。
 
@@ -327,7 +323,7 @@ sandboxUnavailableResult("runner missing (<path>). Refusing in-process fallback.
 - `引用对不上来源：… 不在本次检索结果中。请改正 citations 或重检索后重交，不要回复已完成。`
 - `未接真源（演示语料或工作区启发式）。请勿把本节引用写成已核实法条。`
 
-最后一句特别值得注意：**没接真源的时候，系统会明说「这是演示语料」，不许模型把引用写成已核实。** 这是防编造的一条硬线。
+最后那句是条硬线：**没接真源的时候，系统会明说「这是演示语料」，不许模型把引用写成已核实。**
 
 ## 5.12 实现：审批的记录与恢复
 
