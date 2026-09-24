@@ -488,7 +488,7 @@ NPC 有节流（1.5 秒间隔 + 5 分钟缓存）。用量可以在体检页看�
 
 **Q115：两份常量清单在哪？**
 
-`runtime/protected-workspace-rels.ts` 与 `electron/fs-bridge.mjs`。改一处必须改另一处，而且**没有测试保证一致**。
+`runtime/protected-workspace-rels.ts` 与 `electron/fs-bridge.mjs`。改一处必须改另一处——**有测试替你抓漏**：`electron/fs-bridge.test.ts` 逐项比对两侧文案与白名单。
 
 **Q116：为什么技能有 37 份但种子清单只有 35 个 id？**
 

@@ -44,7 +44,7 @@
 
 `renewal-monitor`（续展监控）、`client-weekly-update`（客户周报）、`mail-inbox-digest`（邮箱摘要）、`mail-contract-review`（邮件合同审阅）、`custom`（自定义）。
 
-预设里有两个带 `needsMail: true`（需要邮箱配置），两个带 `defaultAllowSendEmailAfterApproval`。
+预设里有两个带 `needsMail: true`（需要邮箱配置）；而 `defaultAllowSend: true`（批准后可以直接发信）**只有一个**预设（`client-weekly-update`）。注意字段名在预设侧是 `defaultAllowSend`，在自动化对象侧才叫 `allowSendEmailAfterApproval`（落盘时映射过去）——没有 `defaultAllowSendEmailAfterApproval` 这个字段。
 
 ### 六个确认项，缺一不许启用
 

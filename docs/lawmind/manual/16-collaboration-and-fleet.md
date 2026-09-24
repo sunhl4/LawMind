@@ -418,7 +418,7 @@ preApproveToolNames: ["apply_surgical_edits", "render_tracked_draft", "prepare_o
 
 这一层有点绕，但很重要。四个概念：
 
-1. **律师身份密钥对**（ed25519）：`~/.lawmind/lawyer-keys.json`，每个律师一套，0600。
+1. **律师身份密钥对**（**X25519**，做 ECDH 协商用）：存**工作区内**的 `lawmind/lawyer-keys.json`（不是家目录），每个律师一套，0600。
 2. **案件密钥**：每个案件一把，存 `cases/<案件id>/replica/matter-key.json`。**永不离开本地。**
 3. **成员包裹**：给每个成员的包裹是 `wrapMatterKeyForMember`——用对方公钥做密钥协商（HKDF，盐是 `lawmind-matter-replica-member-wrap-v1`），把案件密钥封起来。所以只有那个成员解不开不了。
 4. **邀请包裹**（v2）：给还没加入的人。用邀请码派生包裹密钥（盐 `lawmind-matter-replica-invite-v1`，info 是 `matter:<案件id>`），再包案件密钥。

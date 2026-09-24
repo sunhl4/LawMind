@@ -12,28 +12,30 @@
 
 ## 39.2 有版本号的地方
 
-| 位置              | 版本常量                       | 现在是                           |
-| ----------------- | ------------------------------ | -------------------------------- |
-| 索引 schema       | `SEARCH_INDEX_SCHEMA_VERSION`  | 3                                |
-| 法条参数表        | `STATUTE_PARAMS_VERSION`       | 3                                |
-| Word 改稿清单一族 | `WORD_REVISION_PACK_VERSION`   | 2                                |
-| 策略文件          | `schemaVersion`                | 1                                |
-| 工作日设置        | `DESK_SETTINGS_SCHEMA_VERSION` | 1                                |
-| 立场库            | `STANCE_SCHEMA_VERSION`        | 1                                |
-| 路由默认          | `ROUTING_DEFAULTS_VERSION`     | 1                                |
-| 学习队列          | `FILE_VERSION`                 | 1                                |
-| 合同修订包        | `SCHEMA_VERSION`               | 1                                |
-| 案件团队名册      | `TEAM_ROSTER_VERSION`          | 1                                |
-| 诉讼费分档表      | `LITIGATION_FEE_VERSION`       | 1（人工标记，无人读取）          |
-| 校准特征口径      | `FEATURE_VERSION`              | 1                                |
-| 导出格式          | 格式标记字符串                 | `LawMind audit export format: 2` |
-| 审计回放          | `schemaVersion`                | 1                                |
+按「**程序拿它做什么**」分三档——这比只看有没有版本号更有用，因为只有第一档会真的拦住你：
 
-**改数据结构时先在这里找找有没有对应版本号**，有就该考虑要不要抬。
+| 位置              | 版本常量                       | 现在是                           | 程序拿它做什么                                    |
+| ----------------- | ------------------------------ | -------------------------------- | ------------------------------------------------- |
+| Word 改稿清单一族 | `WORD_REVISION_PACK_VERSION`   | 2                                | **比较**：`overlayVersion >= 本常量` 才认旧清单   |
+| 立场库            | `STANCE_SCHEMA_VERSION`        | 1                                | **比较**：读到不等于它的 `schemaVersion` 就当空库 |
+| 索引 schema       | `SEARCH_INDEX_SCHEMA_VERSION`  | 3                                | **只写不校**：写进 index meta，新鲜度判据里没有它 |
+| 法条参数表        | `STATUTE_PARAMS_VERSION`       | 3                                | **只展示**：用在 lint 的回执文案里（`参数库 v3`） |
+| 学习队列          | `FILE_VERSION`                 | 1                                | **只写不校**：写进 json，读取时不比它             |
+| 校准特征口径      | `FEATURE_VERSION`              | 1                                | **只写不校**：写进拟合产物，无消费方比对          |
+| 诉讼费分档表      | `LITIGATION_FEE_VERSION`       | 1                                | **纯人工标记**：全仓只有定义，没有任何读取点      |
+| 策略文件          | `schemaVersion`                | 1                                | 值靠字面量校验（不是引用常量）                    |
+| 工作日设置        | `DESK_SETTINGS_SCHEMA_VERSION` | 1                                | 只出现在类型声明里（`typeof`）                    |
+| 路由默认          | `ROUTING_DEFAULTS_VERSION`     | 1                                | 只出现在类型声明里（`typeof`）                    |
+| 案件团队名册      | `TEAM_ROSTER_VERSION`          | 1                                | 只出现在类型声明里（`typeof`）                    |
+| 合同修订包        | `SCHEMA_VERSION`               | 1                                | 只出现在类型声明里 + 写入                         |
+| 导出格式          | 格式标记字符串                 | `LawMind audit export format: 2` | 解析时匹配这个前缀                                |
+| 审计回放          | `schemaVersion`                | 1                                | 值靠字面量校验                                    |
 
-**一个区别要留意**：这张表里多数常量是**代码会读的**（比如 `SEARCH_INDEX_SCHEMA_VERSION` 会参与陈旧判断），但也有一类是**纯人工标记**——`LITIGATION_FEE_VERSION` 就是（`rg LITIGATION_FEE_VERSION` 只查到定义，没有任何读取点）。它的作用是在改费率时给人一个「抬版本号」的钩子，程序不会因为版本没抬而拒绝；所以别指望靠它拦住忘记迁移的人。
+**这张表最该记住的一句**：**只有头两行是「抬版本号会改变行为」的**。其余的抬了也白抬——程序不看。比如 `SEARCH_INDEX_SCHEMA_VERSION` 从 3 抬到 4，索引该陈旧还是陈旧：**新鲜度只看 `lastRebuildAt` 与 24 小时窗口**（`computeSearchIndexFreshness` 只吃 `ready` 与 `lastRebuildAt`，压根不碰 schema）。要强制重建得用开关或删索引。
 
-**注意「工作流」这一类没有版本号。** 工作流模板（`agent/collaboration/builtin-workflow-templates.ts`、`workspace-workflow-templates.ts`）的类型定义里没有 `version` 字段——所以改模板结构时没有版本常量可抬，只能靠「新增字段有才加」那条纪律（39.1）来保兼容。这是本表里**唯一一处「应该有但没有」**的地方。
+**改数据结构时先在这里找找有没有对应版本号**，有就该考虑要不要抬；但**同时要看清它属于哪一档**——第二、三档的常量抬了不产生任何强制力，真正的兼容还得靠「新增字段有才加」（39.1）那条纪律。
+
+**注意「工作流」这一类没有版本号。** 工作流模板（`agent/collaboration/builtin-workflow-templates.ts`、`workspace-workflow-templates.ts`）的类型定义里没有 `version` 字段——所以改模板结构时没有版本常量可抬，只能靠「新增字段有才加」来保兼容。这是本表里**唯一一处「应该有但没有」**的地方。
 
 ## 39.3 已经做过的迁移
 
@@ -149,7 +151,7 @@ STALE_MARKERS 示例：
 
 原因：Electron 主进程是 `.mjs`，不能 import TS。
 
-**风险**：改一处漏另一处会出现安全口子。**目前没有一致性测试。**
+**风险**：改一处漏另一处会出现安全口子。**有守卫测试**：`electron/fs-bridge.test.ts` 逐项比对（见第 29.22 与 34.10）。
 
 ### 两套 schema 的细微差异
 
