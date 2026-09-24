@@ -247,7 +247,7 @@ export const LITIGATION_FEE_VERSION = 1;
 | `extract.ts` | `extractClauses(docText, patterns?)`                                                                                              |
 | `lint.ts`    | `runClauseLint` → 转成 `LegalLintFinding`                                                                                         |
 
-**`ClauseType` 是封闭集合**：`definition`、`obligation`、`right`、`liability`、`dispute`（从 `CLAUSE_TYPES` 看）。
+**`ClauseType` 是封闭集合**：`definition`、`obligation`、`right`、`liability`、`dispute`、`general`（从 `CLAUSE_TYPES` 看）。
 
 **为什么要有 AST 而不是直接正则匹配**：因为「这条是定义条款还是义务条款」需要上下文。有了 AST，模式可以引用「先找到的定义」。
 
@@ -296,7 +296,7 @@ export const LITIGATION_FEE_VERSION = 1;
 
 ### 法条参数表（`statute-params.ts`）
 
-第 51.2 节讲了它的形状。八条具体参数（我列了六个）：
+第 51.2 节讲了它的形状。十条具体参数（下面列主要的）：
 
 | id                                | 值    | 依据                 |
 | --------------------------------- | ----- | -------------------- |

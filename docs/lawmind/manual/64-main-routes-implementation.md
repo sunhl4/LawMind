@@ -6,7 +6,7 @@
 route-chat.ts            2 条路由   对话回合 + 续跑
 route-sessions.ts       14 条路由   会话控制面
 route-intent.ts          1 条路由   意图预览
-route-review.ts         17 条路由   文书台
+route-review.ts         16 条路由   文书台
 route-matters.ts        24 条路由   案件
 route-records.ts        11 条路由   任务/会话/草稿列表
 route-draft-revision.ts  1 条路由   后台改稿
@@ -15,7 +15,7 @@ route-lawyer-desk.ts    24 条路由   律师工作台
 route-bootstrap.ts       1 条路由   首屏载荷
 ```
 
-一共 101 条路由。这一章按「一条请求进来怎么走」的顺序讲。
+一共 100 条路由。这一章按「一条请求进来怎么走」的顺序讲。
 
 ## 64.1 对话：一个回合的十九步
 
@@ -360,11 +360,11 @@ historyText 为空 → 从 session.conversationHistory.slice(-8) 拼
 
 **这段注释的写法值得学**：它没有把「类型不一致」讲成「bug」，而是明确说清了实际影响范围。**这是「不夸大影响」的写法。**
 
-## 64.4 文书台：十七条路由与三道门
+## 64.4 文书台：十六条路由与三道门
 
 `route-review.ts` 是最大的路由文件（1326 行）。
 
-### 十七条
+### 十六条
 
 ```text
 GET    /api/learning/suggestions              学习建议列表
@@ -613,7 +613,7 @@ GET /api/queues      工作队列
 
 ### `/detail` 那一份聚合
 
-`GET /api/matters/detail` 返回十四个字段：
+`GET /api/matters/detail` 返回十五个字段（另有 `matterId` 与一个 `caseMemoryTruncated` 标志）：
 
 ```text
 summary / overview / profile / caseMemory / coreIssues / taskGoals
@@ -621,7 +621,7 @@ summary / overview / profile / caseMemory / coreIssues / taskGoals
 / approvalRequests / queueItems / draftCitationIntegrity / auditEvents
 ```
 
-**十五个来源拼成一次响应**——所以界面打开「案件驾舱」不需要发十几个请求。
+**十五个来源拼成一次响应**——所以界面打开「案件驾舱」不需要发十几个请求。返回里还夹一个 `caseMemoryTruncated`，用来告诉界面「这份记忆被截过」。
 
 三处截断：
 

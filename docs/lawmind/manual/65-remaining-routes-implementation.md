@@ -1,6 +1,6 @@
 # 第 65 章 实现精读：其余路由（四十九文件）
 
-第 64 章讲了主链路的十个文件（101 条路由）。这一章讲**其余 49 个文件**。
+第 64 章讲了主链路的十个文件（100 条路由）。这一章讲**其余 49 个文件**。
 
 这些文件的特点是「一个文件管一个功能面」。所以这一章按**功能集群**分组，每个集群先说它解决什么问题，再列路由，再挑要紧的判定逻辑。
 
@@ -11,7 +11,7 @@
 | A 健康与诊断     | health / daemon / metrics / support                                                                                                                               | 12         |
 | B 本机与文件     | host-access / fs                                                                                                                                                  | 6          |
 | C Word 插件      | word-addin                                                                                                                                                        | 9          |
-| D 自动办件与邮件 | automations / mail                                                                                                                                                | 20         |
+| D 自动办件与邮件 | automations / mail                                                                                                                                                | 19         |
 | E 协作与专案组   | collaboration / agent-fleet / review-campaign / routing                                                                                                           | 20         |
 | F 案件副本与云   | matter-replica / matter-cloud                                                                                                                                     | 19 + 通配  |
 | G 学习与记忆     | learning-contract / contract-review / memory-adoption / memory-preview / memory-templates / historical-scan / redline                                             | 20         |
@@ -253,7 +253,7 @@ cache-control: "no-store"      ← 全部静态资源
 
 ## 65.4 D 集群：自动办件与邮件
 
-### `route-automations.ts`：二十条路由与六个确认项
+### `route-automations.ts`：十条路由与六个确认项
 
 ```text
 GET    /api/automations/presets
@@ -350,7 +350,8 @@ gmail  outlook  microsoft365  qq  163  imap
 **三种登录方式**：
 
 ```text
-password  应用密码（中文界面叫「应用密码」）
+password      普通密码登录
+app_password  应用密码（中文界面叫「应用密码」）
 graph_client  Graph 客户端
 ```
 
@@ -377,7 +378,7 @@ graph_client  Graph 客户端
 
 ## 65.5 E 集群：协作与专案组
 
-### `route-collaboration.ts`：十一条路由 + 异步分支
+### `route-collaboration.ts`：十条路由 + 异步分支
 
 ```text
 GET  /api/collaboration/summary
@@ -840,7 +841,7 @@ apply_surgical_edits / write_document / update_draft / execute_workflow → medi
 
 而 `route-action-summary.ts` 里**同一个码同一个文案也出现了一次**（在 `POST /api/approvals/resolve`）——**两处实现**。
 
-### `route-action-summary.ts`：那个「汇总」的十四个键
+### `route-action-summary.ts`：那个「汇总」的十二个键
 
 响应里有一大串计数（原文的键名）：
 
@@ -851,9 +852,9 @@ pendingAutomationCount  recentReviewCompleted  recentDelegationCompleted
 recentCollabCompleted
 ```
 
-加五组列表：`approvals` / `queueItems` / `jobs` / `pendingReviewDrafts` / `toolApprovals` / `chatRequiresActions` / `automationInbox` / `wordAddinReviews`。
+加八组列表：`approvals` / `queueItems` / `jobs` / `pendingReviewDrafts` / `toolApprovals` / `chatRequiresActions` / `automationInbox` / `wordAddinReviews`。
 
-**十四个计数 + 八组列表**——一次调用装齐「侧栏那个红点该显示几」。
+**十二个计数 + 八组列表**——一次调用装齐「侧栏那个红点该显示几」。
 
 几处裁剪：
 

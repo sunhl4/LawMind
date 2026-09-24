@@ -52,7 +52,7 @@
 
 所以：**读失败的规格只记警告（审计 `deliverable.spec.invalid`），不让工厂抛错**。坏一个文件的代价，不该是整个引擎起不来。
 
-### `EngineContext` 的六个字段
+### `EngineContext` 的七个字段
 
 `engine/context.ts` 把原来闭包里的东西抽成了显式参数（注释说明这是为了「把五段拆到各自文件里独立测试」）：
 

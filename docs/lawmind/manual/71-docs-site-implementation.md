@@ -234,7 +234,7 @@ Agent workbench memory / Task checkpoints / Quality & benchmarks
 Citation & matter detail / Phase C governance / Phase D operability
 ```
 
-**十四条里有十三条指向 `/lawmind/*`**（也就是 `docs/lawmind/` 那批工程笔记），只有两条是归档或顶层。
+**十四条里有九条指向 `/lawmind/*`**（也就是 `docs/lawmind/` 那批工程笔记），另有三条是仓库根文档、两条在 `archive/`。
 
 **所以「工程笔记」这一组实际是 `docs/lawmind/` 的入口**。本手册也在那个目录下（`/lawmind/manual/`），但它**不靠这一组登记**——2026-09-23 起，导航新增了顶层的「手册」项（指向 `/lawmind/manual/README`），侧栏也新增了独立的「功能与实现手册」组（只放总目录与总索引两个入口）。
 
@@ -288,7 +288,7 @@ pnpm-lock.yaml
 package.json
 ```
 
-**六个路径**——正好覆盖同步脚本读的那五样加一个锁文件。**所以「改了源文档就会重新发布」是自动的。**
+**七个路径**——覆盖同步脚本读的那五样加一个锁文件，再加 `package.json`。**所以「改了源文档就会重新发布」是自动的。**
 
 **两个 job**：
 

@@ -1,6 +1,6 @@
 # 第 50 章 实现精读：渲染层
 
-第 24 章是「界面逐屏」。这一章讲**渲染层是怎么组织起来的**：428 个顶层文件、186 个测试，它是怎么避免变成一团面条的。
+第 24 章是「界面逐屏」。这一章讲**渲染层是怎么组织起来的**：431 个顶层文件、187 个测试，它是怎么避免变成一团面条的。
 
 ## 50.1 渲染层的三件难事
 
@@ -180,14 +180,14 @@ export function hasLawmindDesktopBridge(): boolean {
 
 | 目录            | 文件数 | 职责                                                                     |
 | --------------- | ------ | ------------------------------------------------------------------------ |
-| （顶层）        | 428    | 各种组件、hook、纯逻辑模块                                               |
-| `app/`          | 约 40  | 壳：根视图、侧栏、顶栏、主内容分支、对话框、设置面板 + 对应的 props hook |
+| （顶层）        | 431    | 各种组件、hook、纯逻辑模块                                               |
+| `app/`          | 44     | 壳：根视图、侧栏、顶栏、主内容分支、对话框、设置面板 + 对应的 props hook |
 | `matter/`       | 58     | 案件驾舱的全部面板与 hook                                                |
 | `review/`       | 11     | 改稿工作面的列组件与数据/动作 hook                                       |
-| `settings/`     | —      | 设置的分区组件                                                           |
-| `stores/`       | 6      | 五个域 store + README                                                    |
+| `settings/`     | 7      | 设置的分区组件                                                           |
+| `stores/`       | 10     | 域 store + 选择器 + README                                               |
 | `insights/`     | 4      | 案件层面的洞察组件（转发自 `insights/`）                                 |
-| `file/`         | —      | 文件工作台                                                               |
+| `file/`         | 12     | 文件工作台                                                               |
 | `styles/`       | —      | CSS 模块（由同步脚本内联进 `styles.css`）                                |
 | `vendor/katex/` | —      | 随包的 KaTeX（聊天里的数学公式）                                         |
 
@@ -253,7 +253,7 @@ export function hasLawmindDesktopBridge(): boolean {
 pnpm lawmind:ui-copy-lint
 ```
 
-它扫渲染层文案，按 `BANNED_PATTERNS` 拦 10 类模式（路径、英文枚举、门禁术语等）。存量合法用例登记在 `scripts/lawmind/ui-copy-lint-allowlist.json`。
+它扫渲染层文案，按 `BANNED_PATTERNS` 拦 14 类模式（路径、英文枚举、门禁术语等）。存量合法用例登记在 `scripts/lawmind/ui-copy-lint-allowlist.json`。
 
 **所以改渲染层的文案，改完要跑这条命令。** 这也是为什么渲染层里会看到「案件档案」而不是 `CASE.md`、「已批准」而不是 `approved`——**不是自觉，是有 lint 守着**。
 

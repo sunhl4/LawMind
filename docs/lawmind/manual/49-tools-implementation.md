@@ -262,7 +262,7 @@ LPR / 牌价 must be supplied by the lawyer — never invented.
 | ------------------------------------ | ------------------------------------- |
 | 看不到对话历史                       | 所以任务书必须自包含                  |
 | 自己能读文件                         | 不用父会话把内容塞进任务书            |
-| 只能用四个只读工具                   | 见 `DRAFT_WORKER_READONLY_TOOL_NAMES` |
+| 只能用六个只读工具                   | 见 `DRAFT_WORKER_READONLY_TOOL_NAMES` |
 | 返回三样（片段、引用出处、待补缺口） | 出处的责任在 worker，不在父会话       |
 | 不要用于改原件                       | 改稿是另一条路（最短改动）            |
 | 多章可并行                           | 所以「多写几章」能提速                |
@@ -326,13 +326,13 @@ LPR / 牌价 must be supplied by the lawyer — never invented.
 | 交付物       | `review-table-tool.ts`、`xlsx-workbook.ts`、`compute-deliverable.ts`                                                                | 审查表与核算产物                              |
 | 邮件         | `mail-tools.ts`                                                                                                                     | 收件匣、附件、准备外发、发送                  |
 | 流程与状态   | `list-more-tools.ts`、`update-plan-tool.ts`、`read-skill-tool.ts`、`audit-tools.ts`、`draft-worker-tool.ts`                         | 渐进披露、计划、技能、审计、并行写稿          |
-| 引擎桥       | `engine/*.ts`（7 个）                                                                                                               | 五阶段流水线的工具化 + 模板 + 治理 + 跨文书   |
+| 引擎桥       | `engine/*.ts`（8 个）                                                                                                               | 五阶段流水线的工具化 + 模板 + 治理 + 跨文书   |
 
 再加根目录四个：`lawmind-web-search.ts`、`lawmind-legal-web-search.ts`、`lawmind-url-dossier.ts`、`lawmind-deep-research.ts`（联网与研究），以及 `collaboration-tools.ts`（协作，实现在 `coordination/`）。
 
 ## 49.11 引擎桥工具（`engine/`）
 
-七个文件，是「经典五阶段流水线」的工具化封装：
+八个文件，是「经典五阶段流水线」的工具化封装：
 
 | 文件                                                           | 导出                                                                                                                     |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |

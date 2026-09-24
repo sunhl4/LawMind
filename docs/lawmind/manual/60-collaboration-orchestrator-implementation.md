@@ -35,7 +35,7 @@ Adapted from reference stack's fire-wait-read pattern (src/agents/tools/agent-st
 and subagent announce flow (src/agents/subagent-announce.ts).
 ```
 
-### `sendAndWait` 的十一个参数
+### `sendAndWait` 的十二个参数
 
 除了三个必需的（`baseConfig`、`fromAssistantId`、`toAssistantId`、`message`），其余都是**继承父回合的约束**：
 
@@ -58,7 +58,7 @@ and subagent announce flow (src/agents/subagent-announce.ts).
 
 **`min(自身配置, 分片)`**——子助手不能借「被派活」来绕过预算。这是第 43.7 节 `child-gates` 那条「只收窄不放大」在协作上的落点。
 
-### `fireAndForget` 的十二个参数
+### `fireAndForget` 的十四个参数
 
 比同步版多两个关键参数：
 
@@ -940,7 +940,7 @@ workspace/collaboration/[<matterId>/]<delegationId>.md
 
 ### 摘要给界面用
 
-`playbook-summary.ts` 产出的 `WorkflowPlaybookSummary` 有九个字段，其中两个是**推导出来的**：
+`playbook-summary.ts` 产出的 `WorkflowPlaybookSummary` 有十个字段，其中两个是**推导出来的**：
 
 ```text
 approvalPoints = 那些 reviewBy 有值 或 autoApprove === false 的步骤

@@ -8,7 +8,7 @@
 
 ### 今日与计划
 
-**`today-work.ts`** —— 只导出 `buildTodayWorkSnapshot` 与四个类型（`TodayWorkItemKind`、`TodayWorkItem`、`TodayWorkSnapshot`）。
+**`today-work.ts`** —— 只导出 `buildTodayWorkSnapshot` 与三个类型（`TodayWorkItemKind`、`TodayWorkItem`、`TodayWorkSnapshot`）。
 
 它是「今日一屏」的唯一入口，四块拼装（律师计划 + 待回邮件 + 期限 + 待审批）。**纯读，不写文件、不扫审计**。
 
@@ -103,7 +103,7 @@
 
 ### `index.ts`
 
-只导出六个：`buildMatterIndex`、`listMatterIds`、`buildMatterOverview`、`buildMatterOverviewLite`、`listMatterOverviews`、`summarizeMatterIndex`、`searchMatterIndex`。
+只导出七个：`buildMatterIndex`、`listMatterIds`、`buildMatterOverview`、`buildMatterOverviewLite`、`listMatterOverviews`、`summarizeMatterIndex`、`searchMatterIndex`。
 
 **两个「build」的分工**：
 
@@ -132,7 +132,7 @@
 
 **`matter-label.ts` 的几个「resolve」**处理的是展示名：没设展示名时怎么从 CASE.md 或文件名推一个体面的标签。
 
-## 45.3 `application/`（15 个文件）
+## 45.3 `application/`（12 个文件）
 
 `application/` 是**写侧服务层**。核心约定（第 7 章）：service 层不直接碰 fs，全部走 storage adapter。
 

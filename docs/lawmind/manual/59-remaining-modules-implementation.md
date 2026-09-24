@@ -79,7 +79,7 @@
 
 ### `derive.ts`：从文本推属性
 
-`derive.ts` 是「不用模型、纯靠文本推」的那一层。九个函数：
+`derive.ts` 是「不用模型、纯靠文本推」的那一层。十个函数：
 
 | 函数                      | 推什么             |
 | ------------------------- | ------------------ |
@@ -237,7 +237,7 @@ LawyerWorkSource = "chat" | "mail" | "file" | "compare" | "automation";
 
 ### `goal.ts`：一个「排队等应用」的目标
 
-`goal.ts` 导出九个函数，都是围绕「律师说了一句目标，但当前回合不该改流程」这件事：
+`goal.ts` 导出十个函数，都是围绕「律师说了一句目标，但当前回合不该改流程」这件事：
 
 ```text
 pendingWorkGoalPath → queueWorkGoal → claimPendingWorkGoal → applyClaimedWorkGoalToHistory
@@ -247,7 +247,7 @@ pendingWorkGoalPath → queueWorkGoal → claimPendingWorkGoal → applyClaimedW
 
 而 `ensureLawyerWorkForTurn` 是回合开始时调的那个（第 3.5 节第 ⑤ 步）。
 
-### `store.ts`：十四个函数
+### `store.ts`：十三个函数
 
 `store.ts` 是这一层的主体。它的函数可以分为四组：
 
@@ -388,7 +388,7 @@ createSourceAnnotation / listSourceAnnotations
 
 ## 59.9 多任务可观测（`ops/`）
 
-`ops/multitask-observability.ts` 只导出两个函数加两个类型，但它产出的报告有八项指标：
+`ops/multitask-observability.ts` 只导出两个函数加两个类型，但它产出的报告有七项指标：
 
 | 指标                              | 说明                 |
 | --------------------------------- | -------------------- |
@@ -753,7 +753,7 @@ LAWMIND_ATTORNEY_DISCLAIMER_EXPORT_FOOTER      ← 导出文件用
 
 **「按是否封套分流」**——这是 E2EE 与完整性校验的必然折中。
 
-### 十三个错误码
+### 十四个错误码
 
 服务端的错误码我列一下，因为它们是排查的关键：
 

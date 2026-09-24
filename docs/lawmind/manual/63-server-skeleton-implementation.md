@@ -1100,7 +1100,7 @@ job_<状态>             作业处于某个状态
 
 **第三条列了三种常见原因**——因为「没有可回填的修订轨」这个结果有多个可能的原因，律师需要知道去看什么。
 
-### `humanizeWordAddinJobError` 的七个映射
+### `humanizeWordAddinJobError` 的六个映射
 
 ```text
 interrupted_by_restart     → 桌面端中途重启过，这次审查被中断
