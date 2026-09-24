@@ -311,7 +311,7 @@ https://cdn.jsdelivr.net/gh/sunhl4/LawMind@main/apps/lawmind-desktop/download/in
 
 `session-config.mjs` 只有一个函数，但它装的是全应用唯一的 CSP。
 
-### 十条指令
+### 九条 CSP 指令
 
 | 指令          | 值                                                                                                |
 | ------------- | ------------------------------------------------------------------------------------------------- |

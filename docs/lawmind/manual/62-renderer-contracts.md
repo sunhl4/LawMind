@@ -15,7 +15,7 @@
 | `app/LawmindWorkspaceMainPane.tsx` | `LawmindWorkspaceMainPane`                     | `lm-chat-drop-zone`                     |
 | `lawmind-chat-shell.tsx`           | `LawmindChatComposeFooter`、`LawmindChatShell` | `lm-compose-drop-zone` + 三条快车道     |
 | `lawmind-chat-messages-column.tsx` | `LawmindChatMessagesColumn`                    | `lm-chat-empty`、`lm-chat-messages-end` |
-| `LawmindChatMessageRow.tsx`        | `LawmindChatMessageRow`                        | 九个（见下）                            |
+| `LawmindChatMessageRow.tsx`        | `LawmindChatMessageRow`                        | 十一个（见下）                          |
 
 **四个 drop zone**：
 
@@ -29,7 +29,7 @@ lm-compose-research-fast-lane
 
 **四条快车道**（合同/邮件/研究三条 + 输入区）——所以「丢文件进来」在不同位置会进不同的车道。
 
-### 消息行的九个 testid
+### 消息行的十一个 testid
 
 `LawmindChatMessageRow` 是交互最密的一个：
 
