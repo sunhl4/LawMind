@@ -1,6 +1,6 @@
 # 第 66 章 实现精读：桌面壳（进程、窗口、IPC 桥面）
 
-第 13 章从架构角度讲了桌面壳。这一章讲 `apps/lawmind-desktop/electron/` 的实现：25 个非测试文件、约 7600 行。
+第 13 章从架构角度讲了桌面壳。这一章讲 `apps/lawmind-desktop/electron/` 的实现：25 个非测试文件、约 5,550 行。
 
 这一章覆盖进程与桥面；端口、凭据与打包在第 67 章。
 
@@ -436,7 +436,7 @@ LAWMIND_USER_DATA_DIR
 | 系统打开       | `lawmind:open-external`、`lawmind:show-item-in-folder`、`lawmind:open-with-system`                               |
 | 辅助窗         | `lawmind:open-aux-window`                                                                                        |
 
-**13 个组、36 条通道。** 而 `lawmind:fs:*` 那七条是最集中的一组。
+**15 个组、36 条通道。** 而 `lawmind:fs:*` 那七条是最集中的一组。
 
 ### 三条主进程 → 渲染层的通道
 
@@ -775,11 +775,11 @@ the deprecated `keytar` native module.
 
 **「replaces the deprecated keytar」**——**用 Electron 自带的 `safeStorage` 替代了已废弃的 keytar 原生模块**。好处是不需要编译原生模块（打包简单）。
 
-### 七个导出与八个账号名
+### 七个导出与七个账号名
 
 `SERVICE = "ai.lawmind.desktop"`，存到 `<userData>/lawmind-secrets.json`。
 
-八种账号（在 `local-server.mjs` 的 `KEYCHAIN_ACCOUNTS` 里定义）：
+七个账号（在 `local-server.mjs` 的 `KEYCHAIN_ACCOUNTS` 里定义；`customApiKey` 与 `mcpSecret` 是工厂函数，按 id 生成账号名）：
 
 | 键                           | 账号格式                              |
 | ---------------------------- | ------------------------------------- |
