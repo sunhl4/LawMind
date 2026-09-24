@@ -736,7 +736,7 @@ casesNodeActions.onImportMatters / canImportMatters / importMattersBusy
 
 而**聊天侧的拖放是有的**（第 62.1 节那四个 drop zone）。
 
-**这个区别值得记住**：拖文件进对话 = 钉选上下文；拖文件进文件工作台 = 不行，要用菜单。
+**这个区别**：拖文件进对话 = 钉选上下文；拖文件进文件工作台 = 不行，要用菜单。
 
 ### 文件工作台的根与禁区
 

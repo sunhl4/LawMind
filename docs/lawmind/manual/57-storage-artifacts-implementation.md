@@ -85,7 +85,7 @@ zod schemas — `workspace/matters/<id>/` 下的 JSON 真相源（W3）。
 
 **案号与法院**（`docket?`）：`caseNo`、`court`、`instance`、`standing`、`hearingAt`、`claimAmount?`（**自由文本**，≤120）。
 
-`claimAmount` 是文本这一点值得记住——注释写明了原因：
+`claimAmount` 是文本这一点——注释写明了原因：
 
 ```text
 标的金额：自由文本，保留「32,100 元」等原始写法。

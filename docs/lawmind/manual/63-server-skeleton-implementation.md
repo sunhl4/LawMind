@@ -1207,7 +1207,7 @@ LawmindRouteContext = {
 - **SSE 通配 `*` 只匹配一层**（`[^:]*`），跨层要写 `task:*:update`。
 - **`taskId` 是白名单校验（四个字符类），`assistantId` 是黑名单（只禁三个字符）**——严格程度不同。
 - **zod 的 `issue.path` 可能含 symbol**，`join` 会抛；必须逐个 `String()`。
-- **那个「声明比现实窄，正好掩盖边界」的观察值得记住**：类型写错不报错，只会让运行时炸在别处。
+- **那个「声明比现实窄，正好掩盖边界」的观察**：类型写错不报错，只会让运行时炸在别处。
 - **`revertDeskWrite` 没有 HTTP 端点**——只有模型工具能撤销写入。
 - **`maxTokens <= 4096` 与 `temperature === 0.3` 会被当作「没填」。**
 - **体检里的问题列表只报前 12 条**（`MATTER_CONSISTENCY_HEALTH_LIMIT`）。
