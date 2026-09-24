@@ -6,7 +6,7 @@
 
 ```bash
 pnpm lawmind:doctor
-pnpm lawmind:doctor --deep
+pnpm lawmind:ops doctor --deep
 ```
 
 看三件事：
@@ -384,7 +384,7 @@ pnpm lawmind:daemon -- start --workspace <工作区>
 ```text
 每周：
 [ ] pnpm lawmind:doctor
-[ ] pnpm lawmind:doctor --deep
+[ ] pnpm lawmind:ops doctor --deep
 [ ] 体检页看 process.degraded / 索引 / 许可
 
 每月：

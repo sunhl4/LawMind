@@ -38,6 +38,8 @@
 
 按第 11 章那张表的完整映射：`research_then_draft` 是 `research.memo`、`analysis.quick`、`compliance.data`、`compliance.ads` 四个；`tracked_redline` 只有 `mail.contract`；其余全部 `execute_workflow`。
 
+**但「能力表里只有 `mail.contract`」不等于「只有它走修订轨」**：Word 改稿回合（钉选了 Word 文件且要改）会在编译时对**任意**能力下发 `pipelineOverride: "tracked_redline"`，同时换上修订技能集（`compile-intent.ts:570`、`lawyer-capabilities.ts:374`）。所以合同审查、律师函这些能力在「改这份 Word」场景下也会走修订轨——**这条路不用改能力表**。
+
 ## 22.3 合同与交易（4 个）
 
 ### `contract.review` 合同审查
@@ -259,7 +261,7 @@
 ## 22.13 已知坑（本章相关）
 
 - **`litigation.draft` 的技能是按内容分的。** 想让它用某份技能，得让指令里有对应的场景信号（比如「离婚」「侦查阶段」）。
-- **`mail.contract` 是唯一 `tracked_redline` 管线。** 想给别的能力加修订轨，要改 `LAWYER_CAPABILITIES`。
+- **`mail.contract` 是能力表里唯一写死 `tracked_redline` 的**，但 Word 改稿回合会用 `pipelineOverride` 给任意能力临时套上修订轨（见 22.2 末）。所以「想给别的能力加修订轨」通常**不需要**改 `LAWYER_CAPABILITIES`——先想清楚是要「常态走修订轨」还是「这次改了 Word」。
 - **能力不冻结工具表。** 你在某个能力下看到别的能力的工具是正常的。
 - **`analysis.quick` 也走 `research_then_draft`。** 快问不是「不检索只凭记忆」。
 - **`matter.status` 的交付物是内部备忘。** 它不是对外报告。

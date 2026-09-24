@@ -227,12 +227,15 @@
 
 策略文件能**直接覆盖环境变量**。能覆盖的四项（第 14 章）：
 
-| 策略键                               | 覆盖的环境变量                         |
-| ------------------------------------ | -------------------------------------- |
-| `egressOffline` / `forceNoWebSearch` | `LAWMIND_POLICY_FORCE_NO_WEB_SEARCH=1` |
-| `retrievalMode`                      | `LAWMIND_RETRIEVAL_MODE`               |
-| `enableCollaboration: false`         | `LAWMIND_ENABLE_COLLABORATION=false`   |
-| `edition`                            | `LAWMIND_EDITION`                      |
+| 策略键                  | 覆盖的环境变量                         | `policy.applied` 里显示为 |
+| ----------------------- | -------------------------------------- | ------------------------- |
+| `egressMode: "offline"` | `LAWMIND_POLICY_FORCE_NO_WEB_SEARCH=1` | `egressOffline`           |
+| `allowWebSearch: false` | 同上（两者都会关联网）                 | `forceNoWebSearch`        |
+| `retrievalMode`         | `LAWMIND_RETRIEVAL_MODE`               | `retrievalMode`           |
+| `enableCollaboration`   | `LAWMIND_ENABLE_COLLABORATION=false`   | `enableCollaboration`     |
+| `edition`               | `LAWMIND_EDITION`                      | `edition`                 |
+
+**注意第三列**：`applied[]` 里出现的字符串**不全是策略键**。`egressOffline` 与 `forceNoWebSearch` 是「**结果标签**」——前者表示是因为 `egressMode` 推出来离线，后者表示是因为 `allowWebSearch: false`。它们**没有对应的策略键**，照着写进 `lawmind.policy.json` 会被整键忽略且不报错（和 30.12 讲的是同一个坑）。所以别拿 `applied[]` 的内容当键名抄。
 
 **加载顺序**：环境文件（用户 → 仓库补缺）→ 策略文件。所以策略文件能压住环境变量。
 

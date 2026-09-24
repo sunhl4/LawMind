@@ -216,12 +216,14 @@ pnpm lawmind:bundle:desktop-server
 建议每月跑一次：
 
 ```bash
-pnpm lawmind:doctor --deep
+pnpm lawmind:ops doctor --deep
 pnpm lawmind:doctor
 pnpm lawmind:ops matter-consistency
 ```
 
-看三件事：投影有没有漂移、会话历史有没有损坏（`--fix` 可修）、索引是否陈旧。
+看三件事：投影有没有漂移、会话历史有没有损坏（`lawmind:doctor --fix` 可修）、索引是否陈旧。
+
+**两个 `doctor` 不是一个东西，别混**：`pnpm lawmind:ops doctor --deep` 是 `ops` 脚本的 `doctor` 子命令，多查一些；`pnpm lawmind:doctor` 是独立的诊断脚本，只认 `--json` / `--fix`（给它加 `--deep` 不会报错，但也**什么都不多查**）。
 
 ### 审计导出
 

@@ -261,35 +261,35 @@ MCP 密钥存在密钥链（`mcp.<服务器id>.secret`），MCP 服务器配置�
 
 ## 23.16 一张按场景查工具的表
 
-| 你想干什么         | 用哪个工具                                                     |
-| ------------------ | -------------------------------------------------------------- |
-| 看看工作区里有什么 | `search_workspace`、`list_dir`                                 |
-| 看某个案件有什么   | `get_matter_summary`、`read_case_file`、`search_matter`        |
-| 读一份材料         | `read_project_file`、`analyze_document`                        |
-| 丢进来一个文件夹   | `explore_folder` → `read_folder_documents`                     |
-| 从本机拿文件       | `search_host` → `read_host_file` → `import_host_file`          |
-| 查法条             | `search_statute`（断网时 `search_statute_web`）                |
-| 查类案             | `search_case_law`                                              |
-| 查本所旧案怎么写   | `search_precedents`（需开启）                                  |
-| 查以前聊过什么     | `search_conversations`、`read_conversation`                    |
-| 起草               | `draft_document`                                               |
-| 改已经有的稿       | `update_draft` 或 `apply_surgical_edits`（后者是修订轨那条路） |
-| 算金额、算期限     | `calculate`                                                    |
-| 出 Word            | `render_document` / `render_tracked_draft`                     |
-| 出 PPT             | `render_document`（`ppt.training` 类型）                       |
-| 做一张表           | `review_table_update`                                          |
-| 分析 Excel         | `analyze_spreadsheet`                                          |
-| 出一张图           | `render_chart`                                                 |
-| 批量整理材料       | `propose_organize_plan` → `execute_organize_plan`              |
-| 登记一个期限       | `record_deadline` 或 `apply_legal_events`                      |
-| 把谈话整理进档案   | `compile_intake_brief` → `apply_intake_brief`                  |
-| 把活派给别人       | `delegate_task` / `delegate_to_role`                           |
-| 问别人一个问题     | `consult_assistant`                                            |
-| 让人审一下         | `request_review`                                               |
-| 发邮件             | `prepare_outbound_mail` → 律师签批 → `send_email`              |
-| 撤销刚才的档案写入 | `revert_desk_write`                                            |
-| 想用没见过的能力   | `list_more_tools`                                              |
-| 读某份技能正文     | `read_skill`                                                   |
+| 你想干什么         | 用哪个工具                                                                |
+| ------------------ | ------------------------------------------------------------------------- |
+| 看看工作区里有什么 | `search_workspace`、`list_dir`                                            |
+| 看某个案件有什么   | `get_matter_summary`、`read_case_file`、`search_matter`                   |
+| 读一份材料         | `read_project_file`、`analyze_document`                                   |
+| 丢进来一个文件夹   | `explore_folder` → `read_folder_documents`                                |
+| 从本机拿文件       | `search_host` → `read_host_file` → `import_host_file`                     |
+| 查法条             | `search_statute`（本地权威库无果、且已开联网时才用 `search_statute_web`） |
+| 查类案             | `search_case_law`                                                         |
+| 查本所旧案怎么写   | `search_precedents`（需开启）                                             |
+| 查以前聊过什么     | `search_conversations`、`read_conversation`                               |
+| 起草               | `draft_document`                                                          |
+| 改已经有的稿       | `update_draft` 或 `apply_surgical_edits`（后者是修订轨那条路）            |
+| 算金额、算期限     | `calculate`                                                               |
+| 出 Word            | `render_document` / `render_tracked_draft`                                |
+| 出 PPT             | `render_document`（`ppt.training` 类型）                                  |
+| 做一张表           | `review_table_update`                                                     |
+| 分析 Excel         | `analyze_spreadsheet`                                                     |
+| 出一张图           | `render_chart`                                                            |
+| 批量整理材料       | `propose_organize_plan` → `execute_organize_plan`                         |
+| 登记一个期限       | `record_deadline` 或 `apply_legal_events`                                 |
+| 把谈话整理进档案   | `compile_intake_brief` → `apply_intake_brief`                             |
+| 把活派给别人       | `delegate_task` / `delegate_to_role`                                      |
+| 问别人一个问题     | `consult_assistant`                                                       |
+| 让人审一下         | `request_review`                                                          |
+| 发邮件             | `prepare_outbound_mail` → 律师签批 → `send_email`                         |
+| 撤销刚才的档案写入 | `revert_desk_write`                                                       |
+| 想用没见过的能力   | `list_more_tools`                                                         |
+| 读某份技能正文     | `read_skill`                                                              |
 
 ## 23.17 已知坑（本章相关）
 

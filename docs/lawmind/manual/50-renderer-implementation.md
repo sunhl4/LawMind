@@ -253,7 +253,7 @@ export function hasLawmindDesktopBridge(): boolean {
 pnpm lawmind:ui-copy-lint
 ```
 
-它扫渲染层文案，按 `BANNED_PATTERNS` 拦 14 类模式（路径、英文枚举、门禁术语等）。存量合法用例登记在 `scripts/lawmind/ui-copy-lint-allowlist.json`。
+它扫渲染层文案，分两档：`BANNED_PATTERNS` 硬拦 24 类模式（路径、英文枚举、门禁术语，以及 10 条存量已归零的近义词）；`SYNONYM_PATTERNS` 棘轮冻结仍有存量的近义词（复核、文书台、待办、审批、批准、修订共 143 处），新增即失败。存量合法用例登记在 `scripts/lawmind/ui-copy-lint-allowlist.json` 与 `scripts/lawmind/ui-copy-lint-synonym-baseline.json`。
 
 **所以改渲染层的文案，改完要跑这条命令。** 这也是为什么渲染层里会看到「案件档案」而不是 `CASE.md`、「已批准」而不是 `approved`——**不是自觉，是有 lint 守着**。
 

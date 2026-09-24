@@ -23,10 +23,10 @@
 
 ```bash
 pnpm lawmind:doctor --json
-pnpm lawmind:doctor --deep
+pnpm lawmind:ops doctor --deep
 ```
 
-`--json` 适合贴给支持人员。`doctor --deep` 会多查一些东西（**注意不是 `ops status --deep`**——`status` 不消费这个旗标，`--deep` 只在 `doctor` 子命令里生效）。
+`--json` 适合贴给支持人员。**注意两个脚本不通用**：`--json` / `--fix` 属于 `pnpm lawmind:doctor`；`--deep` 属于 **`pnpm lawmind:ops doctor`**（`lawmind-doctor.ts` 根本不认 `--deep`，写了也等于没写）。所以深度体检要敲 `pnpm lawmind:ops doctor --deep`。
 
 ## D.1 启动类
 
