@@ -39,6 +39,8 @@ export type ReviewWorkbenchDocumentColumnProps = {
   exportReady?: boolean;
   includeProvenance?: boolean;
   onIncludeProvenanceChange?: (checked: boolean) => void;
+  /** 导出成功或被拦时的说明。改稿底栏始终可见；侧栏默认收起时不能只写在那里。 */
+  actionMsg?: string | null;
 };
 
 function reviewPaneLayoutStyle(
@@ -107,6 +109,7 @@ export function ReviewWorkbenchDocumentColumn(props: ReviewWorkbenchDocumentColu
     exportReady = false,
     includeProvenance = false,
     onIncludeProvenanceChange,
+    actionMsg = null,
   } = props;
 
   const growReviewPaneId = lastVisibleReviewPaneId(paneVisibility);
@@ -229,6 +232,11 @@ export function ReviewWorkbenchDocumentColumn(props: ReviewWorkbenchDocumentColu
               </button>
             ) : null}
           </div>
+          {actionMsg ? (
+            <p className="lm-review-writing-dock-msg" role="status" data-testid="lm-review-export-msg">
+              {actionMsg}
+            </p>
+          ) : null}
         </footer>
       ) : null}
     </div>

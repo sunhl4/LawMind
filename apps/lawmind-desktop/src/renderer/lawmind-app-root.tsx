@@ -469,12 +469,19 @@ export function LawmindAppRoot() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const openOutputInFolder = (outputPath?: string) => {
-    if (!config || !outputPath || !canUseFilesystemBridge) {
-      return;
+  const openOutputInFolder = async (outputPath?: string) => {
+    if (!config || !outputPath?.trim()) {
+      return { ok: false as const, error: "missing" };
     }
-    const full = resolveOpenableOutputPath(config.workspaceDir, outputPath);
-    void window.lawmindDesktop?.showItemInFolder?.(full);
+    if (!canUseFilesystemBridge || typeof window.lawmindDesktop?.showItemInFolder !== "function") {
+      return { ok: false as const, error: "no_bridge" };
+    }
+    try {
+      const full = resolveOpenableOutputPath(config.workspaceDir, outputPath);
+      return await window.lawmindDesktop.showItemInFolder(full);
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : "reveal_failed" };
+    }
   };
 
   const layout = useLawmindAppRootLayout({

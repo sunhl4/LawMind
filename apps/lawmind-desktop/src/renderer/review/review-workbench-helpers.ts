@@ -45,6 +45,8 @@ export function reviewStatusFilterLabel(status: ArtifactDraft["reviewStatus"] | 
       return "已驳回";
     case "all":
       return "全部状态";
+    default:
+      return "全部状态";
   }
 }
 
@@ -101,4 +103,37 @@ export function officecliMissingErrorMessage(
     return officecliMissingBannerMessage();
   }
   return fallback;
+}
+
+export type OutputRevealResult = { ok: boolean; error?: string };
+
+/** 导出后在访达中定位失败时，给律师的一句说明。不暴露内部错误码。 */
+export function outputRevealNote(result: OutputRevealResult | void | null | undefined): string {
+  if (!result || result.ok) {
+    return "";
+  }
+  if (result.error === "outside_allowed_roots") {
+    return " 所在文件夹不在当前可打开的范围内，访达没有弹出。请按该路径手动打开。";
+  }
+  if (result.error === "not found") {
+    return " 访达没有找到该文件，请按该路径确认是否已写到磁盘。";
+  }
+  if (result.error === "no_bridge") {
+    return " 当前环境无法打开访达。请按该路径手动打开。";
+  }
+  return " 访达没有弹出。请按该路径手动打开。";
+}
+
+export async function noteAfterReveal(
+  outputPath: string,
+  reveal?: (outputPath: string) => void | Promise<OutputRevealResult | void>,
+): Promise<string> {
+  if (!outputPath || !reveal) {
+    return "";
+  }
+  try {
+    return outputRevealNote(await reveal(outputPath));
+  } catch {
+    return outputRevealNote({ ok: false });
+  }
 }

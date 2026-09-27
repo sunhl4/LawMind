@@ -63,7 +63,6 @@ function renderMetaColumn(host: HTMLDivElement, root: Root) {
         onRevisionDispatchNoteChange={vi.fn()}
         revisionDispatchBusy={false}
         onSubmitRevisionJob={vi.fn()}
-        actionMsg={null}
         note=""
         onNoteChange={vi.fn()}
         paneClassName=""

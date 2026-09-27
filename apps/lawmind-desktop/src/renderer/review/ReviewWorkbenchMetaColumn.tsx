@@ -104,7 +104,9 @@ export type ReviewWorkbenchMetaColumnProps = {
   onRevisionDispatchNoteChange: (value: string) => void;
   revisionDispatchBusy: boolean;
   onSubmitRevisionJob: () => void;
-  actionMsg: string | null;
+  /** 导出被出稿检查拦住时展开「高级 · 签批」。 */
+  signoffOpen?: boolean;
+  onSignoffOpenChange?: (open: boolean) => void;
   note: string;
   onNoteChange: (value: string) => void;
   paneClassName: string;
@@ -169,7 +171,8 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
     onRevisionDispatchNoteChange,
     revisionDispatchBusy,
     onSubmitRevisionJob,
-    actionMsg,
+    signoffOpen = false,
+    onSignoffOpenChange,
     note,
     onNoteChange,
     paneClassName,
@@ -385,12 +388,6 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           </p>
         ) : null}
 
-        {actionMsg ? (
-          <div className="lm-meta lm-review-msg" role="status" aria-live="polite">
-            {actionMsg}
-          </div>
-        ) : null}
-
         {detail.outputPath && onShowArtifact ? (
           <div className="lm-review-output-row">
             <button
@@ -447,7 +444,11 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           />
         ) : null}
 
-        <details className="lm-review-advanced">
+        <details
+          className="lm-review-advanced"
+          open={signoffOpen}
+          onToggle={(event) => onSignoffOpenChange?.(event.currentTarget.open)}
+        >
           <summary className="lm-review-advanced-summary">高级 · 签批（与在办同一记录）</summary>
           <div className="lm-review-advanced-body">
             {checklistView && checklistChecked && onChecklistToggle ? (

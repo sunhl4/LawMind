@@ -93,6 +93,7 @@ describe("LawmindSideChatSessions", () => {
     });
     const chip = host.querySelector('[data-testid="lm-side-chat-session-forked-old"]');
     expect(chip?.textContent).toContain("续接");
+    expect(chip?.tagName).toBe("BUTTON");
     // 承前的那条新对话、以及无关对话都不带这个标记。
     expect(host.querySelector('[data-testid="lm-side-chat-session-forked-new"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-side-chat-session-forked-other"]')).toBeNull();
@@ -118,5 +119,68 @@ describe("LawmindSideChatSessions", () => {
       await new Promise((resolve) => window.setTimeout(resolve, 0));
     });
     expect(focus).toHaveBeenCalled();
+  });
+
+  it("keeps the search field after Escape", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindSideChatSessions
+          sessions={[{ sessionId: "a", title: "采购合同审查" }]}
+          onSelect={() => undefined}
+          onNewChat={() => undefined}
+          onRename={async () => undefined}
+          onDelete={async () => undefined}
+        />,
+      );
+    });
+    const input = host.querySelector('[data-testid="lm-side-chat-search"]') as HTMLInputElement;
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeTruthy();
+  });
+
+  it("says the current matter has no chats instead of a blank list", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindSideChatSessions
+          sessions={[{ sessionId: "a", title: "别的案件", matterId: "m-other" }]}
+          scopeMatterId="m-this"
+          knownMatterIds={new Set(["m-this", "m-other"])}
+          onSelect={() => undefined}
+          onNewChat={() => undefined}
+          onRename={async () => undefined}
+          onDelete={async () => undefined}
+        />,
+      );
+    });
+    expect(host.textContent).toContain("这个案件还没有对话");
+    expect(host.querySelector('[data-testid="lm-side-chat-session-a"]')).toBeNull();
+  });
+
+  it("opens the continued chat from 续接 without selecting the old one", async () => {
+    const onSelect = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindSideChatSessions
+          sessions={[
+            { sessionId: "old", title: "竞业限制解除", forkedToSessionId: "new" },
+            { sessionId: "new", title: "竞业限制解除（承前）" },
+          ]}
+          onSelect={onSelect}
+          onNewChat={() => undefined}
+          onRename={async () => undefined}
+          onDelete={async () => undefined}
+        />,
+      );
+    });
+    const chip = host.querySelector('[data-testid="lm-side-chat-session-forked-old"]');
+    await act(async () => {
+      if (chip instanceof HTMLButtonElement) {
+        chip.click();
+      }
+    });
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith("new");
   });
 });

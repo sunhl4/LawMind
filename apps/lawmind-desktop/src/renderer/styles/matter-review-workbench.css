@@ -494,9 +494,21 @@
 
 .lm-review-writing-dock-actions {
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  position: relative;
+  z-index: 1;
+}
+
+.lm-review-writing-dock-msg {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  overflow-wrap: anywhere;
 }
 
 .lm-review-preview-template-bar {

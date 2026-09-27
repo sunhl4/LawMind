@@ -19,8 +19,10 @@ import { readAutoExportOnApprove } from "../lawmind-review-prefs";
 import {
   officecliMissingErrorMessage,
   officecliPlainFallbackNote,
+  noteAfterReveal,
   parseFilenameFromContentDisposition,
   triggerBrowserDownload,
+  type OutputRevealResult,
 } from "./review-workbench-helpers";
 
 export type UseReviewWorkbenchActionsParams = {
@@ -57,7 +59,7 @@ export type UseReviewWorkbenchActionsParams = {
   loadDetail: (taskId: string, opts?: { preserveContent?: boolean }) => Promise<void>;
   loadLearningQueue: () => Promise<void>;
   onRecordsChanged?: () => void;
-  onShowArtifact?: (outputPath: string) => void;
+  onShowArtifact?: (outputPath: string) => void | Promise<OutputRevealResult | void>;
   onRevisionJobQueued?: (opts: { sessionId: string; assistantId: string; taskId: string }) => void;
   syncEditorFromDraft: (draft: ArtifactDraft) => void;
   clearEditorSaveError: () => void;
@@ -69,7 +71,61 @@ export type UseReviewWorkbenchActionsParams = {
   editorDirty?: boolean;
   /** 保存正文；返回是否成功（false 时导出应中止）。 */
   saveDraftContent?: () => Promise<boolean>;
+  /** 出稿检查未齐时打开侧栏里的签批区，避免只留一句「去点更多」。 */
+  onExportChecklistBlocked?: () => void;
 };
+
+function exportErrorBody(error: unknown): { error?: unknown; message?: unknown } | null {
+  if (!error || typeof error !== "object" || !("body" in error)) {
+    return null;
+  }
+  const body = (error as { body?: unknown }).body;
+  if (!body || typeof body !== "object") {
+    return null;
+  }
+  return body as { error?: unknown; message?: unknown };
+}
+
+function exportFailureText(error: unknown, fallback: string): string {
+  const body = exportErrorBody(error);
+  const serverMessage = typeof body?.message === "string" ? body.message.trim() : "";
+  if (body?.error === "checklist_incomplete") {
+    const message = serverMessage || "导出被拦截：出稿检查未齐，请补齐后再导出。";
+    return `${message} 右侧「高级 · 签批」已打开，勾齐出稿检查后再导出。`;
+  }
+  // 底栏是律师主路径。有服务端中文说明时只用它，避免把错误码和 HTTP 状态拼进这句话。
+  if (serverMessage) {
+    return serverMessage;
+  }
+  return errorMessage(error, fallback);
+}
+
+function applyGateFromExportError(
+  error: unknown,
+  taskId: string,
+  apply: UseReviewWorkbenchActionsParams["applyDetailFromResponse"],
+): void {
+  if (!error || typeof error !== "object" || !("body" in error)) {
+    return;
+  }
+  const body = (error as { body?: unknown }).body;
+  if (!body || typeof body !== "object") {
+    return;
+  }
+  const record = body as {
+    acceptance?: AcceptanceReport;
+    executionState?: TaskExecutionState;
+    gateDecisions?: GateDecision[];
+  };
+  if (!record.acceptance && !record.executionState && !record.gateDecisions) {
+    return;
+  }
+  apply(taskId, {
+    ...(record.acceptance ? { acceptance: record.acceptance } : {}),
+    ...(record.executionState ? { executionState: record.executionState } : {}),
+    ...(record.gateDecisions ? { gateDecisions: record.gateDecisions } : {}),
+  });
+}
 
 export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParams) {
   const {
@@ -105,6 +161,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
     syncEditorFromDraft,
     clearEditorSaveError,
     setSelectedTaskId,
+    onExportChecklistBlocked,
   } = params;
 
   const [actionBusy, setActionBusy] = useState(false);
@@ -163,14 +220,16 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
         applyDetailFromResponse(selectedTaskId, j);
         const out = j.outputPath?.trim() ?? "";
         setLastExportPath(out || null);
-        setActionMsg(out ? `已生成 Word：${out}` : "已生成交付物");
+        const revealNote = await noteAfterReveal(out, onShowArtifact);
+        setActionMsg(out ? `已生成 Word：${out}${revealNote}` : `已生成交付物${revealNote}`);
         await loadDrafts();
-        if (j.outputPath && onShowArtifact) {
-          onShowArtifact(j.outputPath);
-        }
         onRecordsChanged?.();
       } catch (e) {
-        setActionMsg(errorMessage(e, "渲染失败"));
+        applyGateFromExportError(e, selectedTaskId, applyDetailFromResponse);
+        if (exportErrorBody(e)?.error === "checklist_incomplete") {
+          onExportChecklistBlocked?.();
+        }
+        setActionMsg(exportFailureText(e, "渲染失败"));
       } finally {
         setActionBusy(false);
       }
@@ -179,10 +238,13 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
       apiBase,
       applyDetailFromResponse,
       detail?.deliverableType,
+      editorDirty,
       loadDrafts,
+      onExportChecklistBlocked,
       onRecordsChanged,
       onShowArtifact,
       renderTemplateId,
+      saveDraftContent,
       selectedTaskId,
       setActionMsg,
       setLastExportPath,
@@ -507,20 +569,36 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
           : j.baselineSource === "rendered_draft"
             ? "（草稿渲染基线）"
             : "";
+      const revealNote = await noteAfterReveal(out, onShowArtifact);
       setActionMsg(
-        out ? `已生成合同审阅稿：${out}${baseNote}${modeNote}` : `已生成交付物${modeNote}`,
+        out
+          ? `已生成合同审阅稿：${out}${baseNote}${modeNote}${revealNote}`
+          : `已生成交付物${modeNote}${revealNote}`,
       );
       await loadDrafts();
-      if (j.outputPath && onShowArtifact) {
-        onShowArtifact(j.outputPath);
-      }
       onRecordsChanged?.();
     } catch (e) {
-      setActionMsg(errorMessage(e, "导出合同审阅稿失败"));
+      applyGateFromExportError(e, selectedTaskId, applyDetailFromResponse);
+      if (exportErrorBody(e)?.error === "checklist_incomplete") {
+        onExportChecklistBlocked?.();
+      }
+      setActionMsg(exportFailureText(e, "导出合同审阅稿失败"));
     } finally {
       setActionBusy(false);
     }
-  }, [apiBase, loadDrafts, onRecordsChanged, onShowArtifact, selectedTaskId, setActionMsg, setLastExportPath]);
+  }, [
+    apiBase,
+    applyDetailFromResponse,
+    editorDirty,
+    loadDrafts,
+    onExportChecklistBlocked,
+    onRecordsChanged,
+    onShowArtifact,
+    saveDraftContent,
+    selectedTaskId,
+    setActionMsg,
+    setLastExportPath,
+  ]);
 
   const deleteSelectedDraft = useCallback(async () => {
     if (!selectedTaskId || !detail) {

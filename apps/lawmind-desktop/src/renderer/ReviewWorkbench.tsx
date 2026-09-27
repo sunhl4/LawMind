@@ -37,6 +37,7 @@ import { useReviewPaneVisibilityStore } from "./stores/review-pane-visibility-st
 import { LawmindReviewDraftPicker } from "./LawmindReviewDraftPicker";
 import { usePaneResizePx } from "./use-pane-resize";
 import { useReviewWorkbenchData } from "./review/useReviewWorkbenchData";
+import { outputRevealNote } from "./review/review-workbench-helpers";
 import { useReviewWorkbenchActions } from "./review/useReviewWorkbenchActions";
 import { ReviewWorkbenchDocumentColumn } from "./review/ReviewWorkbenchDocumentColumn";
 import { ReviewWorkbenchMetaColumn } from "./review/ReviewWorkbenchMetaColumn";
@@ -53,7 +54,9 @@ type Props = {
   initialListMode?: "pending" | "all";
   returnMatterId?: string | null;
   onReturnToMatter?: () => void;
-  onShowArtifact?: (outputPath: string) => void;
+  onShowArtifact?: (
+    outputPath: string,
+  ) => void | Promise<{ ok: boolean; error?: string } | void>;
   onRecordsChanged?: () => void;
   onGoToChat?: (opts: { taskId: string; matterId?: string; prompt?: string }) => void;
   /** 文书台 → 在办：正式签批队列 */
@@ -81,6 +84,7 @@ export function ReviewWorkbench(props: Props) {
   } = props;
 
   const paneVisibility = useReviewPaneVisibilityStore((s) => s.visibility);
+  const [signoffOpen, setSignoffOpen] = useState(false);
 
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [note, setNote] = useState("");
@@ -146,6 +150,10 @@ export function ReviewWorkbench(props: Props) {
     onRecordsChanged,
     onExternalRefreshMessage: setActionMsg,
   });
+
+  useEffect(() => {
+    setSignoffOpen(false);
+  }, [selectedTaskId]);
 
   const { width: reviewMetaWidth, onResizePointerDown: onReviewMetaResize } = usePaneResizePx({
     storageKey: "lawmind.ui.reviewWorkbenchMetaWidth",
@@ -365,6 +373,13 @@ export function ReviewWorkbench(props: Props) {
     loadDetail,
     loadLearningQueue,
     onRecordsChanged,
+    onExportChecklistBlocked: () => {
+      const current = useReviewPaneVisibilityStore.getState().visibility;
+      if (!current.meta) {
+        useReviewPaneVisibilityStore.getState().setVisibility({ ...current, meta: true });
+      }
+      setSignoffOpen(true);
+    },
     onShowArtifact,
     onRevisionJobQueued,
     syncEditorFromDraft: (draft) => {
@@ -500,6 +515,11 @@ export function ReviewWorkbench(props: Props) {
         {!selectedTaskId && !detailLoading && (
           <div className="lm-review-detail-row lm-review-detail-empty">
             <div className="lm-meta lm-workbench-placeholder">在上方选择草稿后开始改稿与预览</div>
+            {actionMsg ? (
+              <p className="lm-review-writing-dock-msg" role="status">
+                {actionMsg}
+              </p>
+            ) : null}
           </div>
         )}
         {selectedTaskId && detailLoading && (
@@ -571,7 +591,29 @@ export function ReviewWorkbench(props: Props) {
                 onDeleteDraft={() => void deleteSelectedDraft()}
                 onExportWord={() => void submitRender({ includeProvenance })}
                 onExportTrackedWord={() => void submitRenderTracked({ includeProvenance })}
-                onShowArtifact={onShowArtifact}
+                onShowArtifact={
+                  onShowArtifact
+                    ? async (path) => {
+                        try {
+                          const result = await onShowArtifact(path);
+                          const normalized =
+                            result && typeof result === "object" ? result : undefined;
+                          const note = outputRevealNote(normalized);
+                          if (note) {
+                            setActionMsg(
+                              `无法在访达中显示该文件。${note.trim()} 路径：${path}`,
+                            );
+                          }
+                          return normalized ?? { ok: true as const };
+                        } catch {
+                          setActionMsg(
+                            `无法在访达中显示该文件。请按该路径手动打开。路径：${path}`,
+                          );
+                          return { ok: false as const };
+                        }
+                      }
+                    : undefined
+                }
                 onOpenWithSystem={async (relPath) => {
                   if (!window.lawmindDesktop?.openWithSystem) {
                     setActionMsg("当前环境无法调用本机 Word；请用「在文件夹中显示」后手动打开。");
@@ -592,7 +634,8 @@ export function ReviewWorkbench(props: Props) {
                 onRevisionDispatchNoteChange={setRevisionDispatchNote}
                 revisionDispatchBusy={revisionDispatchBusy}
                 onSubmitRevisionJob={() => void submitRevisionJob()}
-                actionMsg={actionMsg}
+                signoffOpen={signoffOpen}
+                onSignoffOpenChange={setSignoffOpen}
                 note={note}
                 onNoteChange={setNote}
                 paneClassName={reviewPaneClassName("lm-review-meta-pane", "meta")}
@@ -636,6 +679,7 @@ export function ReviewWorkbench(props: Props) {
               }}
               includeProvenance={includeProvenance}
               onIncludeProvenanceChange={setIncludeProvenance}
+              actionMsg={actionMsg}
               exportReady
             />
           </div>

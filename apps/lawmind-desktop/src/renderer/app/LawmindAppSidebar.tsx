@@ -81,12 +81,26 @@ function ChatScopeSwitcher(props: {
   onOpenScope: (scope: string | null) => void;
   onCreateMatter?: () => void;
 }) {
+  const rootRef = React.useRef<HTMLDivElement>(null);
   const matters = props.rows.filter((row) => row.matterId?.trim());
   const current = props.scope
     ? matters.find((row) => row.matterId === props.scope)?.title || props.scope
     : "未归案";
+  React.useEffect(() => {
+    if (!props.open) {
+      return undefined;
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      props.onToggle();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [props.open, props.onToggle]);
   return (
-    <div className="lm-chat-scope">
+    <div className="lm-chat-scope" ref={rootRef}>
       <button
         type="button"
         className="lm-chat-scope-btn"
@@ -264,7 +278,14 @@ function LawmindAppSidebarImpl({
                 setScopeMenuOpen(false);
                 onOpenChatScope?.(scope);
               }}
-              onCreateMatter={onCreateMatter}
+              onCreateMatter={
+                onCreateMatter
+                  ? () => {
+                      setScopeMenuOpen(false);
+                      onCreateMatter();
+                    }
+                  : undefined
+              }
             />
             <LawmindSideChatSessions
               sessions={chatSessions ?? []}

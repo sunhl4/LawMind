@@ -354,7 +354,6 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
                 if (e.key === "Escape") {
                   e.preventDefault();
                   setQuery("");
-                  setSearchOpen(false);
                   setRemoteHits(null);
                 }
               }}
@@ -366,6 +365,11 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
             ) : null}
             {!loading && sessions.length === 0 ? (
               <p className="lm-meta lm-side-chat-sessions-empty">还没有对话。点 ＋ 新建。</p>
+            ) : null}
+            {!loading && !query.trim() && sessions.length > 0 && scopedSessions.length === 0 ? (
+              <p className="lm-meta lm-side-chat-sessions-empty">
+                {scopeMatterId ? "这个案件还没有对话。点 ＋ 新建。" : "还没有未归案的对话。"}
+              </p>
             ) : null}
             {showEmpty ? (
               <p className="lm-meta lm-side-chat-sessions-empty">没有匹配的对话。</p>
@@ -409,15 +413,28 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
                 );
               }
               return (
-                <button
+                <div
                   key={row.sessionId}
-                  type="button"
+                  role="option"
                   className={`lm-side-chat-session-row${active ? " is-active" : ""}`}
                   data-testid={`lm-side-chat-session-${row.sessionId}`}
-                  disabled={Boolean(busy)}
-                  aria-current={active ? "true" : undefined}
+                  aria-disabled={busy ? true : undefined}
+                  aria-selected={active}
+                  tabIndex={busy ? -1 : 0}
                   title={row.title}
-                  onClick={() => void onSelect(row.sessionId)}
+                  onClick={() => {
+                    if (busy) {
+                      return;
+                    }
+                    void onSelect(row.sessionId);
+                  }}
+                  onKeyDown={(e) => {
+                    if (busy || (e.key !== "Enter" && e.key !== " ")) {
+                      return;
+                    }
+                    e.preventDefault();
+                    void onSelect(row.sessionId);
+                  }}
                   onContextMenu={(e) => openContextMenu(e, row)}
                 >
                   <span className="lm-side-chat-session-title">{row.title}</span>
@@ -426,10 +443,12 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
                     <span className="lm-side-chat-session-forked">{assistantLabel}</span>
                   ) : null}
                   {row.forkedToSessionId ? (
-                    <span
-                      className="lm-side-chat-session-forked"
+                    <button
+                      type="button"
+                      className="lm-side-chat-session-forked lm-side-chat-session-forked-btn"
                       data-testid={`lm-side-chat-session-forked-${row.sessionId}`}
                       title="已用「另起新对话（带上文）」承前；点开可回到那条新对话"
+                      disabled={Boolean(busy)}
                       onClick={(e) => {
                         e.stopPropagation();
                         e.preventDefault();
@@ -437,9 +456,9 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
                       }}
                     >
                       续接
-                    </span>
+                    </button>
                   ) : null}
-                </button>
+                </div>
               );
             })}
           </div>

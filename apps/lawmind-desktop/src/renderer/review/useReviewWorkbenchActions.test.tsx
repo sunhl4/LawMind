@@ -24,13 +24,20 @@ vi.mock("../lawmind-review-prefs", () => ({
   readAutoExportOnApprove: () => mocks.readAutoExportOnApprove(),
 }));
 
-import { useReviewWorkbenchActions } from "./useReviewWorkbenchActions";
+import {
+  useReviewWorkbenchActions,
+  type UseReviewWorkbenchActionsParams,
+} from "./useReviewWorkbenchActions";
 
 type HookReturn = ReturnType<typeof useReviewWorkbenchActions>;
 
 function Harness(props: {
   checklistChecked: Record<string, boolean>;
   onReady: (api: HookReturn) => void;
+  setActionMsg?: (msg: string | null) => void;
+  applyDetailFromResponse?: UseReviewWorkbenchActionsParams["applyDetailFromResponse"];
+  onShowArtifact?: UseReviewWorkbenchActionsParams["onShowArtifact"];
+  onExportChecklistBlocked?: () => void;
 }) {
   const api = useReviewWorkbenchActions({
     apiBase: "http://localhost:1",
@@ -51,9 +58,11 @@ function Harness(props: {
     revisionPrefilledForTaskRef: { current: null },
     checklistChecked: props.checklistChecked,
     setRevisionDispatchNote: () => undefined,
-    setActionMsg: () => undefined,
+    setActionMsg: props.setActionMsg ?? (() => undefined),
     setLastExportPath: () => undefined,
-    applyDetailFromResponse: () => undefined,
+    applyDetailFromResponse: props.applyDetailFromResponse ?? (() => undefined),
+    onShowArtifact: props.onShowArtifact,
+    onExportChecklistBlocked: props.onExportChecklistBlocked,
     loadDrafts: async () => undefined,
     loadDetail: async () => undefined,
     loadLearningQueue: async () => undefined,
@@ -113,5 +122,135 @@ describe("useReviewWorkbenchActions.submitReview", () => {
 
     root.unmount();
     host.remove();
+  });
+});
+
+describe("useReviewWorkbenchActions.submitRender", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.readAutoExportOnApprove.mockReturnValue(false);
+  });
+
+  async function renderHook(opts?: {
+    setActionMsg?: (msg: string | null) => void;
+    applyDetailFromResponse?: UseReviewWorkbenchActionsParams["applyDetailFromResponse"];
+    onShowArtifact?: UseReviewWorkbenchActionsParams["onShowArtifact"];
+    onExportChecklistBlocked?: () => void;
+  }) {
+    let hook!: HookReturn;
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <Harness
+          checklistChecked={{}}
+          setActionMsg={opts?.setActionMsg}
+          applyDetailFromResponse={opts?.applyDetailFromResponse}
+          onShowArtifact={opts?.onShowArtifact}
+          onExportChecklistBlocked={opts?.onExportChecklistBlocked}
+          onReady={(api) => {
+            hook = api;
+          }}
+        />,
+      );
+    });
+    return {
+      hook,
+      cleanup: () => {
+        root.unmount();
+        host.remove();
+      },
+    };
+  }
+
+  it("sends includeProvenance when 导出来源批注 is on", async () => {
+    mocks.apiSendJson.mockResolvedValue({ ok: true, outputPath: "out/memo.docx" });
+    const setActionMsg = vi.fn();
+    const { hook, cleanup } = await renderHook({ setActionMsg });
+    await act(async () => {
+      await hook.submitRender({ includeProvenance: true });
+    });
+    expect(mocks.apiSendJson).toHaveBeenCalledWith(
+      "http://localhost:1",
+      "/api/drafts/task-1/render",
+      "POST",
+      { includeProvenance: true },
+    );
+    expect(setActionMsg).toHaveBeenCalledWith("已生成 Word：out/memo.docx");
+    cleanup();
+  });
+
+  it("surfaces a blocked export instead of swallowing it", async () => {
+    const blocked = Object.assign(new Error("导出被拦截：出稿检查未齐，请在改稿页补齐后再导出。"), {
+      body: {
+        error: "checklist_incomplete",
+        message: "导出被拦截：出稿检查未齐，请在改稿页补齐后再导出。",
+        acceptance: { ready: false, blockerCount: 1, deliverableType: "memo.research" },
+      },
+    });
+    mocks.apiSendJson.mockRejectedValue(blocked);
+    const setActionMsg = vi.fn();
+    const applyDetailFromResponse = vi.fn();
+    const onExportChecklistBlocked = vi.fn();
+    const { hook, cleanup } = await renderHook({
+      setActionMsg,
+      applyDetailFromResponse,
+      onExportChecklistBlocked,
+    });
+    await act(async () => {
+      await hook.submitRender({ includeProvenance: true });
+    });
+    expect(onExportChecklistBlocked).toHaveBeenCalledTimes(1);
+    expect(setActionMsg).toHaveBeenCalledWith(
+      "导出被拦截：出稿检查未齐，请在改稿页补齐后再导出。 右侧「高级 · 签批」已打开，勾齐出稿检查后再导出。",
+    );
+    expect(applyDetailFromResponse).toHaveBeenCalledWith(
+      "task-1",
+      expect.objectContaining({
+        acceptance: expect.objectContaining({ ready: false, blockerCount: 1 }),
+      }),
+    );
+    cleanup();
+  });
+
+  it("shows the server sentence for a gate block without the error code", async () => {
+    mocks.apiSendJson.mockRejectedValue(
+      Object.assign(new Error("草稿未通过出稿检查 — acceptance_gate_blocked（服务返回 422）"), {
+        body: {
+          error: "acceptance_gate_blocked",
+          message: "草稿未通过出稿检查，存在阻塞项；请补齐缺失章节或回答待确认问题后再导出。",
+        },
+      }),
+    );
+    const setActionMsg = vi.fn();
+    const { hook, cleanup } = await renderHook({ setActionMsg });
+    await act(async () => {
+      await hook.submitRender({ includeProvenance: true });
+    });
+    expect(setActionMsg).toHaveBeenCalledWith(
+      "草稿未通过出稿检查，存在阻塞项；请补齐缺失章节或回答待确认问题后再导出。",
+    );
+    cleanup();
+  });
+
+  it("keeps the export path and says when Finder cannot open the folder", async () => {
+    mocks.apiSendJson.mockResolvedValue({
+      ok: true,
+      outputPath: "/Users/me/YX/计划书.docx",
+    });
+    const setActionMsg = vi.fn();
+    const { hook, cleanup } = await renderHook({
+      setActionMsg,
+      onShowArtifact: async () => ({ ok: false, error: "outside_allowed_roots" }),
+    });
+    await act(async () => {
+      await hook.submitRender({ includeProvenance: true });
+    });
+    const message = setActionMsg.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(message).toContain("已生成 Word：/Users/me/YX/计划书.docx");
+    expect(message).toContain("不在当前可打开的范围");
+    expect(message).not.toContain("outside_allowed_roots");
+    cleanup();
   });
 });
