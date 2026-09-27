@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { ensureLocalFileSync } from "../../../src/lawmind/runtime/icloud-materialize.js";
 import {
   PROTECTED_WORKSPACE_WRITE_CODE,
   PROTECTED_WORKSPACE_WRITE_REFUSAL,
@@ -36,6 +37,7 @@ export async function handleFilesystemRoute({
       sendJson(res, 404, { ok: false, error: "not found" }, c);
       return true;
     }
+    ensureLocalFileSync(full);
     const buf = await fs.promises.readFile(full);
     res.writeHead(200, {
       "content-type": "application/octet-stream",
@@ -94,6 +96,7 @@ export async function handleFilesystemRoute({
       sendJson(res, 413, { ok: false, error: "file too large" }, c);
       return true;
     }
+    ensureLocalFileSync(full);
     const buf = fs.readFileSync(full);
     if (isLikelyBinary(buf)) {
       sendJson(res, 415, { ok: false, error: "binary file is not supported" }, c);

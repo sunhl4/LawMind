@@ -176,6 +176,7 @@ export type LawmindMainBodyContentProps = {
   onOpenAgentsWorkflows?: (matterId?: string, jobId?: string) => void;
   composeExtras: LawmindComposeExtras;
   onCreateMatter?: () => void;
+  onDeleteMatter?: (matterId: string, label: string) => void;
   /** 工作台选案：只切当前案件，不打开办案台。 */
   onSelectMatterKey?: (matterId: string) => void;
   /** 在办筛到某一案时，回到工作台这一卷。 */

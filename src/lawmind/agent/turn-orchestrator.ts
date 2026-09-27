@@ -3,6 +3,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { resolveLiveSessionMatterId } from "../desk/deleted-matters.js";
 import { attachEnabledMcpServers } from "../mcp/mcp-client-bridge.js";
 import { hiddenPolicyToolNames } from "../policy/analysis-scripts.js";
 import { accumulateFactPin } from "./compact-fact-pin.js";
@@ -179,8 +180,12 @@ export async function runTurn(opts: {
   // 早期「首次为空才写」的写法会让旧会话永远钉在第一个案件上：之后
   // import_host_file 的默认 matter_id、期限/卷宗/谈话写笔、记忆与提示词里的
   // 当前案件全部落在旧案（真实事故：新建案件后收材料进上一案 materials/）。
-  if (matterId && session.matterId !== matterId) {
-    session.matterId = matterId;
+  // 已删除且目录不在的编号不再钉住，避免下一句又把空壳建回来。
+  const liveMatterId = resolveLiveSessionMatterId(config.workspaceDir, session.matterId, matterId);
+  if (liveMatterId) {
+    session.matterId = liveMatterId;
+  } else if (session.matterId) {
+    delete session.matterId;
   }
   session.turnPlan = pruneTurnPlanForNewInstruction(session.turnPlan, instruction);
 

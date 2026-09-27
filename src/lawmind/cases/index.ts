@@ -8,6 +8,7 @@
 import fs from "node:fs/promises";
 import { listMatterIdsFromStorage } from "../adapters/matter-storage/io.js";
 import { readAuditEventsForTaskIds } from "../audit/index.js";
+import { isHiddenDeletedMatter } from "../desk/deleted-matters.js";
 import { listDrafts } from "../drafts/index.js";
 import { caseFilePath } from "../memory/index.js";
 import { listTaskRecords } from "../tasks/index.js";
@@ -122,8 +123,9 @@ export async function listMatterIds(workspaceDir: string): Promise<string[]> {
     .filter((value): value is string => Boolean(value));
 
   // Ad-hoc meetings are not matters; hide legacy cases/临时讨论 if still on disk.
+  // 删过且目录已不在的编号不再从旧任务里冒出来。任务文件本身不改。
   return uniq([...fromStorage, ...fromCases, ...fromTasks])
-    .filter((id) => id !== ADHOC_MEETING_MATTER_ID)
+    .filter((id) => id !== ADHOC_MEETING_MATTER_ID && !isHiddenDeletedMatter(workspaceDir, id))
     .toSorted();
 }
 

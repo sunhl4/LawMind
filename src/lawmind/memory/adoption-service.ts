@@ -21,6 +21,7 @@ import path from "node:path";
 import { z } from "zod";
 import { appendJsonl, rewriteJsonl, withExclusiveFileLock } from "../adapters/matter-storage/io.js";
 import { emit } from "../audit/index.js";
+import { ensureLocalFileSync } from "../runtime/icloud-materialize.js";
 
 export const MEMORY_SCOPES = [
   "firm",
@@ -97,6 +98,7 @@ function readAllSync(workspaceDir: string): MemoryAdoptionRecord[] {
   if (!existsSync(file)) {
     return [];
   }
+  ensureLocalFileSync(file);
   const raw = readFileSync(file, "utf8");
   if (!raw.trim()) {
     return [];

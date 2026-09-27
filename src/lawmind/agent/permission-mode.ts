@@ -19,6 +19,7 @@ export const READONLY_AGENT_TOOL_NAMES = new Set<string>([
   "read_project_file",
   "list_dir",
   "explore_folder",
+  "digest_materials",
   "search_host",
   "read_host_file",
   "analyze_document",

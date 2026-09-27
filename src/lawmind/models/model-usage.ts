@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { ensureLocalFileSync } from "../runtime/icloud-materialize.js";
 import { classifyModelWorkTier, modelWorkTierLabel, type ModelWorkTier } from "./model-tier.js";
 
 export type ModelUsageSnapshot = {
@@ -55,6 +56,7 @@ function readLedger(workspaceDir: string): ModelUsageLedgerEntry[] {
   if (!existsSync(file)) {
     return [];
   }
+  ensureLocalFileSync(file);
   const raw = readFileSync(file, "utf8");
   const out: ModelUsageLedgerEntry[] = [];
   for (const line of raw.split(/\r?\n/)) {

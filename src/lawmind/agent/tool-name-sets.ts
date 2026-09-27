@@ -29,6 +29,7 @@ export const MATTER_SCOPE_REQUIRED = new Set<string>([
   "execute_organize_plan",
   "relocate_matter_materials",
   "apply_file_ops",
+  "delete_matter",
 ]);
 
 export const BACKGROUND_JOB_TOOLS = new Set<string>(["execute_workflow"]);
@@ -42,6 +43,7 @@ export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "list_dir",
   "explore_folder",
   "read_folder_documents",
+  "digest_materials",
   "search_host",
   "read_host_file",
   "search_statute",
@@ -89,6 +91,7 @@ export const DESK_WRITE_TOOL_NAMES = new Set<string>([
   "import_host_file",
   "relocate_matter_materials",
   "apply_file_ops",
+  "delete_matter",
 ]);
 
 export const WRITE_TOOLS = new Set<string>([
@@ -129,4 +132,5 @@ export const WRITE_TOOLS = new Set<string>([
   "apply_file_ops",
   "review_table_update",
   "create_matter",
+  "delete_matter",
 ]);

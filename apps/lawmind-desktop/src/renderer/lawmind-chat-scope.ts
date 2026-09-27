@@ -12,6 +12,25 @@ export function chatScopeStorageKey(scope: string | null): string {
  * 列表上的一档。`knownMatterIds === null` 表示案件目录还没加载完，
  * 此时不把「目录里没有的案件号」当成已删除。
  */
+/**
+ * 案件从目录里消失时，解开对话上的这一卷。
+ * 目录还没加载完（previous 或 next 为 null），或这卷本来就不在上一份目录里，不动。
+ */
+export function contextMatterIdAfterCatalogChange(
+  current: string | null,
+  previousKnown: ReadonlySet<string> | null,
+  nextKnown: ReadonlySet<string> | null,
+): string | null {
+  const id = current?.trim() ?? "";
+  if (!id || !previousKnown || !nextKnown) {
+    return current;
+  }
+  if (previousKnown.has(id) && !nextKnown.has(id)) {
+    return null;
+  }
+  return current;
+}
+
 export function chatScopeForMatterId(
   matterId: string | null | undefined,
   knownMatterIds: ReadonlySet<string> | null,

@@ -162,6 +162,7 @@ export type UseLawmindMainBodyContentPropsInput = {
   setTaskDrawerOpen: (open: boolean) => void;
   composeExtras: LawmindComposeExtras;
   setCreateMatterOpen: (open: boolean) => void;
+  setMatterDeleteOpen: (value: { matterId: string; label: string } | null) => void;
   matterSidebarRowCount: number;
   activeChatSessionId?: string;
   sessionRequiresActions?: LawMindRequiresAction[];
@@ -294,6 +295,7 @@ export function useLawmindMainBodyContentProps(
     setTaskDrawerOpen,
     composeExtras,
     setCreateMatterOpen,
+    setMatterDeleteOpen,
     matterSidebarRowCount,
     activeChatSessionId,
     sessionRequiresActions,
@@ -562,6 +564,7 @@ export function useLawmindMainBodyContentProps(
       },
       composeExtras,
       onCreateMatter: () => setCreateMatterOpen(true),
+      onDeleteMatter: (matterId, label) => setMatterDeleteOpen({ matterId, label }),
       onSelectMatterKey: (matterId) => {
         const mid = matterId.trim();
         if (!mid) {
@@ -698,6 +701,7 @@ export function useLawmindMainBodyContentProps(
       setTaskDrawerOpen,
       composeExtras,
       setCreateMatterOpen,
+      setMatterDeleteOpen,
       matterSidebarRowCount,
       canUseFilesystemBridge,
       chatSessionsInSidebar,

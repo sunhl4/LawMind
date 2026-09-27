@@ -254,6 +254,7 @@ export const HOST_FILE_TOOL_NAMES = new Set([
   "read_host_file",
   "list_dir",
   "read_folder_documents",
+  "digest_materials",
 ]);
 /**
  * 单工具读取上限随模型上下文伸缩（不写死小数字；律师一个材料夹常有二三十份文书）。

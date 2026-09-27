@@ -3,6 +3,8 @@
  * Same helpers as workbench HTTP; chat write-through when the lawyer asks to fill.
  */
 
+import { loadMatter } from "../../../adapters/matter-storage/index.js";
+import { deleteMatterVolume } from "../../../desk/delete-matter-volume.js";
 import {
   applyIntakeBrief,
   applyLegalEvents,
@@ -13,7 +15,7 @@ import {
   revertDeskWrite,
 } from "../../../desk/desk-apply.js";
 import { LEGAL_EVENT_KINDS, extractLegalEvents } from "../../../desk/legal-event-extract.js";
-import { parseMatterDocket, parseMatterKind } from "../../../desk/matter-kind.js";
+import { parseMatterDocket, resolveMatterKind } from "../../../desk/matter-kind.js";
 import type { AgentTool } from "../../types.js";
 import { matterRequiredResult } from "../matter-required.js";
 
@@ -294,7 +296,8 @@ export const updateMatterProfileTool: AgentTool = {
       cause_of_action: { type: "string", description: "案由" },
       matter_kind: {
         type: "string",
-        description: "门类",
+        description:
+          "工作门类，不是案由。litigation=有案号/传票/开庭/起诉答辩，或案由是××纠纷、××争议（买卖合同纠纷仍是诉讼）。contract=正在审改协议，没有诉讼程序。general=顾问、函件、备忘或未定。",
         enum: ["contract", "litigation", "general"],
       },
       status: {
@@ -346,6 +349,19 @@ export const updateMatterProfileTool: AgentTool = {
       standing: p.standing,
       serviceAddress: p.serviceAddress,
     }));
+    const existing = loadMatter(ctx.workspaceDir, matterId);
+    const resolvedKind =
+      params.matter_kind !== undefined
+        ? resolveMatterKind(
+            params.matter_kind,
+            [
+              typeof params.title === "string" ? params.title : "",
+              typeof params.cause_of_action === "string" ? params.cause_of_action : "",
+              existing?.title ?? "",
+              existing?.causeOfAction ?? "",
+            ].join("\n"),
+          )
+        : undefined;
     const result = await applyMatterProfile(ctx.workspaceDir, {
       matterId,
       title: typeof params.title === "string" ? params.title : undefined,
@@ -353,8 +369,7 @@ export const updateMatterProfileTool: AgentTool = {
       counterparty: typeof params.counterparty === "string" ? params.counterparty : undefined,
       causeOfAction:
         typeof params.cause_of_action === "string" ? params.cause_of_action : undefined,
-      matterKind:
-        params.matter_kind !== undefined ? parseMatterKind(params.matter_kind) : undefined,
+      matterKind: resolvedKind?.kind,
       status,
       parties,
       docket,
@@ -367,7 +382,9 @@ export const updateMatterProfileTool: AgentTool = {
       data: {
         writeId: result.writeId,
         matterId: result.matterId,
-        message: "卷宗已更新。写错可用 revert_desk_write。",
+        message: resolvedKind?.reason
+          ? `卷宗已更新。${resolvedKind.reason}写错可用 revert_desk_write。`
+          : "卷宗已更新。写错可用 revert_desk_write。",
       },
     };
   },
@@ -412,14 +429,20 @@ export const revertDeskWriteTool: AgentTool = {
 export const createMatterTool: AgentTool = {
   definition: {
     name: "create_matter",
-    description: "仅在当前对话未关联案件时新建卷宗。已有 matterId 时必须失败，不得另造一卷。",
+    description:
+      "仅在当前对话未关联案件时新建卷宗。同名卷已存在则并入，不另造 -2。已有 matterId 时必须失败。",
     category: "matter",
     parameters: {
       title: { type: "string", description: "案件标题", required: true },
       matter_kind: {
         type: "string",
-        description: "门类",
+        description:
+          "工作门类，不是案由。litigation=诉讼程序或××纠纷/争议。contract=审改协议。general=顾问、函件或未定。买卖合同纠纷填 litigation。",
         enum: ["contract", "litigation", "general"],
+      },
+      force_new: {
+        type: "boolean",
+        description: "律师明确要求另开一卷时才传 true。默认并入同名已有卷。",
       },
     },
     requiresApproval: false,
@@ -436,23 +459,86 @@ export const createMatterTool: AgentTool = {
     if (!title) {
       return { ok: false, error: "新建案件需要标题。" };
     }
+    const explicitKind =
+      params.matter_kind === "contract" ||
+      params.matter_kind === "litigation" ||
+      params.matter_kind === "general"
+        ? params.matter_kind
+        : undefined;
     const result = await createMatterFromIntake({
       workspaceDir: ctx.workspaceDir,
       title,
-      matterKind:
-        params.matter_kind !== undefined ? parseMatterKind(params.matter_kind) : undefined,
+      matterKind: explicitKind,
+      forceNew: params.force_new === true,
     });
     if (!result.ok) {
       return { ok: false, error: result.error };
     }
+    const follow = `后续 update_matter_profile / apply_legal_events / add_case_note 等调用传 matter_id="${result.matterId}" 即可写入该案，无需律师手动关联。`;
+    const message = result.reused
+      ? `已有同名案件「${title}」（matter_id: ${result.matterId}），未另建。${follow}`
+      : `已新建案件「${title}」（matter_id: ${result.matterId}）。${result.kindNote ? `${result.kindNote} ` : ""}${follow}`;
     return {
       ok: true,
       data: {
         writeId: result.writeId,
         matterId: result.matterId,
-        message:
-          `已新建案件「${title}」（matter_id: ${result.matterId}）。` +
-          `请直接继续：后续 update_matter_profile / apply_legal_events / add_case_note 等调用传 matter_id="${result.matterId}" 即可写入该案，无需律师手动关联。`,
+        reused: result.reused === true,
+        message,
+      },
+    };
+  },
+};
+
+export const deleteMatterTool: AgentTool = {
+  definition: {
+    name: "delete_matter",
+    description:
+      "删除律师点名的用户卷宗（cases 与 matters 一起删）。只删这一案的用户资料，不能改 LawMind 程序、策略、审计或会话。confirm_matter_id 必须与 matter_id 完全一致。卷里还有材料时必须 delete_materials=true，否则拒绝，避免删错留有材料的那一卷。",
+    category: "matter",
+    parameters: {
+      matter_id: { type: "string", description: "要删除的案件 ID", required: true },
+      confirm_matter_id: {
+        type: "string",
+        description: "再写一遍同一个案件 ID，确认没删错卷",
+        required: true,
+      },
+      delete_materials: {
+        type: "boolean",
+        description: "该卷有材料、来信或交付文件时，律师明确要连这些一起删才传 true",
+      },
+    },
+    requiresApproval: false,
+    riskLevel: "high",
+  },
+  async execute(params, ctx) {
+    const matterId = typeof params.matter_id === "string" ? params.matter_id.trim() : "";
+    const confirm =
+      typeof params.confirm_matter_id === "string" ? params.confirm_matter_id.trim() : "";
+    if (!matterId || confirm !== matterId) {
+      return {
+        ok: false,
+        error: "confirm_matter_id 必须与 matter_id 完全一致，未删除。",
+      };
+    }
+    const result = await deleteMatterVolume(ctx.workspaceDir, matterId, {
+      requireEmpty: params.delete_materials !== true,
+    });
+    if (!result.ok) {
+      return { ok: false, error: result.error };
+    }
+    const removed = result.removedCaseDir || result.removedMatterDir;
+    return {
+      ok: true,
+      data: {
+        matterId: result.matterId,
+        removed,
+        removedCaseDir: result.removedCaseDir,
+        removedMatterDir: result.removedMatterDir,
+        userFileCount: result.userFileCount,
+        message: removed
+          ? `已删除案件「${result.matterId}」的用户卷宗（案件列表与材料目录）。程序、策略和审计未改。`
+          : `没有找到案件「${result.matterId}」，未删除任何文件。`,
       },
     };
   },
@@ -466,4 +552,5 @@ export const deskTools: AgentTool[] = [
   updateMatterProfileTool,
   revertDeskWriteTool,
   createMatterTool,
+  deleteMatterTool,
 ];

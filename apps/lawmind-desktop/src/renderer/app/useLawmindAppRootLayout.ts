@@ -443,6 +443,7 @@ export function useLawmindAppRootLayout(
     setTaskDrawerOpen: input.setTaskDrawerOpen,
     composeExtras,
     setCreateMatterOpen: input.setCreateMatterOpen,
+    setMatterDeleteOpen: input.setMatterDeleteOpen,
     matterSidebarRowCount: recordsDeskMatters.sidebarRows.length,
     activeChatSessionId,
     sessionRequiresActions: input.sessionRequiresActions,

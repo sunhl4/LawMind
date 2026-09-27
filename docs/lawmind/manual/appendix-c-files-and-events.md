@@ -101,7 +101,7 @@ compact-digest.md
 
 `RULES.md` 会进系统提示词，但提示词**先读** `matters/<id>/RULES.md`，再读这里。副本和案件密钥不在这棵树，见 C.3。
 
-`POST /api/matters/delete` 只删除 `cases/<id>/`。`matters/<id>/`（期限、义务、审批、案件密钥）还在。删一边不等于删案子。
+`POST /api/matters/delete` 与对话工具 `delete_matter` 一起删除 `cases/<id>/` 和 `matters/<id>/`。删的是这一案的用户资料。通用文件接口仍然不能改 `matters/`、策略、审计或程序代码。
 
 ## C.3 `matters/<matterId>/`
 

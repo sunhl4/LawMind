@@ -124,6 +124,7 @@ export function pickLawyerWorkbenchProps(
     onOpenNeedsDecision: (matterId) =>
       openNeedsDecisionDesk(props, matterId ? { matterId } : undefined),
     onCreateMatter: props.onCreateMatter,
+    onDeleteMatter: props.onDeleteMatter,
     onOpenReview: ({ matterId, taskId }) => {
       const tid = taskId?.trim();
       if (tid) {

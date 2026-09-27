@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import JSZip from "jszip";
 import { createOutboundProxy } from "../../../platform/outbound-proxy.js";
+import { ensureLocalFileSync, IcloudDatalessError } from "../../../runtime/icloud-materialize.js";
 import { isPathInsideRoot } from "../../../runtime/workspace-path.js";
 import { resolveDocumentPageChars } from "../../document-read-budget.js";
 import { loadXlsxAsTsv } from "./xlsx-workbook.js";
@@ -13,8 +14,12 @@ const visionProxy = createOutboundProxy({ requestTag: "vision-ocr" });
 export { MAX_XLSX_READ_BYTES } from "./xlsx-workbook.js";
 async function readSafe(filePath: string): Promise<string> {
   try {
+    ensureLocalFileSync(filePath);
     return await fs.readFile(filePath, "utf8");
-  } catch {
+  } catch (err) {
+    if (err instanceof IcloudDatalessError) {
+      throw err;
+    }
     return "";
   }
 }
@@ -211,6 +216,7 @@ function extractTextFromDocxXml(xml: string): string {
 }
 
 async function readDocxText(filePath: string): Promise<string> {
+  ensureLocalFileSync(filePath);
   const buffer = await fs.readFile(filePath);
   const zip = await JSZip.loadAsync(buffer);
   const docXml = await zip.file("word/document.xml")?.async("string");
@@ -243,6 +249,7 @@ async function createOcrWorker() {
 }
 
 async function readImageTextByOcr(filePath: string): Promise<string> {
+  ensureLocalFileSync(filePath);
   const image = await fs.readFile(filePath);
   const worker = await createOcrWorker();
   try {
@@ -263,6 +270,7 @@ async function readImageTextHybrid(
   if (!shouldUseVisionFallback()) {
     return null;
   }
+  ensureLocalFileSync(filePath);
   const image = await fs.readFile(filePath);
   const visionText = await readImageTextByVisionModel(image, mimeFromImagePath(filePath));
   if (!visionText) {
@@ -272,6 +280,7 @@ async function readImageTextHybrid(
 }
 
 async function readPdfText(filePath: string): Promise<string> {
+  ensureLocalFileSync(filePath);
   const buffer = await fs.readFile(filePath);
   const mod = await import("pdf-parse");
   const parser = new mod.PDFParse({ data: buffer });
@@ -284,6 +293,7 @@ async function readPdfText(filePath: string): Promise<string> {
 }
 
 export async function readPdfTextByOcr(filePath: string): Promise<string> {
+  ensureLocalFileSync(filePath);
   const buffer = await fs.readFile(filePath);
   const mod = await import("pdf-parse");
   const parser = new mod.PDFParse({ data: buffer });
@@ -316,6 +326,7 @@ export async function readPdfTextByOcr(filePath: string): Promise<string> {
 }
 
 export async function readPdfTextByVision(filePath: string): Promise<string> {
+  ensureLocalFileSync(filePath);
   const buffer = await fs.readFile(filePath);
   const mod = await import("pdf-parse");
   const parser = new mod.PDFParse({ data: buffer });

@@ -199,6 +199,8 @@ export type LawmindLawyerWorkbenchProps = {
   onGoToChat: (opts: { matterId?: string; prompt?: string }) => void;
   onOpenNeedsDecision?: (matterId?: string) => void;
   onCreateMatter?: () => void;
+  /** 打开删除确认（案件列表与材料一起删）。 */
+  onDeleteMatter?: (matterId: string, label: string) => void;
   onOpenReview?: (opts: { matterId: string; taskId?: string }) => void;
   onShowArtifact?: (relPath: string) => void;
   onReconnectLocalService?: () => void | Promise<void>;
@@ -310,6 +312,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     onGoToChat,
     onOpenNeedsDecision,
     onCreateMatter,
+    onDeleteMatter,
     onOpenReview,
     onShowArtifact,
     onReconnectLocalService,
@@ -1513,6 +1516,15 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                   >
                     去对话
                   </button>
+                  {onDeleteMatter ? (
+                    <button
+                      type="button"
+                      className="lm-btn lm-btn-ghost lm-btn-sm"
+                      onClick={() => onDeleteMatter(selected.matterId, pulse?.title ?? selected.title)}
+                    >
+                      删除案件
+                    </button>
+                  ) : null}
                   {(pulse?.counts.approvals ?? 0) > 0 ? (
                     <button
                       type="button"
@@ -2017,6 +2029,9 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                             </option>
                           ))}
                         </select>
+                        <span className="lm-field-hint">
+                          案由里的「合同纠纷」仍是诉讼。合同指正在审改协议。顾问和还没定的归其他。
+                        </span>
                       </label>
                       <label>
                         案由

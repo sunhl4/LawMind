@@ -82,8 +82,9 @@ export function LawmindMatterDeleteDialog({
       <div className="lm-wizard lm-modal-matter-delete" onClick={(e) => e.stopPropagation()}>
         <h2>删除案件</h2>
         <p className="lm-meta">
-          若磁盘上存在目录 <code className="lm-meta">{`cases/${open.matterId}`}</code>
-          ，将<strong>整夹删除</strong>（CASE、策略、子文件夹与材料）。若该夹已不存在（例如仅历史任务里出现过本条），确认后也会成功并从列表刷新。对话中关联的本案会清除；历史任务里的编号不会自动改写。
+          将删除这一案的用户资料：<code className="lm-meta">{`cases/${open.matterId}`}</code>
+          （卷宗与材料）和 <code className="lm-meta">{`matters/${open.matterId}`}</code>
+          （案件列表、期限、待办）。程序和设置不动。确认后这一卷不再出现在案件列表里。对话里如果正挂着本案，会解开。历史任务里的编号仍留着，但不会再变回一条案件。
         </p>
         <p className="lm-meta">
           当前案件：<strong>{open.label}</strong>（<code className="lm-meta">{open.matterId}</code>）

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { loadMatter } from "../../../adapters/matter-storage/index.js";
 import { createMatterIfMissing } from "../../../application/services/matter-write-service.js";
 import type { AgentContext } from "../../types.js";
-import { createMatterTool, updateMatterProfileTool } from "./desk-tools.js";
+import { createMatterTool, deleteMatterTool, updateMatterProfileTool } from "./desk-tools.js";
 
 const temps: string[] = [];
 
@@ -105,5 +105,65 @@ describe("create_matter", () => {
     );
     expect(follow.ok).toBe(true);
     expect(loadMatter(ws, data.matterId!)?.docket?.court).toBe("张北县人民法院");
+  });
+
+  it("reuses an existing same-title matter instead of creating -2", async () => {
+    const ws = tmp("lm-desk-");
+    const first = await createMatterTool.execute(
+      { title: "江苏岚江智能科技有限公司 常年法律顾问服务" },
+      ctx(ws),
+    );
+    const second = await createMatterTool.execute(
+      { title: "江苏岚江智能科技有限公司 常年法律顾问服务", matter_kind: "contract" },
+      ctx(ws),
+    );
+    expect(first.ok && second.ok).toBe(true);
+    const a = first.data as { matterId: string };
+    const b = second.data as { matterId: string; reused?: boolean; message?: string };
+    expect(b.reused).toBe(true);
+    expect(b.matterId).toBe(a.matterId);
+    expect(b.message).toContain("未另建");
+  });
+});
+
+describe("delete_matter", () => {
+  it("removes an empty shell and refuses the volume that still has materials", async () => {
+    const ws = tmp("lm-desk-del-");
+    const shell = "江苏岚江智能科技有限公司 常年法律顾问服务";
+    const kept = "岚江留存卷";
+    createMatterIfMissing(ws, { matterId: shell, title: shell });
+    createMatterIfMissing(ws, {
+      matterId: kept,
+      title: "岚江采购框架协议审查",
+      matterKind: "contract",
+    });
+    fs.mkdirSync(path.join(ws, "cases", kept, "materials", "岚江公司"), { recursive: true });
+    fs.writeFileSync(path.join(ws, "cases", kept, "materials", "岚江公司", "常法合同.docx"), "x");
+    fs.writeFileSync(path.join(ws, "lawmind.policy.json"), "{}\n");
+
+    const refused = await deleteMatterTool.execute(
+      { matter_id: kept, confirm_matter_id: kept },
+      ctx(ws),
+    );
+    expect(refused.ok).toBe(false);
+    expect(loadMatter(ws, kept)?.matterKind).toBe("contract");
+
+    const mismatch = await deleteMatterTool.execute(
+      { matter_id: shell, confirm_matter_id: kept },
+      ctx(ws),
+    );
+    expect(mismatch.ok).toBe(false);
+    expect(loadMatter(ws, shell)).toBeTruthy();
+
+    const removed = await deleteMatterTool.execute(
+      { matter_id: shell, confirm_matter_id: shell },
+      ctx(ws),
+    );
+    expect(removed.ok).toBe(true);
+    expect(loadMatter(ws, shell)).toBeUndefined();
+    expect(
+      fs.existsSync(path.join(ws, "cases", kept, "materials", "岚江公司", "常法合同.docx")),
+    ).toBe(true);
+    expect(fs.readFileSync(path.join(ws, "lawmind.policy.json"), "utf8")).toBe("{}\n");
   });
 });

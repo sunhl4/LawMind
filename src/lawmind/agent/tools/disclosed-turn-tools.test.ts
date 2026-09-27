@@ -132,6 +132,8 @@ x
       }),
     ).toEqual(expect.arrayContaining(["extract_legal_events", "apply_legal_events"]));
     expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("apply_legal_events");
+    expect(extraToolsForInstruction("删掉那个空壳卷")).toContain("delete_matter");
+    expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("delete_matter");
     expect(extraToolsForInstruction("这份专利侵权材料怎么主张")).toContain("search_case_law");
     expect(extraToolsForInstruction("做一份股权收购尽调提纲")).toContain("search_case_law");
     expect(extraToolsForInstruction("这份离婚诉讼材料怎么主张抚养权")).toEqual(
@@ -148,6 +150,30 @@ x
     expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("render_tracked_draft");
     expect(extraToolsForInstruction("请起草买卖合同的违约金条款")).toContain("draft_worker");
     expect(extraToolsForInstruction("今天开庭准备什么？")).not.toContain("draft_worker");
+    expect(extraToolsForInstruction("逐份审查这些合同")).toContain("digest_materials");
+    expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("digest_materials");
+    expect(
+      extraToolsForInstruction("审查一下", {
+        pins: [
+          {
+            pinKind: "file",
+            root: "workspace",
+            relPath: "材料夹",
+            kind: "directory",
+          },
+        ],
+      }),
+    ).toContain("digest_materials");
+    expect(
+      extraToolsForInstruction("看看", {
+        pins: Array.from({ length: 8 }, (_, i) => ({
+          pinKind: "file" as const,
+          root: "workspace" as const,
+          relPath: `f${i}.txt`,
+          kind: "file" as const,
+        })),
+      }),
+    ).toContain("digest_materials");
     expect(
       extraToolsForInstruction("请审查这份采购合同", {
         pins: [

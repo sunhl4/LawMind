@@ -33,6 +33,7 @@ import {
 } from "../../../src/lawmind/cases/index.js";
 import { readTeamRoster, writeTeamRoster } from "../../../src/lawmind/cases/team-roster.js";
 import { isAdhocMeetingMatterId } from "../../../src/lawmind/cases/team-meeting-ids.js";
+import { deleteMatterVolume } from "../../../src/lawmind/desk/delete-matter-volume.js";
 import type { DraftCitationIntegrityView } from "../../../src/lawmind/drafts/index.js";
 import { listDrafts, resolveDraftCitationIntegrity } from "../../../src/lawmind/drafts/index.js";
 import { emit, readAuditEventsForTaskIds, readRecentAuditLogs } from "../../../src/lawmind/audit/index.js";
@@ -102,17 +103,6 @@ function matterGovernanceLabel(record: ReturnType<typeof loadMatter>): string {
         ? "高度敏感"
         : "普通保密";
   return `${status} · ${sensitivity}`;
-}
-
-/** 解析 `<workspace>/cases/<matterId>` 并防止穿越 `cases` 根目录。 */
-function resolvedMatterCaseDir(workspaceDir: string, matterId: string): string {
-  const casesRoot = path.resolve(workspaceDir, "cases");
-  const target = path.resolve(casesRoot, matterId);
-  const rel = path.relative(casesRoot, target);
-  if (rel.startsWith("..") || path.isAbsolute(rel) || rel === "") {
-    throw new Error("invalid matter path");
-  }
-  return target;
 }
 
 type MatterInteractionAction = "open_review" | "save_upgrade_suggestion" | "write_case_note";
@@ -892,35 +882,28 @@ export async function handleMatterRoutes({
       sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
       return true;
     }
-    let target: string;
     try {
-      target = resolvedMatterCaseDir(workspaceDir, mid);
-    } catch {
-      sendJson(res, 400, { ok: false, error: "invalid matter path" }, c);
-      return true;
-    }
-    let existedOnDisk = false;
-    try {
-      await fs.access(target);
-      existedOnDisk = true;
-    } catch {
-      existedOnDisk = false;
-    }
-    if (existedOnDisk) {
-      try {
-        await fs.rm(target, { recursive: true, force: true });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        sendJson(res, 500, { ok: false, error: msg }, c);
+      const deleted = await deleteMatterVolume(workspaceDir, mid);
+      if (!deleted.ok) {
+        sendJson(res, 400, { ok: false, error: deleted.error }, c);
         return true;
       }
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          matterId: mid,
+          deletedFromDisk: deleted.removedCaseDir || deleted.removedMatterDir,
+          removedCaseDir: deleted.removedCaseDir,
+          removedMatterDir: deleted.removedMatterDir,
+        },
+        c,
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 500, { ok: false, error: msg }, c);
     }
-    sendJson(
-      res,
-      200,
-      { ok: true, matterId: mid, deletedFromDisk: existedOnDisk },
-      c,
-    );
     return true;
   }
 

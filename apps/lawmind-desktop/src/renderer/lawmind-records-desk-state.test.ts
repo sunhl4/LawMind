@@ -59,7 +59,7 @@ describe("lawmind-records-desk-state", () => {
     ];
     const rows = buildMatterSidebarRows(overviews, tasks, history);
     expect(rows.some((r) => r.matterId === "m1")).toBe(true);
-    expect(rows.some((r) => r.matterId === "m2")).toBe(true);
+    expect(rows.some((r) => r.matterId === "m2")).toBe(false);
     expect(rows.some((r) => r.key === RECORDS_DESK_UNLINKED)).toBe(true);
     expect(rows[0]?.key).not.toBe(RECORDS_DESK_UNLINKED);
   });

@@ -270,6 +270,8 @@ describe("lawmind-server-route-matters", () => {
         "# x\n",
         "utf8",
       );
+      await fs.mkdir(path.join(ws, "matters", "matter-del"), { recursive: true });
+      await fs.writeFile(path.join(ws, "matters", "matter-del", "matter.json"), "{}\n", "utf8");
       const ctx: LawmindDispatchContext = {
         workspaceDir: ws,
         envFile: undefined,
@@ -287,8 +289,15 @@ describe("lawmind-server-route-matters", () => {
       });
       expect(handled).toBe(true);
       expect(capture.status).toBe(200);
-      expect(capture.json()).toMatchObject({ ok: true, matterId: "matter-del", deletedFromDisk: true });
+      expect(capture.json()).toMatchObject({
+        ok: true,
+        matterId: "matter-del",
+        deletedFromDisk: true,
+        removedCaseDir: true,
+        removedMatterDir: true,
+      });
       await expect(fs.access(path.join(ws, "cases", "matter-del"))).rejects.toBeDefined();
+      await expect(fs.access(path.join(ws, "matters", "matter-del"))).rejects.toBeDefined();
     } finally {
       await fs.rm(ws, { recursive: true, force: true });
     }
@@ -1195,6 +1204,8 @@ describe("lawmind-server-route-matters", () => {
       const matterId = "del-1";
       await fs.mkdir(path.join(ws, "cases", matterId), { recursive: true });
       await fs.writeFile(path.join(ws, "cases", matterId, "CASE.md"), "# Case\n", "utf8");
+      await fs.mkdir(path.join(ws, "matters", matterId), { recursive: true });
+      await fs.writeFile(path.join(ws, "matters", matterId, "matter.json"), "{}\n", "utf8");
       const ctx: LawmindDispatchContext = {
         workspaceDir: ws,
         envFile: undefined,
@@ -1211,8 +1222,9 @@ describe("lawmind-server-route-matters", () => {
         c: {},
       });
       expect(capture.status).toBe(200);
-      expect(capture.json()).toMatchObject({ ok: true, matterId });
+      expect(capture.json()).toMatchObject({ ok: true, matterId, removedMatterDir: true });
       await expect(fs.access(path.join(ws, "cases", matterId))).rejects.toThrow();
+      await expect(fs.access(path.join(ws, "matters", matterId))).rejects.toThrow();
     } finally {
       await fs.rm(ws, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }

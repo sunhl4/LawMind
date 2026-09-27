@@ -25,6 +25,7 @@ import { renderChart } from "./legal/chart-tool.js";
 import { searchCompanyRegistry } from "./legal/company-registry-tool.js";
 import { compareDocuments } from "./legal/compare-documents.js";
 import { deskTools } from "./legal/desk-tools.js";
+import { digestMaterialsTool } from "./legal/digest-materials-tool.js";
 import { draftWorkerTool } from "./legal/draft-worker-tool.js";
 import { exploreFolderTool } from "./legal/explore-folder-tool.js";
 import { analyzeDocument, writeDocument } from "./legal/file-tools.js";
@@ -83,6 +84,7 @@ export function createLegalToolRegistry(opts?: {
     listDirTool,
     exploreFolderTool,
     readFolderDocumentsTool,
+    digestMaterialsTool,
     searchHostTool,
     readHostFileTool,
     importHostFileTool,

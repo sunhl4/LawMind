@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   chatScopeForMatterId,
+  contextMatterIdAfterCatalogChange,
   countUnboundChatSessions,
   inferInitialChatScope,
   isSessionInChatScope,
@@ -29,6 +30,17 @@ describe("chatScopeForMatterId", () => {
   it("目录里没有的案件号在目录加载后归入未归案", () => {
     expect(chatScopeForMatterId("已删", known)).toBeNull();
     expect(chatScopeForMatterId("已删", null)).toBe("已删");
+  });
+});
+
+describe("contextMatterIdAfterCatalogChange", () => {
+  it("只在这一卷从已加载的目录里消失时解开", () => {
+    const before = new Set(["甲案", "空壳"]);
+    const after = new Set(["甲案"]);
+    expect(contextMatterIdAfterCatalogChange("空壳", before, after)).toBeNull();
+    expect(contextMatterIdAfterCatalogChange("甲案", before, after)).toBe("甲案");
+    expect(contextMatterIdAfterCatalogChange("刚建", before, after)).toBe("刚建");
+    expect(contextMatterIdAfterCatalogChange("空壳", null, after)).toBe("空壳");
   });
 });
 

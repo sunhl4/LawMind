@@ -733,6 +733,7 @@ describe("LawmindLawyerWorkbench", () => {
       }
       return { ok: true };
     });
+    const onDeleteMatter = vi.fn();
     await act(async () => {
       root.render(
         <LawmindLawyerWorkbench
@@ -741,6 +742,7 @@ describe("LawmindLawyerWorkbench", () => {
           deskMatterFocus={{ id: "新收租赁案", n: 1 }}
           onSelectMatter={vi.fn()}
           onGoToChat={vi.fn()}
+          onDeleteMatter={onDeleteMatter}
         />,
       );
     });
@@ -748,6 +750,13 @@ describe("LawmindLawyerWorkbench", () => {
     await flush();
     expect(host.querySelector('[data-testid="lm-lawyer-matter-dossier"]')).toBeTruthy();
     expect(host.textContent).toContain("新收租赁案");
+    expect(host.textContent).toContain("案由里的「合同纠纷」仍是诉讼");
     expect(host.textContent).not.toContain("选一个案件");
+    const deleteBtn = [...host.querySelectorAll("button")].find((btn) => btn.textContent === "删除案件");
+    expect(deleteBtn).toBeTruthy();
+    await act(async () => {
+      deleteBtn?.click();
+    });
+    expect(onDeleteMatter).toHaveBeenCalledWith("新收租赁案", "新收租赁案");
   });
 });

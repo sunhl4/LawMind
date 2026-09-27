@@ -13,8 +13,15 @@ import { loadMatter, saveMatter, type MatterRecord } from "../../adapters/matter
 import { matterDir, withExclusiveFileLock } from "../../adapters/matter-storage/io.js";
 import { matterSchema } from "../../adapters/matter-storage/schemas.js";
 import { emit } from "../../audit/index.js";
+import { forgetDeletedMatter } from "../../desk/deleted-matters.js";
 import type { MatterDocket, MatterKind } from "../../desk/matter-kind.js";
-import { parseMatterDocket, parseMatterKind, parsePracticeTags } from "../../desk/matter-kind.js";
+import {
+  inferMatterKind,
+  parseMatterDocket,
+  parseMatterKind,
+  parsePracticeTags,
+  resolveMatterKind,
+} from "../../desk/matter-kind.js";
 import {
   deriveMatterIdentity,
   MATTER_PARTIES_CAP,
@@ -125,10 +132,15 @@ export function createMatterIfMissing(
   return withMatterLock(workspaceDir, input.matterId, () => {
     const existing = loadMatter(workspaceDir, input.matterId);
     if (existing) {
+      forgetDeletedMatter(workspaceDir, input.matterId);
       return existing;
     }
     const now = newTimestamp();
-    const kind = parseMatterKind(input.matterKind);
+    const titleForKind = (input.title ?? input.matterId).trim();
+    const kind =
+      input.matterKind === undefined
+        ? inferMatterKind(titleForKind)
+        : resolveMatterKind(input.matterKind, titleForKind).kind;
     const docket = parseMatterDocket(input.docket);
     const tags = parsePracticeTags(input.practiceTags);
     const draft: MatterRecord = {
@@ -157,6 +169,7 @@ export function createMatterIfMissing(
       throw new Error(`Invalid matter draft for ${input.matterId}: ${parsed.error.message}`);
     }
     const saved = saveMatter(workspaceDir, parsed.data);
+    forgetDeletedMatter(workspaceDir, saved.matterId);
     if (opts?.projectCase !== false) {
       scheduleMatterProjection(workspaceDir, saved);
     }

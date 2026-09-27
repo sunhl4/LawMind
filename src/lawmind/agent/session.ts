@@ -15,6 +15,12 @@ import path from "node:path";
 import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { appendTranscriptLines } from "../adapters/session-transcript/index.js";
 import {
+  ensureLocalFileSync,
+  icloudFileKey,
+  installIcloudReadMaterialize,
+  materializeDatalessInDirectory,
+} from "../runtime/icloud-materialize.js";
+import {
   formatRemainingTokensNote,
   shouldInjectRemainingTokensNote,
   withEphemeralBudgetNote,
@@ -145,6 +151,8 @@ export function deriveAutoChatTitleFromFirstUserMessage(raw: string): string | u
   return clipped.length > 0 ? clipped : undefined;
 }
 
+installIcloudReadMaterialize();
+
 function sessionsDir(workspaceDir: string): string {
   return path.join(workspaceDir, SESSIONS_DIR);
 }
@@ -187,6 +195,7 @@ export function createSession(opts: {
 export function loadSession(workspaceDir: string, sessionId: string): AgentSession | undefined {
   const filePath = sessionFilePath(workspaceDir, sessionId);
   try {
+    ensureLocalFileSync(filePath);
     const raw = fs.readFileSync(filePath, "utf8");
     return JSON.parse(raw) as AgentSession;
   } catch {
@@ -527,6 +536,7 @@ export function appendTurn(workspaceDir: string, turn: AgentTurn): void {
 export function loadTurns(workspaceDir: string, sessionId: string): AgentTurn[] {
   const filePath = turnsFilePath(workspaceDir, sessionId);
   try {
+    ensureLocalFileSync(filePath);
     const raw = fs.readFileSync(filePath, "utf8");
     return raw
       .trim()
@@ -550,6 +560,7 @@ const listSessionsFileCache = new Map<
 export function listSessions(workspaceDir: string): AgentSession[] {
   const dir = sessionsDir(workspaceDir);
   try {
+    const pending = new Set(materializeDatalessInDirectory(dir).map((file) => icloudFileKey(file)));
     const files = fs
       .readdirSync(dir)
       .filter(
@@ -557,7 +568,10 @@ export function listSessions(workspaceDir: string): AgentSession[] {
       );
     return files
       .map((file) => {
-        const full = path.join(dir, file);
+        const full = path.resolve(dir, file);
+        if (pending.has(icloudFileKey(full))) {
+          return null;
+        }
         try {
           const stat = fs.statSync(full);
           const cached = listSessionsFileCache.get(full);
@@ -612,6 +626,7 @@ function rememberDesk(filePath: string, stat: fs.Stats, session: AgentSession): 
 export function listSessionsForDesk(workspaceDir: string): AgentSession[] {
   const dir = sessionsDir(workspaceDir);
   try {
+    const pending = new Set(materializeDatalessInDirectory(dir).map((file) => icloudFileKey(file)));
     const names = fs.readdirSync(dir);
     const deskNames = new Set(names.filter((name) => name.endsWith(".desk.json")));
     const byId = new Map<string, AgentSession>();
@@ -619,7 +634,10 @@ export function listSessionsForDesk(workspaceDir: string): AgentSession[] {
       if (!name.endsWith(".desk.json")) {
         continue;
       }
-      const full = path.join(dir, name);
+      const full = path.resolve(dir, name);
+      if (pending.has(icloudFileKey(full))) {
+        continue;
+      }
       try {
         const stat = fs.statSync(full);
         const cached = readDeskCache(full, stat);
@@ -643,9 +661,13 @@ export function listSessionsForDesk(workspaceDir: string): AgentSession[] {
       if (deskNames.has(`${sessionId}.desk.json`)) {
         continue;
       }
-      const jsonPath = path.join(dir, name);
+      const jsonPath = path.resolve(dir, name);
+      if (pending.has(icloudFileKey(jsonPath))) {
+        continue;
+      }
       const deskPath = path.join(dir, `${sessionId}.desk.json`);
       try {
+        ensureLocalFileSync(jsonPath);
         const full = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as AgentSession;
         if (!full?.sessionId) {
           continue;

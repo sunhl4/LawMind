@@ -7,6 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildMinimalChildEnv, runSafeCommand } from "../platform/safe-command.js";
+import { ensureLocalFileSync } from "../runtime/icloud-materialize.js";
 
 const TEXT_EXTRACT_MAX_STDOUT = 2_000_000;
 const TEXT_EXTRACT_MAX_STDERR = 4_000;
@@ -112,6 +113,8 @@ export function isBinaryWordDocPath(filePath: string): boolean {
  * Extract plain text from a binary `.doc` without writing a converted `.docx` beside it.
  */
 export async function readBinaryWordDocText(absPath: string): Promise<string> {
+  // textutil / soffice 自己会 read()。先落地，避免子进程堵在 iCloud 占位上。
+  ensureLocalFileSync(absPath);
   const viaTextutil = await extractViaTextutil(absPath);
   if (viaTextutil) {
     return viaTextutil;

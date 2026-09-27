@@ -4,6 +4,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ensureLocalFileSync } from "../../../runtime/icloud-materialize.js";
 
 export const MAX_XLSX_READ_BYTES = 20_000_000;
 export const MAX_XLSX_SHEETS = 32;
@@ -67,6 +68,7 @@ export async function loadXlsxWorkbook(filePath: string): Promise<LoadedXlsxWork
     throw new Error(`电子表格超过 ${Math.round(MAX_XLSX_READ_BYTES / 1_000_000)}MB 上限`);
   }
   const ExcelJS = await import("exceljs");
+  ensureLocalFileSync(filePath);
   const buffer = await fs.readFile(filePath);
   const workbook = new ExcelJS.Workbook();
   const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
@@ -86,7 +88,7 @@ export async function loadXlsxWorkbook(filePath: string): Promise<LoadedXlsxWork
       const maxCol = Math.max(row.cellCount, 1);
       for (let c = 1; c <= maxCol; c++) {
         const cell = row.getCell(c);
-        cells.push(cellRaw(cell.value, String(cell.text ?? "")));
+        cells.push(cellRaw(cell.value, cell.text ?? ""));
       }
       rows.push(cells);
       rowCount++;

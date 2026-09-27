@@ -12,6 +12,7 @@ import { instructionLooksLikeLetterQa } from "../../intent/utterance-kind.js";
 import type { ComposeContextPin } from "../../platform/compose-context-pin.js";
 import { COMPUTE_INTENT_RE, isPublicWebFactLookup } from "../../skills/capability-patterns.js";
 import { productPlaybookToolNames } from "../../skills/product-playbooks.js";
+import { pileNeedsMaterialDigest } from "../material-pile-digest.js";
 import { collectDisclosedToolNames } from "./governance.js";
 import type { ToolRegistry } from "./registry.js";
 
@@ -140,6 +141,10 @@ function pinRelPaths(pins: ComposeContextPin[] | undefined): string[] {
     .filter((pin): pin is Extract<ComposeContextPin, { pinKind: "file" }> => pin.pinKind === "file")
     .map((pin) => pin.relPath.trim())
     .filter(Boolean);
+}
+
+function instructionLooksLikeMatterDelete(text: string): boolean {
+  return /删(除|掉).{0,16}(案|卷)|删卷/.test(text);
 }
 
 function instructionLooksLikeDeskIntake(text: string): boolean {
@@ -306,6 +311,12 @@ export function extraToolsForInstruction(
   }
   if (pinsSuggestIdentityProfile(extras?.pins)) {
     extrasTools.push("update_matter_profile", "analyze_document", "import_host_file");
+  }
+  if (instructionLooksLikeMatterDelete(text)) {
+    extrasTools.push("delete_matter");
+  }
+  if (pileNeedsMaterialDigest(text, extras?.pins)) {
+    extrasTools.push("digest_materials");
   }
   return [...new Set(extrasTools)];
 }

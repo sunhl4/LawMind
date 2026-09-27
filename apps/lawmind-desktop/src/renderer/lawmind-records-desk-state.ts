@@ -77,12 +77,8 @@ export function buildMatterSidebarRows(
       return;
     }
     if (!acc.has(raw)) {
-      acc.set(raw, {
-        key: raw,
-        matterId: raw,
-        title: raw.length <= 22 ? raw : `${raw.slice(0, 10)}…${raw.slice(-6)}`,
-        latestUpdatedAt: updatedAt,
-      });
+      // 案件行只来自卷宗列表。旧任务上的编号不再另开一条，避免删卷后又出现。
+      return;
     } else {
       const row = acc.get(raw)!;
       row.latestUpdatedAt = maxIso(row.latestUpdatedAt, updatedAt);

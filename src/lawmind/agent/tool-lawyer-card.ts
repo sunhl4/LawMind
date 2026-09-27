@@ -125,6 +125,16 @@ function describeCallArgs(name: string, args: Record<string, unknown>): string |
       const folder = basenamePath(firstString(args, ["path", "materials"]));
       return folder || undefined;
     }
+    case "digest_materials": {
+      const listed = Array.isArray(args.paths)
+        ? args.paths.filter((item) => typeof item === "string" && item.trim())
+        : [];
+      if (listed.length > 0) {
+        return `${listed.length} 份材料`;
+      }
+      const folder = basenamePath(firstString(args, ["path"]));
+      return folder || clip(firstString(args, ["goal"])) || undefined;
+    }
     case "draft_worker": {
       const section = firstString(args, ["section", "goal"]);
       return section ? clip(section) : undefined;
@@ -201,6 +211,10 @@ function describeCallArgs(name: string, args: Record<string, unknown>): string |
     case "create_matter": {
       const title = firstString(args, ["title"]);
       return title ? clip(title) : undefined;
+    }
+    case "delete_matter": {
+      const id = firstString(args, ["matter_id"]);
+      return id ? clip(`删除 ${id}`) : "删除案件";
     }
     case "relocate_matter_materials":
     case "apply_file_ops": {
@@ -287,6 +301,18 @@ function describeResultData(name: string, data: unknown): string | undefined {
       return clip(`已探查 ${candidates} 个候选${suffix}`, 80);
     }
     return toolsUsed > 0 ? `已探查（读 ${toolsUsed} 步）` : "已探查文件夹";
+  }
+  if (name === "digest_materials") {
+    const cards = Array.isArray(rec.cards) ? rec.cards.length : 0;
+    const events = Array.isArray(rec.suggestedEvents) ? rec.suggestedEvents.length : 0;
+    const notRead = Array.isArray(rec.notRead) ? rec.notRead.length : 0;
+    const base =
+      events > 0
+        ? `已归纳 ${cards} 份，${events} 项期限`
+        : cards > 0
+          ? `已归纳 ${cards} 份`
+          : "没有可读材料";
+    return notRead > 0 ? `${base}，还有 ${notRead} 份未读` : base;
   }
   if (name === "run_compute" || name === "run_analysis") {
     const summary = asTrimmedString(rec.lawyerSummary);

@@ -15,6 +15,7 @@ import { resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
 import { useLawmindDetailDomain, useLawmindRecordsDomain } from "./lawmind-app-shell-domains";
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
 import { DESK_WRITE_TOOL_NAMES } from "../../../../src/lawmind/agent/tool-name-sets.ts";
+import { contextMatterIdAfterCatalogChange } from "./lawmind-chat-scope";
 import { shouldSuggestContextFork } from "./LawmindContextForkSuggestion";
 import {
   dismissForkSuggestion,
@@ -307,11 +308,22 @@ export function useLawmindAppShell() {
   watchBackgroundSessionFnRef.current = watchBackgroundSessionProgress;
 
   const knownChatMatterIdsRef = useRef<ReadonlySet<string> | null>(null);
+  const previousKnownChatMatterIdsRef = useRef<ReadonlySet<string> | null>(null);
   const [knownChatMatterTick, setKnownChatMatterTick] = useState(0);
   const setKnownChatMatterIds = useCallback((ids: readonly string[]) => {
+    previousKnownChatMatterIdsRef.current = knownChatMatterIdsRef.current;
     knownChatMatterIdsRef.current = new Set(ids);
     setKnownChatMatterTick((version) => version + 1);
   }, []);
+  useEffect(() => {
+    setContextMatterId((current) =>
+      contextMatterIdAfterCatalogChange(
+        current,
+        previousKnownChatMatterIdsRef.current,
+        knownChatMatterIdsRef.current,
+      ),
+    );
+  }, [knownChatMatterTick]);
   const {
     chatListScope,
     selectChatSession,

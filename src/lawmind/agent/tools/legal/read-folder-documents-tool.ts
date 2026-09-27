@@ -66,9 +66,12 @@ function clampInt(raw: unknown, fallback: number, min: number, max: number): num
   return Math.min(max, Math.max(min, Math.floor(raw)));
 }
 
-type FolderFileExtract = { ok: true; text: string } | { ok: false; reason: string };
+export type FolderFileExtract = { ok: true; text: string } | { ok: false; reason: string };
 
-async function extractFolderFileText(abs: string, size: number): Promise<FolderFileExtract> {
+export async function extractReadableFileText(
+  abs: string,
+  size: number,
+): Promise<FolderFileExtract> {
   try {
     if (isBinaryWordDocPath(abs)) {
       if (size > MAX_DOCX_READ_BYTES) {
@@ -208,7 +211,7 @@ export const readFolderDocumentsTool: AgentTool = {
       consumed += 1;
       const toolPath = joinListedRel(target.listedPath, entry.path);
       const abs = path.join(target.abs, entry.path);
-      const extracted = await extractFolderFileText(abs, entry.size ?? 0);
+      const extracted = await extractReadableFileText(abs, entry.size ?? 0);
       if (!extracted.ok) {
         skipped.push({ path: toolPath, reason: extracted.reason });
         continue;

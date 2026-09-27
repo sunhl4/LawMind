@@ -37,7 +37,7 @@ import {
   type ExtractedLegalEvent,
   type LegalEventKind,
 } from "./legal-event-extract.js";
-import type { MatterDocket, MatterKind } from "./matter-kind.js";
+import { resolveMatterKind, type MatterDocket, type MatterKind } from "./matter-kind.js";
 
 export type ApplyLegalEventInput = {
   eventKind: LegalEventKind;
@@ -68,7 +68,14 @@ export type RevertDeskWriteResult =
   | { ok: false; error: string };
 
 export type CreateMatterFromIntakeResult =
-  | { ok: true; writeId: string; matterId: string }
+  | {
+      ok: true;
+      writeId: string;
+      matterId: string;
+      /** 同名卷已在，未再造 `-2`。 */
+      reused?: boolean;
+      kindNote?: string;
+    }
   | { ok: false; error: string };
 
 function writableEvents(events: ApplyLegalEventInput[]): ApplyLegalEventInput[] {
@@ -320,26 +327,40 @@ export async function createMatterFromIntake(input: {
   workspaceDir: string;
   title: string;
   matterKind?: MatterKind;
+  /** 律师明确要另开一卷时才加 `-2`。默认同名并入已有卷。 */
+  forceNew?: boolean;
 }): Promise<CreateMatterFromIntakeResult> {
   const title = input.title.trim();
   if (!title) {
     return { ok: false, error: "新建案件需要标题。" };
   }
-  let matterId = matterIdFromTitle(title);
-  let n = 0;
-  while (loadMatter(input.workspaceDir, matterId)) {
-    n += 1;
-    const suffix = `-${n + 1}`;
-    const base = matterIdFromTitle(title).slice(0, 128 - suffix.length);
-    matterId = `${base}${suffix}`;
-    if (n > 20) {
-      return { ok: false, error: "无法分配新的案件 ID。" };
+  const resolved = resolveMatterKind(input.matterKind, title);
+  const baseId = matterIdFromTitle(title);
+  const existing = loadMatter(input.workspaceDir, baseId);
+  if (existing && !input.forceNew) {
+    return {
+      ok: true,
+      writeId: "",
+      matterId: existing.matterId,
+      reused: true,
+    };
+  }
+  let matterId = baseId;
+  if (existing) {
+    let n = 0;
+    while (loadMatter(input.workspaceDir, matterId)) {
+      n += 1;
+      const suffix = `-${n + 1}`;
+      matterId = `${baseId.slice(0, 128 - suffix.length)}${suffix}`;
+      if (n > 20) {
+        return { ok: false, error: "无法分配新的案件 ID。" };
+      }
     }
   }
   createMatterIfMissing(input.workspaceDir, {
     matterId,
     title,
-    matterKind: input.matterKind,
+    matterKind: resolved.kind,
   });
   const write = appendDeskWrite(input.workspaceDir, {
     writeId: newDeskWriteId(),
@@ -347,7 +368,12 @@ export async function createMatterFromIntake(input: {
     kind: "create_matter",
     createdAt: new Date().toISOString(),
   });
-  return { ok: true, writeId: write.writeId, matterId };
+  return {
+    ok: true,
+    writeId: write.writeId,
+    matterId,
+    ...(resolved.reason ? { kindNote: resolved.reason } : {}),
+  };
 }
 
 export async function revertDeskWrite(

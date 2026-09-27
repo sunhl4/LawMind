@@ -138,6 +138,42 @@ describe("desk-apply", () => {
     expect(readMatter(workspaceDir, created.matterId)?.title).toBe("新建卷宗甲");
   });
 
+  it("createMatterFromIntake reuses the same title instead of minting -2", async () => {
+    const workspaceDir = ws();
+    const first = await createMatterFromIntake({
+      workspaceDir,
+      title: "江苏岚江智能科技有限公司 常年法律顾问服务",
+    });
+    const second = await createMatterFromIntake({
+      workspaceDir,
+      title: "江苏岚江智能科技有限公司 常年法律顾问服务",
+      matterKind: "contract",
+    });
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) {
+      return;
+    }
+    expect(second.reused).toBe(true);
+    expect(second.matterId).toBe(first.matterId);
+    expect(second.matterId.endsWith("-2")).toBe(false);
+    expect(readMatter(workspaceDir, first.matterId)?.matterKind).toBe("general");
+  });
+
+  it("createMatterFromIntake files a contract-dispute title as litigation", async () => {
+    const workspaceDir = ws();
+    const created = await createMatterFromIntake({
+      workspaceDir,
+      title: "星辉精密诉环宇科技 · 买卖合同纠纷",
+      matterKind: "contract",
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    expect(readMatter(workspaceDir, created.matterId)?.matterKind).toBe("litigation");
+    expect(created.kindNote).toContain("诉讼");
+  });
+
   it("revert removes applied deadlines", async () => {
     const workspaceDir = ws();
     createMatterIfMissing(workspaceDir, { matterId: "rev", title: "案" });

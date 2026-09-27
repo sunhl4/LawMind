@@ -156,13 +156,14 @@ describe("Engine-Bridge Tools", () => {
     expect(names).toContain("update_matter_profile");
     expect(names).toContain("revert_desk_write");
     expect(names).toContain("create_matter");
+    expect(names).toContain("delete_matter");
     expect(names).toContain("relocate_matter_materials");
     expect(names).toContain("apply_file_ops");
   });
 
-  it("total tool count is 70 (54 legal + 16 engine) without web/collaboration extras", () => {
+  it("total tool count is 72 (56 legal + 16 engine) without web/collaboration extras", () => {
     const registry = createLegalToolRegistry();
-    expect(registry.size()).toBe(70);
+    expect(registry.size()).toBe(72);
   });
 
   /**
