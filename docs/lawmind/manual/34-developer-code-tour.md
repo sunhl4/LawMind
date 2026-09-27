@@ -167,9 +167,11 @@ app/LawmindAppRootView.tsx       骨架（侧栏 + 顶栏 + 主体）
   ↓
 app/LawmindMainBodyContent.tsx   按当前视图分支
   ↓
-六个工作面：LawmindWorkspaceMainPane / LawmindLawyerWorkbench /
-            AgentFleetView / MeetingView / ReviewView / LawmindArchiveOrganizePage
+律师能打开的五支：LawmindWorkspaceMainPane / LawmindLawyerWorkbench /
+            AgentFleetView / ReviewView / LawmindArchiveOrganizePage
 ```
+
+`MeetingView` 不在这棵树上。`mainView === "meeting"` 没有自己的分支，会落到对话主面板。`pickMeetingViewProps` 只被单测调用。
 
 **数据怎么来**：
 

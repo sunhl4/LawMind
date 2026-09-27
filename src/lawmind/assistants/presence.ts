@@ -61,7 +61,7 @@ export function strongerPresence(
 
 export type AssistantPresenceView = {
   presence: AssistantPresence;
-  /** 这一态对应的办件标题，给顶栏悬停看一行。 */
+  /** 可选附注。名册只显示六态短词。 */
   detail?: string;
 };
 

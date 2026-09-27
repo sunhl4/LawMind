@@ -7,7 +7,6 @@ import { existsSync, mkdirSync, readFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { suggestMemoryAdoption } from "../memory/adoption-service.js";
-import { ensureLocalFileSync } from "../runtime/icloud-materialize.js";
 
 export const SOURCE_ANNOTATION_KINDS = ["comment", "highlight", "issue"] as const;
 export type SourceAnnotationKind = (typeof SOURCE_ANNOTATION_KINDS)[number];
@@ -54,7 +53,6 @@ function readAll(workspaceDir: string): SourceAnnotation[] {
   if (!existsSync(file)) {
     return [];
   }
-  ensureLocalFileSync(file);
   const raw = readFileSync(file, "utf8");
   const out: SourceAnnotation[] = [];
   for (const line of raw.split(/\r?\n/)) {

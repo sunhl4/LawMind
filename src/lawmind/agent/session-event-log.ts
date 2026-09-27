@@ -7,10 +7,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { withExclusiveFileLock } from "../adapters/matter-storage/io.js";
 import {
-  ensureLocalFileSync,
-  installIcloudReadMaterialize,
-} from "../runtime/icloud-materialize.js";
-import {
   applyLiveTurnEvent,
   beginLiveTurnProgress,
   clearLiveTurnProgress,
@@ -19,8 +15,6 @@ import {
 } from "./live-turn-progress.js";
 import { persistOrThrow } from "./session-persist.js";
 import type { RunTurnEvent } from "./turn-orchestrator-events.js";
-
-installIcloudReadMaterialize();
 
 export type SessionEventLogRecord = {
   t: string;
@@ -51,11 +45,6 @@ export function repairTornJsonlTail(filePath: string): void {
     return;
   }
   if (size === 0) {
-    return;
-  }
-  try {
-    ensureLocalFileSync(filePath);
-  } catch {
     return;
   }
   const fd = fs.openSync(filePath, "r+");
@@ -122,7 +111,6 @@ export function readSessionEvents(
 ): SessionEventLogRecord[] {
   const filePath = sessionEventsPath(workspaceDir, sessionId);
   try {
-    ensureLocalFileSync(filePath);
     return parseEventLines(fs.readFileSync(filePath, "utf8"));
   } catch {
     return [];
@@ -143,11 +131,6 @@ export function readSessionEventsForReplay(
   }
   if (size <= SESSION_EVENT_REPLAY_TAIL_BYTES) {
     return readSessionEvents(workspaceDir, sessionId);
-  }
-  try {
-    ensureLocalFileSync(filePath);
-  } catch {
-    return [];
   }
   const fd = fs.openSync(filePath, "r");
   try {

@@ -15,11 +15,9 @@ import { createLawMindAgent } from "../../src/lawmind/agent/index.js";
 import type { AgentConfig } from "../../src/lawmind/agent/types.js";
 import { resolveCapabilityEnvelope } from "../../src/lawmind/models/capability-envelope.js";
 import { LAWMIND_BUILTIN_MODELS } from "../../src/lawmind/models/catalog.js";
-import { installIcloudReadMaterialize } from "../../src/lawmind/runtime/icloud-materialize.js";
 import { parseToolTimeoutMsEnv } from "../../src/lawmind/runtime/tool-timeout-env.js";
 import { loadLawMindEnv } from "./lawmind-env-loader.js";
 
-installIcloudReadMaterialize();
 loadLawMindEnv();
 
 function parsePositiveIntEnv(name: string, fallback: number): number {

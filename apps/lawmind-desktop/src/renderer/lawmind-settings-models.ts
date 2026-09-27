@@ -32,8 +32,6 @@ export type AssistantRow = {
   hidden?: boolean;
   /** 从办件推导的六态。没有办件时是空闲。 */
   presence?: "idle" | "working" | "waiting" | "blocked" | "thinking" | "done";
-  /** 这一态对应的办件标题。 */
-  presenceDetail?: string;
   createdAt: string;
   updatedAt: string;
   stats?: AssistantStats;

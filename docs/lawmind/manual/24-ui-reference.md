@@ -9,7 +9,7 @@
 ```text
 跳转链接（无障碍用）
 模态宿主（弹窗挂在这里）
-├── 侧栏（设置、工作台、改稿时隐藏；收起时宽度为 0）
+├── 侧栏（设置、工作台、改稿、整理资料时隐藏；收起时宽度为 0）
 ├── 顶栏
 └── 主体
     ├── 设置面板（打开设置时）
@@ -28,27 +28,27 @@
 | 品牌标 + 设置齿轮                               | 打开设置面板                           |
 | 材料 / 资源管理器入口                           | 打开文件工作台                         |
 | 案件列表（`LawmindMatterSidebarList.tsx`）      | 切换案件；右键有菜单                   |
-| 会话列表（`LawmindSideChatSessions.tsx`）       | 对话、会议室、在办时的历史列表         |
+| 会话列表（`LawmindSideChatSessions.tsx`）       | 对话和在办时的历史列表                 |
 | 「待我拍板」徽标按钮（`LawmindAppSidebar.tsx`） | 有待决策时出现；进「在办」并聚焦待决策 |
 
-侧栏在**工作台**和**改稿**上不挂载（`showAppSidebar = mainView !== "review" && mainView !== "desk"`）。对话、会议室、在办上侧栏可以收起：节点还在，宽度为 0，按钮点不到。这三种情况里只要还有待决策，同一枚按钮改挂顶栏（`data-testid="lm-header-needs-decision"`）。侧栏和顶栏走同一套动作：清掉上次深链的那一行，`setAgentsNeedsDecisionFocus(true)`，再切到「在办」。数字用 `lawyerFacingDecisionTotal`：默认只算澄清、批准和待发信；外观里打开「签批审阅」后才把待审稿加进去。没有待决策时侧栏和顶栏都不放这个按钮。
+侧栏在**工作台、改稿、整理资料**上不挂载（`showAppSidebar = mainView !== "review" && mainView !== "desk" && mainView !== "archive"`，`lawmind-app-root.tsx`）。对话和在办上侧栏可以收起：节点还在，宽度为 0，按钮点不到。侧栏点不到且还有待决策时，同一枚按钮改挂顶栏（`data-testid="lm-header-needs-decision"`）。侧栏和顶栏走同一套动作：清掉上次深链的那一行，`setAgentsNeedsDecisionFocus(true)`，再切到「在办」。数字用 `lawyerFacingDecisionTotal`：默认只算澄清、批准和待发信；外观里打开「签批审阅」后才把待审稿加进去。没有待决策时侧栏和顶栏都不放这个按钮。
 
 工作台不再另放一颗「待我拍板」。那一颗以前用的是「今日待拍板」条数，和全工作区收件箱不是同一个数。本案脉搏条上的「待拍板」仍是本案计数，大于 0 才带上当前案件进同一队列。案件总览和「要我处理」卡片底下不再单独放同名按钮。
 
 ### 顶栏（`LawmindAppHeader.tsx`）
 
-| 元素           | 干什么                                                                                                    |
-| -------------- | --------------------------------------------------------------------------------------------------------- |
-| 一级工作面切换 | **三个**：对话 / 工作台 / 在办（`lm-tab-workspace` / `-desk` / `-agents`）                                |
-| 次级工作面 tab | 会议室、改稿、整理资料——**只在当前就停在该面时出现**（`lm-tab-secondary` 类）。离开后顶栏恢复三个一级 tab |
-| 案件驾舱开关   | 打开案件详情面板                                                                                          |
-| 版面开关       | 隐藏/显示侧栏、对话栏等                                                                                   |
-| 助手切换       | 助手多于一个时才出现                                                                                      |
-| 「待我拍板」   | 只在侧栏点不到且有待决策时出现（工作台、改稿、侧栏收起）                                                  |
+| 元素           | 干什么                                                                                                         |
+| -------------- | -------------------------------------------------------------------------------------------------------------- |
+| 一级工作面切换 | **三个**：对话 / 工作台 / 在办（`lm-tab-workspace` / `-desk` / `-agents`）                                     |
+| 次级工作面 tab | 改稿、整理资料——**只在当前就停在该面时出现**（`lm-tab-secondary`）。没有会议室 tab。离开后顶栏恢复三个一级 tab |
+| 案件驾舱开关   | 打开案件详情面板                                                                                               |
+| 版面开关       | 隐藏/显示侧栏、对话栏等                                                                                        |
+| 助手切换       | 助手多于一个时才出现                                                                                           |
+| 「待我拍板」   | 只在侧栏点不到且有待决策时出现（工作台、改稿、整理资料、侧栏收起）                                             |
 
 当前模型在对话输入栏的 `LawmindModelPicker`，不在顶栏。
 
-**六个工作面是导航模型，顶栏一级 tab 只有三个**（第 2.4 节）。会议室、改稿和整理资料不占一级位置；当前停在该面时，顶栏才多出一个 `lm-tab-secondary`，用来定位。找「会议室在哪」时从对话输入条「+」或案件入口进，找「整理资料」时从设置 → 工作区进，都不要在一级 tab 里找。
+**律师能打开五个工作面，顶栏一级 tab 只有三个**（第 2.4 节）。改稿和整理资料不占一级位置；当前停在该面时，顶栏才多出一个 `lm-tab-secondary`。整理资料从设置 → 工作区进。类型里的 `meeting` 没有 tab，也没有「+」入口。
 
 版面开关有一个保护：**聊天栏和编辑栏不能同时隐藏**——都隐藏时会弹一个恢复提示（`workspace-layout.spec.ts` 测的就是这个）。
 
@@ -87,7 +87,7 @@
 | 组件                               | 作用                                                        |
 | ---------------------------------- | ----------------------------------------------------------- |
 | `LawmindChatSessionTabs.tsx`       | 对话主区顶部的会话标签                                      |
-| `LawmindSideChatSessions.tsx`      | 全局侧栏里的历史列表（对话、会议室、在办）                  |
+| `LawmindSideChatSessions.tsx`      | 全局侧栏里的历史列表（对话、在办）                          |
 | `LawmindSessionHistorySidebar.tsx` | 对话主区里的会话历史，不是全局侧栏                          |
 | `LawmindChatHistorySearch.tsx`     | 当前这条对话里查找（`⌘F`）。换会话用侧栏列表或输入 `/chats` |
 
@@ -196,24 +196,31 @@
 
 左栏的视图状态在 `stores/fleet-desk-view-store.ts`：默认按事项（`queue`），第二页签按助手；另有案件与成员筛选、分组展开、「稍后看」。其中「稍后看」和手折分组持久化到 localStorage。列表模式是会话态，重新进入仍回到按事项。
 
-**注意 `LawmindCollaborationDesk.tsx` 挂在设置里的「团队工作流」分区**（退役但可深链），日常入口是顶栏「在办」。
+`LawmindCollaborationDesk.tsx` 嵌在「在办」里，只在这一页顶部「更多」里的「交出去的活 / 按流程办」时出现，不是进门第一眼，也不在窗口顶栏。设置里的「团队工作流」已退役；深链只渲染一段简述，按钮是「去『在办』处理」（`onOpenCollaborationPage` 关掉设置，切到在办的办理列表，不打开会议室，也不自动套上「待我拍板」筛选）。
 
-## 24.5 会议室（`meeting`）
+## 24.5 会议室（`meeting`）：类型还在，界面不挂
 
-| 组件                                    | 作用               |
-| --------------------------------------- | ------------------ |
-| `app/MeetingView.tsx`                   | 会议室视图         |
-| `MatterTeamMeetingPanel.tsx`            | 案件内会议面板     |
-| `MatterTeamMeetingSetupSection.tsx`     | 设置段（选参会人） |
-| `MatterTeamMeetingMaterialsSection.tsx` | 材料段             |
-| `MatterTeamMeetingThreadSection.tsx`    | 时间线段           |
-| `useMatterTeamMeetingDeliberation.ts`   | 发言编排的 hook    |
+律师走不到这一屏。依据：
 
-**注意这几个组件都在 `renderer/` 根目录，不在 `renderer/matter/` 下**——只有名字带 `Matter`，路径不带。
+- 顶栏测试断言没有 `lm-tab-meeting`（`LawmindAppHeader.test.tsx`）。
+- `LawmindMainBodyContent.tsx` 只分支对话、工作台、在办、改稿、整理资料。`mainView === "meeting"` 会落到对话主面板，不渲染 `MeetingView`。
+- `buildMeetingDeepLinkHandlers` 里的 `onOpenTopLevelMeeting` 把视图设成 `workspace`，不是 `meeting`。
+- 案件卷宗页签没有「会议」（`MatterWorkbenchTabs.tsx` 的日常页签是概览 / 档案 / 任务 / 时间线 / 审查矩阵 / 经验）。
+- `e2e/meeting-flow.spec.ts` 的标题是「会议室已退出主路径」：输入选项里没有 `lm-compose-open-meeting`，也没有「开始讨论」。
 
-界面上的测试 id 有 `lm-meeting-view`、`lm-meeting-group-adhoc`、`lm-meeting-group-matter`、`lm-meeting-scope-matter-<案件id>`——可以看出它按「临时 / 案件」两种范围分组。
+下面这些文件还在仓库里，单测能渲染，产品壳不挂载。不要把它们写回操作步骤，也不要为了「手册对上组件」把 tab 装回去。
 
-交互：开始讨论 → 参会者依次发言进时间线 → 可以打断（显示「已终止当前发言」）→ 暂停 → 继续 → 结束。
+| 组件                                    | 作用                           |
+| --------------------------------------- | ------------------------------ |
+| `app/MeetingView.tsx`                   | 未挂载的会议室视图             |
+| `MatterTeamMeetingPanel.tsx`            | 只被 `MeetingView` 引用        |
+| `MatterTeamMeetingSetupSection.tsx`     | 设置段（选参会人）             |
+| `MatterTeamMeetingMaterialsSection.tsx` | 材料段                         |
+| `MatterTeamMeetingThreadSection.tsx`    | 时间线段                       |
+| `useMatterTeamMeetingDeliberation.ts`   | 发言编排的 hook                |
+| `pickMeetingViewProps`                  | 只被自身单测调用，主内容区不用 |
+
+组件在 `renderer/` 根目录，不在 `renderer/matter/` 下。未挂载界面上的测试 id 有 `lm-meeting-view`、`lm-meeting-group-adhoc`、`lm-meeting-group-matter`。那些「开始讨论 / 终止发言」按钮律师点不到。
 
 **数据存在哪，要分三样看**（这里容易记混）：
 
@@ -223,7 +230,7 @@
 | 参会人名册                             | **服务端**：`/api/matters/team-roster`（GET 读 / PUT 写）                                                      | 在                 |
 | 参会会话映射（每个参会者对应哪个会话） | **本机 localStorage**：`lawmind.teamMeeting.session.<matterId>`、`lawmind.teamMeeting.participants.<matterId>` | 本机在，换机器不在 |
 
-关掉应用后，本机仍记得参会会话。换一台电脑不会带着走。发言记录是落盘的。
+发言记录由委派留痕写在工作区文件里，换机器还在。参会会话映射只会被未挂载组件写进本机 localStorage；当前界面没有写入入口。
 
 ## 24.6 改稿（`review`）
 
@@ -380,7 +387,7 @@
 ## 24.14 已知坑（本章相关）
 
 - **聊天栏和编辑栏不能同时隐藏。** 会弹恢复提示。
-- **工作台和改稿没有侧栏。** 「待我拍板」改挂顶栏，而且只在有待决策时出现。点「在办」一级 tab 会清掉待决策筛选，看到的是全部在办，不是收件箱。侧栏收起时按钮也改挂顶栏；侧栏节点仍在，只是宽度为 0。
+- **工作台、改稿、整理资料没有侧栏。** 「待我拍板」改挂顶栏，而且只在有待决策时出现。点「在办」一级 tab 会清掉待决策筛选，看到的是全部在办，不是收件箱。侧栏收起时按钮也改挂顶栏；侧栏节点仍在，只是宽度为 0。
 - **「团队工作流」分区已退役。** 日常入口在顶栏「在办」。
 - **`MatterReviewQueuePanel` 不自己 fetch。** 它只渲染传入的 view model，改数据流时注意这一点。
 - **`LawmindReviewCampaignPanel` 不显示启发式安全分。** 那是内部信号（第 9 章）。
@@ -388,7 +395,7 @@
 - **改稿三栏全关是被禁止的。** store 里有 `hasVisibleReviewPaneAfter` 保护。
 - **`MatterQualityCockpit` 跟 `crossMatterAcceptanceDashboard`。** Solo 默认开；关掉该功能键才不渲染。
 - **`MatterReplicaPanel` 在 Solo 不渲染。**
-- **会议发言记录是落盘的**（`cases/<matterId>/team-meeting.jsonl`），参会人名册走服务端 `/api/matters/team-roster`。**参会会话映射在本机 localStorage**（关掉应用还在，换机器就没了）——别把整场会议当临时数据。
+- **会议室不是当前界面。** 委派仍可能往 `cases/<matterId>/team-meeting.jsonl` 写系统行（第 16.7 节）。参会会话的 localStorage 键只被未挂载组件读写。不要在顶栏或输入条「+」里找「开会议室」。
 - **首跑偏好会写进记忆。** 那不是「随便选选」的表单，它会变成之后的默认口径。
 
 ## 24.15 和 Cursor / Harvey 对齐后收掉的重复入口
@@ -398,7 +405,7 @@ Cursor 把待处理收进一条代理收件箱，侧栏看不见时角标仍在�
 这一轮收成一条队列、两处挂载，而且两处点下去做的是同一件事（清掉上次深链，再聚焦待决策）：
 
 - 侧栏能看见时，按钮只在侧栏，有数字才出现。
-- 侧栏点不到时（工作台、改稿、侧栏收起），同一按钮改到顶栏。工作台不再用「今日待拍板」另画一颗，避免和全工作区数字打架。
+- 侧栏点不到时（工作台、改稿、整理资料、侧栏收起），同一按钮改到顶栏。工作台不再用「今日待拍板」另画一颗，避免和全工作区数字打架。
 - 本案脉搏条「待拍板」大于 0 才带上当前案件跳过去。总数为 0 时它只是计数，不打开空队列。
 
 顶栏「在办」仍是全部在办。它会清掉待决策筛选。要进收件箱，点「待我拍板」，不要点「在办」。

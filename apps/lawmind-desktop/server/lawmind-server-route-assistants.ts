@@ -51,7 +51,6 @@ export async function handleAssistantRoutes({
     const assistants = profiles.map((profile) => ({
       ...profile,
       presence: presence.get(profile.assistantId)?.presence ?? "idle",
-      presenceDetail: presence.get(profile.assistantId)?.detail,
       stats: stats[profile.assistantId] ?? {
         lastUsedAt: "",
         turnCount: 0,
@@ -70,55 +69,6 @@ export async function handleAssistantRoutes({
     );
     sendJson(res, 200, { ok: true, groups: searchAssistantRoster(workspaceDir, query, names) }, c);
     return true;
-  }
-
-  {
-    const deskPath = pathname.match(/^\/api\/assistants\/([^/]+)\/desk$/);
-    if (deskPath && req.method === "GET") {
-      const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
-      const id = decodeURIComponent(deskPath[1] ?? "");
-      if (!isSafeAssistantIdSegment(id)) {
-        sendJson(res, 400, { ok: false, error: "invalid assistant id" }, c);
-        return true;
-      }
-      const profile = loadAssistantProfiles(lawMindRoot).find((row) => row.assistantId === id);
-      if (!profile) {
-        sendJson(res, 404, { ok: false, error: "助手不存在" }, c);
-        return true;
-      }
-      const presence = presenceByAssistant(workspaceDir).get(id);
-      const standing = listAutomations(workspaceDir)
-        .filter((automation) => automation.assistantId === id)
-        .slice(0, 3)
-        .map((automation) => ({
-          title: automation.title,
-          lastResult: automation.lastResultSummary?.trim() || undefined,
-        }));
-      const responsibility = profile.jobBrief?.responsibility?.trim() || undefined;
-      const prohibitions = profile.jobBrief?.prohibitions?.trim() || undefined;
-      const presenceState = presence?.presence ?? "idle";
-      const visible = Boolean(
-        responsibility || prohibitions || standing.length > 0 || presenceState !== "idle",
-      );
-      sendJson(
-        res,
-        200,
-        {
-          ok: true,
-          desk: {
-            displayName: profile.displayName,
-            presence: presenceState,
-            presenceDetail: presence?.detail,
-            responsibility,
-            prohibitions,
-            standing,
-            visible,
-          },
-        },
-        c,
-      );
-      return true;
-    }
   }
 
   {
@@ -338,7 +288,7 @@ function presenceByAssistant(workspaceDir: string): Map<string, AssistantPresenc
         continue;
       }
       const next = presenceFromWork(work.status, work.updatedAt, now);
-      out.set(assistantId, notePresence(out.get(assistantId), next, work.title));
+      out.set(assistantId, notePresence(out.get(assistantId), next, ""));
     }
   } catch {
     return out;

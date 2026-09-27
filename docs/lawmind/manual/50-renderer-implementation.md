@@ -46,7 +46,7 @@
 
 ## 50.3 模式二：pick 收窄
 
-主内容区要按当前视图分支渲染六个工作面。如果直接写：
+主内容区按当前视图分支渲染律师能打开的五个工作面（对话、工作台、在办、改稿、整理资料）。如果直接写：
 
 ```tsx
 {
@@ -58,18 +58,18 @@
 
 这个仓库的答案是**一组 `pick*` 函数**：
 
-| 文件                            | 作用                                                        |
-| ------------------------------- | ----------------------------------------------------------- |
-| `pickMainBodyBranchProps.ts`    | 把 `LawmindMainBodyContentProps` 收窄成五个视图各自的 props |
-| `pickWorkspaceMainPaneProps.ts` | 对话工作面的收窄                                            |
+| 文件                            | 作用                                                  |
+| ------------------------------- | ----------------------------------------------------- |
+| `pickMainBodyBranchProps.ts`    | 把 `LawmindMainBodyContentProps` 收窄成各视图的 props |
+| `pickWorkspaceMainPaneProps.ts` | 对话工作面的收窄                                      |
 
 `pickMainBodyBranchProps.ts` 的头部注释一句话说明了它存在的理由：
 
 > Narrow `LawmindMainBodyContentProps` → per-view props. Keeps branch JSX free of 100-field destructure noise (R-P1-2).
 
-也就是说：**分支 JSX 里只看到视图真正要的字段**。相关函数也在这个文件里（`pickAgentFleetViewProps`、`pickLawyerWorkbenchProps`、`pickMeetingViewProps`）。
+也就是说：**分支 JSX 里只看到视图真正要的字段**。主内容区实际调用的是 `pickReviewViewProps`、`pickAgentFleetViewProps`、`pickLawyerWorkbenchProps`、`pickWorkspaceMainPaneProps`。同文件里的 `pickMeetingViewProps` 没有接到 `LawmindMainBodyContent`，会议室视图不挂载。
 
-**这两个模式合起来**（props hook + pick 收窄）解决了「上帝组件」：主内容组件不需要知道五个视图各自的几十个字段，只负责「按 view 选一个 pick 结果」。
+**props hook 和 pick 收窄合在一起**，主内容组件不用背下每个视图的几十个字段，只负责按 view 选一个 pick 结果。
 
 **注意 `pick*` 是纯函数**——`pickMainBodyBranchProps.ts` 与 `pickWorkspaceMainPaneProps.ts` **各有自己的测试**（`.test.ts`），因为纯函数好测。这也说明这个模式是**被认真对待的基础设施**，不是随手写的胶水。
 
@@ -195,15 +195,15 @@ export function hasLawmindDesktopBridge(): boolean {
 
 2026-09 这轮新进的顶层组件（都遵循上面的老模式，不另起炉灶）：
 
-| 组件                                                              | 干什么                                                                                  |
-| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `LawmindArchiveOrganizePage.tsx`                                  | 第六个工作面「整理资料」的三步页（指定范围 → 查看分类 → 勾选确认），从设置 → 工作区进入 |
-| `LawmindAssistantDesk.tsx`                                        | 对话消息栏的助手席，读 `GET /api/assistants/:id/desk`                                   |
-| `LawmindDaemonRecap.tsx`                                          | 「你走后发生了什么」回执，读 `GET /api/daemon` 的 `recap`，挂工作台与在办               |
-| `LawmindSettingsAccount.tsx`                                      | 设置 → 账号（身份 / 许可 / 模型来源 / 用量）                                            |
-| `LawmindSettingsWorkspaceCare.tsx`                                | 设置 → 工作区里的查找重建与案件档案整理，只在需要时渲染                                 |
-| `LawmindSettingsConversationLength.tsx`                           | 对话长度三档（200K / 500K / 1M），在对话输入栏工具条，不是设置页                        |
-| `LawmindErrorReportDialog.tsx` + `LawmindUnexpectedErrorHost.tsx` | 全局错误弹窗（未捕获异常与 rejected promise），详情可复制                               |
+| 组件                                                              | 干什么                                                                                            |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `LawmindArchiveOrganizePage.tsx`                                  | 「整理资料」三步页（指定范围 → 查看分类 → 勾选确认），从设置 → 工作区进入，打开后顶栏出现次级 tab |
+| `LawmindAssistantDesk.tsx`                                        | 对话消息栏的助手席，读 `GET /api/assistants/:id/desk`                                             |
+| `LawmindDaemonRecap.tsx`                                          | 「你走后发生了什么」回执，读 `GET /api/daemon` 的 `recap`，挂工作台与在办                         |
+| `LawmindSettingsAccount.tsx`                                      | 设置 → 账号（身份 / 许可 / 模型来源 / 用量）                                                      |
+| `LawmindSettingsWorkspaceCare.tsx`                                | 设置 → 工作区里的查找重建与案件档案整理，只在需要时渲染                                           |
+| `LawmindSettingsConversationLength.tsx`                           | 对话长度三档（200K / 500K / 1M），在对话输入栏工具条，不是设置页                                  |
+| `LawmindErrorReportDialog.tsx` + `LawmindUnexpectedErrorHost.tsx` | 全局错误弹窗（未捕获异常与 rejected promise），详情可复制                                         |
 
 ## 50.7 `review/` 的数据与动作分工
 

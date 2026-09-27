@@ -35,8 +35,8 @@ const BLOCKS = [
     marker: "shell-header+chat-main",
     // Keep closed through `.lm-compose-ctx-usage-meter-fill--danger` (do not cut mid-rule).
     // 注意：chat.css 的行号会随编辑漂移；切点必须落在规则边界上，
-    // 否则 buildBlock 断言会报出“ends mid-rule”。下一块从 1195 续，二者相接不跳行。
-    chunks: [{ file: "shell-header.css" }, { file: "chat.css", start: 136, end: 1194 }],
+    // 否则 buildBlock 断言会报出“ends mid-rule”。下一块从 1168 续，二者相接不跳行。
+    chunks: [{ file: "shell-header.css" }, { file: "chat.css", start: 136, end: 1167 }],
   },
   {
     marker: "modal-forms",
@@ -48,8 +48,8 @@ const BLOCKS = [
   },
   {
     marker: "workflow-hub+chat-compose",
-    // 与上一块相接（上一块切到 1194），从 1195 起，不跳行、不切在规则中间。
-    chunks: [{ file: "workflow-hub.css" }, { file: "chat.css", start: 1195 }],
+    // 与上一块相接（上一块切到 1167），从 1168 起，不跳行、不切在规则中间。
+    chunks: [{ file: "workflow-hub.css" }, { file: "chat.css", start: 1168 }],
   },
   {
     marker: "agent-fleet",

@@ -23,11 +23,6 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { isFeatureEnabled } from "../policy/edition.js";
 import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
-import {
-  ensureLocalFileSync,
-  icloudFileKey,
-  materializeDatalessInDirectory,
-} from "../runtime/icloud-materialize.js";
 import type { DeliverableType, RiskLevel } from "../types.js";
 import { EXPLICIT_TODO_PLACEHOLDER_SOURCE } from "./placeholder-pattern.js";
 import { registerExtraDeliverableSpecs } from "./registry.js";
@@ -245,19 +240,11 @@ export function loadWorkspaceDeliverableSpecs(workspaceDir: string): WorkspaceSp
     return result;
   }
   files.sort((a, b) => a.localeCompare(b));
-  const pending = new Set(
-    materializeDatalessInDirectory(baseDir).map((file) => icloudFileKey(file)),
-  );
   const seen = new Set<string>();
   for (const name of files) {
-    const fullPath = path.resolve(baseDir, name);
-    if (pending.has(icloudFileKey(fullPath))) {
-      result.warnings.push({ file: fullPath, message: "文件正文还在 iCloud，已跳过。" });
-      continue;
-    }
+    const fullPath = path.join(baseDir, name);
     let raw: string;
     try {
-      ensureLocalFileSync(fullPath);
       raw = readFileSync(fullPath, "utf-8");
     } catch (err) {
       result.warnings.push({ file: fullPath, message: `无法读取：${(err as Error).message}` });

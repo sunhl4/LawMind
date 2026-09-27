@@ -4,7 +4,9 @@
 
 「契约」在这里是有意义的词——因为很多约束**被测试守着**（第 62.8 节列出所有相关测试）。
 
-## 62.1 六个工作面面板的结构
+## 62.1 律师能打开的工作面
+
+主内容区挂载五支：对话、工作台、在办、改稿、整理资料。类型里的 `meeting` 没有面板；`LawmindMainBodyContent` 不渲染 `MeetingView`。下面的 testid 按实际挂载的面板写。
 
 ### 对话：三层拆分
 
@@ -689,7 +691,7 @@ lawmind-lawyer-review-sig:<key>
 lm.firstRun.requestOpen
 ```
 
-会议室的参会会话和参会人缓存在 **localStorage**（`lawmind.teamMeeting.session.<matterId>`、`lawmind.teamMeeting.participants.<matterId>`）。关掉应用还在，换机器就没了。
+会议室的参会会话和参会人键还在 localStorage（`lawmind.teamMeeting.session.<matterId>`、`lawmind.teamMeeting.participants.<matterId>`），只被未挂载的会议室组件读写。关掉应用还在，换机器就没了。律师界面没有写入入口。
 
 **`lawmind-lawyer-review-sig` 是「律师审核通知」的去重签名**——避免同一个审核重复弹通知。
 
@@ -816,7 +818,9 @@ casesNodeActions.onImportMatters / canImportMatters / importMattersBusy
 
 ## 62.6 三处「组件之间」的约定
 
-### 会议室的三条存储前缀与一个常量
+### 会议室存储键（组件未挂载）
+
+这些键只被未挂载的会议室组件读写。律师界面没有入口。委派留痕走工作区里的 `team-meeting.jsonl`，不走这组键。
 
 ```text
 MEETING_SESSION_STORAGE_PREFIX = "lawmind.teamMeeting.session."

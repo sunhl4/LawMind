@@ -294,6 +294,26 @@ describe("installIcloudReadMaterialize", () => {
 });
 
 describe("ensureLocalFile lawyer download", () => {
+  it("reads a local file without asking or downloading", async () => {
+    const { io, downloads } = ioWith({
+      lstat: () => ({ isFile: () => true, size: 20, blocks: 8 }),
+      ls: () => {
+        throw new Error("local file should not be probed for download");
+      },
+    });
+    await ensureLocalFile("/Users/lawyer/Desktop/本地合同.docx", { io });
+    expect(downloads).toEqual([]);
+  });
+
+  it("does not download a file that is only compressed", async () => {
+    const { io, downloads } = ioWith({
+      lstat: () => ({ isFile: () => true, size: 20, blocks: 0 }),
+      ls: () => `${line("本地合同.docx", "compressed")}\n`,
+    });
+    await ensureLocalFile("/Users/lawyer/Desktop/本地合同.docx", { io });
+    expect(downloads).toEqual([]);
+  });
+
   it("asks before downloading", async () => {
     const { io, downloads } = ioWith({
       ls: () => `${line("聘用合同.docx", "compressed,dataless")}\n`,
@@ -369,8 +389,6 @@ describe("ensureLocalFile lawyer download", () => {
       waitMs: 5_000,
     });
     expect(stopped).toBeNull();
-    expect(downloading.downloads.map((filePath) => path.basename(filePath))).toEqual([
-      "聘用合同.docx",
-    ]);
+    expect(downloading.downloads).toEqual([path.resolve("/virtual/聘用合同.docx")]);
   });
 });

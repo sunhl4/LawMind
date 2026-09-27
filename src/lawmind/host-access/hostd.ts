@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseMatterDisplayNameFromCase } from "../cases/matter-label.js";
+import { ensureLocalFile, IcloudLawyerPrompt } from "../runtime/icloud-materialize.js";
 import { walkDirectoryListing, withToolReadyListingPaths } from "../runtime/list-dir.js";
 import type { ListDirEntry } from "../runtime/list-dir.js";
 import { resolveHostPath } from "./access-broker.js";
@@ -51,10 +52,10 @@ export function hostdSearch(runtime: HostAccessRuntime, query: string): HostSear
   return searchHost(runtime, query);
 }
 
-export function hostdRead(
+export async function hostdRead(
   runtime: HostAccessRuntime,
   rawPath: string,
-):
+): Promise<
   | {
       ok: true;
       text: string;
@@ -64,7 +65,8 @@ export function hostdRead(
       entries?: ListDirEntry[];
       truncated?: boolean;
     }
-  | { ok: false; error: string; needsGrant?: boolean; message?: string } {
+  | { ok: false; error: string; needsGrant?: boolean; message?: string }
+> {
   const resolved = resolveHostPath(runtime, rawPath, { allowLocateHint: true });
   if (!resolved.ok) {
     return {
@@ -100,6 +102,7 @@ export function hostdRead(
     if (st.size > MAX_TEXT_READ_BYTES) {
       return { ok: false, error: "too_large", message: "文件过大，请先收进本案再分段阅读。" };
     }
+    await ensureLocalFile(resolved.abs);
     const buf = fs.readFileSync(resolved.abs);
     if (buf.includes(0)) {
       return {
@@ -110,7 +113,10 @@ export function hostdRead(
       };
     }
     return { ok: true, text: buf.toString("utf8"), abs: resolved.abs, rel: resolved.rel };
-  } catch {
+  } catch (err) {
+    if (err instanceof IcloudLawyerPrompt) {
+      throw err;
+    }
     return { ok: false, error: "not_found", message: "读不到该文件。" };
   }
 }

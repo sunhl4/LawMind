@@ -191,7 +191,7 @@ export const readHostFileTool: AgentTool = {
       }
     }
     const runtime2 = runtimeFromCtx(ctx);
-    const result = hostdRead(runtime2, raw);
+    const result = await hostdRead(runtime2, raw);
     if (!result.ok) {
       appendHostAccessLog(runtime2.logDir, {
         action: result.needsGrant ? "grant" : "deny",

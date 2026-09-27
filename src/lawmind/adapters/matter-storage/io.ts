@@ -12,12 +12,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { z } from "zod";
-import {
-  ensureLocalFileSync,
-  installIcloudReadMaterialize,
-} from "../../runtime/icloud-materialize.js";
-
-installIcloudReadMaterialize();
 
 export function mattersRoot(workspaceDir: string): string {
   return path.join(workspaceDir, "matters");
@@ -66,7 +60,6 @@ export function readJsonValidated<T>(filePath: string, schema: z.ZodType<T>): T 
   if (!fs.existsSync(filePath)) {
     return undefined;
   }
-  ensureLocalFileSync(filePath);
   const raw = fs.readFileSync(filePath, "utf8");
   return schema.parse(JSON.parse(raw));
 }
@@ -224,7 +217,6 @@ export function readJsonl<T>(filePath: string, schema: z.ZodType<T>): T[] {
   if (!fs.existsSync(filePath)) {
     return [];
   }
-  ensureLocalFileSync(filePath);
   const raw = fs.readFileSync(filePath, "utf8");
   if (!raw.trim()) {
     return [];

@@ -105,9 +105,7 @@ function LawmindAppHeaderImpl({
     (assistant) => assistant.assistantId === selectedAssistantId,
   );
   const presence = currentAssistant?.presence ?? "idle";
-  const presenceDetail = currentAssistant?.presenceDetail?.trim();
   const presenceLabel = ASSISTANT_PRESENCE_LABEL[presence];
-  const presenceTitle = presenceDetail ? `${presenceLabel}：${presenceDetail}` : presenceLabel;
 
   return (
     <>
@@ -158,8 +156,8 @@ function LawmindAppHeaderImpl({
                   <div className="lm-main-assistant-line">
                     <span
                       className={`lm-presence-dot lm-presence-dot--${presence}`}
-                      title={presenceTitle}
-                      aria-label={presenceTitle}
+                      title={presenceLabel}
+                      aria-label={presenceLabel}
                       data-testid="lm-assistant-presence"
                     />
                     <select

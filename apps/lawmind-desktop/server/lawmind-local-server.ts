@@ -19,7 +19,6 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { installIcloudReadMaterialize } from "../../../src/lawmind/runtime/icloud-materialize.js";
 import { bootstrapLawMindDesktopEnv } from "./lawmind-desktop-env-bootstrap.js";
 import { restoreDelegationsFromDisk } from "../../../src/lawmind/agent/collaboration/index.js";
 import { ensureBuiltinWorkflowSeeds } from "../../../src/lawmind/agent/collaboration/ensure-workflow-seeds.js";
@@ -278,7 +277,6 @@ function attachChildLogTee(
 }
 
 async function main() {
-  installIcloudReadMaterialize();
   const daemonMode = process.env.LAWMIND_DAEMON === "1";
   const supervisorMode = process.env.LAWMIND_DAEMON_SUPERVISOR === "1";
   const workspaceDir = process.env.LAWMIND_WORKSPACE_DIR?.trim();

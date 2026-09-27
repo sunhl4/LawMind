@@ -9,21 +9,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { writeJsonAtomic, withExclusiveFileLock } from "../adapters/matter-storage/io.js";
-import {
-  ensureLocalFileSync,
-  icloudFileKey,
-  IcloudDatalessError,
-  installIcloudReadMaterialize,
-  materializeDatalessInDirectory,
-} from "../runtime/icloud-materialize.js";
 import type { ArtifactDraft, TaskIntent, TaskLifecycleStatus, TaskRecord } from "../types.js";
 import { upsertLawyerWorkFromPersist } from "../work/store.js";
 import {
   buildInitialExecutionPlan,
   buildInitialExecutionPlanFromRecord,
 } from "./execution-plan.js";
-
-installIcloudReadMaterialize();
 
 function tasksDir(workspaceDir: string): string {
   return path.join(workspaceDir, "tasks");
@@ -61,9 +52,7 @@ function persistTaskRecord(workspaceDir: string, record: TaskRecord): TaskRecord
 
 export function readTaskRecord(workspaceDir: string, taskId: string): TaskRecord | undefined {
   try {
-    const filePath = taskRecordPath(workspaceDir, taskId);
-    ensureLocalFileSync(filePath);
-    const content = fs.readFileSync(filePath, "utf8");
+    const content = fs.readFileSync(taskRecordPath(workspaceDir, taskId), "utf8");
     return JSON.parse(content) as TaskRecord;
   } catch {
     return undefined;
@@ -98,34 +87,22 @@ export function listTaskRecords(workspaceDir: string): TaskRecord[] {
   }
   try {
     const dir = tasksDir(workspaceDir);
-    // 先把目录里所有 dataless 任务文件落地，再读 JSON。不要读到一半再下下一个。
-    const pending = new Set(materializeDatalessInDirectory(dir).map((file) => icloudFileKey(file)));
     const files = fs
       .readdirSync(dir)
       .filter((name) => name.endsWith(".json"))
       .toSorted();
-    let incomplete = pending.size > 0;
     const records = files
       .map((name) => {
-        const full = path.resolve(dir, name);
-        if (pending.has(icloudFileKey(full))) {
-          return undefined;
-        }
         try {
-          const content = fs.readFileSync(full, "utf8");
+          const content = fs.readFileSync(path.join(dir, name), "utf8");
           return JSON.parse(content) as TaskRecord;
-        } catch (err) {
-          if (err instanceof IcloudDatalessError) {
-            incomplete = true;
-          }
+        } catch {
           return undefined;
         }
       })
       .filter((record): record is TaskRecord => Boolean(record))
       .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    if (!incomplete) {
-      taskListCacheByWorkspace.set(key, { gen, records });
-    }
+    taskListCacheByWorkspace.set(key, { gen, records });
     return records;
   } catch {
     return [];

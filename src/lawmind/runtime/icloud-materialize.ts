@@ -1,9 +1,8 @@
 /**
- * iCloud 占位（dataless）只有目录和文件名在本机，正文还在云端。
- * 对这种文件做 read()（cat、cp、编辑器打开）会堵在同一次系统调用里，直到下载结束。
- * 所以先用 `ls -lO` 看标志，再用 `brctl download` 请求落地。请求发出后不再等。
- * 标志里还有 dataless，或列不出来，就跳过这个文件，绝不 read()，也不把进程停在等待里。
- * `brctl download` 不递归。若某个文件已经有人堵在 read() 里，其余文件先请求下载，那个文件这次先不动。
+ * 律师办任务时点名的文件夹或文件若在 iCloud 上，正文可能还不在本机。
+ * 这里只服务这类材料：先问律师要不要下载，同意后再下载，然后才能读取并继续任务。
+ * 不改 LawMind 自己的会话、任务账本。那些仍只在本机读写。
+ * dataless 文件不能用 read() 去触发下载，否则进程会堵在系统调用里。
  */
 
 import { execFileSync } from "node:child_process";
@@ -472,16 +471,19 @@ export async function ensureLocalFile(
   if (skipForTests(use, Boolean(deps?.io))) {
     return;
   }
-  const key = icloudFileKey(filePath);
   const st = probeStat(filePath, use);
+  // 文件夹只列名字，不把整个目录当一个下载。本地文件（含已在本机的 iCloud 文件）直接读。
   if (!st?.isFile() || st.size === 0 || st.blocks > 0) {
     return;
   }
   const flags = readFlags(filePath, use);
-  if (flags && !flagsLookDataless(flags)) {
+  // 只有标志里明确有 dataless 才算在云端。解析不到、或只是 compressed，都当本地文件。
+  if (!flags || !flagsLookDataless(flags)) {
     return;
   }
-  const name = path.basename(filePath);
+  const diskPath = path.resolve(filePath);
+  const key = icloudFileKey(diskPath);
+  const name = path.basename(diskPath);
   if (declinedKeys.has(key)) {
     throw new IcloudDatalessError([key]);
   }
@@ -494,15 +496,16 @@ export async function ensureLocalFile(
     throw new IcloudLawyerPrompt(icloudManualQuestion(name));
   }
   if (!consentedKeys.has(key)) {
-    rememberAsked(filePath);
+    rememberAsked(diskPath);
     throw new IcloudLawyerPrompt(icloudDownloadQuestion([name]));
   }
-  queueDownload(filePath, use);
+  // 原路径上下载，不另存一份。效果与律师在访达里点「下载」相同。
+  queueDownload(diskPath, use);
   const waitMs = deps?.waitMs ?? ICLOUD_FILE_DOWNLOAD_WAIT_MS;
   const sleep = deps?.sleep ?? sleepMs;
   const deadline = use.now() + waitMs;
   while (use.now() < deadline) {
-    const again = readFlags(filePath, use);
+    const again = readFlags(diskPath, use);
     if (again && !flagsLookDataless(again)) {
       manualHoldKeys.delete(key);
       return;
@@ -517,7 +520,7 @@ export async function ensureLocalFile(
       break;
     }
   }
-  const done = readFlags(filePath, use);
+  const done = readFlags(diskPath, use);
   if (done && !flagsLookDataless(done)) {
     manualHoldKeys.delete(key);
     return;

@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { readAllAuditLogs } from "../audit/index.js";
-import { icloudFileKey, materializeDatalessInDirectory } from "../runtime/icloud-materialize.js";
 import { listTaskRecords } from "../tasks/index.js";
 import {
   ingestKnowledgeRows,
@@ -107,9 +106,6 @@ function ingestSessionRows(
   if (!fs.existsSync(sessionsDir)) {
     return { count: 0, truncated: false };
   }
-  const pending = new Set(
-    materializeDatalessInDirectory(sessionsDir).map((file) => icloudFileKey(file)),
-  );
   const insert = db.prepare(
     `INSERT INTO session_fts(session_id, turn_id, matter_id, role, body, timestamp) VALUES (?, ?, ?, ?, ?, ?)`,
   );
@@ -120,10 +116,7 @@ function ingestSessionRows(
       continue;
     }
     const sessionId = name.replace(/\.json$/, "");
-    const sessionPath = path.resolve(sessionsDir, name);
-    if (pending.has(icloudFileKey(sessionPath))) {
-      continue;
-    }
+    const sessionPath = path.join(sessionsDir, name);
     let matterId = "";
     let sessionUpdated = "";
     try {
@@ -136,8 +129,8 @@ function ingestSessionRows(
     } catch {
       continue;
     }
-    const turnsPath = path.resolve(sessionsDir, `${sessionId}.turns.jsonl`);
-    if (pending.has(icloudFileKey(turnsPath)) || !fs.existsSync(turnsPath)) {
+    const turnsPath = path.join(sessionsDir, `${sessionId}.turns.jsonl`);
+    if (!fs.existsSync(turnsPath)) {
       continue;
     }
     const raw = fs.readFileSync(turnsPath, "utf8");

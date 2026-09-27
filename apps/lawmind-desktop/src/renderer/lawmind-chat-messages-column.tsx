@@ -13,7 +13,6 @@ import { LawmindChatMessagesVirtualList } from "./LawmindChatMessagesVirtualList
 import { LawmindMsgCompactNotice } from "./LawmindMsgCompactNotice";
 import { LawmindMsgCarryoverNotice } from "./LawmindMsgCarryoverNotice";
 import { LawmindContextForkSuggestion, type ChatContextForkProps } from "./LawmindContextForkSuggestion";
-import { LawmindAssistantDesk } from "./LawmindAssistantDesk";
 import { LawmindBrandMark } from "./app/LawmindBrandMark";
 import { LAWMIND_ATTORNEY_DISCLAIMER_SHORT } from "./lawmind-attorney-disclaimer";
 import { DAY_ONE_EXAMPLE_PROMPTS } from "./lawmind-day-one";
@@ -275,7 +274,6 @@ export function LawmindChatMessagesColumn({
           ) : null}
         </div>
       ) : null}
-      <LawmindAssistantDesk apiBase={apiBase} assistantId={selectedAssistantId} />
       <div className="lm-messages-toolbar">
         <LawmindChatHistorySearch items={renderableItems} onHighlightIndices={onHighlightIndices} />
       </div>

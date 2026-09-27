@@ -3498,33 +3498,6 @@ html.lm-theme-dark .lm-main-header {
   padding-bottom: 8px;
 }
 
-.lm-assistant-desk {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 10px;
-  margin: 0 0 8px;
-  padding: 8px 12px;
-  border-radius: var(--r);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent-border);
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.lm-assistant-desk__line,
-.lm-assistant-desk__away {
-  margin: 0;
-}
-
-.lm-assistant-desk__away {
-  flex-basis: 100%;
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .lm-chat-revision-banner {
   display: flex;
   align-items: center;
