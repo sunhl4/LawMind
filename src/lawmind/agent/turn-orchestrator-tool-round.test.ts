@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { icloudDownloadQuestion } from "../runtime/icloud-materialize.js";
 import { findUnpairedToolCallIds } from "./session-tool-call-pairing.js";
 import { ToolRegistry } from "./tools/registry.js";
 import {
@@ -152,8 +153,68 @@ describe("executeToolBatches discovery-cap live trace", () => {
     expect(
       history
         .flatMap((msg) => msg.toolCallResponses ?? [])
-        .some((resp) => !resp.result.ok && String(resp.result.error ?? "").includes("上限")),
+        .some((resp) => !resp.result.ok && (resp.result.error ?? "").includes("上限")),
     ).toBe(true);
+  });
+});
+
+describe("executeToolBatches iCloud download ask", () => {
+  it("stops the turn and asks the lawyer before another tool runs", async () => {
+    const registry = new ToolRegistry();
+    let nextRan = false;
+    registry.register({
+      definition: {
+        name: "analyze_document",
+        description: "read",
+        category: "analyze",
+        parameters: {},
+      },
+      async execute() {
+        return {
+          ok: true,
+          data: {
+            icloudDownloadAsk: true,
+            clarificationQuestions: [icloudDownloadQuestion(["聘用合同.docx"])],
+          },
+        };
+      },
+    });
+    registry.register({
+      definition: {
+        name: "draft_document",
+        description: "draft",
+        category: "draft",
+        parameters: {},
+      },
+      async execute() {
+        nextRan = true;
+        return { ok: true };
+      },
+    });
+    const turn = stubTurn();
+    const result = await executeToolBatches({
+      toolRefs: [
+        { id: "call-1", name: "analyze_document", arguments: {} },
+        { id: "call-2", name: "draft_document", arguments: {} },
+      ],
+      registry,
+      turn,
+      ctx: { workspaceDir: testWorkspaceDir } as AgentContext,
+      roundIndex: 1,
+      assistantContent: "",
+      maxToolCalls: 10,
+      toolTimeoutMs: 5000,
+      strictDangerousToolApproval: false,
+      allowDangerousToolsWithoutApproval: true,
+      toolSandboxEnabled: false,
+      actorId: "test",
+      pendingClarificationQuestions: [],
+      emitEvent: () => {},
+      pushMessage: () => {},
+    });
+    expect(turn.status).toBe("awaiting_clarification");
+    expect(result.finalReply).toContain("iCloud");
+    expect(nextRan).toBe(false);
   });
 });
 
@@ -400,8 +461,8 @@ describe("executeToolBatches permission-mode hard gate", () => {
     expect(turn.status).toBe("running");
     const resp = history[0]?.toolCallResponses?.[0];
     expect(resp?.result.ok).toBe(false);
-    expect(String(resp?.result.error ?? "")).toContain("只读");
-    expect(String(resp?.result.error ?? "")).toContain("write_document");
+    expect(resp?.result.error ?? "").toContain("只读");
+    expect(resp?.result.error ?? "").toContain("write_document");
     expect(
       turn.gateDecisions?.some((g) => g.gate === "dangerous_tool_gate" && g.decision === "block"),
     ).toBe(true);
@@ -552,6 +613,6 @@ describe("executeToolBatches permission-mode hard gate", () => {
       .flatMap((m) => m.toolCallResponses ?? [])
       .find((r) => r.toolCallId === "h2");
     expect(second?.result.ok).toBe(false);
-    expect(String(second?.result.error ?? "")).toMatch(/跳过|澄清|拍板/i);
+    expect(second?.result.error ?? "").toMatch(/跳过|澄清|拍板/i);
   });
 });

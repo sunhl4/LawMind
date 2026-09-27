@@ -809,7 +809,7 @@ export async function runModelToolLoop(opts: {
       });
     }
 
-    if (opts.turn.status === "awaiting_approval") {
+    if (opts.turn.status === "awaiting_approval" || opts.turn.status === "awaiting_clarification") {
       break;
     }
 

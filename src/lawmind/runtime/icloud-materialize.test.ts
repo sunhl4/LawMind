@@ -3,12 +3,16 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  ensureLocalFile,
   ensureLocalFileSync,
   flagsLookDataless,
   icloudFileKey,
   IcloudDatalessError,
+  IcloudLawyerPrompt,
   installIcloudReadMaterialize,
   materializeDatalessInDirectory,
+  noteLawyerIcloudReply,
+  runApprovedIcloudDownloads,
   parseLsLongOLine,
   resetIcloudMaterializeForTests,
   type IcloudMaterializeIO,
@@ -251,7 +255,7 @@ describe("ensureLocalFileSync", () => {
     expect(() => ensureLocalFileSync("/virtual/tasks/聘用合同.txt", io)).toThrow(
       IcloudDatalessError,
     );
-    expect(downloads.map((filePath) => path.basename(filePath))).toEqual(["聘用合同.txt"]);
+    expect(downloads).toEqual([]);
   });
 });
 
@@ -274,33 +278,99 @@ describe("installIcloudReadMaterialize", () => {
     expect(() => fs.readFileSync(filePath, "utf8")).toThrow(IcloudDatalessError);
   });
 
-  it("downloads a dataless file before readFileSync returns its bytes", () => {
+  it("does not download from a plain read until the lawyer agrees", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-icloud-"));
     dirs.push(dir);
     const filePath = path.join(dir, "note.txt");
     fs.writeFileSync(filePath, "ok");
-    let downloads = 0;
-    const io = ioWith({
-      lstat: () => ({
-        isFile: () => true,
-        size: 2,
-        blocks: downloads > 0 ? 8 : 0,
-      }),
-      brctl: () => {
-        downloads += 1;
-      },
-      ls: (args) => {
-        const flags = downloads > 0 ? "-" : "compressed,dataless";
-        if (args.some((arg) => arg.startsWith("-ld"))) {
-          return `${line(args[args.length - 1] ?? "note.txt", flags)}\n`;
-        }
-        return listing([{ name: "note.txt", flags }]);
-      },
-    }).io;
+    const { io, downloads } = ioWith({
+      lstat: () => ({ isFile: () => true, size: 2, blocks: 0 }),
+      ls: () => listing([{ name: "note.txt", flags: "compressed,dataless" }]),
+    });
     installIcloudReadMaterialize(io);
-    expect(fs.readFileSync(filePath, "utf8")).toBe("ok");
-    expect(downloads).toBe(1);
-    expect(fs.readFileSync(filePath, "utf8")).toBe("ok");
-    expect(downloads).toBe(1);
+    expect(() => fs.readFileSync(filePath, "utf8")).toThrow(IcloudDatalessError);
+    expect(downloads).toEqual([]);
+  });
+});
+
+describe("ensureLocalFile lawyer download", () => {
+  it("asks before downloading", async () => {
+    const { io, downloads } = ioWith({
+      ls: () => `${line("聘用合同.docx", "compressed,dataless")}\n`,
+    });
+    await expect(
+      ensureLocalFile("/virtual/聘用合同.docx", { io, waitMs: 1_000 }),
+    ).rejects.toBeInstanceOf(IcloudLawyerPrompt);
+    expect(downloads).toEqual([]);
+  });
+
+  it("downloads after the lawyer agrees, and stops if one file is still dataless", async () => {
+    const { io, downloads } = ioWith({
+      now: () => 0,
+      ls: () => `${line("聘用合同.docx", "compressed,dataless")}\n`,
+    });
+    await expect(ensureLocalFile("/virtual/聘用合同.docx", { io })).rejects.toBeInstanceOf(
+      IcloudLawyerPrompt,
+    );
+    noteLawyerIcloudReply("现在下载");
+    let now = 0;
+    const agreed = ioWith({
+      now: () => now,
+      ls: () => `${line("聘用合同.docx", "compressed,dataless")}\n`,
+      sleep: async (ms) => {
+        now += ms;
+      },
+    });
+    await expect(
+      ensureLocalFile("/virtual/聘用合同.docx", {
+        io: agreed.io,
+        sleep: async (ms) => {
+          now += ms;
+        },
+        waitMs: 5_000,
+      }),
+    ).rejects.toMatchObject({ question: { key: "icloud_download_manual" } });
+    expect(agreed.downloads.map((filePath) => path.basename(filePath))).toEqual(["聘用合同.docx"]);
+    expect(downloads).toEqual([]);
+    noteLawyerIcloudReply("继续");
+    const afterManual = ioWith({
+      ls: () => `${line("聘用合同.docx", "compressed,dataless")}\n`,
+    });
+    await expect(
+      ensureLocalFile("/virtual/聘用合同.docx", { io: afterManual.io }),
+    ).rejects.toMatchObject({
+      question: { key: "icloud_download_manual" },
+    });
+    expect(afterManual.downloads).toEqual([]);
+  });
+
+  it("starts the download itself once the lawyer agrees", async () => {
+    const asked = ioWith({
+      ls: () => `${line("聘用合同.docx", "dataless")}\n`,
+    });
+    await expect(
+      ensureLocalFile("/virtual/聘用合同.docx", { io: asked.io }),
+    ).rejects.toBeInstanceOf(IcloudLawyerPrompt);
+    noteLawyerIcloudReply("答：现在下载");
+    let now = 0;
+    let downloaded = false;
+    const downloading = ioWith({
+      now: () => now,
+      brctl: () => {
+        downloaded = true;
+      },
+      ls: () => `${line("聘用合同.docx", downloaded ? "-" : "dataless")}\n`,
+    });
+    const stopped = await runApprovedIcloudDownloads({
+      io: downloading.io,
+      sleep: async (ms) => {
+        now += ms;
+      },
+      waitMs: 5_000,
+    });
+    expect(stopped).toBeNull();
+    expect(downloading.downloads.map((filePath) => path.basename(filePath))).toEqual([
+      "聘用合同.docx",
+    ]);
   });
 });

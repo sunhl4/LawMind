@@ -75,7 +75,12 @@ export function shouldInlineClarificationInChat(questions: ClarificationQuestion
   if (
     questions.length > 0 &&
     questions.length <= 3 &&
-    questions.some((q) => q.key === "research_outline_confirm")
+    questions.some(
+      (q) =>
+        q.key === "research_outline_confirm" ||
+        q.key === "icloud_download_confirm" ||
+        q.key === "icloud_download_manual",
+    )
   ) {
     return true;
   }

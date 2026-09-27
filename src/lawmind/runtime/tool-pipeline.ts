@@ -37,6 +37,7 @@ import { emit } from "../audit/index.js";
 import { resolveHostAccessPolicy } from "../host-access/host-policy.js";
 import { withGateCategory } from "../platform/gate-category.js";
 import { toolRequiresLawyerPause } from "../platform/lawyer-outbound-decision.js";
+import { IcloudLawyerPrompt } from "./icloud-materialize.js";
 import { legalVerifyMiddleware } from "./legal-verify-middleware.js";
 import { runToolInSubprocessSandbox } from "./tool-sandbox.js";
 import { isUnlimitedToolTimeoutMs } from "./tool-timeout-env.js";
@@ -787,6 +788,15 @@ export const executeMiddleware: ToolMiddleware = async (call) => {
   try {
     return await call.tool.execute(call.args, call.ctx);
   } catch (err) {
+    if (err instanceof IcloudLawyerPrompt) {
+      return {
+        ok: true,
+        data: {
+          icloudDownloadAsk: true,
+          clarificationQuestions: [err.question],
+        },
+      };
+    }
     return {
       ok: false,
       error: `Tool error: ${err instanceof Error ? err.message : String(err)}`,

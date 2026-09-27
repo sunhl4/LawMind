@@ -14,7 +14,17 @@ export function extractClarificationQuestions(result: {
   const data = result.data as {
     clarificationQuestions?: unknown;
     deliveryReadiness?: unknown;
+    icloudDownloadAsk?: unknown;
   };
+  if (data.icloudDownloadAsk === true && Array.isArray(data.clarificationQuestions)) {
+    return data.clarificationQuestions.filter(
+      (item): item is ClarificationQuestion =>
+        Boolean(item) &&
+        typeof item === "object" &&
+        typeof (item as { key?: unknown }).key === "string" &&
+        typeof (item as { question?: unknown }).question === "string",
+    );
+  }
   if (data.deliveryReadiness !== "draft_with_placeholders") {
     return [];
   }

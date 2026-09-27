@@ -67,6 +67,10 @@ import {
   resolveAgentMandatoryRulesForPrompt,
 } from "../policy/workspace-policy.js";
 import { selectHardClarificationKeys } from "../router/intake-gate.js";
+import {
+  noteLawyerIcloudReply,
+  runApprovedIcloudDownloads,
+} from "../runtime/icloud-materialize.js";
 import { contextUsesHostFileLedger } from "../runtime/tool-pipeline.js";
 import { deskItemById } from "../skills/lawyer-capability-lock.js";
 import { ensureLawyerWorkForTurn } from "../work/goal.js";
@@ -188,6 +192,7 @@ export async function runTurn(opts: {
     delete session.matterId;
   }
   session.turnPlan = pruneTurnPlanForNewInstruction(session.turnPlan, instruction);
+  noteLawyerIcloudReply(instruction);
 
   // 上下文调参（预算 / 压缩 / 摘要 / 钉子 / 续接）从 policy 解析一次，本回合复用；
   // 非法或越界的值已在 `resolveContextTuning` 里被回落 / 夹取，这里拿到的一定可用。
@@ -802,6 +807,21 @@ export async function runTurn(opts: {
     });
     if (autoWfResult) {
       return autoWfResult;
+    }
+
+    const icloudStop = await runApprovedIcloudDownloads();
+    if (icloudStop) {
+      turn.status = "awaiting_clarification";
+      turn.clarificationQuestions = [icloudStop];
+      return finalizeAgentTurn({
+        shared: finalizeShared(),
+        finalReply: icloudStop.question,
+        pendingClarificationQuestions: [icloudStop],
+        turnUsage: undefined,
+        actorId,
+        resolvedAssistantId,
+        modelName: config.model.model,
+      });
     }
 
     const loop = await runModelToolLoop({

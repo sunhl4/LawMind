@@ -10,6 +10,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { ClarificationQuestion } from "../types.js";
 
 const LS = "/bin/ls";
 const BRCTL = "/usr/bin/brctl";
@@ -17,9 +18,25 @@ const BACKOFF_MS = 15_000;
 const CLEAN_MS = 2_000;
 const LS_TIMEOUT_MS = 3_000;
 const BRCTL_TIMEOUT_MS = 3_000;
+/** 律师同意后，单个文件最多等这么久。超时就停，改请她手动下载。 */
+export const ICLOUD_FILE_DOWNLOAD_WAIT_MS = 5 * 60 * 1000;
+export const ICLOUD_DOWNLOAD_CONFIRM_KEY = "icloud_download_confirm";
+export const ICLOUD_DOWNLOAD_MANUAL_KEY = "icloud_download_manual";
+const DOWNLOAD_POLL_MS = 1_000;
 const MAX_BUFFER = 16 * 1024 * 1024;
 
 const LS_ENTRY = /^([-bcdlps][^\s]*)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\d{9,11})\s+(.+)$/;
+
+/** 需要律师拍板：现在下载，或手动下完后继续。抛出后本轮停止，不读文件。 */
+export class IcloudLawyerPrompt extends Error {
+  readonly question: ClarificationQuestion;
+
+  constructor(question: ClarificationQuestion) {
+    super(question.question);
+    this.name = "IcloudLawyerPrompt";
+    this.question = question;
+  }
+}
 
 export class IcloudDatalessError extends Error {
   readonly paths: readonly string[];
@@ -74,6 +91,15 @@ const cleanDirUntil = new Map<string, number>();
 const dirBackoffUntil = new Map<string, number>();
 const fileBackoffUntil = new Map<string, number>();
 const lastDatalessByDir = new Map<string, string[]>();
+const consentedKeys = new Set<string>();
+const declinedKeys = new Set<string>();
+const manualHoldKeys = new Set<string>();
+let askedKeys: string[] = [];
+/** 律师说已经手动下完并回复继续。下一回只检查是否在本机，不再自动下载。 */
+let resumeWithoutDownload = false;
+/** 本轮律师刚同意下载，或刚说手动下完要继续。回合开始时消化掉。 */
+let downloadThisTurn = false;
+let resumeThisTurn = false;
 
 let installed = false;
 let savedFs: {
@@ -340,8 +366,8 @@ function probeStat(filePath: string, io: IcloudMaterializeIO): FileStatLike | un
 }
 
 /**
- * 读正文之前调用。已在本机则立刻返回。
- * 还是 dataless 就请求一次下载并马上抛出，不轮询、不 read()。
+ * 扫描用。正文不在本机就立刻抛出，不下载、不等待、不 read()。
+ * 向律师确认并下载由 ensureLocalFile 负责。
  */
 export function ensureLocalFileSync(filePath: string, io?: IcloudMaterializeIO): void {
   const use = io ?? defaultIO;
@@ -365,17 +391,165 @@ export function ensureLocalFileSync(filePath: string, io?: IcloudMaterializeIO):
   if (backedOff) {
     throw new IcloudDatalessError([resolved]);
   }
-  const dir = path.dirname(filePath);
-  const log = use === defaultIO;
-  if (log) {
-    logDownload([filePath]);
+  // 扫描任务/会话时不问律师、也不在这里下载。读文书走 ensureLocalFile。
+  throw new IcloudDatalessError([resolved]);
+}
+
+export function icloudDownloadQuestion(names: readonly string[]): ClarificationQuestion {
+  const shown = names.slice(0, 6).join("、");
+  const suffix = names.length > 6 ? ` 等 ${names.length} 个` : "";
+  return {
+    key: ICLOUD_DOWNLOAD_CONFIRM_KEY,
+    question: `这些文件在 iCloud 上，本机还没有正文（${shown}${suffix}）。要继续办理需要先下载。是否现在下载？`,
+    inputType: "enum",
+    options: ["现在下载", "先不下载"],
+    required: true,
+  };
+}
+
+export function icloudManualQuestion(name: string): ClarificationQuestion {
+  return {
+    key: ICLOUD_DOWNLOAD_MANUAL_KEY,
+    question: `「${name}」已尝试下载超过 5 分钟，仍没有落到本机。请在访达中手动把它下载完，然后回复「继续」。`,
+    inputType: "enum",
+    options: ["继续"],
+    required: true,
+  };
+}
+
+/** 律师在澄清里的答复。要在本轮工具读文件之前调用。 */
+export function noteLawyerIcloudReply(text: string): void {
+  const compact = text.replace(/\s+/g, "");
+  if (/先不下载|不下载/.test(compact) && !/现在下载/.test(compact)) {
+    for (const key of askedKeys) {
+      consentedKeys.delete(key);
+      declinedKeys.add(key);
+    }
+    return;
+  }
+  if (/现在下载/.test(compact)) {
+    resumeWithoutDownload = false;
+    downloadThisTurn = askedKeys.length > 0;
+    for (const key of askedKeys) {
+      declinedKeys.delete(key);
+      manualHoldKeys.delete(key);
+      consentedKeys.add(key);
+    }
+    return;
+  }
+  if (/继续|已经下载|下载完|下好了/.test(compact) && manualHoldKeys.size > 0) {
+    manualHoldKeys.clear();
+    resumeWithoutDownload = true;
+    resumeThisTurn = askedKeys.length > 0;
+  }
+}
+
+function rememberAsked(filePath: string): void {
+  const key = icloudFileKey(filePath);
+  if (!askedKeys.includes(key)) {
+    askedKeys.push(key);
+  }
+}
+
+async function sleepMs(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 律师已同意时才下载，单个文件最多等 5 分钟。
+ * 未同意则抛出提问并不下载。超时则停下，请她手动下载后再继续。
+ * 等待用定时器，不堵住整个服务进程。
+ */
+export async function ensureLocalFile(
+  filePath: string,
+  deps?: {
+    io?: IcloudMaterializeIO;
+    sleep?: (ms: number) => Promise<void>;
+    waitMs?: number;
+  },
+): Promise<void> {
+  const use = deps?.io ?? defaultIO;
+  if (skipForTests(use, Boolean(deps?.io))) {
+    return;
+  }
+  const key = icloudFileKey(filePath);
+  const st = probeStat(filePath, use);
+  if (!st?.isFile() || st.size === 0 || st.blocks > 0) {
+    return;
+  }
+  const flags = readFlags(filePath, use);
+  if (flags && !flagsLookDataless(flags)) {
+    return;
+  }
+  const name = path.basename(filePath);
+  if (declinedKeys.has(key)) {
+    throw new IcloudDatalessError([key]);
+  }
+  if (manualHoldKeys.has(key)) {
+    throw new IcloudLawyerPrompt(icloudManualQuestion(name));
+  }
+  if (resumeWithoutDownload) {
+    resumeWithoutDownload = false;
+    manualHoldKeys.add(key);
+    throw new IcloudLawyerPrompt(icloudManualQuestion(name));
+  }
+  if (!consentedKeys.has(key)) {
+    rememberAsked(filePath);
+    throw new IcloudLawyerPrompt(icloudDownloadQuestion([name]));
   }
   queueDownload(filePath, use);
-  const stuck = datalessAmong(dir, [filePath], use);
-  if (stuck.length > 0) {
-    noteBackoff(dir, stuck, use);
-    throw new IcloudDatalessError(stuck);
+  const waitMs = deps?.waitMs ?? ICLOUD_FILE_DOWNLOAD_WAIT_MS;
+  const sleep = deps?.sleep ?? sleepMs;
+  const deadline = use.now() + waitMs;
+  while (use.now() < deadline) {
+    const again = readFlags(filePath, use);
+    if (again && !flagsLookDataless(again)) {
+      manualHoldKeys.delete(key);
+      return;
+    }
+    const slice = Math.min(DOWNLOAD_POLL_MS, deadline - use.now());
+    if (slice <= 0) {
+      break;
+    }
+    const started = use.now();
+    await sleep(slice);
+    if (use.now() <= started) {
+      break;
+    }
   }
+  const done = readFlags(filePath, use);
+  if (done && !flagsLookDataless(done)) {
+    manualHoldKeys.delete(key);
+    return;
+  }
+  consentedKeys.delete(key);
+  manualHoldKeys.add(key);
+  throw new IcloudLawyerPrompt(icloudManualQuestion(name));
+}
+
+/** 律师刚同意或刚说继续时，由 LawMind 自己处理这些文件，不等模型再点一次读取。 */
+export async function runApprovedIcloudDownloads(deps?: {
+  io?: IcloudMaterializeIO;
+  sleep?: (ms: number) => Promise<void>;
+  waitMs?: number;
+}): Promise<ClarificationQuestion | null> {
+  const mode = downloadThisTurn ? "download" : resumeThisTurn ? "resume" : null;
+  downloadThisTurn = false;
+  resumeThisTurn = false;
+  if (!mode || askedKeys.length === 0) {
+    return null;
+  }
+  for (const filePath of askedKeys) {
+    try {
+      await ensureLocalFile(filePath, deps);
+    } catch (err) {
+      if (err instanceof IcloudLawyerPrompt) {
+        return err.question;
+      }
+      throw err;
+    }
+  }
+  return null;
 }
 
 function pathFrom(file: unknown): string | undefined {
@@ -488,4 +662,11 @@ export function resetIcloudMaterializeForTests(): void {
   dirBackoffUntil.clear();
   fileBackoffUntil.clear();
   lastDatalessByDir.clear();
+  consentedKeys.clear();
+  declinedKeys.clear();
+  manualHoldKeys.clear();
+  askedKeys = [];
+  resumeWithoutDownload = false;
+  downloadThisTurn = false;
+  resumeThisTurn = false;
 }

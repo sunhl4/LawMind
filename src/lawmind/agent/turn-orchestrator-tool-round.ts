@@ -11,6 +11,10 @@ import { recordToolCallEvent } from "../metrics/runtime-events.js";
 import type { GateDecision, GateDecisionKind, GateCategory } from "../platform/contracts.js";
 import { withGateCategory } from "../platform/gate-category.js";
 import { selectHardClarificationKeys } from "../router/intake-gate.js";
+import {
+  ICLOUD_DOWNLOAD_CONFIRM_KEY,
+  ICLOUD_DOWNLOAD_MANUAL_KEY,
+} from "../runtime/icloud-materialize.js";
 import { nextSameTurnVerifyState } from "../runtime/same-turn-verify.js";
 import {
   getMaxToolUseConcurrency,
@@ -172,8 +176,15 @@ type StagedToolOutcome = {
   toolArgs: Record<string, unknown>;
 };
 
+function isIcloudLawyerQuestion(key: string): boolean {
+  return key === ICLOUD_DOWNLOAD_CONFIRM_KEY || key === ICLOUD_DOWNLOAD_MANUAL_KEY;
+}
+
 function outcomeNeedsElicitation(outcome: StagedToolOutcome): boolean {
   if (outcome.approvalRequest) {
+    return true;
+  }
+  if (outcome.clarificationQuestions.some((q) => isIcloudLawyerQuestion(q.key))) {
     return true;
   }
   return selectHardClarificationKeys(outcome.clarificationQuestions.map((q) => q.key)).length > 0;
@@ -293,6 +304,15 @@ export async function executeToolBatches(
         if (outcome.clarificationQuestions.length > 0) {
           pendingClarificationQuestions = outcome.clarificationQuestions;
         }
+        const icloudQuestion = outcome.clarificationQuestions.find((q) =>
+          isIcloudLawyerQuestion(q.key),
+        );
+        if (icloudQuestion) {
+          turn.status = "awaiting_clarification";
+          turn.clarificationQuestions = outcome.clarificationQuestions;
+          finalReply = icloudQuestion.question;
+          emitEvent({ type: "clarification", questions: outcome.clarificationQuestions });
+        }
         if (outcome.approvalRequest) {
           const gateDecision: GateDecision = {
             gate: "approval_gate",
@@ -320,7 +340,7 @@ export async function executeToolBatches(
           });
         }
       }
-      return turn.status === "awaiting_approval";
+      return turn.status === "awaiting_approval" || turn.status === "awaiting_clarification";
     };
 
     const runOne = async (ref: ToolCallRef): Promise<StagedToolOutcome> => {
