@@ -173,4 +173,39 @@ describe("LawmindClarificationForm", () => {
     root.unmount();
     host.remove();
   });
+
+  it("iCloud download asks with buttons instead of a dropdown", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onSubmit = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindClarificationForm
+          formKey="icloud"
+          variant="compact"
+          questions={[
+            {
+              key: "icloud_download_confirm",
+              question: "这些文件在 iCloud 上，本机还没有正文（聘用合同.docx）。要继续办理需要先下载。是否现在下载？",
+              inputType: "enum",
+              options: ["现在下载", "先不下载"],
+              required: true,
+            },
+          ]}
+          onSubmitAnswers={onSubmit}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-icloud-download-choice"]')).toBeTruthy();
+    expect(host.querySelector("select")).toBeNull();
+    const download = host.querySelector('[data-testid="lm-icloud-choice-现在下载"]');
+    expect(download).toBeTruthy();
+    await act(async () => {
+      download?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onSubmit).toHaveBeenCalledWith({ icloud_download_confirm: "现在下载" });
+    root.unmount();
+    host.remove();
+  });
 });

@@ -21,6 +21,12 @@ import { readLawmindFsDragFromDataTransfer } from "./lawmind-file-drag";
 import { formatClarificationPromptSummary, formatClarificationReply } from "./lawmind-chat";
 
 const OUTLINE_CONFIRM_KEY = "research_outline_confirm";
+const FREE_NOTE_KEY = "_free";
+const ICLOUD_DOWNLOAD_KEYS = new Set(["icloud_download_confirm", "icloud_download_manual"]);
+
+export function isIcloudDownloadChoice(questions: ClarificationQuestion[]): boolean {
+  return questions.length > 0 && questions.every((q) => ICLOUD_DOWNLOAD_KEYS.has(q.key));
+}
 
 /** Pull markdown outline body embedded in the clarification question. */
 export function extractOutlineSeedFromQuestion(question: ClarificationQuestion): string {
@@ -550,6 +556,33 @@ export function LawmindClarificationForm(props: LawmindClarificationFormProps): 
   const chatPayload = formatClarificationReply(questions, answers);
   const promptSummary = formatClarificationPromptSummary(questions);
   const deskLike = variant === "desk" || variant === "compact";
+  const icloudChoice = isIcloudDownloadChoice(questions) ? questions[0] : undefined;
+  if (icloudChoice && onSubmitAnswers) {
+    const options = icloudChoice.options ?? [];
+    return (
+      <div className="lm-icloud-choice" data-testid="lm-icloud-download-choice">
+        <p className="lm-meta">{icloudChoice.question}</p>
+        <div className="lm-clarify-form-actions">
+          {options.map((opt, index) => (
+            <button
+              key={opt}
+              type="button"
+              className={
+                index === 0
+                  ? "lm-btn lm-btn-accent lm-clarify-btn"
+                  : "lm-btn lm-btn-ghost lm-clarify-btn"
+              }
+              data-testid={`lm-icloud-choice-${opt}`}
+              disabled={loading}
+              onClick={() => void onSubmitAnswers({ [icloudChoice.key]: opt })}
+            >
+              {loading ? "处理中…" : opt}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -670,11 +703,11 @@ export function LawmindClarificationForm(props: LawmindClarificationFormProps): 
         <textarea
           className="lm-clarify-field-input lm-clarify-field-input--compact"
           rows={variant === "desk" ? 3 : 3}
-          value={answers._free ?? ""}
+          value={answers[FREE_NOTE_KEY] ?? ""}
           disabled={loading}
           placeholder="补充说明…"
           aria-label="补充说明"
-          onChange={(e) => setOne("_free", e.target.value)}
+          onChange={(e) => setOne(FREE_NOTE_KEY, e.target.value)}
         />
       )}
 
@@ -695,12 +728,13 @@ export function LawmindClarificationForm(props: LawmindClarificationFormProps): 
             disabled={loading || !complete}
             title={!complete ? "请先填完必填项" : "提交后助手继续办理"}
             onClick={() => {
+              const freeNote = answers[FREE_NOTE_KEY]?.trim() ?? "";
               const payload =
                 questions.length > 0
                   ? mapped
-                  : answers._free?.trim()
+                  : freeNote
                     ? {
-                        note: answers._free.trim(),
+                        note: freeNote,
                         ...(answers[CLARIFY_ATTACHMENTS_KEY]?.trim()
                           ? { [CLARIFY_ATTACHMENTS_KEY]: answers[CLARIFY_ATTACHMENTS_KEY] }
                           : {}),
@@ -782,7 +816,7 @@ export function LawmindClarificationForm(props: LawmindClarificationFormProps): 
             const keys =
               questions.length > 0
                 ? [...questions.map((q) => q.key), CLARIFY_ATTACHMENTS_KEY, CLARIFY_SESSIONS_KEY]
-                : ["_free", CLARIFY_ATTACHMENTS_KEY, CLARIFY_SESSIONS_KEY];
+                : [FREE_NOTE_KEY, CLARIFY_ATTACHMENTS_KEY, CLARIFY_SESSIONS_KEY];
             setAnswers(Object.fromEntries(keys.map((k) => [k, ""])));
           }}
         >

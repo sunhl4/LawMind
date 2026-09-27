@@ -12,7 +12,7 @@ import { LawmindChatThoughtPanel } from "./LawmindChatThoughtPanel";
 import { LawmindTurnPlanCard } from "./LawmindTurnPlanCard";
 import { partitionActivityForThoughtView } from "./lawmind-chat-thought-view.js";
 import { resolveMessageActivity } from "./lawmind-chat-activity.js";
-import { LawmindClarificationForm } from "./LawmindClarificationForm";
+import { isIcloudDownloadChoice, LawmindClarificationForm } from "./LawmindClarificationForm";
 import { LawmindMemorySourcesPanel } from "./LawmindMemorySourcesPanel";
 import { LawmindMsgAssistant } from "./LawmindMsgAssistant";
 import { LawmindMsgWorkflowApproval } from "./LawmindMsgWorkflowApproval";
@@ -482,6 +482,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             {(() => {
               const qs = msg.clarificationQuestions ?? [];
               const short = isClarificationShortConfirm(qs);
+              const icloud = isIcloudDownloadChoice(qs);
               const blocking = msg.status === "awaiting_clarification";
               if (blocking && qs.length > 0 && !short) {
                 return (
@@ -520,8 +521,9 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
               return (
                 <>
                   <div className="lm-clarify-card-title">
-                    {blocking ? "还差这些信息" : "建议补充这些"}
+                    {icloud ? "文件在 iCloud 上" : blocking ? "还差这些信息" : "建议补充这些"}
                   </div>
+                  {icloud ? null : (
                   <div className="lm-clarify-card-hint">
                     {blocking && qs.length === 0
                       ? "请补充说明后发送，或到「在办」处理。"
@@ -529,6 +531,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
                         ? "一两项短确认可在此填写；复杂项请到「在办」。"
                         : "可在大框说明后发送。"}
                   </div>
+                  )}
                   {qs.length > 0 ? (
                     <LawmindClarificationForm
                       formKey={`${selectedAssistantId}-${index}`}
