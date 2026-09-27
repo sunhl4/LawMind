@@ -155,6 +155,9 @@ export function clearStoredActiveChatSessionForAssistant(
   window.localStorage.setItem(CHAT_ACTIVE_STORAGE_KEY, JSON.stringify(store));
 }
 
+/** 无标题会话的默认显示名（律师向中文，统一一处）。 */
+export const DEFAULT_CHAT_SESSION_TITLE = "新对话";
+
 export type ChatSessionListEntry = {
   sessionId: string;
   title: string;

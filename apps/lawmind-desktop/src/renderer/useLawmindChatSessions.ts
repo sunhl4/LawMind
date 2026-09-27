@@ -7,13 +7,6 @@ import {
   readJsonFromResponse,
 } from "./api-client";
 import { fetchApiJson } from "./api-client-proxy";
-
-function sessionCreateErrorMessage(
-  status: number,
-  body: { ok?: boolean; sessionId?: string; message?: string; error?: string; code?: string },
-): string {
-  return userMessageFromApiError(status, body as ApiErrorJson);
-}
 import { fetchChatLiveTurnProgress } from "./lawmind-chat-trace.js";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { DelegationRow } from "./lawmind-app-data";
@@ -34,8 +27,13 @@ import { mapChatSessionListPayload } from "./lawmind-chat-session-list";
 import {
   chatScopeForMatterId,
   inferInitialChatScope,
+  isSessionInChatScope,
   pickChatSessionForScope,
 } from "./lawmind-chat-scope";
+import { readSelectedModelId } from "./lawmind-selected-model-pref";
+import { clearPlanHandoff, deleteSessionPlanHandoff } from "./lawmind-plan-handoff";
+import { confirmDialog } from "./lawmind-confirm-dialog";
+import type { BackgroundWatchOpts } from "./useLawmindBackgroundWatch";
 
 function sessionCreateErrorMessage(
   status: number,
@@ -43,10 +41,6 @@ function sessionCreateErrorMessage(
 ): string {
   return userMessageFromApiError(status, body as ApiErrorJson);
 }
-import { readSelectedModelId } from "./lawmind-selected-model-pref";
-import { clearPlanHandoff, deleteSessionPlanHandoff } from "./lawmind-plan-handoff";
-import { confirmDialog } from "./lawmind-confirm-dialog";
-import type { BackgroundWatchOpts } from "./useLawmindBackgroundWatch";
 
 export type UseLawmindChatSessionsInput = {
   config: AppConfig | null;
@@ -78,6 +72,8 @@ export type UseLawmindChatSessionsInput = {
   setMessagesByAssistant?: Dispatch<SetStateAction<Record<string, ChatMsg[]>>>;
   /** 案件目录加载完成后才用来判断「原案件已不在」。null 表示还没加载。 */
   knownChatMatterIdsRef?: MutableRefObject<ReadonlySet<string> | null>;
+  /** 案件目录更新后递增，用来把已删除案件的对话收进未归案。 */
+  knownChatMatterTick?: number;
 };
 
 export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
@@ -102,10 +98,11 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
     chatSessionList = [],
     setMessagesByAssistant,
     knownChatMatterIdsRef: knownChatMatterIdsRefProp,
+    knownChatMatterTick = 0,
   } = input;
   const fallbackKnownRef = useRef<ReadonlySet<string> | null>(null);
   const knownChatMatterIdsRef = knownChatMatterIdsRefProp ?? fallbackKnownRef;
-  const [, setChatListScope] = useState<string | null>(null);
+  const [chatListScope, setChatListScope] = useState<string | null>(null);
   const chatListScopeRef = useRef<string | null>(null);
   const selectedAssistantIdRef = useRef(selectedAssistantId);
   selectedAssistantIdRef.current = selectedAssistantId;
@@ -177,6 +174,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         const openAssistantId = pick.assistantId?.trim() || assistantId;
         persistActiveChatSessionId(sessionStoreKey, openAssistantId, pick.sessionId);
         setSessionByAssistant((prev) => ({ ...prev, [openAssistantId]: pick.sessionId }));
+        setContextMatterId(chatScopeForMatterId(pick.matterId, known));
         if (openAssistantId !== assistantId) {
           setSelectedAssistantId(openAssistantId);
         }
@@ -587,6 +585,25 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
     return () => ac.abort();
   }, [config?.apiBase, config?.workspaceDir, hydrateWorkspaceChatSessions]);
 
+  useEffect(() => {
+    const sessionId = sessionByAssistant[selectedAssistantId];
+    if (!sessionId) {
+      return;
+    }
+    const row = chatSessionList.find((item) => item.sessionId === sessionId);
+    if (!row) {
+      return;
+    }
+    // 工作台「用于对话」在下一句发送后会改绑。列表刷新后，切换器跟着这场对话走。
+    const next = chatScopeForMatterId(row.matterId, knownChatMatterIdsRef.current);
+    if (next === chatListScopeRef.current) {
+      return;
+    }
+    chatListScopeRef.current = next;
+    setChatListScope(next);
+    persistChatListScope(chatSessionStoreKey(config?.workspaceDir), next);
+  }, [chatSessionList, config?.workspaceDir, knownChatMatterIdsRef, knownChatMatterTick, selectedAssistantId, sessionByAssistant]);
+
   const openChatListScope = useCallback(
     async (scope: string | null) => {
       const assistantId = selectedAssistantIdRef.current;
@@ -634,6 +651,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         return;
       }
       setSessionByAssistant((prev) => ({ ...prev, [assistantId]: pick.sessionId }));
+      setContextMatterId(chatScopeForMatterId(pick.matterId, knownChatMatterIdsRef.current));
       await selectChatSession(pick.sessionId, assistantId);
     },
     [

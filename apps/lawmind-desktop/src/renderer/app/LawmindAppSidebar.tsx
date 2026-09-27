@@ -37,6 +37,13 @@ export type LawmindAppSidebarProps = {
   chatSessionsLoading?: boolean;
   chatBusy?: boolean;
   chatAssistantId?: string;
+  /** null = 未归案。不传则列表不过滤。 */
+  chatListScope?: string | null;
+  onOpenChatScope?: (scope: string | null) => void;
+  assistantDisplayById?: Record<string, string>;
+  /** 切换器用全量案件，不受工作台搜索过滤。 */
+  chatMatterRows?: MatterSidebarRow[];
+  chatMattersReady?: boolean;
   onSelectChatSession?: (sessionId: string) => void | Promise<void>;
   onCreateNewChatSession?: () => void | Promise<void>;
   onRenameChatSession?: (sessionId: string, title: string) => void | Promise<void>;
@@ -44,6 +51,91 @@ export type LawmindAppSidebarProps = {
   /** Opens create-matter dialog from the matter list (no-FS / empty list). */
   onCreateMatter?: () => void;
 };
+
+function knownMatterIdsFromRows(
+  rows: MatterSidebarRow[],
+  ready: boolean,
+): ReadonlySet<string> | null {
+  if (!ready) {
+    return null;
+  }
+  return new Set(rows.flatMap((row) => (row.matterId?.trim() ? [row.matterId.trim()] : [])));
+}
+
+function matterTitleByIdFromRows(rows: MatterSidebarRow[]): Record<string, string> {
+  const titles: Record<string, string> = {};
+  for (const row of rows) {
+    const id = row.matterId?.trim();
+    if (id) {
+      titles[id] = row.title;
+    }
+  }
+  return titles;
+}
+
+function ChatScopeSwitcher(props: {
+  open: boolean;
+  onToggle: () => void;
+  scope: string | null;
+  rows: MatterSidebarRow[];
+  onOpenScope: (scope: string | null) => void;
+  onCreateMatter?: () => void;
+}) {
+  const matters = props.rows.filter((row) => row.matterId?.trim());
+  const current = props.scope
+    ? matters.find((row) => row.matterId === props.scope)?.title || props.scope
+    : "未归案";
+  return (
+    <div className="lm-chat-scope">
+      <button
+        type="button"
+        className="lm-chat-scope-btn"
+        aria-haspopup="listbox"
+        aria-expanded={props.open}
+        data-testid="lm-chat-scope-switcher"
+        onClick={props.onToggle}
+      >
+        <span className="lm-chat-scope-copy">
+          <span className="lm-chat-scope-kicker">当前案件</span>
+          <span className="lm-chat-scope-name">{current}</span>
+        </span>
+        <span aria-hidden>▾</span>
+      </button>
+      {props.open ? (
+        <ul className="lm-chat-scope-menu" role="listbox" aria-label="切换案件">
+          {matters.map((row) => (
+            <li key={row.key}>
+              <button
+                type="button"
+                className={`lm-chat-scope-item${row.matterId === props.scope ? " is-active" : ""}`}
+                onClick={() => props.onOpenScope(row.matterId)}
+              >
+                {row.title}
+              </button>
+            </li>
+          ))}
+          <li>
+            <button
+              type="button"
+              className={`lm-chat-scope-item${props.scope === null ? " is-active" : ""}`}
+              data-testid="lm-chat-scope-unbound"
+              onClick={() => props.onOpenScope(null)}
+            >
+              未归案
+            </button>
+          </li>
+          {props.onCreateMatter ? (
+            <li>
+              <button type="button" className="lm-chat-scope-item" onClick={props.onCreateMatter}>
+                新建案件
+              </button>
+            </li>
+          ) : null}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
 
 function LawmindAppSidebarImpl({
   showAppSidebar,
@@ -70,12 +162,18 @@ function LawmindAppSidebarImpl({
   chatSessionsLoading,
   chatBusy,
   chatAssistantId,
+  chatListScope,
+  onOpenChatScope,
+  assistantDisplayById,
+  chatMatterRows,
+  chatMattersReady = false,
   onSelectChatSession,
   onCreateNewChatSession,
   onRenameChatSession,
   onDeleteChatSession,
   onCreateMatter,
 }: LawmindAppSidebarProps) {
+  const [scopeMenuOpen, setScopeMenuOpen] = React.useState(false);
   // Settings owns the full shell width; do not keep the workspace rail beside it.
   if (!showAppSidebar || settingsOpen) {
     return null;
@@ -83,19 +181,19 @@ function LawmindAppSidebarImpl({
 
   // 对话 / 会议室 / 在办：有材料树时不再叠案件列表；无材料树时仍用列表作回退。
   // 工作台不占用全局侧栏，案件只在驾驶舱里。
-  const showWorkspaceMatterList =
-    (mainView === "workspace" || mainView === "meeting" || mainView === "agents") &&
-    !showSidebarWorkbenchFiles;
-  const showMatterList = showWorkspaceMatterList;
-  const showWorkbenchExplorer =
-    showSidebarWorkbenchFiles &&
-    (mainView === "workspace" || mainView === "meeting" || mainView === "agents");
   const showSideChat =
     (mainView === "workspace" || mainView === "meeting" || mainView === "agents") &&
     Boolean(onSelectChatSession) &&
     Boolean(onCreateNewChatSession) &&
     Boolean(onRenameChatSession) &&
     Boolean(onDeleteChatSession);
+  const showWorkspaceMatterList =
+    (mainView === "workspace" || mainView === "meeting" || mainView === "agents") &&
+    !showSidebarWorkbenchFiles;
+  const showMatterList = showWorkspaceMatterList && !showSideChat;
+  const showWorkbenchExplorer =
+    showSidebarWorkbenchFiles &&
+    (mainView === "workspace" || mainView === "meeting" || mainView === "agents");
 
   const matterListClassName = (() => {
     if (!showMatterList) {
@@ -151,6 +249,49 @@ function LawmindAppSidebarImpl({
           </button>
         </div>
 
+        {showSideChat &&
+        onSelectChatSession &&
+        onCreateNewChatSession &&
+        onRenameChatSession &&
+        onDeleteChatSession ? (
+          <>
+            <ChatScopeSwitcher
+              open={scopeMenuOpen}
+              onToggle={() => setScopeMenuOpen((value) => !value)}
+              scope={chatListScope === undefined ? null : chatListScope}
+              rows={chatMatterRows ?? matterSidebarRows}
+              onOpenScope={(scope) => {
+                setScopeMenuOpen(false);
+                onOpenChatScope?.(scope);
+              }}
+              onCreateMatter={onCreateMatter}
+            />
+            <LawmindSideChatSessions
+              sessions={chatSessions ?? []}
+              activeSessionId={activeChatSessionId}
+              loading={chatSessionsLoading}
+              busy={chatBusy}
+              apiBase={apiBase}
+              assistantId={chatAssistantId}
+              scopeMatterId={chatListScope}
+              knownMatterIds={knownMatterIdsFromRows(chatMatterRows ?? matterSidebarRows, chatMattersReady)}
+              matterTitleById={matterTitleByIdFromRows(chatMatterRows ?? matterSidebarRows)}
+              assistantDisplayById={assistantDisplayById}
+              onShowUnbound={
+                onOpenChatScope
+                  ? () => {
+                      onOpenChatScope(null);
+                    }
+                  : undefined
+              }
+              onSelect={onSelectChatSession}
+              onNewChat={onCreateNewChatSession}
+              onRename={onRenameChatSession}
+              onDelete={onDeleteChatSession}
+            />
+          </>
+        ) : null}
+
         {showWorkbenchExplorer ? (
           <div
             ref={setFileExplorerHost}
@@ -174,25 +315,6 @@ function LawmindAppSidebarImpl({
                 onSelectMatterForCockpit(mid);
               }
             }}
-          />
-        ) : null}
-
-        {showSideChat &&
-        onSelectChatSession &&
-        onCreateNewChatSession &&
-        onRenameChatSession &&
-        onDeleteChatSession ? (
-          <LawmindSideChatSessions
-            sessions={chatSessions ?? []}
-            activeSessionId={activeChatSessionId}
-            loading={chatSessionsLoading}
-            busy={chatBusy}
-            apiBase={apiBase}
-            assistantId={chatAssistantId}
-            onSelect={onSelectChatSession}
-            onNewChat={onCreateNewChatSession}
-            onRename={onRenameChatSession}
-            onDelete={onDeleteChatSession}
           />
         ) : null}
 

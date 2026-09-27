@@ -29,6 +29,12 @@ export type UseLawmindAppSidebarPropsInput = {
   chatSessionsLoading?: boolean;
   chatBusy?: boolean;
   chatAssistantId?: string;
+  /** null = 未归案。不传则列表不过滤。 */
+  chatListScope?: string | null;
+  chatMattersReady?: boolean;
+  chatMatterRows?: MatterSidebarRow[];
+  onOpenChatScope?: (scope: string | null) => void;
+  assistantDisplayById?: Record<string, string>;
   onSelectChatSession?: (sessionId: string) => void | Promise<void>;
   onCreateNewChatSession?: () => void | Promise<void>;
   onRenameChatSession?: (sessionId: string, title: string) => void | Promise<void>;
@@ -63,6 +69,11 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
     chatSessionsLoading,
     chatBusy,
     chatAssistantId,
+    chatListScope,
+    chatMattersReady,
+    chatMatterRows,
+    onOpenChatScope,
+    assistantDisplayById,
     onSelectChatSession,
     onCreateNewChatSession,
     onRenameChatSession,
@@ -96,6 +107,11 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       chatSessionsLoading,
       chatBusy,
       chatAssistantId,
+      chatListScope,
+      chatMattersReady,
+      chatMatterRows,
+      onOpenChatScope,
+      assistantDisplayById,
       onSelectChatSession: onSelectChatSession
         ? async (sessionId) => {
             if (mainView === "meeting") {
@@ -141,6 +157,11 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       chatSessionsLoading,
       chatBusy,
       chatAssistantId,
+      chatListScope,
+      chatMattersReady,
+      chatMatterRows,
+      onOpenChatScope,
+      assistantDisplayById,
       onSelectChatSession,
       onCreateNewChatSession,
       onRenameChatSession,

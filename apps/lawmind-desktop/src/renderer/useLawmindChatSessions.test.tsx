@@ -1,11 +1,8 @@
 /**
  * @vitest-environment jsdom
  *
- * 回归：打开一条旧对话时，compose 的案件芯片必须回到该对话绑的那一案。
- *
- * 背景（真实事故）：助手写入落点由「本回合带来的 matterId」决定。芯片若停在
- * 上一次选的另一个案子，打开旧对话再补材料就会把本对话改绑过去，材料落进
- * 不是这一件的案件里。所以要有一条测试钉住「打开对话 → 芯片跟着回到该案」。
+ * 打开绑了案的旧对话时，芯片回到该案。
+ * 打开未绑案的对话时，芯片清空，避免下一句把这场对话写进残留的另一个案件。
  */
 import React from "react";
 import { act } from "react";
@@ -95,12 +92,12 @@ describe("useLawmindChatSessions 打开对话时同步 compose 案件芯片", ()
     expect(setContextMatterId).toHaveBeenCalledWith("甲案");
   });
 
-  it("打开未绑案的对话：不动律师当前的芯片选择", async () => {
+  it("打开未绑案的对话：清空案件芯片", async () => {
     const setContextMatterId = vi.fn();
     const probe = renderProbe({ setContextMatterId, sessionMatterId: null });
     await act(async () => {
       await probe.select?.("sess-unbound");
     });
-    expect(setContextMatterId).not.toHaveBeenCalled();
+    expect(setContextMatterId).toHaveBeenCalledWith(null);
   });
 });

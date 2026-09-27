@@ -99,6 +99,25 @@ export function LawmindAppRoot() {
     tasks,
     history,
   });
+  const mattersLoadedRef = useRef(false);
+  useEffect(() => {
+    if (recordsDeskMatters.listLoading) {
+      mattersLoadedRef.current = true;
+      return;
+    }
+    if (!mattersLoadedRef.current) {
+      return;
+    }
+    actions.setKnownChatMatterIds(
+      recordsDeskMatters.sidebarRowsAll
+        .map((row) => row.matterId)
+        .filter((id): id is string => Boolean(id?.trim())),
+    );
+  }, [
+    actions.setKnownChatMatterIds,
+    recordsDeskMatters.listLoading,
+    recordsDeskMatters.sidebarRowsAll,
+  ]);
   const [matterImportBusy, setMatterImportBusy] = useState(false);
   const [matterCockpitOpen, setMatterCockpitOpen] = useState(false);
   const [deskMatterFocus, setDeskMatterFocus] = useState<{ id: string; n: number } | null>(null);

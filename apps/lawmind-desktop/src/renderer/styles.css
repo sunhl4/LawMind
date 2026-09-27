@@ -9500,13 +9500,109 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 /* With chat list: materials tree shrinks; 对话 section takes remaining height.
    用 flex 比例拿确定高度（勿用 flex-basis:auto），否则子树 height:100% 无法约束，滚轮无效。 */
 .lm-side-with-chat-sessions .lm-side-explorer-host {
-  flex: 1 1 0%;
-  max-height: 48%;
+  flex: 0 0 auto;
+  max-height: none;
   min-height: 0;
+  overflow: hidden;
+}
+
+.lm-side-with-chat-sessions .lm-files-explorer-scroll {
+  flex: 0 1 auto;
+  max-height: min(42vh, 360px);
+}
+
+.lm-side-chat-unbound {
+  flex-shrink: 0;
+  margin: 2px 0 0;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lm-chat-scope {
+  flex-shrink: 0;
+  margin: 8px 10px 0;
+  position: relative;
+}
+
+.lm-chat-scope-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border-md);
+  border-radius: 10px;
+  padding: 7px 10px;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.lm-chat-scope-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.lm-chat-scope-kicker {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.lm-chat-scope-name {
+  display: block;
+  margin-top: 1px;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lm-chat-scope-menu {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border-md);
+  border-radius: 8px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.lm-chat-scope-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.lm-chat-scope-item:hover,
+.lm-chat-scope-item.is-active {
+  background: var(--wash);
 }
 
 .lm-side-chat-sessions {
-  flex: 1 1 0%;
+  flex: 1 1 auto;
   min-height: 140px;
   display: flex;
   flex-direction: column;
@@ -9565,16 +9661,16 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 
 .lm-side-chat-session-row {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
   width: 100%;
   text-align: left;
   border: 1px solid transparent;
   border-radius: var(--r, 8px);
   background: transparent;
   color: var(--text);
-  padding: 9px 10px;
+  padding: 6px 8px;
   cursor: pointer;
   font: inherit;
   transition: background var(--t) var(--ease), border-color var(--t) var(--ease);
@@ -9602,10 +9698,11 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 }
 
 .lm-side-chat-session-title {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.35;
-  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

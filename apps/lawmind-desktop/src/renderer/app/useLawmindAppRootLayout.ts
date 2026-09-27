@@ -1,4 +1,4 @@
-import { useCallback, type RefObject } from "react";
+import { useCallback, useRef, type RefObject } from "react";
 import { useSettingsPanelStore } from "../stores/settings-panel-store";
 import type { FileWorkbenchCasesNodeActions } from "../FileWorkbench";
 import type { AgentsDeskTab } from "../lawmind-agents-desk";
@@ -561,6 +561,12 @@ export function useLawmindAppRootLayout(
     },
   });
 
+  const mattersReadyRef = useRef(false);
+  if (recordsDeskMatters.listLoading) {
+    mattersReadyRef.current = true;
+  }
+  const chatMattersReady = mattersReadyRef.current && !recordsDeskMatters.listLoading;
+
   const sidebarProps = useLawmindAppSidebarProps({
     // Settings is a full-page surface — hide the workspace left rail while open.
     showAppSidebar: input.showAppSidebar && !settingsOpen,
@@ -588,7 +594,9 @@ export function useLawmindAppRootLayout(
     chatBusy: loading,
     chatAssistantId: selectedAssistantId,
     chatListScope,
-    onOpenChatScope: (scope) => {
+    chatMattersReady,
+    chatMatterRows: recordsDeskMatters.sidebarRowsAll,
+    onOpenChatScope: (scope: string | null) => {
       void openChatListScope(scope);
     },
     assistantDisplayById: input.assistantDisplayById,

@@ -9,6 +9,11 @@ import {
   type ReactNode,
 } from "react";
 import { parseConversationSearchQuery } from "../../../../src/lawmind/agent/conversation-search-query.ts";
+import {
+  chatScopeForMatterId,
+  countUnboundChatSessions,
+  isSessionInChatScope,
+} from "./lawmind-chat-scope";
 import { fetchApiJson } from "./api-client-proxy";
 import {
   isChatSearchFocusHotkey,
@@ -20,6 +25,8 @@ export type SideChatSessionRow = {
   sessionId: string;
   title: string;
   lastPreview?: string;
+  matterId?: string;
+  assistantId?: string;
   /** 已被「另起新对话（带上文）」承前到哪条（见 `session-carryover.ts`）。 */
   forkedToSessionId?: string;
 };
@@ -32,6 +39,12 @@ export type LawmindSideChatSessionsProps = {
   apiBase?: string;
   /** Kept for callers; search is workspace-wide like the agent tool. */
   assistantId?: string;
+  /** 不传表示不过滤。null 是「未归案」。 */
+  scopeMatterId?: string | null;
+  knownMatterIds?: ReadonlySet<string> | null;
+  matterTitleById?: Record<string, string>;
+  assistantDisplayById?: Record<string, string>;
+  onShowUnbound?: () => void;
   onSelect: (sessionId: string) => void | Promise<void>;
   onNewChat: () => void | Promise<void>;
   onRename: (sessionId: string, title: string) => void | Promise<void>;
@@ -79,10 +92,14 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
     onNewChat,
     onRename,
     onDelete,
+    scopeMatterId,
+    knownMatterIds = null,
+    matterTitleById,
+    assistantDisplayById,
+    onShowUnbound,
   } = props;
   const [sectionOpen, setSectionOpen] = useState(true);
-  /** Filter is off by default (Cursor-style list + ＋). Reveal via ⌘⇧F / palette only. */
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(true);
   const [query, setQuery] = useState("");
   const [remoteHits, setRemoteHits] = useState<SideChatSessionRow[] | null>(null);
   const [remotePending, setRemotePending] = useState(false);
@@ -173,8 +190,27 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
     };
   }, [contextMenu]);
 
-  const localMatches = useMemo(() => filterSideChatSessions(sessions, query), [sessions, query]);
-  const shown = query.trim() === "" ? sessions : mergeSideChatSearchRows(remoteHits, localMatches);
+  const scopedSessions = useMemo(() => {
+    if (scopeMatterId === undefined) {
+      return sessions;
+    }
+    return sessions.filter((row) => isSessionInChatScope(row, scopeMatterId, knownMatterIds));
+  }, [knownMatterIds, scopeMatterId, sessions]);
+  const unboundCount = useMemo(
+    () => (scopeMatterId ? countUnboundChatSessions(sessions, knownMatterIds) : 0),
+    [knownMatterIds, scopeMatterId, sessions],
+  );
+  const showAssistantBadge = useMemo(() => {
+    const ids = new Set(
+      scopedSessions.map((row) => row.assistantId?.trim()).filter((id): id is string => Boolean(id)),
+    );
+    return ids.size > 1;
+  }, [scopedSessions]);
+  const localMatches = useMemo(
+    () => filterSideChatSessions(query.trim() ? sessions : scopedSessions, query),
+    [query, scopedSessions, sessions],
+  );
+  const shown = query.trim() === "" ? scopedSessions : mergeSideChatSearchRows(remoteHits, localMatches);
   const showEmpty =
     query.trim().length > 0 && shown.length === 0 && sessions.length > 0 && !remotePending;
 
@@ -192,7 +228,14 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
       const params = new URLSearchParams({ q });
       void fetchApiJson<{
         ok?: boolean;
-        sessions?: Array<{ sessionId: string; title?: string; lastPreview?: string }>;
+        sessions?: Array<{
+          sessionId: string;
+          title?: string;
+          lastPreview?: string;
+          matterId?: string | null;
+          assistantId?: string;
+          forkedToSessionId?: string;
+        }>;
       }>(`${base}/api/sessions/search?${params.toString()}`, { signal: ac.signal }, { tag: "chat-sessions:search" })
         .then((body) => {
           if (ac.signal.aborted) {
@@ -206,6 +249,9 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
                 sessionId: s.sessionId,
                 title: typeof s.title === "string" && s.title.trim() ? s.title : s.sessionId,
                 lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
+                matterId: s.matterId?.trim() || undefined,
+                assistantId: s.assistantId?.trim() || undefined,
+                forkedToSessionId: s.forkedToSessionId?.trim() || undefined,
               })),
           );
           setRemotePending(false);
@@ -292,13 +338,13 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
 
       {sectionOpen ? (
         <div className="lm-side-chat-sessions-body">
-          {searchOpen && sessions.length > 0 ? (
+          {searchOpen ? (
             <input
               ref={searchInputRef}
               className="lm-sidebar-search lm-side-chat-sessions-search"
               type="search"
               value={query}
-              placeholder="筛选对话…"
+              placeholder="搜索对话…"
               aria-label="筛选对话"
               data-testid="lm-side-chat-search"
               onChange={(e) => setQuery(e.target.value)}
@@ -326,6 +372,18 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
             ) : null}
             {shown.map((row) => {
               const active = row.sessionId === activeSessionId;
+              const assistantLabel = row.assistantId
+                ? assistantDisplayById?.[row.assistantId]?.trim() || row.assistantId
+                : "";
+              const rowScope = chatScopeForMatterId(row.matterId, knownMatterIds);
+              const scopeLabel =
+                query.trim() && rowScope !== (scopeMatterId === undefined ? rowScope : scopeMatterId)
+                  ? row.matterId
+                    ? knownMatterIds && !knownMatterIds.has(row.matterId)
+                      ? "原案件已不在"
+                      : matterTitleById?.[row.matterId] || row.matterId
+                    : "未归案"
+                  : null;
               if (editingId === row.sessionId) {
                 return (
                   <div key={row.sessionId} className="lm-side-chat-session-edit">
@@ -358,27 +416,43 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
                   data-testid={`lm-side-chat-session-${row.sessionId}`}
                   disabled={Boolean(busy)}
                   aria-current={active ? "true" : undefined}
-                  title={`${row.title} — 左键切换；右键可重命名或删除`}
+                  title={row.title}
                   onClick={() => void onSelect(row.sessionId)}
                   onContextMenu={(e) => openContextMenu(e, row)}
                 >
                   <span className="lm-side-chat-session-title">{row.title}</span>
+                  {scopeLabel ? <span className="lm-side-chat-session-forked">{scopeLabel}</span> : null}
+                  {showAssistantBadge && assistantLabel ? (
+                    <span className="lm-side-chat-session-forked">{assistantLabel}</span>
+                  ) : null}
                   {row.forkedToSessionId ? (
                     <span
                       className="lm-side-chat-session-forked"
                       data-testid={`lm-side-chat-session-forked-${row.sessionId}`}
                       title="已用「另起新对话（带上文）」承前；点开可回到那条新对话"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        void onSelect(row.forkedToSessionId!);
+                      }}
                     >
-                      → 由此续接
+                      续接
                     </span>
-                  ) : null}
-                  {row.lastPreview ? (
-                    <span className="lm-side-chat-session-preview">{row.lastPreview}</span>
                   ) : null}
                 </button>
               );
             })}
           </div>
+          {unboundCount > 0 && onShowUnbound ? (
+            <button
+              type="button"
+              className="lm-side-chat-unbound"
+              data-testid="lm-side-chat-show-unbound"
+              onClick={onShowUnbound}
+            >
+              未归案 {unboundCount}
+            </button>
+          ) : null}
         </div>
       ) : null}
 

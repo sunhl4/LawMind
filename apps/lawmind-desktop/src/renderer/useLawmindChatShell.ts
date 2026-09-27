@@ -24,8 +24,7 @@ export {
   readStoredChatListScope,
 } from "./lawmind-chat-active-storage";
 
-/** 无标题会话的默认显示名（律师向中文，统一一处）。 */
-export const DEFAULT_CHAT_SESSION_TITLE = "新对话";
+export { DEFAULT_CHAT_SESSION_TITLE } from "./lawmind-chat-active-storage";
 
 export type LawmindChatShellState = {
   messagesByAssistant: Record<string, ChatMsg[]>;

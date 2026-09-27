@@ -54,7 +54,7 @@ describe("LawmindSideChatSessions", () => {
     host.remove();
   });
 
-  it("matches 案件材料: section label + far-right ＋, no always-on search", async () => {
+  it("shows the conversation search and a new-chat button", async () => {
     await act(async () => {
       root.render(
         <LawmindSideChatSessions
@@ -69,13 +69,13 @@ describe("LawmindSideChatSessions", () => {
         />,
       );
     });
-    expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeNull();
     expect(host.querySelector('[aria-label="新建对话"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="lm-side-chat-session-a"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="lm-side-chat-session-b"]')).toBeTruthy();
   });
 
-  it("marks a superseded session with 「→ 由此续接」", async () => {
+  it("marks a superseded session with 续接", async () => {
     await act(async () => {
       root.render(
         <LawmindSideChatSessions
@@ -92,7 +92,7 @@ describe("LawmindSideChatSessions", () => {
       );
     });
     const chip = host.querySelector('[data-testid="lm-side-chat-session-forked-old"]');
-    expect(chip?.textContent).toContain("由此续接");
+    expect(chip?.textContent).toContain("续接");
     // 承前的那条新对话、以及无关对话都不带这个标记。
     expect(host.querySelector('[data-testid="lm-side-chat-session-forked-new"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-side-chat-session-forked-other"]')).toBeNull();
@@ -109,11 +109,6 @@ describe("LawmindSideChatSessions", () => {
           onDelete={async () => undefined}
         />,
       );
-    });
-    expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeNull();
-    await act(async () => {
-      window.dispatchEvent(new Event("lawmind:focus-chat-search"));
-      await new Promise((resolve) => window.setTimeout(resolve, 0));
     });
     const input = host.querySelector('[data-testid="lm-side-chat-search"]') as HTMLInputElement;
     expect(input).toBeTruthy();

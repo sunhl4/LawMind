@@ -307,8 +307,10 @@ export function useLawmindAppShell() {
   watchBackgroundSessionFnRef.current = watchBackgroundSessionProgress;
 
   const knownChatMatterIdsRef = useRef<ReadonlySet<string> | null>(null);
+  const [knownChatMatterTick, setKnownChatMatterTick] = useState(0);
   const setKnownChatMatterIds = useCallback((ids: readonly string[]) => {
     knownChatMatterIdsRef.current = new Set(ids);
+    setKnownChatMatterTick((version) => version + 1);
   }, []);
   const {
     chatListScope,
@@ -340,6 +342,7 @@ export function useLawmindAppShell() {
     chatSessionList,
     setMessagesByAssistant,
     knownChatMatterIdsRef,
+    knownChatMatterTick,
   });
 
   const activeChatSessionIdForExtras = sessionByAssistant[selectedAssistantId];
