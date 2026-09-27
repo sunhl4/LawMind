@@ -277,8 +277,9 @@ function isReleaseGateAllowedModelMode(mode?: string): boolean {
 
 /**
  * 发布 gate 口径：只接受 scripted / real 的 benchmark 结果。
- * mock 结果的价值是回归管道冒烟，不是质量证据——modelMode 缺失或 mock 一律不计入，
- * 调用方需把 reason 写进发布报告的 knownRisks，杜绝 mock 满分进入发布叙事。
+ * mock 结果的价值是回归管道冒烟，不是质量证据——modelMode 缺失或 mock 一律不计入。
+ * 调用方要把 reason 写进发布报告，并且按 releaseReadinessBenchmarkExit 失败，
+ * 不能丢掉 mock 再报绿。
  */
 export function selectReleaseGateBenchmarkResults(payload: {
   modelMode?: string;
@@ -298,6 +299,92 @@ export function selectReleaseGateBenchmarkResults(payload: {
     return { results: [], eligible: false, reason: "结果中含非 scripted/real 行" };
   }
   return { results, eligible: true };
+}
+
+/**
+ * 发布就绪对 benchmark 文件的退出码。
+ *
+ * - 文件在，但不是 scripted/real：一律失败。丢掉 mock 再报绿，等于把冒烟分数当成质量证据。
+ * - 文件不在：默认当「未提供」，退出 0，报告里写已知风险。`--strict` 才要求文件必须在且过阈值。
+ * - 文件合格但均分不够：只有 `--strict`（或 `LAWMIND_BENCHMARK_STRICT=1`）失败。
+ */
+export function releaseReadinessBenchmarkExit(input: {
+  filePresent: boolean;
+  eligible: boolean;
+  gatePass: boolean;
+  strict: boolean;
+}): 0 | 1 {
+  if (input.filePresent && !input.eligible) {
+    return 1;
+  }
+  if (input.strict && (!input.filePresent || !input.gatePass)) {
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * 把一份 benchmark 文件分成「没有 / 不合格 / 合格」。
+ * 无法读取、解析失败、没有结果行，算文件在但不合格。ENOENT 才是缺文件。
+ */
+export function classifyReleaseBenchmarkFile(input: {
+  readError?: "missing" | "unreadable";
+  raw?: string;
+}): {
+  filePresent: boolean;
+  eligible: boolean;
+  results: BenchmarkResult[];
+  reason?: string;
+} {
+  if (input.readError === "missing") {
+    return { filePresent: false, eligible: false, results: [] };
+  }
+  if (input.readError === "unreadable") {
+    return {
+      filePresent: true,
+      eligible: false,
+      results: [],
+      reason: "benchmark 文件无法读取",
+    };
+  }
+  if (input.raw == null) {
+    return {
+      filePresent: false,
+      eligible: false,
+      results: [],
+      reason: "benchmark 文件内容缺失",
+    };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(input.raw) as unknown;
+  } catch {
+    return {
+      filePresent: true,
+      eligible: false,
+      results: [],
+      reason: "benchmark JSON 无法解析",
+    };
+  }
+  if (
+    parsed == null ||
+    typeof parsed !== "object" ||
+    !Array.isArray((parsed as { results?: unknown }).results) ||
+    (parsed as { results: unknown[] }).results.length === 0
+  ) {
+    return {
+      filePresent: true,
+      eligible: false,
+      results: [],
+      reason: "benchmark 文件没有结果行",
+    };
+  }
+  const body = parsed as { modelMode?: string; results: BenchmarkResult[] };
+  const gate = selectReleaseGateBenchmarkResults(body);
+  if (!gate.eligible) {
+    return { filePresent: true, eligible: false, results: [], reason: gate.reason };
+  }
+  return { filePresent: true, eligible: true, results: gate.results };
 }
 
 /**

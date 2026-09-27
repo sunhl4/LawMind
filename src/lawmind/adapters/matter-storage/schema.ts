@@ -22,6 +22,9 @@ export const MatterStatusSchema = z.enum([
 
 export const MatterKindSchema = z.enum(["contract", "litigation", "general"]);
 
+/** 案件落盘契约版本。旧文件缺这个字段时仍可读，下次保存会写上。 */
+export const MATTER_RECORD_SCHEMA_VERSION = 1 as const;
+
 export const MatterPartyRoleSchema = z.enum([
   "client",
   "counterparty",
@@ -72,7 +75,11 @@ export const MatterRecordSchema = z.object({
   deliverableIds: z.array(z.string()).default([]),
   queueItemIds: z.array(z.string()).default([]),
   matterKind: MatterKindSchema.optional(),
+  /** 模型给出的事项名称。matterKind 只做粗筛，不代替这个名字。 */
+  matterLabel: z.string().trim().min(1).max(80).optional(),
   practiceTags: z.array(z.string()).optional(),
+  schemaVersion: z.literal(MATTER_RECORD_SCHEMA_VERSION).optional(),
+  revision: z.number().int().nonnegative().optional(),
   causeOfAction: z.string().trim().max(200).optional(),
   counterparty: z.string().trim().max(200).optional(),
   parties: z.array(MatterPartySchema).max(32).optional(),
@@ -112,6 +119,14 @@ export const DeliverableRecordSchema = z.object({
   status: DeliverableStatusSchema,
   templateId: z.string().optional(),
   currentDraftTaskId: z.string().optional(),
+  /** 当前草稿在本案文书账上的版本。正文仍在 drafts/。 */
+  currentDraftRevision: z.number().int().positive().optional(),
+  /** 这份稿引用过的 ResearchSource.id。 */
+  citedSourceIds: z.array(z.string().min(1).max(128)).max(64).optional(),
+  /** matters/<id>/documents/<documentId>.json */
+  documentId: z.string().min(1).max(128).optional(),
+  schemaVersion: z.literal(MATTER_RECORD_SCHEMA_VERSION).optional(),
+  revision: z.number().int().nonnegative().optional(),
   currentReviewStatus: z
     .enum(["pending", "approved", "rejected", "modified", "redacted"])
     .optional(),
@@ -165,10 +180,27 @@ export const QueueRecordSchema = z.object({
   detail: z.string().optional(),
   relatedTaskId: z.string().optional(),
   relatedDeliverableId: z.string().optional(),
+  dependsOn: z.array(z.string()).optional(),
+  blockedBy: z.array(z.string()).optional(),
+  blockedReason: z.string().optional(),
+  phase: z.enum(["plan", "research", "draft", "review", "render"]).optional(),
+  /** 模型命名的待办。kind 里的流程阶段只为兼容旧行。 */
+  label: z.string().trim().min(1).max(80).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 export type QueueRecord = z.infer<typeof QueueRecordSchema>;
+
+export const MatterDocumentSchema = z.object({
+  documentId: z.string().min(1).max(128),
+  matterId: z.string().min(1),
+  relativePath: z.string().trim().min(1).max(512),
+  version: z.number().int().positive(),
+  contentHash: z.string().trim().min(8).max(128).optional(),
+  label: z.string().trim().min(1).max(200).optional(),
+  updatedAt: z.string(),
+});
+export type MatterDocumentRecord = z.infer<typeof MatterDocumentSchema>;
 
 export const DeadlineRecordSchema = z.object({
   deadlineId: z.string().min(1),
@@ -193,3 +225,35 @@ export const DeadlineRecordSchema = z.object({
   dependsOnDeadlineId: z.string().min(1).max(64).optional(),
 });
 export type DeadlineRecord = z.infer<typeof DeadlineRecordSchema>;
+
+export const ObligationStatusSchema = z.enum(["open", "done", "waived"]);
+
+/** 付款、通知、履约。金额保留原文；能读成元才记分，读不出仍保存。 */
+export const ObligationRecordSchema = z.object({
+  obligationId: z.string().min(1).max(64),
+  matterId: z.string().min(1),
+  title: z.string().trim().min(1).max(200),
+  obligor: z.string().trim().min(1).max(120).optional(),
+  amountText: z.string().trim().min(1).max(120).optional(),
+  amountMinor: z.number().int().nonnegative().optional(),
+  dueAt: z.string().optional(),
+  deadlineId: z.string().min(1).max(64).optional(),
+  sourceQuote: z.string().trim().min(1).max(240).optional(),
+  status: ObligationStatusSchema,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type ObligationRecord = z.infer<typeof ObligationRecordSchema>;
+
+/** 结论上的定位。条、款、页或原文片段，至少填一项才算钉住出处。 */
+export const ResearchPinSchema = z
+  .object({
+    article: z.string().trim().min(1).max(80).optional(),
+    clause: z.string().trim().min(1).max(80).optional(),
+    page: z.string().trim().min(1).max(40).optional(),
+    quote: z.string().trim().min(1).max(240).optional(),
+  })
+  .refine((pin) => Boolean(pin.article || pin.clause || pin.page || pin.quote), {
+    message: "research pin needs article, clause, page, or quote",
+  });
+export type ResearchPin = z.infer<typeof ResearchPinSchema>;

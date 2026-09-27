@@ -43,6 +43,8 @@ const BUILTIN_IDS = [
   "contract-playbook-review",
   "chronology-two-stage",
   "matter-status-scope-budget",
+  "client-talk-intake",
+  "legal-event-extract",
 ] as const;
 
 function builtinDir(): string {

@@ -18,6 +18,7 @@ import {
   syncMatterRecordPipe,
   upsertLawyerIdentity,
 } from "../matter-replica/index.js";
+import { writeCloudLink } from "./cloud-link.js";
 import {
   acceptCloudInvite,
   cloudConnectionInfo,
@@ -45,15 +46,18 @@ function tmpDir(): string {
 function cloudWorkspace(root: string, name: string, token: string): string {
   const ws = path.join(root, name);
   fs.mkdirSync(path.join(ws, "cases", MID, "materials"), { recursive: true });
+  // 云地址与令牌不进策略文件（commercial-policy 拒绝这两项）；
+  // 存活面是本机的 lawmind/cloud-link.json（0600）。
   fs.writeFileSync(
     path.join(ws, "lawmind.policy.json"),
     JSON.stringify({
       schemaVersion: 1,
       edition: "firm",
-      matterReplica: { enabled: true, endpoint: base, cloudToken: token },
+      matterReplica: { enabled: true },
     }),
     "utf8",
   );
+  writeCloudLink(ws, { endpoint: base, token });
   return ws;
 }
 
@@ -133,8 +137,15 @@ describe("云连接识别", () => {
       JSON.stringify({
         schemaVersion: 1,
         edition: "firm",
-        matterReplica: { enabled: true, endpoint: base },
+        matterReplica: { enabled: true },
       }),
+      "utf8",
+    );
+    // cloud-link.json 缺 token：readCloudLink 视为未配（两项缺一即 null）。
+    fs.mkdirSync(path.join(ws, "lawmind"), { recursive: true });
+    fs.writeFileSync(
+      path.join(ws, "lawmind", "cloud-link.json"),
+      JSON.stringify({ endpoint: base }),
       "utf8",
     );
     expect(cloudConnectionInfo(ws).configured).toBe(false);
@@ -256,10 +267,11 @@ describe("经云兑换邀请", () => {
       JSON.stringify({
         schemaVersion: 1,
         edition: "firm",
-        matterReplica: { enabled: true, endpoint: "http://127.0.0.1:1", cloudToken: "x" },
+        matterReplica: { enabled: true },
       }),
       "utf8",
     );
+    writeCloudLink(ws, { endpoint: "http://127.0.0.1:1", token: "x" });
     // 先设身份：否则会在「请先设置姓名」处提前失败，测不到网络错误
     upsertLawyerIdentity(ws, { displayName: "张三", lawyerId: "lawyer_zhang" });
     await expect(

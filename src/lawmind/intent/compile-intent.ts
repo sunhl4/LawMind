@@ -22,6 +22,7 @@ import {
   parseCapabilityLock,
   type LawyerCapabilityId,
 } from "../skills/lawyer-capability-lock.js";
+import { litigationRevisionSkillIds } from "../skills/litigation-primary.js";
 import { resolveTurnDeliveryIntent, UNSPECIFIED_DELIVERY } from "./delivery-intent.js";
 import {
   classifyDocumentGenre,
@@ -442,6 +443,10 @@ function chainFor(id: LawyerCapabilityId, signals: IntentSignals): LawyerCapabil
   if (id === "litigation.draft" && signals.text.specialized === "talk") {
     extra.push("litigation.talk");
   }
+  // Calc signals outrank the pleading verb, so the complaint would otherwise vanish.
+  if ((id === "labor.calc" || id === "period.calc") && signals.text.wantsPleading) {
+    extra.push("litigation.draft");
+  }
   return extra;
 }
 
@@ -469,16 +474,19 @@ function wordRevisionDeliverable(id: LawyerCapabilityId): string | undefined {
   return undefined;
 }
 
-/** Never return [] — empty override is treated as a real list by hydrateCompiledIntent. */
-function wordRevisionSkillIds(id: LawyerCapabilityId): readonly string[] {
+/** Pinned primaries. hydrateCompiledIntent unions these onto the capability catalog. */
+function wordRevisionSkillIds(id: LawyerCapabilityId, signals: IntentSignals): readonly string[] {
   if (id === "contract.review") {
     return ["contract-review-layers", "contract-redline-craft"];
   }
   if (id === "letter.draft") {
-    return ["delivery-language"];
+    return ["delivery-language", "legal-element-extraction"];
   }
   if (id === "litigation.draft") {
-    return ["complaint-elements-fill"];
+    return litigationRevisionSkillIds(
+      signals.instruction,
+      signals.documents.map((doc) => doc.relPath),
+    );
   }
   return ["delivery-language"];
 }
@@ -568,8 +576,11 @@ function compileIntentBody(input: CompileIntentInput): CompiledIntent {
       evidence: files.length > 0 ? files : [{ kind: "file", detail: "已钉选 Word · 改稿" }],
       deliverableType: wordRevisionDeliverable(id),
       pipelineOverride: "tracked_redline",
-      skillIdsOverride: wordRevisionSkillIds(id),
-      pipelineHintOverride: WORD_REVISION_HINT,
+      skillIdsOverride: wordRevisionSkillIds(id, signals),
+      pipelineHintOverride:
+        id === "contract.review"
+          ? `${WORD_REVISION_HINT}出档位前用 \`read_skill\` 读取 \`contract-playbook-review\`（纸别没写时标【待定】，不必先停下来问）。`
+          : WORD_REVISION_HINT,
     });
   }
 
@@ -755,6 +766,25 @@ function compileIntentBody(input: CompileIntentInput): CompiledIntent {
   return emptyIntent("unbound");
 }
 
-export function compiledIntentPlanItems(_compiled: CompiledIntent): string[] {
-  return [];
+const PLAN_SEED_SOURCES = new Set<IntentSource>([
+  "lock",
+  "short_path",
+  "word_revision",
+  "specialized",
+  "joint",
+]);
+
+/**
+ * Lawyer-facing steps for a high-confidence multi-intent chain.
+ * Keyword / matter / continue / genre hypotheses stay empty: the model writes
+ * `update_plan` from the utterance. Seeding those would freeze a guess.
+ */
+export function compiledIntentPlanItems(compiled: CompiledIntent): string[] {
+  if (!compiled.capabilityId || compiled.chain.length < 2) {
+    return [];
+  }
+  if (compiled.confidence !== "high" || !PLAN_SEED_SOURCES.has(compiled.source)) {
+    return [];
+  }
+  return compiled.chain.map((id) => labelOf(id));
 }

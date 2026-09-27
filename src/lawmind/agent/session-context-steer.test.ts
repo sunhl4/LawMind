@@ -4,8 +4,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   applyClaimedSteerToHistory,
+  claimAndApplyPendingSteer,
   claimPendingSteer,
   formatSteerUserMessage,
+  normalizeSteerNote,
   queuePendingSteer,
 } from "./session-context-steer.js";
 import type { AgentSession } from "./types.js";
@@ -50,13 +52,38 @@ describe("session-context-steer", () => {
   it("keeps the last eight notes", () => {
     const ws = tmpWs();
     dirs.push(ws);
+    let lastDropped = 0;
     for (let i = 0; i < 10; i += 1) {
-      queuePendingSteer(ws, "s2", `指示 ${i}`);
+      lastDropped = queuePendingSteer(ws, "s2", `指示 ${i}`).dropped;
     }
+    expect(lastDropped).toBe(1);
     const claimed = claimPendingSteer(ws, "s2");
     expect(claimed).toHaveLength(8);
     expect(claimed[0]).toBe("指示 2");
     expect(claimed[7]).toBe("指示 9");
+  });
+
+  it("keeps line breaks and marks a cut-off note", () => {
+    const kept = normalizeSteerNote("第3条改成限额\n不要动第8条");
+    expect(kept.truncated).toBe(false);
+    expect(kept.text).toBe("第3条改成限额\n不要动第8条");
+    const long = normalizeSteerNote(`甲${"条".repeat(2_000)}`);
+    expect(long.truncated).toBe(true);
+    expect(long.text.endsWith("…（后文已截断）")).toBe(true);
+    expect(long.text.length).toBeLessThanOrEqual(2_000);
+  });
+
+  it("redelivers a claimed note when history does not contain it yet", () => {
+    const ws = tmpWs();
+    dirs.push(ws);
+    const session = emptySession("s-crash");
+    queuePendingSteer(ws, session.sessionId, "先改违约金");
+    const first = claimAndApplyPendingSteer(session, ws);
+    expect(first).toEqual(["先改违约金"]);
+    const reloaded = emptySession(session.sessionId);
+    const again = claimAndApplyPendingSteer(reloaded, ws);
+    expect(again).toEqual(["先改违约金"]);
+    expect(claimAndApplyPendingSteer(reloaded, ws)).toEqual([]);
   });
 
   it("appends a lawyer-facing user note for the next model round", () => {

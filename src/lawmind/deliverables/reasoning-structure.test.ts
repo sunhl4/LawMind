@@ -276,17 +276,17 @@ describe("G3 结构核对不改变既有门禁行为", () => {
       "letter.demand",
     );
     expect(report.checks.find((c) => c.key === "facts_grounded")?.severity).toBe("warning");
-    // min_issues 是既有 blocker（spec minIssues=2）；这里两个争点，故不应有 blocker。
+    // 争点数量只警告。两个争点时这项通过，整份报告没有 blocker。
     expect(report.blockerCount).toBe(0);
     expect(report.ready).toBe(true);
   });
 
-  it("**结构检查没有削弱既有门禁**：争点不足时 min_issues 仍然 block", () => {
+  it("争点不足时 min_issues 只警告，不挡导出", () => {
     const report = validateReasoningAgainstSpec(
       graph({ issueTree: [issue({ issue: "只有一个争点" })] }),
       "letter.demand",
     );
-    expect(report.ready).toBe(false);
-    expect(report.checks.find((c) => c.key === "min_issues")?.severity).toBe("blocker");
+    expect(report.ready).toBe(true);
+    expect(report.checks.find((c) => c.key === "min_issues")?.severity).toBe("warning");
   });
 });

@@ -10,8 +10,8 @@
  *
  * 生命周期：
  *   ResearchBundle -> buildLegalReasoningGraph() -> LegalReasoningGraph
- *   LegalReasoningGraph -> serializeLegalReasoningGraph() -> Markdown
- *   Markdown -> parseLegalReasoningGraph() -> LegalReasoningGraph（恢复）
+ *   LegalReasoningGraph -> serializeLegalReasoningGraph() -> Markdown（给人看）
+ *   结构往返走 drafts/<taskId>.reasoning.json，不从 Markdown 还原整图
  *
  * 构建策略（当前为规则驱动）：
  *   - 每条 ResearchClaim 对应一个候选争点节点
@@ -120,10 +120,6 @@ function buildIssueTree(bundle: ResearchBundle): LegalIssueNode[] {
     const sources = bundle.sources.filter((s) => claim.sourceIds.includes(s.id));
     const statutes = sources.filter((s) => AUTHORITY_SOURCE_KINDS.has(s.kind));
     const cases = sources.filter((s) => EVIDENCE_SOURCE_KINDS.has(s.kind));
-    // 案件事实材料：合同原文 / 工作文件 / 工作区文件。
-    // 注意：当前只有 `createWorkspaceAdapter` 产出 `memo` / `workspace` 来源，而它
-    // `claims: []`——所以这些来源不会被任何 claim 引用，`facts` 在实践中恒为空。
-    // 详见 `reasoning-validator.ts` 里 FACTS_GROUNDED_SEVERITY 的说明与升级条件。
     const factSources = sources.filter((s) => FACT_SOURCE_KINDS.has(s.kind));
 
     return {
@@ -136,6 +132,25 @@ function buildIssueTree(bundle: ResearchBundle): LegalIssueNode[] {
       confidence: claim.confidence,
     };
   });
+}
+
+/** 检索到了、但没有任何结论引用的案件材料。不写入争点 facts。 */
+function uncitedCaseFactLabels(bundle: ResearchBundle): string[] {
+  const cited = new Set(bundle.claims.flatMap((claim) => claim.sourceIds));
+  const labels: string[] = [];
+  for (const source of bundle.sources) {
+    if (!FACT_SOURCE_KINDS.has(source.kind) || cited.has(source.id)) {
+      continue;
+    }
+    const label = (source.citation ?? source.title).trim();
+    if (label.length > 0 && !labels.includes(label)) {
+      labels.push(label);
+    }
+    if (labels.length >= 4) {
+      break;
+    }
+  }
+  return labels;
 }
 
 /**
@@ -296,6 +311,10 @@ function buildDeliveryRisks(bundle: ResearchBundle): string[] {
   if (lowConf.length > 0) {
     risks.push(`${lowConf.length} 条结论置信度 < 50%，建议在草稿中使用"可能""应予注意"等保守措辞`);
   }
+  const uncited = uncitedCaseFactLabels(bundle);
+  if (uncited.length > 0) {
+    risks.push(`检索到尚未被任何结论引用的案件材料，起草时自行判断是否写入：${uncited.join("；")}`);
+  }
 
   return risks;
 }
@@ -331,6 +350,9 @@ export function serializeLegalReasoningGraph(graph: LegalReasoningGraph): string
       lines.push(`- **置信度**：${Math.round(node.confidence * 100)}%`);
       if (node.elements.length > 0) {
         lines.push(`- **要件**：${node.elements.join("；")}`);
+      }
+      if (node.facts.length > 0) {
+        lines.push(`- **案件事实**：${node.facts.join("；")}`);
       }
       if (node.authorityIds.length > 0) {
         lines.push(`- **权威来源**：${node.authorityIds.join("，")}`);

@@ -259,6 +259,15 @@ describe("search_statute / search_case_law", () => {
       authSaved.set(key, process.env[key]);
       delete process.env[key];
     }
+    // 这些用例测的是工作区启发式检索与拒答口径，不是线上法源连通性。
+    // NPC FLK 默认开启（LAWMIND_OPEN_LAW_NPC=0 才关），live 车道在无网/沙箱里
+    // 每次调用都要等 10s AbortSignal 超时（empty-hits 用例 statute+case 两次 = 20s）。
+    // 关掉全部 live 车道，让 open provider 落回本地语料，毫秒级完成。
+    vi.stubEnv("LAWMIND_OPEN_LAW_NPC", "0");
+    vi.stubEnv("LAWMIND_OPEN_LAW_CASEOPEN", "0");
+    vi.stubEnv("LAWMIND_OPEN_LAW_COURTLISTENER", "0");
+    vi.stubEnv("LAWMIND_OPEN_LAW_EURLEX", "0");
+    vi.stubEnv("LAWMIND_OPEN_LAW_EGOV_JP", "0");
   });
 
   afterEach(() => {
@@ -472,6 +481,35 @@ describe("check_conflict_of_interest", () => {
     }
   });
 
+  it("matches a company name to its 有限公司 form on another matter", async () => {
+    const { createMatterIfMissing, updateMatterProfile } =
+      await import("../../../application/services/matter-write-service.js");
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-conflict-alias-"));
+    try {
+      createMatterIfMissing(workspaceDir, { matterId: "m-a", title: "m-a" });
+      await updateMatterProfile(workspaceDir, {
+        matterId: "m-a",
+        parties: [{ partyId: "p-counterparty", name: "北京甲公司", role: "counterparty" }],
+      });
+      createMatterIfMissing(workspaceDir, { matterId: "m-b", title: "m-b" });
+      await updateMatterProfile(workspaceDir, {
+        matterId: "m-b",
+        parties: [{ partyId: "p-client", name: "北京甲有限公司", role: "client" }],
+      });
+      const result = await checkConflictOfInterest.execute(
+        { parties: "北京甲股份有限公司" },
+        makeCtx(workspaceDir),
+      );
+      expect(result.ok).toBe(true);
+      const matches = (result.data as { matches: Record<string, string[]> }).matches[
+        "北京甲股份有限公司"
+      ];
+      expect(matches).toEqual(expect.arrayContaining(["m-a", "m-b"]));
+    } finally {
+      await fs.rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   it("holds outbound on Firm edition until acknowledged", async () => {
     const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-ethics-firm-"));
     try {
@@ -603,6 +641,7 @@ describe("search_workspace matter isolation", () => {
         crossMatterScanned: boolean;
       };
       expect(data.crossMatterScanned).toBe(true);
+      expect((data as { crossMatterNote?: string }).crossMatterNote).toBeUndefined();
       expect(data.results.some((r) => r.source === "CASE:matter-b")).toBe(true);
     } finally {
       await fs.rm(workspaceDir, { recursive: true, force: true });
@@ -629,6 +668,7 @@ describe("search_workspace matter isolation", () => {
       };
       expect(data.crossMatterScanned).toBe(false);
       expect(data.results.some((row) => row.source === "CASE:matter-other")).toBe(false);
+      expect((data as { crossMatterNote?: string }).crossMatterNote).toContain("未检索其他案件");
     } finally {
       await fs.rm(workspaceDir, { recursive: true, force: true });
     }

@@ -63,6 +63,83 @@ export function persistActiveChatSessionId(
   window.localStorage.setItem(CHAT_ACTIVE_STORAGE_KEY, JSON.stringify(store));
 }
 
+const CHAT_SCOPE_STORAGE_KEY = "lawmind.chat.listScope.v1";
+
+type ChatScopeBucket = { scope: string | null; byScope: Record<string, string> };
+type ChatScopeStore = { byWorkspace: Record<string, ChatScopeBucket> };
+
+function readChatScopeStore(): ChatScopeStore {
+  if (typeof window === "undefined") {
+    return { byWorkspace: {} };
+  }
+  try {
+    const raw = window.localStorage.getItem(CHAT_SCOPE_STORAGE_KEY);
+    if (!raw?.trim()) {
+      return { byWorkspace: {} };
+    }
+    const parsed = JSON.parse(raw) as ChatScopeStore;
+    if (!parsed || typeof parsed !== "object" || typeof parsed.byWorkspace !== "object" || !parsed.byWorkspace) {
+      return { byWorkspace: {} };
+    }
+    return parsed;
+  } catch {
+    return { byWorkspace: {} };
+  }
+}
+
+function writeChatScopeStore(store: ChatScopeStore): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(CHAT_SCOPE_STORAGE_KEY, JSON.stringify(store));
+}
+
+function scopeBucketKey(scope: string | null): string {
+  const id = scope?.trim() ?? "";
+  return id || "__unbound__";
+}
+
+/** `undefined`：这台机器还没记过左栏范围。`null`：上次停在未归案。 */
+export function readStoredChatListScope(workspaceDir: string): string | null | undefined {
+  const bucket = readChatScopeStore().byWorkspace[workspaceDir];
+  if (!bucket || !("scope" in bucket)) {
+    return undefined;
+  }
+  if (bucket.scope === null) {
+    return null;
+  }
+  return typeof bucket.scope === "string" && bucket.scope.trim() ? bucket.scope.trim() : null;
+}
+
+export function persistChatListScope(workspaceDir: string, scope: string | null): void {
+  const store = readChatScopeStore();
+  const prev = store.byWorkspace[workspaceDir] ?? { scope: null, byScope: {} };
+  store.byWorkspace[workspaceDir] = { ...prev, scope };
+  writeChatScopeStore(store);
+}
+
+export function getStoredScopeSessionId(
+  workspaceDir: string,
+  scope: string | null,
+): string | undefined {
+  const sid = readChatScopeStore().byWorkspace[workspaceDir]?.byScope?.[scopeBucketKey(scope)];
+  return typeof sid === "string" && sid.trim() ? sid.trim() : undefined;
+}
+
+export function persistScopeSessionId(
+  workspaceDir: string,
+  scope: string | null,
+  sessionId: string,
+): void {
+  const store = readChatScopeStore();
+  const prev = store.byWorkspace[workspaceDir] ?? { scope, byScope: {} };
+  store.byWorkspace[workspaceDir] = {
+    scope: prev.scope,
+    byScope: { ...prev.byScope, [scopeBucketKey(scope)]: sessionId },
+  };
+  writeChatScopeStore(store);
+}
+
 export function clearStoredActiveChatSessionForAssistant(
   workspaceDir: string,
   assistantId: string,
@@ -83,6 +160,8 @@ export type ChatSessionListEntry = {
   title: string;
   updatedAt: string;
   lastPreview?: string;
+  matterId?: string;
+  assistantId?: string;
   /**
    * 这条对话已被「另起新对话（带上文）」承前到哪条。侧栏据此显示「→ 由此续接」，
    * 免得律师在两条几乎同名的对话里点错（见 `src/lawmind/agent/session-carryover.ts`）。

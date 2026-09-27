@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import {
   errorMessage,
   userMessageFromApiError,
@@ -18,14 +18,31 @@ import { fetchChatLiveTurnProgress } from "./lawmind-chat-trace.js";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { DelegationRow } from "./lawmind-app-data";
 import { isActiveDelegation } from "./lawmind-delegation-status";
+import type { ChatMsg } from "./lawmind-chat";
 import type { ChatSessionListEntry, LawmindChatShellState } from "./useLawmindChatShell";
 import type { LawmindMainView } from "./lawmind-main-view";
 import {
   chatSessionStoreKey,
-  DEFAULT_CHAT_SESSION_TITLE,
   getStoredActiveChatSessionId,
+  getStoredScopeSessionId,
   persistActiveChatSessionId,
+  persistChatListScope,
+  persistScopeSessionId,
+  readStoredChatListScope,
 } from "./useLawmindChatShell";
+import { mapChatSessionListPayload } from "./lawmind-chat-session-list";
+import {
+  chatScopeForMatterId,
+  inferInitialChatScope,
+  pickChatSessionForScope,
+} from "./lawmind-chat-scope";
+
+function sessionCreateErrorMessage(
+  status: number,
+  body: { ok?: boolean; sessionId?: string; message?: string; error?: string; code?: string },
+): string {
+  return userMessageFromApiError(status, body as ApiErrorJson);
+}
 import { readSelectedModelId } from "./lawmind-selected-model-pref";
 import { clearPlanHandoff, deleteSessionPlanHandoff } from "./lawmind-plan-handoff";
 import { confirmDialog } from "./lawmind-confirm-dialog";
@@ -57,6 +74,10 @@ export type UseLawmindChatSessionsInput = {
   modelCatalog: Array<{ id: string; label: string }>;
   selectedModelId: string;
   flashComposeModelHint: (msg: string, ms?: number) => void;
+  chatSessionList?: ChatSessionListEntry[];
+  setMessagesByAssistant?: Dispatch<SetStateAction<Record<string, ChatMsg[]>>>;
+  /** 案件目录加载完成后才用来判断「原案件已不在」。null 表示还没加载。 */
+  knownChatMatterIdsRef?: MutableRefObject<ReadonlySet<string> | null>;
 };
 
 export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
@@ -78,11 +99,35 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
     modelCatalog,
     selectedModelId,
     flashComposeModelHint,
+    chatSessionList = [],
+    setMessagesByAssistant,
+    knownChatMatterIdsRef: knownChatMatterIdsRefProp,
   } = input;
+  const fallbackKnownRef = useRef<ReadonlySet<string> | null>(null);
+  const knownChatMatterIdsRef = knownChatMatterIdsRefProp ?? fallbackKnownRef;
+  const [, setChatListScope] = useState<string | null>(null);
+  const chatListScopeRef = useRef<string | null>(null);
+  const selectedAssistantIdRef = useRef(selectedAssistantId);
+  selectedAssistantIdRef.current = selectedAssistantId;
+  const chatSessionListRef = useRef(chatSessionList);
+  chatSessionListRef.current = chatSessionList;
+
+  const rememberOpenedSession = useCallback(
+    (sessionId: string, matterId: string | null) => {
+      const storeKey = chatSessionStoreKey(config?.workspaceDir);
+      const scope = chatScopeForMatterId(matterId, knownChatMatterIdsRef.current);
+      chatListScopeRef.current = scope;
+      setChatListScope(scope);
+      persistChatListScope(storeKey, scope);
+      persistScopeSessionId(storeKey, scope, sessionId);
+      setContextMatterId(scope === null && matterId ? null : matterId);
+    },
+    [config?.workspaceDir, knownChatMatterIdsRef, setContextMatterId],
+  );
 
   const hydrateWorkspaceChatSessions = useCallback(
     async (signal: AbortSignal) => {
-      const assistantId = selectedAssistantId;
+      const assistantId = selectedAssistantIdRef.current;
       if (!config?.apiBase) {
         setChatSessionList([]);
         return;
@@ -93,116 +138,64 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         const listJ = await fetchApiJson<{
           ok?: boolean;
           sessions?: Array<{
-            sessionId: string;
+            sessionId?: string;
             title?: string;
-            updatedAt: string;
+            updatedAt?: string;
             lastPreview?: string;
+            matterId?: string | null;
+            assistantId?: string;
             forkedToSessionId?: string;
           }>;
-        }>(
-          `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
-          { signal },
-          { tag: "chat-sessions:list" },
-        );
+        }>(`${config.apiBase}/api/sessions`, { signal }, { tag: "chat-sessions:list" });
         if (signal.aborted) {
           return;
         }
-        const mapped: ChatSessionListEntry[] = (Array.isArray(listJ.sessions) ? listJ.sessions : []).map(
-          (s) => ({
-            sessionId: s.sessionId,
-            title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
-            updatedAt: s.updatedAt,
-            lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
-            forkedToSessionId:
-              typeof s.forkedToSessionId === "string" && s.forkedToSessionId.trim()
-                ? s.forkedToSessionId.trim()
-                : undefined,
-          }),
-        );
+        const mapped = mapChatSessionListPayload(listJ.sessions) ?? [];
         setChatSessionList(mapped);
-
-        let sessionId = getStoredActiveChatSessionId(sessionStoreKey, assistantId);
-        if (!sessionId || !mapped.some((r) => r.sessionId === sessionId)) {
-          sessionId = mapped[0]?.sessionId;
-        }
-        if (!sessionId) {
-          const cr = await fetchApi(
-            `${config.apiBase}/api/sessions`,
-            {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ assistantId }),
-              signal,
-            },
-            { tag: "chat-sessions:create" },
-          );
-          const cj = (await readJsonFromResponse(cr)) as {
-            ok?: boolean;
-            sessionId?: string;
-            message?: string;
-            error?: string;
-            code?: string;
-          };
-          if (signal.aborted) {
-            return;
-          }
-          if (!cr.ok || !cj.sessionId) {
-            setError(
-              errorMessage(new Error(sessionCreateErrorMessage(cr.status, cj)), "创建对话失败"),
-            );
-            return;
-          }
-          sessionId = cj.sessionId;
-          const listJ2 = await fetchApiJson<{
-            ok?: boolean;
-            sessions?: Array<{
-              sessionId: string;
-              title?: string;
-              updatedAt: string;
-              lastPreview?: string;
-              forkedToSessionId?: string;
-            }>;
-          }>(
-            `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
-            { signal },
-            { tag: "chat-sessions:list-after-create" },
-          );
-          if (signal.aborted) {
-            return;
-          }
-          const mapped2: ChatSessionListEntry[] = (
-            Array.isArray(listJ2.sessions) ? listJ2.sessions : []
-          ).map((s) => ({
-            sessionId: s.sessionId,
-            title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
-            updatedAt: s.updatedAt,
-            lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
-            forkedToSessionId:
-              typeof s.forkedToSessionId === "string" && s.forkedToSessionId.trim()
-                ? s.forkedToSessionId.trim()
-                : undefined,
-          }));
-          setChatSessionList(mapped2);
-        }
-
-        if (signal.aborted || !sessionId) {
+        const known = knownChatMatterIdsRef.current;
+        const storedAssistantSessionId = getStoredActiveChatSessionId(sessionStoreKey, assistantId);
+        const storedScope = readStoredChatListScope(sessionStoreKey);
+        const scope =
+          storedScope === undefined
+            ? inferInitialChatScope(mapped, storedAssistantSessionId, known)
+            : storedScope;
+        chatListScopeRef.current = scope;
+        setChatListScope(scope);
+        persistChatListScope(sessionStoreKey, scope);
+        const pick = pickChatSessionForScope(mapped, scope, known, {
+          storedSessionId: getStoredScopeSessionId(sessionStoreKey, scope) ?? storedAssistantSessionId,
+        });
+        if (signal.aborted) {
           return;
         }
-        persistActiveChatSessionId(sessionStoreKey, assistantId, sessionId);
-        setSessionByAssistant((p) => ({ ...p, [assistantId]: sessionId }));
-        await loadSessionMessagesIntoState(assistantId, sessionId, signal, undefined, (boundMatterId) => {
-          // 冷启动恢复上次对话：芯片要跟着回到它绑的那一案，别让新材料落到 uploads。
-          if (boundMatterId) {
-            setContextMatterId(boundMatterId);
-          }
-        });
+        if (!pick) {
+          setSessionByAssistant((prev) => ({ ...prev, [assistantId]: undefined }));
+          setMessagesByAssistant?.((prev) => ({ ...prev, [assistantId]: [] }));
+          setContextMatterId(scope);
+          return;
+        }
+        const openAssistantId = pick.assistantId?.trim() || assistantId;
+        persistActiveChatSessionId(sessionStoreKey, openAssistantId, pick.sessionId);
+        setSessionByAssistant((prev) => ({ ...prev, [openAssistantId]: pick.sessionId }));
+        if (openAssistantId !== assistantId) {
+          setSelectedAssistantId(openAssistantId);
+        }
+        await loadSessionMessagesIntoState(
+          openAssistantId,
+          pick.sessionId,
+          signal,
+          undefined,
+          (boundMatterId) => {
+            rememberOpenedSession(pick.sessionId, boundMatterId);
+          },
+        );
         if (!signal.aborted && config?.apiBase) {
           try {
-            const live = await fetchChatLiveTurnProgress(config.apiBase, sessionId, signal);
+            const live = await fetchChatLiveTurnProgress(config.apiBase, pick.sessionId, signal);
             if (live.progress?.status === "running") {
               await watchBackgroundSessionFnRef.current({
-                sessionId,
-                assistantId,
+                sessionId: pick.sessionId,
+                assistantId: openAssistantId,
                 kind: "generic",
                 resumeOnly: true,
               });
@@ -222,7 +215,20 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         }
       }
     },
-    [config, loadSessionMessagesIntoState, selectedAssistantId],
+    [
+      config,
+      knownChatMatterIdsRef,
+      loadSessionMessagesIntoState,
+      rememberOpenedSession,
+      setChatSessionList,
+      setChatSessionsLoading,
+      setContextMatterId,
+      setError,
+      setMessagesByAssistant,
+      setSelectedAssistantId,
+      setSessionByAssistant,
+      watchBackgroundSessionFnRef,
+    ],
   );
 
   const selectChatSession = useCallback(
@@ -256,12 +262,10 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         sessionId,
         undefined,
         undefined,
-        // 打开旧对话＝回到它绑的那一案：芯片与写入目标都必须跟着走，
-        // 否则下一条消息会把本对话改绑到芯片上残留的另一个案件。
         (boundMatterId) => {
-          if (boundMatterId) {
-            setContextMatterId(boundMatterId);
-          }
+          // 打开旧对话＝回到它绑的那一案。未绑案或案件已不在则清空芯片，
+          // 避免下一句把这场对话写进残留的另一个案件。
+          rememberOpenedSession(sessionId, boundMatterId);
         },
       );
       if (!ok) {
@@ -286,7 +290,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         /* ignore */
       }
     },
-    [config, loadSessionMessagesIntoState, selectedAssistantId, setSelectedAssistantId, setSessionByAssistant],
+    [config, loadSessionMessagesIntoState, rememberOpenedSession, selectedAssistantId, setSelectedAssistantId, setSessionByAssistant],
   );
 
   const openDelegationTargetWorkspaceChat = useCallback(
@@ -302,46 +306,25 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       setMainView("workspace");
       const mid = delegation.matterId?.trim();
       if (mid) {
-        setContextMatterId(mid);
+        const scope = chatScopeForMatterId(mid, knownChatMatterIdsRef.current);
+        chatListScopeRef.current = scope;
+        setChatListScope(scope);
+        persistChatListScope(sessionStoreKey, scope);
+        setContextMatterId(scope);
       }
       setSelectedAssistantId(toId);
       setChatSessionsLoading(true);
       setError(null);
       try {
-        const listJ = await fetchApiJson<{
-          ok?: boolean;
-          sessions?: Array<{
-            sessionId: string;
-            title?: string;
-            updatedAt: string;
-            lastPreview?: string;
-            forkedToSessionId?: string;
-          }>;
-        }>(
-          `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(toId)}`,
-          {},
-          { tag: "chat-sessions:delegation-list" },
-        );
-        const mapped: ChatSessionListEntry[] = (Array.isArray(listJ.sessions) ? listJ.sessions : []).map(
-          (s) => ({
-            sessionId: s.sessionId,
-            title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
-            updatedAt: s.updatedAt,
-            lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
-            forkedToSessionId:
-              typeof s.forkedToSessionId === "string" && s.forkedToSessionId.trim()
-                ? s.forkedToSessionId.trim()
-                : undefined,
-          }),
-        );
-        setChatSessionList(mapped);
+        const mapped = (await refreshChatSessionListForAssistant(toId)) ?? [];
+        const forAssistant = mapped.filter((row) => (row.assistantId?.trim() || toId) === toId);
 
         let sessionId = delegation.targetSessionId?.trim();
-        if (!sessionId || !mapped.some((r) => r.sessionId === sessionId)) {
+        if (!sessionId || !mapped.some((row) => row.sessionId === sessionId)) {
           sessionId = getStoredActiveChatSessionId(sessionStoreKey, toId);
         }
-        if (!sessionId || !mapped.some((r) => r.sessionId === sessionId)) {
-          sessionId = mapped[0]?.sessionId;
+        if (!sessionId || !forAssistant.some((row) => row.sessionId === sessionId)) {
+          sessionId = forAssistant[0]?.sessionId;
         }
         if (!sessionId) {
           const cr = await fetchApi(
@@ -349,7 +332,10 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ assistantId: toId }),
+              body: JSON.stringify({
+                assistantId: toId,
+                ...(mid ? { matterId: mid } : {}),
+              }),
             },
             { tag: "chat-sessions:delegation-create" },
           );
@@ -367,33 +353,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             return;
           }
           sessionId = cj.sessionId;
-          const listJ2 = await fetchApiJson<{
-            ok?: boolean;
-            sessions?: Array<{
-              sessionId: string;
-              title?: string;
-              updatedAt: string;
-              lastPreview?: string;
-              forkedToSessionId?: string;
-            }>;
-          }>(
-            `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(toId)}`,
-            {},
-            { tag: "chat-sessions:delegation-list-after-create" },
-          );
-          const mapped2: ChatSessionListEntry[] = (
-            Array.isArray(listJ2.sessions) ? listJ2.sessions : []
-          ).map((s) => ({
-            sessionId: s.sessionId,
-            title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
-            updatedAt: s.updatedAt,
-            lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
-            forkedToSessionId:
-              typeof s.forkedToSessionId === "string" && s.forkedToSessionId.trim()
-                ? s.forkedToSessionId.trim()
-                : undefined,
-          }));
-          setChatSessionList(mapped2);
+          await refreshChatSessionListForAssistant(toId);
         }
 
         if (!sessionId) {
@@ -431,8 +391,10 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       config?.workspaceDir,
       assistants,
       flashComposeModelHint,
+      knownChatMatterIdsRef,
       loadSessionMessagesIntoState,
       modelCatalog,
+      refreshChatSessionListForAssistant,
       selectedModelId,
       setContextMatterId,
       setMainView,
@@ -445,6 +407,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       return;
     }
     const assistantId = selectedAssistantId;
+    const scope = chatListScopeRef.current;
     setError(null);
     try {
       const cr = await fetchApi(
@@ -452,7 +415,10 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ assistantId }),
+          body: JSON.stringify({
+            assistantId,
+            ...(scope ? { matterId: scope } : {}),
+          }),
         },
         { tag: "chat-sessions:create-new" },
       );
@@ -468,8 +434,10 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       }
       await refreshChatSessionListForAssistant(assistantId);
       persistActiveChatSessionId(chatSessionStoreKey(config.workspaceDir), assistantId, cj.sessionId);
-      setSessionByAssistant((p) => ({ ...p, [assistantId]: cj.sessionId! }));
-      await loadSessionMessagesIntoState(assistantId, cj.sessionId);
+      setSessionByAssistant((p) => ({ ...p, [assistantId]: cj.sessionId }));
+      await loadSessionMessagesIntoState(assistantId, cj.sessionId, undefined, undefined, (boundMatterId) => {
+        rememberOpenedSession(cj.sessionId!, boundMatterId);
+      });
     } catch (cause) {
       setError(errorMessage(cause, "新建对话失败"));
     }
@@ -478,6 +446,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
     config?.workspaceDir,
     loadSessionMessagesIntoState,
     refreshChatSessionListForAssistant,
+    rememberOpenedSession,
     selectedAssistantId,
   ]);
 
@@ -519,7 +488,8 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       if (!config?.apiBase) {
         return;
       }
-      const assistantId = selectedAssistantId;
+      const row = chatSessionListRef.current.find((item) => item.sessionId === sessionId);
+      const assistantId = row?.assistantId?.trim() || selectedAssistantId;
       const sessionStoreKey = chatSessionStoreKey(config.workspaceDir);
       if (
         !(await confirmDialog({
@@ -533,7 +503,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       }
       const cascadeRelated = await confirmDialog({
         title: "是否同时清理本对话关联内容？",
-        body: "· 委派子会话与委派记录\n· 尚未签批、且未导出的草稿与任务\n\n选「取消」则只删除对话本身；关联草稿仍可在文书台 / 在办中单独删除。",
+        body: "· 委派子会话与委派记录\n· 尚未签批、且未导出的草稿与任务\n\n选「取消」则只删除对话本身；关联草稿仍可在改稿 / 在办中单独删除。",
         confirmLabel: "同时清理",
         cancelLabel: "仅删对话",
         tone: "danger",
@@ -560,38 +530,39 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         }
         clearPlanHandoff(sessionId);
         void deleteSessionPlanHandoff(config.apiBase, sessionId);
-        const wasActive = sessionByAssistant[assistantId] === sessionId;
-        // Optimistic local update so a failed list refresh cannot leave a zombie tab.
-        setChatSessionList((prev) => prev.filter((row) => row.sessionId !== sessionId));
+        const wasActive = sessionByAssistant[assistantId] === sessionId
+          || sessionByAssistant[selectedAssistantId] === sessionId;
+        setChatSessionList((prev) => prev.filter((item) => item.sessionId !== sessionId));
         const list = await refreshChatSessionListForAssistant(assistantId);
-        const remaining = list ?? [];
+        const scope = chatListScopeRef.current;
+        const remaining = (list ?? []).filter((item) =>
+          isSessionInChatScope(item, scope, knownChatMatterIdsRef.current),
+        );
         if (!wasActive) {
           return;
         }
-        if (remaining.length === 0) {
-          const cr = await fetchApi(
-            `${config.apiBase}/api/sessions`,
-            {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ assistantId }),
-            },
-            { tag: "chat-sessions:create-after-delete" },
-          );
-          const cj = (await readJsonFromResponse(cr)) as { ok?: boolean; sessionId?: string; message?: string };
-          if (!cr.ok || !cj.sessionId) {
-            throw new Error(typeof cj.message === "string" ? cj.message : "create failed");
-          }
-          await refreshChatSessionListForAssistant(assistantId);
-          persistActiveChatSessionId(chatSessionStoreKey(config.workspaceDir), assistantId, cj.sessionId);
-          setSessionByAssistant((p) => ({ ...p, [assistantId]: cj.sessionId! }));
-          await loadSessionMessagesIntoState(assistantId, cj.sessionId);
+        const next = remaining[0];
+        if (!next) {
+          setSessionByAssistant((prev) => ({ ...prev, [assistantId]: undefined }));
+          setMessagesByAssistant?.((prev) => ({ ...prev, [assistantId]: [] }));
+          setContextMatterId(scope);
           return;
         }
-        const nextId = remaining[0].sessionId;
-        persistActiveChatSessionId(sessionStoreKey, assistantId, nextId);
-        setSessionByAssistant((p) => ({ ...p, [assistantId]: nextId }));
-        await loadSessionMessagesIntoState(assistantId, nextId);
+        const nextAssistantId = next.assistantId?.trim() || assistantId;
+        persistActiveChatSessionId(sessionStoreKey, nextAssistantId, next.sessionId);
+        setSessionByAssistant((prev) => ({ ...prev, [nextAssistantId]: next.sessionId }));
+        if (nextAssistantId !== selectedAssistantId) {
+          setSelectedAssistantId(nextAssistantId);
+        }
+        await loadSessionMessagesIntoState(
+          nextAssistantId,
+          next.sessionId,
+          undefined,
+          undefined,
+          (boundMatterId) => {
+            rememberOpenedSession(next.sessionId, boundMatterId);
+          },
+        );
       } catch (cause) {
         setError(errorMessage(cause, "删除对话失败"));
       }
@@ -614,11 +585,74 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
     const ac = new AbortController();
     void hydrateWorkspaceChatSessions(ac.signal);
     return () => ac.abort();
-  }, [config?.apiBase, config?.workspaceDir, selectedAssistantId, hydrateWorkspaceChatSessions]);
+  }, [config?.apiBase, config?.workspaceDir, hydrateWorkspaceChatSessions]);
+
+  const openChatListScope = useCallback(
+    async (scope: string | null) => {
+      const assistantId = selectedAssistantIdRef.current;
+      const storeKey = chatSessionStoreKey(config?.workspaceDir);
+      chatListScopeRef.current = scope;
+      setChatListScope(scope);
+      persistChatListScope(storeKey, scope);
+      const pick = pickChatSessionForScope(chatSessionListRef.current, scope, knownChatMatterIdsRef.current, {
+        storedSessionId: getStoredScopeSessionId(storeKey, scope),
+      });
+      if (!pick) {
+        setSessionByAssistant((prev) => ({ ...prev, [assistantId]: undefined }));
+        setMessagesByAssistant?.((prev) => ({ ...prev, [assistantId]: [] }));
+        setContextMatterId(scope);
+        return;
+      }
+      const openAssistantId = pick.assistantId?.trim() || assistantId;
+      setSessionByAssistant((prev) => ({ ...prev, [openAssistantId]: pick.sessionId }));
+      setContextMatterId(chatScopeForMatterId(pick.matterId, knownChatMatterIdsRef.current));
+      await selectChatSession(pick.sessionId, openAssistantId);
+    },
+    [
+      config?.workspaceDir,
+      knownChatMatterIdsRef,
+      selectChatSession,
+      setContextMatterId,
+      setMessagesByAssistant,
+      setSessionByAssistant,
+    ],
+  );
+
+  const focusAssistantInCurrentScope = useCallback(
+    async (assistantId: string) => {
+      const scope = chatListScopeRef.current;
+      setSelectedAssistantId(assistantId);
+      const storeKey = chatSessionStoreKey(config?.workspaceDir);
+      const pick = pickChatSessionForScope(chatSessionListRef.current, scope, knownChatMatterIdsRef.current, {
+        assistantId,
+        storedSessionId: getStoredScopeSessionId(storeKey, scope),
+      });
+      if (!pick) {
+        setSessionByAssistant((prev) => ({ ...prev, [assistantId]: undefined }));
+        setMessagesByAssistant?.((prev) => ({ ...prev, [assistantId]: [] }));
+        setContextMatterId(scope);
+        return;
+      }
+      setSessionByAssistant((prev) => ({ ...prev, [assistantId]: pick.sessionId }));
+      await selectChatSession(pick.sessionId, assistantId);
+    },
+    [
+      config?.workspaceDir,
+      knownChatMatterIdsRef,
+      selectChatSession,
+      setContextMatterId,
+      setMessagesByAssistant,
+      setSelectedAssistantId,
+      setSessionByAssistant,
+    ],
+  );
 
   return {
+    chatListScope,
     hydrateWorkspaceChatSessions,
     selectChatSession,
+    openChatListScope,
+    focusAssistantInCurrentScope,
     openDelegationTargetWorkspaceChat,
     createNewChatSession,
     renameChatSession,

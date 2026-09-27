@@ -10,6 +10,7 @@ import {
 import type { LawmindComposeExtras } from "./useLawmindComposeExtras";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "./lawmind-requires-action";
 import { handleEnterSendShiftNewline, type ChatMsg } from "./lawmind-chat";
+import { useTurnInboxNote } from "./lawmind-turn-inbox-post";
 import type { ChatContextForkProps } from "./LawmindContextForkSuggestion";
 import {
   LM_CHAT_COMPOSE_DEFAULT_HEIGHT_PX,
@@ -39,7 +40,6 @@ import { LawmindComposeContextPicker } from "./LawmindComposeContextPicker";
 import { LawmindComposeTemplateGallery } from "./LawmindComposeTemplateGallery";
 import type { ReviewOpenTarget } from "./LawmindChatReviewSticky";
 import type { FileChatContextItem } from "./lawmind-app-shell";
-import { apiSendJson } from "./api-client";
 import {
   lawyerFacingDecisionTotal,
   lawyerFacingQueueScopeHint,
@@ -292,6 +292,7 @@ export function LawmindChatComposeFooter({
   templateGalleryOpen?: boolean;
   onTemplateGalleryOpenChange?: (open: boolean) => void;
 }) {
+  const turnInbox = useTurnInboxNote(loading);
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [contextPickerOpen, setContextPickerOpen] = useState(false);
@@ -507,17 +508,13 @@ export function LawmindChatComposeFooter({
     const text = input.trim();
     // Inbox: live turn + Enter is steer (same turn). 「下一轮再发」 must call onSend (followup).
     if (loading && text && apiBase && chatSessionId) {
-      void apiSendJson(apiBase, `/api/sessions/${encodeURIComponent(chatSessionId)}/steer`, "POST", {
-        text,
-      }).catch(() => {
-        /* next model round will miss this note; lawyer can send again after idle */
-      });
+      turnInbox.post("steer", { text }, apiBase, chatSessionId);
       onInputChange("");
       writeComposeStash(contextMatterId, "");
       return;
     }
     return onSend();
-  }, [apiBase, chatSessionId, contextMatterId, input, loading, onInputChange, onSend]);
+  }, [apiBase, chatSessionId, contextMatterId, input, loading, onInputChange, onSend, turnInbox.post]);
 
   const paletteActions: CommandPaletteAction[] = useMemo(
     () => [
@@ -527,12 +524,6 @@ export function LawmindChatComposeFooter({
         label: "搜索对话",
         hint: "在左侧列表里搜其他对话",
         run: () => requestFocusChatSearch(),
-      },
-      {
-        id: "doctor",
-        slash: "/doctor",
-        label: "系统健康",
-        run: () => onOpenDoctor?.(),
       },
       {
         id: "review",
@@ -558,7 +549,7 @@ export function LawmindChatComposeFooter({
         id: "agents",
         slash: "/agents",
         label: "在办",
-        hint: "打开在办 · 待拍板分区",
+        hint: "打开在办，先看要你处理的",
         run: () => openNeedsDecisionDesk?.(),
       },
       {
@@ -658,13 +649,9 @@ export function LawmindChatComposeFooter({
       if (!loading || !apiBase || !chatSessionId || pins.length === 0) {
         return;
       }
-      void apiSendJson(apiBase, `/api/sessions/${encodeURIComponent(chatSessionId)}/inject`, "POST", {
-        contextPins: pins,
-      }).catch(() => {
-        /* next model round will miss this pin; local chips still apply on the following send */
-      });
+      turnInbox.post("pins", { contextPins: pins }, apiBase, chatSessionId);
     },
-    [apiBase, chatSessionId, loading],
+    [apiBase, chatSessionId, loading, turnInbox.post],
   );
 
   const handleDroppedChatFiles = useCallback(
@@ -890,6 +877,11 @@ export function LawmindChatComposeFooter({
         data-testid="lm-compose-drop-zone"
       >
         <div className="lm-compose-box">
+          {turnInbox.note ? (
+            <p className="lm-intent-status" data-testid="lm-turn-inbox-ack" role="status">
+              {turnInbox.note}
+            </p>
+          ) : null}
           <textarea
             ref={textareaRef}
             value={input}
@@ -926,6 +918,7 @@ export function LawmindChatComposeFooter({
             allowWebSearch={allowWebSearch}
             webSearchPolicyBlocked={webSearchPolicyBlocked}
             onAllowWebSearchChange={onAllowWebSearchChange}
+            apiBase={apiBase}
             modelCatalog={modelCatalog}
             selectedModelId={selectedModelId}
             onModelSelect={onModelSelect}

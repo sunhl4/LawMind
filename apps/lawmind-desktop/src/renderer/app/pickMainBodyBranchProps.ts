@@ -122,12 +122,7 @@ export function pickLawyerWorkbenchProps(
       props.onGoToChat({ taskId: "", matterId: opts.matterId, prompt: opts.prompt });
     },
     onOpenNeedsDecision: (matterId) =>
-      openNeedsDecisionDesk(
-        props,
-        matterId
-          ? { matterId, preferStatus: "awaiting_approval" }
-          : { preferStatus: "awaiting_approval" },
-      ),
+      openNeedsDecisionDesk(props, matterId ? { matterId } : undefined),
     onCreateMatter: props.onCreateMatter,
     onOpenReview: ({ matterId, taskId }) => {
       const tid = taskId?.trim();
@@ -162,6 +157,7 @@ export function pickAgentFleetViewProps(props: LawmindMainBodyContentProps): Age
     },
     onOpenMemoryInspector: props.onOpenMemoryInspector,
     onOpenDoctor: props.onOpenDoctor,
+    onOpenMatterOnDesk: props.onOpenMatterOnDesk,
     onShowArtifact: props.onShowArtifact,
     agentsDeskTab: props.agentsDeskTab,
     onAgentsDeskTabChange: props.onAgentsDeskTabChange,

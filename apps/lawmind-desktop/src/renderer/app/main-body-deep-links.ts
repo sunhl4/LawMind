@@ -107,7 +107,7 @@ export function buildMeetingDeepLinkHandlers(deps: MeetingDeepLinkDeps) {
         recordsDeskMattersSetSelectedKey(mid);
       }
       setMatterCockpitOpen(false);
-      setMainView("meeting");
+      setMainView("workspace");
     },
     onSelectMeetingMatterScope: (matterId: string | null) => {
       const mid = matterId?.trim() || null;

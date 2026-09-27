@@ -8,6 +8,7 @@ import type { ChatMsg } from "./lawmind-chat";
 import { parseRequiresActionsFromResponse } from "./lawmind-requires-action";
 import type { ChatSessionListEntry } from "./lawmind-chat-active-storage";
 import type { CarryoverOrigin } from "./LawmindMsgCarryoverNotice";
+import { mapChatSessionListPayload } from "./lawmind-chat-session-list";
 
 export type { ChatMsg } from "./lawmind-chat";
 export type { ChatSessionListEntry } from "./lawmind-chat-active-storage";
@@ -15,8 +16,12 @@ export {
   chatSessionStoreKey,
   clearStoredActiveChatSessionForAssistant,
   getStoredActiveChatSessionId,
+  getStoredScopeSessionId,
   persistActiveChatSessionId,
+  persistChatListScope,
+  persistScopeSessionId,
   readChatActiveStore,
+  readStoredChatListScope,
 } from "./lawmind-chat-active-storage";
 
 /** 无标题会话的默认显示名（律师向中文，统一一处）。 */
@@ -60,7 +65,7 @@ export function useLawmindChatShell(input: {
   apiBase: string | undefined;
   selectedAssistantId: string;
 }): LawmindChatShellState {
-  const { apiBase, selectedAssistantId } = input;
+  const { apiBase } = input;
   const [messagesByAssistant, setMessagesByAssistant] = useState<Record<string, ChatMsg[]>>({});
   const [sessionByAssistant, setSessionByAssistant] = useState<
     Record<string, string | undefined>
@@ -168,14 +173,12 @@ export function useLawmindChatShell(input: {
   );
 
   const refreshChatSessionListForAssistant = useCallback(
-    async (assistantId: string): Promise<ChatSessionListEntry[] | null> => {
+    async (_assistantId: string): Promise<ChatSessionListEntry[] | null> => {
       if (!apiBase) {
         return null;
       }
-      const r = await fetch(
-        `${apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
-        { headers: apiAuthHeaders() },
-      );
+      // 左栏按案件分档，列表必须带上其他助手的对话。按助手过滤会把它们藏起来。
+      const r = await fetch(`${apiBase}/api/sessions`, { headers: apiAuthHeaders() });
       const j = (await r.json()) as {
         ok?: boolean;
         sessions?: Array<{
@@ -183,24 +186,22 @@ export function useLawmindChatShell(input: {
           title?: string;
           updatedAt: string;
           lastPreview?: string;
+          matterId?: string | null;
+          assistantId?: string;
+          forkedToSessionId?: string;
         }>;
       };
       if (!j.ok || !Array.isArray(j.sessions)) {
         return null;
       }
-      const mapped: ChatSessionListEntry[] = j.sessions.map((s) => ({
-        sessionId: s.sessionId,
-        title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
-        updatedAt: s.updatedAt,
-        lastPreview: typeof s.lastPreview === "string" ? s.lastPreview : undefined,
-      }));
-      if (assistantId !== selectedAssistantId) {
+      const mapped = mapChatSessionListPayload(j.sessions);
+      if (!mapped) {
         return null;
       }
       setChatSessionList(mapped);
       return mapped;
     },
-    [apiBase, selectedAssistantId],
+    [apiBase],
   );
 
   return {

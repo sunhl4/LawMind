@@ -23,6 +23,6 @@ describe("webSearchStatusLabel", () => {
         webSearchReady: true,
         webSearchPolicyBlocked: true,
       }),
-    ).toEqual({ ready: false, label: "策略已禁止" });
+    ).toEqual({ ready: false, label: "已关闭" });
   });
 });

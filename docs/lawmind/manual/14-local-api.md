@@ -16,9 +16,19 @@
 - 审批
 - 后台任务
 
-引擎不直接暴露给界面。界面 → 本地 API → 引擎，这是唯一的链路。
+权威状态（会话、稿件、案件、审批、记忆）只经这条 API 进出。界面仍可进程内调用零 Node 依赖的叶子模块；CLI 和 `lawmindd` 是另外两个宿主（第 1 章）。「只能通过本地 API 调用引擎」是错的。
 
 服务只监听**回环**：`127.0.0.1` 和 `::1` 两个协议族同时监听，绝不对局域网暴露。
+
+五条铁律在这里的取舍：
+
+| 铁律           | 这一层怎么落                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------------- |
+| 上手简单       | 律师不选端口、不配鉴权。404 只说「请退出后重新打开」。打包命令只打在服务日志里。                               |
+| 交付质量       | API 把稿件、改稿、导出送到引擎。它不另做一套「质量分」。                                                       |
+| 稳定           | 重启后跑到一半的任务标成中断，不假装还在跑。Word 对不上案卷就直接办，不再要求先选案。                          |
+| 先复用，后自研 | 回环 HTTP + SSE。不自造第二套远程协议。                                                                        |
+| 发挥模型能力   | 路由只搬运回合。硬控留在 Host 门、凭据范围、变更请求的内容类型：防的是别人的页面打进本机，不是文稿写得对不对。 |
 
 ## 14.2 为什么要绑两个协议族
 
@@ -69,9 +79,13 @@
 14. 自动重建索引（只在策略允许且索引陈旧时）。
 15. 启动案件副本自动同步。
 16. 如果配了审计外锚地址，启动外锚同步。
-17. 如果索引不存在，后台重建一次。
+17. 守护模式若索引不存在，在这里后台补一次（守护进程不起 HTTP）。
 18. 守护模式在这里返回（不起 HTTP 服务）。
-19. 初始化凭据，建限流桶，起两个 `http.createServer`（IPv4 + IPv6）。
+19. 初始化凭据，建限流桶，起两个 `http.createServer`（IPv4 + IPv6）。桌面进程在监听成功之后才补缺索引，避免挡在端口前面。
+
+桌面壳判定「服务起来了」打的是 `GET /.well-known/lawmind-local`，而且要求 `credentialModel` 为 `derived-hmac-sha256`。发现端点不含密钥，返回就说明回环已经在听。全量体检走 `GET /api/health` 与 `pnpm lawmind:doctor`（界面不再单设体检页）。
+
+两个 `http.Server` 的 `keepAliveTimeout` 是 65 秒（`headersTimeout` 70 秒，必须大于前者）。Node 默认 5 秒，切对话 / 工作台 / 在办时连接已经拆掉，每次都要重新握手。拉长之后界面切换复用同一条回环连接。入站 `requestTimeout` 保持 Node 默认，不关掉。
 
 ### 进程级错误策略
 
@@ -82,7 +96,7 @@
 | `uncaughtException`  | 打日志 → 记信号 → `process.exit(1)` | 同步栈可能已经坏了，干净退出让监督进程重启 |
 | `unhandledRejection` | 打日志 → 记信号 → **不退出**        | 可用性优先，降级成健康信号                 |
 
-不退出那个会体现在 `/api/health` 的 `doctor.process.degraded` 上。也就是说，未处理的 Promise 拒绝不会把服务搞死，但会让你在体检页看到「降级」。
+不退出那个会体现在 `/api/health` 的 `doctor.process.degraded` 上。也就是说，未处理的 Promise 拒绝不会把服务搞死，但会让你在健康数据里看到「降级」。
 
 ### 一次真实的启动顺序 bug
 
@@ -157,32 +171,39 @@
 
 ### 限流
 
-在分发之前还有一个令牌桶：速率 100/秒、容量 200。**所有路径共用这一个桶**，包括发现端点、静态页、SSE。
+在分发之前还有一个令牌桶：速率 100/秒、容量 200。对话、写稿、导出、体检、任务列表、历史和案件概览都进这一个桶。扫盘的 GET 若豁免，失控客户端会把事件循环打满。
+
+不进桶的只有预检，以及打开窗口时的两条轻请求：
+
+```text
+OPTIONS
+GET /.well-known/lawmind-local
+GET /api/bootstrap
+```
 
 超了返回：
 
 ```text
-429 { ok: false, error: "rate_limited" }
+429 { ok: false, error: "rate_limited", code: "rate_limited" }
 ```
 
 限流状态会进 `/api/health`（`doctor.rateLimit`）。
 
 ### 404 与错误
 
-路由都不匹配时返回 404，而且给了一句很有用的提示：
+路由都不匹配时返回 404。给界面的句子是：
 
 ```text
-本机路由未匹配。若刚升级 LawMind，请在工作区根执行 pnpm lawmind:bundle:desktop-server
-（或 pnpm --filter lawmind-desktop bundle:server）后重启桌面端，或重启当前开发用的本地服务进程。
+这一步没能完成。请退出 LawMind 后重新打开。
 ```
 
-这条 hint 针对的是真实场景：升级后忘了重新打包本地服务，新路由不存在。
+开发者要的那句（忘了重新打包本地服务）只打在服务日志：`[LawMind] no_route` 后面跟着 `pnpm lawmind:bundle:desktop-server`。律师界面不出现命令名。
 
 其他错误走统一信封：`{ ok:false, code, message, error, ...extra }`。已知错误码还有 `body_too_large`（413）、`invalid_json`（400）、`invalid_request_body`（400）。
 
 ## 14.5 路由注册表：59 个 handler
 
-`lawmind-server-route-registry.ts` 里是一个**有序数组**，第一个匹配的赢。顺序本身有讲究，比如 e2e 测试路由放最前面（只在开关打开时生效），SSE 和健康检查放很前面。
+`lawmind-server-route-registry.ts` 里是一个**有序数组**，第一个匹配的赢。顺序本身有讲究，比如 e2e 测试路由放最前面（只在开关打开时生效），SSE 和健康检查放很前面。`GET /api/tasks/:id` 的权威实现在审查路由里，它注册在记录路由之前；不能为了少走几步把某条路径提前交给后面的 handler。
 
 完整顺序（按代码里的次序）：
 
@@ -328,7 +349,7 @@ POST /api/jobs/:id/cancel
 
 ## 14.9 给界面看的状态：`/api/health`
 
-`/api/health` 是体检页的数据源，字段非常多。挑重要的分组说：
+`/api/health` 同时喂两拨人。律师在设置里只看三件事：模型能不能用（模型与连接）、Word 连上没有（外观）、后台办件有没有停（工作区）。下面这些字段是工程师排障用的，不要再铺成第二张运维控制台。
 
 **模型与连接**：`modelConfigured`、`modelVerified`、`missingApiKey`、`defaultModelId`、`modelBaseUrl`、`modelProviders`、`webSearchReady`、`retrievalMode`、`dualLegalConfigured`。
 
@@ -444,7 +465,10 @@ POST /api/jobs/:id/cancel
 - **回环 Host 门不能去掉。** 它是防 DNS 重绑定的唯一手段，浏览器伪造不了 `Host`。
 - **打包态忽略 `LAWMIND_SKIP_API_AUTH`。** 别指望在生产上用它省事。
 - **开发态跳鉴权时变更请求必须带 JSON Content-Type。** 这层是为了缓释 CSRF，别当普通校验删掉。
-- **限流是全路径共用一个桶。** 包括 SSE 和静态页。压测时注意这一点。
+- **限流桶罩住扫盘请求。** 对话、写稿、导出、体检、任务列表、历史、案件概览共用 100/秒。只有 `OPTIONS`、发现端点和 `/api/bootstrap` 不进桶。
+- **探活用发现端点，不用 `/api/health`。** 响应还要带 `credentialModel: derived-hmac-sha256`，避免把别的进程当成 LawMind。全量体检留在设置页。
+- **`/api/bootstrap` 不扫任务、草稿和会话完整性。** 那些计数在 `/api/tasks`、`/api/history` 和 `/api/health`。引导接口再扫一遍会和列表请求抢事件循环。
+- **缺索引时守护进程和桌面进程都会补建。** 桌面进程在 `listen` 成功之后补，守护进程不起 HTTP，在返回前补。
 - **守护定时器在守护模式不能 unref。** unref 了进程会立刻「正常退出」，日志里看起来像启动成功然后干净退出。
 - **监督进程故意不清 pid 和锁。** 那是 tick 子进程的职责，对调就重现那个启动 bug。
 - **`running` 的 job 取消只是「请求取消」。** 已发出的单次调用不会被中止，只在步骤批次之间生效。
@@ -452,4 +476,4 @@ POST /api/jobs/:id/cancel
 - **策略文件缺 `schemaVersion` 会被整份忽略。** 配了没生效先看这一条。
 - **不要用策略去改写律师的联网偏好。** 离线模式是「上限」，不是「把偏好改成 false」。
 - **手写 `writeHead` 必须带 CORS 头。** 症状是前端 `Failed to fetch`（几毫秒内失败）而后端日志全绿。有结构测试守着，别绕过它。
-- **404 的 hint 指向重新打包本地服务。** 升级后碰到大量 404，先跑 `pnpm lawmind:bundle:desktop-server`。
+- **404 给律师的句子不含命令。** 开发态大量 404 时看服务日志里的 `no_route`，再跑 `pnpm lawmind:bundle:desktop-server`。

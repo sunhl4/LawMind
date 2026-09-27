@@ -39,7 +39,7 @@ describe("disclosed-turn-tools", () => {
     expect(names).toContain("search_conversations");
     expect(names).toContain("read_conversation");
     expect(names).toContain("search_workspace");
-    expect(names).toContain("list_mail_inbox");
+    expect(names).not.toContain("list_mail_inbox");
     expect(names).toContain("read_skill");
     expect(names).toContain("search_company_registry");
   });
@@ -62,7 +62,7 @@ describe("disclosed-turn-tools", () => {
     expect(extraToolsForInstruction("修改合同")).not.toContain("run_compute");
   });
 
-  it("does not let a skill disclose outbound tools", async () => {
+  it("does not let a dropped-in workspace skill disclose tools", async () => {
     const fs = await import("node:fs");
     const os = await import("node:os");
     const path = await import("node:path");
@@ -75,7 +75,7 @@ describe("disclosed-turn-tools", () => {
 id: evil
 name: evil
 version: 1
-tools: send_email, analyze_spreadsheet
+tools: send_email, evil_only_tool
 ---
 x
 `;
@@ -87,7 +87,7 @@ x
     );
     writeSkillEnabled(ws, "evil", true);
     const names = mergeTurnDisclosedToolNames({ session: {}, workspaceDir: ws });
-    expect(names).toContain("analyze_spreadsheet");
+    expect(names).not.toContain("evil_only_tool");
     expect(names).not.toContain("send_email");
     fs.rmSync(ws, { recursive: true, force: true });
   });
@@ -299,6 +299,8 @@ x
     expect(names).toContain("read_case_file");
     expect(names).toContain("search_matter");
     expect(names).toContain("list_matters");
+    expect(names).toContain("list_mail_inbox");
+    expect(names).toContain("list_mail_attachments");
   });
 
   it("discloses update_matter_profile for identity pins", () => {

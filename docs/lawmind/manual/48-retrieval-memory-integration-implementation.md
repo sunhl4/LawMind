@@ -8,7 +8,7 @@
 
 | 文件                                         | 关键导出                                                                                                                                                                      |
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.ts`                                   | `retrieve`、`createWorkspaceAdapter`、类型 `RetrievalAdapter` / `RetrievalResult` / `RetrieveParams`                                                                          |
+| `index.ts`                                   | `retrieve`、`claimArticleGrounded`、`createWorkspaceAdapter`；合并时 20 秒超时、同 id 保留非演示来源、条号对不上来源则降级                                                    |
 | `authority-adapter.ts`                       | `createAuthorityAdapterFromEnv`                                                                                                                                               |
 | `providers.ts`                               | `createDomesticGeneralAdaptersFromEnv`、`createOpenSourceLegalAdaptersFromEnv`、`createLexEdgeAdapterFromEnv`、`createPartnerLegalAdapterFromEnv`、`GENERAL_PROVIDER_PRESETS` |
 | `model-adapters.ts` / `openai-compatible.ts` | 模型型检索适配器                                                                                                                                                              |
@@ -35,7 +35,7 @@
 
 ### `providers/open-law/`（子目录）
 
-有独立的 README。核心是 `client.ts` 的 `openLawRetrieve`、`local-corpus.ts`（sample 与外部 CORPUS 的加载与 demo 判定）、`npc-flk.ts`（NPC 直播，含节流与缓存）。
+有独立的 README。核心是 `client.ts` 的 `openLawRetrieve`：hybrid 并列已启用直播车道再合并，本地 sample 只在直播全空时兜底。`local-corpus.ts` 管 sample 与外部 CORPUS 的 demo 判定，`npc-flk.ts` 管 NPC 直播的节流与缓存。
 
 ### `providers/pkulaw/`（子目录）
 
@@ -66,20 +66,20 @@
 
 ## 48.3 `indexing/`（10 个文件）
 
-| 文件                      | 关键导出                                                                                                                                                  |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace-index-path.ts` | `SEARCH_INDEX_SCHEMA_VERSION = 3`、`searchIndexPath`、`lawmindDir`                                                                                        |
-| `fts-schema.ts`           | `initSearchIndexSchema`、`recreateMaterialsFts`、`recreateKnowledgeFts`、`clearFtsTables`、`setMeta`、`getMeta`                                           |
-| `fts-ingest.ts`           | `rebuildWorkspaceSearchIndex`、`openSearchIndexDb`、`indexExists`                                                                                         |
-| `fts-search.ts`           | `searchWorkspaceIndex`、`escapeFtsQuery`、`escapeKnowledgeFtsQuery`、`getSearchIndexStatus`、`computeSearchIndexFreshness`、`SEARCH_INDEX_STALE_AFTER_MS` |
-| `fts-ingest-materials.ts` | `ingestMaterialsRows`、`ingestMaterialsIncremental`、`MAX_FILE_BYTES`、`CHUNK_CHARS`                                                                      |
-| `fts-search-materials.ts` | `searchMaterials`、`MaterialSearchHit`（**带 `page`**）                                                                                                   |
-| `knowledge-search.ts`     | `searchPersonalKnowledge`、`KnowledgeDocKindFilter`、`PersonalKnowledgeHit`                                                                               |
-| `embeddings/index.ts`     | `getEmbeddingIndexConfig`、`embedTextsLocalStub`、`cosineSimilarity`、`rankHybrid`                                                                        |
+| 文件                      | 关键导出                                                                                                                   |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `workspace-index-path.ts` | `SEARCH_INDEX_SCHEMA_VERSION = 3`、`searchIndexPath`、`lawmindDir`                                                         |
+| `fts-schema.ts`           | `initSearchIndexSchema`、`recreateMaterialsFts`、`recreateKnowledgeFts`、`clearFtsTables`、`setMeta`、`getMeta`            |
+| `fts-ingest.ts`           | `rebuildWorkspaceSearchIndex`、`syncWorkspaceSearchIndex`、`workspaceSourcesChanged`、`openSearchIndexDb`、`indexExists`   |
+| `fts-search.ts`           | `searchWorkspaceIndex`、`escapeFtsQuery`、`escapeKnowledgeFtsQuery`、`getSearchIndexStatus`、`computeSearchIndexFreshness` |
+| `fts-ingest-materials.ts` | `ingestMaterialsRows`、`ingestMaterialsIncremental`、`MAX_FILE_BYTES`、`CHUNK_CHARS`                                       |
+| `fts-search-materials.ts` | `searchMaterials`、`MaterialSearchHit`（**带 `page`**）                                                                    |
+| `knowledge-search.ts`     | `searchPersonalKnowledge`、`KnowledgeDocKindFilter`、`PersonalKnowledgeHit`                                                |
+| `embeddings/index.ts`     | `getEmbeddingIndexConfig`、`embedTextsLocalStub`、`cosineSimilarity`、`rankHybrid`                                         |
 
 **四张表**：`audit_fts`、`session_fts`（都用 `unicode61`）、`knowledge_fts`、`materials_fts`（都用 `trigram`）。
 
-**`getSearchIndexStatus` 与 `computeSearchIndexFreshness` 是两个不同的东西**：前者给状态快照，后者给「陈旧原因」（`index_missing` / `last_rebuild_unknown` / `older_than_24h`）。
+**`getSearchIndexStatus` 与 `computeSearchIndexFreshness` 是两个不同的东西**：前者给状态快照（含 `sourcesChanged`），后者给「陈旧原因」（`index_missing` / `last_rebuild_unknown` / `sources_changed`）。检索前 `syncWorkspaceSearchIndex` 只重写改过的文件。
 
 ## 48.4 `memory/`（25 个文件）
 
@@ -200,6 +200,8 @@
 ### 模式三：上限常量集中且导出
 
 `MATTER_PARTIES_CAP`、`MATTER_MATERIALS_LIST_CAP`、`MAX_BYTES`、`MAX_FILES`、`MIN_*_SAMPLES`……这些常量大多**导出**，因为测试和界面会用到。
+
+工作区适配器只在 `isValidMatterId` 通过后读 `cases/<id>/CASE.md`。模型适配器的来源带 `provider: model-legal` 或 `model-general`。`claimArticleGrounded` 不拿它们给条号背书。开放样本库仍用 `demo: true`，样本里写了的条号可以核对。活的法源适配器仍按原文条号核对。
 
 ## 48.12 已知坑（本章相关）
 

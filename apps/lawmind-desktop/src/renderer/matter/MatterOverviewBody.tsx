@@ -1,3 +1,4 @@
+import { useLayoutEffect } from "react";
 import type { ArtifactDraft, MatterOverview, MatterSummary } from "../../../../../src/lawmind/types.ts";
 import type { ApprovalRequest, WorkQueueItem } from "../../../../../src/lawmind/core/contracts.ts";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
@@ -97,8 +98,6 @@ export type MatterOverviewBodyProps = {
       sourceLabel?: string;
     },
   ) => void;
-  /** 打开本案「会议室」讨论时间线 */
-  onOpenMeeting?: () => void;
   /** 打开本案对话（绑定 matter 上下文） */
   onUseInChat?: (matterId: string) => void;
   /** 打开「在办」待我拍板焦点 */
@@ -161,7 +160,6 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
     reviewSummaryCards,
     onOpenReview,
     openReviewFromMatter,
-    onOpenMeeting,
     onUseInChat,
     onOpenNeedsDecisionDesk,
     blockingExplanations,
@@ -182,6 +180,10 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
 
   const { opsFocus, setOpsFocus, opsSort, setOpsSort, extrasOpen, openExtras, closeExtras } =
     useMatterOverviewViewSelectors();
+  const resetOverviewTransient = useMatterOverviewViewStore((s) => s.resetTransient);
+  useLayoutEffect(() => {
+    resetOverviewTransient();
+  }, [matterId, resetOverviewTransient]);
 
   const { metrics: healthMetrics, loading: healthLoading } = useMatterHealthMetrics(
     apiBase,
@@ -254,16 +256,6 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
                 onClick={() => onUseInChat(matterId)}
               >
                 打开本案对话
-              </button>
-            ) : null}
-            {onOpenNeedsDecisionDesk ? (
-              <button
-                type="button"
-                className="lm-btn lm-btn-secondary lm-btn-sm"
-                data-testid="lm-matter-open-needs-decision"
-                onClick={() => onOpenNeedsDecisionDesk?.()}
-              >
-                待我拍板
               </button>
             ) : null}
             {(() => {
@@ -374,6 +366,12 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             <p className="lm-meta">无待办 — 可在对话下达新任务</p>
           )}
         </section>
+        {matterId && apiBase ? (
+          <details className="lm-matter-replica-entry" data-testid="lm-matter-replica-entry">
+            <summary>邀请同事</summary>
+            <MatterReplicaPanel apiBase={apiBase} matterId={matterId} embedded />
+          </details>
+        ) : null}
         <MatterOverviewExtras
           expanded={extrasOpen}
           onExpand={() => openExtras()}
@@ -394,13 +392,11 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
           <MatterTeamRosterStrip
             apiBase={apiBase}
             matterId={matterId}
-            onOpenMeeting={onOpenMeeting}
             onOpenNeedsDecisionDesk={
               onOpenNeedsDecisionDesk ? () => onOpenNeedsDecisionDesk() : undefined
             }
           />
         ) : null}
-        {matterId && apiBase ? <MatterReplicaPanel apiBase={apiBase} matterId={matterId} /> : null}
         {matterId && apiBase ? <MatterTheoryLitePanel apiBase={apiBase} matterId={matterId} /> : null}
         {matterId && apiBase && profile ? (
           <MatterProfileCard apiBase={apiBase} profile={profile} onSaved={onProfileSaved} />
@@ -443,16 +439,6 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             </div>
           ))}
         </section>
-        ) : null}
-        {onOpenMeeting ? (
-          <section className="lm-matter-cockpit-card lm-matter-meeting-entry">
-            <div className="lm-matter-ops-title">
-              <span>本案讨论时间线</span>
-              <button type="button" className="lm-btn lm-btn-secondary lm-btn-small" onClick={onOpenMeeting}>
-                打开会议室
-              </button>
-            </div>
-          </section>
         ) : null}
         {reviewQueueRows.length > 0 || approvalRows.length > 0 ? (
           <MatterReviewQueuePanel matterId={matterId} queueItems={reviewQueueRows} approvals={approvalRows} />

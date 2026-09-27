@@ -31,6 +31,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
         assignee: "client_communicator",
         task: "输出课件大纲并等待律师确认（research_outline_confirm）；未确认不得扩写幻灯片正文",
         dependsOn: ["research"],
+        holdForLawyer: true,
         autoApprove: false,
       },
       {
@@ -67,6 +68,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
         assignee: "compliance_researcher",
         task: "等待律师确认研究大纲（research_outline_confirm）",
         dependsOn: ["research"],
+        holdForLawyer: true,
         autoApprove: false,
       },
       {
@@ -126,6 +128,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
         stepId: "peer",
         assignee: "general_default",
         assigneeRoleId: "general_default",
+        execution: "isolated",
         task: "互审 NDA 初审结论：核对风险分级是否过宽/过严，列出须律师拍板项（matterId={{matterId}}）",
         dependsOn: ["draft"],
         autoApprove: false,
@@ -159,6 +162,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
         assignee: "general_default",
         assigneeRoleId: "general_default",
         reviewBy: undefined,
+        execution: "isolated",
         task: "互审合同审查意见：核对风险分级、必改项完整性与引用锚定（matterId={{matterId}}）",
         dependsOn: ["draft"],
         autoApprove: false,
@@ -375,6 +379,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
         assignee: "compliance_researcher",
         task: "输出研究大纲并等待律师确认（research_outline_confirm）；未确认不得扩写正文",
         dependsOn: ["research"],
+        holdForLawyer: true,
         autoApprove: false,
       },
       {

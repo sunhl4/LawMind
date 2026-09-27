@@ -262,17 +262,17 @@ const REPORT_ESG_SPEC: DeliverableSpec = {
       severity: "warning",
     },
     {
-      headingKeywords: ["环境", "气候", "碳", "排放", "能源", "e ", "environmental"],
+      headingKeywords: ["环境", "气候", "碳", "排放", "能源", "environmental"],
       purpose: "环境（E）维度",
       severity: "warning",
     },
     {
-      headingKeywords: ["社会", "员工", "供应链", "社区", "劳工", "s ", "social"],
+      headingKeywords: ["社会", "员工", "供应链", "社区", "劳工", "social"],
       purpose: "社会（S）维度",
       severity: "warning",
     },
     {
-      headingKeywords: ["治理", "合规", "董事会", "内控", "g ", "governance"],
+      headingKeywords: ["治理", "合规", "董事会", "内控", "governance"],
       purpose: "治理（G）维度",
       severity: "warning",
     },

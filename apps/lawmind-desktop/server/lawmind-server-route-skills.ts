@@ -1,58 +1,45 @@
 /**
- * Skills E7 — list / enable local SKILL.md packs.
+ * Product playbooks are built into the app. This route lists them.
+ * It does not install, enable, or disable skills.
  */
 
-import { z } from "zod";
-import { ensureBuiltinSkillSeeds } from "../../../src/lawmind/skills/ensure-builtin-skill-seeds.js";
-import {
-  listLocalSkills,
-  writeSkillEnabled,
-} from "../../../src/lawmind/skills/skill-runtime.js";
-import {
-  isInvalidRequestBodyError,
-  parseJsonBodyZod,
-} from "./lawmind-api-parse.js";
+import { listProductPlaybooks } from "../../../src/lawmind/skills/product-playbooks.js";
 import { sendJson } from "./lawmind-server-helpers.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import fs from "node:fs";
-import path from "node:path";
 
 export async function handleSkillsRoutes(args: LawmindRouteContext): Promise<boolean> {
-  const { ctx, pathname, req, res, c } = args;
-  const { workspaceDir } = ctx;
+  const { pathname, req, res, c } = args;
 
   if (pathname === "/api/skills" && req.method === "GET") {
-    // Idempotent: Settings Skills visible even if local-server boot seed was skipped.
-    ensureBuiltinSkillSeeds(workspaceDir);
-    const skills = listLocalSkills(workspaceDir);
-    const packPath = path.join(workspaceDir, "lawmind", "packs", "cn-legal-pack.json");
-    let cnPack = null;
-    try {
-      if (fs.existsSync(packPath)) {
-        cnPack = JSON.parse(fs.readFileSync(packPath, "utf8"));
-      }
-    } catch {
-      cnPack = null;
-    }
-    sendJson(res, 200, { ok: true, skills, cnPack }, c);
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        configurable: false,
+        skills: listProductPlaybooks().map((s) => ({
+          id: s.id,
+          name: s.name,
+          version: s.version,
+          description: s.description,
+          toolNames: s.toolNames ?? [],
+        })),
+      },
+      c,
+    );
     return true;
   }
 
   if (pathname === "/api/skills/enabled" && req.method === "POST") {
-    try {
-      const body = await parseJsonBodyZod(
-        req,
-        z.object({ skillId: z.string().min(1), enabled: z.boolean() }),
-      );
-      writeSkillEnabled(workspaceDir, body.skillId, body.enabled);
-      sendJson(res, 200, { ok: true, skills: listLocalSkills(workspaceDir) }, c);
-    } catch (err) {
-      if (isInvalidRequestBodyError(err)) {
-        sendJson(res, 400, { ok: false, error: "invalid body" }, c);
-        return true;
-      }
-      throw err;
-    }
+    sendJson(
+      res,
+      405,
+      {
+        ok: false,
+        error: "作业标准随软件内置，不能安装或开关。",
+      },
+      c,
+    );
     return true;
   }
 

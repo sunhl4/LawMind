@@ -4,7 +4,7 @@
  */
 import path from "node:path";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { sendJson } from "./lawmind-server-helpers.js";
+import { buildAgentConfig, sendJson } from "./lawmind-server-helpers.js";
 import type { GateDecision, TaskExecutionState } from "../../../src/lawmind/platform/contracts.js";
 import {
   getWorkflowJob,
@@ -14,6 +14,7 @@ import {
   parseJobStatusQueryParams,
   publicWorkflowJobFromRecord,
   requestCancelWorkflowJob,
+  continueAwaitingLawyerWorkflowJob,
   subscribeWorkflowJobUpdates,
 } from "./lawmind-server-jobs.js";
 
@@ -46,6 +47,14 @@ function executionStateFromJob(
       detail: "工作流执行中。",
     };
   }
+  if (job.status === "awaiting_lawyer") {
+    return {
+      phase: "plan",
+      status: "running",
+      recoverable: true,
+      detail: job.error?.trim() || "请确认后再继续后续步骤。",
+    };
+  }
   if (job.status === "completed") {
     return {
       phase: "complete",
@@ -71,6 +80,15 @@ function executionStateFromJob(
 }
 
 function gateDecisionsFromJob(job: ReturnType<typeof publicWorkflowJobFromRecord>): GateDecision[] {
+  if (job.status === "awaiting_lawyer") {
+    return [
+      {
+        gate: "clarification_gate",
+        decision: "awaiting_confirmation",
+        reason: job.error?.trim() || "请确认后再继续后续步骤。",
+      },
+    ];
+  }
   if (job.cancelRequested && (job.status === "queued" || job.status === "running")) {
     return [
       {
@@ -209,6 +227,35 @@ export function handleJobRoutes({
       if (!result.ok) {
         const status =
           result.error === "job_not_found" ? 404 : result.error === "job_already_terminal" ? 409 : 400;
+        sendJson(res, status, { ok: false, error: result.error }, c);
+        return true;
+      }
+      sendJson(res, 200, { ok: true }, c);
+      return true;
+    }
+  }
+
+  {
+    const continueMatch = pathname.match(/^\/api\/jobs\/([^/]+)\/continue$/);
+    if (continueMatch && req.method === "POST") {
+      const id = parseJobRouteId(continueMatch[1] ?? "");
+      if (id === null) {
+        sendJson(res, 400, { ok: false, error: "invalid_job_id" }, c);
+        return true;
+      }
+      const job = getWorkflowJob(id);
+      if (!job || !jobBelongsToWorkspace(job, ctx.workspaceDir)) {
+        sendJson(res, 404, { ok: false, error: "job_not_found" }, c);
+        return true;
+      }
+      const built = buildAgentConfig(ctx.workspaceDir, { envFile: ctx.envFile });
+      if (!built.config) {
+        sendJson(res, 503, { ok: false, error: built.error ?? "missing_api_key" }, c);
+        return true;
+      }
+      const result = continueAwaitingLawyerWorkflowJob(id, built.config);
+      if (!result.ok) {
+        const status = result.error === "job_not_found" ? 404 : 409;
         sendJson(res, status, { ok: false, error: result.error }, c);
         return true;
       }

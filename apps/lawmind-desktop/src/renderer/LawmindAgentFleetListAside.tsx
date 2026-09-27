@@ -1,86 +1,101 @@
 /**
- * 在办左栏：团队 / 队列 Tab + 目录列表。
- * 视图状态（模式/筛选/分组展开）直接订阅 stores/fleet-desk-view-store（见 stores/README.md）；
- * 数据与选中联动仍由面板经 props 传入。
+ * 在办左栏：停在你这里 / 正在办 / 今天办完。
  */
 import type { ReactNode } from "react";
 import type { AgentRunSummary } from "./lawmind-agent-fleet-api";
-import type { FleetTeamRow } from "./lawmind-fleet-team";
-import { fleetTeamBusyLabel } from "./lawmind-fleet-team";
-import {
-  fleetStatusKind as statusKind,
-  fleetStatusLabel as statusLabel,
-  type FleetQueueGroup,
-} from "./lawmind-fleet-queue";
 import { sanitizeLawyerFacingText } from "../../../../src/lawmind/platform/requires-action.ts";
+import {
+  docketBandLabel,
+  docketRowStatusLabel,
+  docketRowTitle,
+  docketRowTone,
+  docketSourceLabel,
+  docketWhenLabel,
+  type DocketBandId,
+  type FleetDocket,
+} from "./lawmind-fleet-docket";
 import { lawyerFacingQueueScopeHint, useRequireSignoffReview } from "./lawmind-review-prefs";
-import { useFleetDeskViewStore } from "./stores/fleet-desk-view-store";
-
-export const FLEET_TAB_TEAM_ID = "lm-fleet-tab-team";
-export const FLEET_TAB_QUEUE_ID = "lm-fleet-tab-queue";
-export const FLEET_TABPANEL_TEAM_ID = "lm-fleet-tabpanel-team";
-export const FLEET_TABPANEL_QUEUE_ID = "lm-fleet-tabpanel-queue";
 
 export type LawmindAgentFleetListAsideProps = {
-  matterScopedQueue: AgentRunSummary[];
-  allQueue: AgentRunSummary[];
-  queue: AgentRunSummary[];
-  queueGroups: FleetQueueGroup[];
-  teamRows: FleetTeamRow[];
+  docket: FleetDocket;
+  hiddenInFlight: number;
+  hiddenSettled: number;
   matterChoices: string[];
   matterLabelById?: Record<string, string>;
-  onSelectAssistant: (assistantId: string) => void;
+  matterFilter: string;
+  onMatterFilter: (matterId: string) => void;
+  onlyNeedsYou: boolean;
+  onOnlyNeedsYou: (next: boolean) => void;
   selectedId: string | null;
   onSelectRun: (id: string) => void;
+  inFlightOpen: boolean;
+  settledOpen: boolean;
+  onToggleBand: (band: "inFlight" | "settled") => void;
   pendingTeachCount: number;
   onOpenMemoryInspector?: () => void;
-  needsDecisionFocus: boolean;
-  onClearNeedsDecisionFocus?: () => void;
+  onShowAll?: () => void;
+  /** 从某一案进来时，回到工作台这一卷。 */
+  onReturnToMatter?: () => void;
+  returnMatterLabel?: string;
 };
+
+function rowTitle(run: AgentRunSummary): string {
+  const sanitized = sanitizeLawyerFacingText(run.title, run.toolName)
+    .replace(/^待审定：\s*/, "")
+    .replace(/^待批准：\s*/, "");
+  return docketRowTitle(run, sanitized);
+}
+
+function matterLine(
+  run: AgentRunSummary,
+  matterLabelById: Record<string, string>,
+): string {
+  const mid = run.matterId?.trim();
+  if (!mid || mid.startsWith("临时")) {
+    return "";
+  }
+  return matterLabelById[mid]?.trim() || mid;
+}
 
 export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProps): ReactNode {
   const {
-    matterScopedQueue,
-    allQueue,
-    queue,
-    queueGroups,
-    teamRows,
+    docket,
+    hiddenInFlight,
+    hiddenSettled,
     matterChoices,
     matterLabelById = {},
-    onSelectAssistant,
+    matterFilter,
+    onMatterFilter,
+    onlyNeedsYou,
+    onOnlyNeedsYou,
     selectedId,
     onSelectRun,
+    inFlightOpen,
+    settledOpen,
+    onToggleBand,
     pendingTeachCount,
     onOpenMemoryInspector,
-    needsDecisionFocus,
-    onClearNeedsDecisionFocus,
+    onShowAll,
+    onReturnToMatter,
+    returnMatterLabel,
   } = props;
   const requireSignoffReview = useRequireSignoffReview();
-  const listMode = useFleetDeskViewStore((s) => s.listMode);
-  const matterFilter = useFleetDeskViewStore((s) => s.matterFilter);
-  const assistantFilter = useFleetDeskViewStore((s) => s.assistantFilter);
-  const expandedGroups = useFleetDeskViewStore((s) => s.expandedGroups);
-  const switchListMode = useFleetDeskViewStore((s) => s.switchListMode);
-  const setMatterFilter = useFleetDeskViewStore((s) => s.setMatterFilter);
-  const selectAllAssistants = useFleetDeskViewStore((s) => s.selectAllAssistants);
-  const toggleGroup = useFleetDeskViewStore((s) => s.toggleGroup);
+  const needsCount = docket.needsYou.length;
 
   return (
-    <aside className="lm-agents-wb-list" aria-label="在办团队目录">
+    <aside className="lm-agents-wb-list" aria-label="在办">
       <div className="lm-agents-wb-list-toolbar">
-        <span
+        <button
+          type="button"
           className="lm-agents-wb-pill"
-          data-tone="warn"
+          data-tone={onlyNeedsYou ? "warn" : undefined}
           data-testid="lm-fleet-decision-focus-lead"
-          title={`待拍板：${lawyerFacingQueueScopeHint(requireSignoffReview)}`}
+          aria-pressed={onlyNeedsYou}
+          title={lawyerFacingQueueScopeHint(requireSignoffReview)}
+          onClick={() => onOnlyNeedsYou(!onlyNeedsYou)}
         >
-          待拍板 {matterScopedQueue.length}
-          {assistantFilter
-            ? ` · 筛选 ${queue.length}`
-            : matterFilter !== "all" && allQueue.length !== matterScopedQueue.length
-              ? ` / 全所 ${allQueue.length}`
-              : ""}
-        </span>
+          只看要我处理{needsCount > 0 ? ` ${needsCount}` : ""}
+        </button>
         {matterChoices.length > 0 ? (
           <label className="lm-agents-wb-matter-filter">
             <span className="lm-sr-only">按案件筛选</span>
@@ -88,7 +103,7 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
               className="lm-input lm-agents-wb-matter-select"
               data-testid="lm-fleet-matter-filter"
               value={matterFilter}
-              onChange={(e) => setMatterFilter(e.target.value)}
+              onChange={(e) => onMatterFilter(e.target.value)}
             >
               <option value="all">全部案件</option>
               {matterChoices.map((mid) => (
@@ -99,6 +114,16 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
             </select>
           </label>
         ) : null}
+        {onReturnToMatter ? (
+          <button
+            type="button"
+            className="lm-agents-wb-pill lm-agents-wb-pill-btn"
+            data-testid="lm-fleet-return-matter"
+            onClick={() => onReturnToMatter()}
+          >
+            回这卷{returnMatterLabel ? ` · ${returnMatterLabel}` : ""}
+          </button>
+        ) : null}
         {pendingTeachCount > 0 ? (
           onOpenMemoryInspector ? (
             <button
@@ -106,220 +131,162 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
               className="lm-agents-wb-pill lm-agents-wb-pill-btn"
               data-tone="info"
               data-testid="lm-fleet-pending-teach"
-              title="打开设置→记忆，确认团队学习建议"
+              title="打开设置里的记忆，确认要记住的做法"
               onClick={() => onOpenMemoryInspector()}
             >
               待教 {pendingTeachCount}
             </button>
           ) : (
-            <span
-              className="lm-agents-wb-pill"
-              data-tone="info"
-              data-testid="lm-fleet-pending-teach"
-              title="待确认的团队学习建议"
-            >
+            <span className="lm-agents-wb-pill" data-tone="info" data-testid="lm-fleet-pending-teach">
               待教 {pendingTeachCount}
             </span>
           )
         ) : null}
-        {needsDecisionFocus && onClearNeedsDecisionFocus ? (
-          <button
-            type="button"
-            className="lm-btn lm-btn-ghost lm-btn-sm"
-            data-testid="lm-fleet-show-all"
-            onClick={() => onClearNeedsDecisionFocus()}
-          >
-            退出聚焦
-          </button>
+      </div>
+      <div className="lm-agents-wb-list-scroll">
+        {onlyNeedsYou && needsCount === 0 && (hiddenInFlight > 0 || hiddenSettled > 0) ? (
+          <div className="lm-agents-wb-band-note" data-testid="lm-fleet-needs-clear">
+            <p>没有要你处理的。</p>
+            <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={() => onShowAll?.()}>
+              看正在办的和今天办完的
+            </button>
+          </div>
+        ) : null}
+        {needsCount > 0 ? (
+          <DocketBand
+            id="needsYou"
+            items={docket.needsYou}
+            open
+            matterLabelById={matterLabelById}
+            selectedId={selectedId}
+            onSelectRun={onSelectRun}
+          />
+        ) : null}
+        {docket.inFlight.length > 0 ? (
+          <DocketBand
+            id="inFlight"
+            items={docket.inFlight}
+            open={inFlightOpen}
+            onToggle={() => onToggleBand("inFlight")}
+            matterLabelById={matterLabelById}
+            selectedId={selectedId}
+            onSelectRun={onSelectRun}
+          />
+        ) : null}
+        {docket.settled.length > 0 ? (
+          <DocketBand
+            id="settled"
+            items={docket.settled}
+            open={settledOpen}
+            onToggle={() => onToggleBand("settled")}
+            matterLabelById={matterLabelById}
+            selectedId={selectedId}
+            onSelectRun={onSelectRun}
+          />
         ) : null}
       </div>
-      <div className="lm-agents-wb-list-modes" role="tablist" aria-label="目录视图">
-        <button
-          type="button"
-          role="tab"
-          id={FLEET_TAB_TEAM_ID}
-          className="lm-agents-wb-list-mode"
-          aria-selected={listMode === "team"}
-          aria-controls={FLEET_TABPANEL_TEAM_ID}
-          data-testid="lm-fleet-mode-team"
-          onClick={() => switchListMode("team")}
-        >
-          团队
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id={FLEET_TAB_QUEUE_ID}
-          className="lm-agents-wb-list-mode"
-          aria-selected={listMode === "queue"}
-          aria-controls={FLEET_TABPANEL_QUEUE_ID}
-          data-testid="lm-fleet-mode-queue"
-          onClick={() => switchListMode("queue")}
-        >
-          队列
-        </button>
-      </div>
-      <div
-        className="lm-agents-wb-list-scroll"
-        role="tabpanel"
-        id={listMode === "team" ? FLEET_TABPANEL_TEAM_ID : FLEET_TABPANEL_QUEUE_ID}
-        aria-labelledby={listMode === "team" ? FLEET_TAB_TEAM_ID : FLEET_TAB_QUEUE_ID}
-      >
-        {listMode === "team" ? (
-          <>
-            <button
-              type="button"
-              className="lm-agents-wb-team-row lm-agents-wb-team-row--all"
-              data-testid="lm-fleet-team-all"
-              aria-selected={assistantFilter === null}
-              onClick={() => selectAllAssistants()}
-            >
-              <span className="lm-agents-wb-team-name">全部成员</span>
-              <span className="lm-agents-wb-team-meta">待拍板 {matterScopedQueue.length}</span>
-            </button>
-            {teamRows.map((row) => {
-              const selected = assistantFilter === row.assistantId;
-              const pass =
-                row.windowTasksReviewed &&
-                row.windowTasksReviewed > 0 &&
-                row.windowFirstPassRate != null
-                  ? `${Math.round(row.windowFirstPassRate * 100)}%`
-                  : null;
-              return (
-                <button
-                  key={row.assistantId}
-                  type="button"
-                  className="lm-agents-wb-team-row"
-                  data-busy={row.busy}
-                  data-testid={`lm-fleet-team-${row.assistantId}`}
-                  aria-selected={selected}
-                  onClick={() => onSelectAssistant(row.assistantId)}
-                >
-                  <span className="lm-agents-wb-team-name">{row.displayName}</span>
-                  <span className="lm-agents-wb-team-status" data-busy={row.busy}>
-                    {fleetTeamBusyLabel(row.busy)}
-                    {row.awaitingCount > 0 ? ` ${row.awaitingCount}` : ""}
-                  </span>
-                  <span className="lm-agents-wb-team-meta">
-                    {pass ? `近30日一次过 ${pass}` : (row.roleId ?? "—")}
-                    {typeof row.avgRewriteAbsChars === "number"
-                      ? ` · 均改写 ~${row.avgRewriteAbsChars} 字`
-                      : ""}
-                    {row.pendingAdoptions > 0 ? ` · 待教 ${row.pendingAdoptions}` : ""}
-                  </span>
-                  {row.currentTitle ? (
-                    <span className="lm-agents-wb-team-title">
-                      {sanitizeLawyerFacingText(row.currentTitle).slice(0, 48)}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-            {assistantFilter && queue.length > 0 ? (
-              <div className="lm-agents-wb-team-drill" data-testid="lm-fleet-team-drill">
-                <div className="lm-agents-wb-team-drill-label">该成员待办</div>
-                {queue.map((run) => {
-                  const kind = statusKind(run.status);
-                  const rowTitle = sanitizeLawyerFacingText(run.title, run.toolName)
-                    .replace(/^待审定：\s*/, "")
-                    .replace(/^待批准：\s*/, "");
-                  return (
-                    <button
-                      key={run.id}
-                      type="button"
-                      className="lm-agents-wb-row"
-                      data-kind={kind}
-                      data-fleet-run-id={run.id}
-                      aria-selected={run.id === selectedId}
-                      data-testid={`lm-agent-fleet-card-${run.kind}`}
-                      onClick={() => onSelectRun(run.id)}
-                    >
-                      <span className="lm-agents-wb-row-kind" data-kind={kind}>
-                        {statusLabel(run.status).replace(/^待/, "")}
-                      </span>
-                      <span className="lm-agents-wb-row-body">
-                        <span className="lm-agents-wb-row-title">{rowTitle}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-          </>
-        ) : (
-          queueGroups.map((group) => {
-            const expanded = expandedGroups.has(group.kind);
-            const panelId = `lm-fleet-group-panel-${group.kind}`;
-            return (
-              <div
-                key={group.kind}
-                className={`lm-agents-wb-group${expanded ? " lm-agents-wb-group--open" : ""}`}
-                data-kind={group.kind}
-                data-testid={`lm-fleet-group-${group.kind}`}
-              >
-                <button
-                  type="button"
-                  className="lm-agents-wb-group-toggle"
-                  data-kind={group.kind}
-                  data-testid={`lm-fleet-group-toggle-${group.kind}`}
-                  aria-expanded={expanded}
-                  aria-controls={panelId}
-                  title={expanded ? `收起${group.label}` : `展开${group.label}`}
-                  onClick={() => toggleGroup(group.kind)}
-                >
-                  <span className="lm-agents-wb-group-label-text">{group.label}</span>
-                  <span
-                    className="lm-agents-wb-group-count"
-                    aria-label={`${group.items.length} 件`}
-                  >
-                    {group.items.length}
-                  </span>
-                  <span className="lm-agents-wb-group-chevron" aria-hidden />
-                </button>
-                {expanded ? (
-                  <div
-                    id={panelId}
-                    className="lm-agents-wb-group-panel"
-                    role="region"
-                    aria-label={group.label}
-                  >
-                    {group.items.map((run) => {
-                      const kind = statusKind(run.status);
-                      const rowTitle = sanitizeLawyerFacingText(run.title, run.toolName)
-                        .replace(/^待审定：\s*/, "")
-                        .replace(/^待批准：\s*/, "");
-                      const matterLine = run.matterId?.trim();
-                      return (
-                        <button
-                          key={run.id}
-                          type="button"
-                          className="lm-agents-wb-row"
-                          data-kind={kind}
-                          data-fleet-run-id={run.id}
-                          aria-selected={run.id === selectedId}
-                          aria-label={`${statusLabel(run.status)} ${rowTitle}`}
-                          data-testid={`lm-agent-fleet-card-${run.kind}`}
-                          onClick={() => onSelectRun(run.id)}
-                        >
-                          <span className="lm-agents-wb-row-kind" data-kind={kind}>
-                            {statusLabel(run.status).replace(/^待/, "")}
-                          </span>
-                          <span className="lm-agents-wb-row-body">
-                            <span className="lm-agents-wb-row-title">{rowTitle}</span>
-                            {matterLine && !matterLine.startsWith("临时") ? (
-                              <span className="lm-agents-wb-row-matter">{matterLine}</span>
-                            ) : null}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })
-        )}
-      </div>
     </aside>
+  );
+}
+
+function DocketBand(props: {
+  id: DocketBandId;
+  items: AgentRunSummary[];
+  open: boolean;
+  onToggle?: () => void;
+  matterLabelById: Record<string, string>;
+  selectedId: string | null;
+  onSelectRun: (id: string) => void;
+}): ReactNode {
+  const label = docketBandLabel(props.id);
+  const panelId = `lm-fleet-band-panel-${props.id}`;
+  return (
+    <div
+      className={`lm-agents-wb-group${props.open ? " lm-agents-wb-group--open" : ""}`}
+      data-kind={props.id}
+      data-testid={`lm-fleet-band-${props.id}`}
+    >
+      {props.onToggle ? (
+        <button
+          type="button"
+          className="lm-agents-wb-group-toggle"
+          data-kind={props.id}
+          data-testid={`lm-fleet-band-toggle-${props.id}`}
+          aria-expanded={props.open}
+          aria-controls={panelId}
+          onClick={props.onToggle}
+        >
+          <span className="lm-agents-wb-group-label-text">{label}</span>
+          <span className="lm-agents-wb-group-count" aria-label={`${props.items.length} 件`}>
+            {props.items.length}
+          </span>
+          <span className="lm-agents-wb-group-chevron" aria-hidden />
+        </button>
+      ) : (
+        <div className="lm-agents-wb-group-toggle" data-kind={props.id}>
+          <span className="lm-agents-wb-group-label-text">{label}</span>
+          <span className="lm-agents-wb-group-count" aria-label={`${props.items.length} 件`}>
+            {props.items.length}
+          </span>
+        </div>
+      )}
+      {props.open ? (
+        <div id={panelId} className="lm-agents-wb-group-panel" role="region" aria-label={label}>
+          {props.items.map((run) => (
+            <DocketRow
+              key={run.id}
+              run={run}
+              matterLabel={matterLine(run, props.matterLabelById)}
+              selected={run.id === props.selectedId}
+              onSelect={() => props.onSelectRun(run.id)}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DocketRow(props: {
+  run: AgentRunSummary;
+  matterLabel: string;
+  selected: boolean;
+  onSelect: () => void;
+}): ReactNode {
+  const { run } = props;
+  const tone = docketRowTone(run);
+  const title = rowTitle(run);
+  const status = docketRowStatusLabel(run);
+  const source = docketSourceLabel(run);
+  const when = docketWhenLabel(run.updatedAt);
+  const meta = [props.matterLabel, when, source].filter(Boolean).join(" · ");
+  const progress =
+    run.status === "running" && run.progress && run.progress.total > 0
+      ? `${run.progress.completed}/${run.progress.total} 步`
+      : "";
+  return (
+    <button
+      type="button"
+      className="lm-agents-wb-row"
+      data-kind={tone}
+      data-fleet-run-id={run.id}
+      aria-selected={props.selected}
+      aria-label={`${status} ${title}`}
+      data-testid={`lm-agent-fleet-card-${run.kind}`}
+      onClick={props.onSelect}
+    >
+      <span className="lm-agents-wb-row-kind" data-kind={tone}>
+        {status}
+      </span>
+      <span className="lm-agents-wb-row-body">
+        <span className="lm-agents-wb-row-title">{title}</span>
+        {meta || progress ? (
+          <span className="lm-agents-wb-row-matter">
+            {meta}
+            {progress ? `${meta ? " · " : ""}${progress}` : ""}
+          </span>
+        ) : null}
+      </span>
+    </button>
   );
 }

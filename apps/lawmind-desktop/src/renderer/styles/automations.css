@@ -70,24 +70,30 @@
   flex-shrink: 0;
 }
 
+.lm-automations-panel.lm-settings-advanced-page {
+  padding: 0;
+  max-width: none;
+  gap: 0;
+}
+
+.lm-automations-panel > .lm-callout {
+  margin: 0 0 10px;
+}
+
 .lm-automations-create,
 .lm-automations-list,
 .lm-automations-inbox,
 .lm-automations-mail {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  background: var(--surface);
+  gap: 2px;
 }
 
 .lm-automations-mail-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-width: 560px;
+  gap: 4px;
+  max-width: none;
 }
 
 .lm-mail-watch-block {
@@ -190,9 +196,9 @@
 }
 
 .lm-automations-time {
-  width: 52px;
+  width: 8.5rem;
   display: inline-block;
-  margin: 0 4px;
+  margin: 0;
 }
 
 .lm-automations-interval-select {
@@ -217,11 +223,16 @@
 
 .lm-automations-row {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   padding: 10px 0;
   border-top: 1px solid var(--border);
-  border-radius: 6px;
+  cursor: default;
+}
+
+.lm-automations-row[data-automation-id] {
   cursor: pointer;
 }
 
@@ -231,10 +242,7 @@
 }
 
 .lm-automations-row.is-focused {
-  background: var(--accent-dim);
   box-shadow: inset 2px 0 0 var(--accent);
-  padding-left: 8px;
-  padding-right: 8px;
 }
 
 .lm-automations-sidebar-list.lm-matter-sidebar-list--fill {
@@ -245,7 +253,9 @@
 
 .lm-automations-row-actions {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   flex-shrink: 0;
 }
@@ -269,6 +279,13 @@
 }
 /* 常设工作的「办这件事的规矩」（六确认）与运行记录 */
 
+.lm-settings-advanced .lm-automations-confirm {
+  border: none;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
 .lm-automations-confirm {
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
@@ -286,10 +303,8 @@
 /* 运行记录单独成行，不挤进上面的 flex row（否则按钮会被压变形） */
 .lm-automations-runs-row {
   list-style: none;
-  padding: 0 8px var(--space-3);
-  border-top: 1px dashed var(--border);
-  background: var(--accent-dim);
-  margin-bottom: var(--space-2);
+  padding: 0 0 var(--space-2);
+  margin: 0;
 }
 
 .lm-automations-runs {

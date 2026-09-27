@@ -41,13 +41,24 @@ afterEach(() => {
 });
 
 describe("matter-replica feature gate", () => {
-  it("solo stays off by default", () => {
+  it("solo enables colleague invites by default", () => {
     const ws = tmpWorkspace();
     const gate = evaluateMatterReplicaGate(ws, {
       policy: { schemaVersion: 1, edition: "solo" },
       env: {},
     });
+    expect(gate.enabled).toBe(true);
+    expect(gate.reason).toBe("matter_replica_edition");
+  });
+
+  it("solo can opt out via policy", () => {
+    const ws = tmpWorkspace();
+    const gate = evaluateMatterReplicaGate(ws, {
+      policy: { schemaVersion: 1, edition: "solo", matterReplica: { enabled: false } },
+      env: {},
+    });
     expect(gate.enabled).toBe(false);
+    expect(gate.reason).toBe("matter_replica_policy_off");
   });
 
   it("firm enables by default", () => {

@@ -112,9 +112,8 @@ describe("LawmindReviewCampaignPanel", () => {
     expect(host.textContent).toContain("发现 7 处问题");
     expect(host.textContent).toContain("已处理 2 处");
 
-    // 保留 severity 计数作为参考
-    expect(host.textContent).toContain("高 1");
-    expect(host.textContent).toContain("中 1");
-    expect(host.textContent).toContain("低 1");
+    expect(host.textContent).not.toContain("高 1");
+    expect(host.textContent).not.toContain("80");
+    expect(host.textContent).toContain("不用关键词计数充数");
   });
 });

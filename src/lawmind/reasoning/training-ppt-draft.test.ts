@@ -53,12 +53,17 @@ describe("training-ppt-draft", () => {
     );
   });
 
-  it("case clinic redacts phone numbers in facts slide", () => {
+  it("case clinic instruction text (phone number) does not leak into slides via the outline path", () => {
+    // 大纲缺省即 approved（research-outline.ts）：不再产 caseClinic 变体节，
+    // 幻灯片按大纲展开——指令原文（含手机号）不得进任何一页。
     const sections = buildTrainingPptSections(
       pptIntent("案件诊所式培训 本案 电话 13800138000 已脱敏"),
       bundle,
     );
-    const facts = sections.find((s) => s.heading.includes("事实"));
-    expect(facts?.body).toMatch(/脱敏|手机号已脱敏/);
+    expect(sections.some((s) => s.heading.includes("已确认课件大纲"))).toBe(true);
+    expect(sections.some((s) => s.heading.includes("事实时间线"))).toBe(false);
+    for (const s of sections) {
+      expect(s.body).not.toContain("13800138000");
+    }
   });
 });

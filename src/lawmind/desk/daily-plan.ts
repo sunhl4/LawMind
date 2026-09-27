@@ -163,24 +163,25 @@ export function listOpenLawyerPlanItemsBefore(
   workspaceDir: string,
   beforeDate: string,
   opts?: { lookbackDays?: number; maxItems?: number },
-): CarriedDailyPlanItem[] {
+): { items: CarriedDailyPlanItem[]; omitted: number } {
   const lookback = opts?.lookbackDays ?? CARRY_LOOKBACK_DAYS;
   const maxItems = opts?.maxItems ?? CARRY_SNAPSHOT_CAP;
   const out: CarriedDailyPlanItem[] = [];
-  for (let i = 1; i <= lookback && out.length < maxItems; i += 1) {
+  let seen = 0;
+  for (let i = 1; i <= lookback; i += 1) {
     const originDate = shiftLocalDateKey(beforeDate, -i);
     const plan = loadDailyPlan(workspaceDir, originDate);
     for (const item of plan.items) {
       if (item.done || item.source !== "lawyer") {
         continue;
       }
-      out.push({ ...item, originDate });
-      if (out.length >= maxItems) {
-        break;
+      seen += 1;
+      if (out.length < maxItems) {
+        out.push({ ...item, originDate });
       }
     }
   }
-  return out;
+  return { items: out, omitted: Math.max(0, seen - out.length) };
 }
 
 function planContainsItem(workspaceDir: string, date: string, itemId: string): boolean {

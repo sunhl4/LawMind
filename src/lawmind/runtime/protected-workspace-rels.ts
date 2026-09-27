@@ -4,18 +4,46 @@
  * 工作区内这些路径只能由专用服务（zod 校验）或服务器专用路由写入；agent 的
  * write_document、桌面 /api/fs/write、Electron fs:write 一律拒绝。否则模型一次
  * 写调用即可改写策略、MCP 配置、审计链、会话/任务真相源或案件 RULES.md
- * （`matters/` 前缀与任意深度 `RULES.md` 均受保护；RULES 会被注入系统提示词），治理体系名存实亡。
+ * （`matters/`、`drafts/` 前缀与任意深度 `RULES.md` 均受保护；RULES 会被注入系统提示词），治理体系名存实亡。
+ * 草稿目录只经 `commitDraft` 写入，不走通用文件接口。
  *
  * 注意：apps/lawmind-desktop/electron/fs-bridge.mjs 持有一份纯 JS 镜像，
  * 修改本文件清单时必须同步修改该镜像。
  */
 
-const EXACT_PROTECTED_RELS = new Set(["lawmind.policy.json", ".env", ".env.lawmind"]);
+const EXACT_PROTECTED_RELS = new Set(["lawmind.policy.json"]);
 
-const PROTECTED_REL_PREFIXES = ["lawmind/", "audit/", "sessions/", "tasks/", "matters/"];
+const PROTECTED_REL_PREFIXES = [
+  "lawmind/",
+  "audit/",
+  "sessions/",
+  "tasks/",
+  "matters/",
+  // 草稿账本只经 commitDraft / persistDraft。通用写文件、文件页和脚本沙箱不能改 drafts/。
+  "drafts/",
+  // 钩子脚本一旦可写，下次提交就会执行。模型没有理由改 git 元数据。
+  ".git/",
+];
 
 /** 任意深度下的同名文件（如 cases/<matterId>/.lawmind-dms.json、cases/<id>/RULES.md）。 */
-const PROTECTED_BASENAMES = new Set([".lawmind-dms.json", "RULES.md", "ethics-wall.json"]);
+const PROTECTED_BASENAMES = new Set([
+  ".lawmind-dms.json",
+  "RULES.md",
+  "ethics-wall.json",
+  ".signing-secret",
+]);
+
+/**
+ * `.env` 家族（`.env`、`.env.lawmind`、`.env.local`、`.env.production` …）一律是密钥文件。
+ *
+ * 用前缀而不是枚举：枚举必然漏——此前只精确保护 `.env` / `.env.lawmind`，
+ * 而「把 key 丢进 `.env.local`」是 Node 生态最顺手的习惯，那份文件当时是**可写**的。
+ *
+ * 任意深度：密钥文件不该因为被放进子目录就变得可写（与 `PROTECTED_BASENAMES` 同口径）。
+ */
+function isEnvSecretBasename(baseFold: string): boolean {
+  return baseFold === ".env" || baseFold.startsWith(".env.");
+}
 
 function normalizeWorkspaceRel(rel: string): string {
   return rel.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
@@ -36,6 +64,9 @@ export function isProtectedWorkspaceRel(rel: string): boolean {
   }
   const base = norm.split("/").pop() ?? norm;
   const baseFold = folded.split("/").pop() ?? folded;
+  if (isEnvSecretBasename(baseFold)) {
+    return true;
+  }
   for (const name of PROTECTED_BASENAMES) {
     if (base === name || baseFold === name.toLowerCase()) {
       return true;

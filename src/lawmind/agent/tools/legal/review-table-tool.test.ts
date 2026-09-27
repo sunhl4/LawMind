@@ -72,8 +72,8 @@ describe("review_table_update", () => {
     );
     expect(added.ok).toBe(true);
     expect((added.data as { rowCount: number }).rowCount).toBe(2);
-    // 缺来源的行被点名为验收缺口，不静默通过。
-    expect((added.data as { acceptanceGaps?: string[] }).acceptanceGaps).toEqual(["1 行缺来源"]);
+    // 行级文件名不能替发现格充当出处，两行猜测都算缺口。
+    expect((added.data as { acceptanceGaps?: string[] }).acceptanceGaps).toEqual(["2 行缺来源"]);
 
     const table = readReviewTable(workspaceDir, "t-table");
     expect(table?.template).toBe("due_diligence");

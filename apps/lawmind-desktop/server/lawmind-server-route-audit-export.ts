@@ -19,7 +19,7 @@ import {
   verifyExternalAuditAnchor,
 } from "../../../src/lawmind/audit/verify-external.js";
 import { isFeatureEnabled } from "../../../src/lawmind/policy/edition.js";
-import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
+import { readWorkspacePolicyFile } from "../../../src/lawmind/policy/workspace-policy.js";
 import path from "node:path";
 import { z } from "zod";
 import { parseJsonBodyZod } from "./lawmind-api-parse.js";
@@ -60,10 +60,12 @@ export async function handleAuditExportRoute({
   const useIntegrity = integrityRaw === "1" || integrityRaw === "true";
   const replayRaw = url.searchParams.get("replay")?.trim().toLowerCase() ?? "";
   const useReplay = replayRaw === "1" || replayRaw === "true";
+  const policyForEdition = readWorkspacePolicyFile(workspaceDir);
+  if (useCompliance && !isFeatureEnabled("complianceAuditExport", { policy: policyForEdition })) {
+    sendJson(res, 403, { ok: false, error: "compliance_audit_export_disabled" }, c);
+    return true;
+  }
   if (useIntegrity) {
-    const policyForEdition: LawMindWorkspacePolicy | null = ctx.policy.loaded
-      ? (ctx.policy.policy as LawMindWorkspacePolicy)
-      : null;
     if (!isFeatureEnabled("auditIntegrityExport", { policy: policyForEdition })) {
       sendJson(res, 403, { ok: false, error: "audit_integrity_export_disabled" }, c);
       return true;

@@ -84,7 +84,7 @@ function main(): void {
 
   if (trend.buckets.length === 0) {
     lines.push("窗口内没有任何交付事件——**这不是「0%」，是「没有数据」**。");
-    lines.push("若这位律师确实在用，请先确认指标写入端是否落盘（见 Doctor 的「交付北极星」区）。");
+    lines.push("若这位律师确实在用，请先确认指标是否写进了工作区。");
     console.log(lines.join("\n"));
     return;
   }

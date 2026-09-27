@@ -143,9 +143,11 @@ describe("manifestInstructions：说明要说清下一步做什么", () => {
     expect(text).not.toContain("拖进");
   });
 
-  it("退到下载目录 ⇒ 让律师自己拖，并写明清单指向的地址", () => {
+  it("退到下载目录 ⇒ 让律师放进 Word，不写出地址", () => {
     const text = manifestInstructions("downloads", "http://localhost:54881");
-    expect(text).toContain("拖进");
-    expect(text).toContain("http://localhost:54881");
+    expect(text).toContain("下载");
+    expect(text).toContain("完全退出 Word");
+    expect(text).not.toContain("http://localhost:54881");
+    expect(text).not.toContain("54881");
   });
 });

@@ -1,4 +1,14 @@
+import { listSessions } from "../../../src/lawmind/agent/session.js";
 import { listAssistantPresets } from "../../../src/lawmind/agent/assistant-presets.js";
+import {
+  notePresence,
+  presenceFromWork,
+  type AssistantPresenceView,
+} from "../../../src/lawmind/assistants/presence.js";
+import { searchAssistantRoster } from "../../../src/lawmind/assistants/roster-search.js";
+import { exportAssistantShare } from "../../../src/lawmind/assistants/share-template.js";
+import { listAutomations } from "../../../src/lawmind/platform/lawyer-automations.js";
+import { listLawyerWorks } from "../../../src/lawmind/work/store.js";
 import { listAssistantProfileSections } from "../../../src/lawmind/assistants/profile-md.js";
 import {
   deleteAssistant,
@@ -9,7 +19,11 @@ import {
   upsertAssistant,
 } from "../../../src/lawmind/assistants/store.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
-import { assistantDuplicateSchema, assistantUpsertSchema } from "./lawmind-api-schemas.js";
+import {
+  assistantDuplicateSchema,
+  assistantShareSchema,
+  assistantUpsertSchema,
+} from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { sendJson } from "./lawmind-server-helpers.js";
 import { isSafeAssistantIdSegment } from "./safe-assistant-id.js";
@@ -17,6 +31,7 @@ import { isSafeAssistantIdSegment } from "./safe-assistant-id.js";
 export async function handleAssistantRoutes({
   ctx,
   pathname,
+  url,
   req,
   res,
   c,
@@ -32,8 +47,11 @@ export async function handleAssistantRoutes({
     const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
     const profiles = loadAssistantProfiles(lawMindRoot);
     const stats = loadAssistantStats(lawMindRoot);
+    const presence = presenceByAssistant(workspaceDir);
     const assistants = profiles.map((profile) => ({
       ...profile,
+      presence: presence.get(profile.assistantId)?.presence ?? "idle",
+      presenceDetail: presence.get(profile.assistantId)?.detail,
       stats: stats[profile.assistantId] ?? {
         lastUsedAt: "",
         turnCount: 0,
@@ -42,6 +60,65 @@ export async function handleAssistantRoutes({
     }));
     sendJson(res, 200, { ok: true, assistants, presets: listAssistantPresets() }, c);
     return true;
+  }
+
+  if (pathname === "/api/assistants/roster-search" && req.method === "GET") {
+    const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
+    const query = url.searchParams.get("q")?.trim() ?? "";
+    const names = new Map(
+      loadAssistantProfiles(lawMindRoot).map((profile) => [profile.assistantId, profile.displayName]),
+    );
+    sendJson(res, 200, { ok: true, groups: searchAssistantRoster(workspaceDir, query, names) }, c);
+    return true;
+  }
+
+  {
+    const deskPath = pathname.match(/^\/api\/assistants\/([^/]+)\/desk$/);
+    if (deskPath && req.method === "GET") {
+      const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
+      const id = decodeURIComponent(deskPath[1] ?? "");
+      if (!isSafeAssistantIdSegment(id)) {
+        sendJson(res, 400, { ok: false, error: "invalid assistant id" }, c);
+        return true;
+      }
+      const profile = loadAssistantProfiles(lawMindRoot).find((row) => row.assistantId === id);
+      if (!profile) {
+        sendJson(res, 404, { ok: false, error: "助手不存在" }, c);
+        return true;
+      }
+      const presence = presenceByAssistant(workspaceDir).get(id);
+      const standing = listAutomations(workspaceDir)
+        .filter((automation) => automation.assistantId === id)
+        .slice(0, 3)
+        .map((automation) => ({
+          title: automation.title,
+          lastResult: automation.lastResultSummary?.trim() || undefined,
+        }));
+      const responsibility = profile.jobBrief?.responsibility?.trim() || undefined;
+      const prohibitions = profile.jobBrief?.prohibitions?.trim() || undefined;
+      const presenceState = presence?.presence ?? "idle";
+      const visible = Boolean(
+        responsibility || prohibitions || standing.length > 0 || presenceState !== "idle",
+      );
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          desk: {
+            displayName: profile.displayName,
+            presence: presenceState,
+            presenceDetail: presence?.detail,
+            responsibility,
+            prohibitions,
+            standing,
+            visible,
+          },
+        },
+        c,
+      );
+      return true;
+    }
   }
 
   {
@@ -92,6 +169,8 @@ export async function handleAssistantRoutes({
         orgRole: body.orgRole,
         reportsToAssistantId: body.reportsToAssistantId,
         peerReviewDefaultAssistantId: body.peerReviewDefaultAssistantId,
+        pinned: body.pinned,
+        hidden: body.hidden,
       });
       sendJson(res, 200, { ok: true, assistant }, c);
     } catch (e) {
@@ -99,6 +178,50 @@ export async function handleAssistantRoutes({
       sendJson(res, 400, { ok: false, error: msg }, c);
     }
     return true;
+  }
+
+  {
+    const sharePath = pathname.match(/^\/api\/assistants\/([^/]+)\/share-template$/);
+    if (sharePath && req.method === "POST") {
+      const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
+      const id = decodeURIComponent(sharePath[1] ?? "");
+      if (!isSafeAssistantIdSegment(id)) {
+        sendJson(res, 400, { ok: false, error: "invalid assistant id" }, c);
+        return true;
+      }
+      let acknowledgeWarnings = false;
+      try {
+        const body = await parseJsonBodyZod(req, assistantShareSchema);
+        acknowledgeWarnings = body.acknowledgeWarnings === true;
+      } catch (err) {
+        if (isInvalidRequestBodyError(err)) {
+          sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+          return true;
+        }
+        throw err;
+      }
+      const profile = loadAssistantProfiles(lawMindRoot).find((row) => row.assistantId === id);
+      if (!profile) {
+        sendJson(res, 400, { ok: false, error: "助手不存在，请先刷新名册" }, c);
+        return true;
+      }
+      const reviewed = exportAssistantShare(
+        profile,
+        acknowledgeWarnings,
+        routinesForAssistant(workspaceDir, id),
+      );
+      if (!reviewed.ok || !reviewed.template) {
+        sendJson(
+          res,
+          400,
+          { ok: false, blockers: reviewed.blockers, warnings: reviewed.warnings },
+          c,
+        );
+        return true;
+      }
+      sendJson(res, 200, { ok: true, template: reviewed.template, warnings: reviewed.warnings }, c);
+      return true;
+    }
   }
 
   {
@@ -165,6 +288,8 @@ export async function handleAssistantRoutes({
           orgRole: body.orgRole,
           reportsToAssistantId: body.reportsToAssistantId,
           peerReviewDefaultAssistantId: body.peerReviewDefaultAssistantId,
+          pinned: body.pinned,
+          hidden: body.hidden,
         });
         sendJson(res, 200, { ok: true, assistant }, c);
       } catch (e) {
@@ -191,4 +316,48 @@ export async function handleAssistantRoutes({
   }
 
   return false;
+}
+
+function presenceByAssistant(workspaceDir: string): Map<string, AssistantPresenceView> {
+  const sessionAssistant = new Map<string, string>();
+  try {
+    for (const session of listSessions(workspaceDir)) {
+      if (session.sessionId && session.assistantId) {
+        sessionAssistant.set(session.sessionId, session.assistantId);
+      }
+    }
+  } catch {
+    return new Map();
+  }
+  const out = new Map<string, AssistantPresenceView>();
+  const now = Date.now();
+  try {
+    for (const work of listLawyerWorks(workspaceDir)) {
+      const assistantId = work.sessionId ? sessionAssistant.get(work.sessionId) : undefined;
+      if (!assistantId) {
+        continue;
+      }
+      const next = presenceFromWork(work.status, work.updatedAt, now);
+      out.set(assistantId, notePresence(out.get(assistantId), next, work.title));
+    }
+  } catch {
+    return out;
+  }
+  return out;
+}
+
+function routinesForAssistant(workspaceDir: string, assistantId: string) {
+  try {
+    return listAutomations(workspaceDir)
+      .filter((automation) => automation.assistantId === assistantId)
+      .map((automation) => ({
+        title: automation.title,
+        schedule: automation.schedule.kind,
+        expectedResult: automation.expectedResult,
+        approvalBoundary: automation.approvalBoundary,
+        eventMatch: automation.eventTrigger?.match,
+      }));
+  } catch {
+    return [];
+  }
 }

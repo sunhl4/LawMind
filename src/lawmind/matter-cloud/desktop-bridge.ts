@@ -125,7 +125,7 @@ export async function createCloudInvite(
     matterId: input.matterId,
     shareText:
       created.shareText ??
-      `邀请你加入 LawMind 案件「${input.matterTitle}」。在 LawMind 中粘贴云邀请码：${invite.token}`,
+      `邀请你加入 LawMind 案件「${input.matterTitle}」。打开「协作」，连接同一个案件云，保存姓名后粘贴邀请码：${invite.token}`,
   };
 }
 

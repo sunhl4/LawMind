@@ -19,16 +19,13 @@ export function resolveCitationMode(
     return fromEnv;
   }
   const fromPolicy = policy?.citationMode;
-  if (fromPolicy === "grounded" || fromPolicy === "assisted" || fromPolicy === "off") {
-    return fromPolicy;
+  if (fromPolicy === "grounded" || fromPolicy === "assisted") {
+    return edition === "solo" ? fromPolicy : "grounded";
   }
-  if (edition === "private_deploy") {
-    return "grounded";
-  }
-  if (edition === "firm") {
+  if (edition === "solo") {
     return "assisted";
   }
-  return "assisted";
+  return "grounded";
 }
 
 /** Grounded: missing sources or unanchored long sections block strict render. */

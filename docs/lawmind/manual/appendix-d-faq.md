@@ -4,20 +4,20 @@
 
 ## D.0 先学会两件事
 
-### 看体检页
+### 看健康数据
 
-设置 → 系统健康。里面的字段直接对应代码里的状态：
+`GET /api/health`（或 `pnpm lawmind:doctor`；曾经的「设置 → 系统健康」页已撤）。里面的字段直接对应代码里的状态：
 
-| 字段                       | 看什么                              |
-| -------------------------- | ----------------------------------- |
-| `doctor.process.degraded`  | 有没有未处理的 Promise 拒绝         |
-| `doctor.searchIndex`       | 索引是否陈旧（`staleReason`）       |
-| `doctor.authorityCorpus`   | 法源是 sample-ready 还是 configured |
-| `doctor.rateLimit`         | 有没有被限流                        |
-| `doctor.matterConsistency` | 案件投影有没有漂移                  |
-| `policy.applied`           | 策略文件里哪几项真的生效了          |
-| `envHint`                  | 环境文件的实际路径与是否存在        |
-| `edition.source`           | 版本是 policy 定的还是环境变量定的  |
+| 字段                       | 看什么                                               |
+| -------------------------- | ---------------------------------------------------- |
+| `doctor.process.degraded`  | 未捕获异常或未处理拒绝任一非零。界面上不显示这个键名 |
+| `doctor.searchIndex`       | 索引是否陈旧（`staleReason`）                        |
+| `doctor.authorityCorpus`   | 法源是 sample-ready 还是 configured                  |
+| `doctor.rateLimit`         | 有没有被限流                                         |
+| `doctor.matterConsistency` | 案件投影有没有漂移                                   |
+| `policy.applied`           | 策略文件里哪几项真的生效了                           |
+| `envHint`                  | 环境文件的实际路径与是否存在                         |
+| `edition.source`           | 版本是 policy 定的还是环境变量定的                   |
 
 ### 跑一次命令行体检
 
@@ -69,7 +69,7 @@ pnpm lawmind:desktop:dist
 pnpm lawmind:bundle:desktop-server
 ```
 
-然后重启桌面端。404 的响应里本身就带着这条提示（`no_route` 的 `hint`）。
+然后重启桌面端。404 JSON 的 `hint` 是「退出 LawMind 后重新打开」；`pnpm lawmind:bundle:desktop-server` 写在服务端日志里，不在响应体里。
 
 ### 症状：把 5174 打开在浏览器里，一片空白
 
@@ -79,7 +79,7 @@ pnpm lawmind:bundle:desktop-server
 
 ### 症状：填了 API Key 但保存不了
 
-**文案**：`系统加密存储不可用，无法安全保存新的 API Key。请启用操作系统密钥链，或先在 .env.lawmind 中手工配置后重启。`
+**文案**：`无法安全保存。请在系统设置里打开钥匙串后再试。`
 
 **原因**：`safeStorage.isEncryptionAvailable()` 返回假（Linux 上某些配置常见）。
 
@@ -109,11 +109,11 @@ pnpm lawmind:env:check --strict
 | 出口被网络白名单拦住  | 看 `policy.networkAllowlistEnforced`，把域名加进白名单  |
 | 代理环境变量不对      | 检查 `HTTPS_PROXY` / `NO_PROXY`（注意只支持 http 代理） |
 | 企业内网自签 CA       | 通过 `rootCerts` 注入                                   |
-| 密钥失效              | 换密钥                                                  |
+| 密钥失效              | 换密钥。探针里 401 与 403 共用「密钥无效或已过期」      |
 
 ### 症状：日志里有一堆 `model_error` 但界面看着正常
 
-**原因**：模型调用失败会落助手错误气泡，但回合不一定整体失败。
+**原因**：`model_error` 会把这一回合标成 `error`，界面走错误气泡。它不是「回合还在正常进行」。
 
 **查**：审计里搜 `model_error` 相关事件；或者看会话的 transcript。
 
@@ -125,7 +125,7 @@ pnpm lawmind:env:check --strict
 
 **查**：看服务日志里的 `[lawmind-local-server] unhandledRejection:`。
 
-如果是 `uncaughtException`，进程会**退出**（`exit(1)`），由监督进程重启，那个会记在 `doctor.process.uncaughtExceptions`。
+如果是 `uncaughtException`，进程会**退出**（`exit(1)`），由监督进程重启。新进程的 `uncaughtExceptions` 从 0 起，律师几乎看不到上一进程的计数。
 
 ## D.3 Word 插件
 
@@ -135,9 +135,9 @@ pnpm lawmind:env:check --strict
 
 **第一步：确认用的是 `localhost` 而不是 `127.0.0.1` 取清单。** 服务同时绑了 IPv4 和 IPv6，但 WebKit 会先试 `::1`。
 
-**第二步：看端口漂移。** 查 `lawmind:get-config` 的 `loopbackPortDrift`，或者体检页的端口漂移提示。如果端口变了，已侧载的清单指向旧端口，必然连不上。
+**第二步：看设置里的 Word。** 若显示「请重新打开 Word」，先完全退出 Word 再打开。LawMind 会在端口变化时自己写回清单（另一个 LawMind 占着原端口时不改写）。
 
-**修**：用「设置 → 体检」里的「重新侧载 Word 清单」重新侧载，然后**完全退出 Word 再打开**（macOS 上侧载是启动时读的）。
+**修**：设置 → 外观 → Word →「重新连接 Word」，然后**完全退出 Word 再打开**。
 
 ### 症状：窗格报 `unauthorized`
 
@@ -194,13 +194,13 @@ pnpm lawmind:env:check --strict
 - 历史遗留的 section 级 hunk（整节粒度）被直接用了。
 - 落盘时歧义跳过，导致部分改动没落。
 
-**修**：看 `drafts/<taskId>.redline-plan.json` 的 `skipped` 数组，那里会列原因（原文找不到 / 待收窄 / 碎片化）。
+**修**：看 `drafts/<taskId>.redline-plan.json` 的 `skipped` 数组。`reason` 是具体句子，例如「find 为空」「find 与 replace 相同」「正文中未找到 find 原文」「同一锚点命中 N 处」「请收窄到最短必要原文」。
 
 ### 症状：「原文中未找到 find 原文」
 
 **原因**：模型给的 find 文本和实际正文对不上。
 
-**修**：让它先 `analyze_document` 看清精确原文再改。这句话本身就是报错文案的一部分。
+**修**：让它先 `analyze_document` 看清精确原文再改。落盘原因是「正文中未找到 find 原文（请用 analyze 可见的精确原文）」。
 
 ### 症状：改了正文之后红线全乱了
 
@@ -224,7 +224,7 @@ pnpm lawmind:env:check --strict
 
 ### 症状：查法条什么都查不到
 
-**查**：体检页的 `doctor.authorityCorpus.status`。
+**查**：`GET /api/health` 的 `doctor.authorityCorpus.status`。
 
 | 状态            | 含义             | 怎么办                                           |
 | --------------- | ---------------- | ------------------------------------------------ |
@@ -242,7 +242,7 @@ pnpm lawmind:env:check --strict
 
 ### 症状：类案查不到
 
-**查**：Doctor 里的「类案」行。
+**查**：`GET /api/health` 的 `doctor.scorecardRows` 里的「类案」行。
 
 **原因**：本机没接类案库。系统**只探测本机**（不主动捅公网），要求回环端点能响应且不是 HTML 挑战页。
 
@@ -256,18 +256,13 @@ pnpm lawmind:env:check --strict
 
 **修**：
 
-```bash
-# 需要开关
-LAWMIND_ALLOW_INDEX_REBUILD=1
-# 然后
-POST /api/search/workspace/rebuild
-```
+桌面壳拉起的本机 API 已经注入 `LAWMIND_ALLOW_INDEX_REBUILD=1`，直接 `POST /api/search/workspace/rebuild`。独立拉起的服务才要自己设这个变量，否则 403。
 
-陈旧原因是三种之一：`index_missing`、`last_rebuild_unknown`、`older_than_24h`。
+陈旧原因是三种之一：`index_missing`、`last_rebuild_unknown`、`sources_changed`（源文件改过，检索时会按修改时间补进，不再按 24 小时整库重建）。
 
 ### 症状：材料检索能搜到但页码不对
 
-材料的页码来自抽取时的定位（`page` 字段）。扫描件走 OCR 的条目页码可能不准。这不是 bug，是 OCR 的固有不确定性。
+材料的页码来自抽取时的定位（`page` 字段）。扫描件走 OCR 的条目页码可能不准。扫描件 OCR 最多 12 页，后面页没进文本。
 
 ### 症状：跨案先例库查不到
 
@@ -275,23 +270,17 @@ POST /api/search/workspace/rebuild
 
 **修**：`LAWMIND_ALLOW_CROSS_MATTER_SEARCH=1`，然后**重建索引**（否则先例文档根本没入库）。
 
-注意：开启后工具返回 `ok: true`（不是报错），只是找不到东西——因为它本来就没开。
+没开时工具也返回 `ok: true`、`hits` 为空、`precedentSearchEnabled: false`。那不是「开了也正常」。开了还是空，再查索引有没有重建。
 
 ## D.6 记忆与学习
 
 ### 症状：技能好像没生效
 
-**查**：`GET /api/skills` 里那条技能的 `enabled` 和 `signatureOk`。
+**查**：回合只读 `src/lawmind/skills/builtin/`。工作区 `SKILL.md` 和 `enabled.json` 不会让一份作业标准生效或失效。一次最多注入 2 份正文，其余要模型调用 `read_skill`。
 
-**原因**：签名失败是**静默的**——技能变成不可用，不报错。
+签名失败只让工作区副本 `signatureOk: false`。交办用的作业标准不走那条路径，设 `LAWMIND_SKILL_SIGNING_SECRET` 修不了「回合里技能没生效」。
 
-**常见真因**：密钥来源是 `derived` 而不是真密钥；或者初始化顺序被改了（先解析密钥再加载环境变量）。
-
-**修**：设 `LAWMIND_SKILL_SIGNING_SECRET`，重启。或者
-
-```bash
-pnpm lawmind:skills:sign --check
-```
+**修**：改 `src/lawmind/skills/builtin/` 里的原文，再播种。`pnpm lawmind:skills:sign --check` 只查工作区副本的签名。
 
 ### 症状：技能改了但行为没变
 
@@ -408,7 +397,7 @@ POST /api/matters/repair-projections
 
 **查三点**：
 
-1. 六项确认填全了没（缺了会被拒，事件 `automation_confirmations_missing`）。
+1. 确认填全了没。门禁看四个持久化字段：`expectedResult`、`approvalBoundary`、`missingDataPolicy`、`notifyPolicy`。缺了会被拒，事件 `automation_confirmations_missing`。代码注释里的「六项」还把标题和计划算进去。
 2. 守护进程在跑吗（应用关着时靠它）。
 3. `nextRunAt` 是不是被推到很后面（抢占后会推一小时）。
 
@@ -421,7 +410,7 @@ POST /api/matters/repair-projections
 1. 中继配置（共享目录或 HTTP 端点）两边一致吗。
 2. 邀请码是否过期（14 天）。
 3. 对方是否真的接受了邀请（`collab.invite_accepted` 事件）。
-4. `LAWMIND_EDITION` 是不是 firm 或已开 `matterReplicaCollab`。
+4. `matterReplicaCollab` 是否还开着（各版本默认开；`matterReplica.enabled: false` 会关掉）。
 
 ### 症状：材料同步报「完整性拒绝」
 
@@ -444,7 +433,7 @@ POST /api/matters/repair-projections
 **跑探针**：
 
 ```bash
-pnpm lawmind:matter-replica:probe --strict
+pnpm lawmind:matter-replica:probe -- --strict
 ```
 
 它会建两个临时工作区加一个中继，跑十二项检查（X1–X12）。
@@ -464,13 +453,13 @@ pnpm lawmind:matter-replica:probe --strict
 
 **派生数据不用备**：`lawmind/search-index.sqlite`、`quality/`（可从事件重算）。
 
-**备份命令**：
+**备份命令只打工作区**：
 
 ```bash
 LAWMIND_WORKSPACE_DIR=<工作区> bash scripts/lawmind/lawmind-backup.sh <输出.tar.gz>
 ```
 
-默认**不含** `.env.lawmind`。要含得设 `LAWMIND_BACKUP_INCLUDE_ENV=1`。
+这个 tar **不含**应用根、钥匙串、`~/.lawmind/keys/`、`license.json`。默认也不含工作区根的 `.env.lawmind`；要连那份环境文件一起打进 tar，设 `LAWMIND_BACKUP_INCLUDE_ENV=1`。密钥和许可要另外拷。
 
 ### 症状：备份里没有 API Key
 
@@ -480,13 +469,13 @@ LAWMIND_WORKSPACE_DIR=<工作区> bash scripts/lawmind/lawmind-backup.sh <输出
 
 系统密钥链是**本机**的，不跟着目录走。新机器上要重新配 API Key、重新生成技能签名密钥。
 
-**注意**：审计链密钥换了之后，**旧的链仍能验**（密钥解析接受本机的任一把匹配密钥），但新写的事件会带新的 `hmacKeyId`。如果完全找不到旧密钥，那段会显示成 `legacy` 或验签失败。
+**注意**：验签接受本机 env 密钥或 key 文件里任一匹配的密钥，所以换钥后旧 HMAC 事件仍可能验过。`legacy` 是**写入时没有密钥**才降级的纯 SHA-256，不是「找不到旧密钥就显示成 legacy」。旧 HMAC 在密钥全丢之后是验签失败。事件上是 `hashAlg` 与 `eventHash`，没有逐条 `hmacKeyId`。
 
 ## D.11 性能
 
 ### 症状：打开工作台很慢
 
-**查**：案件数量和材料数量。打开工作台走的是 `buildTodayWorkSnapshot`（同步、不扫审计），但案件多时列表渲染仍可能慢。
+**查**：案件数量和材料数量。律师桌「今日」走 `buildTodayWorkSnapshot`（同步、不扫审计）。案件工作台还会拉材料与概览，慢不一定只是这一函数。同一工作区同时最多 2 个工作流，其余排队。对话 JSON 超过 256KB 返回 413。
 
 **注意**：材料列表**不算哈希**（有意的，为了让打开快）。案件副本发布时才算。
 
@@ -510,8 +499,8 @@ LAWMIND_WORKSPACE_DIR=<工作区> bash scripts/lawmind/lawmind-backup.sh <输出
 
 三步：
 
-1. **体检页**截图（或 `pnpm lawmind:doctor --json`）。
-2. **诊断包**：设置 → 系统健康 → 支持诊断包（`GET /api/support/bundle?download=1`）。它是**脱敏 zip**，不含案件正文、不含 `.env*`、不含许可激活码。
+1. **健康数据**：`pnpm lawmind:doctor --json`（或 `GET /api/health`）。
+2. **诊断包**：`GET /api/support/bundle?download=1`（界面没有入口）。它是**脱敏 zip**，不含案件正文、不含 `.env*`、不含许可激活码。
 3. **相关审计**：`GET /api/audit/export?taskId=<任务id>`。
 
 三样加起来通常能定位大部分问题。

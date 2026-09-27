@@ -11,7 +11,6 @@
  * 执行器（模型调用 / OCR / 取文）由调用方注入，便于离线测试与替换。
  */
 
-import { randomUUID } from "node:crypto";
 import {
   REVIEW_TABLE_ABSTAIN_TEXT,
   detectNameColumnKeys,
@@ -124,6 +123,53 @@ export function guessDocKind(relPath: string): ReviewDocKind {
   return "unknown";
 }
 
+/** 行 id 由序号 + 路径哈希决定，同一批材料两次抽取得到同一套 id，锁定与 diff 才对得上。 */
+export function stableReviewRowId(index: number, relPath: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < relPath.length; i += 1) {
+    hash ^= relPath.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const hex = (hash >>> 0).toString(16).padStart(8, "0").slice(0, 8);
+  return `row-${index}-${hex}`;
+}
+
+/**
+ * 批量重抽不得覆盖已锁定的行。按材料路径对齐；这份材料已不在本轮清单里时，锁定行仍保留。
+ */
+export function preserveLockedReviewRows(
+  previous: ReviewTableRow[],
+  next: ReviewTableRow[],
+): ReviewTableRow[] {
+  const locked = previous.filter((row) => row.review?.locked);
+  if (locked.length === 0) {
+    return next;
+  }
+  const bySource = new Map<string, ReviewTableRow>();
+  for (const row of locked) {
+    const key = (row.source ?? "").trim();
+    if (key) {
+      bySource.set(key, row);
+    }
+  }
+  const used = new Set<string>();
+  const merged = next.map((row) => {
+    const key = (row.source ?? "").trim();
+    const keep = key ? bySource.get(key) : undefined;
+    if (!keep || used.has(keep.id)) {
+      return row;
+    }
+    used.add(keep.id);
+    return keep;
+  });
+  for (const row of locked) {
+    if (!used.has(row.id)) {
+      merged.push(row);
+    }
+  }
+  return merged;
+}
+
 /** 拼出处：relPath 加定位片段。 */
 export function buildCellSource(relPath: string, locator?: string): string {
   const base = relPath.trim();
@@ -193,17 +239,17 @@ export async function extractReviewTable(opts: {
   const resolveText = async (
     doc: ReviewExtractDoc,
     docIndex: number,
-  ): Promise<{ text: string; fromOcr: boolean }> => {
+  ): Promise<{ text: string; fromOcr: boolean; ocrFailed: boolean }> => {
     const inline = (doc.text ?? "").trim();
     if (inline) {
-      return { text: inline.slice(0, maxChars), fromOcr: false };
+      return { text: inline.slice(0, maxChars), fromOcr: false, ocrFailed: false };
     }
     const kind = doc.kind ?? guessDocKind(doc.relPath);
     // 二次取文（docx/xlsx/pdf 有本地抽取器时）
     if (opts.readText && doc.absolutePath) {
       const read = await opts.readText(doc.absolutePath);
       if (read && read.trim()) {
-        return { text: read.trim().slice(0, maxChars), fromOcr: false };
+        return { text: read.trim().slice(0, maxChars), fromOcr: false, ocrFailed: false };
       }
       stats.readFailed += 1;
     }
@@ -223,11 +269,12 @@ export async function extractReviewTable(opts: {
       const res = await opts.ocr(doc.absolutePath);
       if (res.ok && res.text.trim()) {
         stats.ocrUsed += 1;
-        return { text: res.text.trim().slice(0, maxChars), fromOcr: true };
+        return { text: res.text.trim().slice(0, maxChars), fromOcr: true, ocrFailed: false };
       }
       stats.ocrFailed += 1;
+      return { text: "", fromOcr: false, ocrFailed: true };
     }
-    return { text: "", fromOcr: false };
+    return { text: "", fromOcr: false, ocrFailed: false };
   };
 
   const buildRow = (doc: ReviewExtractDoc, index: number): ReviewTableRow => {
@@ -242,17 +289,23 @@ export async function extractReviewTable(opts: {
     if (sourceKey) {
       cells[sourceKey] = doc.relPath;
     }
-    return { id: `row-${index}-${randomUUID().slice(0, 8)}`, cells, cellMeta, source: doc.relPath };
+    return {
+      id: stableReviewRowId(index, doc.relPath),
+      cells,
+      cellMeta,
+      source: doc.relPath,
+    };
   };
 
   const extractOne = async (doc: ReviewExtractDoc, index: number): Promise<ReviewTableRow> => {
     const row = buildRow(doc, index);
-    const { text, fromOcr } = await resolveText(doc, index);
+    const { text, fromOcr, ocrFailed } = await resolveText(doc, index);
 
     if (!text) {
       // 无正文：整行显式弃答，逐格写原因，绝不编造。
+      // 原因按这一份材料自己的 OCR 结果写，不用全局计数（并发时别的材料失败会串味）。
       stats.rowsWithoutText += 1;
-      const reason = stats.ocrFailed > 0 ? "扫描件未能识别出正文" : "该材料无可用正文";
+      const reason = ocrFailed ? "扫描件未能识别出正文" : "该材料无可用正文";
       for (const col of columns) {
         row.cells[col.key] = REVIEW_TABLE_ABSTAIN_TEXT;
         row.cellMeta![col.key] = { abstained: true, note: reason, confidence: "low" };
@@ -349,7 +402,8 @@ export async function extractReviewTable(opts: {
     message: `抽取完成：${stats.filled} 格有出处 · ${stats.abstained} 格弃答`,
   });
 
-  const merged: ReviewTableRow[] = opts.docs.map((_, i) => rows[i]).filter(Boolean);
+  const extracted: ReviewTableRow[] = opts.docs.map((_, i) => rows[i]).filter(Boolean);
+  const merged = preserveLockedReviewRows(opts.table.rows, extracted);
 
   return {
     table: {

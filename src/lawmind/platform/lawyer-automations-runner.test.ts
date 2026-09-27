@@ -64,8 +64,8 @@ describe("缺资料策略在运行期真的生效", () => {
 
     await processDueLawyerAutomations(ws, {});
 
-    // 默认必须是 report_partial：既有的自动办件靠这条路径出摘要，不能被默默改掉。
-    expect(getAutomation(ws, id)?.missingDataPolicy).toBeUndefined();
+    // 新建时写入模板草稿 report_partial；旧文件缺字段时 getter 仍是同一默认。
+    expect(getAutomation(ws, id)?.missingDataPolicy).toBe("report_partial");
     const runs = listAutomationRuns(ws, id);
     expect(runs).toHaveLength(1);
     expect(runs[0]?.status).toBe("ok");
@@ -196,5 +196,124 @@ describe("期望结果与审批边界真的进到交办里", () => {
     expect(instruction).toContain("必须先问我：外发前必须问我");
     // 原有的交办补充不能被挤掉。
     expect(instruction).toContain("顺便看下付款条款");
+  });
+
+  it("puts the previous result into the next brief so the run does not start cold", async () => {
+    const ws = tmpWs();
+    const created = createAutomation(ws, {
+      presetId: "renewal-monitor",
+      matterId: "m1",
+      title: "续签盯梢",
+    });
+    saveAutomation(ws, {
+      ...created,
+      nextRunAt: new Date(0).toISOString(),
+      lastResultSummary: "上周已列出甲合同 6 月到期。",
+    });
+    const captured: string[] = [];
+    await processDueLawyerAutomations(ws, {
+      enqueueTemplate: ({ instruction }) => {
+        captured.push(instruction ?? "");
+        return "job-2";
+      },
+    });
+    expect(captured[0]).toContain("上周已列出甲合同 6 月到期");
+    expect(captured[0]).toContain("无新变化");
+  });
+});
+
+describe("同一批来信不再反复打扰", () => {
+  it("second digest of the same mailbox stays quiet", async () => {
+    const ws = tmpWs();
+    const id = dueMailAutomation(ws);
+    await processDueLawyerAutomations(ws, {});
+    expect(listOpenAutomationInbox(ws)).toHaveLength(1);
+
+    const after = getAutomation(ws, id);
+    if (!after?.lastQuietKey) {
+      throw new Error("quiet key missing");
+    }
+    saveAutomation(ws, { ...after, nextRunAt: new Date(0).toISOString() });
+    await processDueLawyerAutomations(ws, {});
+
+    expect(listOpenAutomationInbox(ws)).toHaveLength(1);
+    expect(listAutomationRuns(ws, id).some((run) => run.status === "skipped")).toBe(true);
+    expect(getAutomation(ws, id)?.lastResultSummary).toContain("没有新来信");
+  });
+
+  it("always-notify still reports an unchanged mailbox", async () => {
+    const ws = tmpWs();
+    const id = dueMailAutomation(ws, { notifyPolicy: "always" });
+    await processDueLawyerAutomations(ws, {});
+    const after = getAutomation(ws, id);
+    if (!after) {
+      throw new Error("automation missing");
+    }
+    saveAutomation(ws, { ...after, nextRunAt: new Date(0).toISOString() });
+    await processDueLawyerAutomations(ws, {});
+    expect(listOpenAutomationInbox(ws)).toHaveLength(2);
+  });
+
+  it("clears the previous failure code after a later run completes", async () => {
+    const ws = tmpWs();
+    const created = createAutomation(ws, {
+      presetId: "renewal-monitor",
+      matterId: "m1",
+      title: "续签盯梢",
+    });
+    saveAutomation(ws, {
+      ...created,
+      nextRunAt: new Date(0).toISOString(),
+      lastErrorCode: "mail_unconfigured",
+      lastResultSummary: "上次失败",
+    });
+    await processDueLawyerAutomations(ws, {
+      enqueueTemplate: () => "job-3",
+    });
+    expect(getAutomation(ws, created.id)?.lastErrorCode).toBeUndefined();
+  });
+});
+
+describe("续签与周报的卷宗缺口", () => {
+  it("report_failure 在没有卷宗时不启动工作流", async () => {
+    const ws = tmpWs();
+    const created = createAutomation(ws, {
+      presetId: "renewal-monitor",
+      matterId: "missing-matter",
+      title: "续签盯梢",
+      missingDataPolicy: "report_failure",
+    });
+    saveAutomation(ws, { ...created, nextRunAt: new Date(0).toISOString() });
+    const jobs: string[] = [];
+    await processDueLawyerAutomations(ws, {
+      enqueueTemplate: ({ templateId }) => {
+        jobs.push(templateId);
+        return "job-should-not-run";
+      },
+    });
+    expect(jobs).toEqual([]);
+    const run = listAutomationRuns(ws, created.id)[0];
+    expect(run?.status).toBe("skipped");
+    expect(run?.missingData?.[0]).toContain("还没有卷宗");
+    expect(listOpenAutomationInbox(ws, "missing-matter")[0]?.title).toContain("没能办成");
+  });
+
+  it("默认仍继续办，但运行记录里写明缺卷宗", async () => {
+    const ws = tmpWs();
+    const created = createAutomation(ws, {
+      presetId: "client-weekly-update",
+      matterId: "missing-matter",
+      title: "客户周报",
+    });
+    saveAutomation(ws, { ...created, nextRunAt: new Date(0).toISOString() });
+    const jobs: string[] = [];
+    await processDueLawyerAutomations(ws, {
+      enqueueTemplate: ({ templateId }) => {
+        jobs.push(templateId);
+        return "job-weekly";
+      },
+    });
+    expect(jobs).toEqual(["client-update-memo"]);
+    expect(listAutomationRuns(ws, created.id)[0]?.missingData?.[0]).toContain("还没有卷宗");
   });
 });

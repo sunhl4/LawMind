@@ -144,6 +144,23 @@ describe("queue-write-service", () => {
       dependsOn: [blocker.queueItemId],
     });
     expect(blocked.blockedReason).toContain(blocker.queueItemId);
+    expect(blocked.blockedBy).toEqual([blocker.queueItemId]);
+
+    const resolved = transitionQueueItem(workspaceDir, "m-q2", blocker.queueItemId, "resolved");
+    expect(resolved?.status).toBe("resolved");
+    const after = listQueueItemsForMatter(workspaceDir, "m-q2").find(
+      (item) => item.queueItemId === blocked.queueItemId,
+    );
+    expect(after?.blockedBy).toBeUndefined();
+    expect(after?.blockedReason).toBeUndefined();
+
+    const illegal = transitionQueueItem(workspaceDir, "m-q2", blocker.queueItemId, "dismissed");
+    expect(illegal).toBeUndefined();
+    expect(
+      listQueueItemsForMatter(workspaceDir, "m-q2").find(
+        (item) => item.queueItemId === blocker.queueItemId,
+      )?.status,
+    ).toBe("resolved");
   });
 
   it("true concurrent transition of two different items under lock: both survive", async () => {

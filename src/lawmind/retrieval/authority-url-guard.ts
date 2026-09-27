@@ -110,11 +110,48 @@ export function denyReasonForAuthorityHostname(hostname: string): string | null 
   if (host.endsWith(".localhost") || host.endsWith(".local")) {
     return `权威端点主机「${host}」不允许（本机/mDNS）`;
   }
+  if (/^\d+(\.\d+){1,3}$/.test(host)) {
+    const parts = host.split(".");
+    const obfuscated =
+      parts.some((part) => part.length > 3) ||
+      parts.some((part) => part.length > 1 && part.startsWith("0"));
+    if (obfuscated) {
+      return `权威端点拒绝混淆 IP「${host}」`;
+    }
+  }
   if (isIpv4Literal(host)) {
     return ipv4DenyReason(host);
   }
+  const shorthand = expandIpv4Shorthand(host);
+  if (shorthand) {
+    return ipv4DenyReason(shorthand) ?? `权威端点拒绝缩写 IP「${host}」`;
+  }
+  if (/^0x[0-9a-f.]+$/i.test(host) || /^\d{6,}$/.test(host)) {
+    return `权威端点拒绝混淆 IP「${host}」`;
+  }
   if (host.includes(":")) {
     return ipv6DenyReason(host);
+  }
+  return null;
+}
+
+/**
+ * inet_aton shorthand: 127.1 → 127.0.0.1, 127.0.1 → 127.0.0.1.
+ * Four-octet literals are handled separately.
+ */
+function expandIpv4Shorthand(host: string): string | null {
+  if (!/^\d{1,3}(\.\d{1,3}){1,2}$/.test(host)) {
+    return null;
+  }
+  const parts = host.split(".").map((p) => Number(p));
+  if (parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return null;
+  }
+  if (parts.length === 2) {
+    return `${parts[0]}.0.0.${parts[1]}`;
+  }
+  if (parts.length === 3) {
+    return `${parts[0]}.${parts[1]}.0.${parts[2]}`;
   }
   return null;
 }

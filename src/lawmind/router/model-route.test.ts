@@ -1,17 +1,33 @@
 /**
- * Model router tests (fetch mocked).
+ * Model router tests (loopback cassette server — the outbound proxy bypasses
+ * global fetch, so model bytes are scripted over 127.0.0.1 HTTP).
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  cassetteAssistant,
+  startCassetteModelServer,
+  type CassetteModelServer,
+} from "../agent/testkit/index.js";
 import { routeAsync } from "./index.js";
 import { readRouteDivergenceRecords, routeDivergencePath } from "./route-divergence.js";
+
+const DEFAULT_ROUTE_PAYLOAD: Record<string, unknown> = {
+  kind: "research.legal",
+  summary: "检索民法典违约责任条款",
+  riskLevel: "medium",
+  models: ["legal"],
+  requiresConfirmation: false,
+  output: "markdown",
+};
 
 describe("routeAsync model router", () => {
   const prev = { ...process.env };
   const dirs: string[] = [];
+  let server: CassetteModelServer;
 
   function clearAgentEnv(): void {
     delete process.env.LAWMIND_ROUTER_MODE;
@@ -28,45 +44,24 @@ describe("routeAsync model router", () => {
     delete process.env.LAWMIND_WORKSPACE_DIR;
   }
 
-  beforeEach(() => {
-    const mockFetch = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({
-                kind: "research.legal",
-                summary: "检索民法典违约责任条款",
-                riskLevel: "medium",
-                models: ["legal"],
-                requiresConfirmation: false,
-                output: "markdown",
-              }),
-            },
-          },
-        ],
-      }),
-    }));
-    vi.stubGlobal("fetch", mockFetch);
+  beforeEach(async () => {
+    server = await startCassetteModelServer();
   });
 
-  /** 覆盖 mock 模型返回的分类（用于构造「三路径一致」这类需要特定口径的用例）。 */
-  function stubModelRoute(payload: Record<string, unknown>): void {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({
-          choices: [{ message: { content: JSON.stringify(payload) } }],
-        }),
-      })),
-    );
+  /** 脚本化模型返回的分类（默认 payload 覆盖「三路径一致」这类需要特定口径的用例）。 */
+  function stubModelRoute(payload: Record<string, unknown> = DEFAULT_ROUTE_PAYLOAD): void {
+    server.enqueue(cassetteAssistant(JSON.stringify(payload)));
   }
 
-  afterEach(() => {
+  function pointAgentAtServer(): void {
+    process.env.LAWMIND_AGENT_BASE_URL = server.url;
+    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
+    process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+  }
+
+  afterEach(async () => {
     process.env = { ...prev };
-    vi.unstubAllGlobals();
+    await server.close();
     for (const dir of dirs) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -77,44 +72,40 @@ describe("routeAsync model router", () => {
     clearAgentEnv();
     const intent = await routeAsync({ instruction: "写一封催款律师函" });
     expect(intent.kind).toBe("draft.word");
-    expect(vi.mocked(fetch).mock.calls.length).toBe(0);
+    expect(server.requests).toHaveLength(0);
   });
 
   it("uses keyword route when LAWMIND_ROUTER_MODE=keyword even with credentials", async () => {
     clearAgentEnv();
     process.env.LAWMIND_ROUTER_MODE = "keyword";
-    process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
-    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
-    process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+    pointAgentAtServer();
 
     const intent = await routeAsync({ instruction: "写一封催款律师函" });
     expect(intent.kind).toBe("draft.word");
-    expect(vi.mocked(fetch).mock.calls.length).toBe(0);
+    expect(server.requests).toHaveLength(0);
   });
 
   it("calls LLM when credentials exist and mode is unset", async () => {
     clearAgentEnv();
-    process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
-    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
-    process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+    pointAgentAtServer();
+    stubModelRoute();
 
     const intent = await routeAsync({ instruction: "查一下违约责任" });
     expect(intent.kind).toBe("research.legal");
     expect(intent.summary).toContain("检索");
-    expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(server.requests.length).toBeGreaterThanOrEqual(1);
   });
 
   it("calls LLM when LAWMIND_ROUTER_MODE=model and credentials exist", async () => {
     clearAgentEnv();
     process.env.LAWMIND_ROUTER_MODE = "model";
-    process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
-    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
-    process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+    pointAgentAtServer();
+    stubModelRoute();
 
     const intent = await routeAsync({ instruction: "查一下违约责任" });
     expect(intent.kind).toBe("research.legal");
     expect(intent.summary).toContain("检索");
-    expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(server.requests.length).toBeGreaterThanOrEqual(1);
   });
 
   it("P2.3：shadow 记录分歧但**不改变返回值**（返回模型口径）", async () => {
@@ -122,9 +113,8 @@ describe("routeAsync model router", () => {
     dirs.push(ws);
     process.env.LAWMIND_WORKSPACE_DIR = ws;
     clearAgentEnv();
-    process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
-    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
-    process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+    pointAgentAtServer();
+    stubModelRoute();
 
     // 原话命中关键词 draft.word，但 mock 模型返回 research.legal → kind 分歧
     const intent = await routeAsync({ instruction: "起草一份催款律师函", lawMindRoot: ws });
@@ -144,9 +134,8 @@ describe("routeAsync model router", () => {
     dirs.push(ws);
     clearAgentEnv();
     process.env.LAWMIND_ROUTE_DIVERGENCE = "0";
-    process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
-    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
-    process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+    pointAgentAtServer();
+    stubModelRoute();
 
     await routeAsync({ instruction: "起草一份催款律师函", lawMindRoot: ws });
     expect(readRouteDivergenceRecords(ws).present).toBe(false);
@@ -155,9 +144,8 @@ describe("routeAsync model router", () => {
 
   it("P2.3：无 lawMindRoot 时不写（不猜工作区位置）", async () => {
     clearAgentEnv();
-    process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
-    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
-    process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+    pointAgentAtServer();
+    stubModelRoute();
     // 不应抛
     const intent = await routeAsync({ instruction: "起草催款律师函" });
     expect(intent.kind).toBe("research.legal");
@@ -167,9 +155,8 @@ describe("routeAsync model router", () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-ra-sh-"));
     dirs.push(ws);
     clearAgentEnv();
-    process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
-    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
-    process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+    pointAgentAtServer();
+    stubModelRoute();
 
     // 原话命中关键词 draft.word（high risk），模型回 research.legal
     const intent = await routeAsync({ instruction: "起草一份催款律师函", lawMindRoot: ws });
@@ -184,9 +171,8 @@ describe("routeAsync model router", () => {
     dirs.push(ws);
     clearAgentEnv();
     process.env.LAWMIND_ROUTE_DIVERGENCE_POSTURE = "escalate";
-    process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
-    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
-    process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+    pointAgentAtServer();
+    stubModelRoute();
 
     const intent = await routeAsync({ instruction: "起草一份催款律师函", lawMindRoot: ws });
     // 口径仍是模型判的那个（不替律师选路），但要求确认
@@ -199,9 +185,7 @@ describe("routeAsync model router", () => {
     dirs.push(ws);
     clearAgentEnv();
     process.env.LAWMIND_ROUTE_DIVERGENCE_POSTURE = "escalate";
-    process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
-    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
-    process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+    pointAgentAtServer();
     // 让三条路径真正一致：关键词 research.hybrid/low + 分诊 green/low + 模型 low
     stubModelRoute({
       kind: "research.hybrid",
@@ -223,9 +207,8 @@ describe("routeAsync model router", () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-ra-risk-"));
     dirs.push(ws);
     clearAgentEnv();
-    process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
-    process.env.LAWMIND_AGENT_API_KEY = "sk-test";
-    process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
+    pointAgentAtServer();
+    stubModelRoute();
 
     // "查一下违约责任"：关键词→research.legal(medium)、模型→research.legal(medium)，
     // 但分诊 simple-green→low。kind 一致而 risk 不一致。

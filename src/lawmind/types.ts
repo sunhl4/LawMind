@@ -152,6 +152,8 @@ export type ResearchSource = {
   kind: SourceKind;
   /** 引用格式字符串，例如《XX法》第XX条 */
   citation?: string;
+  /** Retrieved passage. Article checks read this; it is not a second citation. */
+  excerpt?: string;
   /** 来源 URL 或文件路径 */
   url?: string;
   /** 法条/裁判日期 */
@@ -178,8 +180,17 @@ export type ResearchClaim = {
   text: string;
   /** 支撑该结论的来源 ID 列表 */
   sourceIds: string[];
-  /** 置信度 0-1 */
+  /** 置信度 0-1。模型给出的判断。证据条数只用于排序，不覆盖这个值。 */
   confidence: number;
+  /**
+   * 出处定位。有条、款、页或原文片段时，结论才算钉在来源上。
+   */
+  pin?: {
+    article?: string;
+    clause?: string;
+    page?: string;
+    quote?: string;
+  };
   /** 标注来源模型 */
   model: "general" | "legal";
   /** True when claim text came from a demo/sample corpus hit. */
@@ -663,7 +674,10 @@ export type LegalReasoningGraph = {
    * 如"该条款合法性存疑，建议表述为'可能'而非'明确'。"
    */
   deliveryRisks: string[];
-  /** 整体推理置信度 0-1（各争点置信度的加权均值） */
+  /**
+   * 各争点置信度的算术平均，无争点时为 0。
+   * 只作排序提示。交件是否成立看争点、出处和空交付，不靠这个平均数否决。
+   */
   overallConfidence: number;
   builtAt: string;
 };

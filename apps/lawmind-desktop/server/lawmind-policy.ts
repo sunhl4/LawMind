@@ -3,12 +3,16 @@
  * Applied after `.env.lawmind` so IT can enforce guardrails without editing secrets.
  */
 
-import fs from "node:fs";
 import path from "node:path";
 
 import { listEditions } from "../../../src/lawmind/policy/edition.js";
-import { resolveEgressMode } from "../../../src/lawmind/policy/workspace-policy.js";
-import type { LawMindEdition, LawMindEgressMode } from "../../../src/lawmind/policy/workspace-policy.js";
+import { effectivePolicyRows } from "../../../src/lawmind/policy/commercial-policy.js";
+import {
+  inspectWorkspacePolicyFile,
+  resolveEgressMode,
+} from "../../../src/lawmind/policy/workspace-policy.js";
+import type { LawMindEdition, LawMindEgressMode, LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
+import type { PolicyKeyNote } from "../../../src/lawmind/policy/commercial-policy.js";
 
 export type { LawMindEdition, LawMindEgressMode };
 
@@ -29,8 +33,13 @@ export type LawMindPolicyFile = {
   retrievalMode?: string;
   /** When false, sets LAWMIND_ENABLE_COLLABORATION=false. */
   enableCollaboration?: boolean;
-  /** Product edition (see `src/lawmind/policy/edition.ts`); also read via `LAWMIND_EDITION` env. */
+  /** Product edition (see `src/lawmind/policy/edition-features.ts`); also read via `LAWMIND_EDITION` env. */
   edition?: LawMindEdition;
+  /**
+   * Per-feature overrides on the edition table (same shape as workspace-policy `features`).
+   * Unknown keys ignored at resolve time.
+   */
+  features?: Partial<Record<string, boolean>>;
   /** Injected into Agent system prompt (see `resolveAgentMandatoryRulesForPrompt`). */
   agentMandatoryRules?: string;
   /** Relative path under workspace; file content overrides inline when readable. */
@@ -42,79 +51,52 @@ export type LawMindPolicyFile = {
 };
 
 export type LawMindPolicyState =
-  | { loaded: false }
+  | { loaded: false; rejected?: PolicyKeyNote[] }
   | {
       loaded: true;
       path: string;
       policy: LawMindPolicyFile;
-      /** Human-readable keys that were applied to process.env */
+      /** 生效的策略合同键（不是环境变量副作用标签）。 */
       applied: string[];
+      rejected?: PolicyKeyNote[];
+      migrated?: PolicyKeyNote[];
     };
 
 const POLICY_FILENAME = "lawmind.policy.json";
 
-function parsePolicy(raw: string): LawMindPolicyFile | null {
-  try {
-    const j = JSON.parse(raw) as unknown;
-    if (!j || typeof j !== "object") {
-      return null;
-    }
-    const o = j as Record<string, unknown>;
-    const schemaVersion = o.schemaVersion;
-    if (typeof schemaVersion !== "number" || schemaVersion < 1) {
-      return null;
-    }
-    return j as LawMindPolicyFile;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Read policy from disk (no env mutation).
- */
 export function readLawMindPolicyFile(workspaceDir: string): LawMindPolicyState {
-  const abs = path.join(path.resolve(workspaceDir), POLICY_FILENAME);
-  if (!fs.existsSync(abs)) {
-    return { loaded: false };
+  const inspected = inspectWorkspacePolicyFile(workspaceDir);
+  if (!inspected.policy) {
+    return { loaded: false, rejected: inspected.rejected };
   }
-  const raw = fs.readFileSync(abs, "utf8");
-  const policy = parsePolicy(raw);
-  if (!policy) {
-    return { loaded: false };
-  }
-  return { loaded: true, path: abs, policy, applied: [] };
+  return {
+    loaded: true,
+    path: path.join(path.resolve(workspaceDir), POLICY_FILENAME),
+    policy: inspected.policy,
+    applied: effectivePolicyRows(inspected.policy).map((row) => row.key),
+    rejected: inspected.rejected,
+    migrated: inspected.migrated,
+  };
 }
 
 /**
  * Apply supported policy fields to `process.env` (override prior values for these keys only).
  */
 export function applyLawMindPolicyToEnv(policy: LawMindPolicyFile): string[] {
-  const applied: string[] = [];
-  // 离线模式（或显式 allowWebSearch:false）关闭联网。前者是读时推导，不回写策略文件。
   const egressOffline = resolveEgressMode(policy) === "offline";
   if (egressOffline || policy.allowWebSearch === false) {
     process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH = "1";
-    applied.push(egressOffline ? "egressOffline" : "forceNoWebSearch");
   } else {
     delete process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH;
   }
-  const rm = policy.retrievalMode?.trim().toLowerCase();
-  if (rm === "single" || rm === "dual") {
-    process.env.LAWMIND_RETRIEVAL_MODE = rm;
-    applied.push("retrievalMode");
-  }
   if (policy.enableCollaboration === false) {
     process.env.LAWMIND_ENABLE_COLLABORATION = "false";
-    applied.push("enableCollaboration");
   }
-  // Align env with `resolveEdition` policy path so subprocesses and tools see the same edition.
   const validEditions = new Set<string>(listEditions());
   if (policy.edition && validEditions.has(policy.edition)) {
     process.env.LAWMIND_EDITION = policy.edition;
-    applied.push("edition");
   }
-  return applied;
+  return effectivePolicyRows(policy as LawMindWorkspacePolicy).map((row) => row.key);
 }
 
 /**
@@ -123,10 +105,10 @@ export function applyLawMindPolicyToEnv(policy: LawMindPolicyFile): string[] {
 export function loadAndApplyLawMindPolicy(workspaceDir: string): LawMindPolicyState {
   const read = readLawMindPolicyFile(workspaceDir);
   if (!read.loaded) {
-    return { loaded: false };
+    return read;
   }
   const applied = applyLawMindPolicyToEnv(read.policy);
-  return { loaded: true, path: read.path, policy: read.policy, applied };
+  return { ...read, applied };
 }
 
 export function isWebSearchForcedOffByPolicy(): boolean {

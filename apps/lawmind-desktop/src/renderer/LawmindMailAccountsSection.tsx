@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { LawmindMailSendFormatFields } from "./LawmindMailSendFormatFields";
-import {
-  hasMailSendFormat,
-  type MailSendFormat,
-} from "../../../../src/lawmind/mail/mail-send-format.ts";
+import { type MailSendFormat } from "../../../../src/lawmind/mail/mail-send-format.ts";
 
 type Provider = {
   id: string;
@@ -76,6 +73,8 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [provider, setProvider] = useState("gmail");
   const [email, setEmail] = useState("");
@@ -126,6 +125,8 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
       setError(null);
     } catch (e) {
       setError(errorMessage(e, "无法加载邮箱配置"));
+    } finally {
+      setLoaded(true);
     }
   }, [apiBase]);
 
@@ -235,6 +236,7 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
         enabled: true,
       });
       resetForm();
+      setAdding(false);
       await refresh();
     } catch (e) {
       setError(errorMessage(e, "保存失败"));
@@ -314,10 +316,18 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
     }
   };
 
+  const showConnectForm = Boolean(editingId) || adding || (loaded && accounts.length === 0);
+
   return (
-    <section className="lm-automations-mail" aria-label="邮箱配置" data-testid="lm-mail-accounts">
-      <h3 className="lm-settings-subtitle">邮箱配置</h3>
-      <p className="lm-meta">空名单=全部来信；填写=仅这些人。发送格式可设落款，批准发送时自动带上。</p>
+    <section
+      className="lm-settings-group lm-automations-mail"
+      aria-label="邮箱"
+      data-testid="lm-mail-accounts"
+    >
+      <h3 className="lm-settings-subtitle">邮箱</h3>
+      {accounts.length === 0 ? (
+        <p className="lm-settings-caption">接上之后，收件整理和合同审阅才能读来信。</p>
+      ) : null}
 
       {error ? (
         <div className="lm-callout lm-callout-danger" role="alert">
@@ -330,12 +340,27 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
         </div>
       ) : null}
 
+      {!loaded ? <p className="lm-meta">正在读取…</p> : null}
+
+      {accounts.length > 0 && !showConnectForm ? (
+        <div className="lm-settings-actions lm-settings-actions--flush">
+          <button
+            type="button"
+            className="lm-btn lm-btn-secondary lm-btn-sm"
+            disabled={busy}
+            onClick={() => setAdding(true)}
+          >
+            添加邮箱
+          </button>
+        </div>
+      ) : null}
+
+      {showConnectForm ? (
       <div className="lm-automations-mail-form">
-        <h4 className="lm-settings-subtitle">{editingId ? "编辑邮箱账号" : "我的邮箱"}</h4>
-        <label className="lm-compose-bar-field">
-          <span className="lm-compose-bar-label">邮箱类型</span>
+        <label className="lm-settings-field">
+          <span className="lm-settings-key">邮箱类型</span>
           <select
-            className="lm-compose-select"
+            className="lm-input"
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
             aria-label="邮箱类型"
@@ -348,15 +373,10 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
             ))}
           </select>
         </label>
-        {selectedPreset ? <p className="lm-meta">{selectedPreset.credentialHint}</p> : null}
+        {selectedPreset ? <p className="lm-settings-caption">{selectedPreset.credentialHint}</p> : null}
 
-        <label className="lm-compose-bar-field">
-          <span className="lm-compose-bar-label">显示名称（可选）</span>
-          <input className="lm-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="如：工作邮箱" />
-        </label>
-
-        <label className="lm-compose-bar-field">
-          <span className="lm-compose-bar-label">我的邮箱地址</span>
+        <label className="lm-settings-field">
+          <span className="lm-settings-key">邮箱地址</span>
           <input
             className="lm-input"
             value={email}
@@ -368,31 +388,31 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
         </label>
 
         {authKind !== "graph_client" ? (
-          <label className="lm-compose-bar-field">
-            <span className="lm-compose-bar-label">
-              授权码 / 应用专用密码{editingId ? "（留空则保留原凭证）" : ""}
+          <label className="lm-settings-field">
+            <span className="lm-settings-key">
+              授权码{editingId ? "（留空则保留）" : ""}
             </span>
             <input
               className="lm-input"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="不是登录密码时请用授权码"
+              placeholder="邮箱里生成的授权码，不是登录密码"
               autoComplete="new-password"
             />
           </label>
         ) : (
           <>
-            <label className="lm-compose-bar-field">
-              <span className="lm-compose-bar-label">租户 ID</span>
+            <label className="lm-settings-field">
+              <span className="lm-settings-key">租户 ID</span>
               <input className="lm-input" value={tenantId} onChange={(e) => setTenantId(e.target.value)} />
             </label>
-            <label className="lm-compose-bar-field">
-              <span className="lm-compose-bar-label">客户端 ID</span>
+            <label className="lm-settings-field">
+              <span className="lm-settings-key">客户端 ID</span>
               <input className="lm-input" value={clientId} onChange={(e) => setClientId(e.target.value)} />
             </label>
-            <label className="lm-compose-bar-field">
-              <span className="lm-compose-bar-label">
+            <label className="lm-settings-field">
+              <span className="lm-settings-key">
                 客户端密钥{editingId ? "（留空则保留）" : ""}
               </span>
               <input
@@ -407,10 +427,10 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
         )}
 
         {selectedPreset && selectedPreset.authKinds.length > 1 ? (
-          <label className="lm-compose-bar-field">
-            <span className="lm-compose-bar-label">登录方式</span>
+          <label className="lm-settings-field">
+            <span className="lm-settings-key">登录方式</span>
             <select
-              className="lm-compose-select"
+              className="lm-input"
               value={authKind}
               onChange={(e) => setAuthKind(e.target.value)}
             >
@@ -429,8 +449,8 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
 
         {provider === "imap" ? (
           <>
-            <label className="lm-compose-bar-field">
-              <span className="lm-compose-bar-label">IMAP 主机</span>
+            <label className="lm-settings-field">
+              <span className="lm-settings-key">IMAP 主机</span>
               <input
                 className="lm-input"
                 value={imapHost}
@@ -438,8 +458,8 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
                 placeholder="imap.example.com"
               />
             </label>
-            <label className="lm-compose-bar-field">
-              <span className="lm-compose-bar-label">SMTP 主机</span>
+            <label className="lm-settings-field">
+              <span className="lm-settings-key">SMTP 主机</span>
               <input
                 className="lm-input"
                 value={smtpHost}
@@ -450,15 +470,25 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
           </>
         ) : null}
 
-        <label className="lm-compose-bar-field">
-          <span className="lm-compose-bar-label">默认绑定案件（可选）</span>
+        <details className="lm-settings-advanced">
+          <summary>
+            <span className="lm-settings-advanced__label">名称、对方与落款</span>
+            <span className="lm-settings-advanced__hint">可选</span>
+          </summary>
+          <div className="lm-settings-advanced-body">
+        <label className="lm-settings-field">
+          <span className="lm-settings-key">显示名称</span>
+          <input className="lm-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="如：工作邮箱" />
+        </label>
+        <label className="lm-settings-field">
+          <span className="lm-settings-key">默认案件</span>
           {matterOptions.length > 0 ? (
             <select
-              className="lm-compose-select"
+              className="lm-input"
               value={bindMatter}
               onChange={(e) => setBindMatter(e.target.value)}
             >
-              <option value="">不绑定（同步时选手动案件）</option>
+              <option value="">同步时再选</option>
               {matterOptions.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.title}
@@ -470,19 +500,14 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
               className="lm-input"
               value={bindMatter}
               onChange={(e) => setBindMatter(e.target.value)}
-              placeholder="案件 ID"
+              placeholder="先新建案件"
             />
           )}
         </label>
 
         <div className="lm-mail-watch-block">
-          <h4 className="lm-settings-subtitle">对方往来（可选）</h4>
-          <p className="lm-meta">
-            不添加任何人 = 同步全部来信。添加后只保留与这些人相关的邮件；每条需填写「是谁/什么角色」。
-          </p>
-          {watchContacts.length === 0 ? (
-            <p className="lm-meta">当前：关注全部往来。</p>
-          ) : (
+          <p className="lm-settings-caption">不填则读取全部来信。填写后只看这些人。</p>
+          {watchContacts.length === 0 ? null : (
             <ul className="lm-mail-watch-list">
               {watchContacts.map((c) => (
                 <li key={c.email} className="lm-mail-watch-item">
@@ -515,14 +540,14 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
               className="lm-input"
               value={draftLabel}
               onChange={(e) => setDraftLabel(e.target.value)}
-              placeholder="简称（必填，如：对方法务）"
+              placeholder="简称，如对方法务"
               aria-label="对方简称"
             />
             <input
               className="lm-input"
               value={draftNote}
               onChange={(e) => setDraftNote(e.target.value)}
-              placeholder="备注（可选，如：负责合同谈判）"
+              placeholder="备注，可选"
               aria-label="对方备注"
             />
             <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" disabled={busy} onClick={addWatchContact}>
@@ -532,92 +557,82 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
         </div>
 
         <LawmindMailSendFormatFields value={sendFormat} onChange={setSendFormat} disabled={busy} />
+          </div>
+        </details>
 
-        <div className="lm-automations-create-actions">
+        <div className="lm-settings-actions">
           <button type="button" className="lm-btn lm-btn-sm" disabled={busy} onClick={() => void saveAccount()}>
-            {editingId ? "保存修改" : "保存并连接邮箱"}
+            {editingId ? "保存" : "连接"}
           </button>
-          {editingId ? (
-            <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" disabled={busy} onClick={resetForm}>
-              取消编辑
+          {editingId || adding ? (
+            <button
+              type="button"
+              className="lm-btn lm-btn-ghost lm-btn-sm"
+              disabled={busy}
+              onClick={() => {
+                resetForm();
+                setAdding(false);
+              }}
+            >
+              取消
             </button>
           ) : null}
         </div>
       </div>
+      ) : null}
 
-      <ul className="lm-automations-ul">
-        {accounts.length === 0 ? (
-          <li className="lm-meta">尚未配置邮箱。上方填写你的邮箱与对方名单后保存。</li>
-        ) : (
-          accounts.map((a) => {
-            const contacts = a.watchContacts ?? [];
-            return (
-              <li key={a.id} className="lm-automations-row">
-                <div>
-                  <strong>
-                    {a.label || a.email} · {a.providerLabel}
-                  </strong>
-                  <div className="lm-meta">
-                    我的邮箱：{a.email}
-                    {a.hasSecret ? " · 已保存凭证" : " · 缺少凭证"}
-                    {a.matterId ? ` · 绑定 ${a.matterId}` : ""}
-                    {a.lastTestOk === true ? " · 最近测试通过" : ""}
-                    {a.lastTestOk === false ? " · 最近测试失败" : ""}
-                    {a.lastSyncAt ? ` · 上次同步 ${a.lastSyncAt.slice(0, 16).replace("T", " ")}` : ""}
-                  </div>
-                  <div className="lm-meta">
-                    {contacts.length === 0
-                      ? "对方名单：未限定（全部往来）"
-                      : `对方名单（${contacts.length}）：${contacts
-                          .map((c) => `${c.label}<${c.email}>`)
-                          .join("；")}`}
-                    {hasMailSendFormat(a.sendFormat)
-                      ? a.sendFormat?.fromName
-                        ? ` · 已设落款（${a.sendFormat.fromName}）`
-                        : " · 已设落款"
-                      : " · 未设落款"}
-                  </div>
-                  {a.lastSyncError ? <p className="lm-meta lm-automations-last">{a.lastSyncError}</p> : null}
+      {accounts.length === 0 ? null : (
+        <ul className="lm-automations-ul">
+          {accounts.map((a) => (
+            <li key={a.id} className="lm-automations-row">
+              <div>
+                <strong>{a.label || a.email}</strong>
+                <div className="lm-meta">
+                  {a.email}
+                  {a.hasSecret ? " · 已连接" : " · 还没凭证"}
+                  {a.lastTestOk === false ? " · 连接失败" : ""}
+                  {a.lastSyncAt ? ` · 同步于 ${a.lastSyncAt.slice(0, 16).replace("T", " ")}` : ""}
                 </div>
-                <div className="lm-automations-row-actions">
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-ghost lm-btn-sm"
-                    disabled={busy}
-                    onClick={() => beginEdit(a)}
-                  >
-                    编辑
-                  </button>
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-secondary lm-btn-sm"
-                    disabled={busy}
-                    onClick={() => void testAccount(a.id)}
-                  >
-                    测试连接
-                  </button>
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-sm"
-                    disabled={busy}
-                    onClick={() => void syncAccount(a.id)}
-                  >
-                    立即同步
-                  </button>
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-ghost lm-btn-sm"
-                    disabled={busy}
-                    onClick={() => void removeAccount(a.id)}
-                  >
-                    删除
-                  </button>
-                </div>
-              </li>
-            );
-          })
-        )}
-      </ul>
+                {a.lastSyncError ? <p className="lm-meta lm-automations-last">{a.lastSyncError}</p> : null}
+              </div>
+              <div className="lm-automations-row-actions">
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost lm-btn-sm"
+                  disabled={busy}
+                  onClick={() => beginEdit(a)}
+                >
+                  编辑
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary lm-btn-sm"
+                  disabled={busy}
+                  onClick={() => void testAccount(a.id)}
+                >
+                  测试
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost lm-btn-sm"
+                  disabled={busy}
+                  onClick={() => void syncAccount(a.id)}
+                >
+                  同步
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost lm-btn-sm"
+                  disabled={busy}
+                  onClick={() => void removeAccount(a.id)}
+                >
+                  删除
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

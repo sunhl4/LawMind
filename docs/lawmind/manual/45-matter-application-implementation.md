@@ -132,11 +132,11 @@
 
 **`matter-label.ts` 的几个「resolve」**处理的是展示名：没设展示名时怎么从 CASE.md 或文件名推一个体面的标签。
 
-## 45.3 `application/`（12 个文件）
+## 45.3 `application/`（13 个文件）
 
 `application/` 是**写侧服务层**。核心约定（第 7 章）：service 层不直接碰 fs，全部走 storage adapter。
 
-### 五个写服务
+### 六个写服务
 
 | 文件                               | 导出                                                                                                                                                                                                                    | 管什么                |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
@@ -145,6 +145,7 @@
 | `services/approval-service.ts`     | `requestApproval`、`listPendingApprovals`、`listApprovals`、`resolveApproval` + 四个结果类型                                                                                                                            | `approvals.jsonl`     |
 | `services/queue-write-service.ts`  | `openQueueItem`、`transitionQueueItem`、`listQueueItemsForMatter`                                                                                                                                                       | `queue.jsonl`         |
 | `services/deadline-service.ts`     | `recordDeadline`、`recordConfirmedExtractEvents`、`snoozeDeadline`、`completeDeadline`、`removeDeadlines`、`patchDeadline`、`listDeadlinesForMatter`、`listDeskDeadlines`                                               | `deadlines.jsonl`     |
+| `services/obligation-service.ts`   | `recordObligation`、`listObligationsForMatter`、`amountMinorFromText`（`record_obligation` 工具的写口）                                                                                                                 | `obligations.jsonl`   |
 
 **`deliverable-service` 那三个「stamp」函数值得单独理解**（注释里都写了理由）：
 
@@ -210,5 +211,5 @@
 - **`domain-state.ts` 没有运行时逻辑**，只是文档标记。
 - **交付物的审核印记不许被覆盖**（`applyDeliverableReviewStamp`）。改交付物服务时注意这条。
 - **`drainMatterProjections` 是投影失败的补救路径**，不是主路径。
-- **`matter-ops/storage.ts` 绕过这套服务层**（第 7 章那个已知问题）。
+- **`matter-ops/storage.ts` 不经过五个写服务**，但落盘已用同一套原子写、校验和文件锁（第 7 章）。别再裸写 `ops/`。
 - **`desk-apply.ts` 是「对话 = 工作台」的关键**：两边调同一批函数。想加新的写穿能力，加在这里。

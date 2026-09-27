@@ -6,6 +6,7 @@ import {
   buildMinimalChildEnv,
   buildSandboxChildEnv,
   runSafeCommand,
+  runSafeCommandSync,
   safeCommand,
   SafeCommandError,
 } from "./safe-command.js";
@@ -27,11 +28,80 @@ function writeScript(dir: string, name: string, body: string): string {
 }
 
 describe("safe-command", () => {
+  it("does not pass secrets or loader hooks through extra or an omitted env", async () => {
+    const previous = process.env.OPENAI_API_KEY;
+    const previousLoader = process.env.LD_PRELOAD;
+    process.env.OPENAI_API_KEY = "sk-test";
+    process.env.LD_PRELOAD = "/tmp/evil.so";
+    const root = tmpDir();
+    const script = writeScript(
+      root,
+      "env.js",
+      "process.stdout.write(JSON.stringify({ openai: process.env.OPENAI_API_KEY ?? null, preload: process.env.LD_PRELOAD ?? null, agent: process.env.LAWMIND_AGENT_API_KEY ?? null }))",
+    );
+    try {
+      const inherited = await runSafeCommand({
+        command: process.execPath,
+        args: [script],
+        cwd: root,
+        timeoutMs: 5000,
+      });
+      const explicit = await runSafeCommand({
+        command: process.execPath,
+        args: [script],
+        cwd: root,
+        env: {
+          PATH: process.env.PATH ?? "/usr/bin",
+          OPENAI_API_KEY: "sk-explicit",
+          LAWMIND_AGENT_API_KEY: "sk-daemon",
+          LD_PRELOAD: "/tmp/evil.so",
+        },
+        timeoutMs: 5000,
+      });
+      const fromExtra = buildMinimalChildEnv({
+        OPENAI_API_KEY: "sk-extra",
+        LD_PRELOAD: "/tmp/evil.so",
+        SAFE_MARKER: "kept",
+      });
+      expect(JSON.parse(inherited.stdout)).toEqual({ openai: null, preload: null, agent: null });
+      // 显式 env 是一方调用方的刻意授予（lawmindd 靠 BRAVE_API_KEY 做联网检索）：
+      // 厂商密钥保留，凭据根与加载器钩子仍剥掉。
+      expect(JSON.parse(explicit.stdout)).toEqual({
+        openai: "sk-explicit",
+        preload: null,
+        agent: "sk-daemon",
+      });
+      expect(fromExtra.OPENAI_API_KEY).toBeUndefined();
+      expect(fromExtra.LD_PRELOAD).toBeUndefined();
+      expect(fromExtra.SAFE_MARKER).toBe("kept");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = previous;
+      }
+      if (previousLoader === undefined) {
+        delete process.env.LD_PRELOAD;
+      } else {
+        process.env.LD_PRELOAD = previousLoader;
+      }
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects shell commands and code-execution args", async () => {
     expect(() =>
       safeCommand({
         command: "bash",
         args: ["-c", "echo pwned"],
+        timeoutMs: 1000,
+      }),
+    ).toThrow(SafeCommandError);
+    expect(() =>
+      safeCommand({
+        command: "bash",
+        args: ["-c", "echo pwned"],
+        allowShell: true,
         timeoutMs: 1000,
       }),
     ).toThrow(SafeCommandError);
@@ -166,6 +236,48 @@ describe("safe-command", () => {
       expect(String(event.detail)).not.toContain("hidden");
     } finally {
       fs.rmSync(auditDir, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("raises stdout capture ceiling when maxStdoutBytes is set", async () => {
+    const root = tmpDir();
+    writeScript(root, "big.js", `process.stdout.write(${JSON.stringify("x".repeat(2500))});`);
+    try {
+      const truncated = await runSafeCommand({
+        command: process.execPath,
+        args: [path.join(root, "big.js")],
+        timeoutMs: 5000,
+      });
+      expect(truncated.stdout.length).toBe(1000);
+      const full = await runSafeCommand({
+        command: process.execPath,
+        args: [path.join(root, "big.js")],
+        timeoutMs: 5000,
+        maxStdoutBytes: 3000,
+      });
+      expect(full.stdout.length).toBe(2500);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("runSafeCommandSync runs a relative script under cwd", () => {
+    const root = tmpDir();
+    writeScript(root, "hello.sh", "#!/bin/sh\necho sync-hello");
+    try {
+      const result = runSafeCommandSync({
+        command: "./hello.sh",
+        args: [],
+        cwd: root,
+        allowedRoots: [root],
+        env: buildMinimalChildEnv(),
+        timeoutMs: 5000,
+        maxStdoutBytes: 200,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("sync-hello");
+    } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

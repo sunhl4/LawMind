@@ -174,11 +174,10 @@ unknown           探测不到
 ```text
 [LawMind] 本机 API 端口从 <持久端口> 漂移到 <实际端口>：<持久端口> 被<占用者>占用。
 Word 加载项的侧载清单把端口钉死（http://localhost:<持久端口>/word-addin/taskpane.html），
-因此在重新侧载清单之前，已打开的窗格会报「无法加载」或加载失败。
-请在「设置 → 体检」里用「重新侧载 Word 清单」修复。
+因此已打开的 Word 窗格会连不上。将自动写回清单；请完全退出 Word 后再打开。
 ```
 
-**四段结构**：现象（漂移到哪）、机制（清单钉死端口）、后果（窗格失效）、**出路（去哪修、点哪个按钮）**。
+日志仍给排障的人。另一个 LawMind 占着原端口时不改写清单。律师在体检里只看到「请重新打开 Word」或「重新连接 Word」，看不到端口。
 
 而占用者那三个词在日志里是这样拼的：
 
@@ -260,7 +259,7 @@ Server script not found: <路径>
 
 `serverEnv` 是「`process.env` + 下表」的合并。
 
-**第一类：坐标与开关（十三项）**
+**第一类：坐标与开关（十一项）**
 
 | 变量                                | 值                               |
 | ----------------------------------- | -------------------------------- |
@@ -276,7 +275,9 @@ Server script not found: <路径>
 | `LAWMIND_RESOURCES_PATH`            | 仅打包态                         |
 | `LAWMIND_OFFICECLI`                 | officecli 可执行文件路径         |
 
-**第二类：凭据与代次（五项）**
+桌面拉起本机 API 时，若环境变量和 `.env.lawmind` 都没写 `LAWMIND_ALLOW_INDEX_REBUILD`，主进程会把它设成 `1`。用户已经写过的值会保留。单独启动的服务进程仍默认关闭。
+
+**第二类：凭据与代次（四项）**
 
 ```text
 LAWMIND_LOCAL_API_INSTALLATION_SECRET
@@ -673,6 +674,8 @@ child.unref()
 ```
 
 **`detached: true` + `unref()`**——所以桌面退出后它还活着。
+
+`env` 由 `buildDaemonProcessEnv` 构建（`src/lawmind/platform/lawmind-daemon.ts`）：保留宿主 `PATH`/`HOME` 等、`LAWMIND_*` 与 `BRAVE_*` 前缀（daemon 的联网检索与模型调用靠它们），剥掉七项凭据根（回环令牌、安装密钥、代次、吊销名单、实例 id——daemon 不监听端口，没理由持有它们）。spawn 那层再过 `safeCommand`：**不继承父进程 env**，加载器钩子（`LD_PRELOAD` / `DYLD_INSERT_LIBRARIES` / `NODE_OPTIONS` 等）与凭据根即使用户显式传入也会被剥掉（`src/lawmind/platform/safe-command.ts`，口径与 `SECURITY.md` 一致）。
 
 ## 67.7 本机目录持久层
 

@@ -58,29 +58,32 @@ test.describe("上下文用量与另起新对话（带上文）", () => {
     await setForkMock(page, scopeId, "ok");
   });
 
-  test("用量圆环常驻，面板给出窗口三元组与分层用量", async ({ page }) => {
-    await setContextBudgetMock(page, scopeId, { used: 80_000, effectiveLimit: 100_000, level: "warn" });
+  test("对话变长才出现入口，面板不展示模型窗口和用量桶", async ({ page }) => {
+    await setContextBudgetMock(page, scopeId, { used: 12_000, effectiveLimit: 100_000, level: "ok", compactCount: 0 });
+    const budgetLoaded = page.waitForResponse(
+      (res) => res.url().includes("/context-budget") && res.ok(),
+    );
     await gotoShell(page);
     await openWorkspaceChat(page);
+    await budgetLoaded;
+    await expect(page.getByTestId("lm-compose-token-bar")).toHaveCount(0);
 
-    // 对齐 Cursor：圆环常驻，不是只在告警时才出现。
+    await setContextBudgetMock(page, scopeId, { used: 80_000, effectiveLimit: 100_000, level: "warn" });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await openWorkspaceChat(page);
+
     const ring = page.getByTestId("lm-compose-token-bar");
     await expect(ring).toBeVisible({ timeout: 20_000 });
+    await expect(ring).toContainText("对话较长");
     await ring.click();
 
     const panel = page.getByTestId("lm-compose-ctx-usage-panel");
     await expect(panel).toBeVisible({ timeout: 10_000 });
-    // A4：律师能把界面数字和模型窗口对上（Codex /status 的对应物）。
-    await expect(panel.getByTestId("lm-compose-ctx-window")).toContainText("模型窗口 128k");
-    await expect(panel.getByTestId("lm-compose-ctx-window")).toContainText("可用 100k");
-    await expect(panel.getByTestId("lm-compose-ctx-window")).toContainText("自动整理线 90k");
-    // A3：分层用量（不是一个笼统的「额度」）。
-    const breakdown = panel.getByTestId("lm-compose-ctx-breakdown");
-    await expect(breakdown).toContainText("律师发言");
-    await expect(breakdown).toContainText("工具回包");
-    await expect(breakdown).toContainText("压缩摘要");
-    // A2：可操作信号出现在自动整理线附近，而不是等到 100%。
-    await expect(panel).toContainText("接近自动整理线");
+    await expect(panel.getByTestId("lm-compose-ctx-window")).toHaveCount(0);
+    await expect(panel.getByTestId("lm-compose-ctx-breakdown")).toHaveCount(0);
+    await expect(panel).toContainText("这场对话开始变长");
+    await expect(panel).not.toContainText("工具回包");
+    await expect(panel).not.toContainText("模型窗口");
   });
 
   test("压过两次后出现一次性建议卡，点「继续本对话」后不再出现", async ({ page }) => {
@@ -90,7 +93,7 @@ test.describe("上下文用量与另起新对话（带上文）", () => {
 
     const suggest = page.getByTestId("lm-ctx-fork-suggest");
     await expect(suggest).toBeVisible({ timeout: 20_000 });
-    await expect(suggest).toContainText("已经整理过多次上下文");
+    await expect(suggest).toContainText("这场对话已经比较长");
     // 「继续本对话」必须与「另起新对话」并列，不是单方面劝走。
     await expect(page.getByTestId("lm-ctx-fork-suggest-go")).toBeVisible();
     await page.getByTestId("lm-ctx-fork-suggest-dismiss").click();
@@ -128,11 +131,11 @@ test.describe("上下文用量与另起新对话（带上文）", () => {
     // 新会话顶部：律师可核对「到底带过来了什么」（含展开摘要）。
     const notice = page.getByTestId("lm-msg-carryover-notice");
     await expect(notice).toBeVisible({ timeout: 20_000 });
-    await expect(notice).toContainText("本对话续接自「E2E session」");
-    await expect(notice).toContainText("整理 18 条");
-    await expect(notice).toContainText("要点提取");
-    await expect(notice).toContainText("草稿、案件档案与待办都在原处");
-    await notice.getByText("查看带过来的整理稿").click();
+    await expect(notice).toContainText("本对话接着「E2E session」办");
+    await expect(notice).toContainText("较早的 18 条已收成要点");
+    await expect(notice).not.toContainText("要点提取");
+    await expect(notice).toContainText("稿子和案件材料都留在本案");
+    await notice.getByText("查看带过来的要点").click();
     await expect(notice).toContainText("已定位依据并写到解除条款");
   });
 

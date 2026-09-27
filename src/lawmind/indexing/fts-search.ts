@@ -1,4 +1,4 @@
-import { indexExists, openSearchIndexDb } from "./fts-ingest.js";
+import { indexExists, openSearchIndexDb, workspaceSourcesChanged } from "./fts-ingest.js";
 import { getMeta } from "./fts-schema.js";
 
 export type SearchIndexSource = "audit" | "session" | "knowledge";
@@ -199,14 +199,12 @@ export function searchWorkspaceIndex(
   return { ok: true, query: q, hits };
 }
 
-/** 索引新鲜度阈值：lastRebuildAt 早于此毫秒数即视为过期。 */
-export const SEARCH_INDEX_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
-
-/** 由 getSearchIndexStatus 结果推导新鲜度（Doctor 提醒与自动重建共用口径）。 */
+/** 由 getSearchIndexStatus 结果推导新鲜度。过期只表示源文件和索引戳不一致，不看时钟。 */
 export function computeSearchIndexFreshness(
-  status: { ready: boolean; lastRebuildAt?: string },
+  status: { ready: boolean; lastRebuildAt?: string; sourcesChanged?: boolean },
   now: number = Date.now(),
 ): { stale: boolean; staleReason?: string } {
+  void now;
   if (!status.ready) {
     return { stale: true, staleReason: "index_missing" };
   }
@@ -214,8 +212,8 @@ export function computeSearchIndexFreshness(
   if (!Number.isFinite(t)) {
     return { stale: true, staleReason: "last_rebuild_unknown" };
   }
-  if (now - t > SEARCH_INDEX_STALE_AFTER_MS) {
-    return { stale: true, staleReason: "older_than_24h" };
+  if (status.sourcesChanged) {
+    return { stale: true, staleReason: "sources_changed" };
   }
   return { stale: false };
 }
@@ -228,6 +226,7 @@ export function getSearchIndexStatus(workspaceDir: string): {
   sessionRows?: number;
   knowledgeRows?: number;
   truncated?: boolean;
+  sourcesChanged?: boolean;
 } {
   if (!indexExists(workspaceDir)) {
     return { ready: false };
@@ -240,6 +239,7 @@ export function getSearchIndexStatus(workspaceDir: string): {
     const sessionRows = Number(getMeta(db, "sessionRows") ?? "0");
     const knowledgeRows = Number(getMeta(db, "knowledgeRows") ?? "0");
     const truncated = getMeta(db, "truncated") === "1";
+    const sourcesChanged = workspaceSourcesChanged(db, workspaceDir);
     return {
       ready: true,
       schemaVersion,
@@ -248,6 +248,7 @@ export function getSearchIndexStatus(workspaceDir: string): {
       sessionRows,
       knowledgeRows,
       truncated,
+      sourcesChanged,
     };
   } finally {
     db.close();

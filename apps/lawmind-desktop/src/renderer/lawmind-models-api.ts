@@ -70,7 +70,7 @@ export async function setDefaultModelId(apiBase: string, modelId: string): Promi
   }
 }
 
-/** E7: optional fast worker model for tool-loop rounds. Pass null/empty to clear. */
+/** Optional faster model for review and summaries. Pass null/empty to clear. */
 export async function setWorkerModelIdApi(
   apiBase: string,
   modelId: string | null,
@@ -82,7 +82,7 @@ export async function setWorkerModelIdApi(
   });
   const body = await readJsonFromResponse<{ ok?: boolean; workerModelId?: string | null }>(res);
   if (!res.ok || body.ok === false) {
-    throw new Error("设置 Worker 模型失败");
+    throw new Error("设置更快模型失败");
   }
   return body.workerModelId ?? null;
 }

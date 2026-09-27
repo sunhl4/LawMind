@@ -115,5 +115,11 @@ describe("batch adoption", () => {
     }
     expect(isLowRiskStyleAdoption({ kind: "case.core_issue" })).toBe(false);
     expect(isLowRiskStyleAdoption({ kind: "client.profile_note" })).toBe(false);
+    expect(
+      isLowRiskStyleAdoption({
+        kind: "lawyer.profile_learning",
+        payload: "「付款」：改后「于2026年10月5日前支付1,200,000元」",
+      }),
+    ).toBe(false);
   });
 });

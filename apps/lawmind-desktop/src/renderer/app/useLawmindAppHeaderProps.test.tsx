@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLawmindAppHeaderProps } from "./useLawmindAppHeaderProps";
+import { useAcceptancePaneStore } from "../stores/acceptance-pane-store";
 import { resetSettingsPanelStoreForTest, useSettingsPanelStore } from "../stores/settings-panel-store";
 
 function headerInput(): Parameters<typeof useLawmindAppHeaderProps>[0] {
@@ -46,6 +47,7 @@ describe("useLawmindAppHeaderProps", () => {
     document.body.appendChild(host);
     root = createRoot(host);
     resetSettingsPanelStoreForTest();
+    useAcceptancePaneStore.getState().resetForTest();
   });
 
   afterEach(() => {
@@ -96,5 +98,26 @@ describe("useLawmindAppHeaderProps", () => {
     expect(
       Object.prototype.hasOwnProperty.call(captured as object, "onOpenNewAssistant"),
     ).toBe(false);
+  });
+
+  it("reveals the file instead of hiding the editor while the sheet covers it", async () => {
+    useAcceptancePaneStore.getState().setPane({ covering: true, available: true });
+    const setWsShowEditor = vi.fn();
+    let toggle: (() => void) | undefined;
+
+    function Harness() {
+      const props = useLawmindAppHeaderProps({ ...headerInput(), setWsShowEditor });
+      toggle = props.onToggleEditor;
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      toggle?.();
+    });
+    expect(setWsShowEditor).toHaveBeenCalledWith(true);
+    expect(useAcceptancePaneStore.getState().revealEditorNonce).toBe(1);
   });
 });

@@ -62,10 +62,10 @@ period.calc：届满日必须有公式；中断顺延标缺口。
 `PRIVATE_LENDING_LPR_MULTIPLE` 的 `noteZh` 里有一句很典型的话：
 
 ```text
-利率上限为合同成立时一年期贷款市场报价利率的四倍（LPR 序列待补）
+利率上限为合同成立时一年期贷款市场报价利率的四倍（报价见 lpr-quotes，过期不外推）
 ```
 
-**「LPR 序列待补」**——参数表里有这个规则，但具体数值序列没接。所以引擎知道规则，但**不知道当期数字**，这一条要律师提供（`calculate-lib.ts` 的头部注释写明了「LPR / 牌价 must be supplied by the lawyer — never invented」）。
+倍数锁在 `PRIVATE_LENDING_LPR_MULTIPLE`。一年期报价的变动日在 `lint/lpr-quotes.ts`：只记调息日（`ONE_YEAR_LPR_QUOTES`，2019-08-20 起 13 档），带版本号和「有效至」日期——当前核对至 2026-09-21（`LPR_SERIES_LAST_PUBLICATION`），有效至 2026-10-19（`LPR_SERIES_VALID_THROUGH`，含当日；下一次常规公布约在 2026-10-20）。合同成立日写在「签订 / 合同成立」旁边、且落在表内时，`statutory.lpr_multiple` 用「一年期 × 4」核对文中的年利率；超过就警告。日期落在表外、早于 2020-08-20，或文中没有成立日，只写缺口，不沿用最近一档。`calculate` 的 `interest_lpr` 仍要律师给出各段利率——报价表用来核对已经写上的数字，不代替分段计息。
 
 ## 51.3 劳动：三块计算
 
@@ -325,9 +325,7 @@ export const LITIGATION_FEE_VERSION = 1;
 /《([^》]{1,40})》\s*第\s*([0-9一二三四五六七八九十百]+)\s*条/g
 ```
 
-它抓出文书里所有的「《法名》第 X 条」，然后交给 `live-citation-hits.ts` 的 `fetchLiveCitationHits` 去查真源（第 10 章的检索层）。
-
-**这是「引用可回溯」在 lint 层的落点**：不是看格式对不对，而是**看这条引用能不能查到**。查不到就报——这正是「不编条号」的机械保障。
+它抓出文书里所有的「《法名》第 X 条」。`lintCitationValidity` 自己**不上网**（文件头写着 no network）：对照调用方已经传入的命中，标出附近废止、已知废止、以及意见书里没有「现行有效」的引用。`fetchLiveCitationHits` 是渲染/导出时的可选步骤，失败就当没查到，不在 lint 里变成「查不到就报」。
 
 ### 自修订（`self-revise.ts`）
 
@@ -366,7 +364,7 @@ export const LITIGATION_FEE_VERSION = 1;
 ## 51.8 已知坑（本章相关）
 
 - **`calculate` 是调度器，算法在领域模块。** 找算法别在工具层找。
-- **LPR / 牌价必须律师提供。** 参数表里有规则但没有当期数值（注释写着「LPR 序列待补」）。
+- **LPR 四倍核对用 `lpr-quotes.ts` 的变动日表。** 过了 `LPR_SERIES_VALID_THROUGH` 只写缺口。分段计息的各段利率仍须律师提供，表不代算利息。
 - **三倍封顶与 12 年上限是联动的**，改一处要改另一处。
 - **`N+1` 的公式写成 `(n + 1)` 而不是 `n+1` 的结果**，这是有意为之。
 - **休息日补休可免加班费，法定节假日补休不免。** 这条在 `notes` 里。
@@ -378,4 +376,4 @@ export const LITIGATION_FEE_VERSION = 1;
 - **`clause/lint` 有已知误报，未接硬门禁。** 别以为接上就能用。
 - **条款关键词表已收成一处**（`clause-type-keywords.ts`），别在别处再写一份。
 - **lint 是 advisory，通过 ≠ 法律正确。** 但部分规则会翻 `ok: false`——两者要分清。
-- **引用有效性靠查真源，不是格式检查。**
+- **引用有效性 lint 不上网。** 真源查询在渲染侧可选调用；lint 只对照已经拿到的命中，以及废止法名称。

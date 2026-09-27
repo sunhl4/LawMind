@@ -1,7 +1,9 @@
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { inspectWorkspacePolicyFile } from "../policy/workspace-policy.js";
 import {
   buildSystemOneRequestBody,
   createTypesafeDecisionModel,
@@ -122,26 +124,32 @@ describe("P5 门禁 ②：egressMode=offline 优先于一切", () => {
 
   it("open / allowlisted 不阻断（它们本来就允许出站）", () => {
     for (const egressMode of ["open", "allowlisted"] as const) {
-      const ws = makeWorkspace({
-        egressMode,
-        decisionModelMode: "on",
-        decisionModelBaseUrl: "https://api.typesafe.ai",
-        decisionModelApiKey: "sk-test",
-        decisionModelId: "jev",
-      });
-      expect(resolveDecisionModel({ workspaceDir: ws, env: {} }).mode).toBe("on");
+      const ws = makeWorkspace({ egressMode });
+      expect(
+        resolveDecisionModel({
+          workspaceDir: ws,
+          env: {
+            LAWMIND_DECISION_MODEL_MODE: "on",
+            LAWMIND_DECISION_MODEL_BASE_URL: "https://api.typesafe.ai",
+            LAWMIND_DECISION_MODEL_API_KEY: "sk-test",
+            LAWMIND_DECISION_MODEL_ID: "jev",
+          },
+        }).mode,
+      ).toBe("on");
     }
   });
 });
 
 describe("P5 门禁 ③：凭据不全 → 不产出半配置端口", () => {
   it("缺 key → off / missing_credentials", () => {
-    const ws = makeWorkspace({
-      decisionModelMode: "on",
-      decisionModelBaseUrl: "https://api.typesafe.ai",
-      decisionModelId: "jev",
+    const r = resolveDecisionModel({
+      workspaceDir: makeWorkspace(),
+      env: {
+        LAWMIND_DECISION_MODEL_MODE: "on",
+        LAWMIND_DECISION_MODEL_BASE_URL: "https://api.typesafe.ai",
+        LAWMIND_DECISION_MODEL_ID: "jev",
+      },
     });
-    const r = resolveDecisionModel({ workspaceDir: ws, env: {} });
     expect(r.mode).toBe("off");
     expect(r.reason).toBe("missing_credentials");
   });
@@ -189,28 +197,43 @@ describe("P5 门禁 ③：凭据不全 → 不产出半配置端口", () => {
 
   it("shadow 与 on 都返回可用端口（区别在调用方，不在传输）", () => {
     for (const mode of ["shadow", "on"] as const) {
-      const ws = makeWorkspace({
-        decisionModelMode: mode,
-        decisionModelBaseUrl: "https://api.typesafe.ai",
-        decisionModelApiKey: "sk-test",
-        decisionModelId: "jev",
+      const r = getDecisionModel({
+        workspaceDir: makeWorkspace(),
+        env: {
+          LAWMIND_DECISION_MODEL_MODE: mode,
+          LAWMIND_DECISION_MODEL_BASE_URL: "https://api.typesafe.ai",
+          LAWMIND_DECISION_MODEL_API_KEY: "sk-test",
+          LAWMIND_DECISION_MODEL_ID: "jev",
+        },
       });
-      const r = getDecisionModel({ workspaceDir: ws, env: {} });
       expect(r.mode).toBe(mode);
       expect(r.model?.id).toBe("typesafe.jev");
     }
   });
 
-  it("policy 优先于 env（文件是显式配置）", () => {
+  it("策略文件里的 decisionModel* 键被拒绝（决策模型不写在策略文件里），存活面是 env", () => {
     const ws = makeWorkspace({
       decisionModelMode: "on",
       decisionModelBaseUrl: "https://from-policy.ai",
       decisionModelApiKey: "policy-key",
       decisionModelId: "policy-model",
     });
+    // 新策略合同：这四个键全部被拒绝并说明原因，不静默生效。
+    const inspection = inspectWorkspacePolicyFile(ws);
+    for (const key of [
+      "decisionModelMode",
+      "decisionModelBaseUrl",
+      "decisionModelApiKey",
+      "decisionModelId",
+    ]) {
+      expect(inspection.rejected.some((r) => r.key === key)).toBe(true);
+    }
+    expect(inspection.policy?.decisionModelMode).toBeUndefined();
+    // 解析落到 env：策略里写的 baseUrl/model 不再生效。
     const r = resolveDecisionModel({
       workspaceDir: ws,
       env: {
+        LAWMIND_DECISION_MODEL_MODE: "on",
         LAWMIND_DECISION_MODEL_BASE_URL: "https://from-env.ai",
         LAWMIND_DECISION_MODEL_API_KEY: "env-key",
         LAWMIND_DECISION_MODEL_ID: "env-model",
@@ -219,22 +242,23 @@ describe("P5 门禁 ③：凭据不全 → 不产出半配置端口", () => {
     if (r.mode === "off") {
       throw new Error("expected enabled");
     }
-    expect(r.config.baseUrl).toBe("https://from-policy.ai");
-    expect(r.config.model).toBe("policy-model");
+    expect(r.config.baseUrl).toBe("https://from-env.ai");
+    expect(r.config.model).toBe("env-model");
   });
 
   it("超时默认 8s，env 可覆盖", () => {
-    const ws = makeWorkspace({
-      decisionModelMode: "on",
-      decisionModelBaseUrl: "https://x.ai",
-      decisionModelApiKey: "k",
-      decisionModelId: "m",
-    });
-    const dflt = resolveDecisionModel({ workspaceDir: ws, env: {} });
+    const ws = makeWorkspace();
+    const creds = {
+      LAWMIND_DECISION_MODEL_MODE: "on",
+      LAWMIND_DECISION_MODEL_BASE_URL: "https://x.ai",
+      LAWMIND_DECISION_MODEL_API_KEY: "k",
+      LAWMIND_DECISION_MODEL_ID: "m",
+    };
+    const dflt = resolveDecisionModel({ workspaceDir: ws, env: { ...creds } });
     expect(dflt.mode === "off" ? 0 : dflt.config.timeoutMs).toBe(8000);
     const custom = resolveDecisionModel({
       workspaceDir: ws,
-      env: { LAWMIND_DECISION_MODEL_TIMEOUT_MS: "1234" },
+      env: { ...creds, LAWMIND_DECISION_MODEL_TIMEOUT_MS: "1234" },
     });
     expect(custom.mode === "off" ? 0 : custom.config.timeoutMs).toBe(1234);
   });
@@ -314,27 +338,57 @@ describe("P5 请求/响应形状（只收合法值）", () => {
 });
 
 describe("P5 端口失败语义：不可用是正常状态，不编造", () => {
-  it("非 200 → undefined（不返回空数组假装成功）", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({ ok: false, status: 500 })),
-    );
-    const model = createTypesafeDecisionModel(CFG);
-    const out = await model.decide({
-      state: "s",
-      questions: [{ type: "noul", id: "x", instructions: "i" }],
+  // 出口代理在无 fetchImpl 时走 node 原生路径（DNS 钉住 / 防重绑定），
+  // vi.stubGlobal("fetch") 拦不到——这里起真实 loopback 服务器验传输形状。
+  type SeenRequest = { url: string; auth?: string; body: string };
+  async function withStubServer(
+    respond: (req: SeenRequest, res: http.ServerResponse) => void,
+    run: (baseUrl: string, seen: SeenRequest[]) => Promise<void>,
+  ): Promise<void> {
+    const seen: SeenRequest[] = [];
+    const server = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(Buffer.from(c)));
+      req.on("end", () => {
+        seen.push({
+          url: req.url ?? "",
+          auth: req.headers.authorization,
+          body: Buffer.concat(chunks).toString("utf8"),
+        });
+        respond(seen[seen.length - 1], res);
+      });
     });
-    expect(out).toBeUndefined();
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("no port");
+    }
+    try {
+      await run(`http://127.0.0.1:${address.port}`, seen);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+
+  it("非 200 → undefined（不返回空数组假装成功）", async () => {
+    await withStubServer(
+      (_req, res) => {
+        res.writeHead(500).end("boom");
+      },
+      async (baseUrl) => {
+        const model = createTypesafeDecisionModel({ ...CFG, baseUrl });
+        const out = await model.decide({
+          state: "s",
+          questions: [{ type: "noul", id: "x", instructions: "i" }],
+        });
+        expect(out).toBeUndefined();
+      },
+    );
   });
 
   it("网络抛异常 → undefined，不向上抛", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new Error("ECONNREFUSED");
-      }),
-    );
-    const model = createTypesafeDecisionModel(CFG);
+    // 连一个没人监听的回环端口：ECONNREFUSED 必须被吞成 undefined。
+    const model = createTypesafeDecisionModel({ ...CFG, baseUrl: "http://127.0.0.1:1" });
     const out = await model.decide({
       state: "s",
       questions: [{ type: "noul", id: "x", instructions: "i" }],
@@ -343,30 +397,37 @@ describe("P5 端口失败语义：不可用是正常状态，不编造", () => {
   });
 
   it("成功 → 返回解析后的答案", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({
-          answers: [{ id: "x", type: "noul", probability: 0.8, confidence: 0.7 }],
-        }),
-      })),
+    await withStubServer(
+      (_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            answers: [{ id: "x", type: "noul", probability: 0.8, confidence: 0.7 }],
+          }),
+        );
+      },
+      async (baseUrl) => {
+        const model = createTypesafeDecisionModel({ ...CFG, baseUrl });
+        const out = await model.decide({
+          state: "s",
+          questions: [{ type: "noul", id: "x", instructions: "i" }],
+        });
+        expect(out).toHaveLength(1);
+        expect(out?.[0]).toMatchObject({ probability: 0.8, confidence: 0.7 });
+      },
     );
-    const model = createTypesafeDecisionModel(CFG);
-    const out = await model.decide({
-      state: "s",
-      questions: [{ type: "noul", id: "x", instructions: "i" }],
-    });
-    expect(out).toHaveLength(1);
-    expect(out?.[0]).toMatchObject({ probability: 0.8, confidence: 0.7 });
   });
 
   it("空问句集 → 空数组且**不发请求**（零成本短路）", async () => {
-    const fetchSpy = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
-    vi.stubGlobal("fetch", fetchSpy);
-    const model = createTypesafeDecisionModel(CFG);
-    expect(await model.decide({ state: "s", questions: [] })).toEqual([]);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    await withStubServer(
+      (_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" }).end("{}");
+      },
+      async (baseUrl, seen) => {
+        const model = createTypesafeDecisionModel({ ...CFG, baseUrl });
+        expect(await model.decide({ state: "s", questions: [] })).toEqual([]);
+        expect(seen).toHaveLength(0);
+      },
+    );
   });
 
   it("端口 id 带版本（审计与分歧记录要能区分是谁投的票）", () => {
@@ -374,26 +435,22 @@ describe("P5 端口失败语义：不可用是正常状态，不编造", () => {
   });
 
   it("请求打到 systemone 端点并带 Bearer", async () => {
-    let seenUrl = "";
-    let seenAuth = "";
-    let seenBody = "";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string, init: { headers: Record<string, string>; body: string }) => {
-        seenUrl = url;
-        seenAuth = init.headers.authorization;
-        seenBody = init.body;
-        return { ok: true, json: async () => ({ answers: [] }) };
-      }),
+    await withStubServer(
+      (_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" }).end('{"answers":[]}');
+      },
+      async (baseUrl, seen) => {
+        const model = createTypesafeDecisionModel({ ...CFG, baseUrl });
+        await model.decide({
+          state: "案件状态",
+          questions: [{ type: "noul", id: "x", instructions: "i" }],
+        });
+        expect(seen).toHaveLength(1);
+        expect(seen[0].url).toContain("/v1/systemone");
+        expect(seen[0].auth).toBe("Bearer sk-test");
+        expect(seen[0].body).toContain("案件状态");
+        expect(seen[0].body).not.toContain("chat/completions");
+      },
     );
-    const model = createTypesafeDecisionModel(CFG);
-    await model.decide({
-      state: "案件状态",
-      questions: [{ type: "noul", id: "x", instructions: "i" }],
-    });
-    expect(seenUrl).toContain("/v1/systemone");
-    expect(seenAuth).toBe("Bearer sk-test");
-    expect(seenBody).toContain("案件状态");
-    expect(seenBody).not.toContain("chat/completions");
   });
 });

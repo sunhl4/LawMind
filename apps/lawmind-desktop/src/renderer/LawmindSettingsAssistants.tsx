@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
+import { ASSISTANT_PRESENCE_LABEL } from "../../../../src/lawmind/assistants/presence.ts";
+import {
+  assistantJobBriefHint,
+  sortAssistantsForRoster,
+} from "../../../../src/lawmind/assistants/roster.ts";
 import {
   PRACTICE_PERSONAS,
   type PracticePersona,
 } from "../../../../src/lawmind/core/practice-personas.ts";
-import { apiGetJson } from "./api-client";
+import { ApiRequestError, apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import { confirmDialog } from "./lawmind-confirm-dialog";
 import type { AssistantRow } from "./lawmind-settings-models.ts";
 
 type Props = {
@@ -19,6 +25,8 @@ type Props = {
   onRemove: () => void;
   /** 复制当前助手（只复制角色与边界，不复制记忆）。 */
   onDuplicate: () => void;
+  /** 置顶或从日常切换隐藏。隐藏不删除对话与交付物。 */
+  onPatchRoster: (assistantId: string, patch: { pinned?: boolean; hidden?: boolean }) => void;
 };
 
 type ProfileSection = {
@@ -63,9 +71,15 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
     onOpenEdit,
     onDuplicate,
     onRemove,
+    onPatchRoster,
   } = props;
   const empty = assistants.length === 0;
   const [sections, setSections] = useState<ProfileSection[] | null>(null);
+  const [shareNote, setShareNote] = useState<string | null>(null);
+  const [rosterQuery, setRosterQuery] = useState("");
+  const [rosterHits, setRosterHits] = useState<
+    Array<{ assistantId: string | null; label: string; hits: Array<{ kind: string; title: string; snippet: string }> }>
+  >([]);
 
   useEffect(() => {
     if (!apiBase?.trim() || !selectedAssistantId) {
@@ -93,7 +107,100 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
     };
   }, [apiBase, selectedAssistantId]);
 
+  useEffect(() => {
+    const query = rosterQuery.trim();
+    if (!apiBase?.trim() || query.length < 2) {
+      setRosterHits([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void apiGetJson<{
+        groups?: Array<{
+          assistantId: string | null;
+          label: string;
+          hits: Array<{ kind: string; title: string; snippet: string }>;
+        }>;
+      }>(apiBase, `/api/assistants/roster-search?q=${encodeURIComponent(query)}`)
+        .then((payload) => {
+          if (!cancelled) {
+            setRosterHits(Array.isArray(payload.groups) ? payload.groups : []);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setRosterHits([]);
+          }
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [apiBase, rosterQuery]);
+
   const selectedPresetKey = selectedAssistant?.presetKey;
+
+  const shareTemplate = useCallback(async () => {
+    if (!apiBase?.trim() || !selectedAssistantId) {
+      return;
+    }
+    setShareNote(null);
+    const post = (acknowledgeWarnings: boolean) =>
+      apiSendJson<{
+        ok?: boolean;
+        template?: unknown;
+        blockers?: string[];
+        warnings?: string[];
+      }>(apiBase, `/api/assistants/${encodeURIComponent(selectedAssistantId)}/share-template`, "POST", {
+        acknowledgeWarnings,
+      });
+    const explain = (body: { blockers?: string[]; warnings?: string[] } | null) => {
+      if (body?.blockers && body.blockers.length > 0) {
+        setShareNote(body.blockers.join(" "));
+        return true;
+      }
+      return false;
+    };
+    try {
+      let result = await post(false);
+      const text = JSON.stringify(result.template, null, 2);
+      try {
+        await navigator.clipboard.writeText(text);
+        setShareNote("已复制岗位模板。里面没有记忆、对话和密钥。");
+      } catch {
+        setShareNote(text);
+      }
+    } catch (cause) {
+      const body =
+        cause instanceof ApiRequestError && cause.body && typeof cause.body === "object"
+          ? (cause.body as { blockers?: string[]; warnings?: string[] })
+          : null;
+      if (explain(body)) {
+        return;
+      }
+      if (body?.warnings && body.warnings.length > 0) {
+        const accepted = await confirmDialog({
+          title: "导出前确认",
+          body: body.warnings.join("\n"),
+          confirmLabel: "仍然导出",
+        });
+        if (!accepted) {
+          return;
+        }
+        try {
+          const result = await post(true);
+          const text = JSON.stringify(result.template, null, 2);
+          await navigator.clipboard.writeText(text);
+          setShareNote("已复制岗位模板。里面没有记忆、对话和密钥。");
+        } catch (again) {
+          setShareNote(errorMessage(again, "导出失败"));
+        }
+        return;
+      }
+      setShareNote(errorMessage(cause, "导出失败"));
+    }
+  }, [apiBase, selectedAssistantId]);
 
   const onPersonaActivate = useCallback(
     (persona: PracticePersona) => {
@@ -106,6 +213,8 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
     },
     [assistants, onOpenNew, onSelectAssistantId],
   );
+
+  const roster = useMemo(() => sortAssistantsForRoster(assistants), [assistants]);
 
   const personaHints = useMemo(() => {
     const map = new Map<string, number>();
@@ -120,7 +229,31 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
 
   return (
     <div className="lm-settings-section lm-assistants-settings" data-testid="lm-settings-assistants">
-      <p className="lm-settings-lead">选助手或新建。</p>
+      <p className="lm-settings-lead">
+        置顶的助手排在前面。隐藏只是不出现在顶栏切换里，对话、案件和交付物都还在。
+      </p>
+      <label className="lm-assistants-search">
+        <span>在名册里找办过的事</span>
+        <input
+          className="lm-input"
+          value={rosterQuery}
+          onChange={(event) => setRosterQuery(event.target.value)}
+          placeholder="至少两个字，例如续签"
+          data-testid="lm-assistants-search"
+        />
+      </label>
+      {rosterHits.length > 0 ? (
+        <ul className="lm-assistants-search-hits" aria-label="名册检索结果">
+          {rosterHits.map((group) => (
+            <li key={group.assistantId ?? group.label}>
+              <strong>{group.label}</strong>
+              {group.hits.slice(0, 3).map((hit) => (
+                <p key={`${hit.kind}-${hit.title}`}>{hit.title}</p>
+              ))}
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       <section className="lm-assistants-block" aria-labelledby="lm-assistants-current-title">
         <header className="lm-assistants-block__head">
@@ -136,22 +269,64 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
           </div>
         ) : (
           <div className="lm-assistants-current">
-            <label className="lm-assistants-field">
-              <span>选择助手</span>
-              <select
-                className="lm-asst-select"
-                value={selectedAssistantId}
-                onChange={(e) => onSelectAssistantId(e.target.value)}
-                data-testid="lm-assistants-select"
-              >
-                {assistants.map((a) => (
-                  <option key={a.assistantId} value={a.assistantId}>
-                    {a.displayName}
-                    {a.assistantId === DEFAULT_ASSISTANT_ID ? "（默认）" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <ul className="lm-assistants-roster" aria-label="助手名册">
+              {roster.map((assistant) => {
+                const selected = assistant.assistantId === selectedAssistantId;
+                const pinned = assistant.pinned === true;
+                const hidden = assistant.hidden === true;
+                return (
+                  <li key={assistant.assistantId} className="lm-assistants-roster__item">
+                    <button
+                      type="button"
+                      className={`lm-assistants-roster__pick${selected ? " is-selected" : ""}${hidden ? " is-hidden" : ""}`}
+                      aria-pressed={selected}
+                      data-testid={`lm-assistants-roster-${assistant.assistantId}`}
+                      onClick={() => onSelectAssistantId(assistant.assistantId)}
+                    >
+                      <span className="lm-assistants-roster__name">
+                        {assistant.displayName}
+                        {assistant.assistantId === DEFAULT_ASSISTANT_ID ? "（默认）" : ""}
+                      </span>
+                      <span className="lm-assistants-roster__meta">
+                        {ASSISTANT_PRESENCE_LABEL[assistant.presence ?? "idle"]}
+                        {" · "}
+                        {roleLabel(assistant)}
+                        {" · "}
+                        {assistantJobBriefHint(assistant.jobBrief)}
+                        {pinned ? " · 已置顶" : ""}
+                        {hidden ? " · 已从日常切换隐藏" : ""}
+                      </span>
+                    </button>
+                    <div className="lm-assistants-roster__flags">
+                      <button
+                        type="button"
+                        className="lm-assistants-roster__flag"
+                        aria-pressed={pinned}
+                        data-testid={`lm-assistants-pin-${assistant.assistantId}`}
+                        onClick={() =>
+                          onPatchRoster(assistant.assistantId, { pinned: !pinned })
+                        }
+                      >
+                        {pinned ? "取消置顶" : "置顶"}
+                      </button>
+                      {assistant.assistantId === DEFAULT_ASSISTANT_ID ? null : (
+                        <button
+                          type="button"
+                          className="lm-assistants-roster__flag"
+                          aria-pressed={hidden}
+                          data-testid={`lm-assistants-hide-${assistant.assistantId}`}
+                          onClick={() =>
+                            onPatchRoster(assistant.assistantId, { hidden: !hidden })
+                          }
+                        >
+                          {hidden ? "显示" : "隐藏"}
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
 
             <dl className="lm-assistants-meta">
               <div>
@@ -236,6 +411,16 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
               <button
                 type="button"
                 className="lm-assistants-action lm-assistants-action--secondary"
+                data-testid="lm-assistants-share"
+                onClick={() => void shareTemplate()}
+                disabled={empty || !apiBase?.trim()}
+                title="导出岗位模板。不含记忆、对话和密钥。对方得到的是独立副本。"
+              >
+                导出岗位模板
+              </button>
+              <button
+                type="button"
+                className="lm-assistants-action lm-assistants-action--secondary"
                 data-testid="lm-assistants-duplicate"
                 onClick={onDuplicate}
                 disabled={empty}
@@ -255,6 +440,11 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
                 </button>
               ) : null}
             </div>
+            {shareNote ? (
+              <p className="lm-meta" role="status" data-testid="lm-assistants-share-note">
+                {shareNote}
+              </p>
+            ) : null}
           </div>
         )}
 

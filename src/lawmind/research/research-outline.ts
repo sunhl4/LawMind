@@ -1,6 +1,7 @@
 /**
- * Research outline — pre-writing plan for compliance / learning / training decks.
- * Inspired by STORM (outline before write) + Co-STORM human confirmation.
+ * Research outline — section plan for compliance / learning / training decks.
+ * The plan is written into the same turn as the body. A clarification card
+ * appears only when the lawyer asked to see the outline before the draft.
  */
 
 import type { ClarificationQuestion, ResearchBundle, TaskIntent } from "../types.js";
@@ -25,6 +26,13 @@ export { outlineLooksApproved } from "./outline-hitl.js";
 
 function instructionHaystack(intent: TaskIntent): string {
   return `${intent.instruction ?? ""} ${intent.summary ?? ""}`.trim();
+}
+
+/** Lawyer explicitly asked to stop after the outline. Default is to write the body. */
+export function lawyerWantsOutlineHold(instruction: string): boolean {
+  return /先出大纲|先确认大纲|确认后再写|只要大纲|仅输出大纲|先给大纲|outline only/i.test(
+    instruction,
+  );
 }
 
 function defaultComplianceSections(intent: TaskIntent): ResearchOutlineSection[] {
@@ -151,7 +159,8 @@ export function buildResearchOutline(
     notes.push(...bundle.missingItems.slice(0, 5).map((m) => `待补：${m}`));
   }
 
-  const status = outlineLooksApproved(instructionHaystack(intent)) ? "approved" : "pending";
+  const hay = instructionHaystack(intent);
+  const status = outlineLooksApproved(hay) || !lawyerWantsOutlineHold(hay) ? "approved" : "pending";
   return { title, deliverableType: dt, status, sections, notes };
 }
 

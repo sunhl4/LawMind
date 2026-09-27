@@ -12,11 +12,7 @@ import {
 } from "../agent/prompt-protocol-gate.js";
 import { isOpinionMemoDelivery, resolveTurnDeliveryIntent } from "../intent/delivery-intent.js";
 import type { SurgicalTextEdit } from "./apply-surgical-edits.js";
-import { tryNarrowSurgicalEdit } from "./apply-surgical-edits.js";
 import { computeMinimalEditSpans } from "./minimal-edit-script.js";
-
-/** 一处输入编辑最多拆成多少段最短改动（与 apply-surgical-edits 同一口径）。 */
-const MAX_SPANS_PER_PLAN_ITEM = 64;
 
 export type RedlinePlanItem = SurgicalTextEdit & {
   priority?: "P0" | "P1" | "P2";
@@ -65,24 +61,6 @@ export function normalizeRedlinePlanItems(edits: SurgicalTextEdit[]): {
     }
     const minimized =
       spans.length > 1 || spans[0]?.before !== raw.find || spans[0]?.after !== raw.replace;
-    if (spans.length > MAX_SPANS_PER_PLAN_ITEM) {
-      const narrowed = tryNarrowSurgicalEdit(raw.find, raw.replace);
-      if (!narrowed) {
-        skipped.push({
-          find: raw.find.slice(0, 40),
-          replace: raw.replace.slice(0, 40),
-          reason: "改动过于碎片化且无法收窄为单处最短锚定；请按实质应改点分条提交。",
-        });
-        continue;
-      }
-      items.push({
-        find: narrowed.find,
-        replace: narrowed.replace,
-        note: [raw.note, "已收窄锚定"].filter(Boolean).join("；"),
-        narrowed: true,
-      });
-      continue;
-    }
     for (const span of spans) {
       const priority = (raw as { priority?: "P0" | "P1" | "P2" }).priority;
       items.push({

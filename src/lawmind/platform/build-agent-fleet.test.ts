@@ -202,7 +202,7 @@ describe("buildAgentFleetSummary", () => {
     expect(["chat", "tool_approval"]).toContain(fleet.runs[0]?.kind);
   });
 
-  it("maps lawyer-facing queue kinds to awaiting_approval and keeps agent-side kinds queued", async () => {
+  it("leaves assistant-side queue items out of the fleet list", async () => {
     workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-fleet-queuekinds-"));
     const { openQueueItem } = await import("../application/services/queue-write-service.js");
     openQueueItem(workspaceDir, {
@@ -221,15 +221,21 @@ describe("buildAgentFleetSummary", () => {
       kind: "ready_to_draft",
       title: "助手待起草",
     });
+    openQueueItem(workspaceDir, {
+      matterId: "m-qk",
+      kind: "need_client_input",
+      title: "问客户",
+    });
 
     const fleet = await buildAgentFleetSummary({ workspaceDir });
     const byTitle = new Map(fleet.runs.map((r) => [r.title, r.status]));
-    expect(byTitle.get("待签批")).toBe("queued");
-    expect(byTitle.get("待合伙人审批")).toBe("queued");
-    expect(byTitle.get("助手待起草")).toBe("queued");
+    expect(byTitle.get("问客户")).toBe("awaiting_approval");
+    expect(byTitle.has("待签批")).toBe(false);
+    expect(byTitle.has("待合伙人审批")).toBe(false);
+    expect(byTitle.has("助手待起草")).toBe(false);
   });
 
-  it("skips idle chats and completed jobs", async () => {
+  it("keeps today's settled jobs and skips idle chats and older completions", async () => {
     workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-fleet-idle-"));
     createSession({
       workspaceDir,
@@ -237,6 +243,8 @@ describe("buildAgentFleetSummary", () => {
       assistantId: "default",
       matterId: "matter-idle",
     });
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
     const fleet = await buildAgentFleetSummary({
       workspaceDir,
       jobs: [
@@ -254,10 +262,20 @@ describe("buildAgentFleetSummary", () => {
           templateId: "cancelled",
           createdAt: new Date().toISOString(),
         },
+        {
+          jobId: "old-done",
+          status: "completed",
+          matterId: "matter-idle",
+          templateId: "old",
+          createdAt: yesterday.toISOString(),
+          updatedAt: yesterday.toISOString(),
+        },
       ],
     });
-    expect(fleet.runs).toHaveLength(0);
-    expect(fleet.counts.total).toBe(0);
+    expect(fleet.runs.some((r) => r.kind === "chat")).toBe(false);
+    expect(fleet.runs.some((r) => r.jobId === "done" && r.status === "completed")).toBe(true);
+    expect(fleet.runs.some((r) => r.jobId === "cancelled" && r.status === "cancelled")).toBe(true);
+    expect(fleet.runs.some((r) => r.jobId === "old-done")).toBe(false);
   });
 
   it("surfaces clarification-pending chat and scheduled/failed job statuses", async () => {
@@ -298,7 +316,9 @@ describe("buildAgentFleetSummary", () => {
           jobId: "failish",
           status: "broken",
           matterId: "matter-clarify",
+          name: "邮件合同审阅",
           templateId: "broken-job",
+          error: "材料缺了主体",
           createdAt: new Date().toISOString(),
         },
       ],
@@ -308,12 +328,40 @@ describe("buildAgentFleetSummary", () => {
       true,
     );
     expect(fleet.runs.some((r) => r.jobId === "sched" && r.status === "scheduled")).toBe(true);
-    expect(fleet.runs.some((r) => r.jobId === "failish")).toBe(false);
+    const failedJob = fleet.runs.find((r) => r.jobId === "failish");
+    expect(failedJob?.status).toBe("failed");
+    expect(failedJob?.title).toBe("邮件合同审阅");
+    expect(failedJob?.note).toBe("材料缺了主体");
     expect(
       fleet.runs.some(
         (r) =>
-          r.kind === "pending_review" && r.subtitle === "修改后待复核" && r.taskId === "draft-mod",
+          r.kind === "pending_review" && r.subtitle === "修改后待审核" && r.taskId === "draft-mod",
       ),
     ).toBe(true);
+  });
+
+  it("surfaces a chat that finished today, with the instruction", async () => {
+    workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-fleet-settled-chat-"));
+    const session = createSession({
+      workspaceDir,
+      actorId: "lawyer",
+      assistantId: "default",
+      matterId: "matter-done",
+    });
+    session.turns.push({
+      turnId: "turn-1",
+      sessionId: session.sessionId,
+      instruction: "写一份给客户的备忘录",
+      messages: [],
+      toolCallsExecuted: 0,
+      status: "completed",
+    });
+    session.updatedAt = new Date().toISOString();
+    saveSession(workspaceDir, session);
+    const fleet = await buildAgentFleetSummary({ workspaceDir });
+    const chat = fleet.runs.find((r) => r.kind === "chat");
+    expect(chat?.status).toBe("completed");
+    expect(chat?.title).toContain("备忘录");
+    expect(chat?.title).not.toBe("New Chat");
   });
 });

@@ -187,6 +187,21 @@ export function markDelegationFailed(
   return record;
 }
 
+export function markDelegationAwaitingLawyer(
+  workspaceDir: string,
+  delegationId: string,
+  note: string,
+): DelegationRecord | undefined {
+  const record = registry.get(delegationId);
+  if (!record || isTerminalDelegationStatus(record.status)) {
+    return record;
+  }
+  record.status = "awaiting_lawyer";
+  record.error = note;
+  persistRecord(workspaceDir, record);
+  return record;
+}
+
 export function markDelegationTimeout(
   workspaceDir: string,
   delegationId: string,
@@ -320,7 +335,9 @@ export function listRunningDelegationsForSession(opts: {
   return [...registry.values()]
     .filter((r) => r.parentSessionId === sid)
     .filter((r) => r.fromAssistantId === aid)
-    .filter((r) => r.status === "pending" || r.status === "running")
+    .filter(
+      (r) => r.status === "pending" || r.status === "running" || r.status === "awaiting_lawyer",
+    )
     .toSorted((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
@@ -329,7 +346,9 @@ export function countActiveDelegations(assistantId: string): number {
   for (const record of registry.values()) {
     if (
       record.fromAssistantId === assistantId &&
-      (record.status === "pending" || record.status === "running")
+      (record.status === "pending" ||
+        record.status === "running" ||
+        record.status === "awaiting_lawyer")
     ) {
       count++;
     }
@@ -350,22 +369,22 @@ export function validateDelegation(params: {
   const { fromAssistantId, toAssistantId, depth, policy } = params;
 
   if (fromAssistantId === toAssistantId) {
-    return "Cannot delegate to self.";
+    return "不能把这件活派给自己。请交给另一位助手，或自己做完再回报。";
   }
 
   if (depth >= policy.maxDelegationDepth) {
-    return `Delegation depth ${depth} exceeds maximum ${policy.maxDelegationDepth}.`;
+    return `派活已经套了 ${depth} 层，上限是 ${policy.maxDelegationDepth} 层。请把结论交回，不要再往下派。`;
   }
 
   const active = countActiveDelegations(fromAssistantId);
   if (active >= policy.maxActiveDelegationsPerAssistant) {
-    return `Assistant ${fromAssistantId} has ${active} active delegations (max ${policy.maxActiveDelegationsPerAssistant}).`;
+    return `你同时在办的派活已有 ${active} 件，上限是 ${policy.maxActiveDelegationsPerAssistant} 件。等一件做完，或改派给别的助手。`;
   }
 
   if (policy.allowedPairs.length > 0) {
     const pairKey = `${fromAssistantId}:${toAssistantId}`;
     if (!policy.allowedPairs.includes(pairKey)) {
-      return `Communication from ${fromAssistantId} to ${toAssistantId} is not allowed by policy.`;
+      return "当前协作策略不允许这样派活。请改派给允许的助手，或自己做完再回报。";
     }
   }
 

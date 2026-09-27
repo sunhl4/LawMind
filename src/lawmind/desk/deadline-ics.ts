@@ -5,6 +5,7 @@
 
 import type { DeadlineRecord } from "../adapters/matter-storage/schemas.js";
 import { deadlineWaitingOnTitle } from "./deadline-chain.js";
+import { defaultRemindBeforeHours } from "./legal-event-extract.js";
 
 function icsEscape(value: string): string {
   return value
@@ -12,6 +13,17 @@ function icsEscape(value: string): string {
     .replace(/;/g, "\\;")
     .replace(/,/g, "\\,")
     .replace(/\n/g, "\\n");
+}
+
+function nextDateOnly(compact: string): string {
+  const y = Number(compact.slice(0, 4));
+  const m = Number(compact.slice(4, 6));
+  const d = Number(compact.slice(6, 8));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + 1);
+  const month = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(dt.getUTCDate()).padStart(2, "0");
+  return `${dt.getUTCFullYear()}${month}${day}`;
 }
 
 function icsDate(iso: string): string {
@@ -25,19 +37,29 @@ function icsDate(iso: string): string {
     .replace(/\.\d{3}Z$/, "Z");
 }
 
+/** RFC 5545 folds at 75 octets, not 75 characters. A Chinese summary folded by characters exceeds the limit. */
 function foldLine(line: string): string {
-  if (line.length <= 75) {
+  const bytes = Buffer.from(line, "utf8");
+  if (bytes.length <= 75) {
     return line;
   }
-  const chunks: string[] = [];
-  let rest = line;
-  chunks.push(rest.slice(0, 75));
-  rest = rest.slice(75);
-  while (rest.length > 0) {
-    chunks.push(` ${rest.slice(0, 74)}`);
-    rest = rest.slice(74);
+  const parts: string[] = [];
+  let offset = 0;
+  let budget = 75;
+  while (offset < bytes.length) {
+    let end = Math.min(offset + budget, bytes.length);
+    while (end > offset && (bytes[end] & 0xc0) === 0x80) {
+      end -= 1;
+    }
+    if (end === offset) {
+      end = Math.min(offset + budget, bytes.length);
+    }
+    const piece = bytes.subarray(offset, end).toString("utf8");
+    parts.push(offset === 0 ? piece : ` ${piece}`);
+    offset = end;
+    budget = 74;
   }
-  return chunks.join("\r\n");
+  return parts.join("\r\n");
 }
 
 export function deadlineIcsUid(deadline: Pick<DeadlineRecord, "deadlineId" | "icsUid">): string {
@@ -46,9 +68,10 @@ export function deadlineIcsUid(deadline: Pick<DeadlineRecord, "deadlineId" | "ic
 
 export function formatDeadlinesIcs(
   deadlines: DeadlineRecord[],
-  opts?: { calendarName?: string },
+  opts?: { calendarName?: string; exportedAt?: string },
 ): string {
   const name = icsEscape(opts?.calendarName?.trim() || "LawMind 期限");
+  const stamp = icsDate(opts?.exportedAt ?? new Date().toISOString());
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -57,7 +80,8 @@ export function formatDeadlinesIcs(
     `X-WR-CALNAME:${name}`,
   ];
   for (const d of deadlines) {
-    const start = icsDate(d.dueAt);
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(d.dueAt.trim());
+    const start = dateOnly ? d.dueAt.replace(/-/g, "") : icsDate(d.dueAt);
     if (!start) {
       continue;
     }
@@ -68,13 +92,26 @@ export function formatDeadlinesIcs(
       .filter(Boolean)
       .join("\n");
     const desc = icsEscape(descParts);
+    const remind = d.remindBeforeHours ?? defaultRemindBeforeHours(d.eventKind ?? "custom");
     lines.push("BEGIN:VEVENT");
     lines.push(`UID:${uid}`);
-    lines.push(`DTSTAMP:${start}`);
-    lines.push(`DTSTART:${start}`);
+    if (stamp) {
+      lines.push(`DTSTAMP:${stamp}`);
+    }
+    lines.push(dateOnly ? `DTSTART;VALUE=DATE:${start}` : `DTSTART:${start}`);
+    if (dateOnly) {
+      lines.push(`DTEND;VALUE=DATE:${nextDateOnly(start)}`);
+    }
     lines.push(`SUMMARY:${summary}`);
     if (desc) {
       lines.push(`DESCRIPTION:${desc}`);
+    }
+    if (remind > 0 && !waiting) {
+      lines.push("BEGIN:VALARM");
+      lines.push("ACTION:DISPLAY");
+      lines.push(`TRIGGER:-PT${remind}H`);
+      lines.push(`DESCRIPTION:${summary}`);
+      lines.push("END:VALARM");
     }
     lines.push("END:VEVENT");
   }

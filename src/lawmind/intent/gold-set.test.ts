@@ -44,6 +44,11 @@ describe("intent gold set", () => {
       if (compiled.softAsk) {
         failures.push(`${row.id}: compiler must not ask the lawyer to classify`);
       }
+      if (row.chain && compiled.chain.join(",") !== row.chain.join(",")) {
+        failures.push(
+          `${row.id}: chain expected ${row.chain.join(",")}, got ${compiled.chain.join(",")}`,
+        );
+      }
     }
     expect(failures).toEqual([]);
   });

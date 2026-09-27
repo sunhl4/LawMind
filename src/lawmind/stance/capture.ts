@@ -118,7 +118,8 @@ function applyUpsert(
   const existing = findActiveForClause(items, params.clauseType);
   if (existing && existing.preferredLanguage === preferredLanguage) {
     existing.occurrences += 1;
-    existing.confidence = nextConfidence(existing, added);
+    existing.evidenceScore = nextConfidence(existing, added);
+    existing.confidence = existing.modelConfidence ?? existing.evidenceScore;
     existing.evidence = [...(existing.evidence ?? []), ...added];
     existing.updatedAt = now;
     if (params.family && !existing.family) {
@@ -139,9 +140,10 @@ function applyUpsert(
       createdAt: now,
       updatedAt: now,
     };
-    next.confidence = existing.evidence?.length
+    next.evidenceScore = existing.evidence?.length
       ? stanceConfidenceFromEvidence(next.evidence ?? [])
       : added.reduce((acc, e) => combineStanceConfidence(acc, e.source), existing.confidence);
+    next.confidence = next.modelConfidence ?? next.evidenceScore;
     if (params.family) {
       next.family = params.family;
     } else if (existing.family) {
@@ -156,13 +158,15 @@ function applyUpsert(
   }
   const seed =
     params.seedOccurrences && params.seedOccurrences > 0 ? Math.floor(params.seedOccurrences) : 1;
+  const evidenceScore = stanceConfidenceFromEvidence(added);
   const created: StanceItem = {
     id: newStanceId(),
     clauseType: params.clauseType,
     position: shortPosition(preferredLanguage),
     preferredLanguage,
     source: params.source,
-    confidence: stanceConfidenceFromEvidence(added),
+    evidenceScore,
+    confidence: evidenceScore,
     occurrences: seed,
     evidence: added,
     createdAt: now,

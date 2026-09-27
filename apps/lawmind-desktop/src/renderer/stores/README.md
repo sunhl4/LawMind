@@ -5,10 +5,11 @@
 
 已落地的域 store：
 
-- `fleet-desk-view-store.ts`：在办左栏视图状态（团队/队列、筛选、分组展开、稍后看）。
+- `fleet-desk-view-store.ts`：在办左栏的案件筛选和稍后看。
 - `matter-overview-view-store.ts`：案件概览工作队列过滤/排序 + 洞察折叠展开。
 - `review-pane-visibility-store.ts`：文书台 meta / editor / preview 三栏可见性。
 - `settings-panel-store.ts`：设置面板开关、当前分区、滚动锚点。
+- `approval-request-store.ts`：当前弹出的工具审批请求（不持久化）。「待我拍板」队列本身不在这里，入口仍是侧栏或顶栏。
 
 ## 何时用 store vs props / useState
 
@@ -40,9 +41,9 @@
   - 持久化切片（localStorage）在 store 创建时读取、动作内写回；
   - 瞬时切片提供 `resetTransient()`，由面板挂载时调用，**对齐原 `useState` 初始语义**
     （模块级 store 生命周期长于组件，不复位会把上一视图的筛选/模式带过去）。
-- **组件订阅用选择器**：`useFleetDeskViewStore((s) => s.listMode)`，逐字段订阅，避免整店订阅多渲染。
+- **组件订阅用选择器**：`useFleetDeskViewStore((s) => s.matterFilter)`，逐字段订阅，避免整店订阅多渲染。
 - **联动副作用留在调用方**：store 动作只管视图状态；选中项、滚动定位等仍由组件编排
-  （例：`selectAssistant` 只改筛选与模式，展开组 + 选中首行留在 Panel 的 `onSelectAssistant`）。
+  （例：深链只改案件筛选，选中哪一件留在在办面板）。
 - **测试**：colocate `<domain>-store.test.ts`，覆盖状态转移与持久化键；组件行为测试走原有
   组件测试，不在 store 测试里重复。
 

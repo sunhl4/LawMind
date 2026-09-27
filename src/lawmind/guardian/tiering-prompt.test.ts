@@ -10,8 +10,7 @@
  * 判级改造的全部价值就是**改变模型看到什么**。如果只断言 verdict，那么
  * 「machine 项其实还在提示词里」这种错误永远测不出来——verdict 依然会是对的。
  *
- * 使用的样例族：`采购供货`（19 项，超过 `CHECKLIST_CAP=16`，因此同时覆盖
- * 「名额截断与分级交互」这个容易出错的地方）。
+ * 使用的样例族：`采购供货`（19 项）。核对项不再按条数截断，分级只决定谁来判。
  *   - machine：`pr.deposit`（定金上限）、`pr.dispute`（争议解决形式）
  *   - lawyer ：`pr.inspect`（检验期限）、`pr.cap`（责任上限）
  *   - 其余为 judge
@@ -170,20 +169,18 @@ describe("G1 cassette：判定分级改变模型看到什么", () => {
     expect(packHasItem(captured.user, "pr.subject")).toBe(true);
   });
 
-  it("on：名额被**回填**——摘掉 machine 项后，原本被 16 项截断挤掉的 judge 项进来了", async () => {
+  it("核对项不按条数截断：尾部 judge 项在 off 和 on 都进提示词", async () => {
     const wsOff = tmpWs();
     const offCaptured = { user: "", calls: 0 };
     process.env[ENV_KEY] = "off";
     await runTracked(wsOff, offCaptured);
-    // 采购供货 19 项，cap=16 → off 下尾部 3 项被丢弃。
-    expect(packHasItem(offCaptured.user, "pr.force")).toBe(false);
-    expect(packHasItem(offCaptured.user, "pr.license")).toBe(false);
+    expect(packHasItem(offCaptured.user, "pr.force")).toBe(true);
+    expect(packHasItem(offCaptured.user, "pr.license")).toBe(true);
 
     const wsOn = tmpWs();
     const onCaptured = { user: "", calls: 0 };
     process.env[ENV_KEY] = "on";
     await runTracked(wsOn, onCaptured);
-    // on 下先摘 machine 再截断 → 名额回填给 judge 项。
     expect(packHasItem(onCaptured.user, "pr.force")).toBe(true);
   });
 
@@ -264,9 +261,10 @@ describe("G1 cassette：判定分级改变模型看到什么", () => {
     );
   }
 
-  it("策略文件写 judgmentTiering=on → 与 env 同效（machine 项不进提示词）", async () => {
+  it("策略文件里的 judgmentTiering 不再生效，以环境变量为准", async () => {
     const ws = tmpWs();
-    writePolicy(ws, { judgmentTiering: "on" });
+    writePolicy(ws, { judgmentTiering: "off" });
+    process.env[ENV_KEY] = "on";
     const captured = { user: "", calls: 0 };
     await runTracked(ws, captured);
     expect(captured.calls).toBe(1);
@@ -274,19 +272,19 @@ describe("G1 cassette：判定分级改变模型看到什么", () => {
     expect(packHasItem(captured.user, "pr.pay")).toBe(true);
   });
 
-  it("策略文件里的 off **压过** env 的 on（解析顺序：policy 显式优先）", async () => {
+  it("环境变量 judgmentTiering=on 时 machine 项不进提示词", async () => {
     const ws = tmpWs();
     process.env[ENV_KEY] = "on";
-    writePolicy(ws, { judgmentTiering: "off" });
     const captured = { user: "", calls: 0 };
     await runTracked(ws, captured);
-    // off = 全部按 judge 走 → machine 项回到提示词。
-    expect(packHasItem(captured.user, "pr.deposit")).toBe(true);
+    expect(packHasItem(captured.user, "pr.deposit")).toBe(false);
+    expect(packHasItem(captured.user, "pr.pay")).toBe(true);
   });
 
-  it("策略文件写通道 on + tiering on → lawyer 项移出提示词（与收尾接线同源）", async () => {
+  it("环境变量通道 on + tiering on → lawyer 项移出提示词", async () => {
     const ws = tmpWs();
-    writePolicy(ws, { judgmentTiering: "on", judgmentEscalation: "on" });
+    process.env[ENV_KEY] = "on";
+    process.env[ESCALATION_KEY] = "on";
     const captured = { user: "", calls: 0 };
     await runTracked(ws, captured);
     expect(packHasItem(captured.user, "pr.inspect")).toBe(false);
@@ -294,9 +292,10 @@ describe("G1 cassette：判定分级改变模型看到什么", () => {
     expect(packHasItem(captured.user, "pr.pay")).toBe(true);
   });
 
-  it("策略文件写 judgmentDisabledVerifiers → 停用项降回 judge 并回到提示词", async () => {
+  it("环境变量停用验证器后该项降回 judge 并回到提示词", async () => {
     const ws = tmpWs();
-    writePolicy(ws, { judgmentTiering: "on", judgmentDisabledVerifiers: ["statute.deposit_cap"] });
+    process.env[ENV_KEY] = "on";
+    process.env[DISABLED_KEY] = "statute.deposit_cap";
     const captured = { user: "", calls: 0 };
     await runTracked(ws, captured);
     expect(packHasItem(captured.user, "pr.deposit")).toBe(true);

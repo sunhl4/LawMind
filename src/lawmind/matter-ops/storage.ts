@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { z } from "zod";
+import {
+  appendJsonl,
+  readJsonl,
+  withExclusiveFileLock,
+  writeJsonAtomic,
+} from "../adapters/matter-storage/io.js";
 import { assertSafeMatterId, matterDir } from "../adapters/matter-storage/paths.js";
 import type {
   MatterOpsPlan,
@@ -10,41 +17,104 @@ import type {
   MatterTheoryLite,
 } from "./types.js";
 
+const scopeSchema = z.object({
+  matterId: z.string().min(1),
+  baseline: z.string(),
+  updatedAt: z.string().min(1),
+  changes: z.array(z.object({ at: z.string(), note: z.string() })).optional(),
+});
+
+const planSchema = z.object({
+  matterId: z.string().min(1),
+  phases: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      owner: z.string().optional(),
+      dueAt: z.string().optional(),
+    }),
+  ),
+  milestones: z.array(
+    z.object({ id: z.string(), title: z.string(), dueAt: z.string().optional() }),
+  ),
+  updatedAt: z.string().min(1),
+});
+
+const theorySchema = z.object({
+  matterId: z.string().min(1),
+  issues: z.string(),
+  authorities: z.string(),
+  openQuestions: z.string(),
+  updatedAt: z.string().min(1),
+  anchored: z.boolean(),
+});
+
+const raidEntrySchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(["risk", "assumption", "issue", "decision"]),
+  text: z.string(),
+  status: z.enum(["open", "closed"]).optional(),
+  createdAt: z.string().min(1),
+});
+
+function withOpsFileLock<T>(filePath: string, fn: () => T): T {
+  return withExclusiveFileLock(`${filePath}.lock`, fn);
+}
+
 function opsDir(workspaceDir: string, matterId: string): string {
   return path.join(matterDir(workspaceDir, assertSafeMatterId(matterId)), "ops");
 }
 
-function readJsonFile<T>(file: string): T | null {
+function readJsonFile(file: string): unknown {
   try {
     if (!fs.existsSync(file)) {
       return null;
     }
-    return JSON.parse(fs.readFileSync(file, "utf8")) as T;
+    return JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
   } catch {
     return null;
   }
 }
 
+/** Writes must not replace a torn file with a fresh object and drop history. */
+function readJsonFileForWrite(file: string): unknown {
+  if (!fs.existsSync(file)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
+  } catch {
+    throw new Error(`matter_ops_corrupt:${path.basename(file)}`);
+  }
+}
+
+function isOpenRisk(row: MatterRaidEntry): boolean {
+  return row.kind === "risk" && (row.status ?? "open") === "open";
+}
+
 export function readMatterOpsSummary(workspaceDir: string, matterId: string): MatterOpsSummary {
   const mid = assertSafeMatterId(matterId);
   const dir = opsDir(workspaceDir, mid);
-  const scope = readJsonFile<MatterOpsScope>(path.join(dir, "scope.json"));
-  const plan = readJsonFile<MatterOpsPlan>(path.join(dir, "plan.json"));
-  const raidPath = path.join(dir, "raid.jsonl");
+  const scope = readJsonFile(path.join(dir, "scope.json")) as MatterOpsScope | null;
+  const plan = readJsonFile(path.join(dir, "plan.json")) as MatterOpsPlan | null;
+  const raidAll = readJsonl(path.join(dir, "raid.jsonl"), raidEntrySchema);
+  const openRiskCount = raidAll.filter(isOpenRisk).length;
+  const newestFirst = raidAll.slice().toReversed();
   const raidRecent: MatterRaidEntry[] = [];
-  if (fs.existsSync(raidPath)) {
-    const lines = fs.readFileSync(raidPath, "utf8").split("\n").filter(Boolean);
-    for (const line of lines.slice(-40)) {
-      try {
-        raidRecent.push(JSON.parse(line) as MatterRaidEntry);
-      } catch {
-        /* skip */
-      }
+  const seenRaid = new Set<string>();
+  for (const row of [
+    ...newestFirst.filter(isOpenRisk),
+    ...newestFirst.filter((row) => !isOpenRisk(row)),
+  ]) {
+    if (seenRaid.has(row.id)) {
+      continue;
+    }
+    seenRaid.add(row.id);
+    raidRecent.push(row);
+    if (raidRecent.length >= 12) {
+      break;
     }
   }
-  const openRiskCount = raidRecent.filter(
-    (r) => r.kind === "risk" && (r.status ?? "open") === "open",
-  ).length;
   const nextMilestone =
     plan?.milestones
       ?.slice()
@@ -56,7 +126,7 @@ export function readMatterOpsSummary(workspaceDir: string, matterId: string): Ma
     matterId: mid,
     scope,
     plan,
-    raidRecent: raidRecent.slice(-12).toReversed(),
+    raidRecent,
     openRiskCount,
     nextMilestone,
   };
@@ -69,22 +139,24 @@ export function writeMatterOpsScope(
 ): MatterOpsScope {
   const mid = assertSafeMatterId(matterId);
   const dir = opsDir(workspaceDir, mid);
-  fs.mkdirSync(dir, { recursive: true });
-  const prev = readJsonFile<MatterOpsScope>(path.join(dir, "scope.json"));
-  const now = new Date().toISOString();
-  const scope: MatterOpsScope = {
-    matterId: mid,
-    baseline: baseline.trim(),
-    updatedAt: now,
-    changes: [
-      ...(prev?.changes ?? []),
-      ...(prev?.baseline && prev.baseline !== baseline.trim()
-        ? [{ at: now, note: `基线更新：${prev.baseline.slice(0, 80)}` }]
-        : []),
-    ].slice(-20),
-  };
-  fs.writeFileSync(path.join(dir, "scope.json"), `${JSON.stringify(scope, null, 2)}\n`, "utf8");
-  return scope;
+  const filePath = path.join(dir, "scope.json");
+  return withOpsFileLock(filePath, () => {
+    const prev = readJsonFileForWrite(filePath) as MatterOpsScope | null;
+    const now = new Date().toISOString();
+    const scope: MatterOpsScope = {
+      matterId: mid,
+      baseline: baseline.trim(),
+      updatedAt: now,
+      changes: [
+        ...(prev?.changes ?? []),
+        ...(prev?.baseline && prev.baseline !== baseline.trim()
+          ? [{ at: now, note: `基线更新：${prev.baseline.slice(0, 80)}` }]
+          : []),
+      ].slice(-20),
+    };
+    writeJsonAtomic(filePath, scopeSchema.parse(scope));
+    return scope;
+  });
 }
 
 export function writeMatterOpsPlan(
@@ -93,15 +165,16 @@ export function writeMatterOpsPlan(
   plan: Omit<MatterOpsPlan, "matterId" | "updatedAt">,
 ): MatterOpsPlan {
   const mid = assertSafeMatterId(matterId);
-  const dir = opsDir(workspaceDir, mid);
-  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(opsDir(workspaceDir, mid), "plan.json");
   const next: MatterOpsPlan = {
     matterId: mid,
     phases: plan.phases ?? [],
     milestones: plan.milestones ?? [],
     updatedAt: new Date().toISOString(),
   };
-  fs.writeFileSync(path.join(dir, "plan.json"), `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  withOpsFileLock(filePath, () => {
+    writeJsonAtomic(filePath, planSchema.parse(next));
+  });
   return next;
 }
 
@@ -111,8 +184,7 @@ export function appendMatterRaid(
   entry: Omit<MatterRaidEntry, "id" | "createdAt"> & { id?: string; createdAt?: string },
 ): MatterRaidEntry {
   const mid = assertSafeMatterId(matterId);
-  const dir = opsDir(workspaceDir, mid);
-  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(opsDir(workspaceDir, mid), "raid.jsonl");
   const row: MatterRaidEntry = {
     id: entry.id ?? `raid_${randomUUID().replace(/-/g, "").slice(0, 12)}`,
     kind: entry.kind,
@@ -120,7 +192,9 @@ export function appendMatterRaid(
     status: entry.status ?? "open",
     createdAt: entry.createdAt ?? new Date().toISOString(),
   };
-  fs.appendFileSync(path.join(dir, "raid.jsonl"), `${JSON.stringify(row)}\n`, "utf8");
+  withOpsFileLock(filePath, () => {
+    appendJsonl(filePath, raidEntrySchema, row);
+  });
   return row;
 }
 
@@ -132,7 +206,7 @@ export function readMatterTheoryLite(
   workspaceDir: string,
   matterId: string,
 ): MatterTheoryLite | null {
-  return readJsonFile<MatterTheoryLite>(theoryLitePath(workspaceDir, matterId));
+  return readJsonFile(theoryLitePath(workspaceDir, matterId)) as MatterTheoryLite | null;
 }
 
 export function writeMatterTheoryLite(
@@ -141,17 +215,18 @@ export function writeMatterTheoryLite(
   body: Pick<MatterTheoryLite, "issues" | "authorities" | "openQuestions" | "anchored">,
 ): MatterTheoryLite {
   const mid = assertSafeMatterId(matterId);
-  const dir = opsDir(workspaceDir, mid);
-  fs.mkdirSync(dir, { recursive: true });
+  const filePath = theoryLitePath(workspaceDir, mid);
   const next: MatterTheoryLite = {
     matterId: mid,
     issues: body.issues ?? "",
     authorities: body.authorities ?? "",
     openQuestions: body.openQuestions ?? "",
-    anchored: Boolean(body.anchored),
+    anchored: body.anchored,
     updatedAt: new Date().toISOString(),
   };
-  fs.writeFileSync(theoryLitePath(workspaceDir, mid), `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  withOpsFileLock(filePath, () => {
+    writeJsonAtomic(filePath, theorySchema.parse(next));
+  });
   return next;
 }
 

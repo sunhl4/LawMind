@@ -178,24 +178,14 @@ export function isNoTaskUtterance(instruction: string): boolean {
 }
 
 /**
- * Folder talk / directory pin: the model must explore_folder this turn
- * before WRITE_HEAVY. Word 改稿 and mail short-path already have a file;
- * 「继续」must not re-block after that explore.
+ * 文件夹或目录钉选不再要求先探查再写（铁律 5）。
+ * 函数保留，调用方仍可记录「这轮提到了文件夹」，但不因此关写工具。
  */
-export function shouldRequireFolderExplore(input: {
+export function shouldRequireFolderExplore(_input: {
   instruction: string;
   hasDirectoryPin?: boolean;
   wordRevisionTurn?: boolean;
   mailContractTurn?: boolean;
 }): boolean {
-  if (input.wordRevisionTurn || input.mailContractTurn) {
-    return false;
-  }
-  if (isContinuationUtterance(input.instruction) || isNoTaskUtterance(input.instruction)) {
-    return false;
-  }
-  if (instructionAsksToFileIntoMatter(input.instruction)) {
-    return false;
-  }
-  return instructionMentionsFolder(input.instruction) || Boolean(input.hasDirectoryPin);
+  return false;
 }

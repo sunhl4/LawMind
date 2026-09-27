@@ -194,6 +194,49 @@ describe("lawmind-server-route-audit-export integrity", () => {
     expect(handled).toBe(true);
     expect(capture.status).toBe(200);
   });
+
+  it("rejects compliance export on Solo; private_deploy edition allows it", async () => {
+    delete process.env.LAWMIND_EDITION;
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-audit-comp-"));
+    const capture = createResponseCapture();
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const blocked = await handleAuditExportRoute({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/audit/export?compliance=true"),
+      pathname: "/api/audit/export",
+      c: {},
+    });
+    expect(blocked).toBe(true);
+    expect(capture.status).toBe(403);
+    expect(capture.json().error).toBe("compliance_audit_export_disabled");
+
+    fs.writeFileSync(
+      path.join(workspaceDir, "lawmind.policy.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        edition: "private_deploy",
+      }),
+      "utf8",
+    );
+    const captureOk = createResponseCapture();
+    const allowed = await handleAuditExportRoute({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: captureOk.res,
+      url: new URL("http://127.0.0.1/api/audit/export?compliance=true"),
+      pathname: "/api/audit/export",
+      c: {},
+    });
+    expect(allowed).toBe(true);
+    expect(captureOk.status).toBe(200);
+  });
 });
 
 describe("lawmind-server-route-audit-export replay", () => {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { MATTER_PARTIES_CAP, normalizeMatterParties, type MatterParty } from "./matter-parties.js";
+import {
+  MATTER_PARTIES_CAP,
+  normalizeMatterParties,
+  samePartyName,
+  type MatterParty,
+} from "./matter-parties.js";
 
 describe("matter parties cap", () => {
   it("keeps a 共同诉讼 defendant list (12 parties) instead of silently dropping the 9th", () => {
@@ -23,5 +28,17 @@ describe("matter parties cap", () => {
       role: "other" as const,
     }));
     expect(normalizeMatterParties(many)).toHaveLength(MATTER_PARTIES_CAP);
+  });
+});
+
+describe("samePartyName", () => {
+  it("treats a company and its 有限公司 form as the same party", () => {
+    expect(samePartyName("北京甲公司", "北京甲有限公司")).toBe(true);
+    expect(samePartyName(" 北京甲 公司 ", "北京甲股份有限公司")).toBe(true);
+  });
+
+  it("does not treat different short names as the same party", () => {
+    expect(samePartyName("甲公司", "乙公司")).toBe(false);
+    expect(samePartyName("北京甲", "北京甲乙")).toBe(false);
   });
 });

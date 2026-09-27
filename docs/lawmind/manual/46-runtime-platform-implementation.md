@@ -18,7 +18,7 @@
 | 检索/列表预算 | `DISCOVERY_LOOP_TOOL_LIMITS`、`DISCOVERY_LOOP_TOTAL_CAP`、`DISCOVERY_LOOP_TOTAL_CAP_MAX`、`resolveDiscoveryLoopTotalCap`、`wouldHitDiscoveryCap`、`dropSaturatedDiscoveryTools`、`discoveryStopHint`、`discoveryCountsShowDocumentRead`                                           |
 | 本机文件预算  | `HOST_FILE_TOOL_NAMES`、`HOST_FILE_PER_TOOL_LIMIT_FALLBACK`、`HOST_FILE_PER_TOOL_LIMIT_MIN`、`HOST_FILE_PER_TOOL_LIMIT_MAX`、`resolveHostFilePerToolLimit`、`wouldHitHostFileCap`、`hostFileLedgerTotal`、`HostFileLedgerHint`、`contextUsesHostFileLedger`、`usesHostFileLedger` |
 | 类型          | `ToolCallContext`、`ToolPolicyConfig`、`ToolMiddleware`                                                                                                                                                                                                                           |
-| 其他          | `MATTER_SCOPED_TOOL_NAMES`、`FOLDER_EXPLORE_GATE_ERROR`                                                                                                                                                                                                                           |
+| 其他          | `MATTER_SCOPED_TOOL_NAMES`                                                                                                                                                                                                                                                        |
 
 **注意导出面**：它只导出了**少数几个中间件**（其他的在内部数组里），但导出了**预算相关的全部常量与判定函数**。
 
@@ -66,7 +66,7 @@
 
 **`outbound-proxy.ts`** 只导出 6 个（`createOutboundProxy`、默认单例、错误类、两个类型）——**实现细节全部内部**。它的八条网段拒绝与 `fail-closed` 的 DNS 处理见第 68.9 节。
 
-**`safe-command.ts`** 有一套与 Electron 那份**完全不同**的规则（那份管「打开」，这份管「运行」）。三张名单（禁 11 个 shell、禁 7 个代码执行参数、15 个可继承变量）见第 68.17 节。
+**`safe-command.ts`** 有一套与 Electron 那份**完全不同**的规则（那份管「打开」，这份管「运行」）。三张名单（禁 11 个 shell、禁 7 个代码执行参数、15 个可继承变量）见第 68.17 节。入口三个：`safeCommand`（流式句柄）、`runSafeCommand`（异步等结果）、`runSafeCommandSync`（同步路径用，比如 quit 时 spawn daemon 那种不能 await 的场合）。
 
 **三种 child env 构建器的分工**：
 
@@ -81,6 +81,11 @@
 - **`tool-approval-diff.ts` 里那几个 `toolArgsHave*` 判断**决定审批卡片长什么样：是展示完整 diff、还是只展示可编辑的短字段。
 - **`lawyer-automations.ts` 里的邮件函数**（`listMatterMailMessages`、`queueOutboundMail`、`commitOutboundMail`）说明**自动办件的邮件读写和工作台邮件是同一套**——不是两套实现。
 - **`word-revision-packs.ts` 有 1145 行**，因为九个族的清单内容全在里面；`word-revision-core.ts` 是机制。两者分开是刻意的。
+
+### 两个跨目录的运行时细节
+
+- **FTS 增量同步**（`src/lawmind/indexing/fts-ingest.ts`）：`syncWorkspaceSearchIndex` 在检索前调用——没有索引时整库建一次，之后按 `index_source` 表里的 mtime/size 戳只补改过的审计、会话、知识和材料；`index_source` 为空而 FTS 行非空（戳丢了）时整库重建兜底。
+- **事件日志撕尾修复**（`src/lawmind/agent/session-event-log.ts` 的 `repairTornJsonlTail`）：崩溃可能留下半行 JSON。修复窗口是文件尾部最多 1 MB——**单条事件超过这个窗口时放弃本次修复**（读侧 `parseEventLines` 本来就跳过坏行，损失止于撕尾那一条），而不是清空或截断整个文件。
 
 ## 46.3 `audit/`（8 个文件）
 
@@ -98,20 +103,20 @@
 
 ## 46.4 `policy/`（12 个文件）
 
-| 文件                            | 关键导出                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `edition.ts`                    | `EDITION_VALUES`、`EDITION_LABELS`、`EDITION_FEATURES`（18 个功能键）、`resolveEdition`、`isFeatureEnabled`、`listEditions`、`resolveProductInsightsCollection`、`isWordAddinAutoRunEnabled`                                                                                                                                                                    |
-| `workspace-policy.ts`           | `readWorkspacePolicyFile`、`workspacePolicyPath`、`resolveAgentMandatoryRulesForPrompt`、`resolveMatterMandatoryRulesForPrompt`、`resolveEgressMode`、`readEgressMode`、`isEgressOffline`、`mergeWorkspacePolicyFile`、`resolveAgentMaxToolCallsPerTurn`、`resolveAgentMaxHistoryMessages`、`resolveAgentPromptVerbosity`、`AGENT_MANDATORY_RULES_MAX_CHARS` 等 |
-| `network-allowlist.ts`          | `checkNetworkAllowlist`、`mergeRecommendedLegalNetworkAllowlist`、`hostnameFromUrl`、`RECOMMENDED_LEGAL_NETWORK_ALLOWLIST`                                                                                                                                                                                                                                      |
-| `citation-mode.ts`              | `resolveCitationMode`、`citationModeBlocksRender`、`citationModeBannerKind`                                                                                                                                                                                                                                                                                     |
-| `ethics-wall.ts`                | `readEthicsWallState`、`writeEthicsWallState`、`recordEthicsWallScan`、`acknowledgeEthicsWall`、`ethicsWallBlocksOutbound`、`isEthicsWallEnabled`、`ETHICS_WALL_HOLD_LAWYER_MESSAGE`                                                                                                                                                                            |
-| `privilege-sentinel.ts`         | `scanPrivilegeTip`、`assessOutboundPrivilege`、`isPrivilegeSentinelEnabled`                                                                                                                                                                                                                                                                                     |
-| `judgment-tiering.ts`           | `resolveJudgmentTieringMode`、`resolveDisabledVerifiers`、`shouldRunMachineStage`、`machineVerdictsAffectOutcome`、`resolveLawyerEscalationPosture`、`resolveEscalationPosture`                                                                                                                                                                                 |
-| `private-deploy-checklist.ts`   | `runPrivateDeployChecklist`（六项）                                                                                                                                                                                                                                                                                                                             |
-| `governance-report.ts`          | `buildGovernanceReportMarkdown`                                                                                                                                                                                                                                                                                                                                 |
-| `benchmark-gate.ts`             | `evaluateBenchmarkGate`                                                                                                                                                                                                                                                                                                                                         |
-| `analysis-scripts.ts`           | 分析脚本策略                                                                                                                                                                                                                                                                                                                                                    |
-| `workspace-policy` 的 `context` | 上下文相关策略（第 30 章）                                                                                                                                                                                                                                                                                                                                      |
+| 文件                                 | 关键导出                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `edition-features.ts` / `edition.ts` | `EDITION_FEATURES`（17 个功能键）、`resolveEdition`、`isFeatureEnabled`、`policy.features` 覆盖、`isWordAddinAutoRunEnabled`                                                                                                                                                                                                                                    |
+| `workspace-policy.ts`                | `readWorkspacePolicyFile`、`workspacePolicyPath`、`resolveAgentMandatoryRulesForPrompt`、`resolveMatterMandatoryRulesForPrompt`、`resolveEgressMode`、`readEgressMode`、`isEgressOffline`、`mergeWorkspacePolicyFile`、`resolveAgentMaxToolCallsPerTurn`、`resolveAgentMaxHistoryMessages`、`resolveAgentPromptVerbosity`、`AGENT_MANDATORY_RULES_MAX_CHARS` 等 |
+| `network-allowlist.ts`               | `checkNetworkAllowlist`、`mergeRecommendedLegalNetworkAllowlist`、`hostnameFromUrl`、`RECOMMENDED_LEGAL_NETWORK_ALLOWLIST`                                                                                                                                                                                                                                      |
+| `citation-mode.ts`                   | `resolveCitationMode`、`citationModeBlocksRender`、`citationModeBannerKind`                                                                                                                                                                                                                                                                                     |
+| `ethics-wall.ts`                     | `readEthicsWallState`、`writeEthicsWallState`、`recordEthicsWallScan`、`acknowledgeEthicsWall`、`ethicsWallBlocksOutbound`、`isEthicsWallEnabled`、`ETHICS_WALL_HOLD_LAWYER_MESSAGE`                                                                                                                                                                            |
+| `privilege-sentinel.ts`              | `scanPrivilegeTip`、`assessOutboundPrivilege`、`isPrivilegeSentinelEnabled`                                                                                                                                                                                                                                                                                     |
+| `judgment-tiering.ts`                | `resolveJudgmentTieringMode`、`resolveDisabledVerifiers`、`shouldRunMachineStage`、`machineVerdictsAffectOutcome`、`resolveLawyerEscalationPosture`、`resolveEscalationPosture`                                                                                                                                                                                 |
+| `private-deploy-checklist.ts`        | `runPrivateDeployChecklist`（六项）                                                                                                                                                                                                                                                                                                                             |
+| `governance-report.ts`               | `buildGovernanceReportMarkdown`                                                                                                                                                                                                                                                                                                                                 |
+| `benchmark-gate.ts`                  | `evaluateBenchmarkGate`                                                                                                                                                                                                                                                                                                                                         |
+| `analysis-scripts.ts`                | 分析脚本策略                                                                                                                                                                                                                                                                                                                                                    |
+| `workspace-policy` 的 `context`      | 上下文相关策略（第 30 章）                                                                                                                                                                                                                                                                                                                                      |
 
 **`policy/` 的三条设计原则**（`edition.ts` 头部）：Edition 只决定显隐不决定数据结构、默认值永远不报错、policy 优先于环境变量。
 
@@ -142,5 +147,5 @@
 - **`word-revision-core.ts` 与 `word-revision-packs.ts` 是两个文件**：前者是机制，后者是九个族的具体内容（1145 行）。
 - **`domain-state.ts` 在 `application/` 不在 `platform/`。**
 - **`lawyer-automations.ts` 的邮件函数和 `mail/` 模块不是一回事**（前者读写工作区邮件文件，后者是 IMAP/SMTP）。
-- **`policy/edition.ts` 的 18 个功能键**是三档都要给值的。
+- **`policy/edition-features.ts` 的 17 个功能键**是三档都要给值的。
 - **`platform/safe-command.ts` 与 `electron/safe-shell-command.mjs` 是两套不同规则**——只共用一个 `safe_command` 审计名。别以为改一处会同步。

@@ -15,16 +15,19 @@ import {
   formatBlockedDispatchNote,
   upsertDispatchEntry,
 } from "./automation-dispatch-ledger.js";
+import { consumeWebhookEvent, eventTriggerIsDue } from "./automation-event-scan.js";
 import {
   appendAutomationRun,
   type AutomationRunRecord,
   type AutomationRunStatus,
 } from "./automation-run-history.js";
+import { detectDossierSourceGap } from "./automation-source-gap.js";
 import {
   buildMailContractReviewSummary,
   buildMailDigestSummary,
   computeNextRunAt,
   claimDueAutomation,
+  claimEventAutomation,
   createAutomation,
   extractNotifyEmail,
   getAutomation,
@@ -38,6 +41,8 @@ import {
   automationNotifyPolicy,
   automationMissingDataPolicy,
   buildAutomationJobBriefNote,
+  buildAutomationRunContinuityNote,
+  mailDigestQuietKey,
   dispositionForMissingData,
   type LawyerAutomation,
   type AutomationInboxItem,
@@ -117,6 +122,8 @@ async function runOneAutomation(
   let status: AutomationRunOutcome["status"] = "ok";
   /** 因前提缺失而未产出时，缺的是什么（进运行记录，供缺资料策略与 P4 统计）。 */
   const missingData: string[] = [];
+  /** 本轮结束后记住的「没有新东西」标记；有新工作时清掉。 */
+  let nextQuietKey: string | undefined = automation.lastQuietKey;
   const push = (
     args: Parameters<typeof pushInbox>[2],
     kind: "informational" | "needs_lawyer" = "informational",
@@ -152,8 +159,7 @@ async function runOneAutomation(
       });
       if ("skipped" in sync && sync.skipped) {
         mailUnavailable = "未配置远程邮箱";
-        syncNote =
-          "（未配置远程邮箱：请到「交办 → 邮箱配置」连接 Gmail/Outlook/QQ 等后再同步。）\n\n";
+        syncNote = "（未配置远程邮箱：请到「设置 → 自动办件」接上邮箱后再同步。）\n\n";
       } else if (sync.ok && "written" in sync) {
         const mode =
           sync.watchMode === "contacts" ? `（按对方名单过滤，跳过 ${sync.filteredOut} 封）` : "";
@@ -185,6 +191,8 @@ async function runOneAutomation(
         lastRunAt: now.toISOString(),
         lastJobId: undefined,
         lastResultSummary: summary.slice(0, 500),
+        lastErrorCode: undefined,
+        lastErrorMessage: undefined,
         nextRunAt:
           automation.schedule.kind === "once"
             ? automation.schedule.runAt
@@ -203,12 +211,25 @@ async function runOneAutomation(
     mailMessageIds = messages.map((m) => m.id);
 
     if (automation.presetId === "mail-inbox-digest") {
-      summary = syncNote + buildMailDigestSummary(messages);
-      push({
-        title: `${automation.title} · 运行结果`,
-        summary,
-        mailMessageIds,
-      });
+      const quietKey = mailDigestQuietKey(mailMessageIds);
+      const unchanged = automation.lastQuietKey === quietKey;
+      // 「每次都通知」是律师显式选择，不能被静音盖掉。没写过策略的旧办件默认 always。
+      const honorAlways = automationNotifyPolicy(automation) === "always";
+      if (unchanged && !honorAlways) {
+        summary =
+          mailMessageIds.length === 0
+            ? `${syncNote}没有新来信，这次不重复整理。`
+            : `${syncNote}来信和上次一样，这次不重复整理。`;
+        status = "skipped";
+      } else {
+        summary = syncNote + buildMailDigestSummary(messages);
+        nextQuietKey = quietKey;
+        push({
+          title: `${automation.title} · 运行结果`,
+          summary,
+          mailMessageIds,
+        });
+      }
     } else {
       const drafted = buildMailContractReviewSummary(messages, automation.matterId);
       const built = await materializeMailContractReviewBaselines(
@@ -237,8 +258,14 @@ async function runOneAutomation(
             fingerprint: dispatchFingerprint(workspaceDir, baselinePath),
           })
         : undefined;
-      if (blocked) {
+      const continuity = buildAutomationRunContinuityNote(automation);
+      const blockedQuietKey = blocked ? `blocked:${blocked.fingerprint}` : undefined;
+      if (blocked && automation.lastQuietKey === blockedQuietKey) {
+        summary = `${summary}\n\n同一份材料上次已经停下，这次不再重复提醒。`;
+        status = "skipped";
+      } else if (blocked) {
         summary = `${summary}\n\n${formatBlockedDispatchNote(blocked)}`;
+        nextQuietKey = blockedQuietKey;
       } else if (canEnqueue && hooks.enqueueTemplate) {
         const instruction = [
           built.workflowInstruction,
@@ -247,6 +274,7 @@ async function runOneAutomation(
           buildAutomationJobBriefNote(automation)
             ? `\n${buildAutomationJobBriefNote(automation)}`
             : "",
+          continuity,
         ]
           .filter(Boolean)
           .join("\n");
@@ -267,7 +295,11 @@ async function runOneAutomation(
       } else {
         summary = `${summary}\n\n（本地未挂载工作流入队钩子，仅生成附件路径清单。）`;
       }
-      if (!blocked) {
+      const repeatBlocked = Boolean(blocked) && automation.lastQuietKey === blockedQuietKey;
+      if (repeatBlocked) {
+        // 同一份材料已经告诉过律师，不再每隔一个周期推一条「未重复派单」。
+      } else if (!blocked) {
+        nextQuietKey = undefined;
         // 有待批准发信时才需要律师拍板（下面 push 的 kind 决定）；否则只是通报。
         push({
           title: `${automation.title} · 运行结果`,
@@ -276,7 +308,7 @@ async function runOneAutomation(
           jobId,
         });
       } else {
-        // 「未重复派单」需要律师知情并自行处理材料，属需要拍板的一类。
+        // 「未重复派单」需要律师知情并自行处理材料，属需要拍板的一类。只说一次。
         push(
           {
             title: `${automation.title} · 未重复派单`,
@@ -303,6 +335,38 @@ async function runOneAutomation(
     automation.presetId === "client-weekly-update" ||
     (automation.presetId === "custom" && automation.templateId)
   ) {
+    const sourceGap = detectDossierSourceGap(
+      workspaceDir,
+      automation.presetId,
+      automation.matterId,
+    );
+    if (sourceGap) {
+      missingData.push(sourceGap);
+      const disposition = dispositionForMissingData(automationMissingDataPolicy(automation));
+      if (disposition !== "proceed") {
+        summary = `${automation.title}：${sourceGap}，按你设定的规矩没有继续办。`;
+        if (disposition === "fail_run") {
+          push({ title: `${automation.title} · 没能办成`, summary });
+        }
+        status = "skipped";
+        const skipped: LawyerAutomation = {
+          ...automation,
+          lastRunAt: now.toISOString(),
+          lastJobId: undefined,
+          lastResultSummary: summary.slice(0, 500),
+          lastErrorCode: undefined,
+          lastErrorMessage: undefined,
+          nextRunAt:
+            automation.schedule.kind === "once"
+              ? automation.schedule.runAt
+              : computeNextRunAt(automation.schedule, new Date(now.getTime() + 60_000)),
+          updatedAt: now.toISOString(),
+          enabled: automation.schedule.kind === "once" ? false : automation.enabled,
+        };
+        saveAutomation(workspaceDir, skipped);
+        return buildOutcome();
+      }
+    }
     const templateId =
       automation.templateId ||
       (automation.presetId === "renewal-monitor"
@@ -312,12 +376,16 @@ async function runOneAutomation(
           : undefined);
     if (templateId && hooks.enqueueTemplate) {
       const briefNote = buildAutomationJobBriefNote(automation);
+      const continuityNote = buildAutomationRunContinuityNote(automation);
+      nextQuietKey = undefined;
       const enqueued = await hooks.enqueueTemplate({
         templateId,
         matterId: automation.matterId,
-        // 同上：期望结果与审批边界是本次工作的验收与边界，必须随交办一起给到。
+        // 期望结果、审批边界和上次办到哪，必须随交办一起给到。
         instruction:
-          [automation.instruction?.trim(), briefNote].filter(Boolean).join("\n\n") || undefined,
+          [automation.instruction?.trim(), briefNote, continuityNote]
+            .filter(Boolean)
+            .join("\n\n") || undefined,
         automationId: automation.id,
       });
       jobId = enqueued ?? undefined;
@@ -370,6 +438,9 @@ async function runOneAutomation(
     lastRunAt: now.toISOString(),
     lastJobId: jobId,
     lastResultSummary: summary.slice(0, 500),
+    lastErrorCode: undefined,
+    lastErrorMessage: undefined,
+    lastQuietKey: nextQuietKey,
     nextRunAt:
       automation.schedule.kind === "once"
         ? automation.schedule.runAt
@@ -462,6 +533,52 @@ export async function processDueLawyerAutomations(
       });
     }
   }
+  const scheduledIds = new Set(due.map((item) => item.id));
+  for (const listed of listAutomations(workspaceDir)) {
+    if (scheduledIds.has(listed.id) || !eventTriggerIsDue(workspaceDir, listed, now)) {
+      continue;
+    }
+    const automation = claimEventAutomation(workspaceDir, listed.id, now);
+    if (!automation) {
+      continue;
+    }
+    if (automation.eventTrigger?.source === "webhook") {
+      consumeWebhookEvent(workspaceDir, automation.id);
+    }
+    const startedAt = new Date().toISOString();
+    try {
+      const outcome = await runOneAutomation(workspaceDir, automation, hooks, now);
+      n += 1;
+      const saved = getAutomation(workspaceDir, automation.id);
+      recordScheduledRun(
+        workspaceDir,
+        automation,
+        {
+          status: outcome.status,
+          startedAt,
+          summary: saved?.lastResultSummary,
+          jobId: saved?.lastJobId,
+          missingData: outcome.missingData,
+          notified: outcome.inboxPushed > 0,
+        },
+        "event",
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      recordScheduledRun(
+        workspaceDir,
+        automation,
+        {
+          status: "failed",
+          startedAt,
+          errorCode: classifyAutomationRunError(err),
+          errorMessage: message.slice(0, 500),
+          notified: false,
+        },
+        "event",
+      );
+    }
+  }
   return n;
 }
 
@@ -484,11 +601,12 @@ function recordScheduledRun(
     missingData?: string[];
     notified: boolean;
   },
+  trigger: AutomationRunRecord["trigger"] = "schedule",
 ): void {
   const record: AutomationRunRecord = {
     runId: randomUUID(),
     automationId: automation.id,
-    trigger: "schedule",
+    trigger,
     status: input.status,
     startedAt: input.startedAt,
     finishedAt: new Date().toISOString(),

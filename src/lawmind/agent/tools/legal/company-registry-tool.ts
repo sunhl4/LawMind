@@ -20,8 +20,7 @@ export function summarizeCompanyRegistryConfig(opts?: { url?: string }): {
     return {
       configured: false,
       envKey: "LAWMIND_COMPANY_REGISTRY_URL",
-      message:
-        "未接工商源。配置 LAWMIND_COMPANY_REGISTRY_URL 后才会实时查询；未成功拉取不得写成已核实登记。",
+      message: "工商查询还没接上。接上之后才会实时查询；没查到的登记不要写成已核实。",
     };
   }
   let host = "";
@@ -34,8 +33,8 @@ export function summarizeCompanyRegistryConfig(opts?: { url?: string }): {
     configured: true,
     envKey: "LAWMIND_COMPANY_REGISTRY_URL",
     message: host
-      ? `已配置工商端点（${host}）。查询成功仍须对照公示原文，不得写成已核对股权结构。`
-      : "已配置工商端点。查询成功仍须对照公示原文，不得写成已核对股权结构。",
+      ? `工商查询已接到 ${host}。查到的结果仍要对照公示原文，不要写成已经核对过股权。`
+      : "工商查询已接上。查到的结果仍要对照公示原文，不要写成已经核对过股权。",
   };
 }
 

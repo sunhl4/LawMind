@@ -6,19 +6,20 @@
 
 ### 规格与验收
 
-| 文件                   | 导出                                                                                                                                                                                                        |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`             | 纯类型：`DeliverableSpec`、`RequiredSection`、`PlaceholderRule`、`ReasoningGateSpec`、`AcceptanceCheck`、`AcceptanceReport`、`ReasoningCheck`、`ReasoningReport`、`ValidateDraftOptions`、`ValidateDraftFn` |
-| `registry.ts`          | `BUILT_IN_DELIVERABLE_SPECS`、`getDeliverableSpec`、`listDeliverableSpecs`、`registerExtraDeliverableSpecs`、`clearExtraDeliverableSpecs`、`listExtraDeliverableSpecs`                                      |
-| `lawyer-work-specs.ts` | 只导出 `LAWYER_WORK_SPECS`（16 个律师文书规格的数组）                                                                                                                                                       |
-| `validator.ts`         | 只导出 `validateDraftAgainstSpec`、`isDraftReadyForRender`                                                                                                                                                  |
-| `workspace-loader.ts`  | `loadWorkspaceDeliverableSpecs`、`parseDeliverableSpec`、类型                                                                                                                                               |
+| 文件                        | 导出                                                                                                                                                                                                        |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`                  | 纯类型：`DeliverableSpec`、`RequiredSection`、`PlaceholderRule`、`ReasoningGateSpec`、`AcceptanceCheck`、`AcceptanceReport`、`ReasoningCheck`、`ReasoningReport`、`ValidateDraftOptions`、`ValidateDraftFn` |
+| `registry.ts`               | `BUILT_IN_DELIVERABLE_SPECS`、`getDeliverableSpec`、`listDeliverableSpecs`、`registerExtraDeliverableSpecs`、`clearExtraDeliverableSpecs`、`listExtraDeliverableSpecs`                                      |
+| `lawyer-work-specs.ts`      | 只导出 `LAWYER_WORK_SPECS`（16 个律师文书规格的数组）                                                                                                                                                       |
+| `validator.ts`              | 只导出 `validateDraftAgainstSpec`、`isDraftReadyForRender`                                                                                                                                                  |
+| `acceptance-lawyer-copy.ts` | `humanizeAcceptanceLabel`、`buildAcceptanceChatPrompt`、`formatRenderGateRefusal`（导出失败与审核台共用的律师句子）                                                                                         |
+| `workspace-loader.ts`       | `loadWorkspaceDeliverableSpecs`、`applyWorkspaceDeliverableSpecs`（引擎与 CLI 同一门）、`parseDeliverableSpec`、类型                                                                                        |
 
-**`registry.ts` 是「注册表」**：内置 27 个 + 工作区额外注册的（firm 版功能 `customDeliverableSpec`）。
+**`registry.ts` 是「注册表」**：内置 27 个 + 工作区额外注册的（`customDeliverableSpec`，Solo 默认开；引擎工厂在 feature 关闭时跳过加载）。
 
-**内置 27 个是两批合起来的**：`LAWYER_WORK_SPECS`（16 个偏律师文书）加上 `registry.ts` 里定义的其余（合同、报告、计算类）。
+**内置 27 个是两批合起来的**：`registry.ts` 里 10 个（租赁、通用合同、催告函、合同审查、诉讼提纲、四类报告、培训课件）+ `LAWYER_WORK_SPECS` 16 个 + 末尾的 `document.general`。
 
-**`validator.ts` 只导出两个函数**——说明验收逻辑全在一个函数里（`validateDraftAgainstSpec`，第 12.4 节列了它产出的八类检查）。
+**`validator.ts` 只导出两个函数**——验收主流程在 `validateDraftAgainstSpec`（第 12.4 节）。可核对的内容提醒在同目录 `content-checks.ts`，缺了才追加，不挡导出。
 
 ### 辅助判断
 

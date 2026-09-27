@@ -7,11 +7,18 @@
 
 import fs from "node:fs/promises";
 import { listMatterIdsFromStorage } from "../adapters/matter-storage/io.js";
-import { readRecentAuditLogs } from "../audit/index.js";
+import { readAuditEventsForTaskIds } from "../audit/index.js";
 import { listDrafts } from "../drafts/index.js";
 import { caseFilePath } from "../memory/index.js";
 import { listTaskRecords } from "../tasks/index.js";
-import type { MatterIndex, MatterOverview, MatterSearchHit, MatterSummary } from "../types.js";
+import type {
+  ArtifactDraft,
+  MatterIndex,
+  MatterOverview,
+  MatterSearchHit,
+  MatterSummary,
+  TaskRecord,
+} from "../types.js";
 import {
   formatTaskLineForNextActions,
   resolveMatterHeadline,
@@ -43,16 +50,29 @@ function extractSectionEntries(content: string, heading: string): string[] {
 export async function buildMatterIndex(
   workspaceDir: string,
   matterId: string,
+  opts?: {
+    /** 调用方已筛过本案件的任务时传入，避免重复扫盘。 */
+    tasks?: TaskRecord[];
+    drafts?: ArtifactDraft[];
+    auditMaxDays?: number;
+    auditMaxEvents?: number;
+    /** 详情首屏可跳过 audit，时间线另拉 /audit-tail。 */
+    skipAudit?: boolean;
+  },
 ): Promise<MatterIndex> {
   const filePath = caseFilePath(workspaceDir, matterId);
   const caseMemory = await fs.readFile(filePath, "utf8").catch(() => "");
-  const tasks = listTaskRecords(workspaceDir).filter((task) => task.matterId === matterId);
-  const drafts = listDrafts(workspaceDir).filter((draft) => draft.matterId === matterId);
+  const tasks =
+    opts?.tasks ?? listTaskRecords(workspaceDir).filter((task) => task.matterId === matterId);
+  const drafts =
+    opts?.drafts ?? listDrafts(workspaceDir).filter((draft) => draft.matterId === matterId);
   const taskIds = new Set(tasks.map((task) => task.taskId));
-  // 详情/工具仍要 audit，但限制最近天数与条数，避免多年工作区全量扫盘
-  const auditEvents = (
-    await readRecentAuditLogs(`${workspaceDir}/audit`, { maxDays: 120, maxEvents: 8_000 })
-  ).filter((event) => taskIds.has(event.taskId));
+  const auditEvents = opts?.skipAudit
+    ? []
+    : await readAuditEventsForTaskIds(`${workspaceDir}/audit`, taskIds, {
+        maxDays: opts?.auditMaxDays ?? 120,
+        maxEvents: opts?.auditMaxEvents ?? 500,
+      });
 
   const coreIssues = extractSectionEntries(caseMemory, "## 4. 核心争点");
   const taskGoals = extractSectionEntries(caseMemory, "## 6. 当前任务目标");
@@ -126,15 +146,18 @@ export function buildMatterOverview(index: MatterIndex): MatterOverview {
 }
 
 /**
- * 列表/侧栏用：只读 CASE + 任务文件，不扫 audit（避免 O(案件×审计全量)）。
+ * 列表/侧栏用：只读 CASE + 这一案的任务，不扫 audit。
+ * `listMatterOverviews` 会把任务列表读一次后传进来，避免每个案件重读全部任务。
  */
 export async function buildMatterOverviewLite(
   workspaceDir: string,
   matterId: string,
+  tasksForMatter?: readonly TaskRecord[],
 ): Promise<MatterOverview> {
   const filePath = caseFilePath(workspaceDir, matterId);
   const caseMemory = await fs.readFile(filePath, "utf8").catch(() => "");
-  const tasks = listTaskRecords(workspaceDir).filter((task) => task.matterId === matterId);
+  const tasks =
+    tasksForMatter ?? listTaskRecords(workspaceDir).filter((task) => task.matterId === matterId);
   const openTasks = tasks.filter(
     (task) => task.status !== "rendered" && task.status !== "rejected",
   );
@@ -159,10 +182,33 @@ export async function buildMatterOverviewLite(
   };
 }
 
+function groupTasksByMatter(tasks: readonly TaskRecord[]): Map<string, TaskRecord[]> {
+  const byMatter = new Map<string, TaskRecord[]>();
+  for (const task of tasks) {
+    const id = task.matterId?.trim();
+    if (!id) {
+      continue;
+    }
+    const bucket = byMatter.get(id);
+    if (bucket) {
+      bucket.push(task);
+    } else {
+      byMatter.set(id, [task]);
+    }
+  }
+  return byMatter;
+}
+
 export async function listMatterOverviews(workspaceDir: string): Promise<MatterOverview[]> {
-  const matterIds = await listMatterIds(workspaceDir);
+  const [matterIds, allTasks] = await Promise.all([
+    listMatterIds(workspaceDir),
+    Promise.resolve(listTaskRecords(workspaceDir)),
+  ]);
+  const byMatter = groupTasksByMatter(allTasks);
   const overviews = await Promise.all(
-    matterIds.map((matterId) => buildMatterOverviewLite(workspaceDir, matterId)),
+    matterIds.map((matterId) =>
+      buildMatterOverviewLite(workspaceDir, matterId, byMatter.get(matterId) ?? []),
+    ),
   );
   return overviews.toSorted((a, b) => byLatestUpdatedDesc(a.latestUpdatedAt, b.latestUpdatedAt));
 }

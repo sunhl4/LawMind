@@ -13,7 +13,7 @@ import {
   resolveRelativeTimeWindow,
   type ParsedConversationQuery,
 } from "./conversation-search-query.js";
-import { displayChatSessionTitle, listSessions } from "./session.js";
+import { displayChatSessionTitle, isLawyerChatSwitcherSession, listSessions } from "./session.js";
 import { isLawyerVisibleChatMessage, type AgentMessage, type AgentSession } from "./types.js";
 
 export {
@@ -586,6 +586,9 @@ export function searchConversations(
   let scanned = 0;
   for (const session of sessions) {
     if (exclude && session.sessionId === exclude) {
+      continue;
+    }
+    if (!isLawyerChatSwitcherSession(session)) {
       continue;
     }
     const doc = indexSession(workspaceDir, session);

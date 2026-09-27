@@ -1,4 +1,4 @@
-/** Persist lawyer notes / verified flags for review matrix cells (per matter, local only). */
+/** 浏览器副本。真相源是案件目录里的 review-matrix-notes.json。 */
 
 export type ReviewMatrixNoteStore = {
   notes: Record<string, string>;

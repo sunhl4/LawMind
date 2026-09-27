@@ -110,6 +110,12 @@ export {
   FileReplicaRelay,
   NullReplicaRelay,
 } from "./relay.js";
+export {
+  ensureMatterVisible,
+  ingestInviteFromSharedRelay,
+  isCrossMachineRelayReady,
+  listFileRelayMatterIds,
+} from "./shared-relay.js";
 
 export { HttpReplicaRelay, HttpMaterialsRelay } from "./http-relay.js";
 export { sealBytes, openBytes, isSealedEnvelope } from "./crypto-envelope.js";

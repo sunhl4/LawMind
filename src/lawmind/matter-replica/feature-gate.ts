@@ -1,7 +1,8 @@
 /**
- * Feature gate — Solo path stays unchanged unless Firm/Private or explicit policy.
+ * Feature gate — inviting a colleague is on for every edition unless policy turns it off.
  */
 
+import { readCloudLink } from "../matter-cloud/cloud-link.js";
 import { resolveEdition } from "../policy/edition.js";
 import {
   readWorkspacePolicyFile,
@@ -46,9 +47,8 @@ export function readMatterReplicaPolicy(policy: LawMindWorkspacePolicy | null | 
 
 /**
  * Whether matter-replica collab surfaces may run.
- * - Solo: off unless policy.matterReplica.enabled === true (power-user opt-in)
- * - Firm / Private: on unless policy.matterReplica.enabled === false
- * - Also requires edition feature `matterReplicaCollab` when using edition table
+ * - Every edition: on when `matterReplicaCollab` is on (solo included)
+ * - `policy.matterReplica.enabled: false` turns it off; `true` forces it on
  */
 export function evaluateMatterReplicaGate(
   workspaceDir: string,
@@ -57,6 +57,13 @@ export function evaluateMatterReplicaGate(
   const policy = opts?.policy ?? readWorkspacePolicyFile(workspaceDir);
   const edition = resolveEdition({ policy, env: opts?.env });
   const mr = readMatterReplicaPolicy(policy);
+  const link = readCloudLink(workspaceDir);
+  if (!mr.endpoint && link?.endpoint) {
+    mr.endpoint = link.endpoint;
+  }
+  if (!mr.cloudToken && link?.token) {
+    mr.cloudToken = link.token;
+  }
   const featureOn = edition.features.matterReplicaCollab;
 
   let enabled = false;
@@ -73,7 +80,7 @@ export function evaluateMatterReplicaGate(
     reason = "matter_replica_edition";
   } else {
     enabled = false;
-    reason = "matter_replica_requires_firm_or_opt_in";
+    reason = "matter_replica_edition_off";
   }
 
   return {

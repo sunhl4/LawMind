@@ -4,6 +4,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { soloEditionFeatures } from "../../../../../src/lawmind/policy/edition-features.js";
 import { LawmindAppHeader } from "./LawmindAppHeader";
 import type { EditionInfo } from "../use-edition";
 
@@ -12,24 +13,7 @@ const editionState: { current: EditionInfo } = {
     edition: "solo",
     label: "独立律师版",
     source: "default",
-    features: {
-      acceptanceGateStrict: true,
-      citationGateStrict: true,
-      crossMatterRoadmap: false,
-      crossMatterAcceptanceDashboard: false,
-      collaborationSummary: false,
-      complianceAuditExport: false,
-      auditIntegrityExport: false,
-      securitySbomPanel: false,
-      qualityDashboardJsonExport: false,
-      customDeliverableSpec: false,
-      acceptancePackExport: false,
-      strictDangerousToolApproval: false,
-      reviewCampaignParallel: true,
-      forcePeerReview: false,
-      matterReplicaCollab: false,
-      ethicsWall: false,
-    },
+    features: { ...soloEditionFeatures() },
     citationMode: "assisted",
     loading: false,
   },
@@ -50,7 +34,7 @@ describe("LawmindAppHeader", () => {
     editionState.current = {
       ...editionState.current,
       edition: "solo",
-      features: { ...editionState.current.features, collaborationSummary: false },
+      features: { ...soloEditionFeatures() },
     };
   });
 
@@ -345,11 +329,11 @@ describe("LawmindAppHeader", () => {
       );
     });
     const reviewTab = host.querySelector('[data-testid="lm-tab-review"]');
-    expect(reviewTab?.textContent?.trim()).toBe("文书台");
+    expect(reviewTab?.textContent?.trim()).toBe("改稿");
     expect(reviewTab?.className).toContain("lm-tab-secondary");
   });
 
-  it("hides 会议室 until that scene is open", async () => {
+  it("does not show a meeting tab", async () => {
     await act(async () => {
       root.render(
         <LawmindAppHeader
@@ -428,9 +412,7 @@ describe("LawmindAppHeader", () => {
         />,
       );
     });
-    const meetingTab = host.querySelector('[data-testid="lm-tab-meeting"]');
-    expect(meetingTab?.textContent?.trim()).toBe("会议室");
-    expect(meetingTab?.className).toContain("lm-tab-secondary");
+    expect(host.querySelector('[data-testid="lm-tab-meeting"]')).toBeNull();
   });
 
   it("exits legacy cockpit overlay when 对话 is clicked while cockpit flag is set", async () => {
@@ -801,7 +783,7 @@ describe("LawmindAppHeader", () => {
     expect(host.querySelector(".lm-tabs")).toBeNull();
   });
 
-  it("never shows header 待我拍板 (inbox stays on sidebar / 在办)", async () => {
+  it("shows header 待我拍板 only when the sidebar cannot host it", async () => {
     const base = {
       assistants: [],
       selectedAssistantId: "a1",
@@ -833,23 +815,42 @@ describe("LawmindAppHeader", () => {
       onOpenDoctor: vi.fn(),
       onVerifyModel: vi.fn(),
       composeModelQuickTestBusy: false,
+      needsDecisionTotal: 3,
+      onOpenNeedsDecision: vi.fn(),
     };
+
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader {...base} mainView="workspace" sidebarCollapsed={false} />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-header-needs-decision"]')).toBeNull();
 
     await act(async () => {
       root.render(
         <LawmindAppHeader {...base} mainView="workspace" sidebarCollapsed />,
       );
     });
-    expect(host.querySelector(".lm-needs-decision-trigger")).toBeNull();
-    expect(host.querySelector('[data-testid="lm-header-needs-decision"]')).toBeNull();
+    const collapsed = host.querySelector<HTMLButtonElement>('[data-testid="lm-header-needs-decision"]');
+    expect(collapsed?.textContent).toContain("待我拍板");
+    expect(collapsed?.textContent).toContain("3");
+    collapsed?.click();
+    expect(base.onOpenNeedsDecision).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       root.render(
-        <LawmindAppHeader {...base} mainView="review" sidebarCollapsed={false} />,
+        <LawmindAppHeader {...base} mainView="review" sidebarCollapsed={false} needsDecisionTotal={0} />,
       );
     });
-    expect(host.querySelector(".lm-needs-decision-trigger")).toBeNull();
+    expect(host.querySelector('[data-testid="lm-header-needs-decision"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-tab-agents"]')?.textContent?.trim()).toBe("在办");
+
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader {...base} mainView="desk" sidebarCollapsed={false} needsDecisionTotal={2} />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-header-needs-decision"]')?.textContent).toContain("2");
   });
 
   it("shows weak matter chip when a case is linked", async () => {
@@ -959,5 +960,65 @@ describe("LawmindAppHeader", () => {
     });
     expect(host.querySelector('[data-testid="lm-header-create-matter"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-open-matter-cockpit"]')).toBeNull();
+  });
+
+  it("leaves a hidden assistant out of the daily switcher", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader
+          mainView="workspace"
+          assistants={[
+            {
+              assistantId: "a1",
+              displayName: "在用的助手",
+              introduction: "",
+              createdAt: "",
+              updatedAt: "",
+            },
+            {
+              assistantId: "hidden-1",
+              displayName: "藏起来的助手",
+              introduction: "",
+              hidden: true,
+              createdAt: "",
+              updatedAt: "",
+            },
+          ]}
+          selectedAssistantId="a1"
+          onSelectAssistantId={vi.fn()}
+          matterCockpitOpen={false}
+          onExitMatterCockpit={vi.fn()}
+          onSetMainView={vi.fn()}
+          apiBase="http://127.0.0.1:8765"
+          projectDir={null}
+          currentMatterLabel={null}
+          sidebarCollapsed={false}
+          wsShowEditor
+          wsShowChat
+          canUseFilesystemBridge={false}
+          onToggleSidebar={vi.fn()}
+          onToggleEditor={vi.fn()}
+          onToggleChat={vi.fn()}
+          reviewPaneVisibility={{ meta: true, editor: true, preview: true }}
+          onToggleReviewPane={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onCloseSettings={vi.fn()}
+          settingsOpen={false}
+          showReadinessStrip={false}
+          health={null}
+          workspaceDir="/tmp/ws"
+          localServiceReconnecting={false}
+          modelCatalog={[]}
+          selectedModelId="m1"
+          onOpenApiWizard={vi.fn()}
+          onOpenDoctor={vi.fn()}
+          onVerifyModel={vi.fn()}
+          composeModelQuickTestBusy={false}
+        />,
+      );
+    });
+    const select = host.querySelector("select[aria-label='选择助手']");
+    expect(select?.textContent).toContain("在用的助手");
+    expect(select?.textContent).not.toContain("藏起来的助手");
   });
 });

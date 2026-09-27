@@ -353,6 +353,8 @@ export const workspacePolicyPatchSchema = z
     /** @deprecated 等价 egressMode:"offline"；保留兼容旧 UI/脚本。 */
     highSecurityMode: z.boolean().optional(),
     allowAnalysisScripts: z.boolean().optional(),
+    /** 200K（默认）/ 500K / 1M。旧档 `daily`、`dossier` 仍接受，读入后分别视为 200K、1M。 */
+    conversationLength: z.enum(["200k", "500k", "1m", "daily", "dossier"]).optional(),
     hostAccess: z
       .object({
         mode: z.enum(["matter", "mounts", "locate", "command"]).optional(),
@@ -371,6 +373,7 @@ export const workspacePolicyPatchSchema = z
       v.egressMode !== undefined ||
       v.highSecurityMode !== undefined ||
       v.allowAnalysisScripts !== undefined ||
+      v.conversationLength !== undefined ||
       v.hostAccess !== undefined,
     {
       message: "at least one policy field required",
@@ -405,6 +408,10 @@ export const assistantUpsertSchema = z.object({
   orgRole: assistantOrgRoleSchema.optional(),
   reportsToAssistantId: z.string().optional(),
   peerReviewDefaultAssistantId: z.string().optional(),
+  /** 置顶。省略表示不改。 */
+  pinned: z.boolean().optional(),
+  /** 从日常切换隐藏。省略表示不改。默认助手传 true 会被引擎拒绝。 */
+  hidden: z.boolean().optional(),
 });
 
 export type AssistantUpsertRequest = z.infer<typeof assistantUpsertSchema>;
@@ -416,6 +423,11 @@ export type AssistantUpsertRequest = z.infer<typeof assistantUpsertSchema>;
  */
 export const assistantDuplicateSchema = z.object({
   displayName: z.string().trim().max(200).optional(),
+});
+
+/** 导出岗位模板。警告（电话/证件号）需要律师显式确认；密钥则直接拒绝。 */
+export const assistantShareSchema = z.object({
+  acknowledgeWarnings: z.boolean().optional(),
 });
 
 export type AssistantDuplicateRequest = z.infer<typeof assistantDuplicateSchema>;

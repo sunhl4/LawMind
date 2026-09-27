@@ -151,7 +151,9 @@ export function LawmindMatterPartiesEditor({ value, disabled, onChange }: Editor
           ) : null}
         </div>
       ))}
-      {value.length < MATTER_PARTIES_CAP ? (
+      {value.length >= MATTER_PARTIES_CAP ? (
+        <p className="lm-meta">已到 {MATTER_PARTIES_CAP} 人上限。再添加前请先移除一行。</p>
+      ) : (
         <div className="lm-lawyer-inline-actions">
           <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" disabled={disabled} onClick={() => addParty("agent")}>
             添加代收人
@@ -165,7 +167,7 @@ export function LawmindMatterPartiesEditor({ value, disabled, onChange }: Editor
             添加对方代理
           </button>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

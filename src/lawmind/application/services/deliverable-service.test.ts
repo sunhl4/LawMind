@@ -121,6 +121,8 @@ describe("application/services/deliverable-service", () => {
     const linked = linkDraftToDeliverable(workspaceDir, draft);
     expect(linked?.deliverableId).toBe("d-link");
     expect(readDeliverable(workspaceDir, "m-link", "d-link")?.status).toBeTruthy();
+    const again = linkDraftToDeliverable(workspaceDir, draft);
+    expect(again?.currentDraftRevision).toBe(linked?.currentDraftRevision);
   });
 
   it("linkDraftToDeliverable reopens an approved stamp when the new draft is pending", () => {

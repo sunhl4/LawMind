@@ -10,9 +10,81 @@ import {
   autoCompactSessionHistory,
   buildDroppedSpanDigest,
   buildPostCompactSystemNote,
+  cutIndexForTokenTail,
+  resolveCompactDigestCharCap,
 } from "./compact.js";
 import { normalizeToolResultMessages } from "./session-tool-call-pairing.js";
 import type { AgentMessage, AgentSession } from "./types.js";
+
+describe("resolveCompactDigestCharCap", () => {
+  it("caps digest size at the 200K history band", () => {
+    expect(resolveCompactDigestCharCap(128_000)).toBe(Math.floor(128_000 * 0.08));
+    expect(resolveCompactDigestCharCap(200_000)).toBe(16_000);
+    expect(resolveCompactDigestCharCap(1_000_000)).toBe(16_000);
+  });
+});
+
+describe("cutIndexForTokenTail", () => {
+  const msg = (content: string): AgentMessage => ({
+    role: "user",
+    content,
+    timestamp: "t",
+  });
+
+  it("短对话放得进预算时不切", () => {
+    const messages = [msg("sys"), ...Array.from({ length: 30 }, (_, i) => msg(`第${i}条`))];
+    messages[0] = { role: "system", content: "sys", timestamp: "t" };
+    expect(
+      cutIndexForTokenTail(messages, {
+        tailTokenBudget: 20_000,
+        minTailMessages: 2,
+        maxTailMessages: 100,
+      }),
+    ).toBe(0);
+  });
+
+  it("从尾部按 token 装，不按固定条数留 24 条", () => {
+    const messages: AgentMessage[] = [{ role: "system", content: "sys", timestamp: "t" }];
+    for (let i = 0; i < 40; i += 1) {
+      messages.push(msg("条款".repeat(80)));
+    }
+    const cut = cutIndexForTokenTail(messages, {
+      tailTokenBudget: 400,
+      minTailMessages: 2,
+      maxTailMessages: 100,
+    });
+    expect(cut).toBeGreaterThan(1);
+    const kept = messages.length - cut;
+    expect(kept).toBeGreaterThanOrEqual(2);
+    expect(kept).toBeLessThan(24);
+  });
+
+  it("切点不拆开一组工具调用", () => {
+    const messages: AgentMessage[] = [
+      { role: "system", content: "sys", timestamp: "t" },
+      msg("旧"),
+      {
+        role: "assistant",
+        content: "",
+        timestamp: "t",
+        toolCalls: [{ id: "c1", name: "read", arguments: {} }],
+      },
+      {
+        role: "tool",
+        content: "x".repeat(2_000),
+        timestamp: "t",
+        toolCallResponses: [{ toolCallId: "c1", name: "read", result: { ok: true } }],
+      },
+      msg("新"),
+    ];
+    const cut = cutIndexForTokenTail(messages, {
+      tailTokenBudget: 50,
+      minTailMessages: 1,
+      maxTailMessages: 10,
+    });
+    expect(messages[cut]?.role).not.toBe("tool");
+  });
+});
 
 describe("buildDroppedSpanDigest", () => {
   it("extracts lawyer points, assistant replies, and tool names", () => {
@@ -119,6 +191,31 @@ describe("buildDroppedSpanDigest", () => {
     expect(digest).toContain("法释〔2023〕1号");
     expect(digest).toContain("（2023）京民终123号");
   });
+
+  it("keeps guiding-case numbers and dotted contract clauses", () => {
+    const dropped: AgentMessage[] = [
+      {
+        role: "tool",
+        content: "{}",
+        timestamp: "t1",
+        toolCallResponses: [
+          {
+            toolCallId: "c1",
+            name: "search_case_law",
+            result: {
+              ok: true,
+              data: "参照指导案例24号，以及合同第 3.2 条、第12.3.1条。普通第3条不单列。",
+            },
+          },
+        ],
+      },
+    ];
+    const digest = buildDroppedSpanDigest(dropped, 4_000);
+    expect(digest).toContain("指导案例24号");
+    expect(digest).toContain("第3.2条");
+    expect(digest).toContain("第12.3.1条");
+    expect(digest).not.toContain("第3条");
+  });
 });
 
 describe("buildDroppedSpanDigest · 任务保留与摘要接续（对照 Codex）", () => {
@@ -146,21 +243,22 @@ describe("buildDroppedSpanDigest · 任务保留与摘要接续（对照 Codex�
     expect(lawyerSection.includes(TASK)).toBe(false);
   });
 
-  it("此前的整理稿不被当成律师发言，而是单独接续", () => {
+  it("此前的整理稿不嵌进新摘要，也不当成律师发言", () => {
     const priorDigest = `【压缩前对话蒸馏】共丢弃约 12 条消息\n\n### 任务与目标（原文保留，最早一条律师发言）\n- ${TASK}`;
     const dropped: AgentMessage[] = [
       { role: "user", content: priorDigest, timestamp: "t0" },
       { role: "user", content: "本轮新要求：再核对管辖条款", timestamp: "t1" },
       ...filler(10),
     ];
-    const digest = buildDroppedSpanDigest(dropped, 10_000);
-    expect(digest).toContain("### 上一轮整理稿（接续保留，非律师新发言）");
-    // 关键：它没有混进「律师要点」，否则会被按 1200 字符截断并与真实发言抢窗口。
+    const digest = buildDroppedSpanDigest(dropped, 10_000, undefined, {
+      archiveRelPath: "sessions/s1.drops/drop.json",
+    });
+    expect(digest).not.toContain("### 上一轮整理稿");
+    expect(digest).not.toContain("三方义务分配");
+    expect(digest).toContain("sessions/s1.drops/drop.json");
     const lawyerSection = digest.split("### 律师要点")[1]?.split("###")[0] ?? "";
-    expect(lawyerSection).not.toContain("上一轮整理稿");
     expect(lawyerSection).not.toContain("【压缩前对话蒸馏】");
-    // 但它带来的任务陈述不能丢。
-    expect(digest).toContain("三方义务分配");
+    expect(digest).toContain("再核对管辖条款");
   });
 
   it("红线重注 / 续接种子 / 退让反弹同样不算律师发言", () => {
@@ -276,6 +374,14 @@ describe("autoCompactSessionHistory", () => {
     expect(digestIndex).toBeGreaterThanOrEqual(0);
     // 生产路径插成 user（合成用户轮）。若这里回退成 system，替换逻辑又会静默失效。
     expect(out.messages[digestIndex]?.role).toBe("user");
+    // 中文按 1 字 ≈ 1 token，不能再按字符÷4 报给用量确认框。
+    const dropped = out.droppedSpan ?? [];
+    const cjkChars = dropped.reduce(
+      (n, m) => n + (m.content ?? "").replace(/[^\u4e00-\u9fff]/g, "").length,
+      0,
+    );
+    expect(cjkChars).toBeGreaterThan(40);
+    expect(out.estimatedDroppedTokens ?? 0).toBeGreaterThan(cjkChars / 2);
 
     const next = replaceDroppedDigestInMessages(out.messages, "【压缩前对话蒸馏】摘要：新");
     expect(next[digestIndex]?.content).toContain("摘要：新");
@@ -367,6 +473,40 @@ describe("autoCompactSessionHistory", () => {
     expect(out.messages.filter((m) => m.role === "system")).toHaveLength(1);
     expect(digestIdx).toBeGreaterThan(0);
     expect(digestIdx).toBeLessThan(lastUserIdx);
+    expect(out.droppedDigest).toContain("sessions/s-digest.drops/");
+    const rel = out.droppedDigest?.match(/sessions\/s-digest\.drops\/\S+?\.json/)?.[0];
+    expect(rel).toBeTruthy();
+    const saved = JSON.parse(fs.readFileSync(path.join(ws, rel!), "utf8")) as {
+      messages: Array<{ content?: string }>;
+    };
+    expect(JSON.stringify(saved.messages)).toContain("律师问题 0");
+  });
+
+  it("points at the case file instead of pasting its body", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-compact-case-"));
+    const matterId = "m-case";
+    const caseDir = path.join(ws, "cases", matterId);
+    fs.mkdirSync(caseDir, { recursive: true });
+    const secret = "CASE_BODY_SHOULD_STAY_ON_DISK_9f3a";
+    fs.writeFileSync(path.join(caseDir, "CASE.md"), `# 案\n\n${secret}\n`, "utf8");
+    const now = new Date().toISOString();
+    const history: AgentMessage[] = [{ role: "system", content: "sys", timestamp: now }];
+    for (let i = 0; i < 8; i += 1) {
+      history.push({ role: "user", content: `请核对第 ${i} 条`, timestamp: now });
+    }
+    const session: AgentSession = {
+      sessionId: "s-case",
+      matterId,
+      actorId: "test",
+      turns: [],
+      conversationHistory: history,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const out = autoCompactSessionHistory(session, ws, { maxHistoryMessages: 3 });
+    const joined = out.messages.map((m) => m.content ?? "").join("\n");
+    expect(joined).toContain(`cases/${matterId}/CASE.md`);
+    expect(joined).not.toContain(secret);
   });
 
   it("buildPostCompactSystemNote includes draft and queue attachments", () => {
@@ -401,6 +541,8 @@ describe("autoCompactSessionHistory", () => {
       workspaceDir: ws,
     });
     expect(note).toContain("关联草稿");
+    expect(note).toContain("drafts/task-att-1.json");
     expect(note).toContain("待办队列");
+    expect(note).not.toContain("### 结论");
   });
 });

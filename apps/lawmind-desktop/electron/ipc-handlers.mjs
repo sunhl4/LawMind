@@ -13,9 +13,8 @@ import { fileURLToPath } from "node:url";
 import {
   MAX_IMAGE_READ_BYTES,
   MAX_TEXT_READ_BYTES,
-  PROTECTED_WORKSPACE_WRITE_CODE,
   PROTECTED_WORKSPACE_WRITE_REFUSAL,
-  isProtectedWorkspaceRel,
+  isProtectedWorkspaceWritePath,
   mimeTypeForImagePath,
 } from "./fs-bridge.mjs";
 import {
@@ -63,6 +62,7 @@ import {
 } from "./host-access-store.mjs";
 
 import { LAWMIND_PRODUCT_NAME, resolveRuntimeAppIconPath } from "./brand.mjs";
+import { inspectWorkspaceVolume } from "./workspace-volume.mjs";
 
 const electronDir = path.dirname(fileURLToPath(import.meta.url));
 const appIconPath = resolveRuntimeAppIconPath(electronDir);
@@ -216,6 +216,11 @@ export function registerIpcHandlers(deps) {
     return { ok: true, path: res.filePaths[0] };
   });
 
+  ipcMain.handle("lawmind:inspect-workspace-volume", async (_evt, payload) => {
+    const absPath = typeof payload?.path === "string" ? payload.path : "";
+    return inspectWorkspaceVolume(absPath);
+  });
+
   const parseEnvAssignments = parseEnvAssignmentsTopLevel;
 
   function writeMergedLawmindEnv(envFilePath, assignments) {
@@ -345,7 +350,7 @@ export function registerIpcHandlers(deps) {
       return {
         ok: false,
         error:
-          "系统加密存储不可用，无法安全保存新的 API Key。请启用操作系统密钥链，或先在 .env.lawmind 中手工配置后重启。",
+          "无法安全保存。请在系统设置里打开钥匙串后再试。",
         code: "keychain_unavailable",
       };
     }
@@ -854,18 +859,12 @@ export function registerIpcHandlers(deps) {
       const content = typeof payload?.content === "string" ? payload.content : "";
       const expectedMtimeMs =
         typeof payload?.expectedMtimeMs === "number" ? payload.expectedMtimeMs : undefined;
-      const { absPath, rel } = resolveFsPath(root, relPath, {
+      // 写保护（治理/审计/案件真相源）在 resolveFsPath 里统一判，见 assertProtectedWorkspaceWrite。
+      const { absPath } = resolveFsPath(root, relPath, {
         access: "write",
         mustExist: false,
         allowRoot: false,
       });
-      if (root === "workspace" && isProtectedWorkspaceRel(rel)) {
-        return {
-          ok: false,
-          code: PROTECTED_WORKSPACE_WRITE_CODE,
-          error: PROTECTED_WORKSPACE_WRITE_REFUSAL,
-        };
-      }
 
       let priorStat = null;
       if (fs.existsSync(absPath)) {
@@ -919,10 +918,12 @@ export function registerIpcHandlers(deps) {
       const root = payload?.root;
       const fromPath = payload?.fromPath ?? "";
       const toPath = payload?.toPath ?? "";
+      // from 会被移走（连带整棵子树），所以按破坏性写判：除保护路径外还要扫目录内容。
       const { absPath: fromAbs } = resolveFsPath(root, fromPath, {
         access: "write",
         mustExist: true,
         allowRoot: false,
+        destructive: true,
       });
       const { absPath: toAbs } = resolveFsPath(root, toPath, {
         access: "write",
@@ -940,10 +941,12 @@ export function registerIpcHandlers(deps) {
     try {
       const root = payload?.root;
       const relPath = payload?.path ?? "";
+      // 删除是 rm -r：必须扫目标目录里有没有保护文件（任意深度的 RULES.md 等）。
       const { absPath } = resolveFsPath(root, relPath, {
         access: "write",
         mustExist: true,
         allowRoot: false,
+        destructive: true,
       });
       const stat = fs.statSync(absPath);
       if (stat.isDirectory()) {
@@ -1135,9 +1138,11 @@ export function registerIpcHandlers(deps) {
     // 另存为的用途是把内容交到工作区外（桌面/下载/文稿），所以不做根围栏；
     // 但若律师恰好选到工作区内的治理/审计路径，必须与其它写入口同口径拒绝——
     // 否则这是唯一一条能绕过 protected-workspace-rels 的写路径。
+    // 用导出的统一判定（含祖先目录），不要退回只看 isProtectedWorkspaceRel：
+    // 那只认 `audit/…`，会把目录 `audit` 本身放过。
     const saveRel = path.relative(workspaceDir, path.resolve(res.filePath));
     if (saveRel && !saveRel.startsWith("..") && !path.isAbsolute(saveRel)) {
-      if (isProtectedWorkspaceRel(saveRel)) {
+      if (isProtectedWorkspaceWritePath(saveRel)) {
         return { ok: false, error: PROTECTED_WORKSPACE_WRITE_REFUSAL };
       }
     }

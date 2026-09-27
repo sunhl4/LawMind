@@ -3,7 +3,7 @@
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LawmindErrorBoundary } from "./LawmindErrorBoundary";
 
 function Boom(): null {
@@ -42,6 +42,25 @@ describe("LawmindErrorBoundary", () => {
     expect(host.querySelector('[data-testid="lm-error-boundary"]')?.textContent).toContain("工作台");
     expect(host.textContent).toContain("boom-for-boundary");
     expect(host.textContent).toContain("重试");
+    expect(host.querySelector("[data-testid='lm-error-report-dialog']")).toBeTruthy();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>("[data-testid='lm-error-report-copy']")?.click();
+      await Promise.resolve();
+    });
+    expect(writeText).toHaveBeenCalledOnce();
+    const copied = String(writeText.mock.calls[0]?.[0]);
+    const shown = host.querySelector("[data-testid='lm-error-report-body']")?.textContent ?? "";
+    expect(shown).toBe(copied);
+    expect(copied).toContain("位置：工作台");
+    expect(copied).toContain("类型：Error");
+    expect(copied).toContain("说明：boom-for-boundary");
+    expect(copied).toContain("组件：");
+    expect(copied).toContain("Boom");
+    expect(copied).toContain("堆栈：");
+    expect(copied).not.toContain("案件");
+    expect(host.textContent).toContain("已复制");
   });
 
   it("retry renders children again after the throw is gone", async () => {
@@ -62,7 +81,8 @@ describe("LawmindErrorBoundary", () => {
     expect(host.textContent).toContain("clientId is not defined");
     shouldThrow = false;
     await act(async () => {
-      host.querySelectorAll("button")[0]?.click();
+      const retry = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "重试");
+      retry?.click();
     });
     expect(host.textContent).toContain("ok");
     expect(host.querySelector('[data-testid="lm-error-boundary"]')).toBeNull();

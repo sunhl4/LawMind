@@ -6,38 +6,26 @@ import {
   isAllowedAnalysisScriptRel,
   parseSkillAnalysisScriptRel,
 } from "../../../runtime/analysis-script-path.js";
+import { fenceAgentFilePath } from "../../../runtime/workspace-io-fence.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
-import { listLocalSkills } from "../../../skills/skill-runtime.js";
 import type { AgentTool } from "../../types.js";
 import { runSandboxedAnalysisSource } from "./analysis-runner.js";
 
-function skillScriptAllowed(workspaceDir: string, rel: string): boolean {
-  const parsed = parseSkillAnalysisScriptRel(rel);
-  if (!parsed) {
-    return true;
-  }
-  try {
-    return listLocalSkills(workspaceDir).some(
-      (s) =>
-        s.enabled &&
-        s.signatureOk &&
-        (s.id === parsed.skillId || path.basename(s.dir) === parsed.skillId),
-    );
-  } catch {
-    return false;
-  }
+/** Workspace skill folders are not an install surface. Only lawyer-confirmed artifact scripts run. */
+function skillScriptAllowed(_workspaceDir: string, rel: string): boolean {
+  return parseSkillAnalysisScriptRel(rel) == null;
 }
 
 export const runAnalysis: AgentTool = {
   definition: {
     name: "run_analysis",
     description:
-      "运行律师已确认或已签名技能里的分析脚本。只暴露文件/表格/出图接口（listFiles/readText/readTable/readCsv/readJson/writeTable/writeText/emitChart），不暴露 fs 与网络。默认关闭，须工作区政策 allowAnalysisScripts。日常核算请用 run_compute（模型当场写 JS，不必先落文件）。",
+      "运行已确认的分析脚本（artifacts/analysis-scripts/*.js）。只暴露文件/表格/出图接口，不暴露 fs 与网络。默认可用；离线模式或策略明确关闭时不可用。工作区技能目录里的脚本不执行。日常核算请用 run_compute。",
     category: "analyze",
     parameters: {
       path: {
         type: "string",
-        description: "lawmind/skills/<id>/scripts/*.js 或 artifacts/analysis-scripts/*.js",
+        description: "artifacts/analysis-scripts/*.js（须 confirmed=true）",
         required: true,
       },
       confirmed: {
@@ -52,7 +40,7 @@ export const runAnalysis: AgentTool = {
     if (!isAnalysisScriptsAllowed(ctx.workspaceDir)) {
       return {
         ok: false,
-        error: "工作区未开启分析脚本（设置 · 安全）。日常核算请用 run_compute。",
+        error: "当前不运行分析脚本。日常核算请用 run_compute。",
       };
     }
     const claimed = typeof params.path === "string" ? params.path.trim() : "";
@@ -67,15 +55,23 @@ export const runAnalysis: AgentTool = {
       };
     }
     if (!skillScriptAllowed(ctx.workspaceDir, resolved.rel)) {
-      return { ok: false, error: "只能运行已启用且签名通过的技能脚本。" };
+      return {
+        ok: false,
+        error:
+          "作业标准随软件内置，不从工作区技能目录运行脚本。请把脚本放在 artifacts/analysis-scripts/ 并经律师确认。",
+      };
     }
     if (resolved.rel.startsWith("artifacts/analysis-scripts/") && params.confirmed !== true) {
       return { ok: false, error: "artifacts 下的脚本须律师确认（confirmed=true）。" };
     }
-    if (!fs.existsSync(resolved.abs) || !fs.statSync(resolved.abs).isFile()) {
+    const fenced = fenceAgentFilePath({ rootDir: ctx.workspaceDir, abs: resolved.abs });
+    if (!fenced.ok) {
+      return { ok: false, error: fenced.error };
+    }
+    if (!fs.existsSync(fenced.abs) || !fs.statSync(fenced.abs).isFile()) {
       return { ok: false, error: `找不到脚本：${resolved.rel}` };
     }
-    const source = fs.readFileSync(resolved.abs, "utf8");
+    const source = fs.readFileSync(fenced.abs, "utf8");
     const auditDir = path.join(ctx.workspaceDir, "audit");
     try {
       const result = await runSandboxedAnalysisSource(source, ctx.workspaceDir);

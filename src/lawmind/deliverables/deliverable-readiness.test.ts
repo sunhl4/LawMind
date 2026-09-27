@@ -109,7 +109,7 @@ describe("assessDeliverableReadiness", () => {
     expect(r.blockers.some((b) => b.code === "citation")).toBe(true);
   });
 
-  it("blocks export when required reasoning gate has blockers", () => {
+  it("does not block export when the reasoning gate only has warnings", () => {
     const r = assessDeliverableReadiness({
       draft: baseDraft({ reviewStatus: "approved" }),
       checklistState: {
@@ -131,8 +131,7 @@ describe("assessDeliverableReadiness", () => {
       },
       citationMode: "assisted",
     });
-    expect(r.blockers.some((b) => b.code === "reasoning")).toBe(true);
-    expect(r.readyToExport).toBe(false);
-    expect(r.summaryZh).toBe("推理检查未过");
+    expect(r.blockers.some((b) => b.code === "reasoning")).toBe(false);
+    expect(r.readyToExport).toBe(true);
   });
 });

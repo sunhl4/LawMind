@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  isSessionTurnLeaseLive,
   SessionTurnInProgressError,
   TURN_GATE_STALE_MS,
   shouldStealTurnGateLease,
@@ -83,12 +84,25 @@ describe("withSessionTurnGate", () => {
     }
   });
 
+  it("does not steal a fresh lease written on another machine", async () => {
+    const ws = tmpWs();
+    writeTurnGateLeaseForTest(ws, "s-remote", {
+      pid: 999_999_991,
+      startedAt: new Date().toISOString(),
+      hostname: "other-mac.local",
+    });
+    await expect(withSessionTurnGate(ws, "s-remote", async () => "nope")).rejects.toBeInstanceOf(
+      SessionTurnInProgressError,
+    );
+    expect(isSessionTurnLeaseLive(ws, "s-remote")).toBe(true);
+  });
+
   it("steals a lease whose pid is dead", async () => {
     const ws = tmpWs();
     writeTurnGateLeaseForTest(ws, "s-dead", {
       pid: 999_999_991,
       startedAt: new Date().toISOString(),
-      hostname: "gone",
+      hostname: os.hostname(),
     });
     await expect(withSessionTurnGate(ws, "s-dead", async () => "ok")).resolves.toBe("ok");
   });
@@ -99,7 +113,7 @@ describe("shouldStealTurnGateLease", () => {
     const now = Date.parse("2026-08-23T01:00:00.000Z");
     expect(
       shouldStealTurnGateLease(
-        { pid: 9, startedAt: "2026-08-23T00:59:00.000Z", hostname: "x" },
+        { pid: 9, startedAt: "2026-08-23T00:59:00.000Z", hostname: os.hostname() },
         now,
         () => false,
       ),
@@ -120,9 +134,27 @@ describe("shouldStealTurnGateLease", () => {
     ).toBe(true);
     expect(
       shouldStealTurnGateLease(
-        { pid: process.pid, startedAt: "2026-08-23T00:59:00.000Z", hostname: "x" },
+        { pid: process.pid, startedAt: "2026-08-23T00:59:00.000Z", hostname: os.hostname() },
         now,
         () => true,
+      ),
+    ).toBe(true);
+    expect(
+      shouldStealTurnGateLease(
+        { pid: process.pid, startedAt: "2026-08-23T00:59:00.000Z", hostname: "other-mac.local" },
+        now,
+        () => false,
+      ),
+    ).toBe(false);
+    expect(
+      shouldStealTurnGateLease(
+        {
+          pid: 9,
+          startedAt: new Date(now - TURN_GATE_STALE_MS - 1).toISOString(),
+          hostname: "other-mac.local",
+        },
+        now,
+        () => false,
       ),
     ).toBe(true);
   });

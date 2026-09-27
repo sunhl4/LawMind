@@ -147,6 +147,11 @@ export async function lawmindHandleHttpRequest(
       return;
     }
 
+    console.error(
+      "[LawMind] no_route",
+      pathname,
+      "开发态若刚改了路由，在工作区根执行 pnpm lawmind:bundle:desktop-server 后重启本地服务。",
+    );
     sendJson(
       res,
       404,
@@ -154,8 +159,7 @@ export async function lawmindHandleHttpRequest(
         ok: false,
         error: "not found",
         code: "no_route",
-        hint:
-          "本机路由未匹配。若刚升级 LawMind，请在工作区根执行 pnpm lawmind:bundle:desktop-server（或 pnpm --filter lawmind-desktop bundle:server）后重启桌面端，或重启当前开发用的本地服务进程。",
+        hint: "这一步没能完成。请退出 LawMind 后重新打开。",
       },
       c,
     );

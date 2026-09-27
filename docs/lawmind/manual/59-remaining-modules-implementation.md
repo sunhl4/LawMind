@@ -22,7 +22,7 @@
 
 外加两个枚举：`MatterStatus`、`DeliverableKind`、`MatterKind`、`QueueKind`。
 
-**注意**：`core/contracts.ts` 里的 `Matter` 类型**没有** `causeOfAction` / `counterparty` / `parties` 三个字段（第 28.1 节提过），而 `adapters/matter-storage/schemas.ts` 的 `MatterRecord` 有。**两处定义不完全一致**，这是历史演进留下的。
+`core/contracts.ts` 的 `Matter` 已有 `causeOfAction`、`counterparty`、`parties`。落盘形状以 `schema.ts` 的 `MatterRecordSchema` 为准。
 
 ### 五个 builder 与它们的 id 格式
 
@@ -96,7 +96,7 @@
 `classifyDeliverableKind` 的判据是**一串 `includes`**（不是正则）：
 
 ```text
-"contract" / "合同"            → contract-review
+"contract"                     → contract-review
 "demand" / "律师函"            → demand-letter
 "litigation" / "诉讼"          → litigation-outline
 "brief" / output === "pptx"    → client-brief
@@ -292,7 +292,7 @@ computeRoadmapCards           ← 跨案件积累 → 路线图决策卡
 
 ### 版本门禁
 
-这一整套在**桌面端受版本功能控制**（`edition.features.crossMatterRoadmap`，solo 隐藏、firm/private_deploy 开，第 7.21 节提过）。
+`edition.features.crossMatterRoadmap` 在 solo、firm、private_deploy 都是开的。
 
 **所以 solo 版看不到这些卡**——不是漏了，是功能门禁。
 
@@ -365,22 +365,24 @@ createSourceAnnotation / listSourceAnnotations
 
 ## 59.8 首跑状态（`onboarding/`）
 
-`onboarding/firstrun-state.ts` 六个导出，管的是一个文件的生灭：
+`onboarding/firstrun-state.ts` 管工作区里两份首跑标记。写入都是先写临时文件再改名。
 
 ```text
-<workspace>/.lawmind/firstrun-acceptance-pending.json
+<workspace>/.lawmind/firstrun-acceptance-pending.json   { matterId }
+<workspace>/.lawmind/firstrun-dismissed.json            { dismissedAt }
 ```
 
-内容只有 `{ matterId }`。
-
-| 函数                               | 作用                                  |
-| ---------------------------------- | ------------------------------------- |
-| `firstrunAcceptancePendingPath`    | 路径                                  |
-| `readFirstrunAcceptancePending`    | 读（坏 JSON 返回 null）               |
-| `setFirstrunAcceptancePending`     | 写                                    |
-| `clearFirstrunAcceptancePending`   | 删（文件不存在也算成功）              |
-| `recordFirstrunWizardCompleted`    | 记审计 `ui.firstrun_wizard_completed` |
-| `maybeEmitFirstrunAcceptanceReady` | 记审计 `ui.firstrun_acceptance_ready` |
+| 函数                               | 作用                                                                            |
+| ---------------------------------- | ------------------------------------------------------------------------------- |
+| `firstrunAcceptancePendingPath`    | 待验收标记路径                                                                  |
+| `readFirstrunAcceptancePending`    | 读（坏 JSON 返回 null）                                                         |
+| `setFirstrunAcceptancePending`     | 原子写                                                                          |
+| `clearFirstrunAcceptancePending`   | 删（文件不存在也算成功）                                                        |
+| `firstrunDismissedPath`            | 「不再自动打开」路径                                                            |
+| `readFirstrunDismissed`            | 读关闭标记（坏 JSON 返回 null）                                                 |
+| `setFirstrunDismissed`             | 原子写关闭标记                                                                  |
+| `recordFirstrunWizardCompleted`    | 先原子写待验收标记，再记审计 `ui.firstrun_wizard_completed`。审计失败时标记仍在 |
+| `maybeEmitFirstrunAcceptanceReady` | 记审计 `ui.firstrun_acceptance_ready`                                           |
 
 **两个审计事件**分别对应「向导走完了」和「验收就绪了」——所以首跑漏斗有两段可测。
 
@@ -462,7 +464,7 @@ CLI 只回传「通过 + 审核人」意图，不直接改写 reviewStatus——
 
 **权重和是 1.0**（0.2+0.3+0.15+0.15+0.2）。`risk` 占 0.3 最高——**风险与责任是这个专案组最看重的一环**。
 
-**只有 `clause` 和 `risk` 能用 `update_draft`**（改稿），其余三个只能检索或起草。**权限是按角色的**。
+只有 `clause` 的工具白名单里有 `update_draft`。`risk` 是 `draft_document` 加 `research_task`。其余角色只检索或起草。
 
 ### 角色到工作区岗位的映射
 
@@ -524,7 +526,7 @@ workspace/lawmind/fleet-playbooks/*.json                      ← 自定义模�
 
 | id            | 问题           | 关键词数                   |
 | ------------- | -------------- | -------------------------- |
-| `q-parties`   | 当事人与主体   | 8                          |
+| `q-parties`   | 当事人与主体   | 9                          |
 | `q-term`      | 核心商业条款   | 7                          |
 | `q-risk`      | 风险与责任     | 6                          |
 | `q-ip`        | 知识产权       | 5                          |
@@ -590,9 +592,7 @@ nextMilestone: { id, title, dueAt? } | null
 
 ### 那个已知问题
 
-第 7.21 节讲过：`matter-ops/storage.ts` **用裸 `fs.writeFileSync` / `appendFileSync`**，没有锁、没有原子写、没有 zod——是 `matters/` 下唯一不遵守存储协议的写者。
-
-**这是全仓最明显的一处「双标准」**。工程研究笔记把它列出来了。
+`matter-ops/storage.ts` 用 `withExclusiveFileLock` 加 `writeJsonAtomic`，写入前做 zod `parse`。它不是裸 `writeFileSync`。
 
 ## 59.14 助手档案（`assistants/`）
 
@@ -714,6 +714,8 @@ LAWMIND_ATTORNEY_DISCLAIMER_EXPORT_FOOTER      ← 导出文件用
 | 端点                                 | 方法 | 需要的能力                                            |
 | ------------------------------------ | ---- | ----------------------------------------------------- |
 | `/v1/health`                         | GET  | **无**（唯一免鉴权的）                                |
+| `/v1/enroll`                         | POST | **无**（注册账号、领令牌；入云第一步）                |
+| `/v1/invites/join`                   | POST | **无**（凭邀请码换自己的令牌并加入案子）              |
 | `/v1/me`                             | GET  | 已认证                                                |
 | `/v1/invites/redeem`                 | POST | 已认证                                                |
 | `/v1/matters/:id/membership`         | GET  | 成员（`external` 除外）                               |
@@ -766,6 +768,13 @@ invalid_json  not_found
 
 **`op_matter_mismatch` 这条很实用**：上传的操作里带的 matterId 和路径上的不一致时拒——防串案。
 
+### 桌面侧的两个文件
+
+| 文件                | 干什么                                                                                                                                                                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cloud-link.ts`     | 本机云连接存根：`lawmind/cloud-link.json`（权限 0600），只存 endpoint + token。策略文件拒收这两样（`matterReplica.cloudToken` / `endpoint` / `cloudDataDir` 写进 `lawmind.policy.json` 会被拒） |
+| `desktop-bridge.ts` | 桌面与云之间的桥：配了云之后邀请以云为权威（桌面不再自造邀请码）；`redeemInvite` 成功后写本地名册 + 记 `invite.accept` op + 发布成员公钥                                                        |
+
 ## 59.18 三个全局契约文件
 
 这三个文件很小，但它们是全仓的「开关」与「常量」。
@@ -792,7 +801,7 @@ Default: oss — commercial BFF / platform proxy must not activate.
 
 **「开源构建里商业代理绝不能激活」**——这是隔离的硬要求。
 
-**它和 Edition 的区别**（第 1.14 节讲过）：build-channel 是**构建期**的（改它要重新构建），Edition 是**运行期**的。
+**它和 Edition 的区别**（第 1.14 节）：Edition 是运行期功能表。build-channel 在模块加载时从 `LAWMIND_BUILD_CHANNEL` 盖章；进程起来之后改环境变量，或在 `lawmind.policy.json` 里写 `buildChannel`，都不会把 oss 进程切到商业代理。未知值和 Edition 的 id 都按 oss。
 
 ### `engine-actor.ts`：默认操作者
 
@@ -889,7 +898,7 @@ issue.over_argued   → 争点过度论证
 
 ## 59.20 已知坑（本章相关）
 
-- **`core/contracts.ts` 的 `Matter` 比 storage 的 `MatterRecord` 少三个字段。**
+- **`Matter` 已含案由、对方当事人和当事人列表。** 落盘仍以 `MatterRecordSchema` 为准。
 - **交付物的 `approved` 与 `rendered` 不是终态**（可以重开审核）。这三条转移不能删。
 - **`derive.ts` 和 `engine/role-helpers.ts` 是两套分类。**
 - **`deriveMatterSensitivity` 的规则是「风险笔记 ≥3 条就是高度敏感」。**
@@ -901,20 +910,20 @@ issue.over_argued   → 争点过度论证
 - **`LawyerWork` 是覆盖层，不替代 `session.json`。**
 - **`needs_lawyer` 状态是为那次门禁事故加的。**
 - **工作记录搜索不扫审计。**
-- **洞察链四个函数都是纯函数**，且受版本门禁（solo 隐藏）。
+- **洞察链四个函数都是纯函数。** `crossMatterRoadmap` 在 solo 也开着。
 - **会话完整性扫描有上限**（`SESSION_INTEGRITY_SCAN_LIMIT`）。
 - **`looksLikeOpaqueSourceId` 是「内部 id 不许给律师看」的守卫。**
 - **首跑状态是文件不是内存**（进程重启后仍有效）。
 - **`malformedEventLines` 是通信健康信号，不是噪音。**
 - **CLI 审核只回传意图，不写状态。**
-- **专案组只有 `clause` 与 `risk` 能改稿。**
+- **专案组只有 `clause` 能 `update_draft`。** `risk` 不能。
 - **审查口径随稿带走，深度只认三种前缀。**
 - **矩阵的 `q-misc` 永远空**（它是「请直接批注」那一列）。
-- **`matter-ops/storage.ts` 是全仓唯一绕过存储协议的写者。**
+- **`matter-ops/storage.ts` 走文件锁、原子写和 zod。**
 - **助手档案在应用根，跨工作区共享。**
 - **`deleteAssistant` 拒绝删 `default`；复制助手不拷记忆与统计。**
 - **组织校验的错误文案里有「智能体」（术语表禁词）**，别直接当界面文案用。
 - **许可公钥硬编码在 `keys.ts`**，换发行方要改它并重新发版。
 - **案件云的「删」比「传」多一道能力。**
-- **`build-channel` 是构建期隔离，Edition 是运行期。**
+- **`build-channel` 在进程启动时盖章，Edition 是运行期功能表。** 见 §1.14。
 - **`index.ts` 不等于全部能力**；`types.ts` 与 `core/contracts.ts` 有重叠。

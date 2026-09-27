@@ -1,5 +1,5 @@
 /**
- * 权威库连接 — 律师可见状态与向导；环境变量契约折叠给管理员。
+ * 权威库连接 — 只告诉律师接上没有、能不能查。
  */
 
 import type { ReactNode } from "react";
@@ -9,7 +9,6 @@ import {
   isAuthorityCorpusUiReady,
   type LawmindSettingsAuthorityCorpus,
 } from "./lawmind-settings-models";
-import { lawmindDocUrl } from "./lawmind-public-urls.js";
 
 export type LawmindAuthorityUsageSummary = {
   day?: string;
@@ -34,7 +33,6 @@ type Props = {
 export function LawmindAuthoritySetup({
   authorityCorpus,
   authorityUsage,
-  envFilePath,
   onOpenApiWizard,
   probeControl,
   npcFlkEnabled = true,
@@ -114,7 +112,7 @@ export function LawmindAuthoritySetup({
       <div className="lm-settings-actions">
         {onOpenApiWizard ? (
           <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={onOpenApiWizard}>
-            API 配置向导
+            连接向导
           </button>
         ) : null}
         {probeControl}
@@ -122,55 +120,13 @@ export function LawmindAuthoritySetup({
       {status === "configured" &&
       (authorityCorpus?.provider === "pkulaw" || authorityCorpus?.provider === "generic") ? (
         <p className="lm-settings-caption" role="note">
-          对话检索走这里的权威库。设置 → 安全 → 外部对接里的法宝 MCP
-          是同一网关的进阶入口，不是另一套未接上的库。正式引用请核对原文。
+          对话检索走这里的权威库。正式引用请核对原文。
         </p>
       ) : (
         <p className="lm-settings-caption lm-settings-caption--warn" role="note">
           演示语料不等于完整法库。正式引用请核对权威来源。
         </p>
       )}
-      <details className="lm-settings-hint">
-        <summary>管理员：环境变量</summary>
-        <ul className="lm-settings-caption">
-          <li>
-            <code className="lm-md-code">LAWMIND_AUTHORITY_PROVIDER</code> = open | generic | pkulaw |
-            lexis
-          </li>
-          <li>
-            开源：<code className="lm-md-code">LAWMIND_OPEN_LAW_CORPUS</code>、
-            <code className="lm-md-code">LAWMIND_OPEN_LAW_MODE</code>、
-            <code className="lm-md-code">LAWMIND_OPEN_LAW_NPC</code>（默认 1，设 0 关闭）、
-            <code className="lm-md-code">LAWMIND_OPEN_LAW_COURTLISTENER</code>、
-            <code className="lm-md-code">LAWMIND_OPEN_LAW_EURLEX</code>、
-            <code className="lm-md-code">LAWMIND_OPEN_LAW_EGOV_JP</code>
-          </li>
-          <li>
-            闭源：<code className="lm-md-code">LAWMIND_AUTHORITY_ENDPOINT</code> +{" "}
-            <code className="lm-md-code">LAWMIND_AUTHORITY_API_KEY</code>
-          </li>
-          <li>
-            法宝 MCP：<code className="lm-md-code">LAWMIND_PKULAW_MODE=mcp_tools_call</code>、
-            <code className="lm-md-code">LAWMIND_PKULAW_CASE_ENDPOINT</code>
-          </li>
-        </ul>
-        {envFilePath ? (
-          <p className="lm-settings-caption">
-            配置文件：<code className="lm-md-code">{envFilePath}</code>
-          </p>
-        ) : null}
-        <p className="lm-settings-caption">
-          详见{" "}
-          <a
-            href={lawmindDocUrl("archive/LAWMIND-INTEGRATIONS")}
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            集成与边界
-          </a>
-          。
-        </p>
-      </details>
     </section>
   );
 }

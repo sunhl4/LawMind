@@ -10,7 +10,7 @@ import {
   formatSameTurnVerifyCodesReason,
   SAME_TURN_VERIFY_USER_PREFIX,
 } from "../runtime/same-turn-verify.js";
-import { estimateTextTokens } from "./context-budget.js";
+import { estimateTextTokens, historyContextTokens } from "./context-budget.js";
 import { writeToolResultSpill, type ToolResultSpillContext } from "./tool-result-spill.js";
 import type { ToolCallResult } from "./types.js";
 
@@ -29,9 +29,11 @@ export type ToolResultHistoryOpts = {
 };
 
 /**
- * 工具结果预算随模型上下文伸缩（默认 1/8 窗口，clamp [4k, 32k]；未知窗口回退 8k）。
- * 不写死小预算：模型越强，单条工具回包允许越大；超出部分走 spill + 截断提示，
- * 模型可按提示续读，不会无声丢内容。
+ * 工具结果预算随模型上下文伸缩，但不超过历史质量带（200K 档）。
+ * 默认是该窗口的 1/8，至少 4k；128k 及以下天花板 32k。
+ * 1M 硬天花板不再把单条回包放到约 12.5 万 token：按 200K 档算，约 2.5 万。
+ * 超出部分走 spill + 截断提示，模型可按提示续读，不会无声丢内容。
+ * 环境变量 LAWMIND_TOOL_RESULT_TOKEN_LIMIT 仍可单独抬高这一刀。
  */
 export const TOOL_RESULT_HISTORY_FALLBACK_TOKENS = 8_000;
 export const TOOL_RESULT_HISTORY_MIN_TOKENS = 4_000;
@@ -65,13 +67,11 @@ export function resolveToolResultHistoryTokens(
     return override;
   }
   if (typeof contextTokens === "number" && Number.isFinite(contextTokens) && contextTokens > 0) {
-    return Math.min(
-      TOOL_RESULT_HISTORY_MAX_TOKENS,
-      Math.max(
-        TOOL_RESULT_HISTORY_MIN_TOKENS,
-        Math.floor(contextTokens / TOOL_RESULT_HISTORY_CONTEXT_SHARE),
-      ),
-    );
+    const windowTokens = historyContextTokens(contextTokens);
+    const share = Math.floor(windowTokens / TOOL_RESULT_HISTORY_CONTEXT_SHARE);
+    const quarter = Math.floor(windowTokens / 4);
+    const ceiling = Math.max(TOOL_RESULT_HISTORY_MAX_TOKENS, Math.min(share, quarter));
+    return Math.min(ceiling, Math.max(TOOL_RESULT_HISTORY_MIN_TOKENS, share));
   }
   return TOOL_RESULT_HISTORY_FALLBACK_TOKENS;
 }
@@ -252,6 +252,8 @@ function pickCraftDataFields(data: unknown): Record<string, unknown> | undefined
     "taskId",
     "warning",
     "craftSignals",
+    "skipped",
+    "appliedCount",
     "gateDecision",
     "guardian",
     "redlinePending",
@@ -394,7 +396,7 @@ export function summarizeToolResultForHistory(
       truncated: true,
       error: "tool_result_truncated",
       message: spillPath
-        ? `工具结果过长（约 ${raw?.length ?? 0} 字符），已截断。全文另存 ${spillPath}，需要细节时用 analyze_document 读取该路径。`
+        ? `工具结果过长（约 ${raw?.length ?? 0} 字符），已截断。全文另存 ${spillPath}（JSON）。需要细节时用 analyze_document 按 offset/limit 分页读取该路径，不要把截断预览当成全文。`
         : `工具结果过长（约 ${raw?.length ?? 0} 字符），已截断。请用专用工具按需重读。`,
       preview,
       ...(spillPath ? { spillPath } : {}),
@@ -421,7 +423,7 @@ export function summarizeToolResultForHistory(
     typeof record.message === "string"
       ? record.message
       : spillPath
-        ? `工具结果过长，已截断写入会话；全文另存 ${spillPath}，需要细节时用 analyze_document 读取该路径。`
+        ? `工具结果过长，已截断写入会话；全文另存 ${spillPath}（JSON）。需要细节时用 analyze_document 按 offset/limit 分页读取该路径，不要把截断预览当成全文。`
         : "工具结果过长，已截断写入会话；完整细节请用工具重读。";
   clipBodyPreview(record, slim, budget);
   if (!("ok" in slim) && "ok" in record) {

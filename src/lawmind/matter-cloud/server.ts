@@ -172,6 +172,66 @@ export function createMatterCloudServer(opts: MatterCloudServerOptions): MatterC
       });
     }
 
+    if (pathname === "/v1/enroll" && method === "POST") {
+      let payload: { displayName?: string; email?: string; lawyerId?: string };
+      try {
+        payload = JSON.parse((await readBody(req, MAX_JSON_BYTES)).toString("utf8")) as {
+          displayName?: string;
+          email?: string;
+          lawyerId?: string;
+        };
+      } catch {
+        return json(400, { ok: false, error: "invalid_json" });
+      }
+      try {
+        const enrolled = directory.enroll({
+          displayName: payload.displayName ?? "",
+          email: payload.email,
+          lawyerId: payload.lawyerId ?? "",
+        });
+        return json(200, {
+          ok: true,
+          token: enrolled.token,
+          lawyerId: enrolled.account.lawyerId,
+          displayName: enrolled.account.displayName,
+        });
+      } catch (err) {
+        return json(400, { ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
+    if (pathname === "/v1/invites/join" && method === "POST") {
+      let payload: { token?: string; displayName?: string; email?: string; lawyerId?: string };
+      try {
+        payload = JSON.parse((await readBody(req, MAX_JSON_BYTES)).toString("utf8")) as {
+          token?: string;
+          displayName?: string;
+          email?: string;
+          lawyerId?: string;
+        };
+      } catch {
+        return json(400, { ok: false, error: "invalid_json" });
+      }
+      try {
+        const joined = directory.joinByInvite({
+          token: payload.token ?? "",
+          displayName: payload.displayName ?? "",
+          email: payload.email,
+          lawyerId: payload.lawyerId ?? "",
+        });
+        return json(200, {
+          ok: true,
+          token: joined.token,
+          matterId: joined.membership.matterId,
+          matterTitle: joined.invite.matterTitle,
+          invite: joined.invite,
+          membership: joined.membership,
+        });
+      } catch (err) {
+        return json(400, { ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
     // ── 认证 ──────────────────────────────────────────────────────────────
     const account = directory.authenticate(bearer(req));
     if (!account) {

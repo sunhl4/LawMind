@@ -18,22 +18,23 @@ test.describe("自动办件：interval 创建与「查看流程」深链", () =>
 
   test("interval 模式创建自动办件并出现在列表（含六确认真的进了请求体）", async ({ page }) => {
     await openAutomationsPanel(page);
-    // 选「邮件合同审阅」模板 + 每隔一段时间。
-    await page.locator(".lm-automations-preset-card", { hasText: "邮件合同审阅" }).first().click();
+    const preset = page.getByLabel("做什么");
+    await expect(preset.locator("option", { hasText: "邮件合同审阅" })).toHaveCount(1);
+    await preset.selectOption({ label: "邮件合同审阅" });
     await expect(page.getByTestId("lm-outbound-signoff-callout")).toBeVisible();
     await expect(page.getByTestId("lm-outbound-signoff-callout")).toContainText("签批审阅");
-    await page.getByRole("radio", { name: "每隔一段时间" }).check();
+    await expect(page.getByLabel("多久一次")).toHaveValue("m30");
+    await expect(page.getByLabel("选择案件")).not.toHaveValue("");
 
-    // 「六确认」是服务端门禁（acceptance layer 加的那道），面板里还有一道本地前置检查：
-    // 不交代「办完是什么样 / 哪些事必须先问我」，点创建会被挡下、**一个 POST 都不发**。
-    // 所以这里必须先填清楚，并断言这两项真的进了请求体 —— 这才是这条用例的鉴别力。
+    // 规矩收在折叠里，默认已按模板写好。要改再打开。
+    await page.getByTestId("lm-auto-more").locator("summary").click();
     await page.getByTestId("lm-auto-expected-result").fill("一份审阅意见：改了哪几处、依据哪一条");
     await page.getByTestId("lm-auto-approval-boundary").fill("外发前必须问我；不要自己改原稿");
 
     const createWait = page.waitForResponse(
       (res) => res.url().includes("/api/automations") && res.request().method() === "POST",
     );
-    await page.getByRole("button", { name: "用所选模板创建", exact: true }).click();
+    await page.getByTestId("lm-auto-create").click();
     const res = await createWait;
     const body = res.request().postDataJSON() as {
       presetId?: string;
@@ -70,6 +71,7 @@ test.describe("自动办件：interval 创建与「查看流程」深链", () =>
     await gotoShell(page);
     await page.getByTestId("lm-tab-agents").click();
     await expect(page.getByTestId("lm-agents-desk-chrome")).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("lm-agents-desk-more").locator("summary").click();
     await page.getByTestId("lm-agents-tab-workflows").click();
     const openFlow = page.getByRole("button", { name: "查看进度", exact: true }).first();
     await expect(openFlow).toBeVisible({ timeout: 30_000 });

@@ -63,8 +63,11 @@ describe("review-campaign storage", () => {
     expect(cancelled.status).toBe("cancelled");
 
     const md = renderCampaignReportMarkdown(a);
-    expect(md).toContain("Safety Score");
-    expect(md).toContain("谈判优先级");
+    expect(md).not.toContain("Safety Score");
+    expect(md).toContain("关键词信号");
+    expect(md).not.toContain("谈判优先级");
+    expect(md).not.toContain("· 分");
+    expect(md).toContain("## 关键词信号");
   });
 
   it("keeps stance and focus when escalating a deep review", () => {

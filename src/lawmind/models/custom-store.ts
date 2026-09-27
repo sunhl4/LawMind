@@ -136,7 +136,7 @@ export function setDraftWithModelEnabled(lawMindRoot: string, enabled: boolean):
   return store;
 }
 
-/** E7: optional worker model id for tool-loop rounds. */
+/** Optional faster model id for review and mid-turn summaries. */
 export function setWorkerModelId(
   lawMindRoot: string,
   modelId: string | undefined,

@@ -14,8 +14,6 @@ import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import { isSelectedModelVerified } from "../lawmind-model-verify";
 import { LawmindCollaborationComposeModelRail } from "../LawmindCollaborationComposeModelRail";
-import { useEdition } from "../use-edition";
-import { lawyerFacingQueueTabTitle, useRequireSignoffReview } from "../lawmind-review-prefs";
 
 export type AgentFleetViewProps = {
   config: AppConfig | null;
@@ -58,19 +56,18 @@ export type AgentFleetViewProps = {
   workflowModelLabel: string;
   onReconnectLocalService: () => void | Promise<void>;
   localServiceReconnecting: boolean;
+  onOpenMatterOnDesk?: (matterId: string) => void;
 };
 
 function AgentFleetViewImpl(props: AgentFleetViewProps) {
   const onActive = props.agentsDeskTab === "active";
   const activeDel = countActiveDelegations(props.delegations);
-  const requireSignoffReview = useRequireSignoffReview();
-  const { edition } = useEdition(props.config?.apiBase ?? "");
-  const soloDesk = edition === "solo";
-  const showAdvancedTabs =
-    !soloDesk ||
-    props.agentsDeskTab === "delegations" ||
-    props.agentsDeskTab === "workflows" ||
-    activeDel > 0;
+  const sectionLabel =
+    props.agentsDeskTab === "delegations"
+      ? "交出去的活"
+      : props.agentsDeskTab === "workflows"
+        ? "按流程办"
+        : null;
 
   const composeModel =
     props.config?.apiBase
@@ -109,80 +106,60 @@ function AgentFleetViewImpl(props: AgentFleetViewProps) {
         <header className="lm-agents-wb-bar" data-testid="lm-agents-desk-chrome">
           <div className="lm-agents-wb-bar-meta">
             <h1>在办</h1>
+            {sectionLabel ? <p className="lm-agents-desk-chrome-sub">{sectionLabel}</p> : null}
           </div>
           <nav className="lm-tabs lm-agents-desk-tabs" aria-label="在办分区">
-            <button
-              type="button"
-              className={`lm-tab ${props.agentsDeskTab === "active" ? "active" : ""}`}
-              aria-current={props.agentsDeskTab === "active" ? "page" : undefined}
-              data-testid="lm-agents-tab-active"
-              onClick={() => props.onAgentsDeskTabChange("active")}
-              title={lawyerFacingQueueTabTitle(requireSignoffReview)}
-            >
-              待拍板
-            </button>
+            {sectionLabel ? (
+              <button
+                type="button"
+                className="lm-tab"
+                data-testid="lm-agents-tab-active"
+                onClick={() => props.onAgentsDeskTabChange("active")}
+              >
+                回到列表
+              </button>
+            ) : null}
             <button
               type="button"
               className="lm-tab lm-tab-secondary"
               data-testid="lm-agents-open-review"
-              title="打开已出的审查稿、合同稿，自行改或再吩咐一轮"
+              title="打开已出的稿，自行改或再吩咐一轮"
               onClick={() => props.onOpenReview()}
             >
               改稿
             </button>
-            {showAdvancedTabs ? (
-              <>
+            <details className="lm-agents-desk-more" data-testid="lm-agents-desk-more">
+              <summary className="lm-tab lm-tab-secondary">更多</summary>
+              <div className="lm-agents-desk-more-menu" role="menu">
                 <button
                   type="button"
-                  className={`lm-tab ${props.agentsDeskTab === "delegations" ? "active" : ""}`}
-                  aria-current={props.agentsDeskTab === "delegations" ? "page" : undefined}
+                  role="menuitem"
+                  className="lm-agents-desk-more-item"
                   data-testid="lm-agents-tab-delegations"
-                  onClick={() => props.onAgentsDeskTabChange("delegations")}
-                  title="已交办给助手的事项进度"
+                  aria-current={props.agentsDeskTab === "delegations" ? "page" : undefined}
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    props.onAgentsDeskTabChange("delegations");
+                  }}
                 >
                   交出去的活
-                  {activeDel > 0 ? (
-                    <span className="lm-tab-inline-count" title="进行中的交办">
-                      {activeDel}
-                    </span>
-                  ) : null}
+                  {activeDel > 0 ? ` ${activeDel}` : ""}
                 </button>
                 <button
                   type="button"
-                  className={`lm-tab ${props.agentsDeskTab === "workflows" ? "active" : ""}`}
-                  aria-current={props.agentsDeskTab === "workflows" ? "page" : undefined}
+                  role="menuitem"
+                  className="lm-agents-desk-more-item"
                   data-testid="lm-agents-tab-workflows"
-                  onClick={() => props.onAgentsDeskTabChange("workflows")}
-                  title="按模板跑多步团队流程"
+                  aria-current={props.agentsDeskTab === "workflows" ? "page" : undefined}
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    props.onAgentsDeskTabChange("workflows");
+                  }}
                 >
                   按流程办
                 </button>
-              </>
-            ) : (
-              <details className="lm-agents-desk-more" data-testid="lm-agents-desk-more">
-                <summary className="lm-tab lm-tab-secondary">更多</summary>
-                <div className="lm-agents-desk-more-menu" role="menu">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="lm-agents-desk-more-item"
-                    data-testid="lm-agents-tab-delegations"
-                    onClick={() => props.onAgentsDeskTabChange("delegations")}
-                  >
-                    交出去的活
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="lm-agents-desk-more-item"
-                    data-testid="lm-agents-tab-workflows"
-                    onClick={() => props.onAgentsDeskTabChange("workflows")}
-                  >
-                    按流程办
-                  </button>
-                </div>
-              </details>
-            )}
+              </div>
+            </details>
           </nav>
         </header>
 
@@ -208,6 +185,7 @@ function AgentFleetViewImpl(props: AgentFleetViewProps) {
             onShowArtifact={props.onShowArtifact}
             onOpenMemoryInspector={props.onOpenMemoryInspector}
             onOpenHealth={props.onOpenDoctor}
+            onOpenMatterOnDesk={props.onOpenMatterOnDesk}
           />
         ) : null}
 

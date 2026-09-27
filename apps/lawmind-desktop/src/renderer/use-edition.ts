@@ -5,32 +5,24 @@
  *   const { edition, label, features } = useEdition(apiBase);
  *   if (features.acceptanceGateStrict) { ... }
  *
- * Fails open: on network error returns the `solo` defaults so the UI never breaks.
+ * Fail-open: on network error returns Solo defaults from the shared edition table
+ * so the UI never breaks and does not hide Solo-on capabilities.
+ *
+ * Types/defaults come from browser-safe `edition-features.ts` (no node: imports).
  */
 
 import { useEffect, useState } from "react";
+import {
+  EDITION_LABELS,
+  soloEditionFeatures,
+  type EditionFeatureKey,
+  type LawMindEdition,
+} from "../../../../src/lawmind/policy/edition-features.js";
 import { apiGetJson } from "./api-client";
 
-export type LawMindEdition = "solo" | "firm" | "private_deploy";
+export type { LawMindEdition, EditionFeatureKey };
 
-export type EditionFeatures = {
-  acceptanceGateStrict: boolean;
-  citationGateStrict: boolean;
-  crossMatterRoadmap: boolean;
-  crossMatterAcceptanceDashboard: boolean;
-  collaborationSummary: boolean;
-  complianceAuditExport: boolean;
-  auditIntegrityExport: boolean;
-  securitySbomPanel: boolean;
-  qualityDashboardJsonExport: boolean;
-  customDeliverableSpec: boolean;
-  acceptancePackExport: boolean;
-  strictDangerousToolApproval: boolean;
-  reviewCampaignParallel: boolean;
-  forcePeerReview: boolean;
-  matterReplicaCollab: boolean;
-  ethicsWall: boolean;
-};
+export type EditionFeatures = Record<EditionFeatureKey, boolean>;
 
 export type CitationMode = "grounded" | "assisted" | "off";
 
@@ -46,26 +38,9 @@ export type EditionInfo = {
 
 const SOLO_DEFAULT: EditionInfo = {
   edition: "solo",
-  label: "独立律师版",
+  label: EDITION_LABELS.solo,
   source: "default",
-  features: {
-    acceptanceGateStrict: true,
-    citationGateStrict: true,
-    crossMatterRoadmap: false,
-    crossMatterAcceptanceDashboard: false,
-    collaborationSummary: false,
-    complianceAuditExport: false,
-    auditIntegrityExport: false,
-    securitySbomPanel: false,
-    qualityDashboardJsonExport: false,
-    customDeliverableSpec: false,
-    acceptancePackExport: false,
-    strictDangerousToolApproval: false,
-    reviewCampaignParallel: true,
-    forcePeerReview: false,
-    matterReplicaCollab: false,
-    ethicsWall: false,
-  },
+  features: { ...soloEditionFeatures() },
   citationMode: "assisted",
   loading: true,
 };
@@ -99,7 +74,7 @@ export function useEdition(apiBase: string): EditionInfo {
           edition: j.edition,
           label: j.label ?? j.edition,
           source: j.source ?? "default",
-          features: { ...SOLO_DEFAULT.features, ...j.features },
+          features: { ...soloEditionFeatures(), ...j.features },
           citationMode,
           loading: false,
         });

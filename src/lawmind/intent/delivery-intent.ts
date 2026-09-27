@@ -27,6 +27,8 @@ export type DeliveryIntent = {
   mutateSource: DeliveryMutateSource;
   outputPlace: DeliveryOutputPlace;
   chatMirror: DeliveryChatMirror;
+  /** Lawyer said not to send. Sending is not a completion condition this turn. */
+  holdOutbound?: boolean;
 };
 
 export const UNSPECIFIED_DELIVERY: DeliveryIntent = {
@@ -55,7 +57,11 @@ const NEW_FILE_RE =
 const REDLINE_OBJECT_RE = /审阅痕迹|红线稿|修订稿|tracked changes|\bredline\b/i;
 
 const DESKTOP_PLACE_RE =
-  /(?:放|写|存|保存|输出|导出|输入)到(?:我的|系统)?桌面(?!端|应用|工作台)|(?:到|至)(?:我的)?桌面(?:上|里)?(?!端|应用|工作台)|(?:on|to|onto) (?:my |the )?desktop\b/i;
+  /(?:放|写|存|保存|输出|导出|输入)到(?:我的|系统)?桌面(?!端|应用|工作台)|放(?:到)?我(?:的)?桌面(?!端|应用|工作台)|(?:到|至)(?:我的)?桌面(?:上|里)?(?!端|应用|工作台)|(?:on|to|onto) (?:my |the )?desktop\b/i;
+
+/** Irreversible send. Natural phrasing, not a frozen token. Tools stay available. */
+const HOLD_OUTBOUND_RE =
+  /别发邮件|不要发(?:送)?(?:这封)?邮件|先不要发(?!表)|不要外发|先别发|(?:do not|don't) send(?: an? email)?/i;
 
 const DOWNLOADS_PLACE_RE =
   /(?:放|写|存|保存|输出|导出|输入)到(?:我的)?(?:下载(?:文件夹|目录)?|Downloads)|(?:to|into) (?:my )?downloads\b/i;
@@ -131,6 +137,7 @@ export function extractDeliveryIntent(instruction: string | undefined): Delivery
     mutateSource,
     outputPlace,
     chatMirror: artifactShape === "opinion_memo" ? "required" : "unspecified",
+    holdOutbound: HOLD_OUTBOUND_RE.test(text),
   };
 }
 
@@ -180,6 +187,7 @@ export function formatDeliveryConstraintPromptBlock(
   const specified =
     delivery.artifactShape !== "unspecified" ||
     delivery.mutateSource === "forbid" ||
+    delivery.holdOutbound === true ||
     deliveryHasNamedPlace(delivery);
   if (!specified) {
     return undefined;
@@ -204,6 +212,9 @@ export function formatDeliveryConstraintPromptBlock(
     if (delivery.artifactShape === "tracked_source") {
       lines.push("- 交付物是带审阅痕迹的修订稿副本，不是意见书重建稿。");
     }
+  }
+  if (delivery.holdOutbound) {
+    lines.push("- 本轮不要把发邮件当成必须完成。不要准备外发，也不要代发。");
   }
   if (delivery.outputPlace === "desktop") {
     lines.push("- 落盘：系统桌面（引擎写入；不要改用工作区 artifacts 代替律师点名的位置）。");

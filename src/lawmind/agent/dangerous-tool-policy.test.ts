@@ -33,15 +33,33 @@ describe("dangerous-tool-policy", () => {
     fs.rmSync(ws, { recursive: true, force: true });
   });
 
-  it("resolveToolSandboxEnabled reads policy toolSandbox", () => {
+  it("resolveToolSandboxEnabled is driven by LAWMIND_TOOL_SANDBOX=1 (env)", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-sbx-pol-"));
+    const prev = process.env.LAWMIND_TOOL_SANDBOX;
+    process.env.LAWMIND_TOOL_SANDBOX = "1";
+    try {
+      expect(resolveToolSandboxEnabled(ws)).toBe(true);
+      expect(describeToolSandboxStatus(ws).source).toBe("env");
+    } finally {
+      if (prev === undefined) {
+        delete process.env.LAWMIND_TOOL_SANDBOX;
+      } else {
+        process.env.LAWMIND_TOOL_SANDBOX = prev;
+      }
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("policy key toolSandbox is rejected by the commercial policy contract (不再生效)", () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-sbx-pol-"));
     fs.writeFileSync(
       path.join(ws, "lawmind.policy.json"),
       JSON.stringify({ schemaVersion: 1, toolSandbox: true }),
       "utf8",
     );
-    expect(resolveToolSandboxEnabled(ws)).toBe(true);
-    expect(describeToolSandboxStatus(ws).source).toBe("policy");
+    // 策略合同只留 IT 硬边界：toolSandbox 被拒绝并说明原因，不再打开沙箱。
+    expect(resolveToolSandboxEnabled(ws)).toBe(false);
+    expect(describeToolSandboxStatus(ws).source).toBe("off");
     fs.rmSync(ws, { recursive: true, force: true });
   });
 

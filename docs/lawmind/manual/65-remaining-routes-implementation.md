@@ -498,10 +498,10 @@ forcePeerReview: boolean | null
 头注释一句：
 
 ```text
-Matter Replica HTTP routes — Firm-gated multi-lawyer matter collaboration.
+Matter Replica HTTP routes — multi-lawyer matter collaboration (on for solo unless policy turns it off).
 ```
 
-**「Firm-gated」**是这个集群的核心：**独立律师版默认关闭**。
+成员协作各版本默认开。策略把 `matterReplica.enabled` 设成 `false`，或功能键关掉时，其余路由才 403。
 
 四个端点**不需要**过版本门（因为要看状态就得能问）：
 
@@ -512,7 +512,7 @@ Matter Replica HTTP routes — Firm-gated multi-lawyer matter collaboration.
 其余十五条都要 `gate.enabled`，否则：
 
 ```text
-403 案件成员协作未开启（独立律师版默认关闭；律所协作版可用）
+403 案件成员协作未开启（可在 lawmind.policy.json 里把 matterReplica.enabled 设为 true）
 + { reason: gate.reason }
 ```
 
@@ -649,16 +649,19 @@ GET /api/memory/adoptions     最多 40 条
 
 **它是从 `LAWYER_PROFILE.md` 的文本里解析出来的**——所以那些条目是**文本行**，不是结构化数据。这个正则定义了它们的格式。
 
-### `route-historical-scan.ts`：四条，四个上限
+### `route-historical-scan.ts`：七条，四个上限
 
 ```text
 GET  /api/historical-scan
 POST /api/historical-scan/roots           absPath ≤1024、label ≤120
 POST /api/historical-scan/roots/remove    rootId ≤80
 POST /api/historical-scan/run             rootIds 最多 3 个
+POST /api/historical-scan/common-places   把范围换成「常见位置」
+POST /api/historical-scan/apply           套用整理计划（没先查看就 400「请先查看这些文件夹。」）
+POST /api/historical-scan/file            勾选确认后收进案件（没先整理就 400「请先整理一次，再收进案件。」）
 ```
 
-**`rootIds` 最多 3 个**——一次最多扫三个根目录。而 `incremental` 布尔控制是增量还是全量。
+**`rootIds` 最多 3 个**——一次最多扫三个根目录。而 `incremental` 布尔控制是增量还是全量。后三条是「整理资料」工作面（第 2.4 节）的服务端：查看（run）→ 套用计划（apply）→ 收进案件（file），顺序由服务端错误提示守着。
 
 ### `route-redline.ts`：五条
 
@@ -916,13 +919,16 @@ reason: "已请求取消，等待当前步骤可中断点。"
 
 **这句与第 63.6 节那个 `queued_abort` 是同一件事的两种表述**（一个给界面，一个给审计）。
 
-### `route-assistants.ts`：七条
+### `route-assistants.ts`：十条
 
 ```text
 GET    /api/assistant-presets
 GET    /api/assistants
+GET    /api/assistants/roster-search      跨助手检索（q 参数）
+GET    /api/assistants/:id/desk           对话消息栏助手席：在场、职责禁令、常设工作近况
 GET    /api/assistants/:id/profile-sections
 POST   /api/assistants
+POST   /api/assistants/:id/share-template 导出岗位模板（密钥硬拦、电话证件需确认）
 POST   /api/assistants/:id/duplicate
 PATCH  /api/assistants/:id
 DELETE /api/assistants/:id
@@ -936,35 +942,25 @@ cannot delete default or unknown assistant
 
 **「默认助手不能删」**——因为它是兜底（`DEFAULT_ASSISTANT_ID`）。
 
-### `route-templates.ts`：七条与一条 id 格式
+### `route-templates.ts`：六条，上传已退役
 
 ```text
-GET    /api/templates              { builtIn, uploaded }
-POST   /api/templates/scan         扫 .docx 占位符
-POST   /api/templates/register
-POST   /api/templates/enabled
-DELETE /api/templates/uploaded     ?id=
+GET    /api/templates              { builtIn, uploaded: [] }
+POST   /api/templates/scan         → 405 UPLOAD_RETIRED
+POST   /api/templates/register     → 405 UPLOAD_RETIRED
+POST   /api/templates/enabled      → 405 UPLOAD_RETIRED
+DELETE /api/templates/uploaded     → 405 UPLOAD_RETIRED
 GET    /api/templates/built-in
-GET    /api/templates/uploaded
+GET    /api/templates/uploaded     恒为空数组
 ```
 
-**上传模板的 id 必须匹配**：
+**上传 / 扫描 / 启停已退役**（文件头注释：「只读内置清单……避免用户自带稿解析失败」）。四条写路径统一回 405 与同一句文案：
 
 ```text
-/^upload\/[a-z0-9][a-z0-9._-]{1,63}$/
-错误：id must be like upload/firm-brief
+不再支持上传文书模板。出稿请用内置模板；我们会在后台继续增加模板。
 ```
 
-**「id must be like upload/firm-brief」这句直接把一个合法例子给了**——比说「格式不对」有用。
-
-九条拒绝里两条：
-
-```text
-only .docx scan supported        扫描只支持 docx
-format must be docx or pptx      登记支持两种
-```
-
-**「扫占位符只支持 docx，但登记支持 docx 与 pptx」**——这个不对称是因为「扫占位符」要解析 docx 内部结构，而「登记」只是存个记录。
+`GET /api/templates` 与 `GET /api/templates/uploaded` 仍返回 200（`uploaded` 恒为空数组），让旧客户端不报错。引擎侧的 `register_template` / `set_template_enabled` 工具同样保留名字、调用一律拒绝（第 23 章）。
 
 ### `route-integrations.ts`：两条只读
 
@@ -1139,11 +1135,7 @@ GET  /api/search/workspace?q=&matterId=&source=&limit=
 
 ### `route-skills.ts`、`route-triage.ts`、`route-sources.ts`、`route-works.ts`、`route-tools-registry.ts`
 
-**`route-skills.ts`**：`GET /api/skills` + `POST /api/skills/enabled`。它的 pack 路径是写死的：
-
-```text
-<工作区>/lawmind/packs/cn-legal-pack.json
-```
+**`route-skills.ts`**：`GET /api/skills` 返回内置作业标准，`configurable: false`。`POST /api/skills/enabled` 固定 405。不再读取 `<工作区>/lawmind/packs/cn-legal-pack.json`。
 
 **`route-triage.ts`**：四条。`POST /api/triage` 支持自动确认：
 
@@ -1278,8 +1270,7 @@ cases/<matterId> 必须存在且是目录
 - **`approval_already_resolved` 的文案强调「当前状态未变更」。**
 - **作业流是手写 SSE（`data:` 单行 + `: ping`）**，与 SSE 总线的三行帧不同。
 - **`cannot delete default or unknown assistant`。**
-- **上传模板 id 必须像 `upload/firm-brief`。**
-- **「扫占位符只支持 docx，登记支持 docx 与 pptx」。**
+- **模板上传 / 扫描 / 启停已退役**：四条写路径一律 405，只读内置清单；`register_template` / `set_template_enabled` 工具保留名字但调用一律拒绝（旧会话不报「未知工具」）。已上传的旧模板渲染仍兼容。
 - **e2e 门禁在模块加载时算一次**，运行时改环境变量不生效。
 - **e2e 在打包版一律关**（忽略环境变量）。
 - **`crash` 端点会真的退出进程。**

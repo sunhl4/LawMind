@@ -156,6 +156,7 @@ export async function applyReviewLabelFromAdoption(
     status: "approved",
     note: parsed.note,
     labels: parsed.labels,
+    confirmNow: true,
   });
   return { written: ["LAWYER_PROFILE.md"] };
 }
@@ -185,6 +186,7 @@ export async function adoptLearningSuggestion(
     note: rec.note,
     labels: rec.labels,
     assistantId: rec.assistantId,
+    confirmNow: true,
   });
 
   rec.state = "adopted";

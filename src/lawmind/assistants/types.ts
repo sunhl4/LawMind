@@ -94,6 +94,15 @@ export type AssistantProfile = {
    * 默认建议互审对象（assistantId）。模型可优先使用 `request_review` 指向该助手；仍以律师最终审核为准。
    */
   peerReviewDefaultAssistantId?: string;
+  /**
+   * 置顶后排在名册和日常切换的前面。隐藏的助手即使置顶也不进日常切换。
+   */
+  pinned?: boolean;
+  /**
+   * 从顶栏日常切换里拿掉，名册里仍可找回。不删对话、案件或交付物。
+   * 默认助手不能隐藏。
+   */
+  hidden?: boolean;
   createdAt: string;
   updatedAt: string;
 };

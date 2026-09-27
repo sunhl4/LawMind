@@ -5,7 +5,7 @@ import {
   saveAssistantDraft,
   type AssistantEditorDraft,
 } from "./lawmind-assistant-editor";
-import { apiDuplicateAssistant } from "./lawmind-api-routes";
+import { apiDuplicateAssistant, apiPatchAssistant } from "./lawmind-api-routes";
 import { removeAssistantChatState, type ChatMsg } from "./lawmind-chat";
 import { clearStoredActiveChatSessionForAssistant } from "./useLawmindChatShell";
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
@@ -119,7 +119,7 @@ export function useLawmindAssistantActions(params: UseLawmindAssistantActionsPar
     if (
       !(await confirmDialog({
         title: "确定删除该助手？",
-        body: "其会话记录仍保留在工作区。",
+        body: "只从名册里去掉这位助手。对话、案件和交付物都还在。",
         confirmLabel: "删除",
         tone: "danger",
       }))
@@ -187,11 +187,37 @@ export function useLawmindAssistantActions(params: UseLawmindAssistantActionsPar
     setSelectedAssistantId,
   ]);
 
+  const patchAssistantRoster = useCallback(
+    async (assistantId: string, patch: { pinned?: boolean; hidden?: boolean }) => {
+      if (!config) {
+        return;
+      }
+      setAsstBusy(true);
+      setAsstError(null);
+      try {
+        const response = await apiPatchAssistant(config.apiBase, assistantId, patch);
+        if (!response.ok) {
+          throw new Error("roster patch failed");
+        }
+        if (patch.hidden === true && assistantId === selectedAssistantId) {
+          setSelectedAssistantId(DEFAULT_ASSISTANT_ID);
+        }
+        await refreshAssistants();
+      } catch (cause) {
+        setAsstError(errorMessage(cause, "更新名册失败"));
+      } finally {
+        setAsstBusy(false);
+      }
+    },
+    [config, refreshAssistants, selectedAssistantId, setAsstBusy, setAsstError, setSelectedAssistantId],
+  );
+
   return {
     openNewAssistant,
     openEditAssistant,
     saveAssistant,
     removeAssistant,
     duplicateAssistant,
+    patchAssistantRoster,
   };
 }

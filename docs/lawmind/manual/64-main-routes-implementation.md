@@ -213,11 +213,9 @@ catch 块的四级判定（有顺序）：
 
 **`taskId: result.turn.turnId`** 这个映射有点绕：续跑返回的 `taskId` 其实是**回合 id**。第 3 章讲过这个历史包袱。
 
-### 请求体没有长度上限
+### 整段 JSON 有 256KB 上限
 
-`chatPostRequestSchema.message` 是 `z.string().optional()`——**只要求 trim 后非空，没有 max**。
-
-所以「一条消息能有多长」这件事在服务端**不设限**。真正起作用的是上下文预算与压缩（第 3 章）。
+`chatPostRequestSchema.message` 是 `z.string().optional()`，字段上没有 `.max()`。请求仍走 `parseJsonBodyZod` → `readJsonBody`，整段 JSON 超过 `MAX_JSON_BODY_BYTES`（256000 字节）时返回 413 `body_too_large`。过了这一关，上下文预算与压缩才接着起作用（第 3 章、第 63.3 节）。
 
 ## 64.2 会话控制面：十四条路由
 
@@ -437,7 +435,7 @@ LAWMIND_ALLOW_CHECKLIST_BYPASS === "1" / "true" / VITEST === "true" → 允许�
 请完成律师必核清单后再通过签批。
 ```
 
-**「交付可靠模式」**是个具体的版本词（第 46 章那 18 个功能键之一）。
+**「交付可靠模式」**是个具体的版本词（第 46 章那 17 个功能键之一）。
 
 ### 门三：状态 CAS（乐观锁）
 
@@ -1145,12 +1143,13 @@ POST .../intake-brief/confirm      → { ok, brief, writeId }
 ### 载荷的四块
 
 ```text
-health      模型/联网/检索/起草大模型/策略/体检/记忆真相源
+health      模型/联网/检索/起草大模型/策略（不含体检扫描）
 edition     版本 id、标签、功能开关
 assistants  助手列表（含用量统计）
 presets     助手预设
-records     四个计数：任务 / 草稿 / 案件 / 待审核
 ```
+
+任务、草稿、案件计数不在这条首屏路径上。渲染层另取 `/api/tasks` 与 `/api/history`；体检计数在 `/api/health`。引导接口再扫一遍会和那两条请求抢同一条事件循环，界面切过去要等扫描结束才出字。
 
 `health` 里面有二十来个字段，其中几个：
 
@@ -1174,19 +1173,13 @@ policy = 加载了 → { loaded: true, allowWebSearch: policy.allowWebSearch ?? 
 
 **三个字段都给了初值**（不是 `undefined`）——所以界面不用做空值处理。
 
-### `pendingReviewCount` 的定义
-
-```text
-drafts.filter(d => d.reviewStatus === "pending").length
-```
-
-**只算 `pending`**，不算 `modified`。所以「待审核」在首屏这个数字里不含「需修改」。
+待签批份数不从引导接口来。界面上的「待签批」走行动摘要（`/api/actions/summary` 的 `pendingReviewCount`），`pending` 和 `modified` 都算。
 
 **这个口径与界面上「待签批」的分组（第 62.2 节 `fleetGroupLabel`）可能不同**——因为后者把 `awaiting_review` 与 `awaiting_clarification` 都算进去。**两个数字用途不同，不该期望相等。**
 
 ## 64.11 已知坑（本章相关）
 
-- **`POST /api/chat` 的 message 没有长度上限**（只要求 trim 后非空）。
+- **`POST /api/chat` 的 message 字段没有单独的 max。** 整段 JSON 上限是 256000 字节（413 `body_too_large`）。
 - **流式已开始后不能再改状态码**，只能往流里写 `event: error`。
 - **两个 ping 间隔不一样**：对话流 25 秒，SSE 总线 15 秒。
 - **会议室模式的 `matterId` 会被剔除 adhoc 假 id**（不进案件记忆）。
@@ -1218,6 +1211,6 @@ drafts.filter(d => d.reviewStatus === "pending").length
 - **权威引用校验跳过时返回 `ok: true`**（不是失败）。
 - **期限有四种状态，含 `missed`**（过期是显式状态）。
 - **`writeId` 出现在两个响应里，但没有 HTTP 端点能撤销它**——只有模型工具能。
-- **`/api/bootstrap` 漏了标志不会报错，只会让设置页停在默认态。**
+- **`/api/bootstrap` 不带任务 / 草稿计数，也不扫体检。** 漏了模型、联网、检索、起草大模型标志不会报错，只会让设置页停在默认态。
 - **`missingApiKey` 是 `modelConfigured` 的取反**（两个字段都发）。
-- **`pendingReviewCount` 只算 `pending`**，与界面上的「待签批」分组口径不同。
+- **待签批份数不在引导接口里**，走行动摘要，`pending` 和 `modified` 都算。

@@ -31,6 +31,7 @@ describe("assistant-presets", () => {
     for (const p of ASSISTANT_PRESETS) {
       expect(["low", "medium", "high"]).toContain(p.riskCeiling);
       expect(p.acceptanceChecklist.length).toBeGreaterThan(0);
+      expect("acceptance checklist" in p).toBe(false);
     }
   });
 

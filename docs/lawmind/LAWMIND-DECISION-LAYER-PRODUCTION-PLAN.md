@@ -175,7 +175,8 @@
 
 `src/lawmind/guardian/types.ts`：
 
-```55:60:src/lawmind/guardian/types.ts
+```typescript
+// src/lawmind/guardian/types.ts:55-60
 export type GuardianChecklistItem = {
   id: string;
   look: string;
@@ -769,7 +770,8 @@ lint/families/*.ts 或 clause/dsl.ts 的新 ClausePattern
 
 ### 7.2 与 `clause/pattern.ts` 的关系
 
-```33:33:src/lawmind/clause/pattern.ts
+```typescript
+// src/lawmind/clause/pattern.ts:33
 export type ClauseExtractor = (text: string, ctx: ExtractCtx) => Partial<Clause> | null;
 ```
 

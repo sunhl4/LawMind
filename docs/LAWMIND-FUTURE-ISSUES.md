@@ -13,6 +13,7 @@
 | [LAWMIND-ENGINEERING-REVIEW.md](./archive/LAWMIND-ENGINEERING-REVIEW.md)（归档）             | 工程评审与已落地附录                                                                                            |
 | [LAWMIND-AGENT-PARITY-REVIEW.md](./LAWMIND-AGENT-PARITY-REVIEW.md)                           | 上手/智能/稳态/律师专用对标 Cursor·Codex·Claude Code（2026-09-15，P0–P2 已落地；2026-09-18 市面对标切片已落地） |
 | [LAWMIND-CODEX-WORKER-PARITY.md](./LAWMIND-CODEX-WORKER-PARITY.md)                           | 子工/并行循环对标 Codex subagent（P5–P8；P0–P4 已落地）                                                         |
+| [LAWMIND-MEMORY-LONGTERM-REVIEW.md](./LAWMIND-MEMORY-LONGTERM-REVIEW.md)                     | 记忆长期使用：双门复审 + 外链调研（大白话；2026-09-27）                                                         |
 
 ---
 
@@ -36,7 +37,8 @@
 - [ ] **会话磁盘 compact**：`sessions/*.json` 与 `.turns.jsonl` / transcript 归档或 gzip 旧段；热路径只保留摘要
 - [ ] **queue / approvals / adoption JSONL**：行数大时改为 append-only + 软删，或 SQLite
 - [x] **atomic `rewriteJsonl`**（短中期）：temp+rename 已落地（ENGINEERING-REVIEW **R-P1-9 ✅**）；长期 JSONL→SQLite 仍见上条
-- [x] **LAWYER_PROFILE §八写侧轮转**（2026-09-19，P1-D）：`memory/lawyer-profile-learning.ts` 的 `rotateLawyerProfileSectionEight` 在写入时把超出上限的旧条目移入 `LAWYER_PROFILE-归档.md`（内容不丢，prompt 仍只注入指纹）。挂账消除。
+- [x] **LAWYER_PROFILE §八写侧轮转**（2026-09-19，P1-D）：`memory/lawyer-profile-learning.ts` 的 `rotateLawyerProfileSectionEight` 在写入时把超出上限的旧条目移入 `memory/lawyer-profile-archive.md`（内容不丢，prompt 仍只注入指纹）。挂账消除。
+- [x] **记忆长期使用**（2026-09-27）：内核、读取时失效、跨案不自动注入、审核默认只留本案、槽位召回、两案同一写法才待确认、取代/归纳关系。详见 [LAWMIND-MEMORY-LONGTERM-REVIEW.md](./LAWMIND-MEMORY-LONGTERM-REVIEW.md) §8–§11。
 - [ ] **`model-usage/ledger.jsonl` 保留策略**（按月滚动）
 - [ ] **FTS 重建增量索引**（避免全量扫 audit + turns）
 - [ ] **详情 API 按章节懒加载 CASE**（UI 不必一次拉 120k）
@@ -108,7 +110,7 @@
 - [ ] 审计完整性链在「按天窗口读取」下的校验策略说明
 - [ ] Doctor：检测 CASE/audit/session 体积异常并建议轮转
 - [ ] 私有化部署下的磁盘配额告警
-- [x] **本机能力（对齐 Cursor 找/读/收进本案/受控命令）**：多根、本机查找、`hit_id` 授权、一次/会话/始终、案件围栏、受控命令、伦理墙与访问日志。见 [LAWMIND-HOST-ACCESS.md](./lawmind/LAWMIND-HOST-ACCESS.md)。残留：MAS security-scoped bookmark 原生层；Windows Search 目前走已授权根遍历。
+- [x] **本机访问（找/读/收进本案/受控命令）**：多根、本机查找、`hit_id` 授权、一次/会话/始终、对立当事人隔离、受控命令。设置里没有档位开关，默认放开查找与命令。见 [LAWMIND-HOST-ACCESS.md](./lawmind/LAWMIND-HOST-ACCESS.md)。残留：MAS security-scoped bookmark 原生层；Windows Search 目前走已授权根遍历。
 - [x] **工作区相对读的 realpath 围栏**（2026-09-17）：`fenceAgentFilePath` 覆盖 `read_project_file` / `write_document` / 律师本机解析 / 邮件附件；打包态忽略 `LAWMIND_HOST_ACCESS_MODE`。
 - [x] **IPC 项目目录须经系统选择器**（2026-09-17）：`set-project-dir` / `add-host-folder` 只接受本进程 `showOpenDialog` 记过的路径；`null` 仍可清除。
 - [x] **loopback Host 钉死**（2026-09-17）：`Host` 必须是 `127.0.0.1` / `localhost` / `::1`（可带端口）。打包态缺 Host 拒绝；开发/测试允许缺 Host。

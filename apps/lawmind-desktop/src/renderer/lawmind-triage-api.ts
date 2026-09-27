@@ -1,8 +1,6 @@
 import type { TriageSession } from "../../../../src/lawmind/triage/types.ts";
 import { fetchApi } from "./api-client-proxy.ts";
 
-export type TriageMatchedSkill = { id: string; name: string; version?: string };
-
 export async function apiPostTriagePreview(
   apiBase: string,
   body: {
@@ -16,7 +14,6 @@ export async function apiPostTriagePreview(
   ok: boolean;
   session?: TriageSession;
   autoConfirmed?: boolean;
-  matchedSkills?: TriageMatchedSkill[];
   error?: string;
 }> {
   const res = await fetchApi(`${apiBase.replace(/\/$/, "")}/api/triage`, {
@@ -28,7 +25,6 @@ export async function apiPostTriagePreview(
     ok: boolean;
     session?: TriageSession;
     autoConfirmed?: boolean;
-    matchedSkills?: TriageMatchedSkill[];
     error?: string;
   };
 }

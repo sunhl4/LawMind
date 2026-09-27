@@ -7,6 +7,9 @@ import {
   appendSessionEvent,
   getLiveTurnProgressOrReplay,
   readSessionEvents,
+  readSessionEventsForReplay,
+  SESSION_EVENT_REPLAY_TAIL_BYTES,
+  sessionEventsPath,
   shouldPersistSessionEvent,
 } from "./session-event-log.js";
 
@@ -93,5 +96,53 @@ describe("session-event-log", () => {
     expect(progress?.steps.some((s) => s.kind === "tool" && s.label.includes("审定文书"))).toBe(
       true,
     );
+  });
+
+  it("drops a torn tail before the next append so both records stay readable", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-elog-torn-"));
+    dirs.push(ws);
+    appendSessionEvent(ws, "sid", { type: "turn_begin" }, { turnId: "t1" });
+    const filePath = sessionEventsPath(ws, "sid");
+    fs.appendFileSync(filePath, '{"t":"2026-01-01T00:00:00.000Z","event":{"type":"rou');
+    appendSessionEvent(ws, "sid", { type: "round_start", roundIndex: 1 }, { turnId: "t1" });
+    expect(readSessionEvents(ws, "sid").map((r) => r.event.type)).toEqual([
+      "turn_begin",
+      "round_start",
+    ]);
+  });
+
+  it("keeps earlier records when the torn tail exceeds the repair window", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-elog-giant-"));
+    dirs.push(ws);
+    appendSessionEvent(ws, "sid", { type: "turn_begin" }, { turnId: "t1" });
+    const filePath = sessionEventsPath(ws, "sid");
+    // 撕尾是一条超过 1MB 修复窗口的巨行：窗口内找不到换行，修复必须放弃而不是清空整档。
+    fs.appendFileSync(
+      filePath,
+      `{"t":"2026-01-01T00:00:00.000Z","pad":"${"x".repeat(1024 * 1024 + 10)}`,
+    );
+    appendSessionEvent(ws, "sid", { type: "round_start", roundIndex: 1 }, { turnId: "t1" });
+    const types = readSessionEvents(ws, "sid").map((r) => r.event.type);
+    expect(types).toContain("turn_begin");
+  });
+
+  it("replays from the tail when the log is larger than one read", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-elog-tail-"));
+    dirs.push(ws);
+    const filePath = sessionEventsPath(ws, "sid");
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    const filler = `${JSON.stringify({
+      t: "2026-01-01T00:00:00.000Z",
+      event: { type: "turn_begin" },
+    })}\n`;
+    const chunks = Math.ceil((SESSION_EVENT_REPLAY_TAIL_BYTES + filler.length) / filler.length);
+    fs.writeFileSync(filePath, filler.repeat(chunks));
+    appendSessionEvent(ws, "sid", { type: "turn_begin" }, { turnId: "latest" });
+    appendSessionEvent(ws, "sid", { type: "final", status: "completed", reply: "tail" });
+    const replayed = readSessionEventsForReplay(ws, "sid");
+    expect(replayed.at(-1)?.event).toMatchObject({ type: "final", reply: "tail" });
+    expect(replayed.length).toBeLessThan(chunks);
+    const progress = getLiveTurnProgressOrReplay(ws, "sid");
+    expect(progress?.status).toBe("completed");
   });
 });

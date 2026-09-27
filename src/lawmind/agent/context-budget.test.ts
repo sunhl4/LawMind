@@ -5,6 +5,7 @@ import {
   estimateTextTokens,
   estimateTokenBudget,
   estimateTokenBudgetBreakdown,
+  HISTORY_QUALITY_CONTEXT_TOKENS,
 } from "./context-budget.js";
 import type { AgentMessage, AgentSession } from "./types.js";
 import { wrapWorldStateSection } from "./world-state.js";
@@ -59,6 +60,9 @@ describe("estimateTokenBudget", () => {
     // 大窗口保持既有预留绝对值（行为不变）。
     const large = estimateTokenBudget(session, null, { contextTokens: 200_000 });
     expect(large.effectiveLimit).toBe(200_000 - 33_000);
+    const million = estimateTokenBudget(session, null, { contextTokens: 1_000_000 });
+    expect(million.effectiveLimit).toBe(large.effectiveLimit);
+    expect(HISTORY_QUALITY_CONTEXT_TOKENS).toBe(200_000);
   });
 
   it("快照带上 warnRatio，且可由 policy 调（旧默认 0.85）", () => {
@@ -170,9 +174,38 @@ describe("estimateTokenBudgetBreakdown", () => {
     expect(byId.get("craft")).toBeGreaterThanOrEqual(estimateTextTokens("红线重注内容"));
     // policy/deliverable/permission/matter 归 workspace，不进 rules。
     expect(byId.get("workspace")).toBeGreaterThanOrEqual(estimateTextTokens("交付物：审查意见"));
-    // 标记（`<!--lm-ws:id-->`）算在各段自己头上：rules 只剩静态正文 + 段间空行。
-    expect(byId.get("rules")).toBeGreaterThanOrEqual(estimateTextTokens("静态提示正文"));
-    expect(byId.get("rules")).toBeLessThan(estimateTextTokens("静态提示正文") + 8);
+    // 标记（`<!--lm-ws:id-->`）算在各段自己头上：固定说明归 system，不进 rules。
+    expect(byId.get("system")).toBeGreaterThanOrEqual(estimateTextTokens("静态提示正文"));
+    expect(byId.get("system")).toBeLessThan(estimateTextTokens("静态提示正文") + 8);
+    expect(byId.get("rules") ?? 0).toBe(0);
+  });
+
+  it("工具清单、强制规则、案件标题各归各桶", () => {
+    const system = [
+      "你是 LawMind",
+      "## 工作区强制规则（不可忽略）\n\n不得外发未审核稿",
+      "## 当前案件 [m1]\n\n股权转让",
+      "## 可用工具\n\n- **draft_document**",
+      "## 回答规范\n\n结论在前",
+    ].join("\n\n");
+    const session: AgentSession = {
+      sessionId: "s-headings",
+      actorId: "lawyer",
+      turns: [],
+      conversationHistory: [{ role: "system", content: system, timestamp: "t" }],
+      createdAt: "t",
+      updatedAt: "t",
+    };
+    const byId = new Map(
+      estimateTokenBudgetBreakdown(session).buckets.map((b) => [b.id, b.tokens]),
+    );
+    expect(byId.get("rules")).toBeGreaterThan(0);
+    expect(byId.get("tools")).toBeGreaterThan(0);
+    expect(byId.get("turnContext")).toBeGreaterThan(0);
+    expect(byId.get("system")).toBeGreaterThan(0);
+    expect(estimateTokenBudgetBreakdown(session).total).toBe(
+      estimateTokenBudget(session, null, { contextTokens: 128_000 }).used,
+    );
   });
 });
 

@@ -217,12 +217,11 @@ shouldKeepLocalServerAlive({ mainAlive, auxAliveCount, remainingAppWindowCount }
 三次失败后加载一段内联 HTML：
 
 ```html
-<h1>LawMind 未能打开界面</h1>
-<p><错误描述>（<错误码>）</p>
-<p>请关闭后重新打开应用，或检查开发服务是否在跑。</p>
+<h1>界面没有打开</h1>
+<p>请退出 LawMind 后重新打开。</p>
 ```
 
-**三段**：结论、具体错误码、两条出路。
+错误码和「开发服务」只留在主进程日志里。兜底页不把排障词给律师。
 
 它用 `data:text/html` 加载——所以**不需要任何文件系统访问**，在渲染层完全坏掉的情况下也能显示。
 
@@ -287,13 +286,13 @@ useDistInE2e = LAWMIND_E2E === "1" && dist/index.html 存在
 
 更新的每条路径都有对应文案：
 
-| 情况         | 文案                                                                        |
-| ------------ | --------------------------------------------------------------------------- |
-| 开发构建     | `当前为开发构建，请使用菜单「下载安装包」页面获取正式版本。`                |
-| 环境变量关了 | `已按环境变量关闭应用内更新，请联系管理员获取安装包。`                      |
-| 有新版本     | `发现新版本 <版本>。将自动下载；下载完成后会通知您，退出应用时可完成安装。` |
-| 已是最新     | `当前已是最新版本。`                                                        |
-| 检查失败     | `检查更新失败：<消息>`                                                      |
+| 情况       | 文案                                                                        |
+| ---------- | --------------------------------------------------------------------------- |
+| 开发构建   | `这是开发版本，没有应用内更新。`                                            |
+| 更新被关掉 | `应用内更新已关闭。请向管理员索取安装包。`                                  |
+| 有新版本   | `发现新版本 <版本>。将自动下载；下载完成后会通知您，退出应用时可完成安装。` |
+| 已是最新   | `当前已是最新版本。`                                                        |
+| 检查失败   | `这次没能检查更新。请稍后再试，或从下载页获取安装包。`（原因只打日志）      |
 
 **`loadAutoUpdater()` 在两种情况下返回 `null`**：非打包，或设了 `LAWMIND_SKIP_AUTO_UPDATE=1`。
 
@@ -408,35 +407,35 @@ LAWMIND_USER_DATA_DIR
 
 `resolveDevUserDataDir` 三步：`packaged` → `null`；`override` 非空 → `path.resolve(override)`；否则 → `<appData>/<brandFolder || "Electron">`。
 
-## 66.6 IPC 桥面：36 个通道
+## 66.6 IPC 桥面：37 个通道
 
-`ipc-handlers.mjs` 有 1263 行，但只有一个导出（`registerIpcHandlers`）。
+`ipc-handlers.mjs` 有 1268 行，但只有一个导出（`registerIpcHandlers`）。
 
-**一句要紧的事实：36 个注册全是 `ipcMain.handle`，没有一个 `ipcMain.on`。**
+**一句要紧的事实：37 个注册全是 `ipcMain.handle`，没有一个 `ipcMain.on`。**
 
 所以整个桥面是**请求-响应**式的，没有单向通知通道。
 
 ### 按前缀分组的清单
 
-| 组             | 通道                                                                                                             |
-| -------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 配置           | `lawmind:get-config`                                                                                             |
-| Word 插件      | `lawmind:addin:sync-manifest`                                                                                    |
-| 更新与通知     | `lawmind:check-updates`、`lawmind:show-notification`                                                             |
-| 工作区与项目   | `lawmind:pick-workspace`、`lawmind:pick-project`、`lawmind:pick-folder`、`lawmind:set-project-dir`               |
-| 模型设置       | `lawmind:read-model-settings`、`lawmind:save-setup`                                                              |
-| 自定义模型密钥 | `lawmind:save-custom-model-key`、`lawmind:delete-custom-model-key`                                               |
-| MCP 密钥       | `lawmind:save-mcp-server-secret`、`lawmind:delete-mcp-server-secret`                                             |
-| 密钥链         | `lawmind:keychain-status`                                                                                        |
-| 检索开关       | `lawmind:set-retrieval-mode`、`lawmind:set-open-law-npc`                                                         |
-| 本机文件夹     | `lawmind:list-host-folders`、`lawmind:add-host-folder`、`lawmind:remove-host-folder`、`lawmind:bind-host-folder` |
-| 文件桥         | `lawmind:fs:list` / `read` / `write` / `mkdir` / `rename` / `delete` / `copy`                                    |
-| 导入           | `lawmind:fs:import-dropped`、`lawmind:fs:import-pasted`                                                          |
-| 对话框         | `lawmind:dialog:open-files`、`lawmind:dialog:save-text-file`                                                     |
-| 系统打开       | `lawmind:open-external`、`lawmind:show-item-in-folder`、`lawmind:open-with-system`                               |
-| 辅助窗         | `lawmind:open-aux-window`                                                                                        |
+| 组             | 通道                                                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 配置           | `lawmind:get-config`                                                                                                                   |
+| Word 插件      | `lawmind:addin:sync-manifest`                                                                                                          |
+| 更新与通知     | `lawmind:check-updates`、`lawmind:show-notification`                                                                                   |
+| 工作区与项目   | `lawmind:pick-workspace`、`lawmind:pick-project`、`lawmind:pick-folder`、`lawmind:set-project-dir`、`lawmind:inspect-workspace-volume` |
+| 模型设置       | `lawmind:read-model-settings`、`lawmind:save-setup`                                                                                    |
+| 自定义模型密钥 | `lawmind:save-custom-model-key`、`lawmind:delete-custom-model-key`                                                                     |
+| MCP 密钥       | `lawmind:save-mcp-server-secret`、`lawmind:delete-mcp-server-secret`                                                                   |
+| 密钥链         | `lawmind:keychain-status`                                                                                                              |
+| 检索开关       | `lawmind:set-retrieval-mode`、`lawmind:set-open-law-npc`                                                                               |
+| 本机文件夹     | `lawmind:list-host-folders`、`lawmind:add-host-folder`、`lawmind:remove-host-folder`、`lawmind:bind-host-folder`                       |
+| 文件桥         | `lawmind:fs:list` / `read` / `write` / `mkdir` / `rename` / `delete` / `copy`                                                          |
+| 导入           | `lawmind:fs:import-dropped`、`lawmind:fs:import-pasted`                                                                                |
+| 对话框         | `lawmind:dialog:open-files`、`lawmind:dialog:save-text-file`                                                                           |
+| 系统打开       | `lawmind:open-external`、`lawmind:show-item-in-folder`、`lawmind:open-with-system`                                                     |
+| 辅助窗         | `lawmind:open-aux-window`                                                                                                              |
 
-**15 个组、36 条通道。** 而 `lawmind:fs:*` 那七条是最集中的一组。
+**15 个组、37 条通道。** 多出来的是 `lawmind:inspect-workspace-volume`。`lawmind:fs:*` 那七条仍是最集中的一组。
 
 ### 三条主进程 → 渲染层的通道
 
@@ -577,10 +576,12 @@ lawmind:set-project-dir      项目目录变了
 ### 三组受保护路径
 
 ```text
-EXACT_PROTECTED_RELS  = ["lawmind.policy.json", ".env", ".env.lawmind"]
-PROTECTED_REL_PREFIXES = ["lawmind/", "audit/", "sessions/", "tasks/", "matters/"]
-PROTECTED_BASENAMES    = [".lawmind-dms.json", "RULES.md", "ethics-wall.json"]
+EXACT_PROTECTED_RELS   = ["lawmind.policy.json"]
+PROTECTED_REL_PREFIXES = ["lawmind/", "audit/", "sessions/", "tasks/", "matters/", "drafts/", ".git/"]
+PROTECTED_BASENAMES    = [".lawmind-dms.json", "RULES.md", "ethics-wall.json", ".signing-secret"]
 ```
+
+`.env` 与 `.env.*` 不在精确名单里，由 `isEnvSecretBasename` 按文件名拦截，任意深度都算。写保护在「文件必须已存在」之前就判。祖先目录和破坏性删除也会扫这张名单。
 
 **匹配前先转小写**（大小写不敏感）——所以 `RULES.md` 与 `rules.md` 都被拦。
 
@@ -808,7 +809,7 @@ All operations are best-effort: if safeStorage encryption is unavailable
 而 `ipc-handlers.mjs` 里对应的两条拒绝：
 
 ```text
-系统加密存储不可用，无法安全保存新的 API Key。请启用操作系统密钥链，或先在 .env.lawmind 中手工配置后重启。
+无法安全保存。请在系统设置里打开钥匙串后再试。
 密钥链写入失败，已取消保存以避免明文落盘。
 ```
 
@@ -938,7 +939,7 @@ models.json is schema 2 after the first successful POST /api/models/test.
 - **`pinDevUserData` 硬钉在 `<appData>/Electron`**（保持历史路径）。
 - **`LAWMIND_USER_DATA_DIR` 在打包版被忽略**（与 `SKIP_API_AUTH` 同一姿态）。
 - **`--user-data-dir` 在 Playwright 下会被静默忽略**（前置开关导致）。
-- **36 个 IPC 全是 `handle`，没有 `on`**（全请求-响应）。
+- **37 个 IPC 全是 `handle`，没有 `on`**（全请求-响应）。含 `lawmind:inspect-workspace-volume`。
 - **只有三条主 → 渲染通道。**
 - **`pick-workspace` 不记路径授权**（它与其他 pick 不同）。
 - **四个通道会重启本地服务**（模型/检索/法规/NPC 开关、项目目录）。
@@ -956,6 +957,6 @@ models.json is schema 2 after the first successful POST /api/models/test.
 - **桌面壳审计写在独立文件里**（避免打断引擎哈希链）。
 - **密钥链不可用时拒绝保存，而不是降级明文。**
 - **`saveSecret` 传空值等于删除。**
-- **模型探测与引擎侧是两份实现**（`probe.ts`），必须同步。
+- **模型探测与引擎侧是两份实现**（`probe.ts` 与 `lawmind-model-probe.cjs`）。错误体解析和 401/403 的「密钥无效」文案必须一起改。
 - **`lawmind-secrets.json` 存在 userData 下**（不是 keychain 本身，而是 safeStorage 加密后落在这个文件）。
 - **向导只写 `defaultModelId`**，不动自定义模型与验证记录。

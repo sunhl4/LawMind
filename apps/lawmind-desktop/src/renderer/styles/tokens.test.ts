@@ -21,6 +21,7 @@ function readRendererCssFiles(): Array<{ path: string; content: string }> {
     join(stylesDir, "buttons.css"),
     join(stylesDir, "callouts.css"),
     join(stylesDir, "chat.css"),
+    join(stylesDir, "acceptance-sheet.css"),
     join(stylesDir, "desk-layout.css"),
     join(stylesDir, "file-workbench.css"),
     join(stylesDir, "matter-review-workbench.css"),

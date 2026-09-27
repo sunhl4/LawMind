@@ -87,7 +87,7 @@ describe("LawmindSettingsUserStandards", () => {
     await act(async () => {});
     expect(host.textContent).toContain("审查标准");
     expect(host.textContent).toContain("通用合同审查口径");
-    expect(host.textContent).toContain("案由词表");
+    expect(host.textContent).not.toContain("案由词表");
     await act(async () => {
       const btn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("停用"));
       btn?.click();

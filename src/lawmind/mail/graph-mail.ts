@@ -2,6 +2,7 @@
  * Microsoft Graph mail (application permissions) — list + send.
  */
 
+import { createOutboundProxy } from "../platform/outbound-proxy.js";
 import type { FetchedMailMessage } from "./imap-client.js";
 import { MAX_MAIL_ATTACHMENT_BYTES, type MailConnectResult } from "./imap-client.js";
 import type { MailAccount } from "./mail-accounts.js";
@@ -11,6 +12,11 @@ import type { SmtpSendResult } from "./smtp-client.js";
 
 /** 单个 Graph HTTP 请求超时（token / list / attachments / send），防挂起卡住 sync tick。 */
 const GRAPH_FETCH_TIMEOUT_MS = 20_000;
+
+const graphMailProxy = createOutboundProxy({
+  requestTag: "graph-mail",
+  timeoutMs: GRAPH_FETCH_TIMEOUT_MS,
+});
 
 async function fetchGraphToken(args: {
   tenantId: string;
@@ -24,11 +30,10 @@ async function fetchGraphToken(args: {
     scope: "https://graph.microsoft.com/.default",
     grant_type: "client_credentials",
   });
-  const res = await fetch(tokenUrl, {
+  const res = await graphMailProxy.fetch(tokenUrl, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
-    signal: AbortSignal.timeout(GRAPH_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -81,9 +86,8 @@ export async function testGraphMailConnection(
   try {
     const token = await fetchGraphToken(cfg);
     const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(cfg.mailbox)}/mailFolders/inbox?$select=totalItemCount,displayName`;
-    const res = await fetch(url, {
+    const res = await graphMailProxy.fetch(url, {
       headers: { authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(GRAPH_FETCH_TIMEOUT_MS),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -123,9 +127,8 @@ export async function fetchGraphMessages(
   const url =
     `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(cfg.mailbox)}/mailFolders/inbox/messages` +
     `?$top=${limit}&$orderby=receivedDateTime%20desc&$select=${select}`;
-  const res = await fetch(url, {
+  const res = await graphMailProxy.fetch(url, {
     headers: { authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(GRAPH_FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -159,9 +162,8 @@ export async function fetchGraphMessages(
     const attachments: FetchedMailMessage["attachments"] = [];
     if (row.hasAttachments) {
       const attUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(cfg.mailbox)}/messages/${encodeURIComponent(row.id)}/attachments`;
-      const attRes = await fetch(attUrl, {
+      const attRes = await graphMailProxy.fetch(attUrl, {
         headers: { authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(GRAPH_FETCH_TIMEOUT_MS),
       });
       if (attRes.ok) {
         const attJson = (await attRes.json()) as {
@@ -233,13 +235,12 @@ export async function sendGraphMail(
       contentBytes: fs.readFileSync(a.absolutePath).toString("base64"),
     }));
     const from = formatMailFromAddress(cfg.mailbox, account.sendFormat);
-    const res = await fetch(url, {
+    const res = await graphMailProxy.fetch(url, {
       method: "POST",
       headers: {
         authorization: `Bearer ${token}`,
         "content-type": "application/json",
       },
-      signal: AbortSignal.timeout(GRAPH_FETCH_TIMEOUT_MS),
       body: JSON.stringify({
         message: {
           subject: mail.subject,

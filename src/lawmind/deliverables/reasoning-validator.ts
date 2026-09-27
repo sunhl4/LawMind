@@ -28,21 +28,17 @@ const DEFAULT_MIN_FACTS = 0;
 /**
  * `facts_grounded` 的严重级别——**刻意不设为 blocker**（P0-4a，2026-09-20 复核）。
  *
- * 与 `min_issues` / `authority_conflicts_resolved` 的 `required ? "blocker" : "warning"`
- * 不同，这里**不能**跟着写成 blocker。原因不是疏忽，而是 `facts` 在当前数据形状下
- * **结构上必然为空**（已实测，非推测）：
+ * 争点条数、权威冲突和缺图同样只警告：那是结构配额，不是空交付。
+ * 旧快照里 facts 几乎总是空的；
+ * 新图会挂上未被引用的案件事实，但那还不是「争点已经用这些事实论证」：
  *
- *   1. `buildLegalReasoningGraph({ intent, bundle })` 的签名里**没有案件事实**——
- *      `LegalIssueNode.facts` 的类型文档写的是「来自案件 CASE.md 或检索 bundle」，
- *      但函数拿不到 CASE.md。
- *   2. bundle 里唯一的「案件事实」来源是 `memo`（← CASE.md）与 `workspace`
- *      （← CLIENT_PROFILE），二者都由 `createWorkspaceAdapter` 产出——
- *      而该适配器返回 `claims: []`，**不产生任何结论**。
- *   3. `buildIssueTree` 只从 `claim.sourceIds` 反查 sources，所以这些来源永远不会被引用。
- *   4. 会产生结论的适配器（model-adapters / brave-web / url-dossier）只发
- *      `statute` / `web`（见 `model-adapters.ts` 的 `toSources`）。
+ *   1. 只有结论已经引用的 `contract` / `memo` / `workspace` 才进入该争点的 `facts`。
+ *      把未引用材料挂进某条争点，等于替模型判定「这条争点用了这份材料」。
+ *   2. 未被引用的材料只出现在交付风险里，文案是「起草时自行判断是否写入」。
+ *      不计入 `factsTotal`，也不升成 blocker。
+ *   3. 2026-09-22 的 136 份旧快照：86% 争点数为 0，有争点的快照里 `facts` 也是 0。
  *
- * 因此 `factsTotal` 恒为 0。**2026-09-22 用真实工作区实测确认**（136 份 `drafts/*.reasoning.json`）：
+ * **2026-09-22 用真实工作区实测确认**（136 份 `drafts/*.reasoning.json`，挂接之前）：
  *
  * | 快照 | 数量 | 说明 |
  * | -------------------- | ---- | ------------------------------------------------------------ |
@@ -51,19 +47,15 @@ const DEFAULT_MIN_FACTS = 0;
  * | ↳ 其中 `facts` > 0   | **0**  | 本项所述的结构性缺口 |
  * | ↳ 其中 `evidence` > 0 | **0** | 另一条同样空转：`evidence` 来自 `case` 类来源，而类案库未接（`caseLaw.ready: false`） |
  *
- * 也就是说：**这一层在真实使用中基本是惰性的**（86% 连争点树都没有），
- * 而 `facts` / `evidence` 两个槽位在每个有争点的快照里都是空的。
- * 检查本身**如实报告**（warning + 可诊断 hint），所以不是"假绿"；但它也**测不出任何东西**。
+ * 也就是说：旧快照里这一层基本是惰性的（86% 连争点树都没有）。
+ * 检查本身**如实报告**（warning + 可诊断 hint），所以不是"假绿"。
  *
  * 而 `acceptanceGateStrict` 在 solo / firm / private_deploy
  * **三档都默认开启**（`policy/edition.ts:36`），所以一旦升为 blocker，
  * 所有 `minFacts >= 1` 的高危 spec（letter.* / litigation.* / contract.review）
  * 会在**所有 edition 下必然拦截渲染**——那是回归，不是修复。
  *
- * 升级为前提条件（满足任一即可把它改成 `required ? "blocker" : "warning"`）：
- *   a. 某适配器开始产出**并被结论引用** `contract` / `memo` / `workspace` 类来源；或
- *   b. `buildLegalReasoningGraph` 通过新增的 `caseFacts` 入参拿到案件事实。
- * 届时必须同时补一条端到端断言：真实 bundle → `factsTotal >= 2` → 双门禁通过。
+ * 保持 warning。未引用材料不算事实；升 blocker 会在模型尚未引用材料时拦住交付。
  *
  * 在那之前，本检查**仍然如实报告**（warning），且 hint 会区分「结论没引事实材料」
  * 与「检索根本没返回事实材料」——见 `factsGroundedHint()`。
@@ -75,7 +67,7 @@ const FACT_GROUNDED_SEVERITY_FOR_REQUIRED_SPECS: ReasoningCheck["severity"] = "w
  *
  * 分两种情况，因为它们指向**不同的**修复方向，律师/工程看到的东西应当不同：
  *   - `factsTotal === 0`：一条事实都没落入争点。当前这**通常不是本次稿件的问题**，
- *     而是检索层的结构性缺口（见 FACT_GROUNDED_SEVERITY_FOR_REQUIRED_SPECS 的说明）——
+ *     常见原因是检索没有返回事实来源，或有来源但没有争点可挂——
  *     所以文案必须说清楚，不能让律师以为是自己材料没给。
  *   - `0 < factsTotal < minFacts`：确有事实但不够，属于本案材料不足，应由律师补料。
  */
@@ -83,8 +75,8 @@ export function factsGroundedHint(factsTotal: number, minFacts: number): string 
   if (factsTotal === 0) {
     return (
       "争点尚未落入任何案件事实材料（合同原文 / 工作文件 / 工作区文件），存在'空中楼阁'风险。" +
-      "注：当前检索层不产出被结论引用的案件事实来源，因此本项在多数任务上恒为 0——" +
-      "它反映的是结构性缺口，不代表本次稿件有质量问题。请以人工核对材料为准。"
+      "若检索没有返回这类来源，或本次没有争点可挂，计数会是 0。" +
+      "这不自动等于本次稿件有质量问题。请以人工核对材料为准。"
     );
   }
   return `争点事实数不足（当前 ${factsTotal}，需 ≥ ${minFacts}）：请补充案件事实材料或让结论引用已有材料。`;
@@ -291,7 +283,7 @@ export function validateReasoningAgainstSpec(
       key: "graph_present",
       label: "法律分析已生成",
       passed: false,
-      severity: required ? "blocker" : "warning",
+      severity: "warning",
       hint: "未发现 reasoning snapshot；请确认 engine 已为该任务构建 LegalReasoningGraph。",
     });
     const blockerCount = checks.filter((c) => !c.passed && c.severity === "blocker").length;
@@ -316,7 +308,7 @@ export function validateReasoningAgainstSpec(
     key: "min_issues",
     label: `至少包含 ${minIssues} 个争点（当前 ${issueCount}）`,
     passed: issueCount >= minIssues,
-    severity: required ? "blocker" : "warning",
+    severity: "warning",
     hint: issueCount >= minIssues ? undefined : `请补足争点拆解：当前 ${issueCount}/${minIssues}。`,
   });
 
@@ -337,7 +329,7 @@ export function validateReasoningAgainstSpec(
     key: "authority_conflicts_resolved",
     label: "权威冲突已全部解决",
     passed: !mustResolveAuthorityConflicts || unresolvedAuthorityConflicts.length === 0,
-    severity: mustResolveAuthorityConflicts ? "blocker" : "warning",
+    severity: "warning",
     hint:
       unresolvedAuthorityConflicts.length === 0
         ? undefined
@@ -357,16 +349,12 @@ export function validateReasoningAgainstSpec(
         : `${issuesWithoutAuthority.length} 个争点未引用权威，请补充 authorityIds。`,
   });
 
-  // 5. 整体置信度合理（必须门禁开启时不可低于 0.4）
-  const confidenceOk = !required || graph.overallConfidence >= 0.4;
+  // 5. 平均数只提示，不因偏低挡住渲染。
   checks.push({
     key: "confidence_ok",
-    label: `整体推理置信度（当前 ${graph.overallConfidence.toFixed(2)}）`,
-    passed: confidenceOk,
-    severity: required ? "warning" : "warning",
-    hint: confidenceOk
-      ? undefined
-      : "整体推理置信度过低（< 0.40），建议先解决 openQuestions 再渲染。",
+    label: `整体推理置信度（当前 ${graph.overallConfidence.toFixed(2)}，排序用）`,
+    passed: true,
+    severity: "warning",
   });
 
   // 6.（G3）论证**结构**五条 —— 只给结构保证，不给正确性判断。

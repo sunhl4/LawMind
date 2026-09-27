@@ -115,6 +115,47 @@ describe("approval-cache-key", () => {
     ).not.toBe(a);
   });
 
+  it("send_email approval binds recipient, subject, body, and attachments", () => {
+    expect(ARGS_BOUND_APPROVAL_TOOLS.has("send_email")).toBe(true);
+    const base = {
+      to: "Counsel <Opp@Firm.CN>",
+      subject: "催告",
+      body: "请于周五前回复。",
+      attachment_paths: ["artifacts/a.docx"],
+      matter_id: "m1",
+      __approved: true,
+    };
+    const a = hashToolApprovalArgs("send_email", base);
+    const b = hashToolApprovalArgs("send_email", {
+      ...base,
+      to: "opp@firm.cn",
+    });
+    expect(a).toBe(b);
+    expect(hashToolApprovalArgs("send_email", { ...base, matter_id: "other-matter" })).not.toBe(a);
+    expect(hashToolApprovalArgs("send_email", { ...base, body: "改过的正文" })).not.toBe(a);
+    expect(
+      resolvePreApprovalInjection({
+        toolName: "send_email",
+        modelArgs: base,
+        preApproveToolNames: ["send_email"],
+      }).inject,
+    ).toBe(false);
+    expect(
+      resolvePreApprovalInjection({
+        toolName: "send_email",
+        modelArgs: base,
+        preApproveToolNames: ["send_email"],
+        preApproveToolArgs: {
+          to: "opp@firm.cn",
+          subject: "催告",
+          body: "请于周五前回复。",
+          attachment_paths: ["artifacts/a.docx"],
+          matter_id: "m1",
+        },
+      }).inject,
+    ).toBe(true);
+  });
+
   it("template name-only does not approve prepare_outbound_mail", () => {
     expect(ARGS_BOUND_APPROVAL_TOOLS.has("prepare_outbound_mail")).toBe(true);
     expect(

@@ -24,7 +24,11 @@ import {
   MID_TURN_COMPACT_MAX,
   resolveContextTuning,
 } from "./context-tuning.js";
-import { pruneSessionToolResults } from "./session-tool-result-prune.js";
+import {
+  MID_TURN_PRUNE_KEEP_RECENT,
+  MID_TURN_PRUNE_MAX_TOKENS,
+  pruneSessionToolResults,
+} from "./session-tool-result-prune.js";
 import { elideMiddle } from "./text-elide.js";
 import type { AgentMessage, AgentSession } from "./types.js";
 
@@ -206,6 +210,7 @@ export function applyMidTurnCompact(
       ...(meta ? { meta } : {}),
     });
   };
+  const maxCompactions = opts.maxCompactions ?? tuning.midTurn.maxPerTurn;
   if (
     !shouldCompactMidTurn({
       roundIndex: opts.roundIndex,
@@ -215,18 +220,26 @@ export function applyMidTurnCompact(
       compactionsDone: opts.compactionsDone,
       triggerRatio: opts.triggerRatio,
       force: opts.force,
-      maxCompactions: opts.maxCompactions,
+      maxCompactions,
       measuredUsed: opts.measuredUsed,
     })
   ) {
-    return {
-      applied: false,
-      reason: opts.roundIndex <= 1 ? "round_start" : "below_trigger",
-    };
+    // 与 shouldCompactMidTurn 的短路顺序一致：先到次数帽，再是回合起点，最后才是没越线。
+    // 以前次数帽也被记成 below_trigger，用量面板和压力指标分不清「没必要压」和「这回合不能再压」。
+    const reason =
+      opts.compactionsDone >= maxCompactions
+        ? "cap"
+        : opts.roundIndex <= 1
+          ? "round_start"
+          : "below_trigger";
+    return { applied: false, reason };
   }
 
   // ── 1) 便宜的瘦身：缩写旧工具回包（无 LLM 调用，不丢消息）──
-  const pruned = pruneSessionToolResults(session);
+  const pruned = pruneSessionToolResults(session, {
+    maxTokens: MID_TURN_PRUNE_MAX_TOKENS,
+    keepRecent: MID_TURN_PRUNE_KEEP_RECENT,
+  });
   const prune = pruned.prunedCount > 0 ? pruned : undefined;
   if (opts.force !== true && prune) {
     const afterPrune = estimateTokenBudget(session, policy, budgetOpts);

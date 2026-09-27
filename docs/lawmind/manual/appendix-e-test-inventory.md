@@ -1,11 +1,11 @@
 # 附录 E 测试清单与分布
 
-本附录的**数量统计是机械生成的**（`rg --files -g '*.test.ts' ...`）；「关键测试说明」是人工挑选的。**数字是 2026-09-23 的快照，会随提交漂移**——每行都是同一时刻生成的，但两周后可能整体上浮几个。
+本附录的**数量统计是机械生成的**（`rg --files -g '*.test.ts' ...`）；「关键测试说明」是人工挑选的。**数字是 2026-09-25 的快照，会随提交漂移**。
 
 ## E.1 总量
 
 ```text
-测试文件总数：923
+测试文件总数：940
 ```
 
 这个数字远超「一个产品」的常规规模——它反映的是这个仓库对**门禁类、诚实类、边界类**逻辑的测试密度。
@@ -16,36 +16,36 @@
 rg --files -g '*.test.ts' -g '*.test.tsx' -g '*.spec.ts' -g '!**/node_modules/**' | wc -l
 ```
 
-**注意口径**：这条命令是「测试入口文件数」，不是「用例数」（一个文件里常有几十个 `it`）。E.2 的表按**目录递归**计数，所以父目录的数字包含子目录（`src/lawmind/agent/` 的 140 里含 `agent/tools/legal/` 那 29 个）。
+**注意口径**：这条命令是「测试入口文件数」，不是「用例数」（一个文件里常有几十个 `it`）。E.2 的表按**目录递归**计数，所以父目录的数字包含子目录（`src/lawmind/agent/` 的 141 里含 `agent/tools/legal/` 那 29 个）。「根目录零散文件」实际在 `src/lawmind/` 根，不在仓库根。
 
 ## E.2 按目录分布
 
 | 目录                                                                                                                                                  | 测试文件数                   |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `apps/lawmind-desktop/src/renderer/`                                                                                                                  | 187                          |
-| `src/lawmind/agent/`                                                                                                                                  | 140                          |
+| `apps/lawmind-desktop/src/renderer/`                                                                                                                  | 191                          |
+| `src/lawmind/agent/`                                                                                                                                  | 141                          |
 | `apps/lawmind-desktop/server/`                                                                                                                        | 70                           |
-| `src/lawmind/platform/`                                                                                                                               | 34                           |
+| `src/lawmind/platform/`                                                                                                                               | 35                           |
 | `apps/lawmind-desktop/e2e/`                                                                                                                           | 33                           |
-| `src/lawmind/drafts/`                                                                                                                                 | 30                           |
+| `src/lawmind/drafts/`                                                                                                                                 | 32                           |
 | `src/lawmind/retrieval/`                                                                                                                              | 27                           |
-| `apps/lawmind-desktop/electron/`                                                                                                                      | 20                           |
+| `apps/lawmind-desktop/electron/`                                                                                                                      | 22                           |
 | `src/lawmind/evaluation/`                                                                                                                             | 20                           |
 | `src/lawmind/memory/`                                                                                                                                 | 19                           |
 | `src/lawmind/desk/`                                                                                                                                   | 17                           |
 | `src/lawmind/reasoning/`                                                                                                                              | 16                           |
 | `src/lawmind/runtime/`                                                                                                                                | 16                           |
-| `src/lawmind/deliverables/`                                                                                                                           | 13                           |
+| `src/lawmind/deliverables/`                                                                                                                           | 14                           |
 | `src/lawmind/models/`                                                                                                                                 | 13                           |
 | `src/lawmind/learning/`                                                                                                                               | 12                           |
 | `src/lawmind/research/`                                                                                                                               | 12                           |
 | `src/lawmind/audit/`                                                                                                                                  | 11                           |
-| `src/lawmind/lint/`                                                                                                                                   | 11                           |
+| `src/lawmind/lint/`                                                                                                                                   | 12                           |
 | `src/lawmind/mail/`                                                                                                                                   | 11                           |
 | `src/lawmind/metrics/`                                                                                                                                | 12                           |
 | `src/lawmind/policy/`                                                                                                                                 | 11                           |
-| `src/lawmind/skills/`                                                                                                                                 | 11                           |
-| `src/lawmind/application/`                                                                                                                            | 10                           |
+| `src/lawmind/skills/`                                                                                                                                 | 12                           |
+| `src/lawmind/application/`                                                                                                                            | 11                           |
 | `src/lawmind/artifacts/`                                                                                                                              | 9                            |
 | `src/lawmind/guardian/`                                                                                                                               | 9                            |
 | `src/lawmind/cases/`                                                                                                                                  | 8                            |
@@ -54,7 +54,7 @@ rg --files -g '*.test.ts' -g '*.test.tsx' -g '*.spec.ts' -g '!**/node_modules/**
 | `src/lawmind/matter-replica/`                                                                                                                         | 8                            |
 | `src/lawmind/delivery/`                                                                                                                               | 7                            |
 | `src/lawmind/clause/`                                                                                                                                 | 6                            |
-| `src/lawmind/engine/`                                                                                                                                 | 6                            |
+| `src/lawmind/engine/`                                                                                                                                 | 7                            |
 | `src/lawmind/historical-scan/`                                                                                                                        | 6                            |
 | `src/lawmind/adapters/`                                                                                                                               | 5                            |
 | `src/lawmind/core/`                                                                                                                                   | 5                            |
@@ -72,46 +72,46 @@ rg --files -g '*.test.ts' -g '*.test.tsx' -g '*.spec.ts' -g '!**/node_modules/**
 | `src/lawmind/mcp/`                                                                                                                                    | 3                            |
 | `src/lawmind/work/`                                                                                                                                   | 3                            |
 | `src/lawmind/llm/`                                                                                                                                    | 2                            |
-| `src/lawmind/matter/`                                                                                                                                 | 2                            |
+| `src/lawmind/matter/`                                                                                                                                 | 3                            |
 | `src/lawmind/matter-cloud/`                                                                                                                           | 2                            |
 | `src/lawmind/routing/`                                                                                                                                | 2                            |
 | `src/lawmind/sources/`                                                                                                                                | 2                            |
 | `src/lawmind/templates/`                                                                                                                              | 2                            |
 | 其他单文件目录（`license/`、`onboarding/`、`ops/`、`stance/`、`triage/`、`text/`、`product/`、`compile/`、`contracts/`、`ingest/`、`matter-ops/` 等） | 各 1                         |
-| `scripts/`                                                                                                                                            | 1                            |
+| `scripts/`                                                                                                                                            | 2                            |
 | 根目录零散文件（`build-channel.test.ts`、`engine-actor.test.ts`、`index.test.ts`、`review-labels.test.ts`）                                           | 各 1                         |
 
 ## E.3 三个密度最高的地方说明什么
 
-### `renderer/`（187 个）
+### `renderer/`（191 个）
 
 渲染层测试最多，因为**组件多**（几百个组件文件）而且**文案与交互都要测**。比如 `MemoryInspector.batch.test.tsx` 测的是「预览不写入、确认后才落盘」这种交互契约。
 
-### `agent/`（140 个）
+### `agent/`（141 个）
 
-这是引擎最复杂的一块（172 个非测试实现文件）。测试集中在：工具行为、回合编排、压缩、会话、协作、委派。
+这是引擎最复杂的一块（174 个非测试实现文件）。测试集中在：工具行为、回合编排、压缩、会话、协作、委派。
 
 **其中最特别的是** `turn-orchestrator-cassettes.test.ts`（编排器准入，第 35 章详解）。
 
 ### `server/`（70 个）
 
-一个路由文件配一个测试文件，所以数量正好反映「有多少条路由线」（59 个 handler + 一些辅助模块）。
+`lawmind-server-route-*.ts` 非测试实现仍是 59 个，同名测试约 52 个。不是一路由文件必有一个同名测试。70 个测试里还含辅助模块。
 
 ## E.4 值得单独知道的测试
 
 ### 门禁与诚实类（守「产品不撒谎」）
 
-| 测试                                      | 守什么                   |
-| ----------------------------------------- | ------------------------ |
-| `metrics/north-star.test.ts`              | 没样本返回 null，不报 0% |
-| `metrics/firm-calibrator.test.ts`         | 冷启动必须诚实拒绝       |
-| `evaluation/true-manuscript-gate.test.ts` | 没夹具就 SKIP            |
-| `evaluation/human-baseline.test.ts`       | 同上                     |
-| `evaluation/benchmark.test.ts`            | mock 模式不再必然满分    |
-| `memory/adoption-apply.test.ts`           | 无落盘面记 recorded_noop |
-| `delivery/judgement-ratchet.test.ts`      | 三条不变量（防空转）     |
-| `metrics/unescalated-delivery.test.ts`    | 外生信号纪律             |
-| `desk/matter-pulse.test.ts`               | 快照口径                 |
+| 测试                                      | 守什么                                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `metrics/north-star.test.ts`              | 没样本返回 null，不报 0%                                                                         |
+| `metrics/firm-calibrator.test.ts`         | 冷启动必须诚实拒绝                                                                               |
+| `evaluation/true-manuscript-gate.test.ts` | 没夹具就 SKIP                                                                                    |
+| `evaluation/human-baseline.test.ts`       | 同上                                                                                             |
+| `evaluation/benchmark.test.ts`            | mock 模式不再必然满分                                                                            |
+| `memory/adoption-apply.test.ts`           | 无落盘面时 writer 记 `noopReason` / `written: []`。`recorded_noop` 在 `adoption-service.test.ts` |
+| `delivery/judgement-ratchet.test.ts`      | 三条不变量（防空转）                                                                             |
+| `metrics/unescalated-delivery.test.ts`    | 外生信号纪律                                                                                     |
+| `desk/matter-pulse.test.ts`               | 快照口径                                                                                         |
 
 ### 安全类
 
@@ -129,14 +129,14 @@ rg --files -g '*.test.ts' -g '*.test.tsx' -g '*.spec.ts' -g '!**/node_modules/**
 
 ### 改稿类（最核心的算法）
 
-| 测试                                              | 守什么                           |
-| ------------------------------------------------- | -------------------------------- |
-| `drafts/minimal-edit-script.test.ts`              | 最短改动算法 + 200 组随机对照    |
-| `drafts/apply-surgical-edits.test.ts`             | 落改与收窄                       |
-| `drafts/tracked-xml-qa.test.ts`                   | 成品复核（整句删增检测）         |
-| `drafts/cross-document-edits.test.ts`             | 整批预检                         |
-| `artifacts/render-docx-tracked.test.ts`           | 多处命中安全、只读副本、从右到左 |
-| `integrations/word-addin/review-requests.test.ts` | 插件锚点与折叠                   |
+| 测试                                              | 守什么                                                            |
+| ------------------------------------------------- | ----------------------------------------------------------------- |
+| `drafts/minimal-edit-script.test.ts`              | 最短改动算法 + 200 组随机对照                                     |
+| `drafts/apply-surgical-edits.test.ts`             | 落改与收窄                                                        |
+| `drafts/tracked-xml-qa.test.ts`                   | 成品复核（整句删增检测）                                          |
+| `drafts/cross-document-edits.test.ts`             | 整批预检                                                          |
+| `artifacts/render-docx-tracked.test.ts`           | 多处命中与回滚工作副本。原件只读和从右到左排序没有直接断言        |
+| `integrations/word-addin/review-requests.test.ts` | 最短锚点。同路径第二次创建测的是优先 ready，没有锁「折叠 queued」 |
 
 ### 编排类
 
@@ -182,11 +182,11 @@ rg --files -g '*.test.ts' -g '*.test.tsx' -g '*.spec.ts' -g '!**/node_modules/**
 
 三个文件，都只有测试无运行时代码：
 
-| 文件                            | 覆盖                                           |
-| ------------------------------- | ---------------------------------------------- |
-| `golden-journeys.test.ts`       | Q1 三条黄金旅程                                |
-| `phase-a-golden-engine.test.ts` | 引擎黄金路径                                   |
-| `quarterly-acceptance.test.ts`  | 季末验收回归（`pnpm lawmind:acceptance` 会调） |
+| 文件                            | 覆盖                                                                                                                    |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `golden-journeys.test.ts`       | Q1 三条黄金旅程                                                                                                         |
+| `phase-a-golden-engine.test.ts` | 引擎黄金路径                                                                                                            |
+| `quarterly-acceptance.test.ts`  | 季末验收回归。`pnpm lawmind:acceptance` 的第一步会跑整个 `src/lawmind`，从而跑到它；另有独立的 `lawmind:quarterly-demo` |
 
 **为什么放在 `integration/`**：它们跨了多个模块，不属于任何单模块的职责。
 
@@ -200,9 +200,9 @@ rg --files -g '*.test.ts' -g '*.test.tsx' -g '*.spec.ts' -g '!**/node_modules/**
 
 ## E.8 已知坑（本附录相关）
 
-- **923 是 2026-09-23 的快照，会变。** 用 E.1 的命令核对当前值。
+- **940 是 2026-09-25 的快照，会变。** 用 E.1 的命令核对当前值。
 - **`renderer/` 测试多不等于渲染层最重要**，只是组件多。
 - **`integration/` 只有测试。** 别以为那里有运行时代码。
-- **`scripts/` 只有 1 个测试**（benchmark 那个）——CLI 脚本的测试覆盖相对薄。
+- **`scripts/` 有 2 个测试**（`lawmind-benchmark.test.ts` 与 `check-coverage-ratchet.test.ts`）——CLI 脚本的测试覆盖仍然薄。
 - **顺序被锁住的测试红了，先想是不是动了约束**，别直接改测试。
 - **真机 E2E 有两套互斥配置**，混跑会失败。

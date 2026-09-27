@@ -53,14 +53,34 @@ describe("runLegalLint", () => {
     expect(report.findings.some((f) => f.ruleId === "consistency.party_pair")).toBe(true);
   });
 
-  it("asks for manual LPR check only when a rate number and LPR both appear", () => {
+  it("asks for a contract date when a rate and LPR both appear but no formation date", () => {
     const withBoth = runLegalLint("借款年利率 24%，且不超过合同成立时一年期 LPR 四倍。");
     expect(withBoth.findings.some((f) => f.ruleId === "statutory.lpr_multiple")).toBe(true);
     expect(withBoth.findings.find((f) => f.ruleId === "statutory.lpr_multiple")?.message).toContain(
-      "需人工核 LPR",
+      "没有写在",
     );
     const rateOnly = runLegalLint("借款年利率 24%，按月付息。");
     expect(rateOnly.findings.some((f) => f.ruleId === "statutory.lpr_multiple")).toBe(false);
+  });
+
+  it("warns when the stated rate exceeds four times the one-year LPR on that date", () => {
+    const over = runLegalLint(
+      "借款合同签订于2024年10月21日。年利率15%，且约定以贷款市场报价利率为参照。",
+    );
+    const hit = over.findings.find((f) => f.ruleId === "statutory.lpr_multiple");
+    expect(hit?.severity).toBe("warning");
+    expect(hit?.message).toContain("12.4%");
+    const within = runLegalLint(
+      "借款合同签订于2024年10月21日。年利率12%，且不超过一年期贷款市场报价利率四倍。",
+    );
+    expect(within.findings.some((f) => f.ruleId === "statutory.lpr_multiple")).toBe(false);
+  });
+
+  it("does not invent an LPR cap after the ingested series expires", () => {
+    const later = runLegalLint("借款合同签订于2027年1月20日。年利率15%，参照 LPR。");
+    const hit = later.findings.find((f) => f.ruleId === "statutory.lpr_multiple");
+    expect(hit?.severity).toBe("info");
+    expect(hit?.message).toContain("不得外推");
   });
 
   it("flags a defined term that is never used again", () => {

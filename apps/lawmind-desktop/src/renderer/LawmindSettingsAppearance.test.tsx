@@ -45,28 +45,81 @@ describe("LawmindSettingsAppearance", () => {
     vi.unstubAllGlobals();
   });
 
+  it("offers three distinct font sizes and keeps 标准 as the default", async () => {
+    await act(async () => {
+      root.render(<LawmindSettingsAppearance onPrefsChange={vi.fn()} />);
+    });
+    const group = host.querySelector('[aria-label="界面字号"]') as HTMLElement;
+    const labels = [...group.querySelectorAll('[role="radio"]')].map((node) => node.textContent);
+    expect(labels).toEqual(["小一点", "标准", "大一点"]);
+    expect(host.querySelector("#lm-font-scale-hint")?.textContent).toContain("对话、在办、文书");
+    expect(group.getAttribute("aria-describedby")).toBe("lm-font-scale-hint");
+    expect(group.querySelector('[aria-checked="true"]')?.textContent).toBe("标准");
+    expect(document.documentElement.dataset.lmFontScale).toBeUndefined();
+
+    const small = group.querySelector('[role="radio"][aria-checked="false"]') as HTMLButtonElement;
+    await act(async () => {
+      small.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.documentElement.dataset.lmFontScale).toBe("small");
+
+    const large = [...group.querySelectorAll('[role="radio"]')].find((node) => node.textContent === "大一点") as HTMLButtonElement;
+    await act(async () => {
+      large.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.documentElement.dataset.lmFontScale).toBe("large");
+  });
+
   it("applies compact density class when selected", async () => {
     await act(async () => {
       root.render(<LawmindSettingsAppearance onPrefsChange={vi.fn()} />);
     });
-    const select = host.querySelector('select[aria-label="界面密度"]') as HTMLSelectElement;
-    expect(select).not.toBeNull();
+    const compact = host.querySelector('[aria-label="界面密度"] [role="radio"][aria-checked="false"]');
+    expect(compact?.textContent).toBe("紧凑");
     await act(async () => {
-      select.value = "compact";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+      compact?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(document.documentElement.classList.contains("lm-density-compact")).toBe(true);
   });
 
-  it("hosts 签批后自动导出 on appearance page", async () => {
+  it("keeps lawyer review prefs and hides engineer controls", async () => {
     await act(async () => {
       root.render(<LawmindSettingsAppearance onPrefsChange={vi.fn()} />);
     });
     expect(host.querySelector('[data-testid="lm-require-signoff-review"]')).toBeTruthy();
-    expect(host.textContent).toContain("审核签批审阅");
+    expect(host.textContent).toContain("待审稿进待拍板");
     expect(host.querySelector('[data-testid="lm-auto-export-on-approve"]')).toBeTruthy();
-    expect(host.textContent).toContain("签批后自动导出 Word");
-    expect(host.querySelector('[data-testid="lm-show-tool-trace"]')).toBeTruthy();
-    expect(host.textContent).toContain("展开工具轨迹");
+    expect(host.textContent).toContain("通过后生成 Word");
+    expect(host.querySelector('[data-testid="lm-ui-theme"]')).toBeTruthy();
+    expect(host.textContent).not.toContain("展开工具轨迹");
+    expect(host.textContent).not.toContain("减弱动效");
+    expect(host.textContent).not.toContain("特权");
+    expect(host.querySelector("[data-testid=lm-doctor-word-addin]")).toBeNull();
+    const signoff = host.querySelector('[data-testid="lm-require-signoff-review"]');
+    expect(signoff?.closest("label")?.textContent).toContain("待审稿进待拍板");
+    const hintId = signoff?.getAttribute("aria-describedby");
+    expect(hintId).toBeTruthy();
+    expect(host.querySelector(`#${hintId}`)?.textContent).toContain("通过或驳回");
+    expect(host.querySelector("[aria-describedby=lm-appearance-layout-hint]")).toBeTruthy();
+  });
+
+  it("applies the dark theme and moves density with the arrow key", async () => {
+    await act(async () => {
+      root.render(<LawmindSettingsAppearance onPrefsChange={vi.fn()} />);
+    });
+    const dark = host.querySelector('[aria-label="配色主题"] [role="radio"][aria-checked="false"]');
+    expect(dark?.textContent).toBe("深色");
+    await act(async () => {
+      dark?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.documentElement.classList.contains("lm-theme-dark")).toBe(true);
+
+    const group = host.querySelector('[aria-label="界面密度"]') as HTMLElement;
+    const current = group.querySelector('[aria-checked="true"]') as HTMLButtonElement;
+    current.focus();
+    await act(async () => {
+      group.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    expect(document.documentElement.classList.contains("lm-density-compact")).toBe(true);
   });
 });

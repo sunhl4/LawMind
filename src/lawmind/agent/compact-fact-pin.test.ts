@@ -9,6 +9,25 @@ function pinsTuning(pins: unknown) {
     .pins;
 }
 
+describe("extractFactPinItems — 日历截止日", () => {
+  it("没有「期限」二字的起诉截止日仍整句钉住", () => {
+    const items = extractFactPinItems("须于2026年9月30日前提起仲裁。价款分两次支付。");
+    expect(items.map((item) => item.kind)).toContain("deadline");
+    expect(items.some((item) => item.text.includes("2026年9月30日前"))).toBe(true);
+  });
+
+  it("指导案例整句可钉", () => {
+    const items = extractFactPinItems("赔偿口径参照指导案例24号。");
+    expect(items.map((item) => item.kind)).toContain("citation");
+    expect(items.some((item) => item.text.includes("指导案例24号"))).toBe(true);
+  });
+
+  it("签订日期不是期限", () => {
+    const items = extractFactPinItems("本合同签订于2024年1月1日。");
+    expect(items.filter((item) => item.kind === "deadline")).toHaveLength(0);
+  });
+});
+
 describe("compact-fact-pin — 调参（policy context.pins.*）真的生效", () => {
   it("factMaxItems / factTotalCharCap 由 policy 决定", () => {
     const text = [
@@ -29,13 +48,12 @@ describe("compact-fact-pin — 调参（policy context.pins.*）真的生效", (
     expect(mergeFactPinItems([], items).length).toBeGreaterThan(1);
   });
 
-  it("factItemCharCap 截断单条（整句仍可读，不是抽词）", () => {
+  it("超过 factItemCharCap 的句子整句不钉", () => {
     const sentence = `${"冗长的背景描述，".repeat(20)}该期限为 30 日。`;
     const tight = pinsTuning({ factItemCharCap: 30 });
-    const items = extractFactPinItems(sentence, tight);
-    for (const item of items) {
-      expect(item.text.length).toBeLessThanOrEqual(30);
-    }
+    expect(extractFactPinItems(sentence, tight)).toEqual([]);
+    const whole = "仲裁时效为一年。";
+    expect(extractFactPinItems(whole, tight).map((item) => item.text)).toEqual([whole]);
   });
 
   it("factEnabled=false 时不再累积，但已有台账保留", () => {

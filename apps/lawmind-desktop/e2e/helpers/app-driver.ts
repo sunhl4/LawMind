@@ -262,7 +262,7 @@ export async function ensureSignoffAdvancedOpen(page: Page): Promise<void> {
  */
 export async function approveDraftInWorkbench(page: Page): Promise<void> {
   await ensureSignoffAdvancedOpen(page);
-  const approve = page.getByRole("button", { name: "通过" }).first();
+  const approve = page.getByRole("button", { name: "签批", exact: true }).first();
   await expect(approve).toBeVisible({ timeout: 15_000 });
   await approve.click();
   await expect(page.getByText(/已通过签批|已由.*批准/)).toBeVisible({ timeout: 30_000 });

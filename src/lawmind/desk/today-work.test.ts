@@ -76,4 +76,31 @@ describe("buildTodayWorkSnapshot", () => {
     const released = buildTodayWorkSnapshot(workspaceDir);
     expect(released.items.some((i) => i.title.includes("上诉期限"))).toBe(true);
   });
+
+  it("keeps hearings and deadlines inside seven days and drops later ones", () => {
+    createMatterIfMissing(workspaceDir, { matterId: "m-horizon", title: "期限案" });
+    const now = new Date(2026, 8, 26, 9, 0, 0);
+    recordDeadline(workspaceDir, {
+      matterId: "m-horizon",
+      title: "五日后开庭",
+      dueAt: new Date(2026, 9, 1, 9, 0, 0).toISOString(),
+      eventKind: "hearing",
+    });
+    recordDeadline(workspaceDir, {
+      matterId: "m-horizon",
+      title: "六日后举证",
+      dueAt: new Date(2026, 9, 2, 9, 0, 0).toISOString(),
+      eventKind: "limitation",
+    });
+    recordDeadline(workspaceDir, {
+      matterId: "m-horizon",
+      title: "十日后期日",
+      dueAt: new Date(2026, 9, 6, 9, 0, 0).toISOString(),
+      eventKind: "hearing",
+    });
+    const snap = buildTodayWorkSnapshot(workspaceDir, now);
+    expect(snap.items.some((i) => i.title.includes("五日后开庭"))).toBe(true);
+    expect(snap.items.some((i) => i.title.includes("六日后举证"))).toBe(true);
+    expect(snap.items.some((i) => i.title.includes("十日后期日"))).toBe(false);
+  });
 });

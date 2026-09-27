@@ -50,6 +50,66 @@ describe("readMatterParties", () => {
     });
   });
 
+  it("reads party names when the case file has no client id", () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-fence-names-"));
+    tmp.push(workspaceDir);
+    fs.mkdirSync(path.join(workspaceDir, "cases", "m-names"), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceDir, "cases", "m-names", "CASE.md"),
+      [
+        "## 1. 基本信息",
+        "",
+        "- 诉讼地位: 乙方",
+        "",
+        "## 2. 当事人",
+        "",
+        "- 甲方: 客户甲",
+        "- 乙方: 客户乙",
+        "",
+      ].join("\n"),
+    );
+    expect(readMatterParties(workspaceDir, "m-names")).toEqual({
+      clientId: "客户乙",
+      counterparty: "客户甲",
+    });
+    expect(
+      partiesConflict(readMatterParties(workspaceDir, "m-names"), {
+        clientId: "客户甲",
+        counterparty: "客户乙",
+      }),
+    ).toBe(true);
+    fs.writeFileSync(
+      path.join(workspaceDir, "cases", "m-names", "CASE.md"),
+      [
+        "## 1. 基本信息",
+        "",
+        "- 诉讼地位: 甲乙双方",
+        "",
+        "## 2. 当事人",
+        "",
+        "- 甲方: 客户甲",
+        "- 乙方: 客户乙",
+        "",
+      ].join("\n"),
+    );
+    expect(readMatterParties(workspaceDir, "m-names")).toEqual({});
+    fs.writeFileSync(
+      path.join(workspaceDir, "cases", "m-names", "CASE.md"),
+      [
+        "## 1. 基本信息",
+        "",
+        "- 诉讼地位: 甲方或乙方",
+        "",
+        "## 2. 当事人",
+        "",
+        "- 甲方: 客户甲",
+        "- 乙方: 客户乙",
+        "",
+      ].join("\n"),
+    );
+    expect(readMatterParties(workspaceDir, "m-names")).toEqual({});
+  });
+
   it("flags opposing identity as a wall conflict", () => {
     expect(
       partiesConflict(

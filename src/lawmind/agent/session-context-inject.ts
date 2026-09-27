@@ -14,6 +14,7 @@ import {
   type ComposeContextPin,
 } from "../platform/compose-context-pin.js";
 import { resolvePinnedContextSummary } from "../runtime/pinned-context.js";
+import { claimSidecarBatch } from "./session-sidecar-claim.js";
 import type { AgentSession } from "./types.js";
 
 const MAX_PENDING_PINS = 16;
@@ -55,23 +56,27 @@ export function queuePendingContextPins(
   workspaceDir: string,
   sessionId: string,
   pins: ComposeContextPin[],
-): { queued: number; pendingCount: number } {
+): { queued: number; pendingCount: number; dropped: number } {
   if (pins.length === 0) {
     return {
       queued: 0,
       pendingCount: readPendingFile(pendingContextPinsPath(workspaceDir, sessionId)).length,
+      dropped: 0,
     };
   }
   const filePath = pendingContextPinsPath(workspaceDir, sessionId);
   return withExclusiveFileLock(`${filePath}.lock`, () => {
     const existing = readPendingFile(filePath);
-    const next = dedupePins([...existing, ...pins]).slice(0, MAX_PENDING_PINS);
+    const merged = dedupePins([...existing, ...pins]);
+    // Latest pin wins. Dropping the head used to discard the file the lawyer just added.
+    const next = merged.slice(-MAX_PENDING_PINS);
+    const dropped = merged.length - next.length;
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     writeJsonAtomic(filePath, {
       pins: next,
       updatedAt: new Date().toISOString(),
     } satisfies PendingPinsFile);
-    return { queued: pins.length, pendingCount: next.length };
+    return { queued: pins.length, pendingCount: next.length, dropped };
   });
 }
 
@@ -85,18 +90,12 @@ export function appendContextPins(
 export function claimPendingContextPins(
   workspaceDir: string,
   sessionId: string,
+  opts?: { alreadyApplied?: (pins: ComposeContextPin[]) => boolean },
 ): ComposeContextPin[] {
-  const filePath = pendingContextPinsPath(workspaceDir, sessionId);
-  return withExclusiveFileLock(`${filePath}.lock`, () => {
-    const pins = readPendingFile(filePath);
-    try {
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-    } catch {
-      /* best-effort */
-    }
-    return pins;
+  return claimSidecarBatch({
+    filePath: pendingContextPinsPath(workspaceDir, sessionId),
+    read: readPendingFile,
+    alreadyApplied: opts?.alreadyApplied ?? (() => true),
   });
 }
 
@@ -134,11 +133,22 @@ export function applyClaimedPinsToHistory(
   return true;
 }
 
+function historyHasPins(
+  session: AgentSession,
+  workspaceDir: string,
+  pins: ComposeContextPin[],
+): boolean {
+  const expected = formatInjectedPinsUserMessage(workspaceDir, pins);
+  return session.conversationHistory.some((m) => m.role === "user" && m.content === expected);
+}
+
 export function claimAndApplyPendingContextPins(
   session: AgentSession,
   workspaceDir: string,
 ): ComposeContextPin[] {
-  const pins = claimPendingContextPins(workspaceDir, session.sessionId);
+  const pins = claimPendingContextPins(workspaceDir, session.sessionId, {
+    alreadyApplied: (held) => historyHasPins(session, workspaceDir, held),
+  });
   applyClaimedPinsToHistory(session, workspaceDir, pins);
   return pins;
 }

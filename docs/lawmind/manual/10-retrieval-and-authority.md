@@ -14,13 +14,14 @@
 - 模型无法确认的事项放入 missingItems
 ```
 
-「无来源不得放入 claims」这半句是硬的。合并阶段如果发现某条结论引用了不存在的来源 id，会**把这条结论降级**，从结论列表里拿掉，改成一条风险标记：
+「无来源不得放入 claims」这半句是硬的。合并阶段有两道降级，都会把结论从列表里拿掉，改成风险标记：
 
 ```text
 结论引用缺失来源，已降级处理：…
+结论所写条号未出现在引用来源，已降级：…
 ```
 
-宁可少给一条结论，也不给一条没有出处的结论。
+第一道对的是来源 id。第二道对的是正文里写出的「第 N 条」：先把中文数字和阿拉伯数字收成同一个条号，再和所引来源的标题、引用、摘录、案号或 URL 比对。因此「第五百七十七条」和「第577条」算同一条，「第五条」不会因为包含关系误配「第五十条」。没写条号的转述保留。
 
 ## 10.2 数据契约
 
@@ -72,9 +73,9 @@ type RetrievalAdapter = {
 
 1. 先按 `supports(intent)` 过滤。**一个都不剩就直接报「没有可用的检索适配器，请手动补充资料。」**
 2. 用 `Promise.allSettled` **并行**跑，全部等完。
-3. 成功的拼在一起；失败的转成风险标记 `检索适配器异常：<原因>`——某个源挂了不影响其他源。
-4. 按 `id` 去重来源（先到先得）。
-5. 检查结论的来源引用，引用不存在的降级（见 10.1）。
+3. 成功的拼在一起；失败的转成风险标记 `检索适配器异常：<原因>`。单个适配器超过 20 秒记为超时，不拖住其余来源。
+4. 按 `id` 去重。同一 id 保留非演示、引用更完整的那条，直播覆盖 sample。
+5. 检查结论的来源 id，以及正文条号是否落在所引来源上；对不上就降级（见 10.1）。
 6. 算 `requiresReview`：高风险任务、有 missing、或者有 riskFlags，都为真。
 
 工作区适配器（`createWorkspaceAdapter`）永远返回支持，它读案件档案（`cases/<matterId>/CASE.md`，标为 `memo`）和客户档案（`CLIENT_PROFILE.md`，标为 `workspace`）。
@@ -92,11 +93,9 @@ type RetrievalAdapter = {
 
 别名挺多，认起来方便：`pku` 和「法宝」都指向 `pkulaw`；`npc`、`flk`、`opensource`、`open-law` 都指向 `open`。
 
-**未知取值一律回落到 `open`**，注释解释了为什么：
+**未知取值一律回落到 `open`**，同时写入风险标记「法源提供方「…」无法识别，已退回开源语料，未连接商业库。」空值仍是默认 open，不算配错。注释解释了为什么退回而不是连商业库：
 
 > Unknown → open (fail-closed local corpus) rather than commercial
-
-也就是说，环境变量写错了不会悄悄连到某家商业服务上，而是退到本地语料。
 
 `supports` 的判定是：任务种类是 `research.legal` 或 `research.hybrid`，或者指令里出现「法条」「法规」「民法典」「司法解释」「判例」「权威」这些词。
 
@@ -116,7 +115,7 @@ type RetrievalAdapter = {
 
 模式用 `LAWMIND_OPEN_LAW_MODE` 指定：`local`（只有本地语料）、`npc_flk`、`caseopen`、`courtlistener`、`eurlex`、`egov_jp`、`hybrid`。不指定时的默认逻辑是：**任何一个直播车道开着就是 `hybrid`，否则 `local`**。
 
-hybrid 的尝试顺序固定：NPC → caseopen → CourtListener → EUR-Lex → e-Gov JP，最后是本地 sample 兜底。
+hybrid 把已启用的直播车道**并列**查询。优先级仍是 NPC → caseopen → CourtListener → EUR-Lex → e-Gov JP，用来决定主来源标签；有命中的车道合并进同一包（最多 24 条），不再第一家有结果就停。本地 sample 只在全部直播都空时兜底，避免演示语料盖住官方法条。
 
 ### NPC 的三条实做细节
 
@@ -179,9 +178,9 @@ DEMO_CORPUS_RISK_FLAG = "演示语料（非正式完整法库；正式引用请�
 
 CLI 入口：`pnpm lawmind:open-law:convert`，参数 `--in/--out/--format/--limit/--demo`。
 
-### Doctor 的状态口径
+### 法源状态的口径
 
-`/api/health` 和 Doctor 页面会显示法源状态，四个值：
+`GET /api/health` 会带上法源状态（`doctor.authorityCorpus`；原 Doctor 页已撤），四个值：
 
 | 状态            | 含义                                      |
 | --------------- | ----------------------------------------- |
@@ -225,7 +224,7 @@ BYOK 模式（自带密钥），三种协议（`LAWMIND_PKULAW_MODE`，默认 `r
 
 ### 第一道：URL 黑名单（`authority-url-guard.ts`）
 
-拒绝的**主机名**：`localhost`、`metadata`、`metadata.google.internal`、`metadata.goog`、`metadata.aws.internal`，以及所有 `.localhost` / `.local` 结尾的。
+拒绝的**主机名**：`localhost`、`metadata`、`metadata.google.internal`、`metadata.goog`、`metadata.aws.internal`，以及所有 `.localhost` / `.local` 结尾的。缩写 IP（`127.1`、`127.0.1`）、前导零或超长八位组（`0177.0.0.1`）、纯十进制长数字和 `0x` 混淆写法一并拒绝。
 
 拒绝的**IP 段**：
 
@@ -352,7 +351,7 @@ LawMind 的索引是 SQLite 的 **FTS5 全文检索**，位置 `<工作区>/lawm
 
 ### 个人知识检索的权重
 
-`searchPersonalKnowledge` 是「混合轻量检索」，打分方式是 `bm25 × 0.55 + 词面重叠 × 2.2`，再加一点类型加成：
+`searchPersonalKnowledge` 是「混合轻量检索」，打分方式是 `bm25 × 0.55 + 词面重叠 × 2.2`，再加一点类型加成。摘录对齐命中词，而不是永远截正文开头：
 
 | 类型     | 加成     |
 | -------- | -------- |
@@ -380,7 +379,7 @@ LawMind 的索引是 SQLite 的 **FTS5 全文检索**，位置 `<工作区>/lawm
 
 ### 索引新鲜度
 
-`SEARCH_INDEX_STALE_AFTER_MS = 24 * 60 * 60 * 1000`，也就是超过 24 小时算陈旧。三个陈旧原因：索引不存在、上次重建时间未知、超过 24 小时。
+陈旧不再看 24 小时。三个原因：索引不存在、上次同步时间未知、源文件的修改时间或大小和索引戳不一致（`sources_changed`）。检索时会只补改过的文件。
 
 重建入口是 `POST /api/search/workspace/rebuild`，但它**有开关**：需要 `LAWMIND_ALLOW_INDEX_REBUILD=1`，否则返回 403 `index_rebuild_disabled`。默认关的理由和服务端一致：重建索引是重活，不该随手触发。
 
@@ -423,7 +422,7 @@ LawMind 的索引是 SQLite 的 **FTS5 全文检索**，位置 `<工作区>/lawm
 4. 合并 URL 档案。
 5. 如果开了联网且还没有 URL 来源，再补一轮 URL 抓取（最多 8 条）。
 6. 按主题相关性过滤掉跑题的命中。
-7. 出大纲。
+7. 出大纲，并在同一轮用于写正文（律师写了「先出大纲」才停在大纲）。
 
 问题树有五个视角（`ResearchPerspective`）：监管方、执法、商业、比较法、实务。
 
@@ -440,7 +439,7 @@ LawMind 的索引是 SQLite 的 **FTS5 全文检索**，位置 `<工作区>/lawm
 | 管辖 / 仲裁条款 / 或裁或诉         | 一组           |
 | 诉讼时效 / 时效抗辩                | 一组           |
 
-没有命中预置类型时，用默认的「名称+可能条号 结构事实 现行有效」。
+没有命中预置类型时，查询词从交办原文抽出（整词加二字组），不再套「名称+可能条号」这种不能拿去检索的占位句。预置类型只补正反命题，不替换律师已经写明的争点。
 
 生成的矩阵写进备忘正文，注释里也带着那句话：「无工具则保留栏目并标【待核实】，不编条号。」
 
@@ -463,13 +462,13 @@ LawMind 的索引是 SQLite 的 **FTS5 全文检索**，位置 `<工作区>/lawm
 
 每份档案的许可说明是固定的：「Public web fetch for lawyer research; verify official status before relying.」——提醒你自己核对官方状态。
 
-### 大纲与人工确认
+### 大纲
 
-研究类任务有个「先出大纲、你确认、再写」的两段式。
+合规卷宗、学习简报、培训课件会先排章节，再在同一轮写成正文。律师写出「先出大纲」「确认后再写」或「只要大纲」时才停下来等确认。
 
-- `buildResearchOutline` 按交付物类型给出不同章节：合规备忘是「问题陈述/管辖区/发现/行动/来源」，学习简报是「背景/制度/比较」，培训课件是「封面/为什么/规则/案例/清单」。
-- `outline-hitl.ts` 处理你的答复：批准、驳回、还是修改。需要 `【补充信息】` 标记才能解析。
-- 批准后 `expandApprovedOutlineToSections` 把大纲展开成章节正文，每节最多匹配 2 条结论，剩下的归到「未归类检索要点」。
+- `buildResearchOutline` 按交付物类型给出不同章节：合规备忘是「问题陈述/管辖区/发现/行动/来源」，学习简报是「背景/制度/比较」，培训课件是「封面/为什么/规则/案例/清单」。默认 `status: "approved"`。
+- `lawyerWantsOutlineHold` 识别要停的说法。`outline-hitl.ts` 在停住之后解析批准、驳回或修改，需要 `【补充信息】`。
+- 展开时 `expandApprovedOutlineToSections` 把大纲变成章节正文，每节最多匹配 2 条结论，剩下的归到「未归类检索要点」。模型可用时，`buildDraftWithModel` 在此基础上扩写，不再因为这三类交付物拒绝调用模型。
 
 大纲存在 `drafts/<taskId>.outline.json`。
 
@@ -485,7 +484,7 @@ LawMind 的索引是 SQLite 的 **FTS5 全文检索**，位置 `<工作区>/lawm
 **旁路门**（`research-write-bypass-gate.ts`）拦的是「绕过流程直接写文件」：
 
 ```text
-请使用 draft_document（经大纲确认与证据门禁），勿用 write_document 旁路交付。
+请使用 draft_document（经证据门禁），勿用 write_document 旁路交付。
 ```
 
 它盯的扩展名是 `.md`、`.markdown`、`.txt`、`.docx`、`.pptx`、`.html`、`.htm`。也就是说，研究类任务想交付这些格式，必须走 `draft_document`，不能拿 `write_document` 绕过门禁。
@@ -621,9 +620,9 @@ LawMind 的索引是 SQLite 的 **FTS5 全文检索**，位置 `<工作区>/lawm
 
 - **「演示语料」必须标出来。** 未标注的外部 CORPUS 一律按演示处理，这是故意的保守默认。想去掉标记得显式写 `demo: false`。
 - **`provider` 字段不是「已接法宝」的证明。** `open-law.local` 只说明来源，说明不了权威性。
-- **未知的 `LAWMIND_AUTHORITY_PROVIDER` 值会退到 `open`**，不是报错。配错了不会连到商业服务，但也不会有提示。
+- **未知的 `LAWMIND_AUTHORITY_PROVIDER` 值会退到 `open`**，并在检索结果里写明无法识别、未连接商业库。空值仍是默认 open。
 - **类案库探测只看本机。** 挂了公网端点不会被探测到，注释写明「不主动捅公网」。
-- **没类案库就不许编案号。** 遇到「为什么查不到案例」，先看 Doctor 里的类案状态。
+- **没类案库就不许编案号。** 遇到「为什么查不到案例」，先看类案状态（`GET /api/health` 的 `doctor.scorecardRows` 里有「类案」行）。
 - **先例库默认关**（伦理墙）。要开是 `LAWMIND_ALLOW_CROSS_MATTER_SEARCH=1` 且要重建索引。没开时工具返回 `ok: true` 加说明，不是错误。
 - **索引默认不自动重建，重建还有独立开关。** 搜不到东西时先确认索引时间。
 - **embedding 是桩，不是语义模型。** 打开 `LAWMIND_EMBEDDING_ENABLED=1` 也不要期待语义检索效果。

@@ -6,6 +6,10 @@ describe("citation-mode", () => {
     expect(resolveCitationMode({}, "solo", "")).toBe("assisted");
   });
 
+  it("defaults firm to grounded", () => {
+    expect(resolveCitationMode({}, "firm", "")).toBe("grounded");
+  });
+
   it("defaults private_deploy to grounded", () => {
     expect(resolveCitationMode({}, "private_deploy", "")).toBe("grounded");
   });

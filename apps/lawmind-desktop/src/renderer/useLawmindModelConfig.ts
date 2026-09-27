@@ -6,9 +6,8 @@ import {
   testModelConnection,
   type ModelCatalogEntry,
   type PlatformProviderKeyStatus,
-  type ProviderKeyStatus,
 } from "./lawmind-models-api";
-import { resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
+import { modelsOfferedInChatPicker, resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
 import { readSelectedModelId, writeSelectedModelId } from "./lawmind-selected-model-pref";
 
 export type UseLawmindModelConfigArgs = {
@@ -19,7 +18,6 @@ export type UseLawmindModelConfigArgs = {
 export function useLawmindModelConfig(args: UseLawmindModelConfigArgs) {
   const { apiBase, selectedAssistantId } = args;
   const [modelCatalog, setModelCatalog] = useState<ModelCatalogEntry[]>([]);
-  const [modelProviders, setModelProviders] = useState<ProviderKeyStatus[]>([]);
   const [platformProviders, setPlatformProviders] = useState<PlatformProviderKeyStatus[]>([]);
   const [platformMode, setPlatformMode] = useState<"proxy" | "platform_key" | "none">("none");
   const [selectedModelId, setSelectedModelId] = useState("builtin:deepseek-flash");
@@ -32,20 +30,22 @@ export function useLawmindModelConfig(args: UseLawmindModelConfigArgs) {
       const payload = await fetchModelsCatalog(base);
       const models = payload.models ?? [];
       setModelCatalog(models);
-      setModelProviders(payload.providers ?? []);
       setPlatformProviders(payload.platformProviders ?? []);
       setPlatformMode(payload.platformMode ?? "none");
-      const isUsable = (id: string) => models.some((m) => m.id === id && m.configured);
+      const offered = modelsOfferedInChatPicker(models);
+      const isUsable = (id: string) => offered.some((m) => m.id === id);
       const stored = readSelectedModelId(selectedAssistantId);
       const next =
         (payload.defaultModelId && isUsable(payload.defaultModelId)
           ? payload.defaultModelId
           : null) ??
         (stored && isUsable(stored) ? stored : null) ??
-        models.find((m) => m.configured)?.id ??
-        "builtin:deepseek-flash";
-      setSelectedModelId(next);
-      writeSelectedModelId(next, selectedAssistantId);
+        offered[0]?.id ??
+        "";
+      if (next) {
+        setSelectedModelId(next);
+        writeSelectedModelId(next, selectedAssistantId);
+      }
     } catch {
       /* keep previous catalog */
     }
@@ -72,10 +72,18 @@ export function useLawmindModelConfig(args: UseLawmindModelConfigArgs) {
     if (!modelCatalog.length) {
       return;
     }
+    const offered = modelsOfferedInChatPicker(modelCatalog);
+    if (!offered.length) {
+      return;
+    }
     const stored = readSelectedModelId(selectedAssistantId);
-    const isUsable = (id: string) => modelCatalog.some((m) => m.id === id && m.configured);
-    if (stored && isUsable(stored) && stored !== selectedModelId) {
-      setSelectedModelId(stored);
+    const pick = stored && offered.some((m) => m.id === stored)
+      ? stored
+      : offered.some((m) => m.id === selectedModelId)
+        ? selectedModelId
+        : offered[0].id;
+    if (pick !== selectedModelId) {
+      setSelectedModelId(pick);
     }
   }, [selectedAssistantId, modelCatalog, selectedModelId]);
 
@@ -149,7 +157,6 @@ export function useLawmindModelConfig(args: UseLawmindModelConfigArgs) {
 
   return {
     modelCatalog,
-    modelProviders,
     platformProviders,
     platformMode,
     selectedModelId,

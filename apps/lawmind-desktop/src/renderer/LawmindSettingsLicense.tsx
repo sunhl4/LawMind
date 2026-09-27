@@ -14,9 +14,11 @@ type Props = {
   apiBase?: string;
   license?: LawmindSettingsLicenseState | null;
   onChanged?: () => void;
+  /** Sit inside 账号, without a second status heading. */
+  embedded?: boolean;
 };
 
-export function LawmindSettingsLicense({ apiBase, license, onChanged }: Props): ReactNode {
+export function LawmindSettingsLicense({ apiBase, license, onChanged, embedded = false }: Props): ReactNode {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,29 +89,41 @@ export function LawmindSettingsLicense({ apiBase, license, onChanged }: Props): 
   const needsAttention =
     status === "trial_expired" || status === "licensed_expired" || status === "invalid";
 
+  const statusPill = (
+    <span
+      className={
+        status === "licensed"
+          ? "lm-pill lm-pill-success"
+          : needsAttention
+            ? "lm-pill lm-pill-warn"
+            : "lm-pill lm-pill-info"
+      }
+      data-testid="lm-license-status"
+      data-status={status}
+    >
+      {licenseStatusLabel(license)}
+    </span>
+  );
+
   return (
-    <section className="lm-settings-block" data-testid="lm-settings-license" aria-label="许可">
-      <h3 className="lm-settings-subtitle">许可</h3>
-      <p className="lm-settings-caption" role="status">
-        本机离线校验；不联网、不上报。试用或到期都不锁功能，只提醒激活。
-      </p>
-      <div className="lm-settings-row">
-        <span className="lm-settings-key">状态</span>
-        <span
-          className={
-            status === "licensed"
-              ? "lm-pill lm-pill-success"
-              : needsAttention
-                ? "lm-pill lm-pill-warn"
-                : "lm-pill lm-pill-info"
-          }
-          data-testid="lm-license-status"
-          data-status={status}
-        >
-          {licenseStatusLabel(license)}
-        </span>
-      </div>
-      {license?.message ? (
+    <section
+      className={embedded ? "lm-account-activate" : "lm-settings-block"}
+      data-testid="lm-settings-license"
+      aria-label="许可"
+    >
+      {embedded ? null : <h3 className="lm-settings-subtitle">许可</h3>}
+      {embedded ? null : (
+        <p className="lm-settings-caption" role="status">
+          本机离线校验；不联网、不上报。试用或到期都不锁功能，只提醒激活。
+        </p>
+      )}
+      {embedded ? null : (
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">状态</span>
+          {statusPill}
+        </div>
+      )}
+      {!embedded && license?.message ? (
         <p className="lm-settings-caption" role="status" data-testid="lm-license-message">
           {license.message}
         </p>
@@ -118,18 +132,19 @@ export function LawmindSettingsLicense({ apiBase, license, onChanged }: Props): 
         <p className="lm-settings-caption">到期日：{license.expiresAt.slice(0, 10)}</p>
       ) : null}
 
-      <div className="lm-settings-row">
-        <span className="lm-settings-key">激活码</span>
+      <label className="lm-account-activate-label" htmlFor="lm-license-code-input">
+        激活码
+      </label>
+      <div className="lm-account-activate-row">
         <input
+          id="lm-license-code-input"
           className="lm-input"
           data-testid="lm-license-code-input"
-          placeholder="粘贴激活码（发版方提供）"
+          placeholder="粘贴激活码"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           disabled={busy}
         />
-      </div>
-      <div className="lm-settings-actions">
         <button
           type="button"
           className="lm-btn lm-btn-accent lm-btn-sm"
@@ -139,9 +154,11 @@ export function LawmindSettingsLicense({ apiBase, license, onChanged }: Props): 
         >
           {busy ? "校验中…" : "激活"}
         </button>
+      </div>
+      <div className="lm-settings-actions lm-settings-actions--flush">
         <button
           type="button"
-          className="lm-btn lm-btn-secondary lm-btn-sm"
+          className="lm-btn lm-btn-ghost lm-btn-sm"
           data-testid="lm-license-clear"
           disabled={busy}
           onClick={() => void clear()}
@@ -154,7 +171,7 @@ export function LawmindSettingsLicense({ apiBase, license, onChanged }: Props): 
           data-testid="lm-license-fingerprint"
           onClick={() => void revealFingerprint()}
         >
-          显示本机指纹
+          本机指纹
         </button>
       </div>
       {fingerprint ? (

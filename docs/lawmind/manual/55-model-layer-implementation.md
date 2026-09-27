@@ -27,12 +27,12 @@
 | id                          | 标签                               | upstream 模型       | 上下文      |
 | --------------------------- | ---------------------------------- | ------------------- | ----------- |
 | `builtin:deepseek-flash`    | DeepSeek Flash（**推荐、多模态**） | `deepseek-flash`    | **1048576** |
-| `builtin:deepseek-chat`     | DeepSeek Chat                      | `deepseek-chat`     | 64000       |
-| `builtin:deepseek-reasoner` | DeepSeek Reasoner（推理）          | `deepseek-reasoner` | 64000       |
-| `builtin:qwen3.5-plus`      | 通义千问 3.5 Plus                  | `qwen3.5-plus`      | **131072**  |
-| `builtin:qwen-plus`         | 通义千问 Plus                      | `qwen-plus`         | 32768       |
-| `builtin:qwen-max`          | 通义千问 Max                       | `qwen-max`          | 32768       |
-| `builtin:qwen-turbo`        | 通义千问 Turbo                     | `qwen-turbo`        | 8192        |
+| `builtin:deepseek-chat`     | DeepSeek Chat                      | `deepseek-chat`     | 131072      |
+| `builtin:deepseek-reasoner` | DeepSeek Reasoner（推理）          | `deepseek-reasoner` | 131072      |
+| `builtin:qwen3.5-plus`      | 通义千问 3.5 Plus                  | `qwen3.5-plus`      | **1000000** |
+| `builtin:qwen-plus`         | 通义千问 Plus                      | `qwen-plus`         | 1000000     |
+| `builtin:qwen-max`          | 通义千问 Max                       | `qwen-max`          | 1000000     |
+| `builtin:qwen-turbo`        | 通义千问 Turbo                     | `qwen-turbo`        | 1000000     |
 | `builtin:gpt-4o`            | GPT-4o                             | `gpt-4o`            | 128000      |
 | `builtin:gpt-4o-mini`       | GPT-4o mini                        | `gpt-4o-mini`       | 128000      |
 | `builtin:o1-mini`           | o1-mini（推理）                    | `o1-mini`           | 128000      |
@@ -230,14 +230,16 @@ maxOutputTokens = min(65536, max(4096, override ?? env ?? floor(contextTokens ×
 | ≥ 32000  | 50               |
 | 其他     | 32               |
 
-### 历史条数上限按窗口分四档
+### 历史条数上限按窗口分档
 
-| 上下文   | 历史条数 |
-| -------- | -------- |
-| ≥ 200000 | 120      |
-| ≥ 100000 | 100      |
-| ≥ 32000  | 80       |
-| 其他     | 50       |
+| 上下文    | 历史条数 |
+| --------- | -------- |
+| ≥ 1000000 | 400      |
+| ≥ 500000  | 240      |
+| ≥ 200000  | 160      |
+| ≥ 100000  | 100      |
+| ≥ 32000   | 80       |
+| 其他      | 50       |
 
 ### 温度按任务类型
 
@@ -256,14 +258,14 @@ maxOutputTokens = min(65536, max(4096, override ?? env ?? floor(contextTokens ×
 ### 提示窗口的缩放系数
 
 ```text
-promptWindowScale = min(2.5, max(0.5, contextTokens / 128000))
+promptWindowScale = min(8, max(0.5, contextTokens / 128000))
 ```
 
-也就是说：以 128k 为基准，**最多放大 2.5 倍、最多缩小 0.5 倍**。
+也就是说：以 128k 为基准，**最多放大 8 倍、最多缩小 0.5 倍**。1M 窗口约为 7.8 倍，落在这个夹里。
 
 **这个系数作用在哪**：第 43 章讲的 `prompt-fragments.ts` 的 `scaleFragmentCapTokens` —— 每种提示片段（钉选、稿面、协议、技能索引、案件索引、偏好指纹、交付物）的字符上限会按这个系数缩放。所以**窗口越大，每段提示能给的字越多**。
 
-**为什么要夹在 0.5–2.5**：不然 1M 窗口的模型会给出 8 倍上限，反而把预算吃穿。
+**为什么要夹在 0.5–8**：下限避免小窗口把指纹再砍得太狠；上限停在约 1M 的线性倍率，再大的窗口不再把注入段继续放大。
 
 ### 侧车任务的限制
 
@@ -308,7 +310,7 @@ timeout = Math.min(config.timeoutMs ?? 120000, 60000)
 | `model_timeout`       | 超时                                                                                                          |
 | `model_network_error` | 网络（正则 `/fetch failed\|ENOTFOUND\|ECONNREFUSED\|ETIMEDOUT\|ECONNRESET\|certificate\|TLS/i`）              |
 
-**注意 `invalid_api_key` 的判据是「状态码 + 文本」两条**——因为有的网关返回 200 带错误文本。
+**注意 `invalid_api_key` 的判据是「状态码 + 文本」两条**——因为有的网关返回 200 带错误文本。连接向导写入前的那份探测（`electron/lawmind-model-probe.cjs`）用同一套判据，401/403 说「密钥无效或已过期」，不把服务商原文里的密钥片段回给律师。
 
 还有一个容易踩的情况有专门文案：
 
@@ -674,7 +676,7 @@ err.name === "ModelCallUserAbortError" → false
 - **自定义模型名会拒绝「像密钥」的值**（纯十六进制长串、UUID 形态）。
 - **输出上限按任务类型有比例**（classify 5%、draft 25%）。
 - **温度：分类 0.15、起草 0.5。** 但起草那份独立配置用的是 0.2（不一致，按使用的路径为准）。
-- **提示窗口缩放夹在 0.5–2.5。** 别去掉这个夹。
+- **提示窗口缩放夹在 0.5–8。** 别去掉这个夹。
 - **探测的 `max_tokens` 是 8。** 那是刻意的小。
 - **探测超时最多 60 秒**（比正常调用更急）。
 - **模型分层不算钱。** 它不是计费系统。

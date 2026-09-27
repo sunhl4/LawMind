@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { withExclusiveFileLock, writeJsonAtomic } from "../adapters/matter-storage/io.js";
+import { claimSidecarBatch } from "./session-sidecar-claim.js";
 import type { AgentSession } from "./types.js";
 
 const MAX_PENDING_STEER = 8;
@@ -37,47 +38,63 @@ function readPendingFile(filePath: string): string[] {
   }
 }
 
-export function normalizeSteerNote(text: string): string {
-  return text.replace(/\s+/g, " ").trim().slice(0, MAX_STEER_CHARS);
+const STEER_TRUNCATION_MARK = "…（后文已截断）";
+
+/** Keep paragraph breaks. Legal corrections are often one clause per line. */
+export function normalizeSteerNote(text: string): { text: string; truncated: boolean } {
+  const cleaned = text
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (cleaned.length <= MAX_STEER_CHARS) {
+    return { text: cleaned, truncated: false };
+  }
+  const keep = Math.max(0, MAX_STEER_CHARS - STEER_TRUNCATION_MARK.length);
+  return { text: `${cleaned.slice(0, keep)}${STEER_TRUNCATION_MARK}`, truncated: true };
 }
 
 export function queuePendingSteer(
   workspaceDir: string,
   sessionId: string,
   text: string,
-): { queued: number; pendingCount: number } {
-  const note = normalizeSteerNote(text);
+): { queued: number; pendingCount: number; dropped: number; truncated: boolean } {
+  const normalized = normalizeSteerNote(text);
+  const note = normalized.text;
   if (!note) {
     return {
       queued: 0,
       pendingCount: readPendingFile(pendingSteerPath(workspaceDir, sessionId)).length,
+      dropped: 0,
+      truncated: false,
     };
   }
   const filePath = pendingSteerPath(workspaceDir, sessionId);
   return withExclusiveFileLock(`${filePath}.lock`, () => {
     const existing = readPendingFile(filePath);
-    const next = [...existing, note].slice(-MAX_PENDING_STEER);
+    const combined = [...existing, note];
+    const next = combined.slice(-MAX_PENDING_STEER);
+    const dropped = combined.length - next.length;
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     writeJsonAtomic(filePath, {
       notes: next,
       updatedAt: new Date().toISOString(),
     } satisfies PendingSteerFile);
-    return { queued: 1, pendingCount: next.length };
+    return { queued: 1, pendingCount: next.length, dropped, truncated: normalized.truncated };
   });
 }
 
-export function claimPendingSteer(workspaceDir: string, sessionId: string): string[] {
-  const filePath = pendingSteerPath(workspaceDir, sessionId);
-  return withExclusiveFileLock(`${filePath}.lock`, () => {
-    const notes = readPendingFile(filePath);
-    try {
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-    } catch {
-      /* best-effort */
-    }
-    return notes;
+export function claimPendingSteer(
+  workspaceDir: string,
+  sessionId: string,
+  opts?: { alreadyApplied?: (notes: string[]) => boolean },
+): string[] {
+  return claimSidecarBatch({
+    filePath: pendingSteerPath(workspaceDir, sessionId),
+    read: readPendingFile,
+    alreadyApplied: opts?.alreadyApplied ?? (() => true),
   });
 }
 
@@ -100,8 +117,15 @@ export function applyClaimedSteerToHistory(session: AgentSession, notes: string[
   return true;
 }
 
+function historyHasSteer(session: AgentSession, notes: string[]): boolean {
+  const expected = formatSteerUserMessage(notes);
+  return session.conversationHistory.some((m) => m.role === "user" && m.content === expected);
+}
+
 export function claimAndApplyPendingSteer(session: AgentSession, workspaceDir: string): string[] {
-  const notes = claimPendingSteer(workspaceDir, session.sessionId);
+  const notes = claimPendingSteer(workspaceDir, session.sessionId, {
+    alreadyApplied: (held) => historyHasSteer(session, held),
+  });
   applyClaimedSteerToHistory(session, notes);
   return notes;
 }

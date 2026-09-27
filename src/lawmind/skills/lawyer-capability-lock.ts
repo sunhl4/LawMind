@@ -53,7 +53,7 @@ export const LAWYER_CAPABILITY_DESK_ITEMS: readonly LawyerCapabilityDeskItem[] =
   {
     id: "contract.review",
     label: "合同审查",
-    hint: "按已附合同走审查流水线",
+    hint: "按已附合同出审查意见；要改原文时再出修订稿",
     testId: "lm-desk-work-contract",
     action: "contract-lane",
     defaultDeliverableType: "contract.review",
@@ -279,7 +279,7 @@ export function formatCapabilityDispatchPrompt(params: {
   return [
     `【办件】能力：${params.id}`,
     `流程：${params.label}`,
-    "请按已附材料与钉源执行该流程。不必再猜测任务类型。",
+    "请按已附材料办理。这是办件类型，不是锁死的流水线；工具按任务选用。",
     note ? `\n律师说明：\n${note}` : "",
   ]
     .filter((line) => line.length > 0)

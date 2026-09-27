@@ -13,7 +13,7 @@
  * 安全规则注释保留中文，便于律所 IT 审阅。
  */
 
-import { fork, spawn, type ChildProcess, type StdioOptions } from "node:child_process";
+import { fork, spawn, spawnSync, type ChildProcess, type StdioOptions } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { emit } from "../audit/index.js";
@@ -42,6 +42,13 @@ export type SafeCommandOptions = {
   actor?: AuditEvent["actor"];
   actorId?: string;
   detail?: string;
+  /**
+   * 捕获 stdout 的字节上限（按 UTF-8 字符近似）。默认 1000，够审计摘要；
+   * officecli / textutil 等需要完整输出时显式加大。
+   */
+  maxStdoutBytes?: number;
+  /** 捕获 stderr 的字节上限；默认 1000。 */
+  maxStderrBytes?: number;
 };
 
 export type SafeCommandResult = {
@@ -126,6 +133,39 @@ const SAFE_COMMAND_SECRET_PREFIX_RE =
 /** LAWMIND_ 前缀中的密钥项（LAWMIND_AUTHORITY_API_KEY / LAWMIND_MCP_*_SECRET …）。 */
 const SAFE_COMMAND_LAWMIND_SECRET_RE = /^LAWMIND_.*(_KEY|_TOKEN|_SECRET|_PASSWORD)$/;
 
+/**
+ * 动态链接器 / 解释器启动钩子。进了子进程就等于代码执行，调用方 extra 也不能带。
+ * 与 Cursor / Codex 的命令沙箱同一条：密钥和加载器注入都不继承。
+ */
+const SAFE_COMMAND_LOADER_ENV_DENY = new Set([
+  "LD_PRELOAD",
+  "LD_LIBRARY_PATH",
+  "LD_AUDIT",
+  "DYLD_INSERT_LIBRARIES",
+  "DYLD_LIBRARY_PATH",
+  "DYLD_FRAMEWORK_PATH",
+  "DYLD_FALLBACK_LIBRARY_PATH",
+  "NODE_OPTIONS",
+  "NODE_DEBUG",
+  "PYTHONPATH",
+  "PYTHONSTARTUP",
+  "PYTHONINSPECT",
+  "BASH_ENV",
+  "ENV",
+  "GIT_SSH_COMMAND",
+  "GIT_EXEC_PATH",
+  "SSLKEYLOGFILE",
+]);
+
+function isDeniedChildEnvKey(key: string, denyExact: Set<string>, denyPrefixRe: RegExp): boolean {
+  return (
+    denyExact.has(key) ||
+    SAFE_COMMAND_LOADER_ENV_DENY.has(key) ||
+    denyPrefixRe.test(key) ||
+    SAFE_COMMAND_LAWMIND_SECRET_RE.test(key)
+  );
+}
+
 export type SafeChildEnvOptions = {
   source?: NodeJS.ProcessEnv;
   extra?: NodeJS.ProcessEnv;
@@ -154,10 +194,7 @@ export function buildSafeChildEnv(opts: SafeChildEnvOptions = {}): Record<string
     if (typeof value !== "string" || value === "") {
       continue;
     }
-    if (denyExact.has(key)) {
-      continue;
-    }
-    if (denyPrefixRe.test(key) || SAFE_COMMAND_LAWMIND_SECRET_RE.test(key)) {
+    if (isDeniedChildEnvKey(key, denyExact, denyPrefixRe)) {
       continue;
     }
     // 只允许最小宿主环境变量 + 过滤掉密钥后的 LAWMIND_* 配置（沙箱需要，MCP 不需要）。
@@ -168,9 +205,15 @@ export function buildSafeChildEnv(opts: SafeChildEnvOptions = {}): Record<string
     }
   }
   for (const [key, value] of Object.entries(extra)) {
-    if (typeof value === "string" && value !== "" && !denyExact.has(key)) {
-      out[key] = value;
+    if (typeof value !== "string" || value === "") {
+      continue;
     }
+    // extra 是调用方显式授予（例如 MCP 自己的 LAWMIND_MCP_SECRET）。
+    // 仍拒绝凭据根、模型密钥前缀和加载器钩子，避免「顺手塞进 extra」把 OPENAI_API_KEY / LD_PRELOAD 带出去。
+    if (denyExact.has(key) || SAFE_COMMAND_LOADER_ENV_DENY.has(key) || denyPrefixRe.test(key)) {
+      continue;
+    }
+    out[key] = value;
   }
   return out;
 }
@@ -302,16 +345,37 @@ async function emitSafeCommandAudit(
   }).catch(() => undefined);
 }
 
+/** 未显式给 env 时不继承进程环境（否则 host 命令会带走模型密钥）。
+ * 显式 env（如 lawmindd 的 buildDaemonProcessEnv）是一方调用方的刻意授予：保留
+ * LAWMIND_* / BRAVE_* 等厂商密钥（daemon 的联网检索与模型调用靠它们），只剥凭据根与加载器钩子。
+ * 厂商前缀剥离只发生在默认最小环境路径（buildMinimalChildEnv 内部已做）。
+ */
+function envForChild(options: SafeCommandOptions): Record<string, string> {
+  const source = options.env ?? buildMinimalChildEnv();
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value !== "string" || value === "") {
+      continue;
+    }
+    if (SAFE_COMMAND_ENV_DENY_EXACT.has(key) || SAFE_COMMAND_LOADER_ENV_DENY.has(key)) {
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
 function startChild(
   command: string,
   args: string[],
   cwd: string,
   options: SafeCommandOptions,
+  env: Record<string, string>,
 ): ChildProcess {
   if (options.ipc) {
     return fork(command, args, {
       cwd,
-      env: options.env,
+      env,
       stdio: ["ignore", "ignore", "ignore", "ipc"],
       execArgv: options.execArgv,
       detached: options.detached,
@@ -319,7 +383,7 @@ function startChild(
   }
   return spawn(command, args, {
     cwd,
-    env: options.env,
+    env,
     shell: options.allowShell === true,
     stdio: options.stdio ?? ["pipe", "pipe", "pipe"],
     detached: options.detached,
@@ -327,12 +391,10 @@ function startChild(
 }
 
 export function safeCommand(options: SafeCommandOptions): SafeCommandHandle {
-  // 1. 安全校验：禁止 shell 与代码执行参数。
-  if (options.allowShell !== true) {
-    const forbidden = isForbiddenShell(options.command, options.args ?? []);
-    if (forbidden) {
-      throw new SafeCommandError(forbidden);
-    }
+  // 1. 安全校验：禁止 shell 与代码执行参数。allowShell 只决定 spawn 的 shell 位，不能跳过禁令。
+  const forbidden = isForbiddenShell(options.command, options.args ?? []);
+  if (forbidden) {
+    throw new SafeCommandError(forbidden);
   }
 
   // 2. 解析并绝对化命令路径。
@@ -342,9 +404,10 @@ export function safeCommand(options: SafeCommandOptions): SafeCommandHandle {
 
   // 3. 启动子进程。
   const startedAt = Date.now();
+  const env = envForChild(options);
   let child: ChildProcess;
   try {
-    child = startChild(command, args, cwd, options);
+    child = startChild(command, args, cwd, options, env);
   } catch (err) {
     const result: SafeCommandResult = {
       exitCode: null,
@@ -357,15 +420,17 @@ export function safeCommand(options: SafeCommandOptions): SafeCommandHandle {
     throw err;
   }
 
-  // 4. 捕获 stdout/stderr 用于审计与错误摘要。
+  // 4. 捕获 stdout/stderr 用于审计与错误摘要（上限可由调用方抬高）。
+  const maxStdout = options.maxStdoutBytes ?? 1000;
+  const maxStderr = options.maxStderrBytes ?? 1000;
   let stdout = "";
   let stderr = "";
   if (child.stdout) {
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
-      if (stdout.length > 1000) {
-        stdout = stdout.slice(0, 1000);
+      if (stdout.length > maxStdout) {
+        stdout = stdout.slice(0, maxStdout);
       }
     });
   }
@@ -373,8 +438,8 @@ export function safeCommand(options: SafeCommandOptions): SafeCommandHandle {
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
-      if (stderr.length > 1000) {
-        stderr = stderr.slice(0, 1000);
+      if (stderr.length > maxStderr) {
+        stderr = stderr.slice(0, maxStderr);
       }
     });
   }
@@ -478,4 +543,45 @@ export function safeCommand(options: SafeCommandOptions): SafeCommandHandle {
 export async function runSafeCommand(options: SafeCommandOptions): Promise<SafeCommandResult> {
   const handle = safeCommand(options);
   return handle.finished;
+}
+
+/**
+ * 同步版：与 `safeCommand` 同一套禁 shell / 绝对路径 / cwd 围栏 / 最小 env，
+ * 供本机 Spotlight（mdfind）这类必须同步返回的宿主检索。
+ */
+export function runSafeCommandSync(options: SafeCommandOptions): SafeCommandResult {
+  const forbidden = isForbiddenShell(options.command, options.args ?? []);
+  if (forbidden) {
+    throw new SafeCommandError(forbidden);
+  }
+  if (options.ipc) {
+    throw new SafeCommandError("runSafeCommandSync 不支持 ipc fork");
+  }
+  const cwd = normalizeCwd(options.cwd, options.allowedRoots);
+  const command = resolveCommandPath(options.command, cwd, false);
+  const args = options.args ?? [];
+  const maxStdout = options.maxStdoutBytes ?? 1000;
+  const maxStderr = options.maxStderrBytes ?? 1000;
+  const startedAt = Date.now();
+  const res = spawnSync(command, args, {
+    cwd,
+    env: envForChild(options),
+    shell: options.allowShell === true,
+    encoding: "utf8",
+    timeout: options.timeoutMs && options.timeoutMs > 0 ? options.timeoutMs : undefined,
+    killSignal: options.killSignal ?? "SIGTERM",
+    maxBuffer: Math.max(maxStdout, maxStderr, 1024 * 1024),
+  });
+  const result: SafeCommandResult = {
+    exitCode: res.status,
+    exitSignal: res.signal,
+    durationMs: Date.now() - startedAt,
+    stdout: (res.stdout ?? "").slice(0, maxStdout),
+    stderr: (res.stderr ?? res.error?.message ?? "").slice(0, maxStderr),
+  };
+  void emitSafeCommandAudit(options, command, args, cwd, result).catch(() => undefined);
+  if (res.error && res.status === null && !res.signal) {
+    throw res.error;
+  }
+  return result;
 }

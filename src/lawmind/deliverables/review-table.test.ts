@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  detectNameColumnKeys,
+  mergeLawyerReviewRows,
   newReviewTable,
   reviewTableAcceptanceProblems,
+  reviewTableProvenanceXlsxRows,
   reviewTableToMarkdown,
   reviewTableToXlsxRows,
   REVIEW_TABLE_TEMPLATES,
@@ -76,7 +79,7 @@ describe("review-table deliverable model", () => {
         { id: "r2", cells: { item: "重大合同", source: "cases/m/materials/a.pdf" } },
       ],
     };
-    expect(reviewTableAcceptanceProblems(noSource)).toEqual(["1 行缺来源"]);
+    expect(reviewTableAcceptanceProblems(noSource)).toEqual([]);
     const good: ReviewTable = {
       ...noSource,
       rows: [
@@ -85,6 +88,101 @@ describe("review-table deliverable model", () => {
       ],
     };
     expect(reviewTableAcceptanceProblems(good)).toEqual([]);
+    const guessed: ReviewTable = {
+      ...newReviewTable("t-1", "due_diligence"),
+      rows: [
+        {
+          id: "r1",
+          cells: { item: "付款", finding: "有上限", source: "cases/m/materials/a.pdf" },
+          source: "cases/m/materials/a.pdf",
+        },
+      ],
+    };
+    expect(reviewTableAcceptanceProblems(guessed)).toEqual(["1 行缺来源"]);
+    const cited: ReviewTable = {
+      ...guessed,
+      rows: [
+        {
+          ...guessed.rows[0],
+          cellMeta: { finding: { source: "cases/m/materials/a.pdf#line=3", confidence: "high" } },
+        },
+      ],
+    };
+    expect(reviewTableAcceptanceProblems(cited)).toEqual([]);
+  });
+
+  it("does not treat a custom clause column as a filename column", () => {
+    const keys = detectNameColumnKeys({
+      columns: [
+        { key: "clause", label: "条款" },
+        { key: "payment", label: "付款条款" },
+        { key: "finding", label: "发现" },
+      ],
+    });
+    expect(keys).toEqual(["clause"]);
+  });
+
+  it("keeps citations on untouched cells when the lawyer edits another cell", () => {
+    const previous: ReviewTable["rows"] = [
+      {
+        id: "r1",
+        cells: { finding: "原结论", risk: "低" },
+        source: "a.pdf",
+        cellMeta: {
+          finding: { source: "a.pdf#line=2" },
+          risk: { source: "a.pdf#line=4" },
+        },
+        review: { locked: true },
+      },
+    ];
+    const merged = mergeLawyerReviewRows(previous, [
+      { id: "r1", cells: { finding: "律师改过", risk: "低" } },
+    ]);
+    expect(merged[0]?.cells.finding).toBe("原结论");
+    expect(merged[0]?.cellMeta?.finding?.source).toBe("a.pdf#line=2");
+    expect(merged[0]?.cellMeta?.risk?.source).toBe("a.pdf#line=4");
+    expect(merged[0]?.review?.locked).toBe(true);
+    expect(merged[0]?.source).toBe("a.pdf");
+  });
+
+  it("keeps a locked row when a save omits it or rewrites its cells", () => {
+    const previous: ReviewTable["rows"] = [
+      {
+        id: "locked",
+        cells: { finding: "已核对" },
+        cellMeta: { finding: { source: "a.pdf#line=1" } },
+        review: { locked: true },
+      },
+    ];
+    const rewritten = mergeLawyerReviewRows(previous, [
+      { id: "locked", cells: { finding: "被盖掉" } },
+    ]);
+    expect(rewritten[0]?.cells.finding).toBe("已核对");
+    const omitted = mergeLawyerReviewRows(previous, []);
+    expect(omitted[0]?.id).toBe("locked");
+    const unlocked = mergeLawyerReviewRows(previous, [
+      { id: "locked", cells: { finding: "律师改过" }, review: { locked: false } },
+    ]);
+    expect(unlocked[0]?.cells.finding).toBe("律师改过");
+    expect(unlocked[0]?.cellMeta?.finding).toBeUndefined();
+    expect(unlocked[0]?.review?.locked).toBe(false);
+  });
+
+  it("puts cell citations on a second sheet", () => {
+    const table: ReviewTable = {
+      ...newReviewTable("t-1", "due_diligence"),
+      rows: [
+        {
+          id: "r1",
+          cells: { item: "付款", finding: "120万" },
+          cellMeta: { finding: { source: "a.pdf#line=1", confidence: "high" } },
+        },
+      ],
+    };
+    const rows = reviewTableProvenanceXlsxRows(table);
+    expect(rows[0]).toContain("出处");
+    expect(rows.some((row) => row.includes("a.pdf#line=1"))).toBe(true);
+    expect(rows.some((row) => row[1] === "审查事项")).toBe(false);
   });
 
   it("previews an empty table honestly instead of rendering a broken grid", () => {

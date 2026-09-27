@@ -198,4 +198,62 @@ describe("search_precedents", () => {
     expect(data.note).toContain("target_task_id");
     expect(data.terminology).toBeUndefined();
   });
+
+  it("omits an opposing matter and attaches case notes only for the matters it returns", async () => {
+    process.env[PREV_FLAG] = "1";
+    const writeCase = (matterId: string, clientId: string, counterparty: string) => {
+      fs.mkdirSync(path.join(workspaceDir, "cases", matterId), { recursive: true });
+      fs.writeFileSync(
+        path.join(workspaceDir, "cases", matterId, "CASE.md"),
+        [
+          "# 案",
+          "",
+          "## 1. 基本信息",
+          "",
+          `- 客户 / clientId：${clientId}`,
+          `- 对方当事人：${counterparty}`,
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+    };
+    writeCase("case-b", "客户乙", "客户甲");
+    writeCase("m-oppose", "客户甲", "客户乙");
+    writeCase("m-ok", "客户丙", "客户丁");
+    persistApprovedDraft(workspaceDir, {
+      taskId: "t-oppose",
+      matterId: "m-oppose",
+      title: "对立旧案",
+      body: "对立旧案定金不得超过特别句。",
+    });
+    persistApprovedDraft(workspaceDir, {
+      taskId: "t-ok",
+      matterId: "m-ok",
+      title: "可参照旧案",
+      body: "友好旧案定金不得超过百分之二十。",
+    });
+    const { commitMemory } = await import("../../../memory/kernel/gateway.js");
+    commitMemory(workspaceDir, {
+      kind: "matter_fact",
+      scope: "matter",
+      scopeId: "m-ok",
+      key: "matter.risk",
+      body: "友好旧案认知里的定金不得超过口径",
+      origin: "engine",
+      sourceMatterId: "m-ok",
+      confirmNow: true,
+    });
+    const r = await searchPrecedents.execute(
+      { query: "定金不得超过" },
+      { ...makeCtx(workspaceDir), matterId: "case-b" },
+    );
+    const data = r.data as {
+      hits: Array<{ matterId: string; snippet: string }>;
+      caseNotes?: string;
+    };
+    expect(data.hits.map((hit) => hit.matterId)).toEqual(["m-ok"]);
+    expect(data.hits.some((hit) => hit.snippet.includes("对立旧案"))).toBe(false);
+    expect(data.caseNotes).toContain("友好旧案认知里的定金不得超过口径");
+    expect(data.caseNotes).not.toContain("对立");
+  });
 });

@@ -27,7 +27,7 @@ pnpm lawmind:verify
 pnpm lawmind:desktop:e2e:pr   # Playwright smoke + golden-path + matter-cockpit (mock API)
 ```
 
-`lawmind:verify` mirrors the main CI `verify` job (tests, server bundle, desktop typecheck, HTTP smoke). PR CI also runs `lawmind:desktop:e2e:pr` in the `desktop-e2e-mock` job. See **`docs/lawmind/DEVELOPER-WORKFLOW.md`** for the full script ↔ CI map.
+`lawmind:verify` mirrors the main CI `verify` job (one coverage run, typecheck, structural gates, HTTP smoke, release-readiness). It does not treat a mock benchmark as quality evidence. PR CI also runs `lawmind:desktop:e2e:pr` in the `desktop-e2e-mock` job and file-size in `file-size-check`. See **`docs/lawmind/DEVELOPER-WORKFLOW.md`**.
 
 For Playwright locally, copy `apps/lawmind-desktop/.env.example` to `.env.e2e` if missing.
 

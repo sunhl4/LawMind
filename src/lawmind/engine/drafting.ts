@@ -2,7 +2,7 @@
  * Engine — 步骤 3：draft / draftAsync。
  *
  * W7：若 EngineContext 关联到一个 Role 且 Role.allowedDeliverableTypes 不允许
- * 当前 deliverable kind，则拒绝（throw DraftCreationError）。Solo edition 仅 warn。
+ * 当前 deliverable kind，则拒绝（throw DraftCreationError）。没有 Role 则放行。
  */
 
 import { getAssistantById, resolveLawMindRoot } from "../assistants/store.js";

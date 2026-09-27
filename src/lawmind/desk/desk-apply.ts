@@ -200,7 +200,7 @@ async function promoteIntakeBriefToProfile(
 ): Promise<PromoteIntakeResult> {
   const current = loadMatter(workspaceDir, matterId);
   if (!current) {
-    return { promoted: [], standingOnly: [] };
+    return { promoted: [], standingOnly: [], omittedParties: brief.omittedPartyNotes ?? [] };
   }
   const plan = planIntakePromotion({
     current: { parties: current.parties, causeOfAction: current.causeOfAction },
@@ -208,7 +208,11 @@ async function promoteIntakeBriefToProfile(
     partyCandidates: brief.partyCandidates,
   });
   if (plan.promoted.length === 0) {
-    return { promoted: [], standingOnly: plan.standingOnly };
+    return {
+      promoted: [],
+      standingOnly: plan.standingOnly,
+      omittedParties: plan.omittedParties,
+    };
   }
   const saved = await updateMatterProfile(workspaceDir, {
     matterId,
@@ -216,9 +220,17 @@ async function promoteIntakeBriefToProfile(
     ...(plan.parties ? { parties: plan.parties } : {}),
   });
   if (!saved) {
-    return { promoted: [], standingOnly: plan.standingOnly };
+    return {
+      promoted: [],
+      standingOnly: plan.standingOnly,
+      omittedParties: plan.omittedParties,
+    };
   }
-  return { promoted: plan.promoted, standingOnly: plan.standingOnly };
+  return {
+    promoted: plan.promoted,
+    standingOnly: plan.standingOnly,
+    omittedParties: plan.omittedParties,
+  };
 }
 
 export async function compileAndSaveIntakeBrief(input: {

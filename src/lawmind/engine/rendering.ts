@@ -6,7 +6,7 @@
  *   2. reasoning gate（IRAC 推理图谱）— W9 新增
  * 任一 blocker 未通过，render 拒绝并返回 reasoningReport 信息。
  *
- * citationGateStrict（Firm/Private）：有 research 快照时，缺失来源 ID 或长段未锚定引用禁止 render。
+ * citationGateStrict（全档默认开）：有 research 快照时，缺失来源 ID 或长段未锚定引用禁止 render。
  */
 
 import { transitionDeliverable } from "../application/services/deliverable-service.js";
@@ -15,6 +15,7 @@ import { renderDocxWithOptions } from "../artifacts/render-docx.js";
 import { renderPptxWithOptions } from "../artifacts/render-pptx.js";
 import { emit } from "../audit/index.js";
 import { taskProgressPrefix } from "../cases/task-display.js";
+import { formatRenderGateRefusal } from "../deliverables/acceptance-lawyer-copy.js";
 import {
   validateDraftAgainstSpec,
   validateReasoningForDraft,
@@ -30,6 +31,7 @@ import {
   resolveDraftCitationIntegrity,
   type DraftCitationIntegrityView,
 } from "../drafts/index.js";
+import { citationViewBlocksExport } from "../drafts/mechanical-verdict.js";
 import { deliverableNeedsExportLint, runExportLintGateForDraft } from "../lint/export-lint-gate.js";
 import { fetchLiveCitationHits } from "../lint/live-citation-hits.js";
 import { draftTextFromUnknown, runLegalLint } from "../lint/run-lint.js";
@@ -47,13 +49,6 @@ import { syncDraftToTaskRecord, updateTaskRecord } from "../tasks/index.js";
 import { resolveTemplateForDraft, templateResolvedPin } from "../templates/index.js";
 import type { ArtifactDraft } from "../types.js";
 import type { EngineContext } from "./context.js";
-
-function citationGateBlocksRender(view: DraftCitationIntegrityView): boolean {
-  if (!view.checked) {
-    return false;
-  }
-  return !view.ok || view.unanchoredSections.length > 0;
-}
 
 export async function renderDraft(
   ctx: EngineContext,
@@ -78,6 +73,8 @@ export async function renderDraft(
   acceptanceReport?: ReturnType<typeof validateDraftAgainstSpec>;
   reasoningReport?: ReasoningReport;
   citationIntegrity?: DraftCitationIntegrityView;
+  /** True when the citation integrity gate (not the engine) blocked the render. */
+  citationGateBlock?: boolean;
   /** Present when the export lint gate ran (pass or fail). */
   lintReport?: LegalLintReport;
   /** Mechanical blocker rule ids when the export lint gate blocked. */
@@ -107,8 +104,10 @@ export async function renderDraft(
       });
       return {
         ok: false,
-        error:
-          "渲染被双门禁拦截：acceptance / reasoning gate 未通过。请在桌面端 LawmindAcceptanceGate 视图查看具体未达成项。",
+        error: formatRenderGateRefusal({
+          acceptance: acceptanceReport,
+          reasoning: reasoningReport,
+        }),
         acceptanceReport,
         reasoningReport,
       };
@@ -147,7 +146,7 @@ export async function renderDraft(
   const blockedByMode =
     citationMode != null
       ? citationModeBlocksRender(citationMode, citationIntegrity)
-      : citationStrict && citationGateBlocksRender(citationIntegrity);
+      : citationStrict && citationViewBlocksExport(citationIntegrity);
   if (blockedByMode) {
     const missing =
       citationIntegrity.checked && !citationIntegrity.ok
@@ -169,6 +168,10 @@ export async function renderDraft(
         formatCitationGateCoach(`missingSourceIds=${missing}; unanchoredSections=${unanchored}`),
       ].join("\n"),
       citationIntegrity,
+      // 显式标记引用完整性门禁拦截，供工具层把 renderFailureCategory 归为
+      // citation_gate 而非 render_engine（铁律 5 后验收缺口降级为警告，这是
+      // 合同审查类草稿最常见的渲染拦截原因，错误归类会误导为「引擎故障」）。
+      citationGateBlock: true,
     };
   }
 

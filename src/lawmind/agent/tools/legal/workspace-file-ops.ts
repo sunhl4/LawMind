@@ -49,6 +49,7 @@ const CASE_STRUCTURAL_ENTRIES = new Set([
   "matter.json",
   ".lawmind-role.txt",
   "deadlines.jsonl",
+  "obligations.jsonl",
   "intake-brief.json",
   "desk-writes.jsonl",
   "organize-plan.pending.json",

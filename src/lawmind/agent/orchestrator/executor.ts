@@ -10,7 +10,6 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { DEFAULT_ASSISTANT_ID } from "../../assistants/constants.js";
 import { loadAssistantProfiles, resolveLawMindRoot } from "../../assistants/store.js";
 import { getRoleById } from "../../core/role.js";
 import { getMaxToolUseConcurrency } from "../../runtime/tool-concurrency.js";
@@ -18,6 +17,7 @@ import { emitCollaborationEvent } from "../collaboration/audit.js";
 import {
   registerDelegation,
   markDelegationRunning,
+  markDelegationAwaitingLawyer,
   markDelegationCompleted,
   markDelegationFailed,
 } from "../collaboration/delegation-registry.js";
@@ -52,45 +52,85 @@ export function resolveCollabStepTimeoutMs(env: NodeJS.ProcessEnv = process.env)
   return Math.min(Math.max(Math.floor(n), 30_000), 3_600_000);
 }
 
+const WORKFLOW_ASSIGNEE_ALIAS: Record<string, string> = {
+  client_communicator: "client_memo",
+  compliance_researcher: "compliance_research",
+  litigation_drafter: "general_litigation",
+  case_analyst: "due_diligence",
+};
+
+function requestedWorkflowRole(step: WorkflowStep): { roleId?: string; explicit: boolean } {
+  const fromField = step.assigneeRoleId?.trim();
+  if (fromField && getRoleById(fromField)) {
+    return { roleId: fromField, explicit: true };
+  }
+  const assignee = step.assignee?.trim();
+  if (assignee && getRoleById(assignee)) {
+    return { roleId: assignee, explicit: true };
+  }
+  const alias = WORKFLOW_ASSIGNEE_ALIAS[fromField ?? ""] ?? WORKFLOW_ASSIGNEE_ALIAS[assignee ?? ""];
+  if (alias && getRoleById(alias)) {
+    return { roleId: alias, explicit: false };
+  }
+  return { explicit: false };
+}
+
 /**
  * W8：在派发前根据 step.assigneeRoleId 重新解析 assignee。
  * 必须传入与桌面端一致的 `envFile`，否则会误读 workspace 旁路的空 assistants.json，
  * 导致 mail-contract 等模板卡在 `Assistant not found: contract_review`。
+ *
+ * 模板里的旧称呼（client_communicator 等）对到六个真实岗位。对不上时，点名的真实岗位在多位助手里不能静默换人；旧称呼则交给通用助手并写明。
  */
 export function resolveStepAssigneeByRole(
   workspaceDir: string,
   step: WorkflowStep,
   envFile?: string,
 ): void {
-  const roleId = step.assigneeRoleId?.trim();
-  if (roleId) {
-    const role = getRoleById(roleId);
-    if (role) {
-      const candidates = findAssistantsByRole(workspaceDir, role.roleId, envFile);
-      if (candidates.length > 0) {
-        if (!step.assignee || !candidates.some((c) => c.assistantId === step.assignee)) {
-          step.assignee = candidates[0].assistantId;
-        }
-        return;
+  const requested = requestedWorkflowRole(step);
+  const role = requested.roleId ? getRoleById(requested.roleId) : undefined;
+  if (role) {
+    const candidates = findAssistantsByRole(workspaceDir, role.roleId, envFile);
+    if (candidates.length > 0) {
+      if (!step.assignee || !candidates.some((c) => c.assistantId === step.assignee)) {
+        step.assignee = candidates[0].assistantId;
       }
+      step.roleMissNote = undefined;
+      return;
     }
   }
 
-  // Role miss / literal role id as assignee ("contract_review"): map to real assistant id.
-  const raw = step.assignee?.trim() || roleId || "";
-  if (!raw) {
-    step.assignee = DEFAULT_ASSISTANT_ID;
-    return;
+  const raw = step.assignee?.trim() || step.assigneeRoleId?.trim() || "";
+  if (raw && !getRoleById(raw) && !WORKFLOW_ASSIGNEE_ALIAS[raw]) {
+    const resolved = resolveAssistantId(workspaceDir, raw, envFile);
+    if (resolved) {
+      step.assignee = resolved;
+      step.roleMissNote = undefined;
+      return;
+    }
   }
-  const resolved = resolveAssistantId(workspaceDir, raw, envFile);
-  if (resolved) {
-    step.assignee = resolved;
-    return;
-  }
-  // Last resort: first profile in LawMind root, else default.
+
   const root = resolveLawMindRoot(workspaceDir, envFile);
   const profiles = loadAssistantProfiles(root);
-  step.assignee = profiles[0]?.assistantId ?? DEFAULT_ASSISTANT_ID;
+  if (profiles.length === 0) {
+    throw new Error("当前没有可用助手。");
+  }
+  const solo = profiles.length === 1;
+  const fallback = solo
+    ? profiles[0]
+    : (profiles.find((p) => (p.roleId ?? p.presetKey) === "general_default") ?? profiles[0]);
+  if (!fallback) {
+    throw new Error("当前没有可用助手。");
+  }
+  if (!solo && requested.explicit) {
+    throw new Error(
+      `当前工作区没有承担「${role?.displayName ?? "该岗位"}」的助手。名册里有多位助手，不能改派给其中一位。请在设置里指定该岗位，或改由主办会话办理。`,
+    );
+  }
+  step.assignee = fallback.assistantId;
+  step.roleMissNote = role
+    ? `没有承担「${role.displayName}」的助手。本步由「${fallback.displayName || fallback.assistantId}」办理。`
+    : undefined;
 }
 
 function emitWorkflowEvent(
@@ -249,6 +289,88 @@ export function templatePreApprovableTools(names: string[] | undefined): string[
   return filtered.length > 0 ? filtered : undefined;
 }
 
+/** 互审步骤只读。显式 execution 优先；旧模板靠任务书开头的「互审」。 */
+export function workflowStepExecution(step: WorkflowStep): "isolated" | "deliver" {
+  if (step.execution === "isolated" || step.execution === "deliver") {
+    return step.execution;
+  }
+  if (step.task.trim().startsWith("互审")) {
+    return "isolated";
+  }
+  return "deliver";
+}
+
+/** 大纲确认步：模型直接交回正文也不算律师已经确认。 */
+export function workflowStepHoldsForLawyer(step: WorkflowStep): boolean {
+  if (step.holdForLawyer === true) {
+    return true;
+  }
+  return step.task.includes("research_outline_confirm");
+}
+
+/** 律师确认后，把停住的步骤标成完成，以便后续步骤可以开始。 */
+export function releaseWorkflowLawyerHold(
+  workflow: CollaborationWorkflow,
+  stepId?: string,
+): boolean {
+  let changed = false;
+  for (const step of workflow.steps) {
+    if (step.status !== "awaiting_lawyer") {
+      continue;
+    }
+    if (stepId && step.stepId !== stepId) {
+      continue;
+    }
+    step.status = "completed";
+    step.completedAt = step.completedAt ?? new Date().toISOString();
+    step.error = undefined;
+    changed = true;
+  }
+  if (changed) {
+    workflow.status = "running";
+    workflow.updatedAt = new Date().toISOString();
+  }
+  return changed;
+}
+
+function workflowStatusLabel(status: string): string {
+  switch (status) {
+    case "awaiting_lawyer":
+      return "待确认";
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "未完成";
+    case "cancelled":
+      return "已取消";
+    case "running":
+      return "进行中";
+    case "draft":
+      return "未开始";
+    default:
+      return status;
+  }
+}
+
+function stepStatusLabel(status: WorkflowStep["status"]): string {
+  switch (status) {
+    case "awaiting_lawyer":
+      return "待确认";
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "未完成";
+    case "skipped":
+      return "已跳过";
+    case "running":
+      return "进行中";
+    case "pending":
+      return "未开始";
+    default:
+      return status;
+  }
+}
+
 /**
  * Execute a single workflow step: delegate to assignee, optionally review.
  */
@@ -258,27 +380,39 @@ async function executeStep(
   step: WorkflowStep,
   options?: ExecuteWorkflowOptions,
 ): Promise<void> {
-  resolveStepAssigneeByRole(baseConfig.workspaceDir, step, baseConfig.envFile);
   step.status = "running";
   step.startedAt = new Date().toISOString();
 
   emitWorkflowEvent(baseConfig.workspaceDir, workflow, "workflow.step_started", step.stepId);
   emitProgress(workflow, options);
 
-  const contextFromDeps = gatherDependencyContext(workflow, step);
-  const taskWithMemory = appendMemoryBundleToTask(step.task, options?.memoryBundle, step.assignee);
-  const fullTask = `${taskWithMemory}${contextFromDeps}`;
-
-  const delegation = registerDelegation({
-    workspaceDir: baseConfig.workspaceDir,
-    fromAssistantId: workflow.createdBy,
-    toAssistantId: step.assignee,
-    task: fullTask,
-    matterId: workflow.matterId,
-  });
-  step.delegationId = delegation.delegationId;
-
+  let delegationId: string | undefined;
   try {
+    resolveStepAssigneeByRole(baseConfig.workspaceDir, step, baseConfig.envFile);
+    const contextFromDeps = gatherDependencyContext(workflow, step);
+    const taskWithMemory = appendMemoryBundleToTask(
+      step.task,
+      options?.memoryBundle,
+      step.assignee,
+    );
+    const note = step.roleMissNote?.trim();
+    const fullTask = `${note ? `${note}\n\n` : ""}${taskWithMemory}${contextFromDeps}`;
+
+    const delegation = registerDelegation({
+      workspaceDir: baseConfig.workspaceDir,
+      fromAssistantId: workflow.createdBy,
+      toAssistantId: step.assignee,
+      task: fullTask,
+      matterId: workflow.matterId,
+    });
+    delegationId = delegation.delegationId;
+    step.delegationId = delegation.delegationId;
+
+    const execution = workflowStepExecution(step);
+    const deliverTools =
+      execution === "deliver"
+        ? templatePreApprovableTools(workflow.preApproveToolNames)
+        : undefined;
     const result = await sendAndWait({
       baseConfig,
       fromAssistantId: workflow.createdBy,
@@ -286,12 +420,41 @@ async function executeStep(
       message: fullTask,
       matterId: workflow.matterId,
       timeoutMs: resolveCollabStepTimeoutMs(),
-      // Name list only; apply_surgical_edits / prepare_outbound_mail still need
-      // matching preApproveToolArgs (hunks or to+attachments).
-      preApproveToolNames: templatePreApprovableTools(workflow.preApproveToolNames),
+      execution,
+      preApproveToolNames: deliverTools,
+      delegationId: delegation.delegationId,
+      onSession: (sessionId) => {
+        step.sessionId = sessionId;
+        markDelegationRunning(baseConfig.workspaceDir, delegation.delegationId, sessionId);
+      },
     });
 
-    markDelegationRunning(baseConfig.workspaceDir, delegation.delegationId, result.sessionId);
+    step.sessionId = result.sessionId || step.sessionId;
+    if (!step.sessionId) {
+      markDelegationRunning(baseConfig.workspaceDir, delegation.delegationId, result.sessionId);
+    }
+
+    const waitingOnLawyer =
+      Boolean(result.hold) || (workflowStepHoldsForLawyer(step) && result.settledByLawyer !== true);
+    if (waitingOnLawyer) {
+      step.result = result.reply;
+      step.status = "awaiting_lawyer";
+      step.completedAt = new Date().toISOString();
+      step.error = result.hold
+        ? "这一步在等你确认。请在「在办」里回答；未确认前不会开始后续步骤。"
+        : "大纲已写出。确认后才会写正文。";
+      if (result.hold) {
+        markDelegationAwaitingLawyer(
+          baseConfig.workspaceDir,
+          delegation.delegationId,
+          "对方已停下，等你在「在办」里确认。确认前不会把这次交办当成已经办完。",
+        );
+      } else {
+        markDelegationCompleted(baseConfig.workspaceDir, delegation.delegationId, result.reply);
+      }
+      emitProgress(workflow, options);
+      return;
+    }
 
     let finalResult = result.reply;
 
@@ -304,6 +467,7 @@ async function executeStep(
           message: `请审查以下来自「${step.assignee}」的工作成果：\n\n${result.reply}`,
           matterId: workflow.matterId,
           timeoutMs: 120_000,
+          execution: "isolated",
         });
         finalResult = `${result.reply}\n\n--- 审查意见 (${step.reviewBy}) ---\n${review.reply}`;
       } catch {
@@ -322,7 +486,9 @@ async function executeStep(
     step.error = msg;
     step.status = "failed";
     step.completedAt = new Date().toISOString();
-    markDelegationFailed(baseConfig.workspaceDir, delegation.delegationId, msg);
+    if (delegationId) {
+      markDelegationFailed(baseConfig.workspaceDir, delegationId, msg);
+    }
     emitWorkflowEvent(baseConfig.workspaceDir, workflow, "workflow.step_failed", step.stepId, msg);
     emitProgress(workflow, options);
   }
@@ -464,13 +630,17 @@ export async function executeWorkflow(
     (s) => s.status === "completed" || s.status === "skipped",
   );
   const anyFailed = workflow.steps.some((s) => s.status === "failed");
+  const awaitingLawyer = workflow.steps.some((s) => s.status === "awaiting_lawyer");
 
-  if (allCompleted) {
-    workflow.status = "completed";
-    emitWorkflowEvent(baseConfig.workspaceDir, workflow, "workflow.completed");
-  } else if (anyFailed) {
+  if (anyFailed) {
     workflow.status = "failed";
     emitWorkflowEvent(baseConfig.workspaceDir, workflow, "workflow.failed");
+  } else if (awaitingLawyer) {
+    workflow.status = "awaiting_lawyer";
+    workflow.updatedAt = new Date().toISOString();
+  } else if (allCompleted) {
+    workflow.status = "completed";
+    emitWorkflowEvent(baseConfig.workspaceDir, workflow, "workflow.completed");
   }
 
   return workflow;
@@ -483,15 +653,25 @@ export function buildWorkflowReport(workflow: CollaborationWorkflow): string {
   const lines: string[] = [];
 
   lines.push(`# 协作工作流报告：${workflow.name}`);
-  lines.push(`状态：${workflow.status}`);
+  lines.push(`状态：${workflowStatusLabel(workflow.status)}`);
   lines.push(`案件：${workflow.matterId ?? "（无关联案件）"}`);
   lines.push("");
 
   for (const step of workflow.steps) {
-    const statusEmoji = step.status === "completed" ? "✅" : step.status === "failed" ? "❌" : "⏳";
+    const statusEmoji =
+      step.status === "completed"
+        ? "✅"
+        : step.status === "failed"
+          ? "❌"
+          : step.status === "awaiting_lawyer"
+            ? "待确认"
+            : "⏳";
     lines.push(`## ${statusEmoji} 步骤：${step.task.slice(0, 80)}`);
     lines.push(`- 执行者：${step.assignee}`);
-    lines.push(`- 状态：${step.status}`);
+    lines.push(`- 状态：${stepStatusLabel(step.status)}`);
+    if (step.roleMissNote?.trim()) {
+      lines.push(`- 岗位：${step.roleMissNote.trim()}`);
+    }
     if (step.reviewBy) {
       lines.push(`- 审查者：${step.reviewBy}`);
     }

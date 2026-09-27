@@ -17,6 +17,9 @@ describe("evaluateTrackedRenderHunkGate", () => {
     if (!gate.ok) {
       expect(gate.code).toBe("redline_hunks_required");
       expect(gate.message).toContain("redlinePending");
+      expect(gate.lawyerMessage).toContain("改稿");
+      expect(gate.lawyerMessage).not.toContain("apply_surgical_edits");
+      expect(gate.lawyerMessage).not.toContain("redline");
     }
   });
 

@@ -117,6 +117,8 @@ export type LawMindEngine = {
     ok: boolean;
     outputPath?: string;
     error?: string;
+    /** True when the citation integrity gate (not the engine) blocked the render. */
+    citationGateBlock?: boolean;
     /** Present when the export lint gate ran (pass or fail). */
     lintReport?: LegalLintReport;
     /** Mechanical blocker rule ids when the export lint gate blocked. */

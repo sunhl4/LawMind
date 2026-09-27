@@ -387,6 +387,7 @@ export function useLawmindMainBodyContentProps(
       reviewRefreshVersion,
       reviewLaunchedFromMatter,
       onReturnToMatter: reviewLinks.onReturnToMatter,
+      onOpenMatterOnDesk: openMatterOnDesk,
       onShowArtifact: (relPath) => openOutputInFolder(relPath),
       onRecordsChanged: () => {
         setMatterRefreshVersion((v) => v + 1);
@@ -432,7 +433,7 @@ export function useLawmindMainBodyContentProps(
       onModelSelect: handleModelSelect,
       onOpenComposeSettings: () => useSettingsPanelStore.getState().setSettingsPanel(true, "models"),
       onOpenSettings: () => useSettingsPanelStore.getState().setSettingsPanel(true),
-      onOpenDoctor: () => useSettingsPanelStore.getState().setSettingsPanel(true, "doctor"),
+      onOpenDoctor: () => useSettingsPanelStore.getState().setSettingsPanel(true, "workspace"),
       onOpenMemoryInspector: () => useSettingsPanelStore.getState().setSettingsPanel(true, "memory"),
       onOpenApiWizard: openApiWizard,
       composeModelHint,

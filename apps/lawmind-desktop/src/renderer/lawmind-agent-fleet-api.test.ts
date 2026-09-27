@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { matchNeedsDecisionFocusId } from "./lawmind-agent-fleet-api";
+import {
+  firstNeedsYouIdForMatter,
+  isMatterOnlyDeskTarget,
+  matchNeedsDecisionFocusId,
+} from "./lawmind-agent-fleet-api";
 import type { AgentRunSummary } from "./lawmind-agent-fleet-api";
 
 function run(partial: Partial<AgentRunSummary> & Pick<AgentRunSummary, "id" | "status">): AgentRunSummary {
@@ -97,5 +101,20 @@ describe("matchNeedsDecisionFocusId", () => {
         preferStatus: "awaiting_clarification",
       }),
     ).toBeNull();
+  });
+});
+
+describe("firstNeedsYouIdForMatter", () => {
+  it("opens the first stopped item on that matter, not another case's approval", () => {
+    const needsYou = [
+      run({ id: "clarify-m1", status: "awaiting_clarification", matterId: "m1" }),
+      run({ id: "approve-m2", status: "awaiting_approval", matterId: "m2" }),
+      run({ id: "approve-m1", status: "awaiting_approval", matterId: "m1" }),
+    ];
+    expect(isMatterOnlyDeskTarget({ matterId: "m1" })).toBe(true);
+    expect(isMatterOnlyDeskTarget({ matterId: "m1", preferStatus: "awaiting_approval" })).toBe(
+      false,
+    );
+    expect(firstNeedsYouIdForMatter(needsYou, "m1")).toBe("clarify-m1");
   });
 });

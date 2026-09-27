@@ -181,14 +181,19 @@ export const permissionModeMiddleware: ToolMiddleware = async (call, next) => {
         "请改用只读检索/分析工具收集材料；确需起草、导出或外发时，请律师把权限模式切换为标准后再执行。"
       : `当前权限模式为研究（research），不能使用「${call.toolName}」。` +
         "研究模式只允许只读工具与 research_task；确需起草、导出或外发时，请律师把权限模式切换为标准后再执行。";
+  const lawyerMessage =
+    mode === "readonly"
+      ? "当前是只读，不能起草、导出或外发。请改用只读检索收集材料；确需写稿时，把权限切换为标准后再执行。"
+      : "当前是研究，不能起草、导出或外发。请先用只读检索收集材料；确需写稿时，把权限切换为标准后再执行。";
   return {
     ok: false,
     error: message,
     data: {
+      lawyerMessage,
       gateDecision: withGateCategory({
         gate: "dangerous_tool_gate",
         decision: "block",
-        reason: message,
+        reason: lawyerMessage,
       }),
     },
   };
@@ -559,33 +564,11 @@ export const noTaskTurnGateMiddleware: ToolMiddleware = async (call, next) => {
   return next();
 };
 
-/** Model-facing: folder talk must explore before mutating. */
-export const FOLDER_EXPLORE_GATE_ERROR =
-  "请先探查文件夹（explore_folder：goal / not_goal / path；或 read_folder_documents 批量读取正文），看清目录并摘录要点后再起草或改稿。";
-
 /**
- * Folder / directory-pin gate: WRITE_HEAVY waits until this turn already
- * executed explore_folder / read_folder_documents. Folder readers themselves
- * and all read tools stay open.
+ * 文件夹钉选不再冻结写工具（铁律 5）。先读再改由模型自己排。
+ * 中间件保留在链上，避免调用方按序号假设关卡，但不再拒绝。
  */
-export const folderExploreGateMiddleware: ToolMiddleware = async (call, next) => {
-  if (!call.ctx.folderExploreRequired) {
-    return next();
-  }
-  if (
-    call.toolName === "explore_folder" ||
-    call.toolName === "read_folder_documents" ||
-    !WRITE_HEAVY_TOOL_NAMES.has(call.toolName)
-  ) {
-    return next();
-  }
-  const counts = call.policy.toolNameCallCounts ?? {};
-  const explored = (counts.explore_folder ?? 0) > 0 || (counts.read_folder_documents ?? 0) > 0;
-  if (explored) {
-    return next();
-  }
-  return { ok: false, error: FOLDER_EXPLORE_GATE_ERROR };
-};
+export const folderExploreGateMiddleware: ToolMiddleware = async (_call, next) => next();
 
 const RISK_ORDER: Record<"low" | "medium" | "high", number> = { low: 0, medium: 1, high: 2 };
 
@@ -823,10 +806,10 @@ export function buildDefaultToolPipeline(): ToolMiddleware[] {
     matterScopeMiddleware,
     clarificationGateMiddleware,
     folderExploreGateMiddleware,
-    approvalMiddleware,
     argNormalizeMiddleware,
     argSchemaMiddleware,
     legalVerifyMiddleware,
+    approvalMiddleware,
     auditMiddleware,
     timeoutMiddleware,
     subprocessSandboxMiddleware,

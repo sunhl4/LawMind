@@ -18,24 +18,74 @@ export { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
 /** 任务锚点（钉子）的长度上限：默认 600，可调 `context.pins.taskCharCap`。 */
 export { TASK_PIN_CHAR_CAP };
 
-/** 从历史里取最早一条**真实**律师发言作为任务锚点（跳过合成消息）。 */
-export function extractTaskPin(session: AgentSession, charCap?: number): string | undefined {
+/**
+ * 比一条交办句更长的段，当成贴进来的材料，不再钉进系统段。
+ * 600 字的任务帽仍能放下两三句交办；400 字以上的下一段就停。
+ */
+const TASK_PIN_PASTED_SEGMENT_CHARS = 400;
+
+function splitTaskSegments(text: string): string[] {
+  const out: string[] = [];
+  for (const line of text.split(/\n+/)) {
+    for (const bit of line.split(/(?<=[。！？!?])/)) {
+      const sentence = bit.replace(/[ \t]+/g, " ").trim();
+      if (sentence) {
+        out.push(sentence);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * 钉交办句，不钉贴进来的合同正文。
+ * 整句放得进帽才留；单句超过帽就整句不钉，不在字数处切开。
+ */
+export function selectTaskPinText(raw: string, charCap?: number): string | undefined {
+  const text = raw.replace(/\r\n/g, "\n").trim();
+  if (!text) {
+    return undefined;
+  }
   const cap =
     typeof charCap === "number" && Number.isFinite(charCap) && charCap > 0
-      ? charCap
+      ? Math.floor(charCap)
       : TASK_PIN_CHAR_CAP;
+  const paragraphs = text.split(/\n{2,}/);
+  const head = paragraphs[0] ?? "";
+  const restLength = paragraphs.slice(1).join("").trim().length;
+  const kept: string[] = [];
+  let used = 0;
+  for (const sentence of splitTaskSegments(head)) {
+    if (sentence.length > cap || used + sentence.length > cap) {
+      break;
+    }
+    kept.push(sentence);
+    used += sentence.length;
+    // 交办句已经在手，后面的空行或超帽正文是贴进来的材料。
+    if (restLength >= TASK_PIN_PASTED_SEGMENT_CHARS || text.length > cap) {
+      break;
+    }
+  }
+  if (kept.length === 0) {
+    return undefined;
+  }
+  return kept.join("");
+}
+
+/** 从历史里取最早一条**真实**律师发言里的交办句（跳过合成消息）。 */
+export function extractTaskPin(session: AgentSession, charCap?: number): string | undefined {
   for (const msg of session.conversationHistory) {
     if (msg.role !== "user") {
       continue;
     }
-    const text = (msg.content ?? "").trim().replace(/\s+/g, " ");
-    if (!text) {
+    const text = (msg.content ?? "").trim();
+    if (!text || isCompactSyntheticUserMessage(text)) {
       continue;
     }
-    if (isCompactSyntheticUserMessage(text)) {
-      continue;
+    const pinned = selectTaskPinText(text, charCap);
+    if (pinned) {
+      return pinned;
     }
-    return text.slice(0, cap);
   }
   return undefined;
 }

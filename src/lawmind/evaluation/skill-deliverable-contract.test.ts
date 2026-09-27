@@ -70,7 +70,17 @@ describe("skill deliverable contract (synthetic)", () => {
       ].join("\n"),
     });
     expect(bound?.pipeline).toBe("tracked_redline");
-    expect(bound?.skillIds).toEqual(["contract-review-layers", "contract-redline-craft"]);
+    // 前两份是本轮主阶段；其余是合同审查目录，改稿时不整表换掉。
+    expect(bound?.skillIds).toEqual([
+      "contract-review-layers",
+      "contract-redline-craft",
+      "contract-playbook-review",
+      "practice-defaults",
+      "legal-element-extraction",
+      "norm-validity",
+      "citation-grounding",
+      "delivery-language",
+    ]);
     expect(bound?.pipelineHint).toContain("render_tracked_draft");
     const lock = resolvePlaybookToolLock(
       [
@@ -195,12 +205,12 @@ describe("skill deliverable contract (synthetic)", () => {
     expect(review?.pipelineHint).toContain("永不接受");
   });
 
-  it("时间轴是两阶段口径（预览 → 确认 → 正式件）", () => {
+  it("时间轴同一轮交正式件，不先停下来等确认", () => {
     const timeline = bindLawyerCapability({ instruction: "把这些材料做成时间轴" });
     expect(timeline?.id).toBe("chronology.timeline");
     expect(timeline?.skillIds).toContain("chronology-two-stage");
-    expect(timeline?.pipelineHint).toContain("预览");
-    expect(timeline?.pipelineHint).toContain("确认后才出正式件");
+    expect(timeline?.pipelineHint).toContain("正式时间轴");
+    expect(timeline?.pipelineHint).not.toContain("确认后才出正式件");
   });
 
   it("办案周报带上范围变更与预算对照 skill", () => {
@@ -244,12 +254,10 @@ describe("skill deliverable contract (synthetic)", () => {
 
     const timeline = bindLawyerCapability({ instruction: "把这些材料做成时间轴" })!;
     const timelinePlan = planLeanSkillPrompt(timeline, "把这些材料做成时间轴");
-    expect(timelinePlan.primaryIds).toContain("chronology-from-materials");
-    expect(timelinePlan.indexIds).toContain("chronology-two-stage");
+    expect(timelinePlan.primaryIds).toEqual(["chronology-two-stage", "chronology-from-materials"]);
 
     const status = bindLawyerCapability({ instruction: "写本案办案周报" })!;
     const statusPlan = planLeanSkillPrompt(status, "写本案办案周报");
-    const statusDisclosed = [...statusPlan.primaryIds, ...statusPlan.indexLines].join("\n");
-    expect(statusDisclosed).toContain("matter-status-scope-budget");
+    expect(statusPlan.primaryIds).toEqual(["matter-status-report", "matter-status-scope-budget"]);
   });
 });

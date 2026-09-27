@@ -6,14 +6,17 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { inspectCommercialPolicy } from "./commercial-policy.js";
+import type { CommercialPolicyInspection } from "./commercial-policy.js";
+import type { LawMindEdition } from "./edition-features.js";
 
 const POLICY_FILENAME = "lawmind.policy.json";
 
 /** Max chars injected into Agent system prompt from policy (inline or file). */
 export const AGENT_MANDATORY_RULES_MAX_CHARS = 8192;
 
-/** Product packaging tier (labels, governance defaults). */
-export type LawMindEdition = "solo" | "firm" | "private_deploy";
+/** Product packaging tier (labels, governance defaults). 单一定义见 `edition-features.ts`。 */
+export type { LawMindEdition };
 
 /**
  * 出站（egress）总模式。见 `LawMindWorkspacePolicy.egressMode`。
@@ -92,7 +95,7 @@ export type LawMindContextPolicy = {
     lawyerLineRatio?: number;
     lawyerLineMinChars?: number;
     lawyerLineMaxChars?: number;
-    /** 上一轮整理稿接续额度。默认 0.35，夹 (0, 0.9]。 */
+    /** 旧策略仍接受。整理稿不再把上一轮摘要嵌进提示。 */
     carriedRatio?: number;
     /** 接续额度的绝对下限（字符）。默认 400，夹 [100, 100000]。 */
     carriedMinChars?: number;
@@ -155,8 +158,14 @@ export type LawMindWorkspacePolicy = {
   allowWebSearch?: boolean;
   retrievalMode?: string;
   enableCollaboration?: boolean;
-  /** Phase C: edition for UI / reports */
+  /** Phase C: edition for UI / reports (case-insensitive at resolve time). */
   edition?: LawMindEdition;
+  /**
+   * Per-feature overrides on top of the edition table (`src/lawmind/policy/edition-features.ts`).
+   * Only known `EditionFeatureKey` booleans apply; unknown keys are ignored.
+   * Dedicated surfaces (`wordAddinAutoRun`, `ethicsWall.enabled`, …) still win for those capabilities.
+   */
+  features?: Partial<Record<string, boolean>>;
   /** Phase C: minimum mean benchmark score (0–1) for release / CI gate */
   benchmarkGateMinScore?: number;
   /** Phase C: hint for audit export cadence (e.g. P7D) — documentation-first */
@@ -196,6 +205,11 @@ export type LawMindWorkspacePolicy = {
    */
   outboundAllowedDomains?: string[];
   /**
+   * 对话窗口：200K（默认）/ 500K / 1M。旧值 `daily` / `dossier` 读入时分别视为 200K / 1M。
+   * 实际长度见 `context-preset.ts`：不超过模型自己的窗口。
+   */
+  conversationLength?: "200k" | "500k" | "1m";
+  /**
    * 上下文窗口 / 自动压缩 / 摘要 / 钉子 / 续接的调参（高级设置）。
    *
    * 全部可选；**每一项都做类型校验与夹取**，非法值回落默认、越界值夹到边界
@@ -224,8 +238,8 @@ export type LawMindWorkspacePolicy = {
    */
   highSecurityMode?: boolean;
   /**
-   * 允许 run_analysis 运行预置/律师确认的脚本文件。默认 false。
-   * 日常后台核算走 run_compute，不依赖本开关。高安全模式下强制关闭。
+   * 允许 run_analysis 运行预置/律师确认的脚本文件。缺省允许。
+   * 只有显式 `false` 或离线模式才关闭。日常核算走 run_compute，不依赖本键。
    */
   allowAnalysisScripts?: boolean;
   /**
@@ -295,7 +309,7 @@ export type LawMindWorkspacePolicy = {
   };
   /**
    * 案件副本协作（多人共办一案）。
-   * - enabled: 覆盖 edition 默认（Solo 可强制开；Firm 可强制关）
+   * - enabled: 覆盖 edition 默认（各版本默认开；false 可关掉）
    * - endpoint: 预留托管案件云 URL（尚未强制）
    * - sharedRelayDir: 可选共享目录中继（两台 LawMind 指向同一文件夹即可交换 ops）
    */
@@ -575,17 +589,30 @@ export function resolveMatterMandatoryRulesForPrompt(
 
 function parsePolicy(raw: string): LawMindWorkspacePolicy | null {
   try {
-    const j = JSON.parse(raw) as unknown;
-    if (!j || typeof j !== "object") {
-      return null;
-    }
-    const o = j as Record<string, unknown>;
-    if (typeof o.schemaVersion !== "number" || o.schemaVersion < 1) {
-      return null;
-    }
-    return j as LawMindWorkspacePolicy;
+    return inspectCommercialPolicy(JSON.parse(raw) as unknown).policy;
   } catch {
     return null;
+  }
+}
+
+/** 读策略文件并给出拒绝 / 迁移说明。文件不存在时 policy 为 null、rejected 为空。 */
+export function inspectWorkspacePolicyFile(workspaceDir: string): CommercialPolicyInspection & {
+  present: boolean;
+} {
+  const abs = path.join(path.resolve(workspaceDir), POLICY_FILENAME);
+  if (!fs.existsSync(abs)) {
+    return { present: false, policy: null, rejected: [], migrated: [] };
+  }
+  try {
+    const raw = fs.readFileSync(abs, "utf8");
+    return { present: true, ...inspectCommercialPolicy(JSON.parse(raw) as unknown) };
+  } catch {
+    return {
+      present: true,
+      policy: null,
+      rejected: [{ key: "(file)", reason: "JSON 无法解析，整份未生效" }],
+      migrated: [],
+    };
   }
 }
 

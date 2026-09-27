@@ -1,6 +1,6 @@
 /**
- * Optional LLM re-summarization of extractive compact digests (manual compact path).
- * Turn-time auto-compact stays extractive-only for latency.
+ * 手动整理和承前分叉可选的模型摘要。
+ * 回合开始和回合内的自动整理不调用这里：自动路径只留提取式原文。
  */
 
 import {
@@ -65,8 +65,9 @@ function mergeCompactDigest(
   cap: number,
   summaryShare = 0.45,
 ): string {
-  const header = `【压缩前对话蒸馏】摘要：\n${summary.slice(0, Math.floor(cap * summaryShare))}`;
-  const merged = `${header}\n\n---\n\n${extractive}`;
+  const note = `【压缩前对话蒸馏】摘要：\n${summary.slice(0, Math.floor(cap * summaryShare))}`;
+  const merged = `${extractive.trim()}\n\n---\n\n${note}`;
+  // 提取式原文在前。超限从末尾截，先失去的是摘要。
   return merged.length > cap ? `${merged.slice(0, Math.max(0, cap - 20))}\n…[蒸馏截断]` : merged;
 }
 

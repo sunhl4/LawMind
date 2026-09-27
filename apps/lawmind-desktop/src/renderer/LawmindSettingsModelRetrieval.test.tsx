@@ -64,7 +64,8 @@ describe("LawmindSettingsModelRetrieval", () => {
     expect(pill?.textContent).toContain("已配置");
     expect(pill?.textContent).toContain("legal-api.example");
     expect(host.textContent).toContain("已配置权威检索端点");
-    expect(host.textContent).toContain("同一网关");
+    expect(host.textContent).toContain("对话检索走这里的权威库");
+    expect(host.textContent).not.toContain("MCP");
     expect(host.textContent).not.toContain("演示语料不等于完整法库");
   });
 
@@ -166,7 +167,7 @@ describe("LawmindSettingsModelRetrieval", () => {
     expect(host.textContent).toContain("演示语料就绪");
     expect(host.textContent).toContain("非正式权威库");
     const probe = host.querySelector('[data-testid="lm-settings-authority-probe"]');
-    expect(probe?.textContent).toContain("探测开源语料");
+    expect(probe?.textContent).toContain("检查公开法规");
     expect((probe as HTMLButtonElement | null)?.disabled).toBe(false);
   });
 
@@ -279,5 +280,27 @@ describe("LawmindSettingsModelRetrieval", () => {
     expect(host.textContent).toContain("待验证");
     const verify = host.querySelector('[data-testid="lm-settings-verify-model"]');
     expect(verify?.textContent).toContain("验证模型");
+  });
+
+  it("explains a blocked network without policy file keys", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindSettingsModelRetrieval
+          {...baseProps}
+          health={{
+            modelConfigured: true,
+            webSearchPolicyBlocked: true,
+            egressMode: "offline",
+          }}
+        />,
+      );
+    });
+    expect(host.textContent).toContain("对话栏的联网已关闭。");
+    expect(host.textContent).not.toContain("离线模式");
+    expect(host.textContent).not.toContain("安全");
+    expect(host.textContent).toContain("已关闭");
+    expect(host.textContent).not.toContain("lawmind.policy.json");
+    expect(host.textContent).not.toContain("egressMode");
+    expect(host.textContent).not.toContain("allowWebSearch");
   });
 });

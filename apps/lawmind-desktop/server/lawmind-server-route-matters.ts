@@ -34,17 +34,22 @@ import {
 import { readTeamRoster, writeTeamRoster } from "../../../src/lawmind/cases/team-roster.js";
 import { isAdhocMeetingMatterId } from "../../../src/lawmind/cases/team-meeting-ids.js";
 import type { DraftCitationIntegrityView } from "../../../src/lawmind/drafts/index.js";
-import { resolveDraftCitationIntegrity } from "../../../src/lawmind/drafts/index.js";
-import { emit, readRecentAuditLogs } from "../../../src/lawmind/audit/index.js";
+import { listDrafts, resolveDraftCitationIntegrity } from "../../../src/lawmind/drafts/index.js";
+import { emit, readAuditEventsForTaskIds, readRecentAuditLogs } from "../../../src/lawmind/audit/index.js";
 import {
   buildMatterReviewMatrix,
   exportReviewMatrixCsv,
 } from "../../../src/lawmind/matter/review-matrix.js";
 import {
+  readReviewMatrixNotes,
+  writeReviewMatrixNotes,
+} from "../../../src/lawmind/matter/review-matrix-notes-store.js";
+import {
   appendCaseArtifact,
   appendCaseCoreIssue,
   appendCaseRiskNote,
   appendCaseTaskGoal,
+  caseFilePath,
   upsertMatterDisplayName,
 } from "../../../src/lawmind/memory/index.js";
 import { loadMatter, saveMatter } from "../../../src/lawmind/adapters/matter-storage/index.js";
@@ -800,7 +805,7 @@ export async function handleMatterRoutes({
           });
         }
       }
-      const caseMemory = (await buildMatterIndex(workspaceDir, mid)).caseMemory;
+      const caseMemory = await fs.readFile(caseFilePath(workspaceDir, mid), "utf8").catch(() => "");
       const fromCase = parseMatterCaseProfileFields(caseMemory);
       const profile = buildMatterProfileView({
         matterId: updated.matterId,
@@ -942,6 +947,37 @@ export async function handleMatterRoutes({
     return true;
   }
 
+  if (pathname === "/api/matters/review-matrix/notes" && (req.method === "GET" || req.method === "PUT")) {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    if (req.method === "GET") {
+      sendJson(res, 200, { ok: true, matterId, ...readReviewMatrixNotes(workspaceDir, matterId) }, c);
+      return true;
+    }
+    let body: { notes?: Record<string, string>; verified?: Record<string, boolean> };
+    try {
+      body = await parseJsonBodyZod(
+        req,
+        z.object({
+          notes: z.record(z.string(), z.string()).optional(),
+          verified: z.record(z.string(), z.boolean()).optional(),
+        }),
+      );
+    } catch {
+      sendJson(res, 400, { ok: false, error: "invalid body" }, c);
+      return true;
+    }
+    const saved = writeReviewMatrixNotes(workspaceDir, matterId, {
+      notes: (body.notes) ?? {},
+      verified: (body.verified) ?? {},
+    });
+    sendJson(res, 200, { ok: true, matterId, ...saved }, c);
+    return true;
+  }
+
   if (pathname === "/api/matters/session-timeline" && req.method === "GET") {
     const matterId = url.searchParams.get("matterId")?.trim() ?? "";
     if (!isValidMatterId(matterId)) {
@@ -961,9 +997,19 @@ export async function handleMatterRoutes({
       sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
       return true;
     }
-    const index = await buildMatterIndex(workspaceDir, matterId);
-    const approvalRequests = await listApprovalRequests(workspaceDir, { matterId });
-    const queueItems = await listWorkQueueItems(workspaceDir, { matterId });
+    const allTasks = listTaskRecords(workspaceDir);
+    const allDrafts = listDrafts(workspaceDir);
+    const matterTasks = allTasks.filter((task) => task.matterId === matterId);
+    const matterDrafts = allDrafts.filter((draft) => draft.matterId === matterId);
+    const [index, approvalRequests, queueItems] = await Promise.all([
+      buildMatterIndex(workspaceDir, matterId, {
+        tasks: matterTasks,
+        drafts: matterDrafts,
+        skipAudit: true,
+      }),
+      listApprovalRequests(workspaceDir, { matterId }),
+      listWorkQueueItems(workspaceDir, { matterId }),
+    ]);
     const record = loadMatter(workspaceDir, matterId);
     const summary = {
       ...summarizeMatterIndex(index),
@@ -1015,10 +1061,33 @@ export async function handleMatterRoutes({
         approvalRequests,
         queueItems,
         draftCitationIntegrity,
-        auditEvents: index.auditEvents.slice(-80),
+        /** 首屏不扫 audit；时间线走 /api/matters/:id/audit-tail */
+        auditEvents: [],
       },
       c,
     );
+    return true;
+  }
+
+  const auditTailMatch = /^\/api\/matters\/([^/]+)\/audit-tail$/.exec(pathname);
+  if (auditTailMatch && req.method === "GET") {
+    const matterId = decodeURIComponent(auditTailMatch[1] ?? "").trim();
+    if (!isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    const limitRaw = Number(url.searchParams.get("limit") ?? "80");
+    const limit = Number.isFinite(limitRaw) ? Math.min(200, Math.max(1, Math.floor(limitRaw))) : 80;
+    const taskIds = new Set(
+      listTaskRecords(workspaceDir)
+        .filter((task) => task.matterId === matterId)
+        .map((task) => task.taskId),
+    );
+    const auditEvents = await readAuditEventsForTaskIds(`${workspaceDir}/audit`, taskIds, {
+      maxDays: 120,
+      maxEvents: limit,
+    });
+    sendJson(res, 200, { ok: true, matterId, auditEvents }, c);
     return true;
   }
 

@@ -103,6 +103,10 @@ export type Props = {
   mattersPickList?: Array<{ id: string; label: string }> | null;
   /** 与案件列表联动（如删除/新建案件后递增）：刷新工作区与 cases 树缓存，避免出现陈旧节点 */
   workspaceTreeRefreshKey?: number;
+  /** 左栏当前案件。有值时「本案材料」只列这一案的目录。 */
+  explorerMatterId?: string | null;
+  /** 会议室默认展开材料，便于拖入议题。 */
+  materialsDefaultOpen?: boolean;
 };
 
 export type FileWorkbenchProps = Props;

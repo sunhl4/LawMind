@@ -14,6 +14,7 @@ import {
   persistWorkflowJob,
   processDueScheduledJobs,
   claimDueScheduledJob,
+  continueWorkflowJobsHeldOnSession,
   requestCancelWorkflowJob,
   setWorkflowJobSchedulerContext,
   subscribeWorkflowJobUpdates,
@@ -152,6 +153,85 @@ describe("lawmind-server-jobs", () => {
     expect(done?.status).toBe("failed");
     expect(done?.error).toBe("step err");
     expect(done?.result?.steps[0]?.error).toBe("step err");
+    rmTmpWorkspaceQuietly(ws);
+  });
+
+  it("continues a held workflow after the lawyer finishes that session", async () => {
+    const ws = tmpWorkspace();
+    const held = minimalWorkflow({
+      status: "awaiting_lawyer",
+      steps: [
+        {
+          stepId: "s1",
+          assignee: "a",
+          task: "起草",
+          dependsOn: [],
+          autoApprove: true,
+          status: "awaiting_lawyer",
+          sessionId: "sess-held",
+          error: "等你确认",
+        },
+        {
+          stepId: "s2",
+          assignee: "a",
+          task: "定稿",
+          dependsOn: ["s1"],
+          autoApprove: true,
+          status: "pending",
+        },
+      ],
+    });
+    const jobId = enqueueWorkflowRun(stubConfig(ws), held, { run: async () => held });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(getWorkflowJob(jobId)?.status).toBe("awaiting_lawyer");
+
+    const seen: string[] = [];
+    const continued = continueWorkflowJobsHeldOnSession("sess-held", stubConfig(ws), {
+      reply: "修订稿已写入",
+      run: async (_config, workflow) => {
+        seen.push(workflow.steps.map((step) => `${step.stepId}:${step.status}`).join(","));
+        workflow.status = "completed";
+        for (const step of workflow.steps) {
+          step.status = "completed";
+        }
+        return workflow;
+      },
+    });
+    expect(continued).toEqual([jobId]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(seen[0]).toBe("s1:completed,s2:pending");
+    expect(getWorkflowJob(jobId)?.status).toBe("completed");
+    rmTmpWorkspaceQuietly(ws);
+  });
+
+  it("does not continue an outline step until the lawyer confirms it", async () => {
+    const ws = tmpWorkspace();
+    const held = minimalWorkflow({
+      status: "awaiting_lawyer",
+      steps: [
+        {
+          stepId: "outline",
+          assignee: "a",
+          task: "等待律师确认研究大纲（research_outline_confirm）",
+          dependsOn: [],
+          autoApprove: true,
+          status: "awaiting_lawyer",
+          sessionId: "sess-outline",
+          holdForLawyer: true,
+        },
+      ],
+    });
+    const jobId = enqueueWorkflowRun(stubConfig(ws), held, { run: async () => held });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const continued = continueWorkflowJobsHeldOnSession("sess-outline", stubConfig(ws), {
+      reply: "大纲如下",
+      run: async (_config, workflow) => workflow,
+    });
+    expect(continued).toEqual([]);
+    expect(getWorkflowJob(jobId)?.status).toBe("awaiting_lawyer");
     rmTmpWorkspaceQuietly(ws);
   });
 
@@ -340,6 +420,34 @@ describe("lawmind-server-jobs", () => {
     const rec = getWorkflowJob(jobId);
     expect(rec?.status).toBe("failed");
     expect(rec?.error).toBe("interrupted_by_restart");
+    rmTmpWorkspaceQuietly(ws);
+    clearWorkflowJobsForTests();
+  });
+
+  it("keeps a third workflow queued until a running slot frees", async () => {
+    const ws = tmpWorkspace();
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ids = ["a", "b", "c"].map((workflowId) =>
+      enqueueWorkflowRun(stubConfig(ws), minimalWorkflow({ workflowId }), {
+        run: async (_c, w) => {
+          await gate;
+          return w;
+        },
+      }),
+    );
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    expect(ids.map((id) => getWorkflowJob(id)?.status)).toEqual(["running", "running", "queued"]);
+    release?.();
+    await new Promise<void>((r) => setTimeout(r, 30));
+    expect(ids.map((id) => getWorkflowJob(id)?.status)).toEqual([
+      "completed",
+      "completed",
+      "completed",
+    ]);
     rmTmpWorkspaceQuietly(ws);
     clearWorkflowJobsForTests();
   });

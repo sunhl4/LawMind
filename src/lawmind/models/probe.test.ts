@@ -35,8 +35,9 @@ describe("formatUpstreamProbeError", () => {
       model: "deepseek-flash",
       baseUrl: "https://api.deepseek.com/v1",
     });
-    expect(msg).toContain("API Key 无效");
-    expect(msg).toContain("deepseek-flash");
-    expect(msg).toContain("已填 Key");
+    expect(msg).toContain("密钥无效或已过期");
+    expect(msg).toContain("连接向导");
+    expect(msg).not.toContain("deepseek-flash");
+    expect(msg).not.toContain("http");
   });
 });

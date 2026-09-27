@@ -125,7 +125,7 @@ export function buildRevisionRetryInstruction(taskId: string): string {
 请**立即**执行：
 1. 读取当前 \`drafts/${taskId}.json\`（可用 analyze_document / search_workspace）；
 2. 按此前审核备注与补充说明修改正文；
-3. **优先**调用 \`update_draft\`（传入 task_id \`${taskId}\` 与更新后的 sections / summary / title）；若必须写整文件 JSON，再调用 \`write_document\`，\`file_path\` 必须为 \`drafts/${taskId}.json\`。
+3. 调用 \`update_draft\`（传入 task_id \`${taskId}\` 与更新后的 sections / summary / title）。不要用 \`write_document\` 改 \`drafts/\`，那条通用写入口写不进草稿账本。
 
 禁止只做文字说明；落盘成功后用一句话确认已写回。`.slice(0, 12_000);
 }

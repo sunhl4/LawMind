@@ -21,7 +21,9 @@ describe("tool governance metadata", () => {
     const registry = createLegalToolRegistry();
     const byName = new Map(listToolGovernanceMetadata(registry).map((item) => [item.name, item]));
     expect(byName.get("add_case_note")?.runtimeMode).toBe("lawyer_approved_write");
-    expect(byName.get("add_case_note")?.requiresApproval).toBe(true);
+    expect(byName.get("add_case_note")?.requiresApproval).toBe(false);
+    expect(byName.get("send_email")?.requiresApproval).toBe(true);
+    expect(byName.get("send_email")?.riskLevel).toBe("high");
     expect(byName.get("add_case_note")?.matterScope).toBe("required");
   });
 
@@ -44,7 +46,7 @@ describe("tool governance metadata", () => {
     expect(byName.get("list_templates")?.idempotent).toBe(true);
 
     expect(byName.get("set_template_enabled")?.runtimeMode).toBe("lawyer_approved_write");
-    expect(byName.get("set_template_enabled")?.requiresApproval).toBe(true);
+    expect(byName.get("set_template_enabled")?.requiresApproval).toBe(false);
     expect(byName.get("set_template_enabled")?.riskLevel).toBe("medium");
   });
 
@@ -55,7 +57,7 @@ describe("tool governance metadata", () => {
     const byName = new Map(listToolGovernanceMetadata(registry).map((item) => [item.name, item]));
 
     expect(byName.get("update_draft")?.runtimeMode).toBe("lawyer_approved_write");
-    expect(byName.get("update_draft")?.requiresApproval).toBe(true);
+    expect(byName.get("update_draft")?.requiresApproval).toBe(false);
     expect(byName.get("update_draft")?.riskLevel).toBe("medium");
   });
 });

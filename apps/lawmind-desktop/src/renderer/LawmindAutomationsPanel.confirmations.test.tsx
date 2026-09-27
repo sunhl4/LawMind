@@ -155,21 +155,30 @@ describe("LawmindAutomationsPanel 六确认与运行记录", () => {
     return host.querySelector(`[data-testid="${testId}"]`);
   }
 
+  it("keeps the written rules behind a closed disclosure", async () => {
+    await renderPanel();
+    const more = host.querySelector("details[data-testid='lm-auto-more']");
+    expect(more).not.toBeNull();
+    expect((more as HTMLDetailsElement).open).toBe(false);
+    expect(host.textContent).not.toContain("写入演示邮件");
+    expect(host.querySelector(".lm-automations-preset-card")).toBeNull();
+    expect(host.querySelector('[data-testid="lm-auto-create"]')?.textContent?.trim()).toBe("创建");
+  });
+
   it("shows the four confession fields with safe defaults preselected", async () => {
     await renderPanel();
     const fieldset = host.querySelector('[data-testid="lm-auto-confirmations"]');
     expect(fieldset).not.toBeNull();
 
     const missing = host.querySelector<HTMLSelectElement>('[data-testid="lm-auto-missing-data"]');
-    // 默认如实报失败——与引擎的 report_failure 默认同向，绝不拿旧数据顶上。
-    expect(missing?.value).toBe("report_failure");
+    // 续签模板默认先交能做到的部分，与引擎 report_partial 一致。
+    expect(missing?.value).toBe("report_partial");
 
     const notify = host.querySelector<HTMLSelectElement>('[data-testid="lm-auto-notify-policy"]');
     expect(notify?.value).toBe("on_problem");
 
-    // 文本项必须由律师自己写，不能预填。
     const expected = host.querySelector<HTMLInputElement>('[data-testid="lm-auto-expected-result"]');
-    expect(expected?.value).toBe("");
+    expect(expected?.value).toContain("即将到期");
   });
 
   it("says out loud that failures still reach the lawyer regardless of the notify choice", async () => {
@@ -208,8 +217,24 @@ describe("LawmindAutomationsPanel 六确认与运行记录", () => {
 
   it("refuses to create without the two written confirmations, and names what is missing", async () => {
     await renderPanel();
-    const buttons = [...host.querySelectorAll("button")];
-    const createBtn = buttons.find((b) => b.textContent?.includes("用所选模板创建"));
+    const clear = (testId: string) => {
+      const el = host.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`);
+      if (!el) {
+        throw new Error(`missing input ${testId}`);
+      }
+      // eslint-disable-next-line typescript/unbound-method -- 立即以 el 为 this 调用
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set as ((this: HTMLInputElement, value: string) => void) | undefined;
+      setter?.call(el, "");
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    await act(async () => {
+      clear("lm-auto-expected-result");
+      clear("lm-auto-approval-boundary");
+    });
+    const createBtn = host.querySelector<HTMLButtonElement>('[data-testid="lm-auto-create"]');
     expect(createBtn).toBeTruthy();
     await act(async () => {
       createBtn?.click();
@@ -248,9 +273,7 @@ describe("LawmindAutomationsPanel 六确认与运行记录", () => {
       typeInto("lm-auto-approval-boundary", "外发前必须问我");
     });
 
-    const createBtn = [...host.querySelectorAll("button")].find((b) =>
-      b.textContent?.includes("用所选模板创建"),
-    );
+    const createBtn = host.querySelector<HTMLButtonElement>('[data-testid="lm-auto-create"]');
     await act(async () => {
       createBtn?.click();
     });
@@ -264,7 +287,7 @@ describe("LawmindAutomationsPanel 六确认与运行记录", () => {
       matterId: "m1",
       expectedResult: "一份续签提醒清单",
       approvalBoundary: "外发前必须问我",
-      missingDataPolicy: "report_failure",
+      missingDataPolicy: "report_partial",
       notifyPolicy: "on_problem",
     });
   });

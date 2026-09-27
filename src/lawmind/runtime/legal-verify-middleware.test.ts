@@ -120,15 +120,15 @@ describe("legal-verify-middleware", () => {
     ).toBeUndefined();
   });
 
-  it("does not precheck send_email or ordinary mail", () => {
-    expect(
-      precheckOutboundMail({
-        toolName: "send_email",
-        args: { to: "x@gmail.com", subject: "催告", body: "请回复。" },
-        privilegeEnabled: true,
-        allowedOutboundDomains: ["client.com"],
-      }),
-    ).toBeUndefined();
+  it("prechecks send_email the same way as the draft", () => {
+    const blocked = precheckOutboundMail({
+      toolName: "send_email",
+      args: { to: "x@gmail.com", subject: "催告", body: "请回复。" },
+      privilegeEnabled: false,
+      allowedOutboundDomains: ["client.com"],
+    });
+    expect(blocked?.ok).toBe(false);
+    expect(blocked?.error).toContain("gmail.com");
     expect(
       precheckOutboundMail({
         toolName: "prepare_outbound_mail",

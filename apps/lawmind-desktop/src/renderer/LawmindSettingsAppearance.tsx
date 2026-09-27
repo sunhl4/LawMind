@@ -1,16 +1,13 @@
-import { useState, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import {
-  applyReducedMotionForced,
   applyUiDensity,
   applyUiFontScale,
   applyUiTheme,
-  readReducedMotionForced,
   readUiDensity,
   readUiFontScale,
   readUiTheme,
   resetDefaultPanelLayout,
   resetSidebarWidthPreference,
-  writeReducedMotionForced,
   writeUiDensity,
   writeUiFontScale,
   writeUiTheme,
@@ -18,55 +15,148 @@ import {
   type UiFontScale,
   type UiTheme,
 } from "./lawmind-ui-prefs";
-import {
-  isPrivilegeTipUiEnabled,
-  setPrivilegeTipUiEnabled,
-} from "./lawmind-privilege-tip";
+import { WordAddinDoctorGroup } from "./LawmindSettingsDoctorWordAddin";
 import {
   readAutoExportOnApprove,
   useRequireSignoffReview,
   writeAutoExportOnApprove,
   writeRequireSignoffReview,
 } from "./lawmind-review-prefs";
-import { readShowToolTrace, writeShowToolTrace } from "./lawmind-compose-prefs";
 
 type Props = {
   onPrefsChange?: () => void;
 };
 
+type SegmentOption<T extends string> = {
+  value: T;
+  label: string;
+};
+
+function SettingsSegment<T extends string>(props: {
+  label: string;
+  hint?: string;
+  hintId?: string;
+  ariaLabel: string;
+  value: T;
+  options: SegmentOption<T>[];
+  testId?: string;
+  onChange: (value: T) => void;
+}): ReactNode {
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const forward = event.key === "ArrowRight" || event.key === "ArrowDown";
+    const backward = event.key === "ArrowLeft" || event.key === "ArrowUp";
+    if (!forward && !backward) {
+      return;
+    }
+    event.preventDefault();
+    const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
+    const index = buttons.findIndex((button) => button === document.activeElement);
+    const delta = forward ? 1 : -1;
+    const next = buttons[(index + delta + buttons.length) % buttons.length];
+    next?.focus();
+    next?.click();
+  };
+
+  return (
+    <div className="lm-settings-row">
+      <span className={`lm-settings-key${props.hint ? " lm-settings-key-stack" : ""}`}>
+        {props.label}
+        {props.hint ? (
+          <span className="lm-settings-caption" id={props.hintId}>
+            {props.hint}
+          </span>
+        ) : null}
+      </span>
+      <div
+        className={`lm-settings-segment${props.options.length > 2 ? " lm-settings-segment--3" : ""}`}
+        role="radiogroup"
+        aria-label={props.ariaLabel}
+        aria-orientation="horizontal"
+        aria-describedby={props.hintId}
+        data-testid={props.testId}
+        onKeyDown={onKeyDown}
+      >
+        {props.options.map((option) => {
+          const on = props.value === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              className={`lm-settings-segment-btn${on ? " is-on" : ""}`}
+              role="radio"
+              aria-checked={on}
+              tabIndex={on ? 0 : -1}
+              onClick={() => props.onChange(option.value)}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SettingsSwitch(props: {
+  label: string;
+  hint: string;
+  checked: boolean;
+  testId: string;
+  onChange: (next: boolean) => void;
+}): ReactNode {
+  const hintId = `${props.testId}-hint`;
+  return (
+    <label className="lm-settings-row">
+      <span className="lm-settings-key lm-settings-key-stack">
+        {props.label}
+        <span className="lm-settings-caption" id={hintId}>
+          {props.hint}
+        </span>
+      </span>
+      <span className="lm-switch">
+        <input
+          type="checkbox"
+          role="switch"
+          aria-label={props.label}
+          aria-describedby={hintId}
+          aria-checked={props.checked}
+          checked={props.checked}
+          data-testid={props.testId}
+          onChange={(event) => props.onChange(event.target.checked)}
+        />
+        <span className="lm-switch-ui" aria-hidden="true" />
+      </span>
+    </label>
+  );
+}
+
 export function LawmindSettingsAppearance({ onPrefsChange }: Props): ReactNode {
-  const fontScale = readUiFontScale();
-  const density = readUiDensity();
-  const theme = readUiTheme();
-  const reducedMotion = readReducedMotionForced();
-  const [privilegeTip, setPrivilegeTip] = useState(() => isPrivilegeTipUiEnabled());
-  const [autoExport, setAutoExport] = useState(() => readAutoExportOnApprove());
+  const [fontScale, setFontScaleState] = useState(readUiFontScale);
+  const [density, setDensityState] = useState(readUiDensity);
+  const [theme, setThemeState] = useState(readUiTheme);
+  const [autoExport, setAutoExport] = useState(readAutoExportOnApprove);
   const requireSignoffReview = useRequireSignoffReview();
-  const [showToolTrace, setShowToolTrace] = useState(() => readShowToolTrace());
 
   const notify = () => onPrefsChange?.();
 
   const setFontScale = (scale: UiFontScale) => {
     writeUiFontScale(scale);
     applyUiFontScale(scale);
+    setFontScaleState(scale);
     notify();
   };
 
   const setDensity = (next: UiDensity) => {
     writeUiDensity(next);
     applyUiDensity(next);
+    setDensityState(next);
     notify();
   };
 
   const setTheme = (next: UiTheme) => {
     writeUiTheme(next);
     applyUiTheme(next);
-    notify();
-  };
-
-  const setReducedMotion = (forced: boolean) => {
-    writeReducedMotionForced(forced);
-    applyReducedMotionForced(forced);
+    setThemeState(next);
     notify();
   };
 
@@ -80,139 +170,86 @@ export function LawmindSettingsAppearance({ onPrefsChange }: Props): ReactNode {
   return (
     <div className="lm-settings-section" id="lawmind-settings-appearance">
       <div className="lm-settings-group lm-settings-surface">
-        <div className="lm-settings-row">
-          <span className="lm-settings-key">配色主题</span>
-          <select
-            className="lm-settings-val-select"
-            value={theme}
-            aria-label="配色主题"
-            data-testid="lm-ui-theme"
-            onChange={(e) => setTheme(e.target.value === "dark" ? "dark" : "light")}
-          >
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
-          </select>
-        </div>
-        <div className="lm-settings-row">
-          <span className="lm-settings-key">界面字号</span>
-          <select
-            className="lm-settings-val-select"
-            value={fontScale}
-            aria-label="界面字号"
-            onChange={(e) => setFontScale(e.target.value === "comfortable" ? "comfortable" : "default")}
-          >
-            <option value="default">标准</option>
-            <option value="comfortable">舒适</option>
-          </select>
-        </div>
-        <div className="lm-settings-row">
-          <span className="lm-settings-key">界面密度</span>
-          <select
-            className="lm-settings-val-select"
-            value={density}
-            aria-label="界面密度"
-            onChange={(e) => setDensity(e.target.value === "compact" ? "compact" : "default")}
-          >
-            <option value="default">舒适</option>
-            <option value="compact">紧凑</option>
-          </select>
-        </div>
-        <label className="lm-settings-row lm-settings-row-check">
-          <span className="lm-settings-key">减弱动效</span>
-          <input
-            type="checkbox"
-            checked={reducedMotion}
-            aria-label="减弱动效"
-            onChange={(e) => setReducedMotion(e.target.checked)}
-          />
-        </label>
+        <SettingsSegment
+          label="配色"
+          ariaLabel="配色主题"
+          testId="lm-ui-theme"
+          value={theme}
+          options={[
+            { value: "light", label: "浅色" },
+            { value: "dark", label: "深色" },
+          ]}
+          onChange={setTheme}
+        />
+        <SettingsSegment
+          label="字号"
+          hint="对话、在办、文书和设置都用这一档。"
+          hintId="lm-font-scale-hint"
+          ariaLabel="界面字号"
+          value={fontScale}
+          options={[
+            { value: "small", label: "小一点" },
+            { value: "default", label: "标准" },
+            { value: "large", label: "大一点" },
+          ]}
+          onChange={setFontScale}
+        />
+        <SettingsSegment
+          label="疏密"
+          ariaLabel="界面密度"
+          value={density}
+          options={[
+            { value: "default", label: "标准" },
+            { value: "compact", label: "紧凑" },
+          ]}
+          onChange={setDensity}
+        />
       </div>
 
       <div className="lm-settings-group lm-settings-surface" id="lawmind-settings-review-prefs">
-        <label className="lm-settings-row lm-settings-row-check">
-          <span className="lm-settings-key">审核签批审阅</span>
-          <input
-            type="checkbox"
-            checked={requireSignoffReview}
-            aria-label="审核签批审阅"
-            data-testid="lm-require-signoff-review"
-            onChange={(e) => {
-              writeRequireSignoffReview(e.target.checked);
-              notify();
-            }}
-          />
-        </label>
-        <p className="lm-settings-caption">
-          由您决定，对所有案件生效。关闭时内部起草/审查直接出结果，只有对外发信和待补充进「待我拍板」。开启后，待审稿也会回到待拍板供您通过或驳回。配置对外交办或流程时会再醒目提醒一次。
-        </p>
-        <label className="lm-settings-row lm-settings-row-check">
-          <span className="lm-settings-key">签批后自动导出 Word</span>
-          <input
-            type="checkbox"
-            checked={autoExport}
-            aria-label="签批后自动导出 Word"
-            data-testid="lm-auto-export-on-approve"
-            onChange={(e) => {
-              const next = e.target.checked;
-              writeAutoExportOnApprove(next);
-              setAutoExport(next);
-              notify();
-            }}
-          />
-        </label>
-        <p className="lm-settings-caption">未过会询问。默认开。</p>
-        <label className="lm-settings-row lm-settings-row-check">
-          <span className="lm-settings-key">展开工具轨迹</span>
-          <input
-            type="checkbox"
-            checked={showToolTrace}
-            aria-label="展开工具轨迹"
-            data-testid="lm-show-tool-trace"
-            onChange={(e) => {
-              const next = e.target.checked;
-              writeShowToolTrace(next);
-              setShowToolTrace(next);
-              notify();
-            }}
-          />
-        </label>
-        <p className="lm-settings-caption">
-          对话默认只留一行过程摘要。打开后展开步骤；完整办理过程在「在办」。
-        </p>
+        <SettingsSwitch
+          label="待审稿进待拍板"
+          hint="打开后，内部稿也要您通过或驳回。"
+          checked={requireSignoffReview}
+          testId="lm-require-signoff-review"
+          onChange={(next) => {
+            writeRequireSignoffReview(next);
+            notify();
+          }}
+        />
+        <SettingsSwitch
+          label="通过后生成 Word"
+          hint="通过审阅后直接生成，不必再导出一次。"
+          checked={autoExport}
+          testId="lm-auto-export-on-approve"
+          onChange={(next) => {
+            writeAutoExportOnApprove(next);
+            setAutoExport(next);
+            notify();
+          }}
+        />
       </div>
 
       <div className="lm-settings-group lm-settings-surface">
-        <div className="lm-settings-row lm-settings-row-actions">
-          <span className="lm-settings-key">面板布局</span>
-          <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={resetLayout}>
+        <div className="lm-settings-row">
+          <span className="lm-settings-key lm-settings-key-stack">
+            版面
+            <span className="lm-settings-caption" id="lm-appearance-layout-hint">
+              侧栏和分栏回到最初的样子，窗口会重开一次。
+            </span>
+          </span>
+          <button
+            type="button"
+            className="lm-btn lm-btn-secondary lm-btn-sm"
+            aria-describedby="lm-appearance-layout-hint"
+            onClick={resetLayout}
+          >
             恢复默认
           </button>
         </div>
-        <p className="lm-settings-caption">重置侧栏与面板，并刷新页面。</p>
       </div>
 
-      <details className="lm-settings-advanced">
-        <summary>
-          <span className="lm-settings-advanced__label">更多</span>
-          <span className="lm-settings-advanced__hint">特权提示</span>
-        </summary>
-        <div className="lm-settings-advanced-body">
-          <label className="lm-settings-row lm-settings-row-check">
-            <span className="lm-settings-key">发送前特权提示</span>
-            <input
-              type="checkbox"
-              checked={privilegeTip}
-              aria-label="发送前特权保密提示"
-              data-testid="lm-privilege-tip-pref"
-              onChange={(e) => {
-                setPrivilegeTipUiEnabled(e.target.checked);
-                setPrivilegeTip(e.target.checked);
-                notify();
-              }}
-            />
-          </label>
-        </div>
-      </details>
+      <WordAddinDoctorGroup />
     </div>
   );
 }

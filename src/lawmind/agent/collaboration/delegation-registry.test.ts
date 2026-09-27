@@ -114,7 +114,7 @@ describe("delegation-registry", () => {
       depth: 99,
       policy: { maxDelegationDepth: 2, maxActiveDelegationsPerAssistant: 5, allowedPairs: [] },
     });
-    expect(depthFail).toMatch(/depth/i);
+    expect(depthFail).toContain("上限是 2 层");
 
     cancelDelegation(workspaceDir, rec.delegationId, "user abort");
     expect(getDelegation(rec.delegationId)?.status).toBe("cancelled");

@@ -38,12 +38,7 @@ export {
   type GuardianVerdict,
 } from "./types.js";
 
-const HUNK_CAP = 32;
-const SECTION_CAP = 12;
-const ISSUE_CAP = 8;
-const CHECKLIST_CAP = 16;
-const CITATION_CAP = 16;
-const ANSWER_CAP = 12;
+/** 单条文字截断，避免一条超长段落撑爆窗口。不按条数丢掉修订、章节或核对项。 */
 /** Clause-length clips — not a 80-char starve. Sidecar envelope can hold this. */
 const CLIP_SPAN = 400;
 const CLIP_ANCHOR = 320;
@@ -75,6 +70,16 @@ export function isLegalGuardianEnabled(env: NodeJS.ProcessEnv = process.env): bo
     return false;
   }
   return true;
+}
+
+/** 全文指纹，不依赖 Node。截断进提示词的正文变了，哈希也会变。 */
+export function fingerprintText(text: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
 }
 
 export function clipGuardianText(text: string, max: number): string {
@@ -187,8 +192,22 @@ export function resolveGuardianTrackedRedlinePosture(input?: {
     : "advisory";
 }
 
-export function guardianBlocksExport(record: Pick<GuardianRecord, "verdict">): boolean {
-  return record.verdict === "fail";
+export function guardianBlocksExport(
+  record: Pick<GuardianRecord, "verdict"> & { gaps?: readonly GuardianGap[] },
+): boolean {
+  if (record.verdict !== "fail") {
+    return false;
+  }
+  const gaps = record.gaps ?? [];
+  // 只有提示备注，或轮次上限是被这些备注耗尽的：备注可见，但不挡 Word。
+  // 夹着未覆盖、缺答等实质缺口时仍然拦截。
+  if (
+    gaps.length > 0 &&
+    gaps.every((gap) => gap.code === "checklist_note" || gap.code === "guardian_exhausted")
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function buildGuardianEvidencePack(input: {
@@ -209,7 +228,7 @@ export function buildGuardianEvidencePack(input: {
   const action: GuardianAction = input.action ?? "render_tracked_draft";
   const allowEmptyRedline = input.allowEmptyRedline === true;
   const liveHunks = (input.hunks ?? []).filter((h) => h.status !== "rejected");
-  const hunks: GuardianHunkEvidence[] = liveHunks.slice(0, HUNK_CAP).map((h) => {
+  const hunks: GuardianHunkEvidence[] = liveHunks.map((h) => {
     const body = sectionBody(input.draft, h.sectionIndex);
     const needle = h.after || h.before;
     return {
@@ -236,7 +255,7 @@ export function buildGuardianEvidencePack(input: {
   }
   const citations: GuardianCitationEvidence[] = [];
   const bundleSources = input.bundle?.sources ?? [];
-  for (const src of bundleSources.slice(0, CITATION_CAP)) {
+  for (const src of bundleSources) {
     citations.push({
       id: src.id,
       title: clipGuardianText(src.title, 80),
@@ -248,15 +267,11 @@ export function buildGuardianEvidencePack(input: {
     if (citations.some((c) => c.id === id)) {
       continue;
     }
-    if (citations.length >= CITATION_CAP) {
-      break;
-    }
     citations.push({ id, usedInHeadings: headings });
   }
 
   const answers = Object.entries(input.confirmedAnswers ?? {})
     .filter(([k, v]) => k.trim() && v.trim() && !k.startsWith("__"))
-    .slice(0, ANSWER_CAP)
     .map(([key, value]) => ({
       key: clipGuardianText(key, 40),
       value: clipGuardianText(value, 80),
@@ -265,32 +280,34 @@ export function buildGuardianEvidencePack(input: {
   const citationView = input.citation;
   const citationOk = citationView?.checked === true ? citationView.ok : undefined;
   const citationMissing =
-    citationView?.checked === true ? citationView.missingSourceIds.slice(0, 8) : undefined;
+    citationView?.checked === true ? citationView.missingSourceIds : undefined;
 
   const prior = input.prior
     ? {
         round: input.prior.round,
         verdict: input.prior.verdict,
-        gaps: input.prior.gaps.slice(0, 8),
+        gaps: input.prior.gaps,
       }
     : null;
 
   const sections: GuardianSectionEvidence[] =
     action === "render_document"
-      ? input.draft.sections.slice(0, SECTION_CAP).map((sec) => ({
-          heading: clipGuardianText(sec.heading || "节", 40),
-          body: clipGuardianText(sec.body ?? "", CLIP_SECTION),
-          citations: (sec.citations ?? []).slice(0, 6).map((id) => id),
-        }))
+      ? input.draft.sections.map((sec) => {
+          const full = sec.body ?? "";
+          return {
+            heading: clipGuardianText(sec.heading || "节", 40),
+            body: clipGuardianText(full, CLIP_SECTION),
+            bodyFingerprint: fingerprintText(full),
+            citations: (sec.citations ?? []).slice(0, 6).map((id) => id),
+          };
+        })
       : [];
 
-  const issues: GuardianIssueEvidence[] = (input.graph?.issueTree ?? [])
-    .slice(0, ISSUE_CAP)
-    .map((node) => ({
-      issue: clipGuardianText(node.issue, 80),
-      authorityIds: (node.authorityIds ?? []).slice(0, 6).map((id) => id),
-      openQuestions: (node.openQuestions ?? []).slice(0, 3).map((q) => clipGuardianText(q, 60)),
-    }));
+  const issues: GuardianIssueEvidence[] = (input.graph?.issueTree ?? []).map((node) => ({
+    issue: clipGuardianText(node.issue, 80),
+    authorityIds: (node.authorityIds ?? []).slice(0, 6).map((id) => id),
+    openQuestions: (node.openQuestions ?? []).slice(0, 3).map((q) => clipGuardianText(q, 60)),
+  }));
 
   return {
     action,
@@ -308,7 +325,7 @@ export function buildGuardianEvidencePack(input: {
     checklist: {
       ...(input.checklist?.family ? { family: input.checklist.family } : {}),
       ...(input.checklist?.stance ? { stance: input.checklist.stance } : {}),
-      items: (input.checklist?.items ?? []).slice(0, CHECKLIST_CAP),
+      items: input.checklist?.items ?? [],
     },
     gates: {
       ...(action === "render_tracked_draft"
@@ -331,7 +348,6 @@ export function buildGuardianEvidencePack(input: {
     },
     writerDeferredClaims: (input.writerDeferred ?? [])
       .filter((row) => row.issue?.trim() || row.reason?.trim())
-      .slice(0, 12)
       .map((row) => ({
         ...(row.issue ? { issue: clipGuardianText(row.issue, 80) } : {}),
         ...(row.reason ? { reason: clipGuardianText(row.reason, 80) } : {}),
@@ -546,8 +562,8 @@ export type GuardianMachineVerdict = {
  *
  * 1. 任一 checklist 项 `supported: false` → fail，该项产生一条 gap。
  * 2. 任一 checklist 项**未被回答** → fail（缺答不等于通过）。
- * 3. 任一 checklist 项 `note` 非空但 `supported: true` → 保留为 info 级缺口
- *    （模型写了备注却判通过，通常是它想提示但仍认为达标；保留可见性）。
+ * 3. 任一 checklist 项 `note` 非空但 `supported: true` → 记为可见提示（`checklist_note`），
+ *    不因此把总判打成 fail，也不挡导出。未覆盖、缺答、编造项、全文缺口仍 fail。
  * 4. 模型给出证据包里不存在的 item id → fail（防编造）。
  * 5. `summaryGaps` 非空 → fail（全文级缺口）。
  * 6. 以上都不成立 → pass。
@@ -695,9 +711,11 @@ export function aggregateGuardianItems(input: {
 
   gaps.push(...input.summaryGaps);
 
+  const visible = dedupeGaps(gaps);
+  const blocking = visible.filter((gap) => gap.code !== "checklist_note");
   return {
-    verdict: gaps.length > 0 ? "fail" : "pass",
-    gaps: dedupeGaps(gaps),
+    verdict: blocking.length > 0 ? "fail" : "pass",
+    gaps: visible,
     itemVerdicts: [...answered.values()],
     unknownItemIds,
     machineVerdicts,
@@ -904,8 +922,13 @@ export function formatGuardianFailMessage(view: GuardianLawyerView): string {
   const lines = [
     `独立审稿未过（第 ${view.round}/${view.maxRounds} 轮）。请按缺口补改或补缓办后重交本次导出。不要改审稿措辞来讨好。`,
   ];
-  for (const gap of view.gaps.slice(0, 8)) {
+  for (const gap of view.gaps) {
     lines.push(`- [${gap.code}] ${gap.message}`);
+  }
+  if (view.skipReason === "unchanged_evidence") {
+    lines.push(
+      "稿没有变化，沿用的是上次审稿结论，不是新的未覆盖。不要为了同一条结论改出另一套章节。",
+    );
   }
   if (view.round >= view.maxRounds) {
     lines.push("已达审稿轮次上限。请把残留缺口交给律师定夺，不要继续改稿讨好审稿员。");

@@ -6,6 +6,7 @@ import {
   formatClarificationPromptSummary,
   formatClarificationReply,
   getPendingClarificationState,
+  turnInboxAck,
   isFetchAbortError,
   lastAssistantRuntimeHints,
   removeAssistantChatState,
@@ -20,7 +21,7 @@ function fetchInputUrl(input: unknown): string {
     return input.href;
   }
   if (typeof input === "object" && input !== null && "url" in input) {
-    return String((input as { url: string }).url);
+    return (input as { url: string }).url;
   }
   return JSON.stringify(input);
 }
@@ -460,6 +461,14 @@ describe("lawmind-chat", () => {
         getPendingClarificationState([{ role: "assistant", text: "done", status: "completed" }]),
       ).toEqual({ pending: false, count: 0, assistantMessageIndex: -1 });
     });
+  });
+
+  it("tells the lawyer when a mid-turn note or pin landed", () => {
+    expect(turnInboxAck({ kind: "steer" })).toContain("已带入本轮");
+    expect(turnInboxAck({ kind: "steer", dropped: 2 })).toContain("较早的补充");
+    expect(turnInboxAck({ kind: "steer", truncated: true })).toContain("截断");
+    expect(turnInboxAck({ kind: "pins", dropped: 1 })).toContain("钉选");
+    expect(turnInboxAck({ kind: "steer", failed: true })).toContain("再发一次");
   });
 
   it("removes assistant-specific session state", () => {

@@ -539,7 +539,7 @@ Caller still opens the lawyer queue; title should mention 互审 when applied.
 | ⑤    | 互审对象查不到       | `no_peer`     |
 | ⑥    | 出异常               | `error`       |
 
-**每种都会记审计 `draft.peer_review_skipped`**，`detail` 里带 reason（③⑤ 还带 `authorId`，⑤ 额外带 `peerId`）。所以事后能查清「这份稿为什么没互审」。
+`no_author`、`no_peer`、`self_peer` 会记审计 `draft.peer_review_skipped`。`edition_off` 和 `error` 只返回原因，不写这条审计。
 
 ### 派发时的三件事
 
@@ -1034,6 +1034,8 @@ local_counsel → resource_plan → stakeholder_comms → issuance_list
 
 `templates/index.ts`（**无头部注释**）管两个来源：内置与上传。
 
+**上传已退役**：路由侧 `POST /api/templates/scan|register|enabled` 与 `DELETE /api/templates/uploaded` 一律 405（`lawmind-server-route-templates.ts`），工具侧 `register_template` / `set_template_enabled` 保留名字但调用一律拒绝（`engine-template-tools.ts`：「保留工具名以免旧会话报『未知工具』」）。下面 `registerUploadedTemplate` 的校验链仍留在代码里，供已上传旧模板的注册表读取与渲染兼容（`resolveTemplateForDraft` 仍会按注册表找旧上传模板），但产品路径已没有入口能调到它。
+
 ### 十个内置模板
 
 | id                               | 格式 | 标签                     | 变体                | 分类       |
@@ -1112,7 +1114,7 @@ PLACEHOLDER_RE = /\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g
 XML_PARTS = /^(word\/document\.xml|word\/(header|footer|endnotes|footnotes|comments)\d*\.xml)$/
 ```
 
-**占位符名的规则**：以字母开头，后接字母/数字/下划线。**所以 `{{甲方名称}}` 不支持**——中文占位符扫不到。
+**占位符名的规则**：以字母开头，后接字母/数字/下划线。**所以 &#123;&#123;甲方名称&#125;&#125; 不支持**——中文占位符扫不到。
 
 **扫描范围只有六类 XML 部件**：正文、页眉、页脚、尾注、脚注、批注。其他 zip 条目跳过。
 
@@ -1122,7 +1124,7 @@ XML_PARTS = /^(word\/document\.xml|word\/(header|footer|endnotes|footnotes|comme
 占位符需与 Word 中连续文本一致（同一段 w:t 内最稳妥）。
 ```
 
-**为什么**：Word 会把一段文字拆成多个 `w:t` 节点（比如改过格式之后）。跨节点的 `{{name}}` 在 XML 里是 `{{na` + `me}}`，正则匹配不到。
+**为什么**：Word 会把一段文字拆成多个 `w:t` 节点（比如改过格式之后）。跨节点的 &#123;&#123;name&#125;&#125; 在 XML 里会被拆成 &#123;&#123;na 与 me&#125;&#125; 两段，正则匹配不到。
 
 **这是一个必须让律师知道的限制**——否则他会遇到「明明写了占位符却填不进去」。
 

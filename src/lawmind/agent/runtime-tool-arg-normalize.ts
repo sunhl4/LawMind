@@ -32,22 +32,18 @@ export function normalizeToolCallArguments(call: ToolCallContext): void {
       }
     }
     if (args.file_path === undefined && typeof args.content === "string") {
-      const linked = call.ctx.linkedTaskId?.trim();
-      if (linked) {
-        args.file_path = `drafts/${linked}.json`;
-      } else {
-        const located = resolveDefaultDeliverableLocation({
-          workspaceDir: call.ctx.workspaceDir,
-          matterId: call.ctx.matterId,
-          title: "工作笔记",
-          extension: ".md",
-          kind: "note",
-        });
-        if (located.ok && isPathInsideRoot(call.ctx.workspaceDir, located.planned.outputPath)) {
-          args.file_path = path
-            .relative(call.ctx.workspaceDir, located.planned.outputPath)
-            .replace(/\\/g, "/");
-        }
+      // 关联草稿也不得默认写 drafts/<taskId>.json：那是 commitDraft 的账本。
+      const located = resolveDefaultDeliverableLocation({
+        workspaceDir: call.ctx.workspaceDir,
+        matterId: call.ctx.matterId,
+        title: "工作笔记",
+        extension: ".md",
+        kind: "note",
+      });
+      if (located.ok && isPathInsideRoot(call.ctx.workspaceDir, located.planned.outputPath)) {
+        args.file_path = path
+          .relative(call.ctx.workspaceDir, located.planned.outputPath)
+          .replace(/\\/g, "/");
       }
     }
   }

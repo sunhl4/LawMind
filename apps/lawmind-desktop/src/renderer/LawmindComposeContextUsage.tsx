@@ -1,11 +1,9 @@
 /**
- * Cursor-style context usage ring on the compose model row.
- * Click → token detail（原始窗口 / 可用 / 自动整理线 + 分层用量）+ 整理上下文 / 沉淀知识库 / 记忆检查.
+ * 对话变长时，在输入栏给律师一个安静的入口。
  *
- * 与主流（Codex `/status`、Cursor context breakdown）对齐的三件事：
- * - 圆环**常驻**，不是只在告警时才出现；
- * - 面板给出「原始窗口 / 可用窗口 / 自动整理线」三元组，律师能把界面数字和模型对上；
- * - 分层用量（律师发言 / 工具回包 / 钉选材料 / 本轮清单 / 系统规则……），而不是一个笼统的「额度」。
+ * 用量桶、模型窗口和额度数字留在引擎里（见 `context-budget.ts`），不进律师面。
+ * 对话还短、也没整理过时，这个控件不出现：助手会在回合里自己整理并继续办。
+ * 变长或已经整理过，才让律师选择「整理这场对话」或「另开一段」。
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -73,40 +71,23 @@ export type LawmindComposeContextUsageProps = {
   disabled?: boolean;
 };
 
-/** 分层用量标签。顺序与引擎 `TOKEN_BUDGET_BUCKET_ORDER` 一致（律师侧 → 系统侧）。 */
-const BREAKDOWN_LABELS: Record<string, string> = {
-  lawyer: "律师发言",
-  assistant: "助手回复",
-  toolResults: "工具回包",
-  digest: "压缩摘要",
-  turnContext: "本轮上下文",
-  pins: "钉选材料",
-  plan: "本轮清单",
-  craft: "改稿手艺",
-  workspace: "交付与案件设置",
-  rules: "系统规则",
-};
-
-function breakdownLabel(id: string): string {
-  return BREAKDOWN_LABELS[id] ?? id;
+/** 短对话不打扰。变长，或已经整理过，律师才需要这个入口。 */
+export function shouldShowConversationLengthControl(
+  budget: ComposeContextBudget | null | undefined,
+): boolean {
+  if (!budget || budget.effectiveLimit <= 0) {
+    return false;
+  }
+  if (budget.level === "warn" || budget.level === "compact") {
+    return true;
+  }
+  if ((budget.compactCount ?? 0) > 0) {
+    return true;
+  }
+  return Boolean(budget.lastCompact);
 }
 
-function formatTokenCount(n: number): string {
-  if (!Number.isFinite(n) || n < 0) {
-    return "0";
-  }
-  if (n >= 10_000) {
-    return `${Math.round(n / 1000)}k`;
-  }
-  if (n >= 1000) {
-    const k = n / 1000;
-    const s = k.toFixed(1);
-    return `${s.endsWith(".0") ? s.slice(0, -2) : s}k`;
-  }
-  return String(Math.round(n));
-}
-
-function ringTone(level: string): "ok" | "warn" | "danger" {
+function lengthTone(level: string): "ok" | "warn" | "danger" {
   if (level === "compact") {
     return "danger";
   }
@@ -116,14 +97,27 @@ function ringTone(level: string): "ok" | "warn" | "danger" {
   return "ok";
 }
 
-function levelSuffix(level: string): string {
+function lengthLabel(level: string, compactCount: number): string {
   if (level === "compact") {
-    return " · 已达自动整理线";
+    return "对话已很长";
   }
   if (level === "warn") {
-    return " · 接近自动整理线，可整理";
+    return "对话较长";
   }
-  return "";
+  if (compactCount > 0) {
+    return "已整理过";
+  }
+  return "这场对话";
+}
+
+function statusCopy(level: string): string {
+  if (level === "compact") {
+    return "这场对话已经很长。助手会自己整理并继续办，不用你计算用量。";
+  }
+  if (level === "warn") {
+    return "这场对话开始变长。需要整理时，助手会自己收一收并继续办。";
+  }
+  return "助手已经整理过这场对话。稿子和案件材料都还在。";
 }
 
 function formatCompactAt(iso: string | undefined): string | undefined {
@@ -144,12 +138,6 @@ function formatCompactAt(iso: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function visibleBuckets(
-  buckets: ComposeContextBreakdownBucket[] | undefined,
-): ComposeContextBreakdownBucket[] {
-  return (buckets ?? []).filter((b) => b.tokens > 0);
 }
 
 export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProps): ReactNode {
@@ -204,23 +192,14 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
     };
   }, [open, confirm]);
 
-  if (!budget || budget.effectiveLimit <= 0) {
+  if (!budget || !shouldShowConversationLengthControl(budget)) {
     return null;
   }
 
-  const pct = Math.min(100, Math.max(0, (budget.used / budget.effectiveLimit) * 100));
-  const tone = ringTone(budget.level);
-  const r = 7;
-  const c = 2 * Math.PI * r;
-  const dash = (pct / 100) * c;
-
-  const buckets = visibleBuckets(budget.breakdown);
-  const breakdownTotal = buckets.reduce((n, b) => n + b.tokens, 0);
-  const win = budget.window;
-  const midTurnLine = win?.midTurnCompactLimit;
-  const rows = budget.breakdown ?? [];
+  const tone = lengthTone(budget.level);
   const lastCompactAt = formatCompactAt(budget.lastCompact?.at);
   const compactCount = budget.compactCount ?? 0;
+  const triggerLabel = lengthLabel(budget.level, compactCount);
 
   const beginAction = async (kind: "compact" | "distill") => {
     if (!onPreviewCompact) {
@@ -253,15 +232,33 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
     }
   };
 
+  const confirmCopy = (() => {
+    if (!confirm) {
+      return "";
+    }
+    const preview = confirm.preview;
+    if (preview?.compacted) {
+      const count =
+        preview.droppedMessageCount > 0
+          ? `较早的约 ${preview.droppedMessageCount} 条来回`
+          : "较早的来回";
+      return `会把${count}收成要点。当前稿子不动。`;
+    }
+    if (confirm.kind === "distill") {
+      return "这场对话还不需要整理。仍可以把已经说清的习惯交给你确认。";
+    }
+    return "这场对话还不需要整理。";
+  })();
+
   return (
     <div className="lm-compose-ctx-usage" ref={rootRef} data-testid="lm-compose-ctx-usage">
       <button
         type="button"
         className={`lm-compose-ctx-usage-trigger lm-compose-ctx-usage-trigger--${tone}`}
-        aria-label={`上下文约 ${budget.used} / ${budget.effectiveLimit} 额度，打开用量与整理`}
+        aria-label={`${triggerLabel}，打开整理或另开一段`}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title="上下文用量 · 点击整理或沉淀"
+        title="整理这场对话，或另开一段"
         disabled={disabled}
         data-testid="lm-compose-token-bar"
         onClick={() => {
@@ -269,22 +266,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
           setConfirm(null);
         }}
       >
-        <svg className="lm-compose-ctx-ring" width="18" height="18" viewBox="0 0 18 18" aria-hidden>
-          <circle className="lm-compose-ctx-ring-track" cx="9" cy="9" r={r} fill="none" />
-          <circle
-            className="lm-compose-ctx-ring-fill"
-            cx="9"
-            cy="9"
-            r={r}
-            fill="none"
-            strokeDasharray={`${dash} ${c}`}
-            strokeDashoffset={c * 0.25}
-            transform="rotate(-90 9 9)"
-          />
-        </svg>
-        <span className="lm-compose-ctx-usage-frac">
-          {formatTokenCount(budget.used)}/{formatTokenCount(budget.effectiveLimit)}
-        </span>
+        <span className="lm-compose-ctx-usage-frac">{triggerLabel}</span>
       </button>
 
       {open ? (
@@ -295,22 +277,8 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
           data-testid="lm-compose-ctx-usage-panel"
         >
           <header className="lm-compose-ctx-usage-head">
-            <h3 id={titleId}>上下文用量</h3>
-            <p className="lm-meta">
-              约 {budget.used.toLocaleString("zh-CN")} / {budget.effectiveLimit.toLocaleString("zh-CN")}{" "}
-              可用额度（{Math.round(pct)}%）
-              {levelSuffix(budget.level)}
-            </p>
-            {win ? (
-              <p className="lm-meta lm-compose-ctx-usage-window" data-testid="lm-compose-ctx-window">
-                模型窗口 {formatTokenCount(win.contextTokens)} · 可用{" "}
-                {formatTokenCount(win.usableLimit)}
-                {typeof midTurnLine === "number"
-                  ? ` · 自动整理线 ${formatTokenCount(midTurnLine)}`
-                  : ""}
-                {budget.modelId ? ` · ${budget.modelId}` : ""}
-              </p>
-            ) : null}
+            <h3 id={titleId}>这场对话</h3>
+            <p className="lm-meta">{statusCopy(budget.level)}</p>
             {compactHint ? (
               <p className="lm-meta lm-compose-ctx-usage-hint" role="status">
                 {compactHint}
@@ -318,72 +286,23 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
             ) : null}
           </header>
 
-          <div className="lm-compose-ctx-usage-meter" aria-hidden>
-            <div
-              className={`lm-compose-ctx-usage-meter-fill lm-compose-ctx-usage-meter-fill--${tone}`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-
-          {buckets.length > 0 ? (
-            <div className="lm-compose-ctx-usage-breakdown" data-testid="lm-compose-ctx-breakdown">
-              <div className="lm-compose-ctx-usage-breakdown-bar" aria-hidden>
-                {buckets.map((b) => (
-                  <span
-                    key={b.id}
-                    className={`lm-compose-ctx-usage-seg lm-compose-ctx-usage-seg--${b.id}`}
-                    style={{ width: `${breakdownTotal > 0 ? (b.tokens / breakdownTotal) * 100 : 0}%` }}
-                  />
-                ))}
-              </div>
-              <ul className="lm-compose-ctx-usage-breakdown-list">
-                {rows
-                  .filter((b) => b.tokens > 0)
-                  .map((b) => (
-                    <li key={b.id} className="lm-compose-ctx-usage-breakdown-row">
-                      <span
-                        className={`lm-compose-ctx-usage-dot lm-compose-ctx-usage-dot--${b.id}`}
-                        aria-hidden
-                      />
-                      <span className="lm-compose-ctx-usage-breakdown-label">
-                        {breakdownLabel(b.id)}
-                      </span>
-                      <span className="lm-compose-ctx-usage-breakdown-tokens">
-                        {formatTokenCount(b.tokens)}
-                      </span>
-                    </li>
-                  ))}
-              </ul>
-            </div>
-          ) : null}
-
           {lastCompactAt || compactCount > 0 ? (
             <p className="lm-meta lm-compose-ctx-usage-lastcompact" data-testid="lm-compose-ctx-last-compact">
-              {compactCount > 0 ? `本对话已整理 ${compactCount} 次` : "本对话已整理过"}
+              {compactCount > 0 ? `已经整理过 ${compactCount} 次` : "已经整理过"}
               {lastCompactAt ? `，最近 ${lastCompactAt}` : ""}
-              {budget.lastCompact?.midTurn ? "（回合内自动整理，未中断）" : ""}
+              {budget.lastCompact?.midTurn ? "，当时没有打断你" : ""}
             </p>
           ) : null}
 
           {compactCount > 0 ? (
             <p className="lm-meta lm-compose-ctx-usage-honesty">
-              同一对话反复整理会让引用与细节更容易漏检；长任务更适合另起新对话并把整理稿带过去。
+              若后面发现引用或细节开始漏，可以另开一段，把已经理清的内容带过去。
             </p>
           ) : null}
 
           {confirm ? (
             <div className="lm-compose-ctx-usage-confirm" data-testid="lm-compose-compact-confirm">
-              <p className="lm-meta">
-                {confirm.preview?.compacted
-                  ? `预计移除约 ${confirm.preview.droppedMessageCount} 条消息（约 ${confirm.preview.estimatedDroppedTokens.toLocaleString("zh-CN")} 额度）${
-                      confirm.preview.useLlmDigestAvailable
-                        ? "；将尝试智能连贯摘要（失败则回退要点提取）"
-                        : "；使用要点提取"
-                    }。`
-                  : confirm.kind === "distill"
-                    ? "当前无需压缩；仍可从现有对话沉淀偏好/案件要点到记忆检查。"
-                    : "当前无需压缩。"}
-              </p>
+              <p className="lm-meta">{confirmCopy}</p>
               <div className="lm-compose-ctx-usage-confirm-actions">
                 <button
                   type="button"
@@ -393,7 +312,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                   onClick={confirmAction}
                 >
                   <span className="lm-compose-ctx-usage-action-title">
-                    {confirm.kind === "distill" ? "确认沉淀" : "确认整理"}
+                    {confirm.kind === "distill" ? "确认记住" : "确认整理"}
                   </span>
                 </button>
                 <button
@@ -418,9 +337,9 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                   onClick={() => void beginAction("compact")}
                 >
                   <span className="lm-compose-ctx-usage-action-title">
-                    {compactBusy || previewBusy ? "整理中…" : "整理上下文"}
+                    {compactBusy || previewBusy ? "整理中…" : "整理这场对话"}
                   </span>
-                  <span className="lm-meta">压缩对话</span>
+                  <span className="lm-meta">把较早的来回收成要点，当前稿子不动</span>
                 </button>
               </li>
               <li>
@@ -431,8 +350,8 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                   disabled={compactBusy || previewBusy || disabled}
                   onClick={() => void beginAction("distill")}
                 >
-                  <span className="lm-compose-ctx-usage-action-title">整理并沉淀</span>
-                  <span className="lm-meta">压缩并沉淀</span>
+                  <span className="lm-compose-ctx-usage-action-title">整理并记住要点</span>
+                  <span className="lm-meta">可复用的习惯要你确认才会记住</span>
                 </button>
               </li>
               {onForkWithCarryover ? (
@@ -450,7 +369,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                     <span className="lm-compose-ctx-usage-action-title">
                       {forkBusy ? "正在带过去…" : "另起新对话（带上文）"}
                     </span>
-                    <span className="lm-meta">整理稿带进新对话；草稿与案件档案留在原处</span>
+                    <span className="lm-meta">已理清的内容带过去；稿子和案件材料留在本案</span>
                   </button>
                 </li>
               ) : null}
@@ -467,7 +386,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                     }}
                   >
                     <span className="lm-compose-ctx-usage-action-title">让助手记住</span>
-                    <span className="lm-meta">写入记忆</span>
+                    <span className="lm-meta">打开记忆，由你决定记什么</span>
                   </button>
                 </li>
               ) : null}

@@ -2,7 +2,8 @@
  * Workspace-wide pending tool_approval items (ProWorkBench-style approval queue).
  */
 
-import { listSessions } from "../agent/session.js";
+import { listSessionsForDesk } from "../agent/session.js";
+import type { AgentSession } from "../agent/types.js";
 import type { LawMindRequiresAction } from "./requires-action.js";
 
 export type PendingToolApprovalItem = {
@@ -18,11 +19,12 @@ export type PendingToolApprovalItem = {
 
 export function listPendingToolApprovals(
   workspaceDir: string,
-  opts?: { matterId?: string },
+  opts?: { matterId?: string; sessions?: readonly AgentSession[] },
 ): PendingToolApprovalItem[] {
   const mid = opts?.matterId?.trim();
+  const sessions = opts?.sessions ?? listSessionsForDesk(workspaceDir);
   const out: PendingToolApprovalItem[] = [];
-  for (const session of listSessions(workspaceDir)) {
+  for (const session of sessions) {
     if (mid && session.matterId !== mid) {
       continue;
     }

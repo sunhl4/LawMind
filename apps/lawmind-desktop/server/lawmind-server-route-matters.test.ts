@@ -701,6 +701,66 @@ describe("lawmind-server-route-matters", () => {
       expect(j.matterId).toBe(matterId);
       expect(j.summary).toBeTruthy();
       expect(Array.isArray(j.tasks)).toBe(true);
+      expect(j.auditEvents).toEqual([]);
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("GET /api/matters/:id/audit-tail returns task-scoped events", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matters-audit-tail-"));
+    try {
+      const matterId = "audit-tail-1";
+      const taskId = "task-audit-1";
+      await fs.mkdir(path.join(ws, "tasks"), { recursive: true });
+      await fs.mkdir(path.join(ws, "audit"), { recursive: true });
+      await fs.writeFile(
+        path.join(ws, "tasks", `${taskId}.json`),
+        JSON.stringify({
+          taskId,
+          matterId,
+          status: "created",
+          summary: "t",
+          title: "t",
+          riskLevel: "low",
+          requiresConfirmation: false,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        }),
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(ws, "audit", "2026-01-02.jsonl"),
+        JSON.stringify({
+          eventId: "e1",
+          taskId,
+          kind: "task.created",
+          actor: "system",
+          timestamp: "2026-01-02T00:00:00.000Z",
+          detail: "created",
+        }) + "\n",
+        "utf8",
+      );
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      await handleMatterRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res: capture.res,
+        url: new URL(`http://127.0.0.1/api/matters/${matterId}/audit-tail?limit=80`),
+        pathname: `/api/matters/${matterId}/audit-tail`,
+        c: {},
+      });
+      expect(capture.status).toBe(200);
+      const j = capture.json();
+      expect(j.ok).toBe(true);
+      expect(j.auditEvents).toHaveLength(1);
+      expect(j.auditEvents[0].taskId).toBe(taskId);
     } finally {
       await fs.rm(ws, { recursive: true, force: true });
     }

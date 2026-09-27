@@ -63,7 +63,8 @@ LawMind 反复声明它的分层口径是「机械事实 ≠ 法律判断」（`
 
 ### 2.2 用一次完整 LLM 调用做分类
 
-```110:118:src/lawmind/router/model-route.ts
+```typescript
+// src/lawmind/router/model-route.ts:110-118
 export async function routeWithModel(
   input: RouteInput,
   cfg: OpenAiJsonClientConfig,
@@ -80,7 +81,8 @@ export async function routeWithModel(
 
 `guardian/legal-guardian.ts` 用**独立会话 × 最多 2 轮 × 完整证据包**，判的是：
 
-```487:487:src/lawmind/guardian/legal-guardian.ts
+```typescript
+// src/lawmind/guardian/legal-guardian.ts:487
       '只输出一个 JSON 对象，不要分析过程，不要 markdown 围栏：{"verdict":"pass"|"fail","gaps":[{"code":"snake_case","message":"中文缺口","evidenceRef":"可选"}]}',
 ```
 
@@ -100,11 +102,12 @@ export async function routeWithModel(
 
 现状（复核后）：`toolRequiresExplicitApproval`（`agent/dangerous-tool-policy.ts:60`）第一件事就是
 
-```66:69:src/lawmind/agent/dangerous-tool-policy.ts
-  const { toolName, allowDangerousToolsWithoutApproval, strictDangerousToolApproval } = args;
-  if (!toolRequiresLawyerPause(toolName)) {
-    return false;
-  }
+```typescript
+// src/lawmind/agent/dangerous-tool-policy.ts:66-69
+const { toolName, allowDangerousToolsWithoutApproval, strictDangerousToolApproval } = args;
+if (!toolRequiresLawyerPause(toolName)) {
+  return false;
+}
 ```
 
 而 `toolRequiresLawyerPause` 只对 `send_email` 为真。所以：
@@ -292,7 +295,8 @@ export async function routeWithModel(
 
 最后一条是本文最重要的发现：
 
-```11:15:src/lawmind/delivery/progressive-autonomy.ts
+```typescript
+// src/lawmind/delivery/progressive-autonomy.ts:11-15
 /**
  * Unlock progressive autonomy only when first-pass AND lint-escape series both qualify.
  * A rubber-stamp first-pass series alone is not enough.
@@ -325,7 +329,8 @@ export function isAutonomyUnlocked(input: AutonomySeriesInput): boolean {
 
 参数库的文件头一句话是这条路线的方法论：
 
-```3:3:src/lawmind/lint/statute-params.ts
+```typescript
+// src/lawmind/lint/statute-params.ts:3
  * Wrong params are worse than no lint — keep source + effectiveFrom on every row.
 ```
 

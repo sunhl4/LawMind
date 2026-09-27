@@ -73,7 +73,7 @@ export type ContextDigestTuning = {
   lawyerLineRatio: number;
   lawyerLineMinChars: number;
   lawyerLineMaxChars: number;
-  /** 上一轮整理稿接续额度。 */
+  /** 旧策略仍接受。整理稿不再把上一轮摘要嵌进提示，原文在会话归档里。 */
   carriedRatio: number;
   /** 接续额度的绝对下限（字符）；`maxChars × carriedRatio` 小于它时按它给。 */
   carriedMinChars: number;
@@ -159,7 +159,7 @@ export const DEFAULT_CONTEXT_TUNING: Readonly<ContextTuning> = deepFreeze({
   digest: {
     charRatio: 0.08,
     minChars: 6_000,
-    maxChars: 24_000,
+    maxChars: 96_000,
     taskRatio: 0.25,
     taskMinChars: 800,
     taskMaxChars: 4_000,
@@ -179,7 +179,7 @@ export const DEFAULT_CONTEXT_TUNING: Readonly<ContextTuning> = deepFreeze({
     taskCharCap: 600,
     factEnabled: true,
     factMaxItems: 12,
-    factItemCharCap: 160,
+    factItemCharCap: 320,
     factTotalCharCap: 1_200,
     factCitationAnchorMax: 8,
   },
@@ -281,7 +281,17 @@ export function resolveContextTuning(
   policy: LawMindWorkspacePolicy | null | undefined,
 ): ContextTuning {
   const d = DEFAULT_CONTEXT_TUNING;
-  const ctx = asObject(policy?.context);
+  let ctx = asObject(policy?.context);
+  if (!ctx) {
+    const raw = process.env.LAWMIND_CONTEXT_TUNING?.trim();
+    if (raw) {
+      try {
+        ctx = asObject(JSON.parse(raw) as unknown);
+      } catch {
+        ctx = undefined;
+      }
+    }
+  }
   if (!ctx) {
     return d;
   }

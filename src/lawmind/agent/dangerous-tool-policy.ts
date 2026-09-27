@@ -1,5 +1,4 @@
 import { toolRequiresLawyerPause } from "../platform/lawyer-outbound-decision.js";
-import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
 import type { ToolDefinition } from "./types.js";
 
 /*
@@ -20,10 +19,11 @@ export const SUBPROCESS_SANDBOX_TOOL_NAMES = new Set<string>([
   "render_tracked_draft",
   "execute_workflow",
   "draft_document",
-  "add_case_note",
   "run_analysis",
   "run_compute",
-  // read_project_file / analyze_document stay in-process (C8): readonly, latency-sensitive
+  "run_host_command",
+  // read_project_file / analyze_document / add_case_note stay in-process:
+  // readonly or a small desk write, latency-sensitive, not code execution.
 ]);
 
 export function toolRequiresSubprocessSandbox(toolName: string): boolean {
@@ -32,17 +32,17 @@ export function toolRequiresSubprocessSandbox(toolName: string): boolean {
 
 export type ToolSandboxStatus = {
   enabled: boolean;
-  source: "env" | "policy" | "off";
+  source: "env" | "off";
 };
 
-/** `lawmind.policy.json` `toolSandbox: true` or `LAWMIND_TOOL_SANDBOX=1`. */
+/**
+ * `LAWMIND_TOOL_SANDBOX=1`。
+ * `lawmind.policy.json` 的 `toolSandbox` 已被商业策略合同拒绝，不再读取。
+ */
 export function describeToolSandboxStatus(workspaceDir: string): ToolSandboxStatus {
+  void workspaceDir;
   if (process.env.LAWMIND_TOOL_SANDBOX?.trim() === "1") {
     return { enabled: true, source: "env" };
-  }
-  const policy = readWorkspacePolicyFile(workspaceDir);
-  if (policy?.toolSandbox === true) {
-    return { enabled: true, source: "policy" };
   }
   return { enabled: false, source: "off" };
 }

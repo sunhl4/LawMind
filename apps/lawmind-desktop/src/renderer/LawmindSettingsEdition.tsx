@@ -35,7 +35,8 @@ const FEATURE_ROWS: FeatureRow[] = [
   { key: "auditIntegrityExport", label: "审计完整性导出" },
   { key: "crossMatterRoadmap", label: "跨案件路线图" },
   { key: "crossMatterAcceptanceDashboard", label: "跨案件验收就绪概览" },
-  { key: "collaborationSummary", label: "协作摘要" },
+  { key: "wordAddinAutoRun", label: "Word 插件「审这份」自动开跑" },
+  { key: "guardianTrackedRedlineBlock", label: "修订稿独立审稿硬墙" },
   { key: "strictDangerousToolApproval", label: "危险工具须显式批准（律所版）" },
   { key: "reviewCampaignParallel", label: "审查专案组并行执行" },
   { key: "forcePeerReview", label: "签批前强制互审委派（律所版；可在路由 defaults 覆盖）" },
@@ -57,7 +58,7 @@ export function LawmindSettingsEdition({ apiBase }: Props): ReactNode {
 
   useEffect(() => {
     if (!apiBase) {
-      return;
+      return undefined;
     }
     let cancelled = false;
     void (async () => {
@@ -421,7 +422,7 @@ AI 辅助不能预测诉讼/仲裁/谈判结果。本所服务仍受委托合同
         <div className="lm-settings-row" data-testid="lm-edition-delivery-autonomy">
           <span className="lm-settings-key">交付与自主</span>
           <span className="lm-settings-val">
-            外发一律签批；高风险须通篇复核。渐进自主默认关闭，直至一次通过与逃逸指标达标。
+            外发一律签批；高风险须通篇审核。渐进自主默认关闭，直到一次交付通过且没有漏检。
           </span>
         </div>
       </div>
@@ -467,5 +468,9 @@ function editionSourceLabel(source: ReturnType<typeof useEdition>["source"]): st
       return "环境变量";
     case "default":
       return "默认（独立律师版）";
+    default: {
+      const unreachable: never = source;
+      return unreachable;
+    }
   }
 }

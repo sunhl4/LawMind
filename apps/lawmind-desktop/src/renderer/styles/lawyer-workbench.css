@@ -13,10 +13,126 @@
   min-height: 0;
 }
 
-.lm-main-body > .lm-lawyer-workbench {
+.lm-main-body > .lm-lawyer-workbench,
+.lm-main-body > .lm-archive-page {
   flex: 1;
   min-width: 0;
   min-height: 0;
+}
+
+.lm-archive-page {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 28px 36px 48px;
+  background: var(--bg);
+}
+
+.lm-archive-page-inner {
+  width: min(720px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lm-archive-step-kicker {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.lm-archive-matter-count {
+  color: var(--muted);
+}
+
+.lm-archive-group-title {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.lm-archive-page-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 680px;
+}
+
+.lm-archive-page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.lm-archive-lead {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.lm-archive-panel,
+.lm-archive-results {
+  width: min(680px, 100%);
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg, var(--r));
+  background: var(--surface);
+}
+
+.lm-archive-empty {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.lm-archive-folders,
+.lm-archive-matters {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.lm-archive-folder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.lm-archive-folder:last-child {
+  border-bottom: none;
+}
+
+.lm-archive-results-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.lm-archive-matters li {
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.lm-archive-matters label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .lm-lawyer-workbench {
@@ -132,16 +248,100 @@
 
 .lm-lawyer-cockpit {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 280px minmax(0, 1fr);
   gap: 16px;
+  align-items: stretch;
   /*
-   * IRON: cockpit must stay visible. Dock is flex-shrink:0;
-   * if this uses flex-shrink:1 + min-height:0, narrow windows crush it to 0px
-   * (user sees only 快捷入口, thinks 工作台 is broken).
+   * IRON: cockpit must stay visible. The case rail stays put;
+   * the stage must not collapse to 0 when the window is short.
    * Parent .lm-lawyer-workbench scrolls instead.
    */
   flex: 1 0 auto;
   min-height: 320px;
+}
+
+.lm-desk-rail-today-wrap {
+  padding: 10px 12px 0;
+}
+
+.lm-desk-rail-today {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lm-desk-rail-today.is-current {
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--accent-dim) 55%, var(--surface));
+}
+
+.lm-desk-rail-today:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.lm-desk-today-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 12px 0;
+}
+
+.lm-desk-today-alerts .lm-desk-rail-today {
+  width: auto;
+  align-self: flex-start;
+}
+
+.lm-desk-recap-btn {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.lm-matter-collab {
+  margin: 0 24px 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-2);
+  padding: 10px 14px 12px;
+}
+
+.lm-matter-collab summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.lm-volume-switch {
+  margin: 0 24px 8px;
+}
+
+.lm-desk-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 320px;
+}
+
+.lm-desk-stage > .lm-desk-col {
+  flex: 1 1 auto;
+  min-height: 220px;
 }
 
 .lm-desk-col {
@@ -1427,14 +1627,6 @@
   }
 
   .lm-lawyer-cockpit .lm-desk-col--matters {
-    order: -3;
-  }
-
-  .lm-lawyer-cockpit .lm-desk-col--act {
-    order: -2;
-  }
-
-  .lm-lawyer-cockpit .lm-desk-col--time {
     order: -1;
   }
 

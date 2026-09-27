@@ -17,7 +17,9 @@
           "__dirname",
           "__lmRequestContractFastLane",
           "__lmRequestDeskLane",
-          "__lmOpenWriteMaterials"
+          "__lmOpenWriteMaterials",
+          "_load",
+          "_resolveFilename"
         ]
       }
     ],

@@ -1,267 +1,61 @@
 # 第 30 章 策略文件字段参考
 
-`lawmind.policy.json` 放在**工作区根**（不在 `lawmind/` 里）。它是「下硬约束」的文件，不是存密钥的地方。
+`lawmind.policy.json` 放在**工作区根**。它只给所务信息管理员下硬边界：出网、外发收件域、律所规则文件、交付是否一律全审、案件副本共享目录。不是调模型的地方，也不是存密钥的地方。
 
-**第一条规矩**：必须有 `schemaVersion` 且 ≥1，否则**整份文件被忽略**。这是配置失效最常见的原因。
+缺 `schemaVersion`（须 ≥ 1）或 JSON 坏了，整份不生效。写错的键**不会悄悄生效**：`GET /api/health` 的 `policy.applied` / `policy.migrated` / `policy.rejected` 分别列出已生效、旧键迁移、未采纳（键名和原因，`apps/lawmind-desktop/server/lawmind-policy.ts`）；`pnpm lawmind:doctor` 也会打出来。
 
-配完在体检页核对 `policy.applied`——它会列出真的生效了哪几项。
-
-## 30.1 最小可用
+## 30.1 可以写的键
 
 ```json
 {
-  "schemaVersion": 1,
-  "edition": "firm"
-}
-```
-
-`edition` 三选：`solo` / `firm` / `private_deploy`。它的优先级高于 `LAWMIND_EDITION` 环境变量。
-
-## 30.2 出口与联网
-
-| 键                         | 类型                                     | 说明                                                          |
-| -------------------------- | ---------------------------------------- | ------------------------------------------------------------- |
-| `egressMode`               | `"open"` / `"allowlisted"` / `"offline"` | 出网总模式（**上限**）                                        |
-| `allowWebSearch`           | boolean                                  | 联网偏好（不是上限）                                          |
-| `networkAllowlist`         | string[]                                 | 允许的域名（写裸后缀如 `gov.cn` 即含其子域；`*.gov.cn` 等价） |
-| `networkAllowlistEnforced` | boolean                                  | 是否强制白名单                                                |
-| `outboundAllowedDomains`   | string[]                                 | 外发允许的收件域名                                            |
-| `highSecurityMode`         | boolean                                  | **废弃**，`true` 等价于 `offline`                             |
-
-**`egressMode` 和 `allowWebSearch` 的关系**（第 29 章那个坑）：
-
-- `egressMode` 是上限。设成 `offline` 时联网强制关闭。
-- `allowWebSearch` 是偏好。**离线模式不改写它**，所以退出离线后偏好自动恢复。
-
-**白名单是否强制的判定**：`networkAllowlistEnforced === true`，或者版本是 firm / private_deploy。空名单 + 强制 = 全拒。
-
-`networkAllowlist` 只影响出站；`outboundAllowedDomains` 影响的是**外发邮件**的收件人检查（第 5 章那个 `outbound_recipient_gate`）。
-
-## 30.3 版本与能力开关
-
-| 键                                | 说明                                        |
-| --------------------------------- | ------------------------------------------- |
-| `edition`                         | 版本                                        |
-| `enableCollaboration`             | 是否启用协作（`false` 时相关端点返回 503）  |
-| `retrievalMode`                   | 检索通道 `single` / `dual`                  |
-| `allowAnalysisScripts`            | 是否允许预置分析脚本（`run_analysis`）      |
-| `toolSandbox`                     | 高风险工具进子进程                          |
-| `autoApproveSandboxWorkflowSteps` | 沙箱工作流步骤自动批准                      |
-| `wordAddinAutoRun`                | Word 插件自动跑（solo 默认开，firm 默认关） |
-| `guardianTrackedRedline`          | 修订稿独立审稿档位 `block` / `advisory`     |
-| `ethicsWall.enabled`              | 伦理墙                                      |
-| `privilegeSentinel`               | 特权提示（`false` 关闭）                    |
-| `matterReplica.enabled`           | 案件副本                                    |
-| `citationMode`                    | 引用模式 `grounded` / `assisted` / `off`    |
-
-## 30.4 Agent 行为
-
-| 键                                      | 说明                                   |
-| --------------------------------------- | -------------------------------------- |
-| `agentMandatoryRules`                   | 每轮必注入的强制规则（**内联短文本**） |
-| `agentMandatoryRulesPath`               | 强制规则文件路径（工作区内相对路径）   |
-| `agentMaxToolCallsPerTurn`              | 每轮工具调用上限（1–80，默认 80）      |
-| `agentMaxHistoryMessages`               | 历史消息条数上限（8–200）              |
-| `agentPromptVerbosity`                  | `compact` / `full`                     |
-| `context.contextTokens`                 | 上下文窗口大小                         |
-| `context.autoCompactBufferTokens`       | 自动压缩缓冲                           |
-| `context.summaryOutputTokenReserve`     | 摘要输出预留                           |
-| `context.midTurnCompactTriggerRatio`    | 回合内压缩触发比例（默认 0.9）         |
-| `context.maxConsecutiveCompactFailures` | 连续压缩失败上限                       |
-
-**`context.*` 是整条上下文/压缩链路的调参面**（高级设置）。它覆盖上面第 18–24 条背后的每一个阈值与帽：预算（`warnRatio`、`smallWindowReserveRatio`、`minEffectiveLimitTokens`）、回合内（`midTurn.maxPerTurn` / `deferralBounceMax` / `elideKeepTail` / `elideThreshold*` / `llmDigestMinChars` / `llmDigestTimeoutMs`）、摘要额度（`digest.charRatio` / `minChars` / `maxChars` / `task*` / `taskLineMax` / `lawyerLine*` / `carriedRatio` / `carriedMinChars` / `recentLineKeep` / `citationAnchorMax` / `llm*`）、钉子（`pins.taskCharCap` / `factEnabled` / `factMaxItems` / `factItemCharCap` / `factTotalCharCap` / `factCitationAnchorMax`）、续接（`carryover.seedCharRatio` / `seedMinChars` / `seedMaxChars` / `digestShare` / `digestMinChars` / `frameMinChars` / `digestPreviewChars` / `suggestMinCompacts`）。
-
-三条纪律（`src/lawmind/agent/context-tuning.ts` 的 `resolveContextTuning`）：
-
-- **类型不对回落默认、越界夹到边界，绝不抛错**——写错一个数不会让采样路径炸。
-- **跨字段不变量**在解析处收敛：`min ≤ max`、`warnRatio ≤ midTurnCompactTriggerRatio`。
-- **没写就逐位等于默认**（行为不变）。
-
-**比例类键没有业务性下限**：只拦「明显非法」（非正 / `NaN` 回落默认、超大夹到该键的上界）。合法的极小值必须原样生效——曾把触发线下界写成 `0.1`，于是「压到 0.02 以强制触发」被**静默**改掉；越界自动修正不该替调用方决定「多小才算合理」。
-
-配完在用量面板 / `GET /api/sessions/:id/context-budget` 看 `tuning`（生效值）与 `tuningOverrides`（显式写过的键）——能说清「按哪套数字在跑」，而不只是「按默认」。完整键表与默认值见 `docs/LAWMIND-EXECUTION-CONSTRAINTS.md` 第 24 条与 `LawMindContextPolicy` 类型注释。
-
-**`agentMandatoryRules` 和 `agentMandatoryRulesPath` 的区别**：
-
-- 内联版适合短规则（比如「所有金额必须写出来源」）。
-- 文件版适合长规则，路径必须是工作区内相对路径，有字符上限（8192）。
-
-两者都不走检索——它们**每轮都注入**。所以只放真正必须的。
-
-案件级的强制规则是另一个机制：`matters/<id>/RULES.md` 或 `cases/<id>/RULES.md`（这两个路径受写保护，因为它们进提示词）。
-
-## 30.5 判断与决策
-
-| 键                                                                 | 说明                                                          |
-| ------------------------------------------------------------------ | ------------------------------------------------------------- |
-| `judgmentTiering`                                                  | `off` / `shadow` / `on`（默认 `shadow`）                      |
-| `judgmentDisabledVerifiers`                                        | 禁用的机器验证器 id 数组                                      |
-| `judgmentEscalation`                                               | `off` / `on`（默认 `off`）                                    |
-| `judgmentEscalationPosture`                                        | `advisory` / `block`（默认按版本：solo advisory，其他 block） |
-| `judgementPromotion.minSamples`                                    | 判断项升级的最小样本数（默认 20）                             |
-| `judgementPromotion.maxFalsePositiveRate`                          | 允许的最大误报率（默认 0.1）                                  |
-| `decisionModelMode`                                                | `off` / `shadow` / `on`                                       |
-| `decisionModelBaseUrl` / `decisionModelApiKey` / `decisionModelId` | 决策模型配置                                                  |
-| `routeDivergenceShadow`                                            | 路由分歧影子                                                  |
-| `routeDivergencePosture`                                           | `off` / `shadow` / `escalate`                                 |
-
-**`shadow` 是什么**：只记录、不改变结论。这是很克制的上线方式——先攒数据看准不准，再切 `on`。
-
-**`judgementPromotion` 是棘轮的参数**（第 12 章）。注意「误报率」这个指标曾经因为判定条件写错而恒为 0，导致所有项都被判可升级（第 29 章案例 29.11）。
-
-## 30.6 交付与自主
-
-| 键                                      | 说明                                            |
-| --------------------------------------- | ----------------------------------------------- |
-| `delivery.firmForceFullReview`          | 律所强制全审                                    |
-| `progressiveAutonomy.minFirstPassRate`  | 解锁自动交付的最低一次通过率（默认 0.8）        |
-| `progressiveAutonomy.minSamples`        | 最低样本数（默认 20）                           |
-| `progressiveAutonomy.maxLintEscapeRate` | 最大逃逸率（默认 0.15）                         |
-| `appliedPreferencesFooter`              | 已生效偏好的展示位置 `always` / `first` / `off` |
-| `autoDeliverableWorkflow`               | 自动交付物工作流                                |
-| `benchmarkGateMinScore`                 | benchmark 门的最低分（默认 0.8）                |
-
-`delivery.firmForceFullReview` 为真时，**所有交付都走 `full_review`**，不看风险等级。
-
-## 30.7 记忆
-
-| 键                                                   | 说明                            |
-| ---------------------------------------------------- | ------------------------------- |
-| `memoryRecall.preferSmallFiles`                      | 偏好小文件召回                  |
-| `memoryRecall.smallFileMaxBytes`                     | 小文件阈值（默认 8000）         |
-| `productInsightsCollection`                          | `off` / `local-only` / `synced` |
-| `teamMemorySync.enabled` / `teamMemorySync.endpoint` | 团队记忆同步（默认关）          |
-| `intakeHeuristicsEnabled`                            | 交办启发式                      |
-
-**`productInsightsCollection` 的默认**：离线模式下强制 `off`；否则 solo 是 `local-only`，其他版本是 `synced`。也就是说**产品观察事件默认不上传**，除了律所版。
-
-## 30.8 索引与检索
-
-| 键                       | 说明               |
-| ------------------------ | ------------------ |
-| `searchIndexAutoRebuild` | 索引陈旧时自动重建 |
-| `retrievalMode`          | 见 30.3            |
-
-**注意重建索引还有另一道开关**（`LAWMIND_ALLOW_INDEX_REBUILD`），那个管的是「能不能通过 API 触发重建」，和「守不守自动重建」是两件事。
-
-## 30.9 本机访问
-
-| 键           | 说明             |
-| ------------ | ---------------- |
-| `hostAccess` | 本机访问相关配置 |
-
-对应的环境变量是 `LAWMIND_HOST_ACCESS_MODE`、`LAWMIND_HOST_ACCESS_FILE`、`LAWMIND_HOST_COMMANDS`。默认策略是**本机文件夹只读**（第 15 章）。
-
-## 30.10 审计
-
-| 键                       | 说明                         |
-| ------------------------ | ---------------------------- |
-| `auditExportCadenceHint` | 导出节奏提示（写进治理报告） |
-
-审计链密钥用环境变量 `LAWMIND_AUDIT_CHAIN_KEY`（不能放工作区里）。
-
-**注意 `auditExternalAnchorUrl` 不在策略文件里。** 它是**工作日设置**的键（`lawmind/desk-settings.json`，schema 在 `src/lawmind/learning/desk-settings.ts`），由桌面主进程读出来再转成环境变量 `LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL` 传给服务端。写进 `lawmind.policy.json` 会被**整键忽略**，而且不报错——这是本节最容易踩的坑。
-
-## 30.11 案件副本
-
-| 键                             | 说明               |
-| ------------------------------ | ------------------ |
-| `matterReplica.enabled`        | 开关               |
-| `matterReplica.endpoint`       | HTTP 中继地址      |
-| `matterReplica.sharedRelayDir` | 共享文件夹中继目录 |
-| `matterReplica.cloudDataDir`   | 案件云数据目录     |
-| `matterReplica.cloudToken`     | 云令牌             |
-| `matterReplica.autoSync`       | 自动同步           |
-
-**版本门禁**：`matterReplicaCollab` 在 solo 是关的。要开至少需要 firm，或者在 policy 里显式 `enabled: true`（`matter_replica_requires_firm_or_opt_in` 这个原因码说明可以显式开）。
-
-## 30.12 完整示例（律所版）
-
-```json
-{
-  "schemaVersion": 1,
-  "description": "XX 律所生产配置",
+  "schemaVersion": 2,
+  "description": "XX 律所",
   "edition": "firm",
-
-  "egressMode": "allowlisted",
-  "networkAllowlist": ["api.deepseek.com", "flk.npc.gov.cn", "www.gov.cn"],
-  "networkAllowlistEnforced": true,
-
-  "toolSandbox": true,
-
-  "agentMandatoryRules": "所有引用必须能回溯到本案检索结果或材料；金额必须写出来源；不得改写事实。",
-  "agentMaxToolCallsPerTurn": 40,
-
-  "judgmentTiering": "shadow",
-  "judgmentEscalation": "on",
-  "judgmentEscalationPosture": "block",
-
-  "guardianTrackedRedline": "block",
-  "wordAddinAutoRun": false,
-
-  "ethicsWall": { "enabled": true },
-
-  "delivery": { "firmForceFullReview": false },
-
-  "matterReplica": {
-    "enabled": true,
-    "sharedRelayDir": "/Volumes/firm-share/lawmind-relay",
-    "autoSync": true
+  "network": {
+    "mode": "allowlist",
+    "hosts": ["api.deepseek.com", "flk.npc.gov.cn"]
   },
-
-  "memoryRecall": { "preferSmallFiles": true },
-  "productInsightsCollection": "off",
-  "searchIndexAutoRebuild": true,
-
-  "auditExportCadenceHint": "每月归档一次"
+  "outbound": { "recipientDomains": ["client.com"] },
+  "firmRulesPath": "lawmind/FIRM_RULES.md",
+  "delivery": "standard",
+  "replica": { "sharedDir": "/Volumes/firm-share/lawmind-relay" },
+  "wordAddinAutoRun": false,
+  "allowWebSearch": false
 }
 ```
 
-**注意**：这个示例里的路径和域名都是示意，实际要按你们的网络环境改。
+| 键                          | 含义                                                                                                                                                                                                                                                                   |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `edition`                   | `solo` / `firm` / `private_deploy`。决定伦理墙、协作、修订稿是否必须过独立审稿。优先级高于 `LAWMIND_EDITION`                                                                                                                                                           |
+| `network.mode`              | 出网上限：`open` / `allowlist` / `offline`。`offline` 强制断网，不改律师自己的联网偏好                                                                                                                                                                                 |
+| `network.hosts`             | `allowlist` 时允许的域名。裸后缀 `gov.cn` 含子域                                                                                                                                                                                                                       |
+| `outbound.recipientDomains` | 外发邮件允许的收件域                                                                                                                                                                                                                                                   |
+| `firmRulesPath`             | 工作区内相对路径，UTF-8，最多 8192 字，每轮注入。不要把长文内联进 JSON                                                                                                                                                                                                 |
+| `delivery`                  | `standard` 或 `always_full_review`（一律全审）                                                                                                                                                                                                                         |
+| `replica.sharedDir`         | 案件副本共享目录。令牌和云地址不要写在这里                                                                                                                                                                                                                             |
+| `wordAddinAutoRun`          | 只在要推翻版本默认时写。独立律师默认开，律所默认关                                                                                                                                                                                                                     |
+| `allowWebSearch`            | 只能写 `false`，表示不许联网检索。要封顶用 `network.mode`                                                                                                                                                                                                              |
+| `enableCollaboration`       | 只能写 `false`，关掉协作                                                                                                                                                                                                                                               |
+| `conversationLength`        | 对话长度档：`"200k"` / `"500k"` / `"1m"`。这是本轮硬天花板 = min(模型窗口, 所选档)。历史整理仍按 200K 质量带，不随档位推迟。旧值 `daily` / `dossier` 读出时自动迁移成 200k / 1m（`src/lawmind/agent/context-preset.ts`）。律师日常在对话输入栏工具条里切，不必手写文件 |
 
-**还有一条**：上面示例里我特意**没有**写 `strictDangerousToolApproval`——因为它**不是策略键**，而是 Edition 功能键（`src/lawmind/policy/edition.ts:70`：solo 关、firm/private 开）。写进 `lawmind.policy.json` 会被当未知键忽略，**而且不报错**。
+独立律师不必建这个文件。联网或离线在设置里切。
 
-同理要小心的还有 `acceptanceGateStrict`、`citationGateStrict`、`forcePeerReview`、`reviewCampaignParallel` 这一组：它们都先是 Edition 功能键，名字相近的**策略覆盖项**才在 `workspace-policy.ts` 里有定义（比如 `wordAddinAutoRun`、`guardianTrackedRedline`、`ethicsWall`、`matterReplica` 确实是策略键）。**拿不准就查 `workspace-policy.ts` 的类型定义，别按名字猜。**
+## 30.2 版本已经定死、策略改不了的
 
-## 30.13 一个容易忽略的细节
+- 引用门禁：律所和私有化是 `grounded`，独立律师是 `assisted`。不能写成关掉。
+- 修订稿：律所和私有化导出前必须过独立审稿，不能降成只提示。
+- 伦理墙、危险操作确认、产品观察：跟版本走。律所默认不上传产品观察。
+- 上下文压缩、每轮工具次数、历史条数、判断分级、决策模型、渐进自主：引擎内置。开发时可以用环境变量 `LAWMIND_CONTEXT_TUNING`（JSON）调压缩，不要写进策略文件。
 
-策略文件能**直接覆盖环境变量**。能覆盖的四项（第 14 章）：
+密钥（模型 key、副本令牌、审计链密钥）只走环境变量或钥匙串。写进策略文件会被拒绝。
 
-| 策略键                  | 覆盖的环境变量                         | `policy.applied` 里显示为 |
-| ----------------------- | -------------------------------------- | ------------------------- |
-| `egressMode: "offline"` | `LAWMIND_POLICY_FORCE_NO_WEB_SEARCH=1` | `egressOffline`           |
-| `allowWebSearch: false` | 同上（两者都会关联网）                 | `forceNoWebSearch`        |
-| `retrievalMode`         | `LAWMIND_RETRIEVAL_MODE`               | `retrievalMode`           |
-| `enableCollaboration`   | `LAWMIND_ENABLE_COLLABORATION=false`   | `enableCollaboration`     |
-| `edition`               | `LAWMIND_EDITION`                      | `edition`                 |
+## 30.3 旧键
 
-**注意第三列**：`applied[]` 里出现的字符串**不全是策略键**。`egressOffline` 与 `forceNoWebSearch` 是「**结果标签**」——前者表示是因为 `egressMode` 推出来离线，后者表示是因为 `allowWebSearch: false`。它们**没有对应的策略键**，照着写进 `lawmind.policy.json` 会被整键忽略且不报错（和 30.12 讲的是同一个坑）。所以别拿 `applied[]` 的内容当键名抄。
+仍能读、`policy.migrated` 里会提示改名：`egressMode`（`allowlisted` 对应 `allowlist`）、`networkAllowlist`、`outboundAllowedDomains`、`agentMandatoryRulesPath`、`delivery.firmForceFullReview`、`matterReplica.sharedRelayDir`、`highSecurityMode: true`（按离线生效）。
 
-**加载顺序**：环境文件（用户 → 仓库补缺）→ 策略文件。所以策略文件能压住环境变量。
+## 30.4 不生效时看哪里
 
-这个设计的用途是：**IT 可以在不改 .env（不动密钥）的前提下，用策略文件下硬约束。**
-
-## 30.14 排查配置不生效
-
-按这个顺序查：
-
-1. **`schemaVersion` 有没有且是 1？** 没有就整份被忽略。
-2. **文件是不是在工作区根？** 它叫 `lawmind.policy.json`，不在 `lawmind/` 目录里。
-3. **JSON 语法对不对？** 解析失败也是静默忽略。
-4. **体检页 `policy.applied` 列了哪些项？** 只有列出来的才生效了。
-5. **是不是被环境变量压住了？** 注意上面那个覆盖关系是「策略压环境」，反过来不成立。
-6. **版本对不对？** 有些功能是版本门禁（比如 solo 默认不开协作）。
-
-## 30.15 已知坑（本章相关）
-
-- **缺 `schemaVersion` 整份忽略。** 最常见的配置失效原因。
-- **策略文件在工作区根，不在 `lawmind/` 里。**
-- **`egressMode` 是上限，`allowWebSearch` 是偏好。** 别用策略去改偏好。
-- **策略能压环境变量，反过来不行。**
-- **`highSecurityMode` 已废弃**，用 `egressMode: "offline"`。
-- **`judgmentTiering` 默认是 `shadow`**（只记录不生效）。想要真的拦，得设 `on`。
-- **`agentMandatoryRules` 每轮都注入。** 别把长文档塞进去，用 `agentMandatoryRulesPath`。
-- **`cases/<id>/RULES.md` 也进提示词，所以它受写保护。**
-- **`searchIndexAutoRebuild` 和 `LAWMIND_ALLOW_INDEX_REBUILD` 是两件事。**
-- **`productInsightsCollection` 的默认在离线模式下是 `off`。**
-- **改完一定看 `policy.applied`。**
+1. 文件在工作区根，名叫 `lawmind.policy.json`。
+2. 有 `schemaVersion` 且 ≥ 1，JSON 能解析。
+3. `GET /api/health` 的 `policy`：`applied` 已生效的键、`migrated` 迁移提示、`rejected` 未采纳的键（附原因）。
+4. 策略压过同名环境变量；环境变量压不过策略。

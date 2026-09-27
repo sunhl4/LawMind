@@ -11,7 +11,6 @@ import { resolveDraftReasoningLlmConfig } from "../models/draft-reasoning.js";
 import type { ArtifactDraft, ArtifactSection, ResearchBundle } from "../types.js";
 import { attachProvenanceToSections } from "./keyword-draft.js";
 import { buildDraft, type BuildDraftParams } from "./keyword-draft.js";
-import { isOutlineGatedDeliverable } from "./research-draft-gates.js";
 
 type ModelSectionsJson = {
   title?: string;
@@ -123,7 +122,11 @@ function draftSystemPrompt(intent: BuildDraftParams["intent"]): string {
   return lines.join("\n");
 }
 
-function draftUserPrompt(intent: BuildDraftParams["intent"], bundle: ResearchBundle): string {
+function draftUserPrompt(
+  intent: BuildDraftParams["intent"],
+  bundle: ResearchBundle,
+  sectionHeadings: string[],
+): string {
   return [
     `交付类型: ${intent.deliverableType ?? "未指定"}`,
     `任务类型: ${intent.kind}`,
@@ -131,6 +134,13 @@ function draftUserPrompt(intent: BuildDraftParams["intent"], bundle: ResearchBun
     `任务摘要: ${intent.summary}`,
     `受众: ${intent.audience ?? "未指定"}`,
     "",
+    ...(sectionHeadings.length > 0
+      ? [
+          "沿用这些章节标题，可改写正文，不要整表丢掉：",
+          ...sectionHeadings.map((h) => `- ${h}`),
+          "",
+        ]
+      : []),
     "检索材料摘要:",
     bundleDigest(bundle),
   ].join("\n");
@@ -149,14 +159,16 @@ export async function buildDraftWithModel(
   ) {
     return base;
   }
-  // Keep lawyer-approved outline expansion — model rewrite would discard section plan.
-  if (isOutlineGatedDeliverable(intent.deliverableType)) {
-    return base;
-  }
-
   const parsed = await completeJsonObject<ModelSectionsJson>(cfg, [
     { role: "system", content: draftSystemPrompt(intent) },
-    { role: "user", content: draftUserPrompt(intent, bundle) },
+    {
+      role: "user",
+      content: draftUserPrompt(
+        intent,
+        bundle,
+        base.sections.map((s) => s.heading).filter((h) => h.trim().length > 0),
+      ),
+    },
   ]);
 
   if (!parsed || !Array.isArray(parsed.sections) || parsed.sections.length === 0) {

@@ -17,7 +17,7 @@ export type AssistantPresetDefinition = {
    * 高于此等级的任务类型或路由结果应在答复中明确提示「须律师确认后再交付」。
    */
   riskCeiling: RiskLevel;
-  /** 交付前自检清单（注入 system prompt，供模型逐项核对） */
+  /** 交付前检查项。只进入 guardian 证据包，不注入写者提示词。 */
   acceptanceChecklist: string[];
   /**
    * 若设置，仅向模型暴露这些工具（OpenAI function name）。

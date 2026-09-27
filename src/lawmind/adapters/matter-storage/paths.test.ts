@@ -33,5 +33,7 @@ describe("matter-storage paths", () => {
   it("rejects unsafe matter ids", () => {
     expect(() => assertSafeMatterId("../evil")).toThrow(/unsafe matter id/);
     expect(assertSafeMatterId("matter_1")).toBe("matter_1");
+    expect(assertSafeMatterId("张三买卖合同纠纷")).toBe("张三买卖合同纠纷");
+    expect(() => assertSafeMatterId("甲/乙")).toThrow(/unsafe matter id/);
   });
 });

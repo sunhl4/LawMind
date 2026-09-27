@@ -8,7 +8,10 @@ import {
   clearFirstrunAcceptancePending,
   maybeEmitFirstrunAcceptanceReady,
   readFirstrunAcceptancePending,
+  readFirstrunDismissed,
+  recordFirstrunWizardCompleted,
   setFirstrunAcceptancePending,
+  setFirstrunDismissed,
 } from "./firstrun-state.js";
 
 function minimalDraft(overrides: Partial<ArtifactDraft>): ArtifactDraft {
@@ -42,6 +45,18 @@ describe("firstrun-state", () => {
     }
   });
 
+  it("dismiss marker is per workspace and survives a reread", async () => {
+    const ws = path.join(os.tmpdir(), `lawmind-fr-dismiss-${Date.now()}`);
+    await fs.mkdir(ws, { recursive: true });
+    try {
+      expect(await readFirstrunDismissed(ws)).toBeNull();
+      await setFirstrunDismissed(ws, "2026-09-24T00:00:00.000Z");
+      expect((await readFirstrunDismissed(ws))?.dismissedAt).toBe("2026-09-24T00:00:00.000Z");
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
   it("maybeEmitFirstrunAcceptanceReady emits and clears when matter matches", async () => {
     const ws = path.join(os.tmpdir(), `lawmind-fr-${Date.now()}`);
     const auditDir = path.join(ws, "audit");
@@ -55,6 +70,26 @@ describe("firstrun-state", () => {
       const hit = events.filter((e) => e.kind === "ui.firstrun_acceptance_ready");
       expect(hit.length).toBe(1);
       expect(hit[0]?.taskId).toBe("t1");
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the pending marker when the audit write fails", async () => {
+    const ws = path.join(os.tmpdir(), `lawmind-fr-audit-${Date.now()}`);
+    await fs.mkdir(ws, { recursive: true });
+    const blocker = path.join(ws, "not-a-dir");
+    await fs.writeFile(blocker, "x");
+    try {
+      await expect(
+        recordFirstrunWizardCompleted(
+          ws,
+          "matter-kept",
+          path.join(blocker, "audit"),
+          "lawyer:test",
+        ),
+      ).rejects.toThrow();
+      expect((await readFirstrunAcceptancePending(ws))?.matterId).toBe("matter-kept");
     } finally {
       await fs.rm(ws, { recursive: true, force: true });
     }

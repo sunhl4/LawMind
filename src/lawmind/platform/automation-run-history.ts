@@ -27,7 +27,9 @@ export type AutomationRunTrigger =
   /** 律师在设置里点「立即运行」。 */
   | "manual"
   /** 「测试运行」：真跑，但与正式记录区分开。 */
-  | "test";
+  | "test"
+  /** 本机事件（文件 / 来信 / webhook），不是墙钟。 */
+  | "event";
 
 export type AutomationRunStatus =
   | "ok"

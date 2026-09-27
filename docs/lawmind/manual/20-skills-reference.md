@@ -2,6 +2,18 @@
 
 第 11 章讲的是技能机制。这一章把 37 份内置技能逐个说清楚：**它管什么、什么时候会被用上、它建议用哪些工具、有没有明确的「不要用于」边界。**
 
+技能是教练。边界句（「不套起诉状」「不编没看到的文件」）告诉模型怎样算做完，不冻结工具表，也不因为原话里少了某个词就拒绝出稿。
+
+五条铁律在这里的取舍：
+
+| 铁律           | 这一章怎么落                                                            |
+| -------------- | ----------------------------------------------------------------------- |
+| 上手简单       | 律师不安装、不开关。说一句话，对应说明自己跟上。                        |
+| 交付质量       | 每份说明写完成条件：缺事实仍出已完成部分，缺证写待补，不交白卷。        |
+| 稳定           | 正文随安装包走。工作区里改一份副本不会让下一轮变样。                    |
+| 先复用，后自研 | 外部玩法消化进 `builtin/*.md`。律师界面没有技能商店。                   |
+| 发挥模型能力   | 主阶段最多两份正文。其余用 `read_skill`。诉讼分流只决定注入哪两份说明。 |
+
 ## 20.1 怎么读这一章
 
 每条包含固定几项：
@@ -47,15 +59,15 @@
 - **主推于**：`contract.draft`。
 - **边界**：它管「从零起草」，已有合同要改走审查那条路。
 
-**「封闭类型」指的是**：合同类型是一个有限集合（买卖、租赁、借款、劳动合同等），每种有自己的必备条款。路由卡的作用是先定类型，再套对应骨架。这比让模型自由发挥要稳。
+**「封闭类型」指的是**：买卖、租赁、借款、劳动合同等各有必备栏目。路由卡先对齐类型，缺的栏目写在稿里。类型对不上时仍把已能写的部分写完，并标【待定】，不先停下来问类型，也不把工具表冻住。
 
 ## 20.3 诉讼与争议类（10 份）
 
 ### `litigation-stage-route` 诉讼阶段路由
 
-- **说明**：按材料推断阶段再写文书；上诉、执行、立案清单不套起诉状。
-- **主推于**：`litigation.draft`（默认分支）。
-- **边界**：明确「上诉、执行、立案清单不套起诉状」。
+- **说明**：按材料推断阶段再写文书；答辩、代理词、上诉、执行、保全、再审不套起诉状。
+- **主推于**：`litigation.draft` 里除起诉状和专项路由以外的分支（答辩、代理词、上诉、执行、保全、再审，以及没点名文书种类的诉讼交办）。
+- **边界**：要素式起诉状母版只在起诉状分支注入。答辩状不再连带注入 `complaint-elements-fill`。
 
 **为什么这条边界重要**：起诉状、上诉状、执行申请书的格式和「诉讼请求」写法完全不同。拿起诉状模板套上诉状，会写出形式上就不对的东西。这是本仓库反复强调的「致命误绑」之一。
 
@@ -68,7 +80,7 @@
 ### `evidence-argument-chain` 证据论证链
 
 - **说明**：主张→要件→待证事实→证据→证明力；缺证写待补不停工。
-- **主推于**：知产争议、刑事等分支（和对应路由技能并列）。**家事分支是例外**——`family.matter` 只配 `family-matter-route` + `legal-element-extraction`，没有它（`skill-prompt-budget.ts:28`）。
+- **主推于**：知产争议、刑事、起诉状，以及答辩等非起诉状诉讼分支（和对应路由技能并列）。**家事主阶段仍是例外**：`family.matter` 注入 `family-matter-route` + `legal-element-extraction`。证据链在该能力的索引里，需要时 `read_skill`。
 
 **这条链的价值**：它把「我觉得应该赢」变成「哪个要件缺证据」。五步走完，缺哪一环一眼可见。
 
@@ -81,7 +93,7 @@
 | `family-matter-route`    | 离婚、抚养、继承按家事程序写；子女利益与财产分栏              | 指令里有家事信号     |
 | `ip-dispute-route`       | 按专利/商标/著作权/反不正当竞争写知产材料，不套普通民事起诉状 | 指令里有知产信号     |
 
-四份都有同一个句式：「不套 X」。这四类案子的程序法和文书格式差异很大，通用模板套上去就是错的。
+四份都有同一个句式：「不套 X」。这是质量说明：程序和栏目不同，套错格式等于没交对文书。它不禁止模型调用检索或改稿工具。原话信号没命中时走第 7 步的诉讼阶段路由，仍然出稿。
 
 ### `client-talk-intake` 谈话整理
 
@@ -94,13 +106,13 @@
 ### `chronology-from-materials` 时间轴整理
 
 - **说明**：从材料抽日期事件、去重；立场只着色不改时间线。
-- **主推于**：`chronology.timeline`。
-- **边界**：「立场只着色不改时间线」——把「对我方有利/不利」标出来，但不许为了好看而调整事件顺序或时间。
+- **主推于**：`chronology.timeline`（与 `chronology-two-stage` 一起注入）。
+- **边界**：立场只着色，不为「你是原告还是被告」再问一轮。正式图或表仍等预览被确认。抽日期的正文不再写「不要另开确认」，避免抵消两阶段。
 
-### `chronology-two-stage` 诉讼时间轴（预览 → 确认 → 成图）
+### `chronology-two-stage` 诉讼时间轴（同一轮交正式件）
 
-- **说明**：先出可改的时间轴草案并逐条确认事实与日期，确认后才出正式图/表；不把推测日期写成事实。
-- **主推于**：不默认注入（索引里）。
+- **说明**：同一轮交出可改的时间轴；日期和事实以材料为准，缺口标出，不先停下来等确认。
+- **主推于**：`chronology.timeline`（第一份主阶段正文）。
 - **来源**：消化自外部的三份之一。
 
 **两阶段的意义**：时间轴是很多文书的骨架。骨架错了后面全错。所以先给草案让你改，改完再出正式件。「不把推测日期写成事实」这条同样重要——很多材料里日期是模糊的（「大约在去年三月」），写成确定日期就是编造。
@@ -199,7 +211,7 @@
 - **说明**：从传票、法院短信、举证通知抽出开庭和期限，对话写穿工作台；工作台手工仍确认。
 - **工具**：`calculate`、`extract_legal_events`、`apply_legal_events`、`update_matter_profile`。
 - **主推于**：`ops.court_sms`。
-- **注意**：这份技能在 `builtin/` 里但**不在种子清单里**（第 11 章讲的漂移）。
+- **注意**：这份技能在 `builtin/` 里，也在 `BUILTIN_SKILL_SEED_IDS` 里。播种只影响工作区副本，不决定模型看不看得到正文。
 
 ### `court-sms-intake` 法院短信识别
 
@@ -237,8 +249,7 @@
 ### `matter-status-scope-budget` 办案状态：范围变更与预算
 
 - **说明**：在周报骨架上补范围变更登记与预算/工时对照；范围变更必须挂到具体委托事项，不替代周报。
-- **来源**：消化自外部的三份之一。
-- **主推于**：不默认注入（索引里）。
+- **主推于**：`matter.status`（与周报一起注入）。能力说明里已经要求「无变更也要明写」，所以这份正文占第二个主阶段名额，不再只留在索引里。
 
 **「范围变更必须挂到具体委托事项」**：范围蔓延是律师费争议的主要来源。记录变更时必须写清「原来是什么、现在要加什么」，而不是笼统说「工作量增加了」。
 
@@ -296,62 +307,100 @@
 把前面这些串起来看，一份技能在系统里的路径是：
 
 ```text
-① 写在 src/lawmind/skills/builtin/<id>.md（带 frontmatter）
-② 启动时经 ensureBuiltinSkillSeeds 播种到 <工作区>/lawmind/skills/<id>/
-   （带 HMAC 签名 SKILL.sig）
-③ 只有 enabled && signatureOk 才会被读到
-④ 如果它被列在 PRIMARY_BY_CAPABILITY 里 → 绑定对应能力时注入正文（最多 2 份）
-   否则 → 只出现在技能索引里
-⑤ 模型需要时用 read_skill 按需取（单份上限 12000 字）
-⑥ 同一会话里重复用到时，read_skill 可以反复调（幂等只读工具）
+① 写在 src/lawmind/skills/builtin/<id>.md（带 frontmatter）。目录即登记表。
+② 回合只读这份。工作区副本和 enabled.json 不参与。
+③ 列在 PRIMARY_BY_CAPABILITY 里 → 绑定对应能力时注入正文（最多 2 份）
+   否则 → 只出现在索引里
+④ 模型需要时用 read_skill 按需取（单份上限 12000 字）
+⑤ 同一会话里可以反复调 read_skill（幂等只读）
 ```
 
-**第 ③ 步是最容易出问题的一步**（签名失败是静默的），**第 ④ 步是最影响效果的一步**（决定模型默认看到什么）。
+播种到工作区并签名仍然发生，但那一步**不决定**模型看不看得到正文。影响效果的是第 ③ 步。
+
+所以工作区里的 `SKILL.md` 投放**不能新增、覆盖或停用**任何一份产品作业标准（`product-playbooks.ts` 头注释），`run_analysis` 也不执行工作区技能目录里的脚本——确认过的脚本只在 `artifacts/analysis-scripts/`。
 
 ## 20.12 按能力反查技能
 
 如果你想知道「某个能力会看到哪两份技能」，这张表就是第 11 章那张映射表的反查：
 
-| 能力                  | 主阶段技能                                         |
-| --------------------- | -------------------------------------------------- |
-| `contract.review`     | `contract-review-layers`、`contract-redline-craft` |
-| `contract.draft`      | `contract-drafting-route`、`practice-defaults`     |
-| `mail.contract`       | `contract-review-layers`、`citation-grounding`     |
-| `letter.draft`        | `delivery-language`、`legal-element-extraction`    |
-| `research.memo`       | `research-query-matrix`、`citation-grounding`      |
-| `materials.draft`     | `delivery-language`、`legal-element-extraction`    |
-| `analysis.quick`      | `quick-legal-triage`、`legal-element-extraction`   |
-| `labor.calc`          | `labor-compensation-calc`                          |
-| `period.calc`         | `legal-period-calc`                                |
-| `chronology.timeline` | `chronology-from-materials`                        |
-| `matter.intake`       | `matter-from-materials`、`matter-budget-lite`      |
-| `ops.invoice`         | `invoice-organizer`                                |
-| `ops.court_sms`       | `court-sms-intake`、`legal-event-extract`          |
-| `litigation.talk`     | `client-talk-intake`、`legal-element-extraction`   |
-| `ip.dispute`          | `ip-dispute-route`、`evidence-argument-chain`      |
-| `deal.ma`             | `ma-diligence-route`、`legal-element-extraction`   |
-| `compliance.data`     | `data-compliance-route`、`norm-validity`           |
-| `compliance.ads`      | `ads-compliance-route`、`norm-validity`            |
-| `matter.status`       | `matter-status-report`                             |
-| `family.matter`       | `family-matter-route`、`legal-element-extraction`  |
-| `capital.markets`     | `capital-markets-route`、`citation-grounding`      |
-| `corp.governance`     | `governance-route`、`norm-validity`                |
-| `litigation.draft`    | 按细分场景（见第 11 章）                           |
+| 能力                  | 主阶段技能                                           |
+| --------------------- | ---------------------------------------------------- |
+| `contract.review`     | `contract-review-layers`、`contract-redline-craft`   |
+| `contract.draft`      | `contract-drafting-route`、`practice-defaults`       |
+| `mail.contract`       | `contract-review-layers`、`citation-grounding`       |
+| `letter.draft`        | `delivery-language`、`legal-element-extraction`      |
+| `research.memo`       | `research-query-matrix`、`citation-grounding`        |
+| `materials.draft`     | `delivery-language`、`legal-element-extraction`      |
+| `analysis.quick`      | `quick-legal-triage`、`legal-element-extraction`     |
+| `labor.calc`          | `labor-compensation-calc`                            |
+| `period.calc`         | `legal-period-calc`                                  |
+| `chronology.timeline` | `chronology-two-stage`、`chronology-from-materials`  |
+| `matter.intake`       | `matter-from-materials`、`matter-budget-lite`        |
+| `ops.invoice`         | `invoice-organizer`（`spreadsheet-analysis` 在索引） |
+| `ops.court_sms`       | `court-sms-intake`、`legal-event-extract`            |
+| `litigation.talk`     | `client-talk-intake`、`legal-element-extraction`     |
+| `ip.dispute`          | `ip-dispute-route`、`evidence-argument-chain`        |
+| `deal.ma`             | `ma-diligence-route`、`legal-element-extraction`     |
+| `compliance.data`     | `data-compliance-route`、`norm-validity`             |
+| `compliance.ads`      | `ads-compliance-route`、`norm-validity`              |
+| `matter.status`       | `matter-status-report`、`matter-status-scope-budget` |
+| `family.matter`       | `family-matter-route`、`legal-element-extraction`    |
+| `capital.markets`     | `capital-markets-route`、`citation-grounding`        |
+| `corp.governance`     | `governance-route`、`norm-validity`                  |
+| `litigation.draft`    | 按细分场景（见第 11 章）                             |
 
 ## 20.13 哪些技能没被主推
 
 有几份技能**不在任何能力的 `PRIMARY_BY_CAPABILITY` 里**，也就是说它们永远只在索引里：
 
-`contract-playbook-review`、`chronology-two-stage`、`matter-status-scope-budget`、`spreadsheet-analysis`、`intake-required-inputs`（除了高风险空跑时）。
+`contract-playbook-review`、`spreadsheet-analysis`、`intake-required-inputs`（除了高风险空跑时）。
 
-这不是疏忽。这几份是**消化来的深度能力**（三份消化技能都在其中），它们的定位是「需要时按需读」而不是「每次都注入」——因为正文长，全注入会挤占上下文。
+`chronology-two-stage` 和 `matter-status-scope-budget` 以前也在这张名单里。能力说明已经要求两阶段时间轴和范围/预算栏，只放索引时模型会跟着另一份正文走（时间轴那份还写过「不要另开确认」）。这两份现在占主阶段的第二个名额。
 
-这也意味着一个使用技巧：**如果你希望某份技能每次都被看到，需要把它加进 `PRIMARY_BY_CAPABILITY`**，而不是指望它自己生效。
+合同 Playbook 仍不占主阶段：审查的两个名额是分层和最短改动。档位口径已经写在能力说明里。纸别或底线拿不准时再 `read_skill` 读取 `contract-playbook-review`，不为读技能停掉已能写的意见。正文里「没写纸别就停下来问」已改成标【待定】继续给条件式档位。
 
 ## 20.14 已知坑（本章相关）
 
-- **技能存在 ≠ 技能生效。** 没被主推就得靠 `read_skill`，而且 `read_skill` 要模型自己想到去调。
+- **技能存在 ≠ 技能生效。** 没被主推就得靠 `read_skill`，而且 `read_skill` 要模型自己想到去调。合同审查只在档位边界拿不准时点名去读 `contract-playbook-review`。
 - **`contract-redline-craft` 的正文来自代码常量。** 改 `builtin/contract-redline-craft.md` 不会生效。
-- **`client-talk-intake` 和 `legal-event-extract` 不在种子清单里。** 它们不会出现在工作区。
-- **`legal-element-extraction` 是最被复用的技能**（七个能力把它列为第二技能）。改它影响面很大。
-- **改 `builtin/*.md` 会改变下一轮模型行为。** 这些 md 是运行时说明书，不是文档。
+- **`legal-element-extraction` 是最被复用的技能**（七个能力把它列为第二技能）。改它影响面很大。家事能力的索引里现在有 `evidence-argument-chain`，主阶段仍是家事路由加要素提取。
+- **改 `builtin/*.md` 会改变下一轮模型行为。** 这些 md 是运行时说明书，不是文档。播种清单与 37 个 id 对齐，含 `client-talk-intake` 和 `legal-event-extract`。
+
+## 20.15 实现：主阶段正文怎么选出来
+
+`primarySkillIdsForBound`（`src/lawmind/skills/skill-prompt-budget.ts`）在能力已经绑好之后再选最多两份正文。能力绑定本身在 `bindLawyerCapability` → `compileIntent`（第 4 章）。选正文的顺序：
+
+1. `mail.contract` 固定 `contract-review-layers` + `citation-grounding`。最短改动正文由邮件短路径另注入代码常量，不占这里的两个名额。
+2. `litigation.draft` 走 `litigationPrimary`，不走下面那张静态表。
+3. 其余能力读 `PRIMARY_BY_CAPABILITY`。
+4. 选出的 id 必须落在该能力自己的 `skillIds` 里，然后 `.slice(0, 2)`。一个都对不上时，退回 `skillIds` 的前两份。
+
+`litigationPrimary` 按原话选择注入哪两份说明，命中即返回。这一步不调用工具，也不拒绝起草。分错了，律师用 `【办件】` 或 `$skill` 覆盖；模型仍可用 `read_skill` 另读一份。
+
+| 顺序 | 原话信号                                                                             | 注入                                                 |
+| ---- | ------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| 1    | 离婚诉讼、抚养权、探望权、遗产继承、婚内财产分割、遗嘱继承                           | `family-matter-route`、`legal-element-extraction`    |
+| 2    | 侦查阶段、审查起诉、取保候审、刑事辩护、死刑复核、会见申请、辩护词                   | `criminal-stage-route`、`evidence-argument-chain`    |
+| 3    | 债权申报、破产重整、债权人会议、破产清算、重整计划                                   | `bankruptcy-stage-route`、`legal-period-calc`        |
+| 4    | 知产争议、专利侵权、商标侵权、著作权侵权、被控侵权                                   | `ip-dispute-route`、`evidence-argument-chain`        |
+| 5    | 最后一个「写 / 起草 / 拟」之后，先出现答辩状、质证意见、保全申请、管辖异议、再审申请 | `litigation-stage-route`、`evidence-argument-chain`  |
+| 6    | 交付类型 `litigation.complaint`，或同一段里先出现「起诉状」                          | `complaint-elements-fill`、`evidence-argument-chain` |
+| 7    | 其余                                                                                 | `litigation-stage-route`、`evidence-argument-chain`  |
+
+第 7 步以前的默认是诉讼阶段路由加起诉状母版。写答辩状、代理词、保全时，母版正文会把文书拉成起诉状。分流只看起草动词后面的文书：「根据起诉状写答辩状」走答辩；「针对答辩状写起诉状」仍走起诉状母版。没有这些动词时，才在整句里找。
+
+Word 改稿不把「帮我改一下」再跑一遍这张表。`litigationRevisionSkillIds` 先看「改 / 写」之后有没有点文书种类；没有就跟文件名。钉了答辩状时主阶段是阶段路由加证据链，起诉状母版留在索引里。选中的两份放在 `skillIds` 最前。
+
+`planLeanSkillPrompt` 把没选中的 `skillIds` 做成索引行：`id：description`。`formatBoundCapabilityBlock`（`lawyer-capabilities.ts`）把能力说明、主阶段正文和索引拼进系统提示。索引标题是「其余技能（索引，不要通读）」，末尾要求调用 `read_skill`。
+
+`readSkillPromptBodies` 忽略工作区目录。`contract-redline-craft` 用 `CONTRACT_REDLINE_CRAFT_SKILL`，不读 markdown 文件。
+
+## 20.16 对照：Cursor、Codex、Harvey
+
+Cursor 和 Codex 把 `SKILL.md` 交给操作者安装，模型按 description 自己决定要不要 `read`。那条路适合配置 Agent 的人。LawMind 的用户是律师，安装面已经删掉（第 11 章）。
+
+Harvey 把审查立场做成 Playbook 数据（标准 / 可接受回退 / 绝不接受），不把长文塞进每一轮。LawMind 的对应物是 `contract-playbook-review` 加能力说明里的三档要求。两个主阶段名额留给分层审查和最短改动；档位边界拿不准时再 `read_skill`。纸别没写时标【待定】继续给条件式档位，不先停下来问，也不为了读技能停掉已能写的意见。这是铁律 1（少打断）和铁律 5（判断交给模型，硬停只留空交付）。
+
+时间轴和周报走另一条：能力说明已经规定了完成条件（先预览再出正式件；范围变更四要素；预算对照），第二份正文却不注入，模型会执行另一份与之相反的说明书。这两份因此升为主阶段。仍保持两份上限，不把 37 份正文一次塞进上下文。
+
+没有把诉讼分流改成再叫一次模型来选技能。分流只决定哪两份质量说明进上下文，不冻结工具表。工具是否可用仍按第 3 章那条单链。

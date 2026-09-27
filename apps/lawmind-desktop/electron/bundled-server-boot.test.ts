@@ -102,7 +102,7 @@ describe("打包形态：本地服务能启动并服务诊断包", () => {
     const builtinEntry = entries.find((e) => e.to.replace(/^\.\//, "") === "lawmind-server/builtin");
     expect(
       builtinEntry,
-      "缺少 builtin skill 的 extraResources 投放：打包版会在 ensureBuiltinSkillSeeds 找不到 builtin/",
+      "缺少 builtin skill 的 extraResources 投放：打包版读作业标准时找不到 builtin/",
     ).toBeTruthy();
     expect(builtinEntry?.from.replace(/^\.\//, "")).toContain("src/lawmind/skills/builtin");
   });

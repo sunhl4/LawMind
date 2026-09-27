@@ -1,8 +1,13 @@
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import {
   buildModelConnectivityCheckReply,
   isModelConnectivityCheckQuestion,
 } from "./model-connectivity-check.js";
+import {
+  cassetteAssistant,
+  startCassetteModelServer,
+  type CassetteModelServer,
+} from "./testkit/index.js";
 
 const IDENTITY = {
   catalogLabel: "主模型 · qwen3.6-plus",
@@ -12,8 +17,10 @@ const IDENTITY = {
 };
 
 describe("model-connectivity-check", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
+  const servers: CassetteModelServer[] = [];
+
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => s.close()));
   });
 
   it("detects chain verification questions", () => {
@@ -25,21 +32,15 @@ describe("model-connectivity-check", () => {
   });
 
   it("reports probe success with latency", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        text: async () =>
-          JSON.stringify({
-            choices: [{ message: { role: "assistant", content: "ok" } }],
-          }),
-      })),
-    );
+    // Loopback cassette：探测走出口代理（绕过 global fetch），脚本化本机 HTTP 响应。
+    const server = await startCassetteModelServer();
+    servers.push(server);
+    server.enqueue(cassetteAssistant("ok"));
     const reply = await buildModelConnectivityCheckReply({
       identity: IDENTITY,
       modelConfig: {
         provider: "openai-compatible",
-        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        baseUrl: server.url,
         apiKey: "sk-test",
         model: "qwen3.6-plus",
         timeoutMs: 30_000,
@@ -52,19 +53,19 @@ describe("model-connectivity-check", () => {
   });
 
   it("reports missing api key without calling fetch", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const reply = await buildModelConnectivityCheckReply({
       identity: IDENTITY,
       modelConfig: {
         provider: "openai-compatible",
-        baseUrl: "https://example.com/v1",
+        baseUrl: server.url,
         apiKey: "",
         model: "qwen3.6-plus",
       },
       lawMindRoot: "/tmp/unused",
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(server.requests).toHaveLength(0);
     expect(reply).toContain("无法调用");
     expect(reply).toContain("未配置");
   });

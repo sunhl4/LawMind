@@ -7,7 +7,25 @@ import { describe, expect, it, vi } from "vitest";
 import { LawmindComposeContextUsage } from "./LawmindComposeContextUsage";
 
 describe("LawmindComposeContextUsage", () => {
-  it("renders ring on model row and opens panel with actions", async () => {
+  it("hides the length control on a short conversation", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindComposeContextUsage
+          budget={{ used: 3817, effectiveLimit: 95000, level: "ok" }}
+          onCompact={vi.fn()}
+          onDistill={vi.fn()}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-compose-token-bar"]')).toBeNull();
+    root.unmount();
+    host.remove();
+  });
+
+  it("shows the length control once the conversation has been tidied", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
@@ -17,7 +35,7 @@ describe("LawmindComposeContextUsage", () => {
     await act(async () => {
       root.render(
         <LawmindComposeContextUsage
-          budget={{ used: 3817, effectiveLimit: 95000, level: "ok" }}
+          budget={{ used: 3817, effectiveLimit: 95000, level: "ok", compactCount: 1 }}
           onCompact={onCompact}
           onDistill={onDistill}
           onOpenMemory={onOpenMemory}
@@ -25,14 +43,14 @@ describe("LawmindComposeContextUsage", () => {
       );
     });
     const trigger = host.querySelector('[data-testid="lm-compose-token-bar"]') as HTMLButtonElement;
-    expect(trigger).toBeTruthy();
-    expect(trigger.textContent).toMatch(/3\.8k\/95k/);
+    expect(trigger.textContent).toContain("已整理过");
+    expect(trigger.textContent).not.toMatch(/k\//);
     await act(async () => {
       trigger.click();
     });
     expect(host.querySelector('[data-testid="lm-compose-ctx-usage-panel"]')).toBeTruthy();
-    expect(host.textContent).toContain("整理上下文");
-    expect(host.textContent).toContain("整理并沉淀");
+    expect(host.textContent).toContain("整理这场对话");
+    expect(host.textContent).toContain("整理并记住要点");
     await act(async () => {
       host.querySelector<HTMLButtonElement>('[data-testid="lm-compose-open-memory"]')?.click();
     });
@@ -72,7 +90,8 @@ describe("LawmindComposeContextUsage", () => {
     expect(onPreviewCompact).toHaveBeenCalled();
     expect(onCompact).not.toHaveBeenCalled();
     expect(host.querySelector('[data-testid="lm-compose-compact-confirm"]')).toBeTruthy();
-    expect(host.textContent).toContain("预计移除约 12 条");
+    expect(host.textContent).toContain("较早的约 12 条来回");
+    expect(host.textContent).not.toContain("额度");
     await act(async () => {
       host.querySelector<HTMLButtonElement>('[data-testid="lm-compose-compact-confirm-ok"]')?.click();
     });
@@ -81,7 +100,7 @@ describe("LawmindComposeContextUsage", () => {
     host.remove();
   });
 
-  it("panel shows the window triple, layered breakdown, last compact and the honesty line", async () => {
+  it("long conversation speaks in lawyer language and hides the model window", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
@@ -123,34 +142,20 @@ describe("LawmindComposeContextUsage", () => {
       host.querySelector<HTMLButtonElement>('[data-testid="lm-compose-token-bar"]')?.click();
     });
 
-    // A4：律师能把界面数字和模型窗口对上（Codex /status 的对应物）。
-    const win = host.querySelector('[data-testid="lm-compose-ctx-window"]')?.textContent ?? "";
-    expect(win).toContain("模型窗口 128k");
-    expect(win).toContain("可用 95k");
-    expect(win).toContain("自动整理线 86k");
-    expect(win).toContain("builtin:qwen-plus");
+    expect(host.querySelector('[data-testid="lm-compose-ctx-window"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-compose-ctx-breakdown"]')).toBeNull();
+    expect(host.textContent).not.toContain("builtin:qwen-plus");
+    expect(host.textContent).not.toContain("工具回包");
+    expect(host.textContent).toContain("这场对话开始变长");
 
-    // A2：可操作信号出现在 warn（自动整理线附近），不再是到 100% 才说「建议压缩」。
-    expect(host.textContent).toContain("接近自动整理线，可整理");
-
-    // A3：分层用量，而不是一个笼统的「额度」。
-    const breakdown = host.querySelector('[data-testid="lm-compose-ctx-breakdown"]');
-    expect(breakdown?.textContent).toContain("工具回包");
-    expect(breakdown?.textContent).toContain("钉选材料");
-    expect(breakdown?.textContent).toContain("压缩摘要");
-    // 0 用量的桶不占行。
-    expect(breakdown?.textContent).not.toContain("本轮清单");
-
-    // A7：上次整理的事实。
     expect(host.querySelector('[data-testid="lm-compose-ctx-last-compact"]')?.textContent).toContain(
-      "本对话已整理 2 次",
+      "已经整理过 2 次",
     );
     expect(host.querySelector('[data-testid="lm-compose-ctx-last-compact"]')?.textContent).toContain(
-      "回合内自动整理，未中断",
+      "当时没有打断你",
     );
 
-    // A8：诚实提示（Codex 同款口径），也是「另起新对话」功能的入口论据。
-    expect(host.textContent).toContain("另起新对话");
+    expect(host.textContent).toContain("另开一段");
 
     root.unmount();
     host.remove();
@@ -195,7 +200,7 @@ describe("LawmindComposeContextUsage", () => {
     await act(async () => {
       root.render(
         <LawmindComposeContextUsage
-          budget={{ used: 1_000, effectiveLimit: 95_000, level: "ok" }}
+          budget={{ used: 80_000, effectiveLimit: 95_000, level: "warn" }}
           onCompact={vi.fn()}
           onDistill={vi.fn()}
         />,
@@ -230,10 +235,8 @@ describe("LawmindComposeContextUsage", () => {
     await act(async () => {
       host.querySelector<HTMLButtonElement>('[data-testid="lm-compose-token-bar"]')?.click();
     });
-    expect(host.querySelector('[data-testid="lm-compose-ctx-breakdown"]')).toBeTruthy();
-    expect(host.querySelector('[data-testid="lm-compose-ctx-last-compact"]')).toBeNull();
-    expect(host.textContent).not.toContain("另起新对话");
-    expect(host.textContent).not.toContain("接近自动整理线");
+    expect(host.querySelector('[data-testid="lm-compose-token-bar"]')).toBeNull();
+    expect(host.textContent).not.toContain("模型窗口");
     root.unmount();
     host.remove();
   });

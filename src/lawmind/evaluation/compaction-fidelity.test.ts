@@ -171,26 +171,19 @@ describe("runCompactionFidelity", () => {
 
   it("非关键事实只测量、不据此判失败（测量值本身是诊断信息）", async () => {
     const report = await runCompactionFidelity(LABOR_NONCOMPETE_CASE);
-    // 当前实测：模型自述的立场 / 未决问题这类没有强特征的事实会被压掉。
-    // 它不判失败，但必须**如实报出来**（否则就是「假装都保住了」）。
+    // 立场和未决问题不进事实台账。它们现在跟在归档路径后面，原串还在文件里。
+    // 丢了也不判失败；这份合成案因为归档可回读，所以可以一条都不丢。
     expect(report.nonCritical.measured).toBeGreaterThan(0);
-    expect(report.nonCritical.survivedAllRounds).toBeLessThan(report.nonCritical.measured);
-    expect(report.nonCritical.lost.length).toBeGreaterThan(0);
-    expect(report.passes).toBe(true); // 非关键丢失不影响 pass
+    expect(report.nonCritical.survivedAllRounds).toBe(report.nonCritical.measured);
+    expect(report.nonCritical.lost).toEqual([]);
+    expect(report.passes).toBe(true);
   });
 
-  it("首丢轮次可诊断（第一轮就丢说明要点窗口没兜住）", async () => {
+  it("全程可回读的事实记成 null，不记成第 0 轮丢失", async () => {
     const report = await runCompactionFidelity(LABOR_NONCOMPETE_CASE);
-    const lostIds = Object.entries(report.firstLossRound).filter(([, r]) => r !== null);
-    expect(lostIds.length).toBeGreaterThan(0);
-    for (const [, round] of lostIds) {
-      expect(typeof round).toBe("number");
-    }
-    // 全程存活的必须是 null，不是 0（0 会看起来像「第 0 轮丢的」）。
     for (const fact of LABOR_NONCOMPETE_CASE.facts) {
-      if (report.firstLossRound[fact.id] === null) {
-        expect(report.rounds.at(-1)?.survived).toContain(fact.id);
-      }
+      expect(report.firstLossRound[fact.id]).toBeNull();
+      expect(report.rounds.at(-1)?.survived).toContain(fact.id);
     }
   });
 

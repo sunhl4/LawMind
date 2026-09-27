@@ -48,6 +48,8 @@ const judgmentMockByScope = new Map();
 /** 上下文用量 / 续接的 mock 状态（同样按作用域隔离，理由见 `freshContextBudgetMock`）。 */
 const contextBudgetMockByScope = new Map();
 const forkMockByScope = new Map();
+/** 核对纸 mock：缺省关闭，避免每段对话都弹出中栏。 */
+const acceptanceSheetByScope = new Map();
 /** 续接产生的新会话 id → 律师侧「续接来源」卡的数据。 */
 const carriedOverFromBySession = new Map();
 let forkSeq = 1;
@@ -105,6 +107,44 @@ function scopeOf(req) {
   const raw = req.headers["x-lawmind-e2e-scope"];
   const value = Array.isArray(raw) ? raw[0] : raw;
   return typeof value === "string" && value.trim() ? value.trim() : "default";
+}
+
+function acceptanceSheetOpen(req) {
+  return acceptanceSheetByScope.get(scopeOf(req)) === true;
+}
+
+function e2eAcceptanceSheet(mark) {
+  return {
+    taskId: "e2e-task-1",
+    title: "采购合同审查备忘",
+    hasDraft: true,
+    summary: "建议把违约金写成可调整。",
+    claims: [
+      {
+        id: "c-e2e",
+        text: "违约金为合同总额的百分之二十。",
+        confidenceLabel: "高",
+        locator: "第 8.2 条",
+        sources: [
+          {
+            id: "src-1",
+            title: "采购合同",
+            citation: "第 8.2 条",
+            relPath: "cases/m1/采购合同.pdf",
+            page: 12,
+            pageLabel: "第 12 页",
+            openKind: "pdf",
+          },
+        ],
+        mark,
+        demo: false,
+      },
+    ],
+    gaps: [{ id: "g-e2e", text: "未见实际损失" }],
+    risks: [],
+    removedCount: 0,
+    open: true,
+  };
 }
 
 function judgmentMockFor(req) {
@@ -514,6 +554,10 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { ok: true, roots: [], latest: null });
     return;
   }
+  if (path === "/api/historical-scan/file" && req.method === "POST") {
+    json(res, 200, { ok: true, filed: [], skipped: [], truncated: false });
+    return;
+  }
   if (path === "/api/historical-scan/run" && req.method === "POST") {
     json(res, 200, { ok: true, job: { scanId: "scan-mock", stats: { cataloged: 0 } } });
     return;
@@ -691,7 +735,6 @@ const server = http.createServer(async (req, res) => {
         citationGateStrict: true,
         crossMatterRoadmap: true,
         crossMatterAcceptanceDashboard: true,
-        collaborationSummary: true,
         complianceAuditExport: true,
         auditIntegrityExport: true,
         securitySbomPanel: false,
@@ -700,6 +743,11 @@ const server = http.createServer(async (req, res) => {
         acceptancePackExport: true,
         strictDangerousToolApproval: true,
         reviewCampaignParallel: true,
+        forcePeerReview: true,
+        matterReplicaCollab: true,
+        ethicsWall: true,
+        wordAddinAutoRun: false,
+        guardianTrackedRedlineBlock: true,
       },
     });
     return;
@@ -713,29 +761,13 @@ const server = http.createServer(async (req, res) => {
   if (path === "/api/skills" && req.method === "GET") {
     json(res, 200, {
       ok: true,
-      cnPack: {
-        id: "cn-legal-pack",
-        label: "中国法务自研包",
-        workflowIds: ["cn-contract-review", "cn-litigation-elements", "cn-labor-demand"],
-        notes: "e2e mock pack",
-      },
+      configurable: false,
       skills: [
         {
-          id: "cn-contract-checklist",
-          name: "合同审查清单",
-          version: "1",
-          description: "e2e mock skill",
-          enabled: true,
-          signatureOk: true,
-        },
-        {
-          id: "tampered-skill",
-          name: "篡改示例",
-          version: "1",
-          description: "签名失败不可启用",
-          enabled: false,
-          signatureOk: false,
-          signatureError: "signature_mismatch",
+          id: "contract-review-layers",
+          name: "合同分层审查",
+          version: "2",
+          description: "内置作业标准",
         },
       ],
     });
@@ -743,29 +775,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (path === "/api/skills/enabled" && req.method === "POST") {
-    const body = await readJsonBody(req);
-    json(res, 200, {
-      ok: true,
-      skills: [
-        {
-          id: "cn-contract-checklist",
-          name: "合同审查清单",
-          version: "1",
-          description: "e2e mock skill",
-          enabled: body?.skillId === "cn-contract-checklist" ? Boolean(body?.enabled) : true,
-          signatureOk: true,
-        },
-        {
-          id: "tampered-skill",
-          name: "篡改示例",
-          version: "1",
-          description: "签名失败不可启用",
-          enabled: false,
-          signatureOk: false,
-          signatureError: "signature_mismatch",
-        },
-      ],
-    });
+    await readJsonBody(req);
+    json(res, 405, { ok: false, error: "作业标准随软件内置，不能安装或开关。" });
     return;
   }
 
@@ -815,9 +826,6 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       session,
       autoConfirmed: false,
-      matchedSkills: isNda
-        ? []
-        : [{ id: "cn-contract-checklist", name: "合同审查清单", version: "1" }],
     });
     return;
   }
@@ -1095,6 +1103,16 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (path === "/api/onboarding/firstrun" && req.method === "GET") {
+    json(res, 200, { ok: true, dismissed: false, dismissedAt: null, pendingMatterId: null });
+    return;
+  }
+
+  if (path === "/api/onboarding/firstrun-dismiss" && req.method === "POST") {
+    json(res, 200, { ok: true });
+    return;
+  }
+
   if (path === "/api/onboarding/firstrun-wizard" && req.method === "POST") {
     json(res, 200, { ok: true });
     return;
@@ -1178,6 +1196,7 @@ const server = http.createServer(async (req, res) => {
     judgmentMockByScope.set(scopeOf(req), freshJudgmentMock());
     contextBudgetMockByScope.set(scopeOf(req), freshContextBudgetMock());
     forkMockByScope.set(scopeOf(req), freshForkMock());
+    acceptanceSheetByScope.set(scopeOf(req), false);
     ensureDefaultSessionSeeded();
     json(res, 200, { ok: true });
     return;
@@ -1308,6 +1327,32 @@ const server = http.createServer(async (req, res) => {
       byTier: { machine: 2, judge: 0, lawyer: 1 },
       byItem: { "pr.deposit": "machine", "pr.pay": "machine", "pr.cap": "lawyer" },
     });
+    return;
+  }
+
+  if (path === "/__e2e__/acceptance-sheet" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const open = body?.open === true;
+    acceptanceSheetByScope.set(scopeOf(req), open);
+    json(res, 200, { ok: true, open });
+    return;
+  }
+
+  const acceptanceMatch = /^\/api\/sessions\/([^/]+)\/acceptance-sheet$/.exec(path);
+  if (acceptanceMatch && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      sheet: acceptanceSheetOpen(req) ? e2eAcceptanceSheet(null) : null,
+    });
+    return;
+  }
+
+  const acceptanceMarkMatch = /^\/api\/drafts\/([^/]+)\/acceptance-sheet$/.exec(path);
+  if (acceptanceMarkMatch && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const mark =
+      body?.mark === "accepted" || body?.mark === "too_strong" || body?.mark === "removed" ? body.mark : null;
+    json(res, 200, { ok: true, sheet: e2eAcceptanceSheet(mark) });
     return;
   }
 

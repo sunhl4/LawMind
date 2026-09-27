@@ -460,6 +460,22 @@ button.lm-agents-wb-pill:hover {
   border-left-color: color-mix(in srgb, var(--ok) 70%, transparent);
 }
 
+.lm-agents-wb-group-toggle[data-kind="needsYou"] {
+  border-left-color: color-mix(in srgb, var(--warn) 78%, transparent);
+}
+
+.lm-agents-wb-group-toggle[data-kind="inFlight"] {
+  border-left-color: color-mix(in srgb, var(--accent) 72%, transparent);
+}
+
+.lm-agents-wb-group-toggle[data-kind="settled"] {
+  border-left-color: color-mix(in srgb, var(--ok) 55%, transparent);
+}
+
+.lm-agents-wb-group-toggle:not(button) {
+  cursor: default;
+}
+
 .lm-agents-wb-group-toggle:hover {
   background: color-mix(in srgb, var(--accent-dim) 45%, var(--surface));
 }
@@ -639,6 +655,78 @@ button.lm-agents-wb-pill:hover {
 
 .lm-agents-wb-row-kind[data-kind="approve"] {
   color: var(--ok);
+}
+
+.lm-agents-wb-row[data-kind="running"] {
+  border-left-color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.lm-agents-wb-row[data-kind="failed"] {
+  border-left-color: color-mix(in srgb, var(--warn) 70%, transparent);
+}
+
+.lm-agents-wb-row[data-kind="done"] {
+  border-left-color: color-mix(in srgb, var(--muted) 45%, transparent);
+}
+
+.lm-agents-wb-row-kind[data-kind="running"] {
+  color: var(--accent);
+}
+
+.lm-agents-wb-row-kind[data-kind="failed"] {
+  color: var(--warn);
+}
+
+.lm-agents-wb-row-kind[data-kind="done"] {
+  color: var(--muted);
+}
+
+.lm-agents-wb-brief {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.lm-agents-wb-brief-kicker {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.lm-agents-wb-brief-instruction,
+.lm-agents-wb-brief-stop,
+.lm-agents-wb-overview {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.lm-agents-wb-brief-instruction {
+  color: var(--text);
+}
+
+.lm-agents-wb-brief-stop,
+.lm-agents-wb-overview {
+  color: var(--text-2);
+}
+
+.lm-agents-wb-band-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 2px 8px;
+}
+
+.lm-agents-wb-band-note p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .lm-agents-wb-row-title {
@@ -855,8 +943,22 @@ button.lm-agents-wb-pill:hover {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--muted);
+}
+
+.lm-agents-wb-kicker[data-kind="approve"],
+.lm-agents-wb-kicker[data-kind="clarify"],
+.lm-agents-wb-kicker[data-kind="failed"] {
+  color: var(--warn);
+}
+
+.lm-agents-wb-kicker[data-kind="running"],
+.lm-agents-wb-kicker[data-kind="review"] {
+  color: var(--accent);
+}
+
+.lm-agents-wb-kicker[data-kind="done"] {
+  color: var(--ok);
 }
 
 .lm-agents-wb-detail-head h2,

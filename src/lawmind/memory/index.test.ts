@@ -110,6 +110,7 @@ describe("LawMind Memory", () => {
     expect(extractClientIdFromCaseMarkdown("## 1\n- **客户ID**：`corp-abc`")).toBe("corp-abc");
     expect(extractClientIdFromCaseMarkdown("- 客户 / clientId: client-case\n")).toBe("client-case");
     expect(extractClientIdFromCaseMarkdown("- clientId: 可选\n")).toBeNull();
+    expect(extractClientIdFromCaseMarkdown("- clientId: ../../secrets\n")).toBeNull();
   });
 
   it("appends structured entries into CASE.md sections", async () => {

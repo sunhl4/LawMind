@@ -2,6 +2,7 @@
  * Microsoft Graph client-credentials listing (read-only).
  */
 
+import { createOutboundProxy } from "../platform/outbound-proxy.js";
 import type { IntegrationDocumentEntry } from "./integration-types.js";
 
 export type SharePointGraphConfig = {
@@ -15,6 +16,13 @@ export type GraphListResult =
   | { ok: true; documents: IntegrationDocumentEntry[] }
   | { ok: false; error: string; hint?: string };
 
+const GRAPH_FETCH_TIMEOUT_MS = 20_000;
+
+const sharePointGraphProxy = createOutboundProxy({
+  requestTag: "sharepoint-graph",
+  timeoutMs: GRAPH_FETCH_TIMEOUT_MS,
+});
+
 async function fetchAccessToken(cfg: SharePointGraphConfig): Promise<string> {
   const tokenUrl = `https://login.microsoftonline.com/${encodeURIComponent(cfg.tenantId)}/oauth2/v2.0/token`;
   const body = new URLSearchParams({
@@ -23,7 +31,7 @@ async function fetchAccessToken(cfg: SharePointGraphConfig): Promise<string> {
     scope: "https://graph.microsoft.com/.default",
     grant_type: "client_credentials",
   });
-  const res = await fetch(tokenUrl, {
+  const res = await sharePointGraphProxy.fetch(tokenUrl, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
@@ -45,7 +53,7 @@ export async function listSharePointDriveChildren(
   try {
     const token = await fetchAccessToken(cfg);
     const url = `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(cfg.siteId)}/drive/root/children?$select=name,size,lastModifiedDateTime,id,webUrl`;
-    const res = await fetch(url, {
+    const res = await sharePointGraphProxy.fetch(url, {
       headers: { authorization: `Bearer ${token}` },
     });
     if (!res.ok) {

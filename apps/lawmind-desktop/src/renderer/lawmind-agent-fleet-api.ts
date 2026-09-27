@@ -10,6 +10,33 @@ import type { NeedsDecisionDeskTarget } from "./lawmind-agents-desk";
 
 export type { AgentFleetSummary, AgentPreset, AgentRunSummary, AssistantGrowthReportView };
 
+/** 工作台「停在你这里」只带案件：打开该案停着的第一件，不在全库里抢一张待批准。 */
+export function isMatterOnlyDeskTarget(
+  target: NeedsDecisionDeskTarget | null | undefined,
+): boolean {
+  if (!target?.matterId?.trim()) {
+    return false;
+  }
+  return (
+    !target.queueItemId?.trim() &&
+    !target.jobId?.trim() &&
+    !target.sessionId?.trim() &&
+    !target.taskId?.trim() &&
+    !target.preferStatus
+  );
+}
+
+export function firstNeedsYouIdForMatter(
+  needsYou: Array<{ id: string; matterId?: string | null }>,
+  matterId: string,
+): string | null {
+  const mid = matterId.trim();
+  if (!mid) {
+    return null;
+  }
+  return needsYou.find((row) => (row.matterId?.trim() || "") === mid)?.id ?? null;
+}
+
 /** Match queue row for deep-link from chat「去在办补充» / 交办结果. */
 export function matchNeedsDecisionFocusId(
   queue: AgentRunSummary[],
@@ -94,6 +121,20 @@ export function matterIdQueryParam(matterId?: string | null): string {
     return "";
   }
   return `?matterId=${encodeURIComponent(t)}`;
+}
+
+export async function loadAssistantGrowth(
+  apiBase: string,
+  windowDays = 30,
+): Promise<AssistantGrowthReportView> {
+  const res = await apiGetJson<{ ok?: boolean } & AssistantGrowthReportView>(
+    apiBase,
+    `/api/assistants/growth?windowDays=${encodeURIComponent(String(windowDays))}`,
+  );
+  return {
+    windowDays: res.windowDays ?? windowDays,
+    assistants: res.assistants ?? [],
+  };
 }
 
 export async function loadAgentFleet(

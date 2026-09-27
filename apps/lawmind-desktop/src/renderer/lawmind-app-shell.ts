@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import { createAssistantDraft, type AssistantEditorDraft } from "./lawmind-assistant-editor";
 import type { LawmindMainView } from "./lawmind-main-view";
@@ -44,6 +44,7 @@ import {
 } from "./useLawmindAppBootstrapEffects";
 import { useLawmindAppSetupActions } from "./useLawmindAppSetupActions";
 import { useLawmindAssistantActions } from "./useLawmindAssistantActions";
+import { LAWMIND_REPLICA_JOINED_EVENT } from "./matter/MatterReplicaPanel";
 
 export type { ChatSessionListEntry } from "./useLawmindChatShell";
 export type { FileChatContextItem } from "./lawmind-file-chat-context";
@@ -58,6 +59,11 @@ export function useLawmindAppShell() {
   const [reviewFocusStatus, setReviewFocusStatus] = useState<ArtifactDraft["reviewStatus"] | "all">("all");
   const [reviewFocusListMode, setReviewFocusListMode] = useState<"pending" | "all">("pending");
   const [matterRefreshVersion, setMatterRefreshVersion] = useState(0);
+  useEffect(() => {
+    const onJoined = () => setMatterRefreshVersion((v) => v + 1);
+    window.addEventListener(LAWMIND_REPLICA_JOINED_EVENT, onJoined);
+    return () => window.removeEventListener(LAWMIND_REPLICA_JOINED_EVENT, onJoined);
+  }, []);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [health, setHealth] = useState<LawmindHealthState>(null);
   const [healthPayload, setHealthPayload] = useState<HealthPayload | null>(null);
@@ -68,7 +74,6 @@ export function useLawmindAppShell() {
   });
   const {
     modelCatalog,
-    modelProviders,
     platformProviders,
     platformMode,
     selectedModelId,
@@ -240,8 +245,14 @@ export function useLawmindAppShell() {
     refreshModelsCatalog,
   });
 
-  const { openNewAssistant, openEditAssistant, saveAssistant, removeAssistant, duplicateAssistant } =
-    useLawmindAssistantActions({
+  const {
+    openNewAssistant,
+    openEditAssistant,
+    saveAssistant,
+    removeAssistant,
+    duplicateAssistant,
+    patchAssistantRoster,
+  } = useLawmindAssistantActions({
       config,
       selectedAssistantId,
       setSelectedAssistantId,
@@ -295,8 +306,15 @@ export function useLawmindAppShell() {
 
   watchBackgroundSessionFnRef.current = watchBackgroundSessionProgress;
 
+  const knownChatMatterIdsRef = useRef<ReadonlySet<string> | null>(null);
+  const setKnownChatMatterIds = useCallback((ids: readonly string[]) => {
+    knownChatMatterIdsRef.current = new Set(ids);
+  }, []);
   const {
+    chatListScope,
     selectChatSession,
+    openChatListScope,
+    focusAssistantInCurrentScope,
     openDelegationTargetWorkspaceChat,
     createNewChatSession,
     renameChatSession,
@@ -319,10 +337,12 @@ export function useLawmindAppShell() {
     modelCatalog,
     selectedModelId,
     flashComposeModelHint,
+    chatSessionList,
+    setMessagesByAssistant,
+    knownChatMatterIdsRef,
   });
 
-  const activeChatSessionIdForExtras =
-    sessionByAssistant[selectedAssistantId] ?? chatSessionList[0]?.sessionId;
+  const activeChatSessionIdForExtras = sessionByAssistant[selectedAssistantId];
   const composeExtras = useLawmindComposeExtras({
     apiBase: config?.apiBase,
     sessionId: activeChatSessionIdForExtras,
@@ -390,14 +410,10 @@ export function useLawmindAppShell() {
       const dropped =
         typeof info.droppedMessageCount === "number" ? info.droppedMessageCount : 0;
       const label = info.overflowPrune
-        ? "上下文较满，已精简后继续"
-        : info.midTurn
-          ? dropped > 0
-            ? `上下文已整理（折叠约 ${dropped} 条较早消息），本回合未中断，继续办理`
-            : "上下文已整理，本回合未中断，继续办理"
-          : dropped > 0
-            ? `对话已自动压缩（约 ${dropped} 条较早消息已折叠）`
-            : "对话已自动压缩以腾出上下文空间";
+        ? "较早的检索结果已收短，继续办"
+        : dropped > 0
+          ? "较早的来回已收成要点，继续办"
+          : "这场对话已整理，继续办";
       setStreamCompactNoticesByAssistant((prev) => ({
         ...prev,
         [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), label],
@@ -497,7 +513,6 @@ export function useLawmindAppShell() {
       health,
       healthPayload,
       modelCatalog,
-      modelProviders,
       platformProviders,
       platformMode,
       selectedModelId,
@@ -564,6 +579,7 @@ export function useLawmindAppShell() {
       currentMessages,
       deskContractBatchDir,
       chatSessionList,
+      chatListScope,
       chatSessionsLoading,
       activeChatSessionId: sessionByAssistant[selectedAssistantId],
       revisionBackgroundActive,
@@ -650,6 +666,7 @@ export function useLawmindAppShell() {
       saveAssistant,
       removeAssistant,
       duplicateAssistant,
+      patchAssistantRoster,
       copyMessage,
       openApiWizard,
       composeModelQuickTest,
@@ -663,6 +680,9 @@ export function useLawmindAppShell() {
       removeComposeTruthPin,
       clearComposeTruthPins,
       selectChatSession,
+      openChatListScope,
+      focusAssistantInCurrentScope,
+      setKnownChatMatterIds,
       refreshChatSessionListForAssistant,
       openDelegationTargetWorkspaceChat,
       createNewChatSession,

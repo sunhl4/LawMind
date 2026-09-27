@@ -3,13 +3,27 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage, fetchApi } from "./api-client";
-import {
-  requestOpenAutomationsSettings,
-  requestOpenWorkspaceSettings,
-} from "./lawmind-automations-nav-bus";
+import { requestOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
 import { triggerBrowserDownload } from "./review/review-workbench-helpers";
-import { LEGAL_EVENT_KIND_LABELS, type ExtractedLegalEvent } from "../../../../src/lawmind/desk/legal-event-extract.ts";
-import { DEADLINE_SOURCE_LABELS } from "../../../../src/lawmind/desk/deadline-chain.ts";
+import { type ExtractedLegalEvent } from "../../../../src/lawmind/desk/legal-event-extract.ts";
+import {
+  actionSortRank,
+  countKind,
+  deadlineSourceCopy,
+  eventKindLabel,
+  formatClock,
+  formatDeskDate,
+  formatDueShort,
+  formatMaterialBytes,
+  formatTimelineDay,
+  hearingCountdown,
+  isCarriedPlan,
+  isOverdue,
+  mailSourceRef,
+  materialDisplayPath,
+  matterStatusZh,
+  planCardMeta,
+} from "./lawmind-lawyer-desk-format";
 import { MATTER_KIND_LABELS, type MatterKind } from "../../../../src/lawmind/desk/matter-kind.ts";
 import { acceptanceFeeView } from "./matter/litigation-fee-view";
 import {
@@ -19,11 +33,12 @@ import {
   normalizeMatterParties,
   type MatterParty,
 } from "../../../../src/lawmind/desk/matter-parties.ts";
+import { LawmindDaemonRecap } from "./LawmindDaemonRecap";
 import { LawmindMatterPartiesEditor, LawmindMatterPartyCards } from "./LawmindMatterPartiesEditor";
 import { MatterReplicaPanel } from "./matter/MatterReplicaPanel";
-import { taskLifecycleLabel } from "./matter/matter-display-labels";
 import { pinDroppedChatFiles } from "./lawmind-file-drop-context";
 import { useChatFileDropTarget } from "./useChatFileDropTarget";
+import { DeskGlyph, IntakeBriefBlocks, type IntakeBriefView } from "./desk-workbench-bits";
 
 type TodayItemKind = "plan" | "mail" | "deadline" | "approval";
 
@@ -42,6 +57,7 @@ type TodaySnapshot = {
   date: string;
   items: TodayItem[];
   progress: { done: number; total: number };
+  carryOmitted?: number;
 };
 
 type DeskReplicaFeedItem = {
@@ -87,16 +103,6 @@ type DeadlineRow = {
   released?: boolean;
   waitingOnTitle?: string;
   dependsOnDeadlineId?: string;
-};
-
-type IntakeBriefView = {
-  clientNeeds: string[];
-  coreFacts: string[];
-  issues?: string[];
-  causeCandidates: Array<{ label: string; reason: string }>;
-  evidenceGaps: string[];
-  nextActions: string[];
-  confirmedAt?: string;
 };
 
 type SimilarHit = {
@@ -159,6 +165,8 @@ type MatterPulseView = {
     mail: number;
     approvals: number;
     materials?: number;
+    materialsOmitted?: number;
+    materialsSaturated?: boolean;
   };
   daysUntilHearing: number | null;
   documents: Array<{ id: string; title: string; status: string; at?: string; taskId?: string; outputPath?: string }>;
@@ -178,7 +186,7 @@ type MatterPulseView = {
   intakeConfirmedAt?: string;
 };
 
-type MatterPaneId = "overview" | "docket" | "docs" | "materials" | "deadlines" | "intake" | "review";
+type MatterPaneId = "overview" | "deadlines" | "volume";
 
 export type LawmindLawyerWorkbenchProps = {
   apiBase: string;
@@ -206,104 +214,6 @@ const KIND_FILTERS: Array<{ id: "all" | MatterKind; label: string }> = [
   { id: "general", label: "其他" },
 ];
 
-const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
-
-function formatDeskDate(isoDate: string): string {
-  const [y, m, d] = isoDate.split("-").map((part) => Number(part));
-  if (!y || !m || !d) {
-    return isoDate;
-  }
-  const dt = new Date(y, m - 1, d);
-  return `${m}月${d}日 周${WEEKDAYS[dt.getDay()]}`;
-}
-
-function formatDueShort(dueAt?: string): string {
-  if (!dueAt) {
-    return "";
-  }
-  return dueAt.slice(0, 16).replace("T", " ");
-}
-
-function formatClock(dueAt?: string): string {
-  if (!dueAt) {
-    return "全天";
-  }
-  const clock = dueAt.slice(11, 16);
-  if (clock && clock !== "00:00") {
-    return clock;
-  }
-  return dueAt.slice(5, 10);
-}
-
-function isOverdue(dueAt: string | undefined, now = new Date()): boolean {
-  if (!dueAt) {
-    return false;
-  }
-  const due = new Date(dueAt);
-  if (Number.isNaN(due.getTime())) {
-    return false;
-  }
-  return due.getTime() < now.getTime();
-}
-
-function countKind(items: TodayItem[], kind: TodayItemKind, openOnly = false): number {
-  return items.filter((item) => item.kind === kind && (!openOnly || !item.done)).length;
-}
-
-function isCarriedPlan(item: TodayItem, todayDate: string | undefined): boolean {
-  return item.kind === "plan" && Boolean(item.originDate) && item.originDate !== todayDate;
-}
-
-function formatMonthDay(dateKey: string): string {
-  const parts = dateKey.split("-");
-  const month = Number(parts[1]);
-  const day = Number(parts[2]);
-  if (!month || !day) {
-    return dateKey;
-  }
-  return `${month}月${day}日`;
-}
-
-function planCardMeta(item: TodayItem, todayDate: string | undefined): string {
-  if (isCarriedPlan(item, todayDate) && item.originDate) {
-    return `未结 · 自 ${formatMonthDay(item.originDate)}`;
-  }
-  return "今日计划，勾完计入进度";
-}
-
-function actionSortRank(item: TodayItem, todayDate: string | undefined): number {
-  if (item.kind === "approval") {
-    return 0;
-  }
-  if (item.kind === "mail") {
-    return 1;
-  }
-  if (isCarriedPlan(item, todayDate)) {
-    return 2;
-  }
-  if (item.kind === "plan") {
-    return 3;
-  }
-  return 4;
-}
-
-function eventKindLabel(eventKind: string | undefined): string {
-  if (!eventKind) {
-    return "期限";
-  }
-  return LEGAL_EVENT_KIND_LABELS[eventKind as keyof typeof LEGAL_EVENT_KIND_LABELS] ?? eventKind;
-}
-
-function deadlineSourceCopy(row: Pick<DeadlineRow, "source" | "sourceLabel">): string {
-  if (row.sourceLabel?.trim()) {
-    return row.sourceLabel.trim();
-  }
-  if (!row.source) {
-    return "";
-  }
-  return DEADLINE_SOURCE_LABELS[row.source as keyof typeof DEADLINE_SOURCE_LABELS] ?? "";
-}
-
 function DeadlineSourceBadge({ row }: { row: Pick<DeadlineRow, "source" | "sourceLabel"> }) {
   const label = deadlineSourceCopy(row);
   if (!label) {
@@ -320,36 +230,6 @@ function DeadlineWaitingLine({ row }: { row: Pick<DeadlineRow, "released" | "wai
     return null;
   }
   return <span className="lm-deadline-waiting">{`等「${row.waitingOnTitle}」完成`}</span>;
-}
-
-function matterStatusZh(status: string | undefined): string {
-  if (!status) {
-    return "未标";
-  }
-  const labels: Record<string, string> = {
-    intake: "收案",
-    active: "进行中",
-    open: "进行中",
-    waiting_on_client: "等客户",
-    waiting_on_firm: "等所内",
-    under_review: "审查中",
-    delivered: "已交付",
-    closed: "已结",
-  };
-  return labels[status] ?? status;
-}
-
-function hearingCountdown(days: number | null | undefined): string | null {
-  if (days === null || days === undefined) {
-    return null;
-  }
-  if (days < 0) {
-    return `开庭已过 ${-days} 天`;
-  }
-  if (days === 0) {
-    return "今天开庭";
-  }
-  return `还有 ${days} 天开庭`;
 }
 
 const MATTER_TIMELINE_KIND_ZH: Record<MatterPulseTimelineKind, string> = {
@@ -371,36 +251,6 @@ function overviewPartiesFromPulse(pulse: MatterPulseView | null): MatterParty[] 
   });
 }
 
-function formatTimelineDay(at: string): string {
-  const stamp = at.trim();
-  if (!stamp) {
-    return "";
-  }
-  const dt = new Date(stamp);
-  if (!Number.isNaN(dt.getTime())) {
-    return `${dt.getMonth() + 1}月${dt.getDate()}日`;
-  }
-  const md = stamp.slice(5, 10);
-  if (/^\d{2}-\d{2}$/.test(md)) {
-    return `${Number(md.slice(0, 2))}月${Number(md.slice(3))}日`;
-  }
-  return stamp.slice(0, 10);
-}
-
-function formatMaterialBytes(n: number): string {
-  if (n < 1024) {
-    return `${n} B`;
-  }
-  if (n < 1024 * 1024) {
-    return `${(n / 1024).toFixed(1)} KB`;
-  }
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function materialDisplayPath(relPath: string): string {
-  return relPath.replace(/^materials\//, "");
-}
-
 function fallbackDeskMatter(
   viewingId: string,
   pulse: MatterPulseView | null,
@@ -418,16 +268,6 @@ function fallbackDeskMatter(
     daysUntilHearing: pulse?.daysUntilHearing ?? null,
     openTaskCount: pulse?.counts.tasks,
   };
-}
-
-function mailSourceRef(item: TodayItem): string | undefined {
-  const explicit = item.sourceRef?.trim();
-  if (explicit) {
-    return explicit;
-  }
-  const tail = item.id.replace(/^mail:/, "");
-  const colon = tail.lastIndexOf(":");
-  return (colon >= 0 ? tail.slice(colon + 1) : tail).trim() || undefined;
 }
 
 function DeskServiceAlert({
@@ -478,6 +318,8 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
   } = props;
   const [kind, setKind] = useState<"all" | MatterKind>("all");
   const [matterPane, setMatterPane] = useState<MatterPaneId>("overview");
+  const [volumeSide, setVolumeSide] = useState<"materials" | "docs">("materials");
+  const [, setTalkOpen] = useState(false);
   const [today, setToday] = useState<TodaySnapshot | null>(null);
   const [replicaFeed, setReplicaFeed] = useState<DeskReplicaFeedItem[]>([]);
   const [matters, setMatters] = useState<DeskMatterRow[]>([]);
@@ -545,6 +387,11 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     .filter((item) => matches(item.title))
     .toSorted((a, b) => actionSortRank(a, todayDate) - actionSortRank(b, todayDate));
   const shownDeadlines = deadlineItems.filter((item) => matches(item.title));
+  const unreadMatterIds = new Set(
+    todayItems
+      .filter((item) => item.kind === "mail" && !item.done && item.matterId)
+      .map((item) => item.matterId as string),
+  );
   const shownMatters = matters
     .filter(
       (row) =>
@@ -559,19 +406,16 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
         if (row.status === "closed" || row.status === "delivered") {
           return 800;
         }
-        if (typeof row.daysUntilHearing === "number") {
+        if (typeof row.daysUntilHearing === "number" && row.daysUntilHearing <= 7) {
           return row.daysUntilHearing;
-        }
-        if ((row.openDeadlineCount ?? 0) > 0) {
-          return 60;
-        }
-        if (row.status === "intake") {
-          return 200;
         }
         return 120;
       };
       return rank(a) - rank(b);
     });
+  const nextHearingRow = shownMatters.find(
+    (row) => typeof row.daysUntilHearing === "number" && row.daysUntilHearing >= 0,
+  );
 
   const reloadToday = useCallback(async () => {
     const j = await apiGetJson<{ ok?: boolean; today?: TodaySnapshot }>(apiBase, "/api/desk/today");
@@ -1034,7 +878,9 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     { stopPropagation: true },
   );
   const talkDrop = useChatFileDropTarget(
-    matterPane === "intake" ? talkFromDroppedFile : undefined,
+    matterPane === "overview" && (selected?.matterKind === "litigation" || matterKind === "litigation")
+      ? talkFromDroppedFile
+      : undefined,
     { stopPropagation: true },
   );
 
@@ -1188,29 +1034,22 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
   };
 
   const carriedOpen = actionItems.filter((item) => isCarriedPlan(item, todayDate) && !item.done).length;
+  const carryOmitted = today?.carryOmitted ?? 0;
   const progressLabel =
     progressTotal === 0
       ? "今天还没有事项"
-      : carriedOpen > 0
-        ? `今日进度 ${progressDone}/${progressTotal} · 含 ${carriedOpen} 项未结`
-        : `今日进度 ${progressDone}/${progressTotal}`;
+      : [
+          `今日进度 ${progressDone}/${progressTotal}`,
+          carriedOpen > 0 ? `含 ${carriedOpen} 项未结` : "",
+          carryOmitted > 0 ? `另有 ${carryOmitted} 项更早的计划未带上` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
   const workspaceLabel =
     workspaceDir?.split(/[\\/]/).filter(Boolean).pop()?.trim() || "";
   const contractCount = matters.filter((row) => row.matterKind === "contract").length;
   const litigationCount = matters.filter((row) => row.matterKind === "litigation").length;
   const preferredMatterId = selectedMatterId?.trim() || viewingId || null;
-  const resolveQuickMatter = (preferLitigation = false): DeskMatterRow | undefined => {
-    if (preferredMatterId) {
-      const selected = matters.find((m) => m.matterId === preferredMatterId);
-      if (selected) {
-        return selected;
-      }
-    }
-    if (preferLitigation) {
-      return matters.find((m) => m.matterKind === "litigation") ?? matters[0];
-    }
-    return shownMatters[0] ?? matters[0];
-  };
   const artifactPathLooksOpenable = (label: string) => {
     const t = label.trim();
     if (!t) {
@@ -1226,10 +1065,105 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     return [row.title, row.docket?.caseNo].filter(Boolean).join(" · ");
   };
 
+  const caseRail = (
+    <aside className="lm-desk-col lm-desk-col--matters lm-desk-rail" aria-label="案件">
+      <div className="lm-desk-col-head">
+        <div className="lm-desk-col-copy">
+          <p className="lm-desk-col-label">案件</p>
+          <div className="lm-desk-col-value">
+            {shownMatters.length}
+            <span className="lm-desk-col-unit">件</span>
+          </div>
+          <p className="lm-desk-col-delta">
+            {contractCount} 合同 · {litigationCount} 诉讼
+          </p>
+        </div>
+        <span className="lm-desk-ico" aria-hidden>
+          <DeskGlyph name="folder" />
+        </span>
+      </div>
+      <div className="lm-desk-rail-today-wrap">
+        <button
+          type="button"
+          className={`lm-desk-rail-today${desk === "cockpit" ? " is-current" : ""}`}
+          aria-current={desk === "cockpit" ? "page" : undefined}
+          onClick={() => setDesk("cockpit")}
+        >
+          今日
+        </button>
+      </div>
+      <div className="lm-desk-filters" role="tablist" aria-label="工作门类">
+        {KIND_FILTERS.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            role="tab"
+            aria-selected={kind === f.id}
+            aria-controls="lm-lawyer-matter-list"
+            className={`lm-desk-seg ${kind === f.id ? "is-active" : ""}`}
+            onClick={() => setKind(f.id)}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+      <div className="lm-desk-body">
+        <div className="lm-desk-scroll">
+          {shownMatters.length === 0 ? (
+            <div className="lm-lawyer-empty" data-testid="lm-lawyer-matter-empty">
+              <p className="lm-lawyer-empty-title">还没有案件</p>
+              <p>先建一卷，期限和谈话会跟在后面。</p>
+              {onCreateMatter ? (
+                <button type="button" className="lm-btn lm-btn-sm" onClick={onCreateMatter}>
+                  新建案件
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <ul className="lm-desk-list" id="lm-lawyer-matter-list" role="tabpanel">
+              {shownMatters.map((row) => {
+                const isCurrent = desk === "matter" && preferredMatterId === row.matterId;
+                const hot =
+                  typeof row.daysUntilHearing === "number" && row.daysUntilHearing <= 3;
+                return (
+                  <li key={row.matterId}>
+                    <button
+                      type="button"
+                      className={`lm-matter-card${isCurrent ? " is-current" : ""}`}
+                      aria-current={isCurrent ? "true" : undefined}
+                      onClick={() => openMatter(row.matterId)}
+                    >
+                      <span className="lm-matter-card-body">
+                        <strong>{row.title}</strong>
+                        <span className="lm-matter-card-meta">
+                          <span className="lm-kind" data-kind={row.matterKind}>
+                            {row.matterKindLabel}
+                          </span>
+                          {row.docket?.caseNo ? <span>{row.docket.caseNo}</span> : null}
+                          {hearingCountdown(row.daysUntilHearing) ? (
+                            <span className={`lm-matter-count${hot ? " is-hot" : ""}`}>
+                              {hearingCountdown(row.daysUntilHearing)}
+                            </span>
+                          ) : null}
+                          {unreadMatterIds.has(row.matterId) ? <span>未回</span> : null}
+                        </span>
+                      </span>
+                      <span className="lm-matter-card-chev" aria-hidden>
+                        →
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+    </aside>
+  );
+
   return (
     <section className="lm-lawyer-workbench" data-testid="lm-lawyer-workbench" aria-label="工作台">
-      {desk === "cockpit" ? (
-        <>
           <header className="lm-lawyer-top">
             <div className="lm-lawyer-top-title">
               <p className="lm-lawyer-kicker" data-testid="lm-lawyer-desk-kicker">
@@ -1263,15 +1197,6 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                 ) : null}
               </div>
               <div className="lm-lawyer-top-actions">
-                {onOpenNeedsDecision ? (
-                  <button
-                    type="button"
-                    className={`lm-btn lm-btn-sm ${approvalOpen > 0 ? "" : "lm-btn-ghost"}`}
-                    onClick={() => onOpenNeedsDecision?.()}
-                  >
-                    待我拍板{approvalOpen > 0 ? ` ${approvalOpen}` : ""}
-                  </button>
-                ) : null}
                 {onCreateMatter ? (
                   <button type="button" className="lm-btn lm-btn-sm" onClick={onCreateMatter}>
                     新建案件
@@ -1287,6 +1212,10 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
             reconnecting={localServiceReconnecting}
           />
 
+          <div className="lm-lawyer-cockpit" data-testid="lm-lawyer-cockpit">
+            {caseRail}
+            {desk === "cockpit" ? (
+              <div className="lm-desk-stage">
           {replicaFeed.length > 0 ? (
             <section
               className="lm-desk-replica-feed"
@@ -1302,9 +1231,8 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                         type="button"
                         className="lm-desk-card--link"
                         onClick={() => {
-                          setOpenedMatterId(item.matterId);
-                          setDesk("matter");
-                          onSelectMatter?.(item.matterId);
+                          setVolumeSide("materials");
+                          openMatter(item.matterId, "volume");
                         }}
                       >
                         <div className="lm-desk-card-copy">
@@ -1338,31 +1266,51 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
             </section>
           ) : null}
 
-          <div className="lm-lawyer-cockpit" data-testid="lm-lawyer-cockpit">
-            <section className={`lm-desk-col lm-desk-col--act${approvalOpen > 0 ? " has-hot" : ""}`} aria-label="要我处理">
+            <section className={`lm-desk-col lm-desk-col--act${approvalOpen > 0 ? " has-hot" : ""}`} aria-label="今日">
               <div className="lm-desk-col-head">
                 <div className="lm-desk-col-copy">
-                  <p className="lm-desk-col-label">要我处理</p>
+                  <p className="lm-desk-col-label">今日</p>
                   <div className="lm-desk-col-value">
                     <span data-testid="lm-lawyer-today-progress">{actionOpen}</span>
                     <span className="lm-desk-col-unit">项</span>
                   </div>
-                  <p className="lm-desk-col-delta">{progressLabel}</p>
+                  <p className="lm-desk-col-delta">
+                    {progressLabel}
+                    {" · "}
+                    <span data-testid="lm-lawyer-stat-mail">{mailOpen}</span>
+                    {" 封未回"}
+                  </p>
                 </div>
                 <span className="lm-desk-ico" aria-hidden>
                   <DeskGlyph name="gavel" />
                 </span>
               </div>
               <div className="lm-desk-body">
+                <div className="lm-desk-today-alerts">
+                  {approvalOpen > 0 ? (
+                    <button
+                      type="button"
+                      className="lm-desk-rail-today is-current"
+                      data-testid="lm-lawyer-stat-stopped"
+                      onClick={() => onOpenNeedsDecision?.()}
+                    >
+                      停在你这里 {approvalOpen}
+                    </button>
+                  ) : null}
+                  <LawmindDaemonRecap apiBase={apiBase} onOpen={() => onOpenNeedsDecision?.()} />
+                </div>
                 <div className="lm-desk-scroll">
-                  {shownActions.length === 0 ? (
+                  {shownActions.filter((item) => item.kind !== "approval").length === 0 ? (
                     <div className="lm-lawyer-empty">
                       <p className="lm-lawyer-empty-title">今天还清</p>
-                      <p>在下方写计划；邮件待回复和待拍板会自动进来。未勾完的计划会接着出现。</p>
+                      <p>在下方写下要办的事。未回的信和临近期限在这一页。未勾完的会留在这里。</p>
                     </div>
                   ) : (
                     <ul className="lm-desk-list">
-                      {shownActions.slice(0, 12).map((item) => (
+                      {shownActions
+                        .filter((item) => item.kind !== "approval")
+                        .slice(0, 12)
+                        .map((item) => (
                         <li key={item.id}>
                           <article className={`lm-desk-card${item.done ? " is-done" : ""}`}>
                             <span className={`lm-desk-card-ico lm-desk-card-ico--${item.kind}`} aria-hidden>
@@ -1460,15 +1408,15 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
               </div>
             </section>
 
-            <section className={`lm-desk-col lm-desk-col--time${deadlineOpen > 0 ? " has-hot" : ""}`} aria-label="今日期限">
+            <section className={`lm-desk-col lm-desk-col--time${deadlineOpen > 0 ? " has-hot" : ""}`} aria-label="临近期日">
               <div className="lm-desk-col-head">
                 <div className="lm-desk-col-copy">
-                  <p className="lm-desk-col-label">今日期限</p>
+                  <p className="lm-desk-col-label">临近期日</p>
                   <div className="lm-desk-col-value">
                     <span data-testid="lm-lawyer-stat-deadline">{deadlineOpen}</span>
                     <span className="lm-desk-col-unit">项</span>
                   </div>
-                  <p className="lm-desk-col-delta">{deadlineOpen > 0 ? "含临近开庭" : "无今日到期"}</p>
+                  <p className="lm-desk-col-delta">{deadlineOpen > 0 ? "已过与七日内" : "七日内没有到期"}</p>
                 </div>
                 <span className="lm-desk-ico" aria-hidden>
                   <DeskGlyph name="cal" />
@@ -1478,23 +1426,12 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                 <div className="lm-desk-scroll">
                   {shownDeadlines.length === 0 ? (
                     <div className="lm-lawyer-empty">
-                      <p className="lm-lawyer-empty-title">今天没有到期</p>
-                      <p>贴传票进本案后，开庭和举证会出现在这里。</p>
-                      <button
-                        type="button"
-                        className="lm-btn lm-btn-ghost lm-btn-sm"
-                        data-testid="lm-desk-empty-summons"
-                        onClick={() => {
-                          const target = resolveQuickMatter(false);
-                          if (target) {
-                            openMatter(target.matterId, "deadlines");
-                          } else {
-                            setErr("请先新建案件，再贴传票。");
-                          }
-                        }}
-                      >
-                        贴传票
-                      </button>
+                      <p className="lm-lawyer-empty-title">没有临近期限</p>
+                      <p>
+                        {nextHearingRow
+                          ? `下一场开庭：${nextHearingRow.title}，${hearingCountdown(nextHearingRow.daysUntilHearing) ?? ""}`
+                          : "打开一卷，在期日里贴传票。"}
+                      </p>
                     </div>
                   ) : (
                     <div className="lm-timeline">
@@ -1524,165 +1461,9 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
               </div>
             </section>
 
-            <aside className="lm-desk-col lm-desk-col--matters" aria-label="本案列表">
-              <div className="lm-desk-col-head">
-                <div className="lm-desk-col-copy">
-                  <p className="lm-desk-col-label">本案列表</p>
-                  <div className="lm-desk-col-value">
-                    {shownMatters.length}
-                    <span className="lm-desk-col-unit">件</span>
-                  </div>
-                  <p className="lm-desk-col-delta">
-                    {contractCount} 合同 · {litigationCount} 诉讼
-                  </p>
-                </div>
-                <span className="lm-desk-ico" aria-hidden>
-                  <DeskGlyph name="folder" />
-                </span>
               </div>
-              <div className="lm-desk-filters" role="tablist" aria-label="工作门类">
-                {KIND_FILTERS.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={kind === f.id}
-                    aria-controls="lm-lawyer-matter-list"
-                    className={`lm-desk-seg ${kind === f.id ? "is-active" : ""}`}
-                    onClick={() => setKind(f.id)}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-              <div className="lm-desk-body">
-                <div className="lm-desk-scroll">
-                  {shownMatters.length === 0 ? (
-                    <div className="lm-lawyer-empty" data-testid="lm-lawyer-matter-empty">
-                      <p className="lm-lawyer-empty-title">还没有案件</p>
-                      <p>先建一卷，期限和谈话会跟在后面。</p>
-                      {onCreateMatter ? (
-                        <button type="button" className="lm-btn lm-btn-sm" onClick={onCreateMatter}>
-                          新建案件
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <ul className="lm-desk-list" id="lm-lawyer-matter-list" role="tabpanel">
-                      {shownMatters.map((row) => {
-                        const isCurrent = preferredMatterId === row.matterId;
-                        return (
-                          <li key={row.matterId}>
-                            <button
-                              type="button"
-                              className={`lm-matter-card${isCurrent ? " is-current" : ""}`}
-                              aria-current={isCurrent ? "true" : undefined}
-                              onClick={() => openMatter(row.matterId)}
-                            >
-                              <span className="lm-matter-card-body">
-                                <strong>{row.title}</strong>
-                                <span className="lm-matter-card-meta">
-                                  <span className="lm-kind" data-kind={row.matterKind}>
-                                    {row.matterKindLabel}
-                                  </span>
-                                  {row.docket?.caseNo ? <span>{row.docket.caseNo}</span> : null}
-                                  {hearingCountdown(row.daysUntilHearing) ? (
-                                    <span
-                                      className={`lm-matter-count${(row.daysUntilHearing ?? 99) <= 3 ? " is-hot" : ""}`}
-                                    >
-                                      {hearingCountdown(row.daysUntilHearing)}
-                                    </span>
-                                  ) : row.nextHearingAt ? (
-                                    <span>开庭 {row.nextHearingAt.slice(0, 10)}</span>
-                                  ) : null}
-                                  {row.openDeadlineCount > 0 ? <span>{row.openDeadlineCount} 个期限</span> : null}
-                                  {row.openTaskCount ? <span>{row.openTaskCount} 项待办</span> : null}
-                                </span>
-                              </span>
-                              <span className="lm-matter-card-chev" aria-hidden>
-                                →
-                              </span>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            </aside>
-          </div>
-
-          <div className="lm-desk-dock">
-            <p className="lm-desk-dock-label">本案动作</p>
-            <div className="lm-desk-quick">
-            <button
-              type="button"
-              className="lm-desk-quick-btn"
-              data-testid="lm-desk-quick-summons"
-              onClick={() => {
-                const target = resolveQuickMatter(false);
-                if (target) {
-                  openMatter(target.matterId, "deadlines");
-                } else {
-                  setErr("请先新建案件，再贴传票。");
-                }
-              }}
-            >
-              <span className="lm-desk-ico" aria-hidden>
-                <DeskGlyph name="cal" />
-              </span>
-              <strong>贴传票</strong>
-              <span className="lm-desk-quick-desc">抽出开庭，确认后写入</span>
-            </button>
-            <button
-              type="button"
-              className="lm-desk-quick-btn"
-              data-testid="lm-desk-quick-talk"
-              onClick={() => {
-                const target = resolveQuickMatter(true);
-                if (target) {
-                  openMatter(target.matterId, "intake");
-                } else {
-                  setErr("请先建一个诉讼案件，再整理谈话。");
-                }
-              }}
-            >
-              <span className="lm-desk-ico" aria-hidden>
-                <DeskGlyph name="talk" />
-              </span>
-              <strong>整理谈话</strong>
-              <span className="lm-desk-quick-desc">需求、案由、证据缺口</span>
-            </button>
-            <button
-              type="button"
-              className="lm-desk-quick-btn"
-              data-testid="lm-lawyer-stat-mail"
-              onClick={() => {
-                const mail = todayItems.find((item) => item.kind === "mail" && !item.done);
-                if (mail) {
-                  activateTodayItem(mail);
-                  return;
-                }
-                requestOpenAutomationsSettings();
-              }}
-            >
-              <span className="lm-desk-ico" aria-hidden>
-                <DeskGlyph name="mail" />
-              </span>
-              <strong>待回复 {mailOpen}</strong>
-              <span className="lm-desk-quick-desc">
-                {mailOpen > 0 ? "去对话起草回信" : "去设置接邮箱"}
-              </span>
-            </button>
-            </div>
-          </div>
-        </>
       ) : (
         <div className="lm-matter-file" data-testid="lm-lawyer-matter-dossier">
-          <button type="button" className="lm-lawyer-back" onClick={() => setDesk("cockpit")}>
-            ← 返回今日
-          </button>
           <DeskServiceAlert
             err={err}
             onReconnect={onReconnectLocalService}
@@ -1732,22 +1513,13 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                   >
                     去对话
                   </button>
-                  {onOpenReview ? (
+                  {(pulse?.counts.approvals ?? 0) > 0 ? (
                     <button
                       type="button"
                       className="lm-btn lm-btn-ghost lm-btn-sm"
-                      onClick={() => onOpenReview({ matterId: selected.matterId })}
+                      onClick={() => onOpenNeedsDecision?.(selected.matterId)}
                     >
-                      去审查
-                    </button>
-                  ) : null}
-                  {onOpenNeedsDecision ? (
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-ghost lm-btn-sm"
-                      onClick={() => onOpenNeedsDecision(selected.matterId)}
-                    >
-                      去拍板
+                      停在你这里 {pulse?.counts.approvals}
                     </button>
                   ) : null}
                 </div>
@@ -1756,10 +1528,26 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
               <div className="lm-pulse-bar" aria-label="本案实时" data-testid="lm-lawyer-pulse-bar">
                 <button
                   type="button"
-                  className={`lm-pulse-chip${(pulse?.counts.mail ?? 0) > 0 ? " is-hot" : ""}`}
-                  onClick={() => setMatterPane("docs")}
+                  className={`lm-pulse-chip${(pulse?.daysUntilHearing ?? 99) <= 7 && pulse?.daysUntilHearing !== null && pulse?.daysUntilHearing !== undefined ? " is-hot" : ""}`}
+                  onClick={() => setMatterPane("deadlines")}
                 >
-                  <span>待回复</span>
+                  <span>下一期</span>
+                  <strong>{hearingCountdown(pulse?.daysUntilHearing ?? selected.daysUntilHearing) ?? "未排"}</strong>
+                </button>
+                <button
+                  type="button"
+                  className={`lm-pulse-chip${(pulse?.counts.mail ?? 0) > 0 ? " is-hot" : ""}`}
+                  onClick={() => {
+                    const subject = pulse?.mail?.[0]?.subject;
+                    onGoToChat({
+                      matterId: selected.matterId,
+                      prompt: subject
+                        ? `请根据本案待回复「${subject}」起草回信，先出草稿，不要发送。`
+                        : "请根据本案未回的来信起草回信，先出草稿，不要发送。",
+                    });
+                  }}
+                >
+                  <span>未回</span>
                   <strong>{pulse?.counts.mail ?? 0}</strong>
                 </button>
                 <button
@@ -1767,37 +1555,17 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                   className={`lm-pulse-chip${(pulse?.counts.approvals ?? 0) > 0 ? " is-hot" : ""}`}
                   onClick={() => onOpenNeedsDecision?.(selected.matterId)}
                 >
-                  <span>待拍板</span>
+                  <span>停在你这里</span>
                   <strong>{pulse?.counts.approvals ?? 0}</strong>
-                </button>
-                <button
-                  type="button"
-                  className={`lm-pulse-chip${(pulse?.daysUntilHearing ?? 99) <= 3 && pulse?.daysUntilHearing !== null && pulse?.daysUntilHearing !== undefined ? " is-hot" : ""}`}
-                  onClick={() => setMatterPane("deadlines")}
-                >
-                  <span>开庭</span>
-                  <strong>{hearingCountdown(pulse?.daysUntilHearing ?? selected.daysUntilHearing) ?? "未排"}</strong>
-                </button>
-                <button
-                  type="button"
-                  className="lm-pulse-chip"
-                  onClick={() => setMatterPane("overview")}
-                >
-                  <span>待办任务</span>
-                  <strong>{pulse?.counts.tasks ?? selected.openTaskCount ?? 0}</strong>
                 </button>
               </div>
 
               <div className="lm-pane-tabs" role="tablist" aria-label="本案分区">
                 {(
                   [
-                    { id: "overview", label: "概览" },
-                    { id: "docs", label: "文书", count: pulse?.counts.documents },
-                    { id: "materials", label: "材料", count: pulse?.counts.materials },
-                    { id: "docket", label: "卷宗" },
-                    { id: "deadlines", label: "期限", count: pulse?.counts.deadlines ?? openDeadlines },
-                    { id: "intake", label: "谈话" },
-                    { id: "review", label: "对照", count: similar.length + standards.length },
+                    { id: "overview", label: "卷宗" },
+                    { id: "deadlines", label: "期日", count: pulse?.counts.deadlines ?? openDeadlines },
+                    { id: "volume", label: "卷内" },
                   ] as Array<{ id: MatterPaneId; label: string; count?: number }>
                 ).map((tab) => (
                   <button
@@ -1806,7 +1574,13 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                     role="tab"
                     id={`lm-lawyer-tab-${tab.id}`}
                     aria-selected={matterPane === tab.id}
-                    aria-controls={`lm-lawyer-pane-${tab.id}`}
+                    aria-controls={
+                      tab.id === "volume"
+                        ? volumeSide === "docs"
+                          ? "lm-lawyer-pane-docs"
+                          : "lm-lawyer-pane-materials"
+                        : `lm-lawyer-pane-${tab.id}`
+                    }
                     className={`lm-pane-tab ${matterPane === tab.id ? "is-active" : ""}`}
                     onClick={() => setMatterPane(tab.id)}
                   >
@@ -1874,10 +1648,12 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                                   return;
                                 }
                                 if (item.kind === "intake") {
-                                  setMatterPane("intake");
+                                  setTalkOpen(true);
+                                  setMatterPane("overview");
                                   return;
                                 }
-                                setMatterPane("docs");
+                                setVolumeSide("docs");
+                                setMatterPane("volume");
                               }}
                             >
                               <span className="lm-timeline-time">{formatTimelineDay(item.at)}</span>
@@ -1902,7 +1678,10 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                       <button
                         type="button"
                         className="lm-btn lm-btn-ghost lm-btn-sm"
-                        onClick={() => setMatterPane("docket")}
+                        onClick={() => {
+                          setTalkOpen(false);
+                          document.getElementById("lm-lawyer-docket-fields")?.scrollIntoView({ block: "nearest" });
+                        }}
                       >
                         编辑当事人
                       </button>
@@ -1933,7 +1712,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                         </dd>
                       </dl>
                       <div className="lm-lawyer-inline-actions">
-                        <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => setMatterPane("docket")}>
+                        <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => document.getElementById("lm-lawyer-docket-fields")?.scrollIntoView({ block: "nearest" })}>
                           编辑卷宗
                         </button>
                         <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => setMatterPane("deadlines")}>
@@ -1970,7 +1749,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                         </ul>
                       )}
                       <div className="lm-lawyer-inline-actions">
-                        <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => setMatterPane("docs")}>
+                        <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => { setVolumeSide("docs"); setMatterPane("volume"); }}>
                           查看全部
                         </button>
                         <button
@@ -1987,64 +1766,40 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                         </button>
                       </div>
                     </section>
-                    <div className="lm-overview-stack">
-                      <section className="lm-overview-card" aria-label="近期任务">
-                        <h3>近期任务</h3>
-                        {(pulse?.tasks ?? []).length === 0 ? (
-                          <p className="lm-meta">没有进行中的任务。去对话交办后会出现在这里。</p>
-                        ) : (
-                          <ul className="lm-lawyer-deadline-list">
-                            {(pulse?.tasks ?? []).slice(0, 5).map((task) => (
-                              <li key={task.taskId} className="lm-doc-row">
-                                <span className="lm-lawyer-deadline-copy">
-                                  <strong>{task.title}</strong>
-                                  <span className="lm-lawyer-today-meta">{taskLifecycleLabel(task.status)}</span>
-                                </span>
-                                {onOpenReview ? (
-                                  <button
-                                    type="button"
-                                    className="lm-btn lm-btn-ghost lm-btn-sm"
-                                    onClick={() => onOpenReview({ matterId: selected.matterId, taskId: task.taskId })}
-                                  >
-                                    打开
-                                  </button>
-                                ) : null}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </section>
-                      <section className="lm-overview-card" aria-label="近期期限">
-                        <h3>近期期限</h3>
-                        {deadlines.length === 0 ? (
-                          <p className="lm-meta">还没有期限。贴传票后确认写入。</p>
-                        ) : (
-                          <ul className="lm-lawyer-deadline-list">
-                            {deadlines.slice(0, 5).map((d) => (
-                              <li key={d.deadlineId} className={`lm-lawyer-deadline-row${d.released === false ? " is-waiting" : ""}`}>
-                                <span className="lm-lawyer-deadline-copy">
-                                  <strong>
-                                    {eventKindLabel(d.eventKind)} · {d.title}
-                                  </strong>
-                                  <span className={`lm-lawyer-today-meta${isOverdue(d.dueAt) ? " is-hot" : ""}`}>
-                                    {formatDueShort(d.dueAt)}
-                                  </span>
-                                  <DeadlineSourceBadge row={d} />
-                                  <DeadlineWaitingLine row={d} />
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => setMatterPane("deadlines")}>
-                          全部期限
-                        </button>
-                      </section>
+                    <div className="lm-lawyer-inline-actions">
+                      <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => setMatterPane("deadlines")}>
+                        全部期日
+                      </button>
                     </div>
                   </div>
                 ) : null}
 
-                {matterPane === "docs" ? (
+                {matterPane === "volume" ? (
+                  <div className="lm-pane-tabs lm-volume-switch" role="tablist" aria-label="卷内">
+                    <button
+                      type="button"
+                      role="tab"
+                      id="lm-lawyer-tab-materials"
+                      aria-selected={volumeSide === "materials"}
+                      className={`lm-pane-tab ${volumeSide === "materials" ? "is-active" : ""}`}
+                      onClick={() => setVolumeSide("materials")}
+                    >
+                      材料
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      id="lm-lawyer-tab-docs"
+                      aria-selected={volumeSide === "docs"}
+                      className={`lm-pane-tab ${volumeSide === "docs" ? "is-active" : ""}`}
+                      onClick={() => setVolumeSide("docs")}
+                    >
+                      文书
+                    </button>
+                  </div>
+                ) : null}
+
+                {matterPane === "volume" && volumeSide === "docs" ? (
                   <section className="lm-lawyer-pane" id="lm-lawyer-pane-docs" role="tabpanel" aria-labelledby="lm-lawyer-tab-docs">
                     <h3>文书清单</h3>
                     {(pulse?.documents ?? []).length === 0 ? (
@@ -2125,7 +1880,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                   </section>
                 ) : null}
 
-                {matterPane === "materials" ? (
+                {matterPane === "volume" && volumeSide === "materials" ? (
                   <section
                     className="lm-lawyer-pane"
                     id="lm-lawyer-pane-materials"
@@ -2134,6 +1889,13 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                     data-testid="lm-lawyer-matter-materials"
                   >
                     <h3>本案材料</h3>
+                    {(pulse?.counts.materialsOmitted ?? 0) > 0 ? (
+                      <p className="lm-meta">
+                        这一页列出最近的 {pulse?.counts.materials ?? 0} 份，
+                        {pulse?.counts.materialsSaturated ? "至少还有" : "还有"}
+                        {pulse?.counts.materialsOmitted} 份没列在这里。检索仍会查已编入的正文。
+                      </p>
+                    ) : null}
                     <div className="lm-lawyer-inline-actions" style={{ marginBottom: 8 }}>
                       <input
                         className="lm-input"
@@ -2231,13 +1993,19 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                         ))}
                       </ul>
                     )}
-                    <MatterReplicaPanel apiBase={apiBase} matterId={selected.matterId} />
                   </section>
                 ) : null}
 
-                {matterPane === "docket" ? (
-                  <section className="lm-lawyer-pane" id="lm-lawyer-pane-docket" role="tabpanel" aria-labelledby="lm-lawyer-tab-docket">
-                    <h3>卷宗</h3>
+                {matterPane === "overview" ? (
+                  <details className="lm-matter-collab" data-testid="lm-lawyer-matter-collab">
+                    <summary>邀请同事</summary>
+                    <MatterReplicaPanel apiBase={apiBase} matterId={selected.matterId} />
+                  </details>
+                ) : null}
+
+                {matterPane === "overview" ? (
+                  <section className="lm-lawyer-pane" id="lm-lawyer-docket-fields" aria-label="案情">
+                    <h3>案情</h3>
                     <LawmindMatterPartiesEditor value={partyDrafts} disabled={busy} onChange={setPartyDrafts} />
                     <div className="lm-lawyer-docket-grid">
                       <label>
@@ -2292,7 +2060,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                     <button type="button" className="lm-btn lm-btn-sm" disabled={busy} onClick={() => void saveDocket()}>
                       保存卷宗
                     </button>
-                    <p className="lm-meta">扫描件、出稿路径和同事协作在「材料」。</p>
+                    <p className="lm-meta">材料在卷内。邀请同事在上方。</p>
                   </section>
                 ) : null}
 
@@ -2390,7 +2158,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                   </section>
                 ) : null}
 
-                {matterPane === "intake" ? (
+                {matterPane === "overview" && (selected.matterKind === "litigation" || matterKind === "litigation") ? (
                   <section
                     className={`lm-lawyer-pane${talkDrop.active ? " lm-chat-drop-active" : ""}`}
                     id="lm-lawyer-pane-intake"
@@ -2425,7 +2193,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                   </section>
                 ) : null}
 
-                {matterPane === "review" ? (
+                {matterPane === "overview" && (similar.length > 0 || (precedents?.hits.length ?? 0) > 0) ? (
                   <section className="lm-lawyer-pane" id="lm-lawyer-pane-review" role="tabpanel" aria-labelledby="lm-lawyer-tab-review">
                     <h3>相关旧案</h3>
                     {similar.length === 0 ? (
@@ -2452,7 +2220,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                     {precedents === null ? (
                       <p className="lm-meta">正在检索旧案交付物…</p>
                     ) : !precedents.enabled ? (
-                      <p className="lm-meta">先例检索未开启。跨案读取需显式授权（LAWMIND_ALLOW_CROSS_MATTER_SEARCH=1），开启并重建索引后，这里会列出旧案已签批交付物的可参照段落。</p>
+                      <p className="lm-meta">先例检索还没在这台电脑上打开。打开之后，这里会列出旧案已签批文书里可参照的段落。</p>
                     ) : precedents.hits.length === 0 ? (
                       <p className="lm-meta">暂无可参照的旧案交付物段落。先例只作案由与写法参照，事实以本案为准。</p>
                     ) : (
@@ -2484,132 +2252,15 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                         ))}
                       </ul>
                     )}
-                    <div className="lm-lawyer-inline-actions">
-                      <button
-                        type="button"
-                        className="lm-btn lm-btn-ghost lm-btn-sm"
-                        onClick={() => requestOpenWorkspaceSettings()}
-                      >
-                        去设置写标准
-                      </button>
-                      {onOpenReview ? (
-                        <button
-                          type="button"
-                          className="lm-btn lm-btn-sm"
-                          onClick={() => onOpenReview({ matterId: selected.matterId })}
-                        >
-                          去审查本案
-                        </button>
-                      ) : null}
-                    </div>
                   </section>
                 ) : null}
               </div>
             </>
           )}
         </div>
-      )}
+            )}
+          </div>
     </section>
   );
 }
 
-function DeskGlyph(props: { name: "gavel" | "cal" | "folder" | "mail" | "search" | "plus" | "talk" }): ReactNode {
-  const { name } = props;
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      {name === "search" ? (
-        <>
-          <circle cx="11" cy="11" r="6" stroke="currentColor" strokeWidth="1.8" />
-          <path d="M16 16.5L20 20.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        </>
-      ) : null}
-      {name === "gavel" ? (
-        <path
-          d="M4 19h10M8 17l8-8 2.5 2.5-8 8H8v-2.5Zm8.5-9.5L18 6l2 2-1.5 2"
-          stroke="currentColor"
-          strokeWidth="1.7"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      ) : null}
-      {name === "cal" ? (
-        <>
-          <rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" strokeWidth="1.7" />
-          <path d="M8 4v3M16 4v3M4 10h16" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-        </>
-      ) : null}
-      {name === "folder" ? (
-        <path
-          d="M4 7.5A1.5 1.5 0 0 1 5.5 6h4L11 8h7.5A1.5 1.5 0 0 1 20 9.5v8A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5v-10Z"
-          stroke="currentColor"
-          strokeWidth="1.7"
-        />
-      ) : null}
-      {name === "mail" ? (
-        <path
-          d="M4 7.5A1.5 1.5 0 0 1 5.5 6h13A1.5 1.5 0 0 1 20 7.5v9A1.5 1.5 0 0 1 18.5 18h-13A1.5 1.5 0 0 1 4 16.5v-9Zm1.2-.3L12 12l6.8-4.8"
-          stroke="currentColor"
-          strokeWidth="1.7"
-          strokeLinejoin="round"
-        />
-      ) : null}
-      {name === "plus" ? (
-        <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      ) : null}
-      {name === "talk" ? (
-        <path
-          d="M7 8h10M7 12h6M6 5h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-5l-4 3v-3H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"
-          stroke="currentColor"
-          strokeWidth="1.7"
-          strokeLinecap="round"
-        />
-      ) : null}
-    </svg>
-  );
-}
-
-function IntakeBriefBlocks(props: { brief: IntakeBriefView; onApplyCause: (label: string) => void }): ReactNode {
-  const { brief, onApplyCause } = props;
-  return (
-    <div className="lm-lawyer-brief">
-      <BriefList title="客户需求" items={brief.clientNeeds} />
-      <BriefList title="要件事实" items={brief.coreFacts} />
-      <BriefList title="争点" items={brief.issues ?? []} />
-      <div className="lm-lawyer-brief-block">
-        <h4>候选案由</h4>
-        {brief.causeCandidates.length === 0 ? (
-          <p className="lm-meta">词表里还没有能对上的案由。可在设置里补词表后再整理。</p>
-        ) : (
-          <ul>
-            {brief.causeCandidates.map((c) => (
-              <li key={c.label} className="lm-lawyer-cause-row">
-                <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => onApplyCause(c.label)}>
-                  采用「{c.label}」
-                </button>
-                <span className="lm-meta">{c.reason}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <BriefList title="证据缺口" items={brief.evidenceGaps} />
-      <BriefList title="下一步" items={brief.nextActions} />
-    </div>
-  );
-}
-
-function BriefList(props: { title: string; items: string[] }): ReactNode {
-  if (props.items.length === 0) {
-    return null;
-  }
-  return (
-    <div className="lm-lawyer-brief-block">
-      <h4>{props.title}</h4>
-      <ul>
-        {props.items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-    </div>
-  );
-}

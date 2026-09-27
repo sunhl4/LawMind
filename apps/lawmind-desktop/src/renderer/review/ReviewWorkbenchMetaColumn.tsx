@@ -16,6 +16,7 @@ import {
 } from "../lawmind-gate-display";
 import { ALL_REVIEW_LABELS } from "../../../../../src/lawmind/review-labels.ts";
 import { LawmindAcceptanceGate } from "../LawmindAcceptanceGate";
+import { LawmindAcceptanceMarkStrip } from "../LawmindAcceptanceMarkStrip";
 import { LawmindCitationBanner } from "../LawmindCitationBanner";
 import { LawmindVerificationChecklist } from "../LawmindVerificationChecklist";
 import { LawmindReviewCampaignPanel } from "../LawmindReviewCampaignPanel";
@@ -248,6 +249,8 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           但**读不到时照样说话**（故障不得冒充「没有」）。
         */}
         <LawmindJudgmentEscalationCard apiBase={apiBase} taskId={selectedTaskId} variant="inline" />
+
+        <LawmindAcceptanceMarkStrip apiBase={apiBase} taskId={selectedTaskId} />
 
         <div id="lm-review-citation-banner">
           <LawmindCitationBanner
@@ -519,10 +522,10 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
             <div className="lm-callout lm-callout-muted" role="status">
               <p className="lm-callout-title">责任与交付权限</p>
               <p className="lm-callout-body">
-                处理助手：{assistantId === "default" ? "默认助手" : assistantId || "未记录"} · 复核人：
+                处理助手：{assistantId === "default" ? "默认助手" : assistantId || "未记录"} · 审核人：
                 {detail.reviewedBy?.trim() || "待执业律师确认"} · 对外交付：
                 {detail.reviewStatus === "approved"
-                  ? `已由 ${detail.reviewedBy?.trim() || "律师"} 批准`
+                  ? `已由 ${detail.reviewedBy?.trim() || "律师"} 签批`
                   : "未授权"}
               </p>
               {detail.reviewStatus !== "approved" ? (

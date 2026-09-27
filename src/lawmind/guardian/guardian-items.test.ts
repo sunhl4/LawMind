@@ -84,15 +84,45 @@ describe("P2.2 aggregateGuardianItems — verdict 由代码聚合，不由模型
     expect(agg.gaps.map((g) => g.code)).toContain("checklist_unanswered");
   });
 
-  it("supported:true 但带 note → 保留为可见提示（不当作通过就吞掉）", () => {
+  it("supported:true 但带 note → 保留为可见提示，不因此判 fail", () => {
     const agg = aggregateGuardianItems({
       items: [{ id: "c1", supported: true, note: "建议再核对期限" }],
       summaryGaps: [],
       expectedItemIds: ["c1"],
     });
-    expect(agg.verdict).toBe("fail");
+    expect(agg.verdict).toBe("pass");
     expect(agg.gaps[0]?.code).toBe("checklist_note");
     expect(agg.gaps[0]?.message).toContain("建议再核对期限");
+    expect(guardianBlocksExport({ verdict: agg.verdict, gaps: agg.gaps })).toBe(false);
+  });
+
+  it("缓存里的失败若只剩提示备注，不再挡导出", () => {
+    expect(
+      guardianBlocksExport({
+        verdict: "fail",
+        gaps: [
+          { code: "checklist_note", message: "检查单项「c1」已覆盖，但审稿员另有提示：核对期限" },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      guardianBlocksExport({
+        verdict: "fail",
+        gaps: [
+          { code: "guardian_exhausted", message: "独立审稿已 2 轮未过。" },
+          {
+            code: "checklist_note",
+            message: "检查单项「scope」已覆盖，但审稿员另有提示：范围一致。",
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      guardianBlocksExport({
+        verdict: "fail",
+        gaps: [{ code: "checklist_not_covered", message: "未覆盖" }],
+      }),
+    ).toBe(true);
   });
 
   it("summaryGaps 非空 → fail（全文级缺口）", () => {

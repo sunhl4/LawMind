@@ -50,8 +50,10 @@ describe("adapters/matter-storage", () => {
 
   it("saveMatter / loadMatter round-trips validated JSON", () => {
     const matter = sampleMatter();
-    saveMatter(workspaceDir, matter);
-    expect(loadMatter(workspaceDir, matter.matterId)).toEqual(matter);
+    const saved = saveMatter(workspaceDir, matter);
+    expect(saved.schemaVersion).toBe(1);
+    expect(saved.revision).toBe(1);
+    expect(loadMatter(workspaceDir, matter.matterId)).toEqual(saved);
   });
 
   it("rejects invalid matter payloads before write", () => {
@@ -115,7 +117,12 @@ describe("adapters/matter-storage", () => {
     expect(leftovers).toEqual([]);
     // Second rewrite still leaves a coherent single-line JSONL file
     rewriteJsonl(file, approvalSchema, [
-      { ...row, status: "approved", resolvedBy: "lawyer:test", resolvedAt: new Date().toISOString() },
+      {
+        ...row,
+        status: "approved",
+        resolvedBy: "lawyer:test",
+        resolvedAt: new Date().toISOString(),
+      },
     ]);
     const parsed = JSON.parse(fs.readFileSync(file, "utf8").trim()) as ApprovalRecord;
     expect(parsed.status).toBe("approved");
@@ -143,7 +150,12 @@ describe("adapters/matter-storage", () => {
     const renameSpy = vi.spyOn(fs, "renameSync");
     try {
       rewriteJsonl(file, approvalSchema, [
-        { ...seed, status: "approved", resolvedBy: "lawyer:test", resolvedAt: new Date().toISOString() },
+        {
+          ...seed,
+          status: "approved",
+          resolvedBy: "lawyer:test",
+          resolvedAt: new Date().toISOString(),
+        },
       ]);
       expect(writeSpy).toHaveBeenCalledTimes(1);
       const tmpPath = String(writeSpy.mock.calls[0]?.[0] ?? "");

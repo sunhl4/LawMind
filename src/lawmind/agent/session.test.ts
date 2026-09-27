@@ -14,6 +14,7 @@ import {
   deriveModelMessages,
   deriveModelMessagesForSampling,
   displayChatSessionTitle,
+  isLawyerChatSwitcherSession,
   extractFirstSentenceFromUserMessageParagraph,
   isSessionToolBatchOpen,
   loadSession,
@@ -45,6 +46,12 @@ describe("session title and history helpers", () => {
   it("displayChatSessionTitle falls back for legacy sessions", () => {
     expect(displayChatSessionTitle({ title: "" } as AgentSession)).toBe("New Chat");
     expect(displayChatSessionTitle({} as AgentSession)).toBe("New Chat");
+  });
+
+  it("hides collaboration child sessions from the chat switcher", () => {
+    expect(isLawyerChatSwitcherSession({})).toBe(true);
+    expect(isLawyerChatSwitcherSession({ omitFromChatSwitcher: true })).toBe(false);
+    expect(isLawyerChatSwitcherSession({ collaborationDelegationId: "del-1" })).toBe(false);
   });
 
   it("extractFirstSentenceFromUserMessageParagraph stops at sentence end", () => {
@@ -87,19 +94,29 @@ describe("session title and history helpers", () => {
     fs.writeFileSync(turns, "{}\n", "utf8");
     fs.writeFileSync(transcript, "{}\n", "utf8");
     const steer = path.join(ws, "sessions", `${s.sessionId}.pending-steer.json`);
+    const steerInflight = `${steer}.inflight`;
     const followup = path.join(ws, "sessions", `${s.sessionId}.pending-followup.json`);
     const spills = path.join(ws, "sessions", `${s.sessionId}.spills`);
     fs.writeFileSync(steer, "{}\n", "utf8");
+    fs.writeFileSync(steerInflight, "{}\n", "utf8");
     fs.writeFileSync(followup, "{}\n", "utf8");
+    const turnGate = path.join(ws, "sessions", `${s.sessionId}.turn-gate.json`);
+    fs.writeFileSync(turnGate, "{}\n", "utf8");
     fs.mkdirSync(spills, { recursive: true });
     fs.writeFileSync(path.join(spills, "c1.json"), "{}\n", "utf8");
+    const drops = path.join(ws, "sessions", `${s.sessionId}.drops`);
+    fs.mkdirSync(drops, { recursive: true });
+    fs.writeFileSync(path.join(drops, "b1.json"), "{}\n", "utf8");
     expect(deleteSession(ws, s.sessionId)).toBe(true);
     expect(fs.existsSync(path.join(ws, "sessions", `${s.sessionId}.json`))).toBe(false);
     expect(fs.existsSync(turns)).toBe(false);
     expect(fs.existsSync(transcript)).toBe(false);
     expect(fs.existsSync(steer)).toBe(false);
+    expect(fs.existsSync(steerInflight)).toBe(false);
     expect(fs.existsSync(followup)).toBe(false);
+    expect(fs.existsSync(turnGate)).toBe(false);
     expect(fs.existsSync(spills)).toBe(false);
+    expect(fs.existsSync(drops)).toBe(false);
     expect(deleteSession(ws, "00000000-0000-4000-8000-000000000000")).toBe(false);
   });
 
@@ -263,6 +280,37 @@ describe("session title and history helpers", () => {
     expect(withTail[withTail.length - 1]?.content).toContain("<turn_context>");
     expect(withTail[withTail.length - 1]?.content).toContain("当前案件");
     expect(s.conversationHistory).toHaveLength(4);
+  });
+
+  it("deriveModelMessages emits one wire tool message per tool_call_id", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    s.conversationHistory.push(
+      { role: "user", content: "查两条", timestamp: "t1" },
+      {
+        role: "assistant",
+        content: "",
+        timestamp: "t2",
+        toolCalls: [
+          { id: "c1", name: "search_statute", arguments: { q: "a" } },
+          { id: "c2", name: "search_statute", arguments: { q: "b" } },
+        ],
+      },
+      {
+        role: "tool",
+        content: "",
+        timestamp: "t3",
+        toolCallResponses: [
+          { toolCallId: "c1", name: "search_statute", result: { ok: true, data: "甲" } },
+          { toolCallId: "c2", name: "search_statute", result: { ok: true, data: "乙" } },
+        ],
+      },
+    );
+    const derived = deriveModelMessages(s);
+    const tools = derived.filter((m) => m.role === "tool");
+    expect(tools.map((m) => m.tool_call_id)).toEqual(["c1", "c2"]);
+    expect(tools[1]?.content).toContain("乙");
+    expect(s.conversationHistory.filter((m) => m.role === "tool")).toHaveLength(1);
   });
 
   it("sessionHistoryToSimpleMessages attaches turnPlan to the last assistant", () => {

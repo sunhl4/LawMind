@@ -93,7 +93,7 @@ LAWMIND_E2E_MOCK_PORT=49888 LAWMIND_E2E_VITE_PORT=53473 \
 | `electron-golden-path.spec.ts` | Electron | 既有 Electron 冒烟测试 |
 | `electron-file-deeplink.spec.ts` | Electron | 既有文件深链测试 |
 | `judgment-escalation-electron.spec.ts` | Electron | G3 待定夺卡在真机 Electron 下走通「引擎 → 本地路由 → 界面」（非 stub） |
-| `context-fork.spec.ts` | Browser + mock API | 上下文用量面板（窗口三元组 / 分层用量 / 常驻圆环）与「另起新对话（带上文）」的接线：建议卡一次性、fork 后显示「续接来源」卡、待批准授权 409 不静默切走 |
+| `context-fork.spec.ts` | Browser + mock API | 对话变长才出现整理入口（不展示模型窗口与用量桶）与「另起新对话（带上文）」的接线：建议卡一次性、fork 后显示续接来源卡、待批准授权 409 不静默切走 |
 | `_debug-*.spec.ts` | 本地调试 | 永不进 CI / 默认套件 |
 | `*.spec.ts`（其余） | Browser + mock API | 基于 `mock-api.mjs` 的 UI 行为测试 |
 
@@ -118,18 +118,11 @@ mock 不替引擎做判断）。
 | `judgmentMockByScope` / `contextBudgetMockByScope` / `forkMockByScope` | ✅ 已按作用域 |
 | `sessionMessagesById` / `draftStateById` / `createdAutomations` 等 | ⚠️ 仍是全局；`/__e2e__/reset` 是全局清理，所以**同一文件内**要复位请用它，但不要指望它隔离别的文件 |
 
-**已知的真红（与本行无关，勿当回归排）**：`automations-deeplink.spec.ts:19`
-（interval 创建自动办件）在干净 HEAD 上单独跑也失败 —— 点「用所选模板创建」后
-没有发出 `POST /api/automations`。排障前先确认它不是你要查的那条。
-
 ### 已退役的 spec（不要按旧样式加回来）
 
-`skills-pack.spec.ts` **已删除**，不是丢失：它断言的那个界面（设置 → 技能库）已被**刻意**从侧栏退役
-（`lawmind-settings-nav.ts` 的 `SETTINGS_NAV_RETIRED_ITEMS`，理由写在导航项的 description 里：
-「开箱技能自动启用，不必在此开关」），且没有任何深链入口 → 该 spec 从写下那天起就不可能通过。
-退役本身由 `settings.spec.ts` 的 `lm-settings-nav-skills` 计数断言锁住；技能签名拒载由
-`src/lawmind/skills/skill-runtime.test.ts` 覆盖。删掉它是为了**恢复信号**：一条永远红的用例
-会盖住同一文件里真正的回归。
+`skills-pack.spec.ts` **已删除**，不是丢失：设置侧栏没有技能安装页。作业标准写在软件里，深链只读，`POST /api/skills/enabled` 返回 405。不要把「开关技能」的用例加回来。
+
+设置侧栏也没有「文书模板」上传页：出稿只用内置模板；`POST /api/templates/register`（及 scan / enabled / DELETE uploaded）返回 405。不要把「上传模板」的用例加回来。
 
 ## 哪些是真模型，哪些是 mock？
 

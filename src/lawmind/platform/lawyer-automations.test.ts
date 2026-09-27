@@ -53,6 +53,12 @@ describe("lawyer-automations", () => {
     expect(inferred.presetId).toBe("mail-contract-review");
   });
 
+  it("treats 续展 the same as 续签", () => {
+    const inferred = inferAutomationFromInstruction("提前 30 天提醒我这些合同的续展");
+    expect(inferred.presetId).toBe("renewal-monitor");
+    expect(inferred.allowSendEmailAfterApproval).toBe(false);
+  });
+
   it("rejects example.com notify emails", () => {
     expect(sanitizeNotifyEmail("client@example.com")).toBeUndefined();
     expect(extractNotifyEmail("发给 client@example.com")).toBeUndefined();
@@ -314,7 +320,7 @@ describe("lawyer-automations", () => {
     expect(text).toContain("最小修改");
     // 口径升级：不再是「find 太长就被拒」，而是「只标真正变动的字」（引擎会重算）。
     expect(text).toContain("没动的字必须留在修订轨之外");
-    expect(text).toContain("只改那几个字");
+    expect(text).toContain("只标真正变动的字");
     expect(text).toContain("硬约束");
     expect(text).toContain("条数不限");
     expect(text).not.toContain("最多 24");

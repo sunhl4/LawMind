@@ -11,6 +11,7 @@ const MIN_CONFIDENCE = 0.4;
 const MIN_NEEDLE = 8;
 
 const STANCE_UNAPPLIED = { id: "stance.unapplied", family: "form" as const };
+const STANCE_UNACCEPTABLE = { id: "stance.unacceptable", family: "form" as const };
 
 function needleOf(preferredLanguage: string): string {
   return preferredLanguage.replace(/\s+/g, "").slice(0, 16);
@@ -31,7 +32,7 @@ export function stanceSelfCheck(workspaceDir: string, text: string): LegalLintFi
     return [];
   }
   const items = readStanceItems(workspaceDir).filter(
-    (it) => !it.supersededBy && it.confidence >= MIN_CONFIDENCE,
+    (it) => !it.supersededBy && (it.modelConfidence ?? it.confidence) >= MIN_CONFIDENCE,
   );
   if (items.length === 0) {
     return [];
@@ -42,17 +43,40 @@ export function stanceSelfCheck(workspaceDir: string, text: string): LegalLintFi
       continue;
     }
     const needle = needleOf(item.preferredLanguage);
+    const unacceptable = item.unacceptableLanguage?.trim() ?? "";
+    const unacceptableNeedle = needleOf(unacceptable);
+    if (
+      unacceptableNeedle.length >= MIN_NEEDLE &&
+      (body.includes(unacceptableNeedle) || body.includes(unacceptable.slice(0, MIN_NEEDLE)))
+    ) {
+      out.push(
+        finding(
+          STANCE_UNACCEPTABLE,
+          "info",
+          `「${item.clauseType}」写进了你标过绝不接受的措辞。标准是「${item.preferredLanguage.slice(0, 80)}」。未代为改稿。`,
+          { anchor: item.clauseType, fixable: false },
+        ),
+      );
+    }
     if (needle.length < MIN_NEEDLE) {
       continue;
     }
     if (body.includes(needle) || body.includes(item.preferredLanguage.slice(0, MIN_NEEDLE))) {
       continue;
     }
+    const tiers = [
+      `建议采用「${item.preferredLanguage.slice(0, 80)}」`,
+      item.fallbackLanguage?.trim()
+        ? `可接受回退「${item.fallbackLanguage.trim().slice(0, 80)}」`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("；");
     out.push(
       finding(
         STANCE_UNAPPLIED,
         "info",
-        `本所立场未落入「${item.clauseType}」：建议采用「${item.preferredLanguage.slice(0, 80)}」。未代为改稿。`,
+        `本所立场未落入「${item.clauseType}」：${tiers}。未代为改稿。`,
         { anchor: item.clauseType, fixable: false },
       ),
     );

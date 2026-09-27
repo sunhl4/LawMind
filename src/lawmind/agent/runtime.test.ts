@@ -1,8 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { runTurn, validateToolArguments } from "./runtime.js";
+import {
+  cassetteAssistant,
+  cassetteToolCall,
+  startCassetteModelServer,
+  type CassetteModelServer,
+} from "./testkit/index.js";
 import { ToolRegistry } from "./tools/registry.js";
 import type { AgentConfig, ToolDefinition } from "./types.js";
 
@@ -52,12 +58,15 @@ function tmpWorkspace(): string {
 }
 
 describe("runTurn clarification handling", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
+  const servers: CassetteModelServer[] = [];
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => s.close()));
   });
 
   it("marks turn as awaiting_clarification when drafting tool returns placeholder questions", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     registry.register({
       definition: {
@@ -83,51 +92,16 @@ describe("runTurn clarification handling", () => {
       },
     });
 
-    const responses = [
-      {
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "",
-              tool_calls: [
-                {
-                  id: "call-1",
-                  type: "function",
-                  function: { name: "draft_document", arguments: "{}" },
-                },
-              ],
-            },
-            finish_reason: "tool_calls",
-          },
-        ],
-      },
-      {
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "我已经先生成了一份正式草稿。",
-            },
-            finish_reason: "stop",
-          },
-        ],
-      },
-    ];
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => responses.shift(),
-      })),
+    server.enqueue(
+      cassetteToolCall("draft_document"),
+      cassetteAssistant("我已经先生成了一份正式草稿。"),
     );
 
     const config: AgentConfig = {
       workspaceDir,
       model: {
         provider: "openai-compatible",
-        baseUrl: "https://example.com/v1",
+        baseUrl: server.url,
         apiKey: "sk-test",
         model: "demo",
       },
@@ -153,6 +127,8 @@ describe("runTurn clarification handling", () => {
 
   it("second user turn after clarification persists session and allows draft_document to complete", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     let draftCalls = 0;
     registry.register({
@@ -189,115 +165,20 @@ describe("runTurn clarification handling", () => {
       },
     });
 
-    const modelResponses: unknown[] = [
-      {
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "",
-              tool_calls: [
-                {
-                  id: "call-t1a",
-                  type: "function",
-                  function: { name: "draft_document", arguments: "{}" },
-                },
-              ],
-            },
-            finish_reason: "tool_calls",
-          },
-        ],
-      },
-      {
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "已生成待补充版草稿。",
-            },
-            finish_reason: "stop",
-          },
-        ],
-      },
-      {
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "",
-              tool_calls: [
-                {
-                  id: "call-t2a",
-                  type: "function",
-                  function: { name: "draft_document", arguments: "{}" },
-                },
-              ],
-            },
-            finish_reason: "tool_calls",
-          },
-        ],
-      },
-      {
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "已按补充更新合同正文。",
-            },
-            finish_reason: "stop",
-          },
-        ],
-      },
-      {
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "",
-              tool_calls: [
-                {
-                  id: "call-t3a",
-                  type: "function",
-                  function: { name: "draft_document", arguments: "{}" },
-                },
-              ],
-            },
-            finish_reason: "tool_calls",
-          },
-        ],
-      },
-      {
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "起草完成。",
-            },
-            finish_reason: "stop",
-          },
-        ],
-      },
-    ];
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => {
-          const next = modelResponses.shift();
-          if (next === undefined) {
-            throw new Error("unexpected extra model call");
-          }
-          return next;
-        },
-      })),
+    server.enqueue(
+      cassetteToolCall("draft_document"),
+      cassetteAssistant("已生成待补充版草稿。"),
+      cassetteToolCall("draft_document"),
+      cassetteAssistant("已按补充更新合同正文。"),
+      cassetteToolCall("draft_document"),
+      cassetteAssistant("起草完成。"),
     );
 
     const config: AgentConfig = {
       workspaceDir,
       model: {
         provider: "openai-compatible",
-        baseUrl: "https://example.com/v1",
+        baseUrl: server.url,
         apiKey: "sk-test",
         model: "demo",
       },
@@ -353,12 +234,15 @@ describe("runTurn clarification handling", () => {
 });
 
 describe("runTurn strict dangerous tool approval", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
+  const servers: CassetteModelServer[] = [];
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => s.close()));
   });
 
   it("awaits approval when strictDangerousToolApproval even if allowDangerousToolsWithoutApproval", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     registry.register({
       definition: {
@@ -373,36 +257,13 @@ describe("runTurn strict dangerous tool approval", () => {
       },
     });
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                role: "assistant",
-                content: "",
-                tool_calls: [
-                  {
-                    id: "c1",
-                    type: "function",
-                    function: { name: "send_email", arguments: "{}" },
-                  },
-                ],
-              },
-              finish_reason: "tool_calls",
-            },
-          ],
-        }),
-      })),
-    );
+    server.enqueue(cassetteToolCall("send_email"));
 
     const config: AgentConfig = {
       workspaceDir,
       model: {
         provider: "openai-compatible",
-        baseUrl: "https://example.com/v1",
+        baseUrl: server.url,
         apiKey: "sk-test",
         model: "demo",
       },
@@ -421,6 +282,8 @@ describe("runTurn strict dangerous tool approval", () => {
 
   it("runs send_email when strict is off and allowDangerous bypass is on", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     let ran = false;
     registry.register({
@@ -437,51 +300,13 @@ describe("runTurn strict dangerous tool approval", () => {
       },
     });
 
-    const responses: unknown[] = [
-      {
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "",
-              tool_calls: [
-                {
-                  id: "c1",
-                  type: "function",
-                  function: { name: "send_email", arguments: "{}" },
-                },
-              ],
-            },
-            finish_reason: "tool_calls",
-          },
-        ],
-      },
-      {
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "已完成。",
-            },
-            finish_reason: "stop",
-          },
-        ],
-      },
-    ];
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => responses.shift(),
-      })),
-    );
+    server.enqueue(cassetteToolCall("send_email"), cassetteAssistant("已完成。"));
 
     const config: AgentConfig = {
       workspaceDir,
       model: {
         provider: "openai-compatible",
-        baseUrl: "https://example.com/v1",
+        baseUrl: server.url,
         apiKey: "sk-test",
         model: "demo",
       },
@@ -502,21 +327,22 @@ describe("runTurn strict dangerous tool approval", () => {
 });
 
 describe("runTurn model identity short-circuit", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
+  const servers: CassetteModelServer[] = [];
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => s.close()));
   });
 
   it("answers「你是什么模型」without calling the model API", async () => {
     const workspaceDir = tmpWorkspace();
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    const server = await startCassetteModelServer();
+    servers.push(server);
 
     const registry = new ToolRegistry();
     const config: AgentConfig = {
       workspaceDir,
       model: {
         provider: "openai-compatible",
-        baseUrl: "https://example.com/v1",
+        baseUrl: server.url,
         apiKey: "sk-test",
         model: "qwen-max",
       },
@@ -534,7 +360,7 @@ describe("runTurn model identity short-circuit", () => {
       instruction: "你是什么模型",
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(server.requests).toHaveLength(0);
     expect(result.reply).toContain("通义千问 Max");
     expect(result.reply).toContain("`qwen-max`");
     expect(result.reply).not.toContain("看不到配置");

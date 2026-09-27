@@ -180,7 +180,6 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
     matterId,
     panelTab,
     onSelectPanelTab,
-    onOpenTopLevelMeeting,
     onUseInChat,
     onOpenNeedsDecisionDesk,
     showShellOps,
@@ -387,11 +386,6 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
           reviewSummaryCards={reviewSummaryCards}
           onOpenReview={onOpenReview}
           openReviewFromMatter={openReviewFromMatter}
-          onOpenMeeting={
-            matterId && onOpenTopLevelMeeting
-              ? () => onOpenTopLevelMeeting(matterId)
-              : undefined
-          }
           onUseInChat={onUseInChat}
           onOpenNeedsDecisionDesk={onOpenNeedsDecisionDesk}
           blockingExplanations={blockingExplanations}

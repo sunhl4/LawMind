@@ -20,10 +20,12 @@
 
 LawMind 的代码组织按**运行域**分为四层。早期文档中的 Router / Memory / Retrieval / Reasoning / Artifact 五层仍可作为概念模型理解数据流，但实际实现与部署边界按以下四层落地：
 
-1. **桌面壳（Electron shell）**：`apps/lawmind-desktop/electron/` 负责窗口、菜单、IPC、文件对话框、系统通知、本地 API 子进程 supervision 与深度链接。渲染进程不直接访问文件系统或网络，所有敏感动作经本地 API 完成。
-2. **本地 HTTP API**：`apps/lawmind-desktop/server/` 提供渲染进程可调用的 `/api/*` 端点，承担会话、任务、草稿、审核、案件、助手、模型、集成、记忆采纳等状态写侧。它是 Electron 本地可信边界向引擎的延伸。
-3. **引擎（Engine）**：`src/lawmind/` 包含 Agent 循环、工具注册与治理、lint、runtime、audit、adoption、memory、retrieval、router、deliverables、reasoning、templates、platform 安全层等。引擎不直接暴露 UI，只通过本地 API 被调用，输出结果与状态更新由 API 返回给渲染进程。
-4. **交付与文档**：`apps/lawmind-desktop/src/renderer/` 提供律师界面；`apps/lawmind-docs/` 提供文档站点；`workspace/` 与 `artifacts/` 承载最终交付物。
+1. **桌面壳（Electron shell）**：`apps/lawmind-desktop/electron/` 负责窗口、菜单、IPC、文件对话框、系统通知、本地 API 子进程 supervision 与深度链接。它不 import 引擎，只通过 HTTP 或 spawn 触达引擎；主进程另有自己的状态写侧（应用配置、密钥、授权、工作区文件字节）——这一层与引擎域写侧的分工、以及排查时该去哪找，见手册 §1.5「两套写侧」。
+2. **本地 HTTP API**：`apps/lawmind-desktop/server/` 是**独立子进程**，也是引擎的真实宿主（与引擎同进程、直接 import）。提供渲染进程可调用的 `/api/*` 端点，承担会话、任务、草稿、审核、案件、助手、模型、集成、记忆采纳等**引擎域状态**的写侧。它是 Electron 本地可信边界向引擎的延伸。
+3. **引擎（Engine）**：`src/lawmind/` 包含 Agent 循环、工具注册与治理、lint、runtime、audit、adoption、memory、retrieval、router、deliverables、reasoning、templates、platform 安全层等。引擎不直接暴露 UI。注意它**不是只被本地 API 调用**：`server/` 与 CLI 脚本、`lawmindd` 守护进程都进程内直接 import 它；渲染进程也被允许 import 其中零 Node 依赖的叶子模块（由 `check-renderer-node-imports` 门禁约束）。五类调用者的逐条对照、以及「同一时刻只有一个 tick 主人」，见手册 §1.5。
+4. **界面（Renderer）**：`apps/lawmind-desktop/src/renderer/` 提供律师界面。渲染进程不能上外网（CSP 只放行回环），也不能直接使用 `node:fs`，但可通过 IPC 文件桥读写工作区文件。
+
+不属于运行域的三种东西：`apps/lawmind-docs/`（构建期生成的静态文档站）、`workspace/` 与 `artifacts/`（数据面/交付面）、`scripts/lawmind/`（CLI 入口）。
 
 数据主链路：
 
@@ -33,24 +35,25 @@ LawMind 的代码组织按**运行域**分为四层。早期文档中的 Router 
 
 安全不是单独进程，而是贯穿本地 API、引擎与平台契约的一组默认策略：
 
-- **出口代理（outbound proxy）**：外部网络请求默认经 `src/lawmind/platform/outbound-proxy.ts` 代理，按 `lawmind.policy.json` 中的 `networkAllowlist` 显式放行；未配置的 host/path 会被拒绝，律师可在 Doctor 或设置中查看当前 allowlist 状态。
+- **出口代理（outbound proxy）**：外部网络请求默认经 `src/lawmind/platform/outbound-proxy.ts` 代理，按 `lawmind.policy.json` 中的 `networkAllowlist` 显式放行；未配置的 host/path 会被拒绝，当前 allowlist 状态可看 `GET /api/health` 的 `policy` 段或 `pnpm lawmind:doctor`。
 - **命令网关（command gateway）**：可能修改工作区或调用外部程序的操作由 `runtime/tool-pipeline.ts` 中间件与 `agent/dangerous-tool-policy.ts` 统一编排，支持显式律师批准、工具 allowlist、执行层化与审计前缀，避免模型或工作流直接执行任意命令。
 - **审计 HMAC 与 root-anchor**：`src/lawmind/audit/hash-chain.ts` 与 `src/lawmind/audit/root-anchor.ts` 为每个工作区维护审计根锚，关键事件写入 `audit/` 时计算完整性链；Firm/Private 版默认开启，支持导出并发现事后篡改。
-- **工作区写保护**：`.env*`、`lawmind.policy.json` 等关键文件受 `src/lawmind/runtime/protected-workspace-rels.ts` 保护，渲染进程与引擎工具无法直接覆盖；删除或重命名需显式授权。
-- **权限模式执行层化**：`src/lawmind/agent/permission-mode.ts` 把会话运行分为 `standard`、`strict`、`readonly`、`research` 四档；由 `runtime/tool-pipeline.ts` 的 `permissionModeMiddleware` 在执行层硬拦。低权限模式禁止起草、渲染、外发等重动作，并在 CLI/Doctor 中暴露当前模式，避免误操作。
+- **工作区写保护**：`lawmind.policy.json`、`.env` / `.env.*`（任意深度）等关键文件受 `src/lawmind/runtime/protected-workspace-rels.ts` 保护，渲染进程与引擎工具无法直接覆盖；`fs:mkdir` / `fs:rename` / `fs:delete` / `fs:copy` 这类会连带整棵子树的动词，以及「删掉一个包含保护文件的目录」也一并拒写。口径一处定义、两处落地（引擎 TS + `electron/fs-bridge.mjs` 镜像，含子树扫描分支），镜像由行为等价测试守着。
+- **权限模式执行层化**：`src/lawmind/agent/permission-mode.ts` 把会话运行分为 `standard`、`strict`、`readonly`、`research` 四档；由 `runtime/tool-pipeline.ts` 的 `permissionModeMiddleware` 在执行层硬拦。低权限模式禁止起草、渲染、外发等重动作。当前模式随会话持久化（`AgentSession.permissionMode`），界面入口在对话输入栏工具条，避免误操作。
 - **隐式意图编译（SSOT）**：`src/lawmind/intent/compile-intent.ts` 为叶子编译器（无 fs，渲染进程可直接调用）；服务端经 `compileTurnIntent`（peek 钉选文档 + 案件门类）与 `runTurn` / `POST /api/intent/compile` 同源。对话状态条只展示「本轮按××处理」，不提供分类菜单。
-- **本机能力**：助手默认只碰工作区与已选本机文件夹；全机查找/读取/本机命令走授权网关（案件围栏、硬黑名单、逐次授权），写入不默认开放全盘。见 [LAWMIND-HOST-ACCESS.md](./lawmind/LAWMIND-HOST-ACCESS.md)。
+- **本机访问**：助手默认可查找本机、阅读已选文件夹并运行受控命令。工作区外读正文仍须当次授权。密钥黑名单、对立当事人隔离和挂载点只读仍在网关里，设置里没有档位开关。见 [LAWMIND-HOST-ACCESS.md](./lawmind/LAWMIND-HOST-ACCESS.md)。
 
 ### 数据流与事件总线
 
-本地 API 与渲染进程之间的异步通知统一走 **SSE（Server-Sent Events）**：
+本地 API 与渲染进程之间的异步通知统一走 **SSE（Server-Sent Events）**（**详细口径见手册 §1.5**，含心跳、通配订阅、有界回放与五处事件契约）：
 
 - `/api/chat` 长连接流式返回 `assistant` 消息、`tool_call_start/end`、`gate` 快照、`compact` 等事件；
+- `/api/events` 全局事件流（`fs:change`、`task:update`、`review:status`、`approval:update`、`delegation:update`）；
 - `/api/jobs/:id/stream` 推送工作流/异步任务的进度、终态与心跳；
 - 设置页「协作」对非当前任务使用有限并发 SSE（默认 2 路）刷新列表，失败回退轮询；
-- 事件结构由 `src/lawmind/platform/contracts.ts` 中的 `RunTurnEvent` / `TaskExecutionState` 等契约统一描述，渲染进程与引擎共享同一份状态理解。
+- 事件结构由 `src/lawmind/agent/turn-orchestrator-events.ts`（`RunTurnEvent`）与 `src/lawmind/platform/contracts.ts`（`TaskExecutionState` / `GateDecision` / `AuditEnvelope` 等）分工描述。**别把 `RunTurnEvent` 记到 `contracts.ts` 上**——它只在引擎与本地 API 之间共享，渲染层按事件名清单解析 SSE 帧。
 
-对于尚未接入 SSE 的模块（如部分文件系统监听），预留接口为：渲染进程通过 `GET /api/health` 轮询 + 本地 API 在关键状态变更时主动推送 SSE；新增事件类型优先扩展 SSE 事件名，而不是另开 WebSocket。
+没有 WebSocket、没有 socket.io、没有长轮询：新增异步通知优先扩展 SSE 事件名。界面侧另有少数**定时轮询**补洞（见手册 §1.5 的表）。
 
 ### Matter-centered 写侧 与 Role 编制（2026-Q3 起）
 
@@ -459,12 +462,11 @@ Electron 主进程 (main.mjs)
 
 ### 设置面板架构
 
-设置由顶栏齿轮（`lm-gear-btn`）触发，在主工作栏以 **全页** `LawmindSettingsPage`（`lm-settings-page`）展示，左侧分组导航 + 右侧内容区（非模态叠层）。律师可见分区见 `lawmind-settings-nav.ts`：
+设置由顶栏齿轮（`lm-gear-btn`）触发，在主工作栏以 **全页** `LawmindSettingsPage`（`lm-settings-page`）展示，左侧导航 + 右侧内容区（非模态叠层）。侧栏是**一条 8 项平铺目录**（Cursor 风格，不分组、没有「更多设置」折叠桶），见 `lawmind-settings-nav.ts`：
 
-1. **工作台**：模型与连接、工作区（材料夹 / 标准 / 口径）、本机能力、外观
-2. **办案**（更多设置）：自动办件、文书模板、记忆库
-3. **系统健康 / 安全**（更多设置）：连接体检、高安全开关
-4. **关于**：免责声明；版本号在侧栏底部
+账号、模型与连接、工作区、外观、自动办件、记忆库、助手编制、免责声明。
+
+版本号与「更新」按钮在侧栏底部，不另开一页。角色说明 / 团队工作流 / 作业标准 / 版本与授权 / 系统健康 / 文书模板六个分区已退役但仍可深链（`SETTINGS_NAV_RETIRED_ITEMS`，深链只读）；旧分区 id 自动改道（`review-prefs`→外观、`host`/`doctor`→工作区、`tools`→模型与连接、`app-update`→账号）。原「系统健康」页的功能按去处收编：Word 连接在「外观」，查找重建与案件档案整理在「工作区」（只在需要时出现），许可 / 模型来源 / 用量在「账号」，其余走 `pnpm lawmind:doctor` 与 `GET /api/health`。
 
 签批与按流程办在顶栏 **「在办」**，不必在设置里编制助手或配置角色。
 

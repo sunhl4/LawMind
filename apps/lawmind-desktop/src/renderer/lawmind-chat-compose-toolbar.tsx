@@ -3,7 +3,8 @@
  * Extracted from lawmind-chat-shell (R-P1-2).
  */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { LawmindSettingsConversationLength } from "./LawmindSettingsConversationLength";
 import { LawmindModelPicker } from "./LawmindModelPicker";
 import {
   LawmindComposeContextUsage,
@@ -16,7 +17,6 @@ import {
   type ComposePermissionMode,
 } from "./lawmind-compose-prefs";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
-import { requestOpenMeetingView } from "./lawmind-meeting-nav-bus";
 
 export type LawmindChatComposeToolbarProps = {
   loading: boolean;
@@ -35,6 +35,7 @@ export type LawmindChatComposeToolbarProps = {
   allowWebSearch: boolean;
   webSearchPolicyBlocked?: boolean;
   onAllowWebSearchChange: (value: boolean) => void;
+  apiBase?: string;
   modelCatalog: ModelCatalogEntry[];
   selectedModelId: string;
   onModelSelect?: (modelId: string) => void | Promise<void>;
@@ -67,6 +68,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
     allowWebSearch,
     webSearchPolicyBlocked,
     onAllowWebSearchChange,
+    apiBase,
     modelCatalog,
     selectedModelId,
     onModelSelect,
@@ -86,7 +88,30 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
   } = props;
 
   const [composeOptionsOpen, setComposeOptionsOpen] = useState(false);
+  const [composeOptionsStyle, setComposeOptionsStyle] = useState<CSSProperties>({});
   const composeOptionsRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!composeOptionsOpen) {
+      return;
+    }
+    const rect = composeOptionsRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+    const width = 260;
+    const margin = 8;
+    const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+    setComposeOptionsStyle({
+      position: "fixed",
+      left,
+      width,
+      minWidth: width,
+      bottom: Math.max(margin, window.innerHeight - rect.top + margin),
+      maxHeight: Math.max(160, rect.top - margin * 2),
+      zIndex: 9000,
+    });
+  }, [composeOptionsOpen]);
 
   useEffect(() => {
     if (!composeOptionsOpen) {
@@ -167,6 +192,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             role="dialog"
             aria-label="输入选项"
             hidden={!composeOptionsOpen}
+            style={composeOptionsOpen ? composeOptionsStyle : undefined}
           >
             <label className="lm-compose-bar-field">
               <span className="lm-compose-bar-label">权限</span>
@@ -198,7 +224,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
                 aria-label="联网工具"
                 title={
                   webSearchPolicyBlocked
-                    ? "工作区策略已禁止联网检索"
+                    ? "联网已关闭"
                     : allowWebSearch
                       ? "已开启：助手可联网搜索"
                       : "关闭：仅使用工作区、案件记忆与本地工具"
@@ -209,28 +235,13 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
                 <option value="web">联网</option>
               </select>
             </label>
-            <button
-              type="button"
-              className="lm-compose-options-action"
-              data-testid="lm-compose-open-meeting"
-              disabled={loading}
-              onClick={() => {
-                setComposeOptionsOpen(false);
-                requestOpenMeetingView();
-              }}
-            >
-              <span className="lm-compose-options-action-k" aria-hidden>
-                议
-              </span>
-              会议室
-            </button>
             {loading && input.trim() && onEnqueueNextTurn ? (
               <button
                 type="button"
                 className="lm-btn lm-btn-ghost lm-btn-small"
                 data-testid="lm-compose-enqueue-next"
                 aria-label="下一轮再发"
-                title="followup：等本轮结束后再作为新一轮发送（不是中途 steer）"
+                title="等这一轮办完，再把这句话当作下一轮交办"
                 onClick={() => {
                   setComposeOptionsOpen(false);
                   void onEnqueueNextTurn();
@@ -251,6 +262,13 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
           quickTestBusy={composeModelQuickTestBusy}
           disabled={loading}
           disabledTitle={loading ? "回复生成中，请稍后再切换模型" : undefined}
+        />
+        <LawmindSettingsConversationLength
+          apiBase={apiBase}
+          modelContextTokens={
+            modelCatalog.find((entry) => entry.id === selectedModelId)?.contextTokens
+          }
+          disabled={loading}
         />
         {contextBudget && onCompactContext && onDistillLearning ? (
           <LawmindComposeContextUsage

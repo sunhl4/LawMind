@@ -6,9 +6,9 @@ import type { HealthPayload } from "../lawmind-app-data";
 import type { LawmindMainView } from "../lawmind-main-view";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { ReviewPaneId, ReviewPaneVisibility } from "../lawmind-review-pane-prefs";
+import { ASSISTANT_PRESENCE_LABEL } from "../../../../../src/lawmind/assistants/presence.ts";
+import { assistantsForDailySwitcher } from "../../../../../src/lawmind/assistants/roster.ts";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
-import { useEdition } from "../use-edition";
-
 export type LawmindAppHeaderProps = {
   mainView: LawmindMainView;
   assistants: AssistantRow[];
@@ -27,6 +27,8 @@ export type LawmindAppHeaderProps = {
   wsShowEditor: boolean;
   wsShowChat: boolean;
   canUseFilesystemBridge: boolean;
+  /** 核对纸正占着中栏时，编辑区开关改为「显示文件」。 */
+  editorCoveredBySheet?: boolean;
   onToggleSidebar: () => void;
   onToggleEditor: () => void;
   onToggleChat: () => void;
@@ -45,6 +47,9 @@ export type LawmindAppHeaderProps = {
   onOpenDoctor: () => void;
   onVerifyModel: () => void | Promise<void>;
   composeModelQuickTestBusy: boolean;
+  /** Workspace-wide inbox count. Header shows the entry only when the sidebar cannot. */
+  needsDecisionTotal?: number;
+  onOpenNeedsDecision?: () => void;
 };
 
 function LawmindAppHeaderImpl({
@@ -64,6 +69,7 @@ function LawmindAppHeaderImpl({
   wsShowEditor,
   wsShowChat,
   canUseFilesystemBridge,
+  editorCoveredBySheet = false,
   onToggleSidebar,
   onToggleEditor,
   onToggleChat,
@@ -81,12 +87,27 @@ function LawmindAppHeaderImpl({
   onOpenApiWizard,
   onOpenDoctor,
   onVerifyModel,
+  needsDecisionTotal = 0,
+  onOpenNeedsDecision,
 }: LawmindAppHeaderProps) {
   /** Sidebar already hosts the settings gear; keep one gear in the header only when the sidebar is unavailable. */
-  const showHeaderSettingsGear = sidebarCollapsed || mainView === "review" || mainView === "desk";
-  const { edition } = useEdition(apiBase ?? "");
-  const soloShell = edition === "solo";
+  const showHeaderSettingsGear =
+    sidebarCollapsed || mainView === "review" || mainView === "desk" || mainView === "archive";
+  const sidebarHostsNeedsDecision =
+    !sidebarCollapsed && mainView !== "review" && mainView !== "desk" && mainView !== "archive";
+  const showHeaderNeedsDecision =
+    !settingsOpen &&
+    !sidebarHostsNeedsDecision &&
+    needsDecisionTotal > 0 &&
+    Boolean(onOpenNeedsDecision);
   const showAssistantSwitcher = assistants.length > 1;
+  const currentAssistant = assistants.find(
+    (assistant) => assistant.assistantId === selectedAssistantId,
+  );
+  const presence = currentAssistant?.presence ?? "idle";
+  const presenceDetail = currentAssistant?.presenceDetail?.trim();
+  const presenceLabel = ASSISTANT_PRESENCE_LABEL[presence];
+  const presenceTitle = presenceDetail ? `${presenceLabel}：${presenceDetail}` : presenceLabel;
 
   return (
     <>
@@ -135,13 +156,19 @@ function LawmindAppHeaderImpl({
               {showAssistantSwitcher ? (
                 <div className="lm-main-title-block">
                   <div className="lm-main-assistant-line">
+                    <span
+                      className={`lm-presence-dot lm-presence-dot--${presence}`}
+                      title={presenceTitle}
+                      aria-label={presenceTitle}
+                      data-testid="lm-assistant-presence"
+                    />
                     <select
                       className="lm-asst-select lm-main-asst-select"
                       value={selectedAssistantId}
                       aria-label="选择助手"
                       onChange={(e) => onSelectAssistantId(e.target.value)}
                     >
-                      {assistants.map((assistant) => (
+                      {assistantsForDailySwitcher(assistants, selectedAssistantId).map((assistant) => (
                         <option key={assistant.assistantId} value={assistant.assistantId}>
                           {assistant.displayName}
                         </option>
@@ -189,11 +216,24 @@ function LawmindAppHeaderImpl({
                     onClearNeedsDecisionFocus?.();
                     onSetMainView("agents");
                   }}
-                  title="待拍板与办理进度"
+                  title="要你处理的、正在办的、今天办完的"
                 >
                   在办
                 </button>
-                {/* 改稿/文书台不占一级对等 Tab；从在办「改稿」或对话深链进入。已打开时显示次级以便定位。 */}
+                {/* 整理资料不占一级 Tab；从设置 → 工作区进入。已打开时显示次级以便定位。 */}
+                {mainView === "archive" ? (
+                  <button
+                    type="button"
+                    className="lm-tab lm-tab-secondary active"
+                    aria-current="page"
+                    data-testid="lm-tab-archive"
+                    onClick={() => onSetMainView("archive")}
+                    title="整理指定范围里的文件：建案、归入已有案件，或收好一般资料"
+                  >
+                    整理资料
+                  </button>
+                ) : null}
+                {/* 改稿不占一级对等 Tab；从在办「改稿」或对话深链进入。已打开时显示次级以便定位。 */}
                 {mainView === "review" ? (
                   <button
                     type="button"
@@ -206,23 +246,7 @@ function LawmindAppHeaderImpl({
                     }}
                     title="改稿、预览与导出（通常从在办进入）"
                   >
-                    {soloShell ? "改稿" : "文书台"}
-                  </button>
-                ) : null}
-                {/* 会议室不占一级对等 Tab；从对话输入条 + 或案件「开会议室」进入。已打开时显示次级以便定位。 */}
-                {mainView === "meeting" ? (
-                  <button
-                    type="button"
-                    className="lm-tab lm-tab-secondary active"
-                    aria-current="page"
-                    data-testid="lm-tab-meeting"
-                    onClick={() => {
-                      onClearNeedsDecisionFocus?.();
-                      onSetMainView("meeting");
-                    }}
-                    title="多助手讨论"
-                  >
-                    会议室
+                    改稿
                   </button>
                 ) : null}
               </nav>
@@ -240,6 +264,23 @@ function LawmindAppHeaderImpl({
                 </button>
               ) : null}
               <div className="lm-header-spacer" aria-hidden />
+              {showHeaderNeedsDecision ? (
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-sm lm-side-needs-decision-btn lm-side-needs-decision-btn--brass"
+                  data-testid="lm-header-needs-decision"
+                  title="打开「在办」处理澄清、签批与待审"
+                  onClick={() => onOpenNeedsDecision?.()}
+                >
+                  <span>待我拍板</span>
+                  <span
+                    className="lm-side-needs-decision-badge"
+                    aria-label={`${needsDecisionTotal} 项待处理`}
+                  >
+                    {needsDecisionTotal > 99 ? "99+" : needsDecisionTotal}
+                  </span>
+                </button>
+              ) : null}
               <div className="lm-main-header-right">
                 {mainView === "workspace" ||
                 mainView === "review" ||
@@ -252,14 +293,12 @@ function LawmindAppHeaderImpl({
                         onToggle={onToggleReviewPane}
                         iconOnly
                       />
-                    ) : mainView === "meeting" || mainView === "agents" ? (
+                    ) : mainView === "agents" ? (
                       <div className="lm-panel-toggles" role="group" aria-label="侧栏">
                         <button
                           type="button"
                           className={`lm-panel-toggle ${sidebarCollapsed ? "lm-panel-toggle-off" : ""}`}
-                          data-testid={
-                            mainView === "agents" ? "lm-agents-toggle-sidebar" : "lm-meeting-toggle-sidebar"
-                          }
+                          data-testid="lm-agents-toggle-sidebar"
                           title={sidebarCollapsed ? "显示侧栏" : "隐藏侧栏"}
                           aria-label={sidebarCollapsed ? "显示侧栏" : "隐藏侧栏"}
                           aria-pressed={!sidebarCollapsed}
@@ -297,6 +336,7 @@ function LawmindAppHeaderImpl({
                         wsShowChat={wsShowChat}
                         canUseFilesystemBridge={canUseFilesystemBridge}
                         matterCockpitOpen={matterCockpitOpen}
+                        editorCoveredBySheet={editorCoveredBySheet}
                         onToggleSidebar={onToggleSidebar}
                         onToggleEditor={onToggleEditor}
                         onToggleChat={onToggleChat}

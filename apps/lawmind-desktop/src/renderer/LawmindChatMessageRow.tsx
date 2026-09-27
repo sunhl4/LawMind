@@ -262,24 +262,15 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             {onOpenSettingsSection ? (
               <div className="lm-draft-status-actions">
                 {msg.researchNextActions!.includes("open_settings_models") ||
-                msg.researchNextActions!.includes("enable_web_search") ? (
+                msg.researchNextActions!.includes("enable_web_search") ||
+                msg.researchNextActions!.includes("open_settings_doctor") ? (
                   <button
                     type="button"
                     className="lm-btn lm-btn-accent lm-btn-sm"
                     data-testid="lm-research-recovery-models"
                     onClick={() => onOpenSettingsSection("models")}
                   >
-                    去模型与检索
-                  </button>
-                ) : null}
-                {msg.researchNextActions!.includes("open_settings_doctor") ? (
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-sm"
-                    data-testid="lm-research-recovery-doctor"
-                    onClick={() => onOpenSettingsSection("doctor")}
-                  >
-                    系统健康
+                    去模型与连接
                   </button>
                 ) : null}
               </div>

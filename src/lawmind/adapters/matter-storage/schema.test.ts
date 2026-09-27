@@ -95,10 +95,14 @@ describe("matter-storage schema", () => {
         status: "open",
         priority: "high",
         title: "待审",
+        dependsOn: ["q0"],
+        blockedBy: ["q0"],
+        blockedReason: "depends_on",
+        label: "补一份授权",
         createdAt: now,
         updatedAt: now,
-      }).kind,
-    ).toBe("need_lawyer_review");
+      }).blockedBy,
+    ).toEqual(["q0"]);
 
     expect(
       DeadlineRecordSchema.parse({

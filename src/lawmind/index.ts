@@ -344,7 +344,11 @@ export {
   listMatterCockpitOverviews,
   listMatterReadModels,
 } from "./application/services/matter-service.js";
-export { listApprovalRequests, listWorkQueueItems } from "./application/services/queue-service.js";
+export {
+  invalidateQueueListSnap,
+  listApprovalRequests,
+  listWorkQueueItems,
+} from "./application/services/queue-service.js";
 
 // Deliverable-First Architecture — spec registry + acceptance gate
 export {

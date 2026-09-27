@@ -1,5 +1,7 @@
 /**
- * 会议室：sessionStorage 中的参会会话映射 / 编制缓存（从 MatterTeamMeetingPanel 抽出）。
+ * 会议室：本机记住的参会会话映射 / 编制缓存。
+ * 纪要正文在案件目录；这里只记「下次打开还要接着用」的选择。
+ * 用 localStorage，关掉应用还在。旧的 sessionStorage 读到后迁过来。
  */
 
 import type { TeamMeetingLine } from "../../../../src/lawmind/cases/team-meeting-ids.ts";
@@ -7,9 +9,53 @@ import type { TeamMeetingLine } from "../../../../src/lawmind/cases/team-meeting
 export const MEETING_SESSION_STORAGE_PREFIX = "lawmind.teamMeeting.session.";
 export const MEETING_PARTICIPANTS_STORAGE_PREFIX = "lawmind.teamMeeting.participants.";
 
+function browserStorage(): { local: Storage; session: Storage } | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return { local: window.localStorage, session: window.sessionStorage };
+}
+
+function readRaw(key: string): string | null {
+  const stores = browserStorage();
+  if (!stores) {
+    return null;
+  }
+  try {
+    const durable = stores.local.getItem(key);
+    if (durable) {
+      return durable;
+    }
+    const legacy = stores.session.getItem(key);
+    if (legacy) {
+      try {
+        stores.local.setItem(key, legacy);
+      } catch {
+        /* quota: keep reading the legacy copy */
+      }
+      return legacy;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeRaw(key: string, value: string): void {
+  const stores = browserStorage();
+  if (!stores) {
+    return;
+  }
+  try {
+    stores.local.setItem(key, value);
+  } catch {
+    /* ignore quota */
+  }
+}
+
 export function readMeetingSessionMap(matterId: string): Record<string, string | undefined> {
   try {
-    const raw = sessionStorage.getItem(`${MEETING_SESSION_STORAGE_PREFIX}${matterId}`);
+    const raw = readRaw(`${MEETING_SESSION_STORAGE_PREFIX}${matterId}`);
     if (!raw) {
       return {};
     }
@@ -32,16 +78,12 @@ export function writeMeetingSessionMap(
   matterId: string,
   map: Record<string, string | undefined>,
 ): void {
-  try {
-    sessionStorage.setItem(`${MEETING_SESSION_STORAGE_PREFIX}${matterId}`, JSON.stringify(map));
-  } catch {
-    /* ignore quota */
-  }
+  writeRaw(`${MEETING_SESSION_STORAGE_PREFIX}${matterId}`, JSON.stringify(map));
 }
 
 export function readMeetingParticipants(matterId: string): string[] | null {
   try {
-    const raw = sessionStorage.getItem(`${MEETING_PARTICIPANTS_STORAGE_PREFIX}${matterId}`);
+    const raw = readRaw(`${MEETING_PARTICIPANTS_STORAGE_PREFIX}${matterId}`);
     if (!raw) {
       return null;
     }
@@ -56,14 +98,7 @@ export function readMeetingParticipants(matterId: string): string[] | null {
 }
 
 export function writeMeetingParticipants(matterId: string, ids: string[]): void {
-  try {
-    sessionStorage.setItem(
-      `${MEETING_PARTICIPANTS_STORAGE_PREFIX}${matterId}`,
-      JSON.stringify(ids),
-    );
-  } catch {
-    /* ignore quota */
-  }
+  writeRaw(`${MEETING_PARTICIPANTS_STORAGE_PREFIX}${matterId}`, JSON.stringify(ids));
 }
 
 export function meetingAuthorLabel(row: TeamMeetingLine): string {

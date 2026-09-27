@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import { compareMatrixExcerpts } from "../../../../../src/lawmind/matter/review-matrix-compare.ts";
-import { apiGetJson, errorMessage } from "../api-client.js";
+import { apiGetJson, apiSendJson, errorMessage } from "../api-client.js";
 import {
   loadReviewMatrixNotes,
   matrixCellKey,
@@ -86,20 +86,70 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
   }, [reload]);
 
   useEffect(() => {
+    let cancelled = false;
     setNotesReady(false);
-    const stored = loadReviewMatrixNotes(matterId);
-    setNotes(stored.notes);
-    setVerified(stored.verified);
-    setExpanded({});
-    setNotesReady(true);
-  }, [matterId]);
+    void (async () => {
+      const local = loadReviewMatrixNotes(matterId);
+      let nextNotes = local.notes;
+      let nextVerified = local.verified;
+      try {
+        const remote = await apiGetJson<{
+          ok?: boolean;
+          notes?: Record<string, string>;
+          verified?: Record<string, boolean>;
+        }>(apiBase, `/api/matters/review-matrix/notes?matterId=${encodeURIComponent(matterId)}`);
+        if (cancelled) {
+          return;
+        }
+        const remoteHas =
+          Object.keys(remote.notes ?? {}).length > 0 || Object.keys(remote.verified ?? {}).length > 0;
+        const localHas =
+          Object.keys(local.notes).length > 0 || Object.keys(local.verified).length > 0;
+        if (remoteHas) {
+          nextNotes = remote.notes ?? {};
+          nextVerified = remote.verified ?? {};
+        } else if (localHas && remote.ok) {
+          await apiSendJson(apiBase, `/api/matters/review-matrix/notes?matterId=${encodeURIComponent(matterId)}`, "PUT", {
+            notes: local.notes,
+            verified: local.verified,
+          });
+        }
+      } catch {
+        // 本地副本仍可用；工作区文件写失败不挡住对照。
+      }
+      if (cancelled) {
+        return;
+      }
+      setNotes(nextNotes);
+      setVerified(nextVerified);
+      setExpanded({});
+      setNotesReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, matterId]);
+
+  const notesWriteChain = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     if (!notesReady) {
-      return;
+      return undefined;
     }
     saveReviewMatrixNotes(matterId, { notes, verified });
-  }, [matterId, notes, verified, notesReady]);
+    const target = `/api/matters/review-matrix/notes?matterId=${encodeURIComponent(matterId)}`;
+    const body = { notes, verified };
+    const timer = window.setTimeout(() => {
+      notesWriteChain.current = notesWriteChain.current.then(async () => {
+        try {
+          await apiSendJson(apiBase, target, "PUT", body);
+        } catch {
+          // 工作区写入失败时，浏览器副本仍在。
+        }
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [apiBase, matterId, notes, verified, notesReady]);
 
   const cellMap = useMemo(() => {
     const m = new Map<string, ReviewMatrixCell>();
@@ -275,12 +325,12 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
                   const key = matrixCellKey(doc.documentId, q.id);
                   const cell = cellMap.get(key);
                   const note = notes[key] ?? "";
-                  const isVerified = Boolean(verified[key]) || cell?.status === "verified";
+                  const isVerified = verified[key] || cell?.status === "verified";
                   const excerpt = cell?.excerpt?.trim() ?? "";
                   const serverEmpty = cell?.status === "empty" || (!cell && !excerpt);
                   const isEmpty = serverEmpty || !excerpt;
                   const isSuggested = !isVerified && !isEmpty && (cell?.status === "suggested" || Boolean(excerpt));
-                  const isOpen = Boolean(expanded[key]);
+                  const isOpen = expanded[key];
                   const preview =
                     excerpt.length > PREVIEW_LEN ? `${excerpt.slice(0, PREVIEW_LEN)}…` : excerpt;
 

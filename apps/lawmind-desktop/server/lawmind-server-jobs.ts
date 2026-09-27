@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   buildWorkflowReport,
   executeWorkflow as runCollaborationWorkflow,
+  releaseWorkflowLawyerHold,
 } from "../../../src/lawmind/agent/orchestrator/index.js";
 import type { ExecuteWorkflowOptions } from "../../../src/lawmind/agent/orchestrator/index.js";
 import type { CollaborationWorkflow } from "../../../src/lawmind/agent/orchestrator/types.js";
@@ -13,7 +14,12 @@ import {
   readWorkspaceWorkflowTemplate,
 } from "../../../src/lawmind/agent/collaboration/workspace-workflow-templates.js";
 import type { WorkflowMemoryBundleSnapshot } from "../../../src/lawmind/agent/collaboration/workflow-memory-bundle.js";
+import { loadSession } from "../../../src/lawmind/agent/session.js";
 import type { AgentConfig } from "../../../src/lawmind/agent/types.js";
+import {
+  outlineAnswerDecision,
+  outlineLooksApproved,
+} from "../../../src/lawmind/research/outline-hitl.js";
 import { emitCollaborationEvent } from "../../../src/lawmind/agent/collaboration/audit.js";
 import { emitPlatformGateSnapshot } from "../../../src/lawmind/platform/audit-gate.js";
 import type { GateDecision, TaskExecutionState } from "../../../src/lawmind/platform/contracts.js";
@@ -25,7 +31,8 @@ export type WorkflowJobStatus =
   | "running"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "awaiting_lawyer";
 
 /** Local-only schedule (no remote daemon). */
 export type WorkflowJobScheduledTrigger = {
@@ -85,6 +92,8 @@ export type PublicWorkflowJob = Omit<
 const jobs = new Map<string, WorkflowJobRecord>();
 const jobOrder: string[] = [];
 const MAX_JOBS = 200;
+/** 同一工作区同时跑的工作流。多出来的留在 queued，有空位再启动。 */
+const MAX_CONCURRENT_WORKFLOW_JOBS = 2;
 const idempotencyKeyToJobId = new Map<string, string>();
 const MAX_IDEMPOTENCY_KEY_LEN = 128;
 
@@ -313,6 +322,14 @@ function workflowJobExecutionState(
       detail: "工作流执行中。",
     };
   }
+  if (status === "awaiting_lawyer") {
+    return {
+      phase: "plan",
+      status: "running",
+      recoverable: true,
+      detail: error?.trim() || "请确认后再继续后续步骤。",
+    };
+  }
   if (status === "completed") {
     return {
       phase: "complete",
@@ -454,6 +471,7 @@ const ALL_JOB_STATUSES: ReadonlyArray<WorkflowJobStatus> = [
   "completed",
   "failed",
   "cancelled",
+  "awaiting_lawyer",
 ];
 
 function isWorkflowJobStatus(s: string): s is WorkflowJobStatus {
@@ -542,6 +560,7 @@ export function clearWorkflowJobsForTests(): void {
   jobs.clear();
   jobOrder.length = 0;
   idempotencyKeyToJobId.clear();
+  pendingLaunches.clear();
   jobWatchEmitter.removeAllListeners();
 }
 
@@ -594,7 +613,8 @@ export function requestCancelWorkflowJob(jobId: string): { ok: boolean; error?: 
   if (isTerminalStatus(r.status)) {
     return { ok: false, error: "job_already_terminal" };
   }
-  if (r.status === "scheduled" || r.status === "queued") {
+  if (r.status === "scheduled" || r.status === "queued" || r.status === "awaiting_lawyer") {
+    pendingLaunches.delete(jobId);
     r.status = "cancelled";
     r.completedAt = new Date().toISOString();
     r.error = "cancelled_by_user";
@@ -609,6 +629,108 @@ export function requestCancelWorkflowJob(jobId: string): { ok: boolean; error?: 
   auditWorkflowJobGateSnapshot(r);
   emitJobAudit(r.workspaceDir, `workflow_job=${r.jobId} cancel_requested`);
   return { ok: true };
+}
+
+/** 律师确认大纲或澄清后，从停住的步骤继续后面的步骤。 */
+export function continueAwaitingLawyerWorkflowJob(
+  jobId: string,
+  baseConfig: AgentConfig,
+  opts?: { stepId?: string; run?: NonNullable<WorkflowRunDeps["run"]> },
+): { ok: boolean; error?: string } {
+  const r = jobs.get(jobId);
+  if (!r) {
+    return { ok: false, error: "job_not_found" };
+  }
+  if (r.status !== "awaiting_lawyer") {
+    return { ok: false, error: "job_not_waiting" };
+  }
+  const workflow = r.workflowSnapshot;
+  if (!workflow) {
+    return { ok: false, error: "job_missing_snapshot" };
+  }
+  if (!releaseWorkflowLawyerHold(workflow, opts?.stepId)) {
+    return { ok: false, error: "job_not_waiting" };
+  }
+  r.workflowSnapshot = workflow;
+  r.status = "queued";
+  delete r.error;
+  delete r.completedAt;
+  delete r.result;
+  persistWorkflowJob(r);
+  pendingLaunches.set(jobId, {
+    baseConfig,
+    workflow,
+    runner: opts?.run ?? runCollaborationWorkflow,
+  });
+  setImmediate(() => {
+    const cur = jobs.get(jobId);
+    if (!cur || cur.status !== "queued") {
+      pendingLaunches.delete(jobId);
+      return;
+    }
+    pumpWorkflowLaunches(baseConfig.workspaceDir);
+  });
+  return { ok: true };
+}
+
+function stepNeedsOutlineConfirm(step: { holdForLawyer?: boolean; task: string }): boolean {
+  return step.holdForLawyer === true || step.task.includes("research_outline_confirm");
+}
+
+function outlineConfirmAllowsContinue(workspaceDir: string, sessionId: string): boolean {
+  const session = loadSession(workspaceDir, sessionId);
+  const direct = session?.lastConfirmedAnswers?.research_outline_confirm;
+  if (typeof direct === "string" && direct.trim()) {
+    const decision = outlineAnswerDecision(direct);
+    return decision === "approved" || decision === "revise";
+  }
+  const instruction = [...(session?.turns ?? [])]
+    .toReversed()
+    .find((turn) => turn.instruction?.trim())?.instruction;
+  return outlineLooksApproved(instruction ?? "");
+}
+
+/**
+ * 律师在「在办」里答完子回合后，把还停着的流程接着办。
+ * 拒绝或大纲未确认时不往下写。
+ */
+export function continueWorkflowJobsHeldOnSession(
+  sessionId: string,
+  baseConfig: AgentConfig,
+  opts?: { reply?: string; run?: NonNullable<WorkflowRunDeps["run"]> },
+): string[] {
+  const sid = sessionId.trim();
+  if (!sid) {
+    return [];
+  }
+  const reply = opts?.reply ?? "";
+  if (/用户已拒绝|已取消「/.test(reply)) {
+    return [];
+  }
+  const root = path.resolve(baseConfig.workspaceDir);
+  const continued: string[] = [];
+  for (const job of jobs.values()) {
+    if (path.resolve(job.workspaceDir) !== root || job.status !== "awaiting_lawyer") {
+      continue;
+    }
+    const step = job.workflowSnapshot?.steps.find(
+      (row) => row.status === "awaiting_lawyer" && row.sessionId === sid,
+    );
+    if (!step) {
+      continue;
+    }
+    if (stepNeedsOutlineConfirm(step) && !outlineConfirmAllowsContinue(root, sid)) {
+      continue;
+    }
+    const result = continueAwaitingLawyerWorkflowJob(job.jobId, baseConfig, {
+      stepId: step.stepId,
+      run: opts?.run,
+    });
+    if (result.ok) {
+      continued.push(job.jobId);
+    }
+  }
+  return continued;
 }
 
 function finalizeJobFromWorkflow(jobId: string, finished: CollaborationWorkflow): void {
@@ -638,42 +760,81 @@ function finalizeJobFromWorkflow(jobId: string, finished: CollaborationWorkflow)
     r.status = "failed";
     const errStep = finished.steps.find((s) => s.status === "failed");
     r.error = errStep?.error ?? `workflow status: ${finished.status}`;
+  } else if (finished.status === "awaiting_lawyer") {
+    r.status = "awaiting_lawyer";
+    r.workflowSnapshot = finished;
+    const held = finished.steps.find((s) => s.status === "awaiting_lawyer");
+    r.error = held?.error ?? "请确认后再继续后续步骤。";
+    delete r.completedAt;
   } else {
     r.status = "completed";
     delete r.error;
   }
 
   delete r.cancelRequested;
-  delete r.progress;
-  releaseIdempotencyForRecord(r);
+  if (r.status !== "awaiting_lawyer") {
+    delete r.progress;
+    releaseIdempotencyForRecord(r);
+  }
   persistWorkflowJob(r);
   auditWorkflowJobGateSnapshot(r);
   emitJobAudit(
     r.workspaceDir,
     `workflow_job=${jobId} status=${r.status} workflowId=${finished.workflowId}`,
   );
+  pumpWorkflowLaunches(r.workspaceDir);
 }
 
-function startWorkflowJobExecution(
-  jobId: string,
-  baseConfig: AgentConfig,
-  workflow: CollaborationWorkflow,
-  runner: NonNullable<WorkflowRunDeps["run"]>,
-): void {
-  const workspaceDir = path.resolve(baseConfig.workspaceDir);
-  setImmediate(() => {
-    const cur = jobs.get(jobId);
-    if (!cur || cur.status !== "queued") {
+type PendingWorkflowLaunch = {
+  baseConfig: AgentConfig;
+  workflow: CollaborationWorkflow;
+  runner: NonNullable<WorkflowRunDeps["run"]>;
+};
+
+const pendingLaunches = new Map<string, PendingWorkflowLaunch>();
+
+function countRunningWorkflowJobs(workspaceDir: string): number {
+  const root = path.resolve(workspaceDir);
+  let running = 0;
+  for (const rec of jobs.values()) {
+    if (path.resolve(rec.workspaceDir) === root && rec.status === "running") {
+      running += 1;
+    }
+  }
+  return running;
+}
+
+function pumpWorkflowLaunches(workspaceDir: string): void {
+  const root = path.resolve(workspaceDir);
+  for (const id of jobOrder) {
+    if (countRunningWorkflowJobs(root) >= MAX_CONCURRENT_WORKFLOW_JOBS) {
       return;
     }
-    cur.status = "running";
-    cur.startedAt = new Date().toISOString();
-    delete cur.workflowSnapshot;
-    persistWorkflowJob(cur);
-    emitJobAudit(workspaceDir, `workflow_job=${jobId} running`);
+    const pending = pendingLaunches.get(id);
+    const cur = jobs.get(id);
+    if (!pending || !cur || cur.status !== "queued" || path.resolve(cur.workspaceDir) !== root) {
+      continue;
+    }
+    pendingLaunches.delete(id);
+    launchWorkflowJob(id, pending);
+  }
+}
 
-    const memoryBundle = cur.memoryBundleSnapshot;
-    void runner(baseConfig, workflow, {
+function launchWorkflowJob(jobId: string, pending: PendingWorkflowLaunch): void {
+  const cur = jobs.get(jobId);
+  if (!cur || cur.status !== "queued") {
+    return;
+  }
+  const workspaceDir = path.resolve(pending.baseConfig.workspaceDir);
+  cur.status = "running";
+  cur.startedAt = new Date().toISOString();
+  delete cur.workflowSnapshot;
+  persistWorkflowJob(cur);
+  emitJobAudit(workspaceDir, `workflow_job=${jobId} running`);
+
+  const memoryBundle = cur.memoryBundleSnapshot;
+  void pending
+    .runner(pending.baseConfig, pending.workflow, {
       shouldAbort: () => jobs.get(jobId)?.cancelRequested === true,
       memoryBundle,
       onProgress: (snapshot) => {
@@ -688,24 +849,41 @@ function startWorkflowJobExecution(
         persistWorkflowJob(r);
       },
     })
-      .then((finished) => {
-        finalizeJobFromWorkflow(jobId, finished);
-      })
-      .catch((err) => {
-        const r = jobs.get(jobId);
-        if (!r) {
-          return;
-        }
-        r.status = "failed";
-        r.completedAt = new Date().toISOString();
-        r.error = err instanceof Error ? err.message : String(err);
-        delete r.cancelRequested;
-        delete r.progress;
-        releaseIdempotencyForRecord(r);
-        persistWorkflowJob(r);
-        auditWorkflowJobGateSnapshot(r);
-        emitJobAudit(workspaceDir, `workflow_job=${jobId} status=failed error=${r.error}`);
-      });
+    .then((finished) => {
+      finalizeJobFromWorkflow(jobId, finished);
+    })
+    .catch((err) => {
+      const r = jobs.get(jobId);
+      if (!r) {
+        return;
+      }
+      r.status = "failed";
+      r.completedAt = new Date().toISOString();
+      r.error = err instanceof Error ? err.message : String(err);
+      delete r.cancelRequested;
+      delete r.progress;
+      releaseIdempotencyForRecord(r);
+      persistWorkflowJob(r);
+      auditWorkflowJobGateSnapshot(r);
+      emitJobAudit(workspaceDir, `workflow_job=${jobId} status=failed error=${r.error}`);
+      pumpWorkflowLaunches(workspaceDir);
+    });
+}
+
+function startWorkflowJobExecution(
+  jobId: string,
+  baseConfig: AgentConfig,
+  workflow: CollaborationWorkflow,
+  runner: NonNullable<WorkflowRunDeps["run"]>,
+): void {
+  pendingLaunches.set(jobId, { baseConfig, workflow, runner });
+  setImmediate(() => {
+    const cur = jobs.get(jobId);
+    if (!cur || cur.status !== "queued") {
+      pendingLaunches.delete(jobId);
+      return;
+    }
+    pumpWorkflowLaunches(baseConfig.workspaceDir);
   });
 }
 

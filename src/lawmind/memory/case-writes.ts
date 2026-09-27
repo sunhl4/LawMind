@@ -7,6 +7,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { isMatterReplicaEnabled } from "../matter-replica/feature-gate.js";
 import { resolveReplicaActor } from "../matter-replica/identity.js";
+import { readMembership } from "../matter-replica/membership.js";
 import { snapshotCaseMd } from "../matter-replica/record-ops.js";
 import { withCaseMdLock } from "./case-md-lock.js";
 import { ensureCaseWorkspace, matterStrategyPath } from "./case-workspace.js";
@@ -14,6 +15,10 @@ import { ensureCaseWorkspace, matterStrategyPath } from "./case-workspace.js";
 function snapshotReplicaCaseMd(workspaceDir: string, matterId: string): void {
   try {
     if (!isMatterReplicaEnabled(workspaceDir)) {
+      return;
+    }
+    // 还没建名册的案件保持本机写法，避免没邀请同事时也往副本日志里记。
+    if (!readMembership(workspaceDir, matterId)) {
       return;
     }
     const actor = resolveReplicaActor(workspaceDir);
@@ -322,6 +327,31 @@ async function recordCaseAutoAdoption(
       },
       { autoAdopt: true },
     );
+    const { commitMemory } = await import("./kernel/gateway.js");
+    const { readMatterParties } = await import("../host-access/matter-fence.js");
+    const parties = readMatterParties(workspaceDir, matterId);
+    const key =
+      kind === "case.core_issue"
+        ? "matter.core_issue"
+        : kind === "case.risk_note"
+          ? "matter.risk"
+          : kind === "case.task_goal"
+            ? "matter.goal"
+            : kind === "case.artifact"
+              ? "matter.artifact"
+              : "matter.progress";
+    commitMemory(workspaceDir, {
+      kind: "matter_fact",
+      scope: "matter",
+      scopeId: matterId,
+      key,
+      body: bullet,
+      origin: "engine",
+      sourceMatterId: matterId,
+      ...(parties.clientId ? { clientId: parties.clientId } : {}),
+      ...(parties.counterparty ? { counterparty: parties.counterparty } : {}),
+      confirmNow: true,
+    });
   } catch {
     // best-effort
   }

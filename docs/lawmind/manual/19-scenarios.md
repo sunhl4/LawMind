@@ -1,8 +1,10 @@
 # 第 19 章 场景走查
 
-这一章把前面的能力串起来，走十个真实场景。每个场景分四段：**律师说什么 → 系统内部做什么 → 律师看到什么 → 涉及哪些章节**。
+这一章把前面的能力串成十条律师日常路径。每条仍是四段：**律师说什么 → 系统内部做什么 → 律师看到什么 → 涉及哪些章节**。内部步骤写到能对上代码的函数和常量。
 
-读这一章不用记代码路径，但能建立起「这套东西在真实工作里长什么样」的整体印象。
+和 Cursor、Codex、Harvey 对齐的取舍：律师说完要什么，同一轮做到可交的稿，中间步骤不提问。Cursor 的 Agent 不在读文件和改文件之间停下来问要不要继续；Harvey 的研究备忘和审查表直接带出处交出来。LawMind 只在外发、改原稿、伦理墙、以及律师自己说「先出大纲」时打断。记忆采纳仍要确认，因为那是写入长期偏好，不是本轮交办。
+
+下面每条「系统内部」写的是这一轮实际会碰到的函数。信号词帮助绑定能力，绑定之后不冻结工具表，也不因为没出现某个词就拒稿。空交付（没写完必要章节、一处修订都没有、研究稿没有检索证据）才硬拦。
 
 ## 19.1 场景一：一份采购合同从丢进来到交出去
 
@@ -13,15 +15,16 @@
 ### 场景 1 · 系统内部
 
 1. **钉选**：拖进来的文件成为本轮的 `contextPins`。
-2. **意图编译**：抽出「审」这个动词，加上文件形态是合同，判定为 `contract.review`。因为律师说了「能改的直接改」，交付意图里带上「改稿」倾向。
+2. **意图编译**：文件是合同，加上「审」和「直接改」，绑定 `contract.review`，交付意图带改稿。绑定只决定注入哪两份质量说明，不把工具表冻成一条流水线。
 3. **工具表**：绑定 `contract.review` 后，工具表里出现 `read_project_file`、`apply_surgical_edits`、`render_tracked_draft`、`prepare_outbound_mail` 等。
-4. **技能注入**：`PRIMARY_BY_CAPABILITY` 里 `contract.review` 对应的两份技能——`contract-review-layers`（分层审查）和 `contract-redline-craft`（最短锚定）——正文进系统提示。
+4. **技能**：`PRIMARY_BY_CAPABILITY["contract.review"]` 是 `contract-review-layers` 与 `contract-redline-craft`。硬钉（邮件短路径、改这份 Word、高置信专向或联合）时，`planLeanSkillPrompt` 最多把这两份正文注入系统提示。其余情况只给目录，模型用 `read_skill` 按需读取，不把技能全文当成每轮必装。
 5. **读材料**：`read_project_file` 读合同正文。
 6. **检索（可选）**：如果律师关心法条依据，`search_statute` 查 NPC。
 7. **起草**：`draft_document` 产出审查意见稿，分节：审查结论、主要风险、修改建议、待确认事项。
-8. **验收**：`validateDraftAgainstSpec` 跑检查——`contract.review` 必须有审查结论、主要风险、修改建议三节（blocker），加上两条专属检查：
-   - `contract.review.clause_anchor`：风险章节里得有 `第X条` 或「待核实」标记。
-   - `contract.review.recommended_wording`：建议章节里得有推荐措辞。
+8. **验收**：`validateDraftAgainstSpec` 看 `contract.review` 有没有审查结论、主要风险、修改建议三节。三节都空才是 blocker。另外两条专属检查看的是空意见，不是标题关键词：
+   - `contract.review.clause_anchor`：风险节里要能指到条款，或标明「待核实」。整节没有落点，等于没审查。
+   - `contract.review.recommended_wording`：建议节里要有可粘贴的改法。只有「建议修改」四个字、没有写法，不算交出去。
+     标题没出现「风险」两个字，不得因此导出失败。
 9. **改稿**：`apply_surgical_edits` 把「30 日」改成「45 日」这类改动落成最短锚点。引擎按最短改动**重算**每一处（第 8 章）。
 10. **基线**：因为附了原合同，`contract_edit_baseline_path` 指向它，导出走「有原件」那条路——拷副本、在副本上落改。
 11. **空修订门**：`MIN_TRACKED_RENDER_HUNKS = 1`，如果一处都没落下来，禁止导出。
@@ -74,13 +77,13 @@
 
 ### 场景 3 · 系统内部
 
-1. **探查**：`explore_folder` 看清目录树，`read_folder_documents` 批量读正文。有一道门禁要求「丢了文件夹但没先探查」不许起草（第 5 章）。
+1. **探查**：`explore_folder` 看清目录树，`read_folder_documents` 批量读正文。「先探查再写」只是建议，不是硬门禁——`folderExploreGateMiddleware` 现在是空操作（`src/lawmind/runtime/tool-pipeline.ts`，直接 `next()`），没探查就 `apply_surgical_edits` / `render_tracked_draft` 不会被挡住；防空交付靠验收侧的诚实 null 与必核清单（第 12 章）。
 2. **意图编译**：抽到「尽调」信号，判定 `deal.ma` 或 `materials.draft`，交付物类型是 `review.table`。
 3. **建表**：`review_table_update({ action: "set_template", template: "due_diligence" })` 建五列：审查事项、对应文件、发现、风险等级、来源。
 4. **导入行**：`action: "import_materials_metadata"`，把材料清单变成行（**按路径升序**，保证两次跑出同一张表）。
 5. **批量抽取**：`action: "extract_batch"`，材料 × 列 二维遍历：
-   - 有确定性模式的（金额、日期、案号、法院、管辖、违约金、送达地址）用 `REVIEW_PATTERNS` 正则直接抽。
-   - 模式定不了的交给模型。
+   - 金额、日期、案号、法院、管辖、违约金、送达地址能用 `REVIEW_PATTERNS` 对上就直接填，少一次模型瞎填。
+   - 对不上的交给模型判断，不因为正则没命中就把格子判成「无风险」。
    - 扫描件/图片走**只读 OCR 兜底**（不进知识库，所以不需要确认闸门）。
    - 抽不动就写「无法判断（证据不足）」。
 6. **每格溯源**：每格要么有 `source`（`材料名#line=行号`），要么是 `abstained`。
@@ -135,7 +138,7 @@
 1. **建请求**：插件 POST `/api/word-addin/reviews`，带上文件路径和指令。
 2. **折叠重复**：同文件同指令 10 分钟窗口内折叠（真机实测律师会连点）。
 3. **桌面端自动跑**：
-   - 算文件指纹（前 256 KiB + 字节数）。
+   - 算文件指纹（2 MiB 以内整文件；更大则头 128 KiB + 尾 64 KiB，再加字节数）。
    - 解析案件；**对不到唯一案卷就 ad-hoc 直跑**，不再拦人。
    - 抢占这条请求，写**授权留痕**（谁、哪个文件、点击时的指纹、授予哪个目录、哪个案卷、什么时间）。
    - 入队跑工作流，预批准工具是 `apply_surgical_edits` 和 `render_tracked_draft`（**刻意不含** `prepare_outbound_mail`）。
@@ -191,7 +194,7 @@
 
 ### 场景 7 · 系统内部
 
-1. **意图**：`research.memo`，交付物 `memo.research`。
+1. **意图**：`research.memo`，交付物 `memo.research`。技能在硬绑定时注入 `research-query-matrix` 与 `citation-grounding`（`PRIMARY_BY_CAPABILITY`），否则 `read_skill` 按需读。
 2. **检索协议**：写条号之前必须先试检。没试检时系统提示里会说「不得把模型记忆写成现行法条」。
 3. **法源**：`search_statute` 走法源适配器。如果没配法源，只能拿到演示语料——**演示命中必须标成演示**：
 
@@ -206,21 +209,26 @@
 ```
 
 5. **命题矩阵**：`buildQueryMatrix` 把争点拆成正反两路（支持的和排除的），写进备忘的对应栏目。
-6. **大纲**：研究类任务走「先出大纲 → 律师确认 → 再写」。大纲里 `memo.research` 有六节：事项、命题矩阵、现行法条、正向类案、反向类案、结论。
-7. **证据门**：没证据就硬写会被拒：
+6. **规格六节，不是确认卡**：`memo.research` 的验收要求六节——事项、命题矩阵、现行法条、正向类案、反向类案、结论（`lawyer-work-specs.ts`）。无命中也保留栏目并标【待核实】。这一步不向律师要大纲确认。
+7. **合规 / 学习 / 培训才排大纲**：`OUTLINE_GATED_DELIVERABLES` 只有 `report.compliance`、`report.learning`、`ppt.training`。`buildResearchOutline` 排出章节后默认 `approved`，同一轮 `expandApprovedOutlineToSections`，模型可用时再由 `buildDraftWithModel` 扩写。律师写出「先出大纲」「确认后再写」或「只要大纲」时，`lawyerWantsOutlineHold` 才把标题标成「大纲待确认」并出 `research_outline_confirm` 卡片。
+8. **证据门**：研究类交付没证据就硬写会被拒：
 
 ```text
 研究类交付证据不足：已拒绝扩写正文。请配置模型/开启联网后重跑 deep_research，
 或补充权威 URL 后再起草。勿用 write_document 旁路。
 ```
 
-8. **引用完整性**：`validateDraftCitationsAgainstBundle` 检查每条引用能不能对上检索结果；对不上就报，而不是放行。
+`write_document` 不能绕过这条门。拒绝文案是「请使用 draft_document（经证据门禁）」。
+
+9. **引用完整性**：`validateDraftCitationsAgainstBundle` 检查每条引用能不能对上检索结果；对不上就报，而不是放行。
 
 ### 场景 7 · 律师看到什么
 
+- 同一轮拿到备忘，不用先批一份大纲。
 - 备忘里每个结论带来源；来源可以点开看预览，还能看到「这条来源支撑了哪些结论、被哪些章节引用」。
 - 没查到的栏目**保留着**并标【待核实】，不是删掉。
 - 如果用了演示语料，界面上有明确水印。
+- 只有自己说了先看大纲，澄清卡才会出现三个动作：确认、不同意、贴修订后的章节。
 
 ### 场景 7 · 相关章节
 
@@ -276,9 +284,9 @@
 
 ### 场景 9 · 律师看到什么
 
-- 对话里出现压缩提示（说明哪些被摘要、红线有没有重注）。
-- 上下文用量表在输入框工具栏里，能看到当前用量。
-- 承前分叉提示（`LawmindContextForkSuggestion`）出现在合适的位置。
+- 对话里出现一句说明：较早的来回已收成要点，继续办。
+- 输入栏在对话变长或已经整理过后，才出现「这场对话」。不展示模型窗口和用量桶。
+- 另开一段的建议（`LawmindContextForkSuggestion`）出现在合适的位置。
 
 ### 场景 9 · 相关章节
 
@@ -327,6 +335,6 @@
 4. **改动可逆、可追溯**（第 7 章的撤销、第 8 章的红线）。
 5. **只有真授权才打断**（第 5 章）。
 6. **查不到就说查不到，不编**（第 10 章的诚实降级）。
-7. **所有写入收敛到确认**（第 6 章的记忆采纳）。
+7. **长期偏好要确认，本轮交办不确认**（第 6 章）。谈话摘要、风格记忆、压缩蒸馏进档案之前等律师点头。传票期限、审查表、备忘正文在对话里直接写完。外发和伦理墙仍进「待我拍板」。
 
-七条合起来就是第 1 章那四条铁律的工程形态。
+这七条对应第 1 章五条铁律：少打断（上手简单）、交得出能用的稿（质量）、失败说得清且不靠词表拒稿（稳定）、技能与检索沿用已有协议（先复用）、信号词只帮助选说明、硬停只留空交付和真授权（发挥模型）。

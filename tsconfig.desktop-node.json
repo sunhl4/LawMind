@@ -1,4 +1,6 @@
 {
+  // server/ 与 electron/*.ts 的类型门禁。
+  // `pnpm --filter lawmind-desktop typecheck` 只覆盖渲染进程，不覆盖本地 API。
   "extends": "./tsconfig.json",
   "include": ["apps/lawmind-desktop/server/**/*.ts", "apps/lawmind-desktop/electron/**/*.ts"]
 }

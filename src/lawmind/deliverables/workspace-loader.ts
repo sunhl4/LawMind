@@ -2,8 +2,9 @@
  * Workspace-side DeliverableSpec loader.
  *
  * 事务所/客户在工作区放置 `<workspaceDir>/lawmind/deliverables/*.json` 即可
- * 注册私有交付物规范，无需修改源码。这是 LawMind "Firm / Private Deploy"
- * 商业化 edition 的核心扩展点（见 EDITION_FEATURES.customDeliverableSpec）。
+ * 注册私有交付物规范，无需修改源码。这是 LawMind Solo / Firm / Private
+ * 的扩展点（见 `EDITION_FEATURES.customDeliverableSpec`；Solo 默认开，
+ * 引擎工厂在 feature 关闭时跳过加载）。
  *
  * 文件格式：每个 JSON 对应一个 DeliverableSpec，字段约束：
  *   - type / displayName / description / defaultTemplateId 必填
@@ -20,8 +21,11 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { isFeatureEnabled } from "../policy/edition.js";
+import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
 import type { DeliverableType, RiskLevel } from "../types.js";
 import { EXPLICIT_TODO_PLACEHOLDER_SOURCE } from "./placeholder-pattern.js";
+import { registerExtraDeliverableSpecs } from "./registry.js";
 import type { DeliverableSpec, RequiredSection } from "./types.js";
 
 /** 单个文件 JSON 表示形式（外部输入，宽松类型）。 */
@@ -276,6 +280,26 @@ export function loadWorkspaceDeliverableSpecs(workspaceDir: string): WorkspaceSp
     result.specs.push(parsed);
   }
   return result;
+}
+
+/**
+ * Engine and CLI share this path so a workspace spec is either loaded in both
+ * or in neither. Solo default is on (`customDeliverableSpec`); `policy.features`
+ * can turn it off. Does not emit audit — callers may surface `warnings`.
+ */
+export function applyWorkspaceDeliverableSpecs(workspaceDir: string): {
+  enabled: boolean;
+  result: WorkspaceSpecLoadResult;
+} {
+  const policy = readWorkspacePolicyFile(workspaceDir);
+  if (!isFeatureEnabled("customDeliverableSpec", { policy })) {
+    return { enabled: false, result: { specs: [], warnings: [] } };
+  }
+  const result = loadWorkspaceDeliverableSpecs(workspaceDir);
+  if (result.specs.length > 0) {
+    registerExtraDeliverableSpecs(result.specs);
+  }
+  return { enabled: true, result };
 }
 
 function isOverrideAllowed(json: DeliverableSpecJson): boolean {

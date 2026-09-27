@@ -19,9 +19,9 @@ export function parseProbeErrorBody(raw: string): string | null {
         typeof err === "string"
           ? err
           : typeof err === "object" && err !== null && "message" in err
-            ? String((err as { message?: string }).message ?? "")
+            ? ((err as { message?: string }).message ?? "")
             : typeof err === "object" && err !== null && "msg" in err
-              ? String((err as { msg?: string }).msg ?? "")
+              ? ((err as { msg?: string }).msg ?? "")
               : "";
       if (msg.trim()) {
         return msg.trim().slice(0, 280);
@@ -52,7 +52,7 @@ export function formatUpstreamProbeError(
 ): string {
   const attempted = `model="${config.model}" @ ${config.baseUrl}`;
   if (isModelAuthFailureStatus(status, body)) {
-    return `API Key 无效或已过期（HTTP ${status}，${attempted}）。设置里的「已填 Key」只表示本机存了字符串，不代表服务商接受。请到服务商控制台重新生成 Key，再用「API 配置向导」粘贴保存。`;
+    return "密钥无效或已过期。本机存过密钥不等于服务商接受。请到服务商重新生成，再用「连接向导」粘贴。";
   }
   const snippet = body.trim().slice(0, 280);
   return snippet ? `HTTP ${status} (${attempted}): ${snippet}` : `HTTP ${status} (${attempted})`;
@@ -65,7 +65,7 @@ const probeProxy = createOutboundProxy({ requestTag: "model-probe" });
  */
 export async function probeAgentModel(config: AgentModelConfig): Promise<ModelProbeResult> {
   if (!config.apiKey.trim()) {
-    return { ok: false, code: "missing_api_key", error: "未配置 API Key" };
+    return { ok: false, code: "missing_api_key", error: "还没填写模型密钥" };
   }
   const url = `${config.baseUrl.replace(/\/$/, "")}/chat/completions`;
   const timeoutMs = Math.min(config.timeoutMs ?? 120_000, 60_000);

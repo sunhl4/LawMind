@@ -70,21 +70,11 @@ describe("run_analysis", () => {
     expect(fs.existsSync(path.join(ws, "artifacts", "out.xlsx"))).toBe(true);
   });
 
-  it("runs a script from an enabled signed skill", async () => {
+  it("rejects a script dropped into a product playbook folder", async () => {
     const ws = tmpWs();
     mergeWorkspacePolicyFile(ws, { schemaVersion: 1, allowAnalysisScripts: true });
     ensureBuiltinSkillSeeds(ws);
     writeSkillEnabled(ws, "spreadsheet-analysis", true);
-    await writeXlsxWorkbook(path.join(ws, "src.xlsx"), [
-      {
-        name: "s",
-        rows: [
-          ["项", "额"],
-          ["a", 10],
-          ["b", 20],
-        ],
-      },
-    ]);
     const scriptDir = path.join(ws, "lawmind", "skills", "spreadsheet-analysis", "scripts");
     fs.mkdirSync(scriptDir, { recursive: true });
     fs.writeFileSync(path.join(scriptDir, "sum.js"), SUM_SCRIPT, "utf8");
@@ -92,7 +82,8 @@ describe("run_analysis", () => {
       { path: "lawmind/skills/spreadsheet-analysis/scripts/sum.js" },
       ctx(ws),
     );
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/不从工作区技能目录/);
   });
 
   it("rejects unsigned skill scripts", async () => {
@@ -110,7 +101,7 @@ describe("run_analysis", () => {
       ctx(ws),
     );
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/签名/);
+    expect(result.error).toMatch(/不从工作区技能目录/);
   });
 
   it("rejects artifacts scripts without confirmed", async () => {
@@ -146,6 +137,8 @@ describe("run_analysis", () => {
       "sessions/s1/session.json",
       "tasks/t1.json",
       "matters/m1/RULES.md",
+      "drafts/t1.json",
+      "drafts/t1.completion.json",
       "cases/m1/RULES.md",
       "cases/m1/.lawmind-dms.json",
     ]) {
@@ -153,6 +146,16 @@ describe("run_analysis", () => {
       expect(result.ok, `expected refusal for ${rel}`).toBe(false);
       expect(result.error).toMatch(/治理\/审计数据/);
       expect(fs.existsSync(path.join(ws, rel)), `expected no file at ${rel}`).toBe(false);
+    }
+    for (const rel of ["cases/m1/CASE.md", "cases/m1/deadlines.jsonl"]) {
+      const result = await writeDocument.execute({ file_path: rel, content: "x" }, ctx(ws));
+      expect(result.ok, `expected refusal for ${rel}`).toBe(false);
+      expect(result.error).toMatch(/不能用写文书改/);
+    }
+    for (const rel of ["artifacts/out.xlsx", "artifacts/memo.md"]) {
+      const result = await writeDocument.execute({ file_path: rel, content: "x" }, ctx(ws));
+      expect(result.ok, `expected refusal for ${rel}`).toBe(false);
+      expect(result.error).toMatch(/draft_document/);
     }
   });
 
@@ -219,10 +222,19 @@ describe("run_analysis", () => {
     expect(names).not.toContain("run_analysis");
   });
 
-  it("refuses execute when policy is off", async () => {
+  it("runs past the policy gate when the workspace never set the switch", async () => {
     const ws = tmpWs();
+    expect(hiddenPolicyToolNames(ws)).not.toContain("run_analysis");
     const result = await runAnalysis.execute({ path: "lawmind/skills/demo/scripts/x.js" }, ctx(ws));
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/未开启/);
+    expect(result.error ?? "").not.toMatch(/不运行分析脚本/);
+  });
+
+  it("refuses execute when policy explicitly turns scripts off", async () => {
+    const ws = tmpWs();
+    mergeWorkspacePolicyFile(ws, { schemaVersion: 1, allowAnalysisScripts: false });
+    const result = await runAnalysis.execute({ path: "lawmind/skills/demo/scripts/x.js" }, ctx(ws));
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/不运行分析脚本/);
   });
 });

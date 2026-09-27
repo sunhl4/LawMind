@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isContextOverflowError, pruneToolResultsInHistory } from "./session-tool-result-prune.js";
+import {
+  isContextOverflowError,
+  OVERFLOW_PRUNE_KEEP_RECENT,
+  OVERFLOW_PRUNE_MAX_TOKENS,
+  pruneToolResultsInHistory,
+} from "./session-tool-result-prune.js";
 import type { AgentMessage } from "./types.js";
 
 function toolMsg(content: string, extra?: Partial<AgentMessage>): AgentMessage {
@@ -49,6 +54,33 @@ describe("session-tool-result-prune", () => {
     expect(out.messages[2]?.role).toBe("tool");
     expect(out.messages[2]?.content.length ?? 0).toBeLessThan(huge.length);
     expect(out.messages[2]?.toolCallResponses?.[0]?.toolCallId).toBe("c1");
+  });
+
+  it("overflow budget shrinks an already-capped blob but keeps the latest results", () => {
+    const capped = JSON.stringify({ ok: true, text: "y".repeat(12_000) });
+    const messages: AgentMessage[] = [
+      { role: "user", content: "请检索", timestamp: new Date().toISOString() },
+      toolMsg(capped),
+      toolMsg(capped, {
+        toolCallResponses: [
+          { toolCallId: "c2", name: "research_task", result: { ok: true, text: "fresh" } },
+        ],
+      }),
+      toolMsg(capped, {
+        toolCallResponses: [
+          { toolCallId: "c3", name: "research_task", result: { ok: true, text: "newer" } },
+        ],
+      }),
+    ];
+    const out = pruneToolResultsInHistory(messages, {
+      maxTokens: OVERFLOW_PRUNE_MAX_TOKENS,
+      keepRecent: OVERFLOW_PRUNE_KEEP_RECENT,
+    });
+    expect(out.prunedCount).toBe(1);
+    expect(out.messages[1]?.content.length ?? 0).toBeLessThan(capped.length);
+    expect(out.messages[2]?.content).toBe(capped);
+    expect(out.messages[3]?.content).toBe(capped);
+    expect(out.messages[1]?.toolCallResponses?.[0]?.toolCallId).toBe("c1");
   });
 
   it("is a no-op when nothing is over budget", () => {

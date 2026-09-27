@@ -3,12 +3,9 @@
  * Soft coaching complements hard span gate in surgical-span-gate.ts / apply_surgical_edits.
  */
 
+import { MINIMAL_EDIT_MAX_UNCHANGED_RUN, MINIMAL_EDIT_RULE_LINE } from "./minimal-edit-script.js";
 import { estimateChangedChars } from "./surgical-edit-gate.js";
-import {
-  commonAffixLength,
-  SURGICAL_MAX_FIND_CHARS,
-  SURGICAL_MAX_FIND_WITH_TERMINATOR,
-} from "./surgical-span-gate.js";
+import { commonAffixLength } from "./surgical-span-gate.js";
 
 export { commonAffixLength };
 
@@ -23,10 +20,8 @@ export const CONTRACT_REDLINE_CRAFT_SKILL = [
   "2. **一句话里改几个字，就只改那几个字**：禁止整句删除再整句新增（哪怕只是句末加几个字）。",
   "3. **引擎会重算**：`apply_surgical_edits` 不照抄 find 的粒度，会把每处改成最短改动后落槌；一处输入可能落成多处。你仍应按最短写，减少无谓拆分。",
   "4. **长度不是罪名**：整句确实换成另一句、两侧没有任何共有片段时，那本身就是一处合法改动。",
-  "5. **自查经验值（超了通常说明包进了没动的字）**：",
-  `   - 含句读（。！？；）的 find ≤ ${SURGICAL_MAX_FIND_WITH_TERMINATOR} 字（正例句末加词：\`实际损失。\`→\`实际损失，但累计…。\`）`,
-  `   - 无句读的 find ≤ ${SURGICAL_MAX_FIND_CHARS} 字`,
-  "   - 不要出现「find 含多个句末标点」（那是整段）",
+  "5. **自查，不是字数上限**：find 里若夹着没动的字，拆开再交。含句读时优先锚住改动旁边的短原文（正例：`实际损失。`→`实际损失，但累计…。`）。整句确实换成另一句时照交，引擎会落槌，不要为了凑短而少改。",
+  "   - 不要把多个句末标点包进同一个 find（那是整段）",
   "6. **全文可有非常多处修改**：不设改点条数上限；每一处都必须最短锚定。",
   "7. **正例**：`甲方所在地人民法院`→`上海仲裁委员会`；`十日内`→`五个工作日内`（共有的「日内」不标）。",
   "8. **反例**：把「并赔偿甲方因此而造成的实际损失。」整句删掉再加新句——应只动真正变动的字。",
@@ -49,6 +44,8 @@ export const CONTRACT_REDLINE_CRAFT_SKILL = [
   "- 覆盖是否完整由交卷审稿员根据证据判断，不看写者自评。",
   "",
   "空修订不得导出。未最小化的改动会被引擎自动拆分（不接受整句删写）。",
+  MINIMAL_EDIT_RULE_LINE,
+  `判定门槛与引擎常量一致：一处改动内若夹了 ≥${MINIMAL_EDIT_MAX_UNCHANGED_RUN} 个连续未改文字，即自动拆分。同一 find 在正文里出现多次时，缺省整条跳过；统一替换传 occurrences: "all"。`,
 ].join("\n");
 
 export type SurgicalCraftSignal = {

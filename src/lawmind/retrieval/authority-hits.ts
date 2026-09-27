@@ -26,6 +26,26 @@ export type AuthorityHit = {
   licenseNote?: string;
 };
 
+const ARTICLE_IN_TEXT_RE = /第[0-9零〇一二三四五六七八九十百千]+条/;
+const PAGE_IN_TEXT_RE = /第[0-9]{1,6}页/;
+
+/** 只抄引用里已经写明的条、页。抄不到就不钉，不因此丢掉这条结论。 */
+export function pinFromCitedText(
+  citation?: string,
+  excerpt?: string,
+): NonNullable<ResearchClaim["pin"]> | undefined {
+  const text = [citation, excerpt].filter((part) => part?.trim()).join("\n");
+  const article = text.match(ARTICLE_IN_TEXT_RE)?.[0];
+  const page = text.match(PAGE_IN_TEXT_RE)?.[0];
+  if (!article && !page) {
+    return undefined;
+  }
+  return {
+    ...(article ? { article } : {}),
+    ...(page ? { page } : {}),
+  };
+}
+
 export function mapAuthorityKind(k: AuthorityHit["kind"]): ResearchSource["kind"] {
   if (k === "statute") {
     return "statute";
@@ -68,17 +88,20 @@ export function mapHitsToRetrievalResult(rawHits: AuthorityHit[]): RetrievalResu
       kind: mapAuthorityKind(hit.kind),
       url: hit.url,
       citation: hit.citation,
+      ...(hit.excerpt?.trim() ? { excerpt: hit.excerpt.trim().slice(0, 500) } : {}),
       ...(demo ? { demo: true } : {}),
       ...(hit.provider ? { provider: hit.provider } : {}),
       ...(hit.corpusId ? { corpusId: hit.corpusId } : {}),
       ...(hit.licenseNote ? { licenseNote: hit.licenseNote } : {}),
     });
     if (hit.excerpt?.trim()) {
+      const pin = pinFromCitedText(hit.citation, hit.excerpt);
       claims.push({
         text: hit.excerpt.trim().slice(0, 500),
         sourceIds: [id],
         confidence: demo ? 0.55 : 0.7,
         model: "legal",
+        ...(pin ? { pin } : {}),
         ...(demo ? { demo: true } : {}),
       });
     }

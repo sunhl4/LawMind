@@ -61,7 +61,7 @@ describe("buildAuthorityCorpusSummary", () => {
       expect(s.status).toBe("sample-ready");
       expect(s.endpointHost).toMatch(/local-corpus/);
       expect(s.authConfigured).toBe(false);
-      expect(s.message).toMatch(/演示语料就绪|内置 sample/);
+      expect(s.message).toMatch(/演示语料/);
       expect(s.message).not.toMatch(/^已配置权威检索端点/);
       expect(s.openSources?.some((x) => x.id === "local_sample" && x.ready)).toBe(true);
       // NPC FLK 默认启用（官方公开源）；显式 LAWMIND_OPEN_LAW_NPC=0 才未就绪。
@@ -123,21 +123,23 @@ describe("buildAuthorityCorpusSummary", () => {
     expect(s.configured).toBe(false);
     expect(s.status).toBe("unset");
     expect(s.provider).toBe("generic");
-    expect(s.message).toContain("LAWMIND_AUTHORITY_ENDPOINT");
+    expect(s.message).toContain("权威库还没接上");
+    expect(s.message).not.toContain("LAWMIND_");
   });
 
   it("reports unset with closed-vendor guidance for pkulaw without endpoint", () => {
     const s = buildAuthorityCorpusSummary({ endpoint: "", provider: "pkulaw" });
     expect(s.status).toBe("unset");
     expect(s.provider).toBe("pkulaw");
-    expect(s.message).toMatch(/闭源|手动|open/);
+    expect(s.message).toMatch(/商业法库还没接上|公开法规/);
   });
 
   it("reports invalid without treating as configured (generic)", () => {
     const s = buildAuthorityCorpusSummary({ endpoint: "ftp://bad", provider: "generic" });
     expect(s.configured).toBe(false);
     expect(s.status).toBe("invalid");
-    expect(s.message).toContain("fail-closed");
+    expect(s.message).toContain("已停止连接");
+    expect(s.message).not.toContain("fail-closed");
   });
 
   it("reports configured with host only", () => {

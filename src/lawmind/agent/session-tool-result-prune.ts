@@ -1,7 +1,10 @@
 /**
  * Overflow recovery: shrink already-written tool results without dropping
  * tool-call / tool-result pairing. No LLM summary.
- * Default budget is the same CJK-honest ~1k token cap as history writes.
+ *
+ * 写入历史时的预算（约窗口的 1/8）不能再拿来做溢出抢救：回包已经按那个上限
+ * 截过，同预算再剪一次是空操作，溢出重试随即失败。抢救必须用更紧的预算，
+ * 并且留住最近几条回包，避免模型丢掉刚读到的材料。
  */
 
 import {
@@ -28,9 +31,45 @@ function parseToolContent(content: string): unknown {
   }
 }
 
+/**
+ * 上下文溢出后的抢救预算。必须明显小于写入上限（最小 4k），否则剪不动。
+ * 头尾截断仍由 `summarizeToolResultForHistory` 完成，事实尾部不会被整段丢掉。
+ */
+export const OVERFLOW_PRUNE_MAX_TOKENS = 1_200;
+/** 溢出抢救时保留的最近工具回包条数（刚读到的材料不先砍）。 */
+export const OVERFLOW_PRUNE_KEEP_RECENT = 2;
+/**
+ * 回合中段先瘦旧回包、再考虑整段压缩。比写入预算紧，但比溢出抢救松，
+ * 避免一越线就把还能用的检索结果削成标题。
+ */
+export const MID_TURN_PRUNE_MAX_TOKENS = 2_000;
+export const MID_TURN_PRUNE_KEEP_RECENT = 4;
+
+export type PruneToolResultsOpts = {
+  maxChars?: number;
+  maxTokens?: number;
+  /** 从尾部数，这么多条 tool 消息保持原样。 */
+  keepRecent?: number;
+};
+
+function recentToolIndexes(messages: AgentMessage[], keepRecent: number): Set<number> {
+  const keep = new Set<number>();
+  if (keepRecent <= 0) {
+    return keep;
+  }
+  let left = keepRecent;
+  for (let i = messages.length - 1; i >= 0 && left > 0; i -= 1) {
+    if (messages[i]?.role === "tool") {
+      keep.add(i);
+      left -= 1;
+    }
+  }
+  return keep;
+}
+
 export function pruneToolResultsInHistory(
   messages: AgentMessage[],
-  opts?: { maxChars?: number; maxTokens?: number },
+  opts?: PruneToolResultsOpts,
 ): { messages: AgentMessage[]; prunedCount: number; charsRemoved: number } {
   const historyOpts =
     typeof opts?.maxChars === "number"
@@ -38,10 +77,14 @@ export function pruneToolResultsInHistory(
       : typeof opts?.maxTokens === "number"
         ? { maxTokens: opts.maxTokens }
         : {};
+  const keep =
+    typeof opts?.keepRecent === "number" && opts.keepRecent > 0
+      ? recentToolIndexes(messages, Math.floor(opts.keepRecent))
+      : undefined;
   let prunedCount = 0;
   let charsRemoved = 0;
-  const next = messages.map((msg) => {
-    if (msg.role !== "tool") {
+  const next = messages.map((msg, index) => {
+    if (msg.role !== "tool" || keep?.has(index)) {
       return msg;
     }
     const before = msg.content?.length ?? 0;
@@ -72,7 +115,7 @@ export function pruneToolResultsInHistory(
 
 export function pruneSessionToolResults(
   session: AgentSession,
-  opts?: { maxChars?: number; maxTokens?: number },
+  opts?: PruneToolResultsOpts,
 ): { prunedCount: number; charsRemoved: number } {
   const result = pruneToolResultsInHistory(session.conversationHistory, opts);
   if (result.prunedCount === 0) {

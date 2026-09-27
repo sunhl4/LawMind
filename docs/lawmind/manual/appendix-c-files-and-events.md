@@ -53,7 +53,7 @@ lawmind/
   skills/enabled.json
   skills/.signing-secret       派生/文件密钥（生产不该用它）
   bundles/<name>.json          包清单
-  packs/cn-legal-pack.json
+  mcp-servers.json
   workflows/<id>.json          工作流模板
   fleet-playbooks/*.json       专案组模板
   jobs/<jobId>.json            后台任务
@@ -95,16 +95,13 @@ progress-archive.md        轮转出的工作进展
 team-meeting.jsonl         会议室记录
 meeting-summary.md         会议纪要
 ethics-wall.json           伦理墙状态
-replica/
-  membership.json          成员名册
-  invites.jsonl            邀请
-  ops.jsonl                操作日志
-  locks.json               签出锁
-  materials-index.json
-  matter-key.json          **案件密钥（永不外传）**
-  case-md-live.json        实时合并状态
-mail/ inbox/ sent/ outbox/
+mail/ inbox/ sent/ outbox/ attachments/
+compact-digest.md
 ```
+
+`RULES.md` 会进系统提示词，但提示词**先读** `matters/<id>/RULES.md`，再读这里。副本和案件密钥不在这棵树，见 C.3。
+
+`POST /api/matters/delete` 只删除 `cases/<id>/`。`matters/<id>/`（期限、义务、审批、案件密钥）还在。删一边不等于删案子。
 
 ## C.3 `matters/<matterId>/`
 
@@ -124,6 +121,17 @@ ops/
   raid.jsonl
   theory-lite.json
 campaigns/<id>.json        审查专案组（也可在 lawmind/campaigns/）
+obligations.jsonl          义务
+triage/                    分诊
+RULES.md                   本案强制规则（提示词优先读这里）
+replica/
+  membership.json          成员名册
+  invites.jsonl            邀请
+  ops.jsonl                操作日志
+  locks.json               签出锁
+  materials-index.json
+  matter-key.json          案件密钥（永不外传；只写在这棵树）
+  case-md-live.json        实时合并状态
 ```
 
 锁文件：`matter.json.lock`、`deliverables/<id>.json.lock`、`approvals.jsonl.lock`、`queue.jsonl.lock`、`deadlines.jsonl.lock`。
@@ -135,16 +143,16 @@ campaigns/<id>.json        审查专案组（也可在 lawmind/campaigns/）
 ```text
 .env.lawmind               环境变量（明文密钥保存后被抹掉）
 desktop-config.json        持久化端口、凭据代次、吊销名单
-lawmind-secrets.json       safeStorage 加密的密钥
 mail-secrets.json          邮箱密钥（AES-256-GCM）
 assistants.json            助手档案
 assistant-stats.json       助手统计
 assistants/<id>/PROFILE.md 助手偏好档案
 host-access.json           本机文件夹挂载
 local-api-clients.json     CLI 只读凭据（0600）
-keyfile 目录之外的密钥：~/.lawmind/keys/*.key（0600）
-许可：~/.lawmind/license.json（0600）
+local-api-installation-secret  安装密钥（0600）
 ```
+
+`lawmind-secrets.json` 不在 `LawMind/` 这一层，而在 `userData` 根（`app.getPath("userData")/lawmind-secrets.json`）。密钥文件默认在 `~/.lawmind/keys/*.key`（0600），许可在 `~/.lawmind/license.json`（0600）。
 
 ## C.5 审计事件全表
 
@@ -154,12 +162,12 @@ keyfile 目录之外的密钥：~/.lawmind/keys/*.key（0600）
 
 ### 核心事件
 
-| 事件            | 什么时候                                        |
-| --------------- | ----------------------------------------------- |
-| `tool_call`     | 每次工具调用（执行**之前**记，失败也留痕）      |
-| `agent_turn`    | 回合收尾                                        |
-| `safe_command`  | 桌面壳的 shell 动作（**单独文件**，不进哈希链） |
-| `outbound_http` | 每次出站 HTTP（不记 body、不记 query）          |
+| 事件            | 什么时候                                                                                       |
+| --------------- | ---------------------------------------------------------------------------------------------- |
+| `tool_call`     | 每次工具调用（`next()` **之后**记真实结果，失败也留痕）                                        |
+| `agent_turn`    | 回合收尾                                                                                       |
+| `safe_command`  | 两条路：桌面壳写 `audit/desktop-shell-*.jsonl`（不进主链）；引擎 `emitSafeCommandAudit` 进主链 |
+| `outbound_http` | 每次出站 HTTP（不记 body、不记 query）                                                         |
 
 ### 任务、检索与草稿
 
@@ -278,7 +286,7 @@ keyfile 目录之外的密钥：~/.lawmind/keys/*.key（0600）
 
 ### 分类：硬墙 vs 软项
 
-**安全硬墙（7 个，不许绕过）**：
+**安全硬墙（7 个名字与 `SAFETY_HARD_GATES` 一致）**：`acceptance_gate` 仍可用 `bypass_acceptance_gate=true` 放行。`clarification_gate` 在分类里一律算硬墙，写和导出绕不过。
 
 | 门禁                      | 拦什么                 |
 | ------------------------- | ---------------------- |
@@ -290,11 +298,11 @@ keyfile 目录之外的密钥：~/.lawmind/keys/*.key（0600）
 | `outbound_privilege_gate` | 外发特权检查           |
 | `outbound_recipient_gate` | 外发收件人检查         |
 
-**判断软项**：可以「我不同意照样出」的，主要是独立审稿给出的判断项和澄清类门禁。
+**判断软项**：独立审稿给出的判断项可以不同意照样出。澄清门不算软项。
 
 ### 工具管线的 18 道（第 5 章）
 
-按顺序：`unknownTool` → `budget` → `noTaskTurnGate` → `permissionMode` → `discoveryLoop` → `hostFileLoop` → `roleAllowlist` → `matterScope` → `clarificationGate` → `folderExploreGate` → `approval` → `argNormalize` → `argSchema` → `legalVerify` → `audit` → `timeout` → `subprocessSandbox` → `execute`。
+按顺序：`unknownTool` → `budget` → `noTaskTurnGate` → `permissionMode` → `discoveryLoop` → `hostFileLoop` → `roleAllowlist` → `matterScope` → `clarificationGate` → `folderExploreGate` → `argNormalize` → `argSchema` → `legalVerify` → `approval` → `audit` → `timeout` → `subprocessSandbox` → `execute`。`folderExploreGate` 目前是空操作，直接 `next()`。
 
 ### 验收检查（第 12 章）
 
@@ -305,26 +313,26 @@ keyfile 目录之外的密钥：~/.lawmind/keys/*.key（0600）
 | `criteria.coverage`                        | warning              |
 | `clarifications.closed`                    | warning              |
 | `draft.body.placeholder_density_heuristic` | warning（阈值 0.38） |
-| `contract.review.clause_anchor`            | blocker              |
+| `contract.review.clause_anchor`            | warning              |
 | `contract.review.recommended_wording`      | warning              |
 | `draft.scaffold_density`                   | 密集则 blocker       |
 
 ### 推理门检查
 
-| 检查 key                       | 严重度           |
-| ------------------------------ | ---------------- |
-| `graph_present`                | 按是否 required  |
-| `min_issues`                   | 按是否 required  |
-| `facts_grounded`               | **永远 warning** |
-| `authority_conflicts_resolved` | 按配置           |
-| `issues_have_authority`        | warning          |
-| `confidence_ok`                | warning          |
+| 检查 key                       | 严重度                                                 |
+| ------------------------------ | ------------------------------------------------------ |
+| `graph_present`                | 即使 required 也是 warning；无图时 `ready` 仍可为 true |
+| `min_issues`                   | 即使 required 也是 warning                             |
+| `facts_grounded`               | **永远 warning**                                       |
+| `authority_conflicts_resolved` | 按配置                                                 |
+| `issues_have_authority`        | warning                                                |
+| `confidence_ok`                | 恒 `passed: true`                                      |
 
 五条结构检查（全 warning）：`issues_grounded`、`argument_supports_traced`、`authorities_cited_in_body`、`irac_levels_present`、`no_open_questions`。
 
-### 机器验证器（12 个）
+### 机器验证器（11 个 id）
 
-`forum.form_valid`、`citations.subset`、`citations.used`、`graph.authority_used`、`parties.consistent`、`amounts.case_consistent`、`dates.ordered`、`placeholders.closed`、`statute.lpr_multiple`、`statute.deposit_cap`、`guarantee.form_valid`、`disputeFormVerifier()`。
+`forum.form_valid`（工厂名 `disputeFormVerifier()`）、`citations.subset`、`citations.used`、`graph.authority_used`、`parties.consistent`、`amounts.case_consistent`、`dates.ordered`、`placeholders.closed`、`statute.lpr_multiple`、`statute.deposit_cap`、`guarantee.form_valid`。
 
 未知验证器或抛错 → 记 `unavailable`（fail-closed），不静默丢弃。
 
@@ -347,20 +355,20 @@ keyfile 目录之外的密钥：~/.lawmind/keys/*.key（0600）
 
 ### 其他硬约束
 
-| 约束                                             | 位置                                           |
-| ------------------------------------------------ | ---------------------------------------------- |
-| 空修订不许导出（`MIN_TRACKED_RENDER_HUNKS = 1`） | `drafts/tracked-render-hunk-gate.ts`           |
-| 跨文书整批预检（任一冲突则零写入）               | `drafts/cross-document-edits.ts`               |
-| 必核清单没勾完不许签批                           | `deliverables/verification-checklist.ts`       |
-| 治理路径不许改                                   | `runtime/protected-workspace-rels.ts`          |
-| 可写根白名单                                     | `electron/fs-bridge.mjs` / `server` 侧对应实现 |
-| 只读模式工具白名单（32 个）                      | `agent/permission-mode.ts`                     |
-| 外发只有 `send_email` 机械暂停                   | `platform/lawyer-outbound-decision.ts`         |
-| 伦理墙拦住外发                                   | `policy/ethics-wall.ts`                        |
+| 约束                                                   | 位置                                           |
+| ------------------------------------------------------ | ---------------------------------------------- |
+| 空修订不许导出（`MIN_TRACKED_RENDER_HUNKS = 1`）       | `drafts/tracked-render-hunk-gate.ts`           |
+| 跨文书整批预检（任一冲突则零写入）                     | `drafts/cross-document-edits.ts`               |
+| 必核清单没勾完不许签批                                 | `deliverables/verification-checklist.ts`       |
+| 治理路径不许改                                         | `runtime/protected-workspace-rels.ts`          |
+| 可写根白名单                                           | `electron/fs-bridge.mjs` / `server` 侧对应实现 |
+| 只读模式工具白名单（32 个）                            | `agent/permission-mode.ts`                     |
+| 外发机械暂停含 `send_email` 与 `prepare_outbound_mail` | `platform/lawyer-outbound-decision.ts`         |
+| 伦理墙拦住外发                                         | `policy/ethics-wall.ts`                        |
 
 ## C.7 索引与派生数据
 
-以下都是**可重建**的，真正的真相源是 Markdown / JSON：
+下面这些删了还能算回来。账本清单以第 1 章 §1.7 为准。`lawmind/metrics/product-events.jsonl` 和 `runtime-events.jsonl` 不在这张表里：它们是事件账，指标快照才从它们重算。
 
 | 派生数据 | 位置                                    | 怎么重建                                       |
 | -------- | --------------------------------------- | ---------------------------------------------- |
@@ -370,24 +378,24 @@ keyfile 目录之外的密钥：~/.lawmind/keys/*.key（0600）
 | 指标快照 | `quality/*.json`、`lawmind/decision/*`  | 从事件重算                                     |
 | 项目投影 | `cases/<id>/CASE.md` 的结构化段         | `POST /api/matters/repair-projections`         |
 
-索引的 schema 版本现在是 **3**（加材料表时升过）。索引超过 24 小时算陈旧。
+索引的 schema 版本现在是 **3**（加材料表时升过）。新鲜度不看时钟：陈旧只有 `index_missing`、`last_rebuild_unknown`、`sources_changed`。`repair-projections` 会盖掉 `CASE.md` 的 §1 手改。
 
 ## C.8 三类「单独文件」的审计
 
-有三处审计刻意**不写进主审计链**：
+下面三处不进主审计链。`collab.*` 不在这张表里，它走主链。
 
-| 审计              | 位置                                            | 为什么不进主链                   |
-| ----------------- | ----------------------------------------------- | -------------------------------- |
-| 桌面壳 shell 动作 | `<工作区>/audit/desktop-shell-YYYY-MM-DD.jsonl` | 避免「插入」事件打断引擎的哈希链 |
-| 协作事件          | `<工作区>/collaboration-audit/YYYY-MM-DD.jsonl` | 量大且独立成体系                 |
-| 独立审稿          | `drafts/<taskId>.guardian.json`（侧车）         | 是审稿的输入输出，不是全局事件   |
+| 审计              | 位置                                            | 为什么不进主链                                                         |
+| ----------------- | ----------------------------------------------- | ---------------------------------------------------------------------- |
+| 桌面壳 shell 动作 | `<工作区>/audit/desktop-shell-YYYY-MM-DD.jsonl` | 避免「插入」事件打断引擎的哈希链                                       |
+| 助手间事件        | `<工作区>/collaboration-audit/YYYY-MM-DD.jsonl` | `delegation.*` / `consult.*`，不是 `AuditEventKind`。`collab.*` 走主链 |
+| 独立审稿          | `drafts/<taskId>.guardian.json`（侧车）         | 是审稿的输入输出，不是全局事件                                         |
 
 主链只有引擎自己的业务事件，这样链的语义干净。
 
 ## C.9 怎么核对这份附录
 
 ```bash
-# 审计事件名
+# 审计事件名以 AuditEventKind 联合为准。下面只是 emit 字面量的烟测
 rg -o 'kind: *"[a-z_.:]+"' src/lawmind apps/lawmind-desktop/server | sed 's/.*kind: *//' | tr -d '"' | sort -u
 
 # 工作区文件位置（看板）

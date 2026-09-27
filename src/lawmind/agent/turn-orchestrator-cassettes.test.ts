@@ -19,7 +19,6 @@ import { INTENT_HYPOTHESIS_HEADING, UNDERSTAND_FIRST_HEADING } from "../intent/u
 import { WORKING_BRIEF_HEADING } from "../intent/working-brief.js";
 import { summarizeContextPressure } from "../metrics/context-pressure.js";
 import { buildAgentFleetSummary } from "../platform/build-agent-fleet.js";
-import { FOLDER_EXPLORE_GATE_ERROR } from "../runtime/tool-pipeline.js";
 import { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
 import { CONTEXT_DEFERRAL_BOUNCE_MARKER } from "./context-deferral.js";
 import { MAIL_CONTRACT_FAST_PATH_DENIED_HINT } from "./mail-contract-fast-path.js";
@@ -35,6 +34,7 @@ import {
 } from "./testkit/index.js";
 import { isSessionTurnLive } from "./turn-interrupt.js";
 import { clearTurnLifecycleHooks, registerTurnLifecycleHook } from "./turn-lifecycle-hooks.js";
+import { formatIdenticalToolRepeatNudge } from "./turn-orchestrator-model-loop.js";
 import type { AgentMessage } from "./types.js";
 
 const FAST_LANE = [
@@ -106,6 +106,26 @@ function orphanToolCallIds(
 }
 
 describe("turn-orchestrator cassettes (admission)", () => {
+  it("stop during setup never samples the model and does not keep the user line", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("不应发出。"));
+        const result = await h.runTurn("请写一份律师函催款", {
+          shouldAbort: () => true,
+        });
+        expect(result.turn.status).toBe("error");
+        expect(result.turn.error).toBe("aborted_by_user");
+        expect(result.reply).toBe("已停止生成。");
+        expect(h.requests).toHaveLength(0);
+        expect(h.remainingRounds()).toBe(1);
+        const history = h.session()?.conversationHistory ?? [];
+        expect(history.some((m) => m.content === "请写一份律师函催款")).toBe(false);
+        expect(h.session()?.turns.some((t) => t.status === "running")).toBe(false);
+      },
+    );
+  });
+
   it("fast-lane: next request stays unlocked with the 5-minute craft; search_statute executes", async () => {
     await withTestLawMind(
       (b) => b,
@@ -427,9 +447,10 @@ describe("turn-orchestrator cassettes (admission)", () => {
         // 不依赖系统提示词体积 —— 第 2 轮必然越线。
         fs.writeFileSync(
           path.join(h.workspaceDir, "lawmind.policy.json"),
-          `${JSON.stringify({ schemaVersion: 1, context: { midTurnCompactTriggerRatio: 0.02 } })}\n`,
+          `${JSON.stringify({ schemaVersion: 1 })}\n`,
           "utf8",
         );
+        process.env.LAWMIND_CONTEXT_TUNING = JSON.stringify({ midTurnCompactTriggerRatio: 0.02 });
         const history: AgentMessage[] = [{ role: "system", content: "sys", timestamp: ts() }];
         for (let i = 0; i < 10; i += 1) {
           history.push(
@@ -471,6 +492,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(pressure.compactions.midTurn).toBe(1);
         expect(pressure.turnsWithPressure).toBe(1);
         expect(pressure.windowTo).toBeTruthy();
+        delete process.env.LAWMIND_CONTEXT_TUNING;
       },
     );
   });
@@ -481,23 +503,25 @@ describe("turn-orchestrator cassettes (admission)", () => {
       async (h) => {
         fs.writeFileSync(
           path.join(h.workspaceDir, "lawmind.policy.json"),
-          `${JSON.stringify({ schemaVersion: 1, context: { midTurnCompactTriggerRatio: 0.02 } })}\n`,
+          `${JSON.stringify({ schemaVersion: 1 })}\n`,
           "utf8",
         );
+        process.env.LAWMIND_CONTEXT_TUNING = JSON.stringify({ midTurnCompactTriggerRatio: 0.02 });
         // 堆足量的历史：提取式摘要素材必须超过 600 字符的下限，否则会（正确地）
         // 跳过模型调用——那正是另一个用例覆盖的路径。
         const history: AgentMessage[] = [{ role: "system", content: "sys", timestamp: ts() }];
         for (let i = 0; i < 24; i += 1) {
           // 每条都够长：提取式摘要必须越过 600 字符门槛，否则（正确地）跳过模型调用。
+          const pad = `补充口径 ${i}：`.repeat(40);
           history.push(
             {
               role: "user",
-              content: `历史轮 ${i}：请继续核对付款节奏与违约金的计算口径，并逐条对照第三条约定的比例；如有偏差请写明依据与建议的修正幅度。`,
+              content: `历史轮 ${i}：请继续核对付款节奏与违约金的计算口径，并逐条对照第三条约定的比例；如有偏差请写明依据与建议的修正幅度。${pad}`,
               timestamp: ts(),
             },
             {
               role: "assistant",
-              content: `历史答 ${i}：已核对第 ${i} 项，建议按第三条约定的比例计算，并保留书面记录备查；偏差处已标注来源条款与计算过程。`,
+              content: `历史答 ${i}：已核对第 ${i} 项，建议按第三条约定的比例计算，并保留书面记录备查；偏差处已标注来源条款与计算过程。${pad}`,
               timestamp: ts(),
             },
           );
@@ -531,6 +555,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(pressure.compactions.llmDigest.attempted).toBe(1);
         expect(pressure.compactions.llmDigest.used).toBe(1);
         expect(pressure.compactions.llmDigest.fellBack).toBe(0);
+        delete process.env.LAWMIND_CONTEXT_TUNING;
       },
     );
   });
@@ -1000,6 +1025,29 @@ describe("turn-orchestrator cassettes (admission)", () => {
         const advertised = h.request(0).advertisedToolNames();
         expect(advertised).toContain("list_dir");
         expect(advertised).toContain("analyze_document");
+        expect(advertised).toContain("apply_surgical_edits");
+      },
+    );
+  });
+
+  it("directory pin plus an edit ask keeps surgical edits on the next request", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("先看目录，再改合同。"));
+        await h.runTurn("根据这个文件夹把采购合同改到对我们有利", {
+          contextPins: [
+            {
+              pinKind: "file",
+              root: "workspace",
+              relPath: "materials",
+              kind: "directory",
+            },
+          ],
+        });
+        expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("explore_folder")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("list_dir")).toBe(true);
       },
     );
   });
@@ -1035,8 +1083,8 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(result.turn.status).not.toBe("error");
         expect(h.request(0).contains(INTENT_HYPOTHESIS_HEADING)).toBe(true);
         expect(h.request(0).contains("## 本轮 LawMind 能力：合同审查")).toBe(false);
-        expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(false);
-        expect(h.request(0).hasAdvertisedTool("render_tracked_draft")).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("prepare_outbound_mail")).toBe(false);
         expect(h.request(0).hasAdvertisedTool("update_plan")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("explore_folder")).toBe(true);
       },
@@ -2114,7 +2162,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("folder talk: WRITE_HEAVY is rejected until explore_folder ran this turn", async () => {
+  it("folder talk keeps draft_document available; explore is not a hard gate", async () => {
     const instruction = "继续不澄清。根据【河南堃云顿数据科技有限公司】文件夹起草一份审查备忘。";
     await withTestLawMind(
       (b) => b,
@@ -2136,11 +2184,14 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(h.request(0).contains(instruction)).toBe(true);
         expect(h.request(0).hasAdvertisedTool("explore_folder")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("draft_document")).toBe(true);
-        expect(toolErrors(result)).toContain(FOLDER_EXPLORE_GATE_ERROR);
+        expect(toolErrors(result)).not.toContain("请先探查文件夹");
         expect(h.request(1).contains("explore_folder")).toBe(true);
         const executed = h.spy?.log.executedNames() ?? [];
         expect(executed).toContain("explore_folder");
-        expect(executed.filter((n) => n === "draft_document")).toEqual(["draft_document"]);
+        expect(executed.filter((n) => n === "draft_document")).toEqual([
+          "draft_document",
+          "draft_document",
+        ]);
         expect(h.spy?.log.calls.find((c) => c.name === "explore_folder")?.result.ok).toBe(true);
         expect(h.spy?.log.calls.find((c) => c.name === "draft_document")?.result.ok).toBe(true);
       },
@@ -2566,6 +2617,188 @@ describe("turn-orchestrator cassettes (admission)", () => {
         await h.runTurn("把本周到期的合同列一下。");
         // 空说明书不该在请求体里留下一个没有内容的「职务说明书」标题。
         expect(h.request(0).contains("职务说明书")).toBe(false);
+      },
+    );
+  });
+
+  it("tool loop stays on the primary model and stops a repeated identical batch after one nudge", async () => {
+    const same = cassetteToolCall("search_matter", { query: "定金" });
+    await withTestLawMind(
+      (b) =>
+        b.withConfig((config) => {
+          config.workerModel = {
+            provider: "openai-compatible",
+            baseUrl: "http://127.0.0.1:1",
+            apiKey: "sk-worker",
+            model: "worker-should-not-sample",
+            timeoutMs: 1_000,
+            maxRetries: 0,
+          };
+        }),
+      async (h) => {
+        h.enqueue(same, same, same, same, cassetteAssistant("不应再采样。"));
+        const result = await h.runTurn("把材料里的定金条款摘出来。");
+        expect(h.requests).toHaveLength(4);
+        for (const req of h.requests) {
+          expect(req.body.model).toBe("cassette-scripted");
+        }
+        expect(h.request(3).contains(formatIdenticalToolRepeatNudge())).toBe(true);
+        const asked = result.turn.messages.filter((m) =>
+          m.toolCalls?.some((call) => call.name === "search_matter"),
+        );
+        expect(asked).toHaveLength(4);
+        expect(result.turn.status).toBe("completed");
+        expect(result.reply).toContain("接着办");
+        expect(result.reply).not.toContain("不应再采样");
+      },
+    );
+  });
+
+  it("memory: a reversed habit does not re-enter the next request", async () => {
+    const { commitMemory } = await import("../memory/kernel/gateway.js");
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        commitMemory(h.workspaceDir, {
+          kind: "habit",
+          scope: "lawyer",
+          key: "habit.voice",
+          body: "付款期限写三十日整",
+          origin: "lawyer",
+          confirmNow: true,
+        });
+        commitMemory(h.workspaceDir, {
+          kind: "habit",
+          scope: "lawyer",
+          key: "habit.voice",
+          body: "付款期限写四十五日整",
+          origin: "lawyer",
+          confirmNow: true,
+        });
+        commitMemory(h.workspaceDir, {
+          kind: "habit",
+          scope: "lawyer",
+          key: "habit.review",
+          body: "待确认句子禁止写仲裁",
+          origin: "review",
+          confirmNow: false,
+        });
+        h.enqueue(cassetteAssistant("已按当前写法处理。"));
+        await h.runTurn("这份合同的付款期限怎么写");
+        const text = h.request(0).allText();
+        expect(text).toContain("四十五日整");
+        expect(text).not.toContain("三十日整");
+        expect(text).not.toContain("禁止写仲裁");
+      },
+    );
+  });
+
+  it("memory: an opposing matter does not enter the next request", async () => {
+    const { commitMemory } = await import("../memory/kernel/gateway.js");
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        const current = "case-b";
+        fs.mkdirSync(path.join(h.workspaceDir, "cases", current), { recursive: true });
+        fs.writeFileSync(
+          path.join(h.workspaceDir, "cases", current, "CASE.md"),
+          [
+            "# 案",
+            "",
+            "## 1. 基本信息",
+            "",
+            "- 客户 / clientId：客户乙",
+            "- 对方当事人：客户甲",
+            "",
+          ].join("\n"),
+          "utf8",
+        );
+        fs.mkdirSync(path.join(h.workspaceDir, "cases", "case-a"), { recursive: true });
+        fs.writeFileSync(
+          path.join(h.workspaceDir, "cases", "case-a", "CASE.md"),
+          "# 旧案\n\n## 7. 风险\n\n- 对立旧案赔偿上限壹佰万元整\n",
+          "utf8",
+        );
+        commitMemory(h.workspaceDir, {
+          kind: "stance",
+          scope: "lawyer",
+          key: "stance.赔偿",
+          body: "立场句赔偿上限壹佰万元整",
+          origin: "lawyer",
+          clientId: "客户甲",
+          counterparty: "客户乙",
+          evidenceMatterIds: ["case-a", "case-old"],
+          confidence: 0.8,
+          confirmNow: true,
+        });
+        h.enqueue(cassetteAssistant("只按本案写。"));
+        await h.runTurn("赔偿上限怎么写", { matterId: current });
+        const text = h.request(0).allText();
+        expect(text).not.toContain("壹佰万元整");
+      },
+    );
+  });
+
+  it("memory: a confirmed then revoked habit stays out of the next request", async () => {
+    const { commitMemory, confirmMemory, revokeMemory } =
+      await import("../memory/kernel/gateway.js");
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        const first = commitMemory(h.workspaceDir, {
+          kind: "habit",
+          scope: "lawyer",
+          key: "habit.review",
+          body: "付款期限写三十日整",
+          origin: "lawyer",
+          confirmNow: false,
+        });
+        await confirmMemory(h.workspaceDir, first.id, { key: "habit.voice", scope: "lawyer" });
+        const second = commitMemory(h.workspaceDir, {
+          kind: "habit",
+          scope: "lawyer",
+          key: "habit.review",
+          body: "付款期限写四十五日整",
+          origin: "review",
+          confirmNow: false,
+        });
+        await confirmMemory(h.workspaceDir, second.id, { key: "habit.voice", scope: "lawyer" });
+        revokeMemory(h.workspaceDir, second.id);
+        h.enqueue(cassetteAssistant("已按当前写法处理。"));
+        await h.runTurn("这份合同的付款期限怎么写");
+        const text = h.request(0).allText();
+        expect(text).not.toContain("三十日整");
+        expect(text).not.toContain("四十五日整");
+      },
+    );
+  });
+
+  it("memory: revoking a matter fact removes it from the next request", async () => {
+    const { commitMemory, revokeMemory } = await import("../memory/kernel/gateway.js");
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        const matterId = "case-b";
+        fs.mkdirSync(path.join(h.workspaceDir, "cases", matterId), { recursive: true });
+        fs.writeFileSync(
+          path.join(h.workspaceDir, "cases", matterId, "CASE.md"),
+          "# 案\n\n## 7. 风险\n\n- 本案赔偿上限写成柒万元整\n",
+          "utf8",
+        );
+        const row = commitMemory(h.workspaceDir, {
+          kind: "matter_fact",
+          scope: "matter",
+          scopeId: matterId,
+          key: "matter.risk",
+          body: "本案赔偿上限写成柒万元整",
+          origin: "engine",
+          sourceMatterId: matterId,
+          confirmNow: true,
+        });
+        revokeMemory(h.workspaceDir, row.id);
+        h.enqueue(cassetteAssistant("只按本案写。"));
+        await h.runTurn("赔偿上限怎么写", { matterId });
+        expect(h.request(0).allText()).not.toContain("柒万元整");
       },
     );
   });

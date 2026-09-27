@@ -23,14 +23,19 @@ import {
   writeJsonAtomic,
 } from "./io.js";
 import {
+  MATTER_RECORD_SCHEMA_VERSION,
+  MatterDocumentSchema,
   approvalSchema,
   deadlineSchema,
+  obligationSchema,
   deliverableSchema,
   matterSchema,
   queueItemSchema,
   type ApprovalRecord,
   type DeadlineRecord,
+  type ObligationRecord,
   type DeliverableRecord,
+  type MatterDocumentRecord,
   type MatterRecord,
   type QueueItemRecord,
 } from "./schemas.js";
@@ -38,11 +43,13 @@ import {
 export {
   approvalSchema,
   deadlineSchema,
+  obligationSchema,
   deliverableSchema,
   matterSchema,
   queueItemSchema,
   type ApprovalRecord,
   type DeadlineRecord,
+  type ObligationRecord,
   type DeliverableRecord,
   type MatterRecord,
   type QueueItemRecord,
@@ -69,19 +76,46 @@ function deadlinesFile(workspaceDir: string, matterId: string): string {
   return path.join(matterDir(workspaceDir, matterId), "deadlines.jsonl");
 }
 
+function obligationsFile(workspaceDir: string, matterId: string): string {
+  return path.join(matterDir(workspaceDir, matterId), "obligations.jsonl");
+}
+
 // ─────────────────────────────────────────────
 // Matter
 // ─────────────────────────────────────────────
 
+function childIndexIds(
+  workspaceDir: string,
+  matterId: string,
+): Pick<MatterRecord, "deliverableIds" | "queueItemIds" | "deadlineIds"> {
+  return {
+    deliverableIds: listDeliverablesForMatter(workspaceDir, matterId).map(
+      (row) => row.deliverableId,
+    ),
+    queueItemIds: readQueueItems(workspaceDir, matterId).map((row) => row.queueItemId),
+    deadlineIds: readDeadlines(workspaceDir, matterId).map((row) => row.deadlineId),
+  };
+}
+
 export function loadMatter(workspaceDir: string, matterId: string): MatterRecord | undefined {
-  return readJsonValidated(matterFile(workspaceDir, matterId), matterSchema);
+  const record = readJsonValidated(matterFile(workspaceDir, matterId), matterSchema);
+  if (!record) {
+    return undefined;
+  }
+  // 这三个数组是子文件的读时汇总。matter.json 里的副本不是真相。
+  return { ...record, ...childIndexIds(workspaceDir, matterId) };
 }
 
 export function saveMatter(workspaceDir: string, matter: MatterRecord): MatterRecord {
-  matterSchema.parse(matter);
-  ensureMatterDir(workspaceDir, matter.matterId);
-  writeJsonAtomic(matterFile(workspaceDir, matter.matterId), matter);
-  return matter;
+  const stamped = matterSchema.parse({
+    ...matter,
+    schemaVersion: MATTER_RECORD_SCHEMA_VERSION,
+    revision: (matter.revision ?? 0) + 1,
+  });
+  ensureMatterDir(workspaceDir, stamped.matterId);
+  const projected = { ...stamped, ...childIndexIds(workspaceDir, stamped.matterId) };
+  writeJsonAtomic(matterFile(workspaceDir, projected.matterId), projected);
+  return projected;
 }
 
 // ─────────────────────────────────────────────
@@ -103,13 +137,14 @@ export function saveDeliverable(
   workspaceDir: string,
   deliverable: DeliverableRecord,
 ): DeliverableRecord {
-  deliverableSchema.parse(deliverable);
-  ensureDeliverablesDir(workspaceDir, deliverable.matterId);
-  writeJsonAtomic(
-    deliverableFile(workspaceDir, deliverable.matterId, deliverable.deliverableId),
-    deliverable,
-  );
-  return deliverable;
+  const stamped = deliverableSchema.parse({
+    ...deliverable,
+    schemaVersion: MATTER_RECORD_SCHEMA_VERSION,
+    revision: (deliverable.revision ?? 0) + 1,
+  });
+  ensureDeliverablesDir(workspaceDir, stamped.matterId);
+  writeJsonAtomic(deliverableFile(workspaceDir, stamped.matterId, stamped.deliverableId), stamped);
+  return stamped;
 }
 
 export function listDeliverablesForMatter(
@@ -200,4 +235,53 @@ export function rewriteDeadlines(
 ): void {
   ensureMatterDir(workspaceDir, matterId);
   rewriteJsonl(deadlinesFile(workspaceDir, matterId), deadlineSchema, values);
+}
+
+export function appendObligation(
+  workspaceDir: string,
+  obligation: ObligationRecord,
+): ObligationRecord {
+  ensureMatterDir(workspaceDir, obligation.matterId);
+  appendJsonl(obligationsFile(workspaceDir, obligation.matterId), obligationSchema, obligation);
+  return obligation;
+}
+
+export function readObligations(workspaceDir: string, matterId: string): ObligationRecord[] {
+  return readJsonl(obligationsFile(workspaceDir, matterId), obligationSchema);
+}
+
+export function rewriteObligations(
+  workspaceDir: string,
+  matterId: string,
+  values: ObligationRecord[],
+): void {
+  ensureMatterDir(workspaceDir, matterId);
+  rewriteJsonl(obligationsFile(workspaceDir, matterId), obligationSchema, values);
+}
+
+function documentsDir(workspaceDir: string, matterId: string): string {
+  return path.join(matterDir(workspaceDir, matterId), "documents");
+}
+
+function documentFile(workspaceDir: string, matterId: string, documentId: string): string {
+  return path.join(documentsDir(workspaceDir, matterId), `${documentId}.json`);
+}
+
+export function loadMatterDocument(
+  workspaceDir: string,
+  matterId: string,
+  documentId: string,
+): MatterDocumentRecord | undefined {
+  return readJsonValidated(documentFile(workspaceDir, matterId, documentId), MatterDocumentSchema);
+}
+
+export function saveMatterDocument(
+  workspaceDir: string,
+  document: MatterDocumentRecord,
+): MatterDocumentRecord {
+  const parsed = MatterDocumentSchema.parse(document);
+  ensureMatterDir(workspaceDir, parsed.matterId);
+  fs.mkdirSync(documentsDir(workspaceDir, parsed.matterId), { recursive: true });
+  writeJsonAtomic(documentFile(workspaceDir, parsed.matterId, parsed.documentId), parsed);
+  return parsed;
 }

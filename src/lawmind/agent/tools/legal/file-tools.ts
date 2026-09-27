@@ -45,6 +45,7 @@ import {
   MAX_IMAGE_OCR_READ_BYTES,
   MAX_XLSX_READ_BYTES,
 } from "./ingest-helpers.js";
+import { isCaseStructuralRel } from "./workspace-file-ops.js";
 
 export const analyzeDocument: AgentTool = {
   definition: {
@@ -354,7 +355,7 @@ export const writeDocument: AgentTool = {
   definition: {
     name: "write_document",
     description:
-      "将内容写入工作区的指定文件。用于保存分析结果、工作笔记等。研究类正文（合规卷宗/调研简报/培训课件）禁止用本工具写入 artifacts 旁路交付，须走 draft_document。参数须含 file_path（也可用 path）与 content。未指定路径时：已关联草稿写入 drafts/<taskId>.json，否则写入本案 notes/ 或工作区 notes/（标题_日期_01.md），不写 artifacts/。",
+      "将内容写入工作区的指定文件。用于保存分析结果、工作笔记等。研究类正文（合规卷宗/调研简报/培训课件）禁止用本工具写入 artifacts 旁路交付，须走 draft_document。草稿账本 drafts/ 不能用本工具改写，改稿用 update_draft。参数须含 file_path（也可用 path）与 content。未指定路径时写入本案 notes/ 或工作区 notes/（标题_日期_01.md），不写 artifacts/ 或 drafts/。",
     category: "draft",
     parameters: {
       file_path: { type: "string", description: "相对于工作区的文件路径", required: true },
@@ -398,6 +399,13 @@ export const writeDocument: AgentTool = {
           : PROTECTED_WORKSPACE_WRITE_REFUSAL,
       };
     }
+    if (isCaseStructuralRel(relClaimed) || isCaseStructuralRel(rel)) {
+      return {
+        ok: false,
+        error:
+          "案件卷宗、期限和谈话记录不能用写文书改。请用案件档案或事项工具；叙事节可在文件页修改。",
+      };
+    }
     const bypass = shouldRefuseResearchWriteBypass({
       workspaceDir: ctx.workspaceDir,
       filePath: rel,
@@ -414,7 +422,7 @@ export const writeDocument: AgentTool = {
             reason: bypass.reason ?? RESEARCH_WRITE_BYPASS_REFUSAL,
           },
           existingTaskId: bypass.taskId,
-          hint: "请 draft_document（传入 task_id）经大纲确认与证据门禁后，再走审核台导出。",
+          hint: "请 draft_document（传入 task_id）经证据门禁后，再走审核台导出。",
         },
       };
     }

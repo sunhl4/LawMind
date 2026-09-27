@@ -13,7 +13,12 @@
  */
 
 import type { IntakeBrief } from "./intake-brief.js";
-import { MATTER_PARTY_ROLES, type MatterParty, type MatterPartyRole } from "./matter-parties.js";
+import {
+  MATTER_PARTIES_CAP,
+  MATTER_PARTY_ROLES,
+  type MatterParty,
+  type MatterPartyRole,
+} from "./matter-parties.js";
 
 export type IntakePartyCandidate = {
   name: string;
@@ -40,8 +45,19 @@ function stripTrailingParenthetical(name: string): string {
   return name.replace(/[（(][^）)]*[）)]\s*$/, "").trim();
 }
 
-export function extractPartyCandidates(text: string): IntakePartyCandidate[] {
-  const out: IntakePartyCandidate[] = [];
+export type PartyCandidateScan = {
+  kept: IntakePartyCandidate[];
+  /** 超出当事人上限、没有进入候选的人。空数组表示没有截断。 */
+  omitted: IntakePartyCandidate[];
+};
+
+/**
+ * 读出谈话里的当事人。上限与卷宗 `MATTER_PARTIES_CAP` 相同。
+ * 多出来的人放进 `omitted`，不静默丢掉——共同诉讼常超过旧的 16 人截断。
+ */
+export function scanPartyCandidates(text: string): PartyCandidateScan {
+  const kept: IntakePartyCandidate[] = [];
+  const omitted: IntakePartyCandidate[] = [];
   const seen = new Set<string>();
   for (const match of text.matchAll(PARTY_LABEL_RE)) {
     const label = (match[1] ?? "").trim();
@@ -54,12 +70,22 @@ export function extractPartyCandidates(text: string): IntakePartyCandidate[] {
       continue;
     }
     seen.add(key);
-    out.push({ name, label });
-    if (out.length >= 16) {
-      break;
+    const row = { name, label };
+    if (kept.length >= MATTER_PARTIES_CAP) {
+      omitted.push(row);
+      continue;
     }
+    kept.push(row);
   }
-  return out;
+  return { kept, omitted };
+}
+
+export function extractPartyCandidates(text: string): IntakePartyCandidate[] {
+  return scanPartyCandidates(text).kept;
+}
+
+export function formatOmittedParty(row: IntakePartyCandidate): string {
+  return `${row.label}：${row.name}`;
 }
 
 function roleForLabel(label: string): MatterPartyRole {
@@ -77,6 +103,8 @@ export type PromoteIntakeResult = {
   promoted: string[];
   /** 立场未定、只登记不定位的当事人标签。 */
   standingOnly: string[];
+  /** 读到了、但已到当事人上限而没有写入的人。 */
+  omittedParties: string[];
 };
 
 /**
@@ -94,17 +122,24 @@ export function planIntakePromotion(input: {
 }): {
   promoted: string[];
   standingOnly: string[];
+  omittedParties: string[];
   parties?: MatterParty[];
   causeOfAction?: string;
 } {
   const promoted: string[] = [];
   const standingOnly: string[] = [];
+  const omittedParties: string[] = [...(input.brief.omittedPartyNotes ?? [])];
   const existing = input.current.parties ?? [];
   const nextParties: MatterParty[] = [...existing];
   const takenNames = new Set(existing.map((p) => p.name));
+  const namedOnFile = existing.filter((row) => row.name.trim()).length;
 
   for (const candidate of input.partyCandidates ?? []) {
     if (takenNames.has(candidate.name)) {
+      continue;
+    }
+    if (namedOnFile + (nextParties.length - existing.length) >= MATTER_PARTIES_CAP) {
+      omittedParties.push(formatOmittedParty(candidate));
       continue;
     }
     const role = roleForLabel(candidate.label);
@@ -136,6 +171,7 @@ export function planIntakePromotion(input: {
   return {
     promoted,
     standingOnly,
+    omittedParties,
     ...(partiesChanged ? { parties: nextParties } : {}),
     ...(causeOfAction ? { causeOfAction } : {}),
   };

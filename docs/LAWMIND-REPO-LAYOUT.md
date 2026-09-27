@@ -12,7 +12,7 @@
 
 ## 现行文档清单（2026-09-03 起）
 
-「文档体系减法」后，**现行文档仅以下 9 篇**；其余历史文档只读封存于 [`docs/archive/`](./archive/README.md)，口径以现行文档为准。
+「文档体系减法」后，现行文档是下表这些；其余历史文档只读封存于 [`docs/archive/`](./archive/README.md)，口径以现行文档为准。
 
 | 文档                                                                     | 职责                                                                        |
 | ------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
@@ -25,6 +25,7 @@
 | [LAWMIND-LEGAL-COMPILER-ROADMAP.md](./LAWMIND-LEGAL-COMPILER-ROADMAP.md) | 法律一致性编译器 500 人天计划（WS0–WS6）                                    |
 | [LAWMIND-FUTURE-ISSUES.md](./LAWMIND-FUTURE-ISSUES.md)                   | 已识别、长期回看项（sprint 以外）                                           |
 | [LAWMIND-REPO-LAYOUT.md](./LAWMIND-REPO-LAYOUT.md)                       | 本文：仓库职责划分与文档清单                                                |
+| [LAWMIND-ENGINEERING-REVIEW.md](./LAWMIND-ENGINEERING-REVIEW.md)         | 2026-09-26 工程审查：已修问题、不恢复的界面取舍、后续只动非界面项           |
 
 维护者核对（非正式产品原则）：[LAWMIND-EXECUTION-CONSTRAINTS.md](./LAWMIND-EXECUTION-CONSTRAINTS.md) 列出 50 条运行时约束的路径，以及手改会影响效果的同类文件。北极星仍是 `GOALS.md`。对照 Cursor / Codex / Claude Code 的工程审查见 [LAWMIND-AGENT-PARITY-REVIEW.md](./LAWMIND-AGENT-PARITY-REVIEW.md)。对话补档案施工合同：[LAWMIND-CHAT-MATTER-FILL.md](./LAWMIND-CHAT-MATTER-FILL.md)。
 
@@ -58,6 +59,16 @@
 - **`memory/`** — 工作区记忆加载与来源报告。
 - **`policy/`** — 版本、工作区策略、治理报告。
 - **`reasoning/`、`retrieval/`、`router/`、`tasks/`、`templates/`** — 推理、检索、路由、任务状态、模板填充。
+
+相邻目录先按这张表分工，不要并成一个包，除非一次改动同时碰两侧：
+
+| 看起来像一对                    | 实际分工                                                                        |
+| ------------------------------- | ------------------------------------------------------------------------------- |
+| `cases/` 与 `matter/`           | `cases/` 是案由/案卷领域计算；`matter/` 是案件目录上的读写（审查矩阵批注等）    |
+| `review/` 与 `review-campaign/` | `review/` 是单份稿的审核；`review-campaign/` 是一批合同的专案组                 |
+| `router/` 与 `routing/`         | `router/` 选模型与路由口径；`routing/` 是协作派活的路由表                       |
+| `ingest/` 与 `indexing/`        | `ingest/` 把材料收进案件；`indexing/` 维护查找索引（含增量戳）                  |
+| `ops/` 与 `platform/`           | `ops/` 是运维命令入口用的薄封装；`platform/` 是策略、自动化、命令网关、出网代理 |
 
 ## 工作区与工作副本
 

@@ -275,6 +275,21 @@ describe("applyMidTurnCompact", () => {
     expect(session.conversationHistory.map((m) => m.content)).toEqual(before);
   });
 
+  it("本回合整理次数到顶时记 cap，而不是 below_trigger", () => {
+    const workspaceDir = makeWorkspace();
+    const session = sessionWith(longHistory(40), "m-cap-reason");
+    const before = session.conversationHistory.map((m) => m.content);
+    const outcome = applyMidTurnCompact(session, workspaceDir, {
+      maxHistoryMessages: 6,
+      roundIndex: 2,
+      compactionsDone: MID_TURN_COMPACT_MAX,
+      contextTokens: 16_000,
+      triggerRatio: 0.05,
+    });
+    expect(outcome).toEqual({ applied: false, reason: "cap" });
+    expect(session.conversationHistory.map((m) => m.content)).toEqual(before);
+  });
+
   it("尾巴自身已超窗口（压了不减）时不动历史，也不把摘要堆进去", () => {
     const workspaceDir = makeWorkspace();
     const session = sessionWith(longHistory(1), "m-thin");

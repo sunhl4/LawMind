@@ -64,6 +64,34 @@ describe("LawmindAcceptanceGate", () => {
     host.remove();
   });
 
+  it("does not tell the lawyer an untyped draft is cleared for export", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAcceptanceGate
+          report={sampleReport({
+            deliverableType: undefined,
+            ready: false,
+            checks: [
+              {
+                key: "spec.not_found",
+                label: "未登记",
+                passed: false,
+                severity: "blocker",
+              },
+            ],
+          })}
+          onGoFillInChat={vi.fn()}
+        />,
+      );
+    });
+    const text = host.querySelector("#lm-review-acceptance-gate")?.textContent ?? "";
+    expect(text).toContain("未通过");
+    expect(text).toContain("未标明这是哪一类文书");
+    expect(text).toContain("去对话补充");
+    expect(text).not.toContain("放行");
+    expect(text).not.toContain("关键词");
+  });
+
   it("shows ready summary when report.ready", async () => {
     await act(async () => {
       root.render(

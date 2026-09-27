@@ -8,10 +8,10 @@
 
 如果不定标准，模型会按自己的理解交一份东西，然后你花时间挑毛病。所以 LawMind 给 27 种交付物各写了一份**规格**（spec），规定：
 
-- 必须有哪些章节（缺少算 blocker）。
-- 章节靠关键词识别。
-- 有些占位符必须在外发前解决。
-- 某些类型还要过推理门。
+- 必须有哪些章节（缺了是提醒，不挡导出）。
+- 章节靠关键词识别，只作结构提示。
+- 未填占位符和骨架稿在外发前必须解决（空交付，硬拦）。
+- 高风险类型的推理图只作提醒，争点条数不够不挡导出。
 
 规格存在 `src/lawmind/deliverables/lawyer-work-specs.ts` 和 `registry.ts`，注册表里列了全部 27 个。
 
@@ -49,7 +49,7 @@
 | 26  | `review.table`         | 审查表               | docx     | 中   | 2                     |
 | 27  | `document.general`     | 通用法律文书         | docx     | 低   | 0（全是 warning）     |
 
-`memo.opinion`（法律意见书）是要求最严的：争点、结论、引用、保留意见，四个章节全是 blocker。少一个都不算能交。
+`memo.opinion`（法律意见书）提醒最全：争点、结论、引用、保留意见。少一节会提醒，占位符和骨架稿仍挡导出。
 
 几个要点：
 
@@ -63,11 +63,11 @@
 
 ### 章节靠关键词匹配
 
-判定「有没有这一节」的方式是：拿章节的 `keywords` 去匹配**标题 + 正文前 80 字**。
+判定「有没有这一节」先看**标题**。标题里已经有本规格的某个关键词，这一节就定了，节首不能再充别的节。标题没有关键词时才看正文前 80 字，所以「合同当事人」加节首「出租人（甲方）」仍算主体。归一化后短于两个字符的关键词忽略。
 
-比如 `contract.review` 的「主要风险」这一节，关键词是「风险」「问题」。标题叫「二、主要风险」或者正文开头提到「主要风险」，都算命中。
+比如 `contract.review` 的「主要风险」，关键词是「风险」「问题」。标题「二、主要风险」算命中。标题是「租金与押金」、节首却写了「房屋坐落」，不算租赁标的那一节。
 
-这个方式的好处是容忍写法差异（「风险分析」「风险提示」都算）；坏处是可能误判。所以它是**结构代理**，不是语义理解——后面 12.4 会讲 `criteria.coverage` 那条检查就说明了这一点。
+这仍是结构提示，不是语义理解。`criteria.coverage` 按规格里标了 blocker 的节有没有标题命中来提醒，不挡导出。
 
 ### 占位符规则
 
@@ -93,26 +93,33 @@
 
 意思是：一份稿子里三处「待补」，那就不是「差不多能用」，而是「根本没写完」。
 
-## 12.4 验收检查的八类
+## 12.4 验收检查
 
-跑一次验收（`validateDraftAgainstSpec`）会产出一组检查项，每项有 key、标签、是否通过、严重度（blocker / warning）、以及一条提示。
+跑一次验收（`validateDraftAgainstSpec`）会产出一组检查项，每项有 key、标签、是否通过、严重度（blocker / warning）、以及一条提示。章节和专属内容检查见下表；第 21.14 节按代码顺序再列一遍。
 
-八类检查：
+| key                                        | 严重度         | 判什么                                            |
+| ------------------------------------------ | -------------- | ------------------------------------------------- |
+| `section.<序号>.<关键词>`                  | **warning**    | 必要章节在不在（关键词命中，不挡导出）            |
+| `placeholders.resolved`                    | 需要就 blocker | 占位符清干净没                                    |
+| `criteria.coverage`                        | **warning**    | 所有 blocker 章节都过了没（结构代理）             |
+| `clarifications.closed`                    | **warning**    | 有没有还没答的澄清问题（有就不过）                |
+| `draft.body.placeholder_density_heuristic` | **warning**    | 占位符密度启发式，正文 ≥400 字才跑，阈值 **0.38** |
+| `contract.review.clause_anchor`            | **warning**    | 合同审查：风险章节有没有条款锚点                  |
+| `contract.review.recommended_wording`      | **warning**    | 只管合同审查：建议章节里有没有推荐措辞            |
+| `draft.scaffold_density`                   | 密集则 blocker | 骨架密度                                          |
+| `calc.formula_source`                      | **warning**    | 计算类出现金额或日期但没有公式                    |
+| `exhibit.purpose`                          | **warning**    | 证据目录没有证明目的、证明对象或证明内容          |
+| `research.keep_column`                     | **warning**    | 同一节写了无命中却没标待核实                      |
+| `memo.internal.not_outbound`               | **warning**    | 落款或签署节写成了可外发函                        |
+| `complaint.linear_columns`                 | **warning**    | 起诉状正文里有 Markdown 表                        |
+| `timeline.empty_row`                       | **warning**    | 时间线有空白表行                                  |
+| `letter.internal_analysis`                 | **warning**    | 催告函出现内部分析用语                            |
 
-| key                                        | 严重度                    | 判什么                                            |
-| ------------------------------------------ | ------------------------- | ------------------------------------------------- |
-| `section.<序号>.<关键词>`                  | 按规格（blocker/warning） | 必要章节在不在                                    |
-| `placeholders.resolved`                    | 需要就 blocker            | 占位符清干净没                                    |
-| `criteria.coverage`                        | **warning**               | 所有 blocker 章节都过了没（结构代理）             |
-| `clarifications.closed`                    | **warning**               | 有没有还没答的澄清问题（有就不过）                |
-| `draft.body.placeholder_density_heuristic` | **warning**               | 占位符密度启发式，正文 ≥400 字才跑，阈值 **0.38** |
-| `contract.review.clause_anchor`            | **blocker**               | 只管合同审查：风险/问题章节里有没有条款锚点       |
-| `contract.review.recommended_wording`      | **warning**               | 只管合同审查：建议章节里有没有推荐措辞            |
-| `draft.scaffold_density`                   | 密集则 blocker            | 骨架密度                                          |
+后七条在 `content-checks.ts`。没有缺口时不生成这条检查。审查表每行出处仍由 `reviewTableAcceptanceProblems` 看 sidecar，不在这里重复。
 
 两条合同审查专属检查值得展开：
 
-- `contract.review.clause_anchor` 要的是：风险章节里出现 `第X条`、`Article N`、或者 `〔待核实〕`/`[待核实]` 标记。也就是说——**每条风险得指向具体条款，或者明说「这条我还没核实」。** 光写「本合同存在风险」不算。
+- `contract.review.clause_anchor` 提醒：风险章节里最好出现 `第X条`、`Article N`，或者 `〔待核实〕`。没写只是提醒，不挡导出。
 - `contract.review.recommended_wording` 要的是：建议章节里出现「推荐措辞」「建议改为」「改为…」「修订为」这类表述。**只说「建议修改」不够，得给出改成什么。**
 
 ### blocker 和 warning 的区别
@@ -132,10 +139,14 @@
 
 ```text
 strict = opts?.strictGates ?? isFeatureEnabled("acceptanceGateStrict")
-if (!acceptanceReport.ready || (reasoningReport.required && !reasoningReport.ready)) → 拒绝
+if (!acceptanceReport.ready) → 拒绝
 ```
 
-拒绝时会写一条审计事件 `artifact.render_blocked`，详情记着 `acceptance.ready=…; reasoning.ready=… (required=…)`。
+推理图缺争点、缺图、权威冲突未解，只记提醒，不参与这句拒绝。拒绝只来自空交付：未填占位符、骨架稿过密。拒绝时仍写审计事件 `artifact.render_blocked`，详情里的 `reasoning.ready` 只给排查用。
+
+退给模型和律师的 `error` 不写组件名，也不写「双门禁」。`formatRenderGateRefusal`（`src/lawmind/deliverables/acceptance-lawyer-copy.ts`）先写「还不能导出」，再列最多六条阻塞项和四条提醒。提醒不改变 `ready`，只让同一轮把还能补的写上。推理门未过时再附争点类缺口，最后一句固定是「通过核对不等于法律正确」。章节标签里的关键词只出现在给模型的那一行（「标题或节首写上：…」），不出现在律师句子里。
+
+审核台上的同一套句子由 `humanizeAcceptanceLabel` 生成。章节检查的 key 是 `section.<序号>.<关键词>`，界面只取规格里的用途说明，序号和「关键词」都不出现。没有 `deliverableType` 且 `ready === false` 时，展开和有类型时同一张清单（含「去对话补充」），不再单独写「按通用文书放行」。`ready === true` 但没类型时，只提示导出前还会再核一次。
 
 `acceptanceGateStrict` 在**三个版本里都是 true**（solo / firm / private_deploy）。也就是说，**严格模式默认就是开的**。
 
@@ -169,24 +180,20 @@ if (!acceptanceReport.ready || (reasoningReport.required && !reasoningReport.rea
 }
 ```
 
-翻译一下：至少 2 个争点、必须解决权威冲突、至少 2 条事实。
+翻译一下：规格仍写着至少 2 个争点、解决权威冲突、至少 2 条事实。这些条数不够时只提醒，不挡导出。
 
 ### 六项检查
 
 | key                            | 严重度           | 判什么                 |
 | ------------------------------ | ---------------- | ---------------------- |
-| `graph_present`                | 按是否 required  | 有没有推理图           |
-| `min_issues`                   | 按是否 required  | 争点数够不够（默认 1） |
+| `graph_present`                | **warning**      | 有没有推理图           |
+| `min_issues`                   | **warning**      | 争点数够不够（默认 1） |
 | `facts_grounded`               | **永远 warning** | 事实数够不够（默认 0） |
-| `authority_conflicts_resolved` | 按配置           | 权威冲突解决了没       |
+| `authority_conflicts_resolved` | **warning**      | 权威冲突解决了没       |
 | `issues_have_authority`        | **永远 warning** | 每个争点有没有依据     |
 | `confidence_ok`                | **永远 warning** | 整体置信度 ≥0.4        |
 
-`facts_grounded` 为什么永远只是 warning？代码里给了一个很实在的理由，而且带着实测数据：
-
-> `factsTotal` 恒为 0。**2026-09-22 用真实工作区实测确认**（136 份 `drafts/*.reasoning.json`）：争点数为 0 → 117（**86%**）……其中 `facts` > 0 → **0**……其中 `evidence` > 0 → **0**……也就是说：**这一层在真实使用中基本是惰性的。**
-
-也就是说，如果他们把它设成 blocker，那么**每一次高风险交付都会被挡住**，因为那个字段在实际使用中从来不是 0。这是一次很诚实的处理：**发现某个检查项是惰性的，就把它降级成建议，并留下实测数据说明原因，而不是留着它假装有用或者直接删掉。**
+`facts_grounded` 为什么仍然只是 warning？只有结论引用了的案件材料才计入事实。未被引用的材料写在交付风险里，请起草自行判断，不把某条争点标成已经用过这些材料。2026-09-22 的旧快照里这项几乎总是 0。设成 blocker 会在模型还没引用材料时拦住高风险交付。
 
 ### 五条结构检查
 
@@ -482,7 +489,7 @@ README 补了一句为什么：
 | 命令                             | 干什么                                                                                 | 关键参数                                                                                                         |
 | -------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `pnpm lawmind:gate`              | 交付验收门 CLI                                                                         | `--task`、`--all`、`--strict`、`--specs`、`--pack <taskId>`、`--json`                                            |
-| `pnpm lawmind:benchmark`         | 跑 benchmark + 影子回放                                                                | `--mode`、`--threshold`（默认 0.8）、`--strict`、`--real-model`、`--shadow-engine`                               |
+| `pnpm lawmind:benchmark`         | 跑 benchmark + 影子回放。`--strict` 时 mock 不能过关                                   | `--mode`、`--threshold`（默认 0.8）、`--strict`、`--real-model`、`--shadow-engine`                               |
 | `pnpm lawmind:compiler-gate`     | 离线编译器门：规则数 ≥20（`MIN_RULES`）、影子样本 ≥10（`MIN_SHADOW`）、缺陷召回必须 =1 | 无参数                                                                                                           |
 | `pnpm lawmind:human-baseline`    | 人类基准盲评                                                                           | `--write-rubric`、`--write-blind`、`--workspace`                                                                 |
 | `pnpm lawmind:true-manuscript`   | 真稿门                                                                                 | `--write-baseline`、`--workspace`                                                                                |
@@ -523,29 +530,29 @@ README 补了一句为什么：
 
 ## 12.19 关键文件
 
-| 关注点           | 文件                                                                                                                                                                                                                                         |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 规格注册表       | `src/lawmind/deliverables/registry.ts`、`lawyer-work-specs.ts`、`types.ts`                                                                                                                                                                   |
-| 验收检查         | `src/lawmind/deliverables/validator.ts`                                                                                                                                                                                                      |
-| 推理门           | `reasoning-validator.ts`、`reasoning-validator-workspace.ts`                                                                                                                                                                                 |
-| 占位符与骨架     | `placeholder-pattern.ts`、`draft-sanity.ts`、`scaffold-status.ts`                                                                                                                                                                            |
-| 必核清单         | `verification-checklist.ts`                                                                                                                                                                                                                  |
-| 工作区自定义规格 | `workspace-loader.ts`                                                                                                                                                                                                                        |
-| 就绪度总览       | `deliverable-readiness.ts`                                                                                                                                                                                                                   |
-| 交付档位与自主   | `src/lawmind/delivery/resolve-delivery-tier.ts`、`auto-deliver.ts`、`progressive-autonomy.ts`、`judgement-ratchet.ts`                                                                                                                        |
-| 决策头           | `src/lawmind/delivery/decision-header.ts`、`judgment-labels.ts`                                                                                                                                                                              |
-| 验收包           | `src/lawmind/delivery/acceptance-pack.ts`、`draft-acceptance-pack.ts`                                                                                                                                                                        |
-| 指标             | `src/lawmind/metrics/`（含 README）                                                                                                                                                                                                          |
-| 评测             | `src/lawmind/evaluation/`（含 README）                                                                                                                                                                                                       |
-| 独立审稿         | `src/lawmind/guardian/`（第 8 章）                                                                                                                                                                                                           |
-| HTTP             | `apps/lawmind-desktop/server/lawmind-server-route-acceptance.ts`、`-metrics.ts`、`-support.ts`                                                                                                                                               |
-| 桌面 UI          | `LawmindAcceptanceGate.tsx`、`LawmindReviewDeliveryBar.tsx`、`LawmindReviewSelfCheckSummary.tsx`、`LawmindDeskDashboardSummary.tsx`、`LawmindSettingsScorecard.tsx`、`matter/LawmindMatterHealthCard.tsx`、`matter/MatterQualityCockpit.tsx` |
-| CLI              | `scripts/lawmind/lawmind-deliverable-check.ts`、`lawmind-benchmark.ts`、`lawmind-compiler-gate.ts`、`lawmind-release-readiness.ts` 等                                                                                                        |
+| 关注点           | 文件                                                                                                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 规格注册表       | `src/lawmind/deliverables/registry.ts`、`lawyer-work-specs.ts`、`types.ts`                                                                                                                                   |
+| 验收检查         | `src/lawmind/deliverables/validator.ts`、`acceptance-lawyer-copy.ts`（律师可见缺口句，导出与审核台共用）                                                                                                     |
+| 推理门           | `reasoning-validator.ts`、`reasoning-validator-workspace.ts`                                                                                                                                                 |
+| 占位符与骨架     | `placeholder-pattern.ts`、`draft-sanity.ts`、`scaffold-status.ts`                                                                                                                                            |
+| 必核清单         | `verification-checklist.ts`                                                                                                                                                                                  |
+| 工作区自定义规格 | `workspace-loader.ts`                                                                                                                                                                                        |
+| 就绪度总览       | `deliverable-readiness.ts`                                                                                                                                                                                   |
+| 交付档位与自主   | `src/lawmind/delivery/resolve-delivery-tier.ts`、`auto-deliver.ts`、`progressive-autonomy.ts`、`judgement-ratchet.ts`                                                                                        |
+| 决策头           | `src/lawmind/delivery/decision-header.ts`、`judgment-labels.ts`                                                                                                                                              |
+| 验收包           | `src/lawmind/delivery/acceptance-pack.ts`、`draft-acceptance-pack.ts`                                                                                                                                        |
+| 指标             | `src/lawmind/metrics/`（含 README）                                                                                                                                                                          |
+| 评测             | `src/lawmind/evaluation/`（含 README）                                                                                                                                                                       |
+| 独立审稿         | `src/lawmind/guardian/`（第 8 章）                                                                                                                                                                           |
+| HTTP             | `apps/lawmind-desktop/server/lawmind-server-route-acceptance.ts`、`-metrics.ts`、`-support.ts`                                                                                                               |
+| 桌面 UI          | `LawmindAcceptanceGate.tsx`、`LawmindReviewDeliveryBar.tsx`、`LawmindReviewSelfCheckSummary.tsx`、`LawmindDeskDashboardSummary.tsx`、`matter/LawmindMatterHealthCard.tsx`、`matter/MatterQualityCockpit.tsx` |
+| CLI              | `scripts/lawmind/lawmind-deliverable-check.ts`、`lawmind-benchmark.ts`、`lawmind-compiler-gate.ts`、`lawmind-release-readiness.ts` 等                                                                        |
 
 ## 12.20 已知坑
 
 - **`criteria.coverage` 只是结构代理。** 它过了不代表内容覆盖全了，别把它当语义质量证明。
-- **`facts_grounded` 永远是 warning，这是实测结论。** 真实数据里 136 份推理快照中有 117 份（86%）争点数为 0、`facts > 0` 的是 0 份。把它改成 blocker 会挡掉每一次高风险交付。要修得先修上游「为什么 facts 一直是 0」。
+- **`facts_grounded` 仍是 warning。** 未引用的案件材料不计入事实，只在交付风险里留给起草判断。升成 blocker 会在模型还没引用时拦住交付。
 - **结构检查不是质量分。** `reasoning-validator` 里全是集合运算，通过不等于法律正确。
 - **严格模式默认开，三档都是。** 别以为 solo 版会宽松，验收门在 solo 也是硬的。
 - **只有 `rejected` 绝对不许渲染。** 待审、需修改、已批准都能出草稿，但出口时要过验收门。
@@ -557,3 +564,5 @@ README 补了一句为什么：
 - **校准器样本不够时返回 `undefined`，不给默认概率。** 别在下游给 `undefined` 兜个 0.5。
 - **真稿门、人类基准门在没夹具时是 SKIP。** 报告里显示 SKIP 是正常的，也是诚实的；`LAWMIND_REQUIRE_*` 才会把它变成失败。
 - **验收总览的 blocker 计数曾经算错过。** 代码里有一段注释记着：早先写成 `!c.ok`，而字段其实叫 `passed`，于是**每一个 blocker 都被算成未通过**（连已通过的也计）。这个计数是律师可见的。看到类似的「计数偏高」，先确认字段名。
+- **导出失败不要写成组件名。** 律师只看这一句。`formatRenderGateRefusal` 列缺口；审计 `detail` 仍可写 `acceptance.ready`。两套口径不要并成一句。
+- **未标明文书类型不是放行。** 审核台在 `deliverableType` 为空且 `ready === false` 时展开同一张出稿清单。写成「按通用文书放行」会和 `spec.not_found` 打架。

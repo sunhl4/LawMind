@@ -50,8 +50,8 @@ describe("LawmindContextForkSuggestion", () => {
         <LawmindContextForkSuggestion onFork={onFork} onDismiss={onDismiss} />,
       );
     });
-    expect(host.textContent).toContain("已经整理过多次上下文");
-    expect(host.textContent).toContain("草稿、案件档案与待办都在原处");
+    expect(host.textContent).toContain("这场对话已经比较长");
+    expect(host.textContent).toContain("稿子和案件材料都留在本案");
     await act(async () => {
       host.querySelector<HTMLButtonElement>('[data-testid="lm-ctx-fork-suggest-go"]')?.click();
     });

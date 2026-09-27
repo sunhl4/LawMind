@@ -10,11 +10,15 @@ export function isHighSecurityMode(workspaceDir: string): boolean {
   return isEgressOffline(workspaceDir);
 }
 
+/**
+ * 分析脚本默认允许。只有策略明确写 `allowAnalysisScripts: false`，或离线模式，才关掉。
+ * 不设律师开关：本机命令与当场核算同样默认可用。
+ */
 export function isAnalysisScriptsAllowed(workspaceDir: string): boolean {
   if (isHighSecurityMode(workspaceDir)) {
     return false;
   }
-  return readWorkspacePolicyFile(workspaceDir)?.allowAnalysisScripts === true;
+  return readWorkspacePolicyFile(workspaceDir)?.allowAnalysisScripts !== false;
 }
 
 export function isMcpClientAllowed(workspaceDir: string): boolean {

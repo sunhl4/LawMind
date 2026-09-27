@@ -91,8 +91,8 @@ export function resolveManifestTargets({ platform, home, downloads, exists }) {
 }
 
 /** 给律师看的一句说明（按落点区分动作）。 */
-export function manifestInstructions(location, base) {
+export function manifestInstructions(location, _base) {
   return location === "word-container"
-    ? "已装进 Word 的侧载目录。完全退出 Word 再打开（macOS 上侧载在启动时读取），加载项即指向本次端口。"
-    : `已存到下载目录，请拖进 Word 的加载项目录后重启 Word（清单指向 ${base}）。`;
+    ? "已重新连接。请完全退出 Word 后再打开。"
+    : "已保存到「下载」。请把它放进 Word 的加载项文件夹，然后完全退出 Word 再打开。";
 }

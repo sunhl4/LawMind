@@ -68,6 +68,16 @@ declare global {
         }) => void,
       ) => () => void;
       pickWorkspace: () => Promise<{ ok: boolean; path?: string }>;
+      /** 工作区所在卷：文件系统类型与剩余字节。失败时不阻断保存。 */
+      inspectWorkspaceVolume?: (absPath: string) => Promise<
+        | {
+            ok: true;
+            fstype: string | null;
+            driveType: number | null;
+            freeBytes: number | null;
+          }
+        | { ok: false; error?: string }
+      >;
       /**
        * 用**当前**端口重新生成并安装 Word 侧载清单。
        *

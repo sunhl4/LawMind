@@ -16,11 +16,11 @@
 
 三个入口，分别对应三种用法：
 
-| 入口                   | 文件                                                  | 什么时候用            |
-| ---------------------- | ----------------------------------------------------- | --------------------- |
-| 引擎工厂（经典流水线） | `src/lawmind/engine/factory.ts`                       | CLI、评测、引擎级测试 |
-| Agent 工厂             | `src/lawmind/agent/agent-factory.ts`                  | 桌面产品主路径        |
-| 本地服务               | `apps/lawmind-desktop/server/lawmind-local-server.ts` | 进程级入口            |
+| 入口                   | 文件                                                  | 什么时候用                                                            |
+| ---------------------- | ----------------------------------------------------- | --------------------------------------------------------------------- |
+| 引擎工厂（经典流水线） | `src/lawmind/engine/factory.ts`                       | CLI、评测、引擎级测试；桌面审核 / 导出 / 打回重审；Agent 工具内部复用 |
+| Agent 工厂             | `src/lawmind/agent/agent-factory.ts`                  | 桌面对话回合的主路径                                                  |
+| 本地服务               | `apps/lawmind-desktop/server/lawmind-local-server.ts` | 进程级入口                                                            |
 
 **从这里开始读**：
 
@@ -167,8 +167,8 @@ app/LawmindAppRootView.tsx       骨架（侧栏 + 顶栏 + 主体）
   ↓
 app/LawmindMainBodyContent.tsx   按当前视图分支
   ↓
-五个工作面：LawmindWorkspaceMainPane / LawmindLawyerWorkbench /
-            AgentFleetView / MeetingView / ReviewView
+六个工作面：LawmindWorkspaceMainPane / LawmindLawyerWorkbench /
+            AgentFleetView / MeetingView / ReviewView / LawmindArchiveOrganizePage
 ```
 
 **数据怎么来**：
@@ -184,7 +184,7 @@ app/LawmindMainBodyContent.tsx   按当前视图分支
 
 **约定**（`stores/README.md`）：一个域一个文件、actions 跟 state 一起、临时态与持久态分开、组件用 selector 订阅。
 
-**界面文案**：改文案前读第 32 章，改完跑 `pnpm lawmind:ui-copy-lint`。
+**界面文案**：改文案前读第 32 章，改完跑 `pnpm lawmind:ui-copy-lint`。引擎里的用量桶、模型窗口、工具回包可以留在 `context-budget` 和会话路由里；律师面只在对话变长或已经整理过时说「这场对话」，不要把这些桶画到输入栏上。
 
 ## 34.9 按功能找文件的索引
 
@@ -255,10 +255,10 @@ rg "^describe|^\s+it\(" src/lawmind/memory/adoption-service.test.ts
 
 工程研究笔记里列了几个已知问题，读代码时别把它们当范例：
 
-| 模块                          | 问题                                                    |
-| ----------------------------- | ------------------------------------------------------- |
-| `matter-ops/storage.ts`       | 用裸 fs，没有锁、原子写、zod（`matters/` 下唯一的例外） |
-| `metrics/lawyer-dashboard.ts` | 历史上存在失败计数重复计（同一批缺陷算两遍）            |
+| 模块                          | 问题                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------ |
+| `matter-ops/storage.ts`       | 已接原子写、zod 和文件锁。坏的 `scope.json` 读出来像空的，保存会拒绝覆盖 |
+| `metrics/lawyer-dashboard.ts` | 历史上存在失败计数重复计（同一批缺陷算两遍）                             |
 
 ### 技巧六：注意两份镜像
 
@@ -278,7 +278,7 @@ rg "^describe|^\s+it\(" src/lawmind/memory/adoption-service.test.ts
 
 - **`agent/tool-name-sets.ts` 在 `agent/` 下，不在 `tools/` 下。**
 - **`integration/`（单数）只有测试；`integrations/`（复数）才是连接器。**
-- **`matter-ops/storage.ts` 绕过写协议。** 别模仿。
+- **`matter-ops/storage.ts` 已接写协议。** 新代码继续走原子写和锁，不要退回裸 `writeFileSync`。
 - **两份清单要手工同步。** 改一处看另一处——`electron/fs-bridge.test.ts` 会替你抓漏改的一侧。
 - **`index.ts` 不是全部能力。**
 - **`engine/` 那条路和 `agent/` 那条路是并行的两套。** 改之前先确认你改的是产品在用的那条。

@@ -6,7 +6,7 @@ export function LawmindSettingsDisclaimer(): ReactNode {
     <div className="lm-settings-section lm-settings-section--disclaimer">
       <div className="lm-callout lm-callout-muted" role="note">
         <p className="lm-callout-body">
-          LawMind 不构成法律意见；重要交付请复核。{" "}
+          LawMind 不构成法律意见；重要交付请审核。{" "}
           <a href={lawmindDocUrl("archive/LAWMIND-DATA-PROCESSING")} target="_blank" rel="noreferrer noopener">
             数据处理说明
           </a>

@@ -1,5 +1,6 @@
 import { requestApproval } from "../../../application/services/approval-service.js";
 import { recordDeadline } from "../../../application/services/deadline-service.js";
+import { recordObligation } from "../../../application/services/obligation-service.js";
 import { openQueueItem } from "../../../application/services/queue-write-service.js";
 import { LEGAL_EVENT_KINDS } from "../../../desk/legal-event-extract.js";
 import { appendSessionSummary } from "../../../memory/session-summary.js";
@@ -189,6 +190,49 @@ export const recordDeadlineTool: AgentTool = {
       return {
         ok: false,
         error: `记录 deadline 失败: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  },
+};
+
+export const recordObligationTool: AgentTool = {
+  definition: {
+    name: "record_obligation",
+    description:
+      "记下本案一条付款、通知或履约义务，落到 obligations.jsonl。金额按原文写入。没有义务就不要调用。不改稿，也不拦住交件。",
+    category: "system",
+    parameters: {
+      matter_id: { type: "string", description: "案件 ID（缺省时复用当前会话的 matterId）" },
+      title: { type: "string", description: "义务是什么", required: true },
+      obligor: { type: "string", description: "由谁履行。不知道就不填" },
+      amount_text: { type: "string", description: "金额原文。约数照写，不要改成整数" },
+      due_at: { type: "string", description: "履行时间原文或 ISO。没有就不填" },
+      source_quote: { type: "string", description: "合同或材料里的原句。没有就不编" },
+    },
+  },
+  async execute(params, ctx) {
+    try {
+      const matterId = ensureMatterId(params.matter_id, ctx.matterId);
+      const title = asNonEmptyString(params.title, "title", MAX_TITLE_LENGTH);
+      const record = recordObligation(ctx.workspaceDir, {
+        matterId,
+        title,
+        obligor: asOptionalString(params.obligor, "obligor", 120),
+        amountText: asOptionalString(params.amount_text, "amount_text", 120),
+        dueAt: asOptionalString(params.due_at, "due_at", 80),
+        sourceQuote: asOptionalString(params.source_quote, "source_quote", 240),
+      });
+      return {
+        ok: true,
+        data: {
+          obligationId: record.obligationId,
+          amountMinor: record.amountMinor,
+        },
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: `记录义务失败: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
   },

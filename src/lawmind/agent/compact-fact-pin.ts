@@ -5,7 +5,8 @@
  *
  * 任务钉子（`taskPin`）只保「要做什么」。压缩保真度基准实测出的下一条缺口是：
  * **期限 / 金额 / 引用 / 硬约束在第 1 轮就随要点窗口一起丢了**——
- * 律师说过「劳动仲裁申请时效是一年」，压一轮之后模型手里就没有这句话了。
+ * 律师说过「劳动仲裁申请时效是一年」，或「须于2026年9月30日前提起仲裁」（没有「期限」二字），
+ * 压一轮之后模型手里就没有这句话了。
  * 对法律工作来说，丢期限是事故（误期 = 执业风险），丢硬约束会直接把交付做反
  * （「不要把保密义务一起解除」丢了，模型就可能真去解除）。
  *
@@ -78,6 +79,16 @@ const DEADLINE_TOPIC_RE = /(?:时效|期限|期间|届满|举证期限|上诉期
 const DURATION_RE =
   /(?:\d+|[一二三四五六七八九十百千零两]+)\s*(?:个)?\s*(?:年|个月|月|日|天|周|星期|工作日)|起算|之日起|届满|之前|以内|内完成|到期/;
 
+/**
+ * 绝对日期 + 截止动作。
+ *
+ * 「2026年9月30日前提起仲裁」没有「期限/时效」这两个字，旧规则整句不钉，
+ * 压一轮后模型手里就没有这个日子。只认日历日（或 ISO 日）再加截止/诉讼动作，
+ * 避免把「签订于 2024年1月1日」这类历史事实钉成期限。
+ */
+const CALENDAR_DATE_RE = /(?:\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日|\d{4}-\d{2}-\d{2})/;
+const CALENDAR_DEADLINE_CUE_RE = /日之前|日前|不晚于|截止|届满|到期|开庭|起诉|上诉|答辩|送达|提交/;
+
 /** 金额类特征（窄）：必须带货币量词，避免把「第 3 条」「30%」误当金额。 */
 const AMOUNT_RE = /(?:¥|￥|人民币)?\s*[0-9][0-9,，]*(?:\.[0-9]+)?\s*(?:万|亿)?\s*元/;
 
@@ -85,7 +96,8 @@ const AMOUNT_RE = /(?:¥|￥|人民币)?\s*[0-9][0-9,，]*(?:\.[0-9]+)?\s*(?:万
 const CONSTRAINT_RE = /(?:必须|不得|不要|不能|务必|严禁|一定要|切勿)/;
 
 /** 法条引用特征：与 `collectDroppedCitationAnchors` 同一口径（复用它的召回能力）。 */
-const CITATION_SENTENCE_RE = /《[^《》\n]{1,48}》|法释〔\d{4}〕\d+号|（\d{4}）[^）\n]{2,24}号/;
+const CITATION_SENTENCE_RE =
+  /《[^《》\n]{1,48}》|法释〔\d{4}〕\d+号|（\d{4}）[^）\n]{2,24}号|指导性?案例\s*\d{1,4}\s*号/;
 
 /** 按句切分：保留原句边界，避免把两件事粘成一条。 */
 function splitSentences(text: string): string[] {
@@ -103,7 +115,11 @@ function normalizeForDedupe(text: string): string {
 function classifySentence(sentence: string): FactPinKind | undefined {
   // 疑问句不是约束（「是否必须…？」是在问，不是在要求），也不是期限事实。
   const isQuestion = /[？?]\s*$/.test(sentence);
-  if (!isQuestion && DEADLINE_TOPIC_RE.test(sentence) && DURATION_RE.test(sentence)) {
+  if (
+    !isQuestion &&
+    ((DEADLINE_TOPIC_RE.test(sentence) && DURATION_RE.test(sentence)) ||
+      (CALENDAR_DATE_RE.test(sentence) && CALENDAR_DEADLINE_CUE_RE.test(sentence)))
+  ) {
     return "deadline";
   }
   if (!isQuestion && CONSTRAINT_RE.test(sentence)) {
@@ -118,8 +134,16 @@ function classifySentence(sentence: string): FactPinKind | undefined {
   return undefined;
 }
 
-function makeItem(kind: FactPinKind, text: string, caps: ContextPinsTuning): FactPinItem {
-  const trimmed = text.trim().slice(0, caps.factItemCharCap);
+function makeItem(
+  kind: FactPinKind,
+  text: string,
+  caps: ContextPinsTuning,
+): FactPinItem | undefined {
+  const trimmed = text.trim();
+  // 放不下的整句不钉。半句看起来像完整事实，比漏钉更危险；全文在压缩归档里。
+  if (!trimmed || trimmed.length > caps.factItemCharCap) {
+    return undefined;
+  }
   return {
     // id 只用于去重与展示，不做语义：kind + 归一化正文。
     id: `${kind}:${normalizeForDedupe(trimmed).slice(0, 48)}`,
@@ -145,7 +169,7 @@ export function extractFactPinItems(text: string, tuning?: ContextPinsTuning): F
       continue;
     }
     const item = makeItem(kind, sentence, caps);
-    if (seen.has(item.id)) {
+    if (!item || seen.has(item.id)) {
       continue;
     }
     seen.add(item.id);
@@ -241,7 +265,10 @@ export function accumulateFactPin(
   // 法条引用单独召回：它可能只出现在被丢弃的**工具回包**里（模型是那时读到的）。
   const anchors = collectDroppedCitationAnchors(pool as AgentMessage[], caps.factCitationAnchorMax);
   for (const anchor of anchors) {
-    incoming.push(makeItem("citation", anchor, caps));
+    const item = makeItem("citation", anchor, caps);
+    if (item) {
+      incoming.push(item);
+    }
   }
   if (incoming.length === 0) {
     return { added: 0, total: session.factPin?.items.length ?? 0 };

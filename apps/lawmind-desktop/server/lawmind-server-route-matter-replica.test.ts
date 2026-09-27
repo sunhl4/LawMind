@@ -8,12 +8,15 @@ import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 
 const tmpDirs: string[] = [];
 
-function tmpWorkspace(edition: "solo" | "firm"): string {
+function tmpWorkspace(
+  edition: "solo" | "firm",
+  extra?: Record<string, unknown>,
+): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-replica-api-"));
   tmpDirs.push(dir);
   fs.writeFileSync(
     path.join(dir, "lawmind.policy.json"),
-    JSON.stringify({ schemaVersion: 1, edition }),
+    JSON.stringify({ schemaVersion: 1, edition, ...extra }),
     "utf8",
   );
   return dir;
@@ -87,11 +90,22 @@ async function call(
 }
 
 describe("matter-replica routes", () => {
-  it("status is disabled on solo", async () => {
+  it("status is enabled on solo (edition default on)", async () => {
     const ws = tmpWorkspace("solo");
     const r = await call(ws, "/api/matter-replica/status", "GET");
     expect(r.statusCode).toBe(200);
-    expect((r.body as { enabled: boolean }).enabled).toBe(false);
+    const body = r.body as { enabled: boolean; reason: string };
+    expect(body.enabled).toBe(true);
+    expect(body.reason).toBe("matter_replica_edition");
+  });
+
+  it("policy matterReplica.enabled:false still turns solo off", async () => {
+    const ws = tmpWorkspace("solo", { matterReplica: { enabled: false } });
+    const r = await call(ws, "/api/matter-replica/status", "GET");
+    expect(r.statusCode).toBe(200);
+    const body = r.body as { enabled: boolean; reason: string };
+    expect(body.enabled).toBe(false);
+    expect(body.reason).toBe("matter_replica_policy_off");
   });
 
   it("status is enabled on firm", async () => {
@@ -101,14 +115,20 @@ describe("matter-replica routes", () => {
     expect((r.body as { enabled: boolean }).enabled).toBe(true);
   });
 
-  it("membership returns 403 when solo", async () => {
+  it("membership returns 200 on solo (edition default on)", async () => {
     const ws = tmpWorkspace("solo");
+    const r = await call(ws, "/api/matter-replica/membership", "GET", "?matterId=m1");
+    expect(r.statusCode).toBe(200);
+  });
+
+  it("membership returns 403 when policy turns collab off", async () => {
+    const ws = tmpWorkspace("solo", { matterReplica: { enabled: false } });
     const r = await call(ws, "/api/matter-replica/membership", "GET", "?matterId=m1");
     expect(r.statusCode).toBe(403);
   });
 
-  it("scheduler status is readable on solo and explains why it is off", async () => {
-    const ws = tmpWorkspace("solo");
+  it("scheduler status is readable when policy turns collab off and explains why", async () => {
+    const ws = tmpWorkspace("solo", { matterReplica: { enabled: false } });
     const r = await call(ws, "/api/matter-replica/scheduler", "GET");
     // 刻意不返回 403：这是只读状态，门控关闭时也要能解释原因
     expect(r.statusCode).toBe(200);
@@ -137,8 +157,8 @@ describe("matter-replica routes", () => {
     expect(r.statusCode).toBe(409);
   });
 
-  it("scheduler tick is 403 on solo (写操作仍受门控)", async () => {
-    const ws = tmpWorkspace("solo");
+  it("scheduler tick is 403 when policy turns collab off (写操作仍受门控)", async () => {
+    const ws = tmpWorkspace("solo", { matterReplica: { enabled: false } });
     const r = await call(ws, "/api/matter-replica/scheduler/tick", "POST");
     expect(r.statusCode).toBe(403);
   });

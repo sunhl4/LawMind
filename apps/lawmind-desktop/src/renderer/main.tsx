@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
 import { LawmindDesktopRequiredPage } from "./app/LawmindDesktopRequiredPage";
 import { LawmindErrorBoundary } from "./LawmindErrorBoundary";
+import { LawmindUnexpectedErrorHost } from "./LawmindUnexpectedErrorHost";
 import { LawmindReviewPreviewPopout } from "./LawmindReviewPreviewPopout";
 import { hasLawmindDesktopBridge } from "./lawmind-desktop-bridge";
 import { parseLawmindPopoutRoute } from "./lawmind-popout-route";
@@ -27,6 +28,7 @@ const popout = parseLawmindPopoutRoute();
 createRoot(el).render(
   <StrictMode>
     <LawmindErrorBoundary label="LawMind">
+      <LawmindUnexpectedErrorHost />
       <QueryClientProvider client={lawmindQueryClient}>
         {popout?.kind === "review-preview" ? (
           <LawmindReviewPreviewPopout taskId={popout.taskId} />

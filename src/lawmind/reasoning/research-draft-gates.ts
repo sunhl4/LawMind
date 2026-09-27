@@ -21,7 +21,11 @@ import {
   persistResearchOutline,
   readResearchOutline,
 } from "../research/outline-store.js";
-import { buildResearchOutline, type ResearchOutline } from "../research/research-outline.js";
+import {
+  buildResearchOutline,
+  lawyerWantsOutlineHold,
+  type ResearchOutline,
+} from "../research/research-outline.js";
 import type { ArtifactSection, ResearchBundle, TaskIntent } from "../types.js";
 
 export { expandApprovedOutlineToSections };
@@ -63,38 +67,45 @@ export function resolveOutlineForDraft(opts: {
     // Reject / unclear clarification answers must not rubber-stamp via free-text markers.
     const decision = outlineAnswerDecision(resumeAnswer);
     if (decision === "rejected") {
-      // Rebuild evidence-shaped outline from current bundle so lawyer is not stuck on the same plan.
       const rebuilt = buildResearchOutline(intent, bundle);
+      const hold = lawyerWantsOutlineHold(`${intent.instruction ?? ""} ${intent.summary ?? ""}`);
       outline = {
         ...rebuilt,
-        status: "pending",
-        notes: [...rebuilt.notes, "律师不同意上一版大纲，已按当前检索结果重建，请再次确认。"],
+        status: hold ? "pending" : "approved",
+        notes: [
+          ...rebuilt.notes,
+          hold
+            ? "律师不同意上一版大纲，已按当前检索结果重建，请再次确认。"
+            : "律师不同意上一版大纲，已按当前检索结果重建并直接写正文。",
+        ],
       };
       if (opts.workspaceDir) {
         persistResearchOutline(opts.workspaceDir, intent.taskId, outline);
       }
-      return { outline, approved: false };
+      return { outline, approved: !hold };
     }
     if (decision === "unclear") {
-      outline = { ...outline, status: "pending" };
+      const hold = lawyerWantsOutlineHold(`${intent.instruction ?? ""} ${intent.summary ?? ""}`);
+      outline = { ...outline, status: hold ? "pending" : "approved" };
       if (opts.workspaceDir) {
         persistResearchOutline(opts.workspaceDir, intent.taskId, outline);
       }
-      return { outline, approved: false };
+      return { outline, approved: !hold };
     }
   }
 
-  if (outlineLooksApproved(intent.instruction)) {
+  const hold = lawyerWantsOutlineHold(`${intent.instruction ?? ""} ${intent.summary ?? ""}`);
+  if (hold && !outlineLooksApproved(intent.instruction)) {
+    outline = { ...outline, status: "pending" };
+    if (opts.workspaceDir) {
+      persistResearchOutline(opts.workspaceDir, intent.taskId, outline);
+    }
+  } else if (outlineLooksApproved(intent.instruction) || !hold) {
     outline = { ...outline, status: "approved" };
     if (opts.workspaceDir) {
       persistResearchOutline(opts.workspaceDir, intent.taskId, outline);
       approveResearchOutline(opts.workspaceDir, intent.taskId);
     }
-  } else if (opts.workspaceDir) {
-    persistResearchOutline(opts.workspaceDir, intent.taskId, {
-      ...outline,
-      status: outline.status === "approved" ? "approved" : "pending",
-    });
   }
 
   return { outline, approved: outline.status === "approved" };

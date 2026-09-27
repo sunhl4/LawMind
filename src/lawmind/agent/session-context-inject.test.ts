@@ -65,6 +65,26 @@ describe("session-context-inject", () => {
     expect(claimPendingContextPins(ws, "s2")).toHaveLength(1);
   });
 
+  it("keeps the newest pins when the inbox is full", () => {
+    const ws = tmpWs();
+    dirs.push(ws);
+    const pin = (relPath: string) => ({
+      pinKind: "file" as const,
+      root: "workspace" as const,
+      relPath,
+      kind: "file" as const,
+    });
+    for (let i = 0; i < 16; i += 1) {
+      queuePendingContextPins(ws, "s-cap", [pin(`old-${i}.docx`)]);
+    }
+    const queued = queuePendingContextPins(ws, "s-cap", [pin("latest.docx")]);
+    expect(queued.dropped).toBe(1);
+    expect(queued.pendingCount).toBe(16);
+    const claimed = claimPendingContextPins(ws, "s-cap");
+    expect(claimed.some((item) => "relPath" in item && item.relPath === "old-0.docx")).toBe(false);
+    expect(claimed.some((item) => "relPath" in item && item.relPath === "latest.docx")).toBe(true);
+  });
+
   it("appends a lawyer-facing user note so the next model round can read files", () => {
     const ws = tmpWs();
     dirs.push(ws);

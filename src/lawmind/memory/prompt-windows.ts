@@ -13,6 +13,17 @@ export type TruncateForPromptOptions = {
   overflow?: PromptOverflowHint;
 };
 
+/** 以 128k 为 1。下限避免小窗口把指纹再砍一半以下；上限盖住约 1M（1M/128k ≈ 7.8）。 */
+export const PROMPT_WINDOW_SCALE_MIN = 0.5;
+export const PROMPT_WINDOW_SCALE_MAX = 8;
+
+export function clampPromptWindowScale(scale: number): number {
+  if (!Number.isFinite(scale) || scale <= 0) {
+    return 1;
+  }
+  return Math.min(PROMPT_WINDOW_SCALE_MAX, Math.max(PROMPT_WINDOW_SCALE_MIN, scale));
+}
+
 export const PROMPT_WINDOW = {
   /** 当前案件 CASE.md（进展修剪上限；真正进 prompt 再用 matterIndexChars） */
   matterContextChars: 8_000,
@@ -70,7 +81,7 @@ function overflowLabel(overflow: PromptOverflowHint): string {
 
 /** Scale memory injection windows with model context (keeps floors, raises for large windows). */
 export function scalePromptWindows(scale: number): PromptWindowChars {
-  const s = Number.isFinite(scale) && scale > 0 ? Math.min(2.5, Math.max(0.5, scale)) : 1;
+  const s = clampPromptWindowScale(scale);
   const scaleChars = (n: number) => Math.max(n, Math.floor(n * s));
   return {
     matterContextChars: scaleChars(PROMPT_WINDOW.matterContextChars),

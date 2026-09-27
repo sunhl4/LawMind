@@ -9,7 +9,12 @@ import { writeFileAtomicAsync } from "../adapters/matter-storage/io.js";
 import { extractEvidenceChain } from "../reasoning/evidence-chain.js";
 import { extractLegalElements } from "../reasoning/legal-elements.js";
 import { loadCauseLexicon, suggestCauseCandidates, type CauseCandidate } from "./cause-lexicon.js";
-import { extractPartyCandidates, type IntakePartyCandidate } from "./intake-promote.js";
+import {
+  formatOmittedParty,
+  scanPartyCandidates,
+  type IntakePartyCandidate,
+} from "./intake-promote.js";
+import { MATTER_PARTIES_CAP } from "./matter-parties.js";
 
 export type IntakeBrief = {
   matterId: string;
@@ -23,6 +28,8 @@ export type IntakeBrief = {
   transcriptExcerpt?: string;
   /** 谈话里读到的当事人（标签+名称）；确认时提升进卷宗，不丢在档案里。 */
   partyCandidates?: IntakePartyCandidate[];
+  /** 已到当事人上限、没有进入候选的人。确认时必须告诉律师，不能静默丢掉。 */
+  omittedPartyNotes?: string[];
   updatedAt: string;
   confirmedAt?: string;
 };
@@ -86,8 +93,11 @@ export function parseIntakeBrief(raw: unknown, matterId: string): IntakeBrief | 
               return name && label ? { name, label } : null;
             })
             .filter((row): row is IntakePartyCandidate => row !== null)
-            .slice(0, 16),
+            .slice(0, MATTER_PARTIES_CAP),
         }
+      : {}),
+    ...(Array.isArray(o.omittedPartyNotes)
+      ? { omittedPartyNotes: asStringList(o.omittedPartyNotes, 40) }
       : {}),
     source: o.source === "materials" || o.source === "mixed" ? o.source : "talk",
     transcriptExcerpt:
@@ -185,9 +195,15 @@ export function compileIntakeBrief(input: {
     ],
     source: "talk",
     transcriptExcerpt: text.slice(0, 800),
-    ...(extractPartyCandidates(text).length > 0
-      ? { partyCandidates: extractPartyCandidates(text) }
-      : {}),
+    ...(() => {
+      const scanned = scanPartyCandidates(text);
+      return {
+        ...(scanned.kept.length > 0 ? { partyCandidates: scanned.kept } : {}),
+        ...(scanned.omitted.length > 0
+          ? { omittedPartyNotes: scanned.omitted.map(formatOmittedParty) }
+          : {}),
+      };
+    })(),
     updatedAt: new Date().toISOString(),
   };
 }

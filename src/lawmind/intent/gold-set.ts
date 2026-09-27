@@ -18,6 +18,8 @@ export type IntentGoldCase = {
   /** When set, compiled delivery.artifactShape must match. */
   deliveryShape?: "opinion_memo" | "tracked_source" | "unspecified";
   deliveryPlace?: "desktop" | "downloads" | "documents" | "unspecified";
+  /** When set, compiled.chain must equal this list (primary first). */
+  chain?: readonly LawyerCapabilityId[];
 };
 
 function pin(relPath: string): ComposeContextPin {
@@ -320,6 +322,17 @@ export const INTENT_GOLD_CASES: readonly IntentGoldCase[] = [
     id: "review-and-demand-chain",
     input: { instruction: "审查这份合同并写催告函" },
     expect: "contract.review",
+  },
+  {
+    id: "labor-plus-complaint-chain",
+    input: { instruction: "计算违法解除的经济补偿，并写起诉状" },
+    expect: "labor.calc",
+    chain: ["labor.calc", "litigation.draft"],
+  },
+  {
+    id: "invoice-xlsx",
+    input: { instruction: "整理一下", pins: [pin("进项发票.xlsx")] },
+    expect: "ops.invoice",
   },
   {
     id: "draft-not-review-on-empty-contract-ask",

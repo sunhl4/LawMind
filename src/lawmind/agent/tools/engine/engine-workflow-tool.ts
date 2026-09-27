@@ -6,11 +6,13 @@ import { loadMemoryContext } from "../../../memory/index.js";
 import { readWorkspacePolicyFile } from "../../../policy/workspace-policy.js";
 import { isOutlineGatedDeliverable } from "../../../reasoning/research-draft-gates.js";
 import { executeDeepResearchPlan } from "../../../research/execute-deep-research.js";
+import { outlineLooksApproved } from "../../../research/outline-hitl.js";
 import { persistResearchOutline, readResearchOutline } from "../../../research/outline-store.js";
 import {
   evaluateResearchEvidenceGate,
   RESEARCH_EVIDENCE_GATE_REFUSAL,
 } from "../../../research/research-evidence-gate.js";
+import { lawyerWantsOutlineHold } from "../../../research/research-outline.js";
 import { isDemoCorpusResult } from "../../../retrieval/authority-gap.js";
 import {
   ensureTaskRecord,
@@ -32,9 +34,11 @@ import {
   finalizeWorkflowTiming,
   formatWorkflowTimingSummary,
   getEngine,
+  isForceRenderAllowed,
   MAX_AUDIENCE_LENGTH,
   MAX_INSTRUCTION_LENGTH,
   MAX_TITLE_LENGTH,
+  parseLockedDeliverableType,
   pushWorkflowProgress,
   resolveMatterId,
   resolveTemplateId,
@@ -44,31 +48,6 @@ import {
 // ─────────────────────────────────────────────
 // execute_workflow — 一键完整流程
 // ─────────────────────────────────────────────
-
-/**
- * force_render 是 demo/测试旁路（跳过律师审批与双门禁）。
- * 默认关闭：必须显式设置 LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER=1 才允许使用，
- * 防止模型在生产环境凭一个参数绕过「中/高风险需律师拍板」的信任门。
- */
-export function isForceRenderAllowed(): boolean {
-  return process.env.LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER === "1";
-}
-
-const LOCKABLE_DELIVERABLE_TYPES = new Set([
-  "report.compliance",
-  "report.learning",
-  "ppt.training",
-  "report.esg",
-  "report.general",
-]);
-
-function parseLockedDeliverableType(raw: unknown): TaskIntent["deliverableType"] | undefined {
-  if (typeof raw !== "string") {
-    return undefined;
-  }
-  const t = raw.trim().toLowerCase();
-  return LOCKABLE_DELIVERABLE_TYPES.has(t) ? t : undefined;
-}
 
 export const executeWorkflow: AgentTool = {
   definition: {
@@ -254,17 +233,29 @@ export const executeWorkflow: AgentTool = {
           query: deep.bundle.query || intent.summary,
         };
         persistResearchSnapshot(ctx.workspaceDir, bundle);
-        // Never clobber a lawyer-approved outline with a fresh pending plan.
-        if (existingOutline?.status === "approved") {
+        const holdOutline =
+          lawyerWantsOutlineHold(intent.instruction) && !outlineLooksApproved(intent.instruction);
+        // A fresh「先出大纲」wins over an outline approved on an earlier turn.
+        if (existingOutline?.status === "approved" && !holdOutline) {
           outlinePending = false;
           pushWorkflowProgress(
             ctx,
             steps,
             `深度研究完成：${bundle.sources.length} 条来源，${bundle.claims.length} 条结论；沿用已确认大纲`,
           );
+        } else if (holdOutline) {
+          const held = { ...deep.outline, status: "pending" as const };
+          persistResearchOutline(ctx.workspaceDir, intent.taskId, held);
+          outlinePending = true;
+          pushWorkflowProgress(
+            ctx,
+            steps,
+            `深度研究完成：${bundle.sources.length} 条来源，${bundle.claims.length} 条结论；大纲待确认`,
+          );
         } else {
           persistResearchOutline(ctx.workspaceDir, intent.taskId, deep.outline);
-          outlinePending = deep.outline.status !== "approved";
+          outlinePending =
+            lawyerWantsOutlineHold(intent.instruction) && deep.outline.status !== "approved";
           pushWorkflowProgress(
             ctx,
             steps,
@@ -282,6 +273,10 @@ export const executeWorkflow: AgentTool = {
         );
       }
       phaseTimer.mark("research", researchStarted);
+      // 演示语料拒稿闸门只看主检索结果：下面的法规自动试检是探测性旁路，其命中一律带
+      // 演示水印；若计入闸门，几乎每条中文法律指令都会被硬拒（回归见 query-matrix 试检
+      // 查询词改为指令二元组）。draft_document 的同一道闸门也在试检前评估，保持一致。
+      const mainResearchDemoCorpus = isDemoCorpusResult(bundle);
       {
         const { runAutoStatuteTrial } = await import("../../../research/auto-statute-trial.js");
         const trial = await runAutoStatuteTrial({
@@ -335,7 +330,14 @@ export const executeWorkflow: AgentTool = {
       }
 
       // Allow outline-only drafts even on demo/empty evidence; block body expansion below.
-      if (!outlinePending && shouldRefuseDraftOnDemoCorpus(intent) && isDemoCorpusResult(bundle)) {
+      // force_render 是显式 demo/测试旁路（LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER=1 门控，
+      // 语义即「跳过律师审批与出稿检查」）：演示语料拒稿只守真实用户回合，不挡 demo 通路。
+      if (
+        !outlinePending &&
+        !forceRender &&
+        shouldRefuseDraftOnDemoCorpus(intent) &&
+        mainResearchDemoCorpus
+      ) {
         return {
           ok: false,
           error: DEMO_CORPUS_DRAFT_REFUSAL,
@@ -401,7 +403,7 @@ export const executeWorkflow: AgentTool = {
         const msg = draftErr instanceof Error ? draftErr.message : String(draftErr);
         const code =
           draftErr && typeof draftErr === "object" && "code" in draftErr
-            ? String((draftErr as { code?: string }).code ?? "")
+            ? ((draftErr as { code?: string }).code ?? "")
             : "";
         if (code === "training_desense_gate" || /脱敏/.test(msg)) {
           return {

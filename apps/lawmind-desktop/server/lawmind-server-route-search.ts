@@ -11,6 +11,7 @@ import {
   getSearchIndexStatus,
   rebuildWorkspaceSearchIndex,
   searchPersonalKnowledge,
+  syncWorkspaceSearchIndex,
   searchWorkspaceIndex,
   type SearchIndexSource,
   type WorkspaceSearchHit,
@@ -57,7 +58,7 @@ export async function handleSearchRoutes({
         {
           ok: false,
           error: "index_rebuild_disabled",
-          hint: "设置 LAWMIND_ALLOW_INDEX_REBUILD=1 后可在本机重建全文索引。",
+          hint: "这台电脑还不能重建索引。请从 LawMind 重新打开后再试。",
         },
         c,
       );
@@ -93,6 +94,7 @@ export async function handleSearchRoutes({
     const limit = Number.isFinite(limitRaw ? Number(limitRaw) : NaN)
       ? Number(limitRaw)
       : 30;
+    await syncWorkspaceSearchIndex(workspaceDir);
     const sources = parseSources(url.searchParams.get("source"));
     const wantKnowledge = !sources || sources.includes("knowledge");
     const nonKnowledge = (sources ?? ["audit", "session", "knowledge"]).filter(

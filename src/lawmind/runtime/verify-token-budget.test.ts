@@ -387,10 +387,11 @@ describe("same-turn fail envelope + CJK history cap (before vs after)", () => {
       await import("../agent/tool-result-history.js");
     // 未知窗口：回退 8k，不再用写死的 1k。
     expect(resolveToolResultHistoryTokens(undefined)).toBe(8_000);
-    // 128k 窗口 → 16k；小窗口有 4k 地板；超大窗口有 32k 天花板。
+    // 128k 窗口 → 16k；小窗口有 4k 地板。1M 按历史质量带（200K）算，不再放到 12.5 万。
     expect(resolveToolResultHistoryTokens(128_000)).toBe(16_000);
     expect(resolveToolResultHistoryTokens(16_000)).toBe(4_000);
-    expect(resolveToolResultHistoryTokens(1_000_000)).toBe(32_000);
+    expect(resolveToolResultHistoryTokens(200_000)).toBe(25_000);
+    expect(resolveToolResultHistoryTokens(1_000_000)).toBe(25_000);
     // 3k 字 CJK 结果在 128k 窗口下不再被裁。
     const cjk = { ok: true, text: "合".repeat(3_000) };
     const slim = summarizeToolResultForHistory(cjk, { contextTokens: 128_000 });

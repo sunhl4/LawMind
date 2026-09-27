@@ -30,7 +30,7 @@ export const LAWMIND_PLATFORM_MODELS: BuiltinModelDefinition[] = [
     baseUrl: DASHSCOPE,
     model: "qwen-plus",
     group: "平台模型",
-    contextTokens: 32_768,
+    contextTokens: 1_000_000,
   },
   {
     id: "platform:qwen-turbo",
@@ -40,7 +40,7 @@ export const LAWMIND_PLATFORM_MODELS: BuiltinModelDefinition[] = [
     baseUrl: DASHSCOPE,
     model: "qwen-turbo",
     group: "平台模型",
-    contextTokens: 8_192,
+    contextTokens: 1_000_000,
   },
   {
     id: "platform:qwen-max",
@@ -50,7 +50,7 @@ export const LAWMIND_PLATFORM_MODELS: BuiltinModelDefinition[] = [
     baseUrl: DASHSCOPE,
     model: "qwen-max",
     group: "平台模型",
-    contextTokens: 32_768,
+    contextTokens: 1_000_000,
   },
   {
     id: "platform:gpt-4o-mini",

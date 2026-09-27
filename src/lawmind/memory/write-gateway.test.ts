@@ -46,16 +46,19 @@ describe("memory/write-gateway", () => {
     expect(all.some((p) => p.kind === "case.risk_note" && p.state === "auto_adopted")).toBe(true);
   });
 
-  it("snapshots CASE.md into the replica ops log when replica is on", async () => {
+  it("snapshots CASE.md into the replica ops log once the matter has a roster", async () => {
     await fs.writeFile(
       path.join(workspaceDir, "lawmind.policy.json"),
-      JSON.stringify({
-        schemaVersion: 1,
-        edition: "solo",
-        matterReplica: { enabled: true },
-      }),
+      JSON.stringify({ schemaVersion: 1, edition: "solo" }),
       "utf8",
     );
+    const { ensureMembershipWithOwner } = await import("../matter-replica/membership.js");
+    ensureMembershipWithOwner(workspaceDir, {
+      matterId: "matter-a",
+      matterTitle: "案",
+      ownerLawyerId: "lawyer_zhang",
+      ownerDisplayName: "张三",
+    });
     await writeCaseMemorySection({
       workspaceDir,
       matterId: "matter-a",

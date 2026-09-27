@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   authorityProviderLabel,
   authorityProviderNeedsEndpoint,
+  authorityProviderUnrecognized,
   resolveAuthorityProvider,
 } from "./authority-provider.js";
 
@@ -17,6 +18,9 @@ describe("resolveAuthorityProvider", () => {
       expect(resolveAuthorityProvider()).toBe("open");
       expect(resolveAuthorityProvider({ provider: "" })).toBe("open");
       expect(resolveAuthorityProvider({ provider: "unknown-vendor" })).toBe("open");
+      expect(authorityProviderUnrecognized({ provider: "unknown-vendor" })).toBe(true);
+      expect(authorityProviderUnrecognized({ provider: "" })).toBe(false);
+      expect(authorityProviderUnrecognized({ provider: "open-law" })).toBe(false);
     } finally {
       if (prev === undefined) {
         delete process.env.LAWMIND_AUTHORITY_PROVIDER;

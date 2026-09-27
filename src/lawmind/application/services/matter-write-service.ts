@@ -17,6 +17,9 @@ import type { MatterDocket, MatterKind } from "../../desk/matter-kind.js";
 import { parseMatterDocket, parseMatterKind, parsePracticeTags } from "../../desk/matter-kind.js";
 import {
   deriveMatterIdentity,
+  MATTER_PARTIES_CAP,
+  MatterPartiesCapError,
+  namedPartyCount,
   normalizeMatterParties,
   syncLegacyIdentityIntoParties,
   type MatterParty,
@@ -170,6 +173,7 @@ export type MatterProfileUpdateInput = {
   causeOfAction?: string;
   counterparty?: string;
   matterKind?: MatterKind;
+  matterLabel?: string;
   practiceTags?: string[];
   docket?: MatterDocket;
   parties?: MatterParty[];
@@ -195,6 +199,9 @@ export async function updateMatterProfile(
       input.counterparty !== undefined
         ? input.counterparty.trim() || undefined
         : existing.counterparty;
+    if (input.parties !== undefined && namedPartyCount(input.parties) > MATTER_PARTIES_CAP) {
+      throw new MatterPartiesCapError(MATTER_PARTIES_CAP, namedPartyCount(input.parties));
+    }
     const parties =
       input.parties !== undefined
         ? normalizeMatterParties(input.parties)
@@ -211,6 +218,10 @@ export async function updateMatterProfile(
       status: input.status ?? existing.status,
       matterKind:
         input.matterKind !== undefined ? parseMatterKind(input.matterKind) : existing.matterKind,
+      matterLabel:
+        input.matterLabel !== undefined
+          ? input.matterLabel.trim().slice(0, 80) || undefined
+          : existing.matterLabel,
       practiceTags:
         input.practiceTags !== undefined
           ? parsePracticeTags(input.practiceTags)

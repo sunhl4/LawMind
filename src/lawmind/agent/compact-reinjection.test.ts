@@ -3,6 +3,7 @@ import {
   applyCompactReinjectionToSession,
   COMPACT_REINJECTION_MARKER,
   formatCompactReinjectionBlock,
+  selectTaskPinText,
 } from "./compact-reinjection.js";
 import type { AgentSession } from "./types.js";
 
@@ -23,6 +24,19 @@ function baseSession(over?: Partial<AgentSession>): AgentSession {
     ...over,
   };
 }
+
+describe("selectTaskPinText", () => {
+  it("keeps the ask and leaves a pasted contract out of the pin", () => {
+    const contract = "甲方应于签订之日起履行。".repeat(40);
+    const pinned = selectTaskPinText(`请审查付款条款。\n\n${contract}`, 600);
+    expect(pinned).toBe("请审查付款条款。");
+    expect(pinned).not.toContain("甲方应于");
+  });
+
+  it("does not cut a single over-cap sentence into a fragment", () => {
+    expect(selectTaskPinText("甲".repeat(800), 600)).toBeUndefined();
+  });
+});
 
 describe("compact-reinjection", () => {
   it("formats marker and safety lines", () => {

@@ -31,14 +31,13 @@ describe("LawmindMsgCarryoverNotice", () => {
         />,
       );
     });
-    expect(host.textContent).toContain("本对话续接自「竞业限制解除」");
-    expect(host.textContent).toContain("整理 18 条");
-    expect(host.textContent).toContain("1,240 字");
-    expect(host.textContent).toContain("模型摘要");
-    // 律师可核对带过来了什么。
-    expect(host.textContent).toContain("查看带过来的整理稿");
+    expect(host.textContent).toContain("本对话接着「竞业限制解除」办");
+    expect(host.textContent).toContain("较早的 18 条已收成要点");
+    expect(host.textContent).not.toContain("1,240");
+    expect(host.textContent).not.toContain("模型摘要");
+    expect(host.textContent).toContain("查看带过来的要点");
     expect(host.textContent).toContain("《劳动合同法》第23条");
-    expect(host.textContent).toContain("草稿、案件档案与待办都在原处");
+    expect(host.textContent).toContain("稿子和案件材料都留在本案");
     root.unmount();
     host.remove();
   });
@@ -55,8 +54,8 @@ describe("LawmindMsgCarryoverNotice", () => {
       );
     });
     expect(host.textContent).toContain("上一段对话");
-    expect(host.textContent).toContain("无可提取要点");
-    expect(host.textContent).not.toContain("查看带过来的整理稿");
+    expect(host.textContent).toContain("没有可带走的要点");
+    expect(host.textContent).not.toContain("查看带过来的要点");
     root.unmount();
     host.remove();
   });

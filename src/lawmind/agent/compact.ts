@@ -2,12 +2,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { readQueueItems } from "../adapters/matter-storage/index.js";
 import { validateDraftAgainstSpec } from "../deliverables/index.js";
-import { readDraft } from "../drafts/index.js";
+import { draftPath, readDraft } from "../drafts/index.js";
 import { caseFilePath } from "../memory/index.js";
 import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
+import { workspaceRelativePath, writeCompactDropArchive } from "./compact-drop-archive.js";
 import { accumulateFactPin } from "./compact-fact-pin.js";
 import { insertBeforeLastUserMessage, isCompactSyntheticUserMessage } from "./compact-insert.js";
-import { estimateTokenBudget, resolveContextPolicy } from "./context-budget.js";
+import { selectTaskPinText } from "./compact-reinjection.js";
+import {
+  estimateTextTokens,
+  estimateTokenBudget,
+  historyNominalTokens,
+  resolveContextPolicy,
+} from "./context-budget.js";
 import { type ContextTuning, resolveContextTuning } from "./context-tuning.js";
 import {
   alignCutIndexToToolGroups,
@@ -26,7 +33,7 @@ export type CompactResult = {
   droppedDigest?: string;
   /** Messages removed from non-system history (for optional LLM re-digest). */
   droppedSpan?: AgentMessage[];
-  /** Rough token estimate of dropped dialogue (chars/4). */
+  /** CJK-aware token estimate of dropped dialogue (same estimator as the budget). */
   estimatedDroppedTokens?: number;
   /** Audit: first kept non-system message after cut. */
   firstKeptTimestamp?: string;
@@ -41,11 +48,11 @@ export function resolveCompactDigestCharCap(
   tuning: ContextTuning = resolveContextTuning(null),
 ): number {
   const { charRatio, minChars, maxChars } = tuning.digest;
-  const ctx =
-    typeof contextTokens === "number" && contextTokens > 0
-      ? contextTokens
-      : tuning.budget.contextTokens;
-  return Math.min(maxChars, Math.max(minChars, Math.floor(ctx * charRatio)));
+  const nominal = historyNominalTokens(contextTokens, {
+    minContextTokens: tuning.budget.minContextTokens,
+    fallbackTokens: tuning.budget.contextTokens,
+  });
+  return Math.min(maxChars, Math.max(minChars, Math.floor(nominal * charRatio)));
 }
 
 /**
@@ -54,7 +61,11 @@ export function resolveCompactDigestCharCap(
  */
 /** Statute-like anchors kept after compact so the next model round can still cite. */
 const DROPPED_CITATION_RE =
-  /《[^《》\n]{1,48}》(?:\s*第\s*(?:\d+|[一二三四五六七八九十百千零〇两]+)\s*条(?:之\d+)?(?:第[一二三四五六七八九十百千\d]+款)?)?|法释〔\d{4}〕\d+号|（\d{4}）[^）\n]{2,24}号/g;
+  /《[^《》\n]{1,48}》(?:\s*第\s*(?:\d+|[一二三四五六七八九十百千零〇两]+)\s*条(?:之\d+)?(?:第[一二三四五六七八九十百千\d]+款)?)?|法释〔\d{4}〕\d+号|（\d{4}）[^）\n]{2,24}号|指导性?案例\s*\d{1,4}\s*号/g;
+
+/** 合同内部条号（第 3.2 条）。单独计，避免一整份合同把法条锚点挤掉。 */
+const CONTRACT_CLAUSE_RE = /第\s*\d{1,3}(?:\.\d{1,3}){1,3}\s*条/g;
+const CONTRACT_CLAUSE_ANCHOR_MAX = 8;
 
 export function collectDroppedCitationAnchors(dropped: AgentMessage[], maxItems = 24): string[] {
   const found: string[] = [];
@@ -76,16 +87,42 @@ export function collectDroppedCitationAnchors(dropped: AgentMessage[], maxItems 
       }
     }
   };
+  const clausePool: string[] = [];
+  const considerClauses = (raw: string): void => {
+    if (!raw || clausePool.length >= CONTRACT_CLAUSE_ANCHOR_MAX) {
+      return;
+    }
+    CONTRACT_CLAUSE_RE.lastIndex = 0;
+    for (const match of raw.matchAll(CONTRACT_CLAUSE_RE)) {
+      const token = (match[0] ?? "").replace(/\s+/g, "");
+      if (!token || seen.has(token)) {
+        continue;
+      }
+      seen.add(token);
+      clausePool.push(token);
+      if (clausePool.length >= CONTRACT_CLAUSE_ANCHOR_MAX) {
+        return;
+      }
+    }
+  };
   for (const msg of dropped) {
     consider(msg.content ?? "");
+    considerClauses(msg.content ?? "");
     for (const tr of msg.toolCallResponses ?? []) {
-      consider(
-        typeof tr.result?.data === "string" ? tr.result.data : JSON.stringify(tr.result ?? ""),
-      );
+      const raw =
+        typeof tr.result?.data === "string" ? tr.result.data : JSON.stringify(tr.result ?? "");
+      consider(raw);
+      considerClauses(raw);
     }
+    if (found.length >= maxItems && clausePool.length >= CONTRACT_CLAUSE_ANCHOR_MAX) {
+      break;
+    }
+  }
+  for (const token of clausePool) {
     if (found.length >= maxItems) {
       break;
     }
+    found.push(token);
   }
   return found;
 }
@@ -94,6 +131,7 @@ export function buildDroppedSpanDigest(
   dropped: AgentMessage[],
   maxChars: number,
   tuning: ContextTuning = resolveContextTuning(null),
+  opts?: { archiveRelPath?: string },
 ): string {
   const d = tuning.digest;
   if (dropped.length === 0 || maxChars < 80) {
@@ -104,8 +142,6 @@ export function buildDroppedSpanDigest(
   const assistantLines: string[] = [];
   /** 任务陈述候选：被丢弃区段里**最早的真实**律师发言（原文保留，见下）。 */
   const taskLines: string[] = [];
-  /** 此前的整理稿：**不当作律师发言**，单独接续（见下）。 */
-  const carriedDigests: string[] = [];
 
   for (const msg of dropped) {
     if (msg.role === "assistant" && msg.toolCalls?.length) {
@@ -126,14 +162,9 @@ export function buildDroppedSpanDigest(
     if (!text) {
       continue;
     }
-    // ── 合成消息（上次的整理稿 / 红线重注 / 续接种子 / 退让反弹）─────────────
-    // 与 Codex 的 `collect_user_messages()` 同一取向：**此前的摘要不算用户消息**
-    // （上游是 `filter(… previous summaries)`）。不这么做会有两个后果，实测都出现过：
-    //   1. 旧摘要在下一轮被当成一条「律师要点」再按行截断 → **摘要的摘要**逐层衰减；
-    //   2. 它还要与真实律师发言争抢「末 N 条」窗口，一挤就整条丢。
-    // 这里改为**单独接续**：原样带上、显式标注来源，不再伪装成律师发言。
+    // 合成消息（上次的整理稿 / 红线重注 / 续接种子 / 退让反弹）不是律师发言。
+    // 不再嵌进下一轮整理稿：原文在会话旁的归档里，路径写在本篇开头。
     if (isCompactSyntheticUserMessage(text)) {
-      carriedDigests.push(text);
       continue;
     }
     const lineCap = Math.min(
@@ -150,13 +181,20 @@ export function buildDroppedSpanDigest(
     }
   }
 
-  const header = `【压缩前对话蒸馏】共丢弃约 ${dropped.length} 条消息（含工具轮）；以下为提取要点，完整细节以案件文件与工具重读为准。`;
+  const header = [
+    `【压缩前对话蒸馏】共丢弃约 ${dropped.length} 条消息（含工具轮）；以下为提取要点，完整细节以案件文件与工具重读为准。`,
+    opts?.archiveRelPath
+      ? `原文另存 ${opts.archiveRelPath}。需要原句时用 analyze_document 按 offset/limit 分页读取，不要把要点当成全文。`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
   const sections: string[] = [header];
 
   // ── 段落顺序 = 截断优先级 ────────────────────────────────────────────
   // 超预算时是 `slice(0, maxChars)`：**切的是尾巴**，所以越靠前越不会被丢。
   // 排序依据是「丢了会不会让模型答非所问」：任务目标最高，引用次之
-  // （法律场景引用错 = 错误交付），其后是历史整理稿、要点、结论，工具名最低。
+  // （法律场景引用错 = 错误交付），其后是要点、结论，工具名最低。
   if (taskLines.length > 0) {
     // 任务陈述按**原文**保留（不按行截断）：Codex 保最多 20k token 的原始用户消息，
     // 正是为了「目标不丢」。提取式要点里一句「请继续核对付款」替代不了「要做什么」。
@@ -173,12 +211,6 @@ export function buildDroppedSpanDigest(
   const citations = collectDroppedCitationAnchors(dropped, d.citationAnchorMax);
   if (citations.length > 0) {
     sections.push(`### 压缩前引用\n${citations.join("；")}`);
-  }
-  if (carriedDigests.length > 0) {
-    const carriedCap = Math.max(d.carriedMinChars, Math.floor(maxChars * d.carriedRatio));
-    // 沿用原文（含它自己的分节），让模型看得出这是「上一轮整理稿」而不是律师新说的话。
-    const carried = carriedDigests.join("\n\n");
-    sections.push(`### 上一轮整理稿（接续保留，非律师新发言）\n${carried.slice(0, carriedCap)}`);
   }
   if (lawyerLines.length > 0) {
     const keep = lawyerLines.slice(-d.recentLineKeep);
@@ -243,25 +275,93 @@ export function readSessionSummary(workspaceDir: string, matterId?: string): str
   }
 }
 
+function estimateHistoryMessageTokens(msg: AgentMessage): number {
+  let tokens = estimateTextTokens(msg.content ?? "");
+  if (msg.toolCalls?.length) {
+    tokens += estimateTextTokens(JSON.stringify(msg.toolCalls));
+  }
+  if (msg.toolCallResponses?.length) {
+    tokens += estimateTextTokens(JSON.stringify(msg.toolCallResponses));
+  }
+  return tokens;
+}
+
+type TailGroup = { start: number; end: number; tokens: number; count: number };
+
+/** 非 system 消息按「一条」或「一次工具调用加紧随的 tool 结果」分组。 */
+function nonSystemTailGroups(messages: readonly AgentMessage[]): TailGroup[] {
+  const groups: TailGroup[] = [];
+  let i = 0;
+  while (i < messages.length) {
+    const msg = messages[i];
+    if (!msg || msg.role === "system") {
+      i += 1;
+      continue;
+    }
+    let end = i + 1;
+    if (msg.role === "assistant" && (msg.toolCalls?.length ?? 0) > 0) {
+      while (end < messages.length && messages[end]?.role === "tool") {
+        end += 1;
+      }
+    }
+    let tokens = 0;
+    for (let j = i; j < end; j += 1) {
+      const item = messages[j];
+      if (item) {
+        tokens += estimateHistoryMessageTokens(item);
+      }
+    }
+    groups.push({ start: i, end, tokens, count: end - i });
+    i = end;
+  }
+  return groups;
+}
+
 /**
- * 保留最近 24 条非 system 消息，但切点落在一组 tool 结果中间时整组退回，
- * 避免 firstKept 是孤立 tool（DeepSeek：tool 必须紧跟 tool_calls）。
+ * 压缩切点：从最新消息往前装，装到 token 预算用尽。
+ *
+ * 一组工具调用整组进或整组出。条数只做两件事：至少留下 `minTailMessages`
+ * （正在办的那几轮，超预算也留），至多留下 `maxTailMessages`。
+ * 返回值是全量历史里的下标；`0` 表示不用丢。
  */
-export function adjustIndexToPreserveToolPairs(messages: AgentMessage[]): number {
-  const nonSystem = messages.filter((m) => m.role !== "system");
-  if (nonSystem.length <= 8) {
+export function cutIndexForTokenTail(
+  messages: AgentMessage[],
+  opts: {
+    tailTokenBudget: number;
+    minTailMessages: number;
+    maxTailMessages: number;
+  },
+): number {
+  const groups = nonSystemTailGroups(messages);
+  if (groups.length === 0) {
     return 0;
   }
-  const keepFrom = Math.max(0, nonSystem.length - 24);
-  const anchor = nonSystem[keepFrom];
-  if (!anchor) {
+  const minKeep = Math.max(0, opts.minTailMessages);
+  const maxKeep = Math.max(minKeep, opts.maxTailMessages);
+  const budget = Math.max(0, opts.tailTokenBudget);
+  let keptTokens = 0;
+  let keptCount = 0;
+  let cutStart = messages.length;
+  for (let g = groups.length - 1; g >= 0; g -= 1) {
+    const group = groups[g];
+    if (!group) {
+      break;
+    }
+    const nextCount = keptCount + group.count;
+    const nextTokens = keptTokens + group.tokens;
+    const belowFloor = keptCount < minKeep;
+    if (!belowFloor && (nextCount > maxKeep || nextTokens > budget)) {
+      break;
+    }
+    keptTokens = nextTokens;
+    keptCount = nextCount;
+    cutStart = group.start;
+  }
+  const firstNonSystem = groups[0]?.start ?? 0;
+  if (cutStart <= firstNonSystem) {
     return 0;
   }
-  const idx = messages.findIndex((m) => m === anchor);
-  if (idx <= 0) {
-    return 0;
-  }
-  return alignCutIndexToToolGroups(messages, idx);
+  return alignCutIndexToToolGroups(messages, cutStart);
 }
 
 export function collectCompactAttachmentNotes(
@@ -278,15 +378,18 @@ export function collectCompactAttachmentNotes(
     const draft = readDraft(workspaceDir, taskId);
     if (draft) {
       const acceptance = validateDraftAgainstSpec(draft);
+      const rel = workspaceRelativePath(workspaceDir, draftPath(workspaceDir, taskId));
       blocks.push(
-        `【关联草稿 ${taskId}】\n- 类型: ${draft.deliverableType ?? "unknown"}\n- acceptance: ready=${acceptance.ready} blockers=${acceptance.blockerCount} placeholders=${acceptance.placeholderCount}`,
+        `【关联草稿 ${taskId}】\n- 类型: ${draft.deliverableType ?? "unknown"}\n- 路径: ${rel}\n- acceptance: ready=${acceptance.ready} blockers=${acceptance.blockerCount} placeholders=${acceptance.placeholderCount}`,
       );
-      const sectionExcerpt = draft.sections
-        .slice(0, 4)
-        .map((s) => `### ${s.heading}\n${s.body.slice(0, 500)}`)
-        .join("\n\n");
-      if (sectionExcerpt.trim()) {
-        blocks.push(`【草稿章节摘录】\n${sectionExcerpt.slice(0, 4_000)}`);
+      const headings = draft.sections
+        .map((section) => section.heading.trim())
+        .filter(Boolean)
+        .slice(0, 8);
+      if (headings.length > 0) {
+        blocks.push(
+          `【草稿章节】\n${headings.map((heading) => `- ${heading}`).join("\n")}\n正文在上面的路径里，用工具读取，不要凭记忆改稿。`,
+        );
       }
     }
   }
@@ -336,6 +439,40 @@ export function buildPostCompactSystemNote(opts: {
   return lines.join("\n");
 }
 
+function fileHasBody(absolutePath: string): boolean {
+  try {
+    return fs.statSync(absolutePath).size > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** 案件摘要和档案只给路径。正文留给工具按 offset 读。 */
+function matterMaterialPaths(
+  workspaceDir: string,
+  matterId: string | undefined,
+  summaryAbs: string | undefined,
+): string | undefined {
+  const lines: string[] = [];
+  if (summaryAbs && fileHasBody(summaryAbs)) {
+    lines.push(`- 案件会话摘要: ${workspaceRelativePath(workspaceDir, summaryAbs)}`);
+  }
+  if (matterId?.trim()) {
+    const caseAbs = caseFilePath(workspaceDir, matterId.trim());
+    if (fileHasBody(caseAbs)) {
+      lines.push(`- 案件档案: ${workspaceRelativePath(workspaceDir, caseAbs)}`);
+    }
+  }
+  if (lines.length === 0) {
+    return undefined;
+  }
+  return [
+    "【案件材料路径】",
+    ...lines,
+    "需要时用 analyze_document 按 offset/limit 读取，不要凭记忆补写正文。",
+  ].join("\n");
+}
+
 export function autoCompactSessionHistory(
   session: AgentSession,
   workspaceDir: string,
@@ -364,15 +501,22 @@ export function autoCompactSessionHistory(
 
   const beforeLen = session.conversationHistory.length;
   const systemMessages = session.conversationHistory.filter((m) => m.role === "system");
-  const summaryText = readSessionSummary(workspaceDir, session.matterId);
-  const summaryPath =
-    session.matterId && summaryText
-      ? sessionSummaryPath(workspaceDir, session.matterId)
-      : undefined;
+  const summaryAbs = session.matterId
+    ? sessionSummaryPath(workspaceDir, session.matterId)
+    : undefined;
+  const summaryPath = summaryAbs && fileHasBody(summaryAbs) ? summaryAbs : undefined;
 
   let nonSystem = session.conversationHistory.filter((m) => m.role !== "system");
   let droppedSpan: AgentMessage[] = [];
-  const cutFrom = adjustIndexToPreserveToolPairs(session.conversationHistory);
+  const digestCap = resolveCompactDigestCharCap(opts.contextTokens, tuning);
+  const systemTokens = systemMessages[0] ? estimateHistoryMessageTokens(systemMessages[0]) : 0;
+  // 摘要按字符帽预留（中文约 1 字 1 token），再留压缩后锚点。尾巴装满后再塞摘要会把窗口顶回去。
+  const tailTokenBudget = Math.max(0, budget.effectiveLimit - systemTokens - digestCap - 1_500);
+  const cutFrom = cutIndexForTokenTail(session.conversationHistory, {
+    tailTokenBudget,
+    minTailMessages: tuning.midTurn.elideKeepTail,
+    maxTailMessages: Math.max(tuning.midTurn.elideKeepTail, opts.maxHistoryMessages),
+  });
   if (cutFrom >= session.conversationHistory.length) {
     droppedSpan = nonSystem;
     nonSystem = [];
@@ -412,26 +556,43 @@ export function autoCompactSessionHistory(
       if (msg.role !== "user") {
         continue;
       }
-      const text = (msg.content ?? "").trim().replace(/\s+/g, " ");
+      const text = (msg.content ?? "").trim();
       if (!text || isCompactSyntheticUserMessage(text)) {
         continue;
       }
+      const pinned = selectTaskPinText(text, tuning.pins.taskCharCap);
+      if (!pinned) {
+        continue;
+      }
       session.taskPin = {
-        text: text.slice(0, tuning.pins.taskCharCap),
+        text: pinned,
         at: new Date().toISOString(),
       };
       break;
     }
   }
 
-  const digestCap = resolveCompactDigestCharCap(opts.contextTokens, tuning);
-  const droppedDigest = buildDroppedSpanDigest(droppedSpan, digestCap, tuning);
-  if (droppedDigest && opts.writeDigestFile !== false) {
+  const boundaryId = `${new Date().toISOString()}#${droppedSpan.length}`;
+  const persistAside = opts.writeDigestFile !== false;
+  const archiveRelPath =
+    persistAside && droppedSpan.length > 0
+      ? writeCompactDropArchive({
+          workspaceDir,
+          sessionId: session.sessionId,
+          boundaryId,
+          messages: droppedSpan,
+        })
+      : undefined;
+
+  const droppedDigest = buildDroppedSpanDigest(
+    droppedSpan,
+    digestCap,
+    tuning,
+    archiveRelPath ? { archiveRelPath } : {},
+  );
+  if (droppedDigest && persistAside) {
     writeCompactDigestFile(workspaceDir, session.matterId, droppedDigest);
   }
-
-  const summaryCharCap = Math.min(20_000, Math.max(12_000, Math.floor(digestCap * 1.2)));
-  const caseSnippetCap = Math.min(6_000, Math.max(2_000, Math.floor(digestCap * 0.35)));
 
   const summaryBlock: AgentMessage[] = [];
   if (droppedDigest) {
@@ -441,24 +602,13 @@ export function autoCompactSessionHistory(
       timestamp: new Date().toISOString(),
     });
   }
-  if (summaryText) {
+  const materialPaths = matterMaterialPaths(workspaceDir, session.matterId, summaryPath);
+  if (materialPaths) {
     summaryBlock.push({
       role: "user",
-      content: `【案件会话摘要】\n${summaryText.slice(0, summaryCharCap)}`,
+      content: materialPaths,
       timestamp: new Date().toISOString(),
     });
-  } else if (session.matterId) {
-    const casePath = caseFilePath(workspaceDir, session.matterId);
-    try {
-      const caseSnippet = fs.readFileSync(casePath, "utf8").slice(0, caseSnippetCap);
-      summaryBlock.push({
-        role: "user",
-        content: `【案件记忆摘录】\n${caseSnippet}`,
-        timestamp: new Date().toISOString(),
-      });
-    } catch {
-      /* no case file */
-    }
   }
 
   summaryBlock.push({
@@ -478,16 +628,12 @@ export function autoCompactSessionHistory(
 
   void autoCompactBufferTokens;
 
-  const droppedChars = droppedSpan.reduce(
-    (n, m) => n + (m.content?.length ?? 0) + JSON.stringify(m.toolCalls ?? []).length,
-    0,
-  );
+  const droppedTokens = droppedSpan.reduce((n, m) => n + estimateHistoryMessageTokens(m), 0);
 
   const capped = compactHistory(merged, opts.maxHistoryMessages + summaryBlock.length + 2);
   const normalized = normalizeToolResultMessages(capped);
   const messages = normalized.changed ? normalized.messages : capped;
   const firstKept = messages.find((m) => m.role !== "system");
-  const boundaryId = `${new Date().toISOString()}#${dropped}`;
 
   return {
     messages,
@@ -496,7 +642,7 @@ export function autoCompactSessionHistory(
     droppedMessageCount: dropped,
     droppedDigest: droppedDigest || undefined,
     droppedSpan: droppedSpan.length > 0 ? droppedSpan : undefined,
-    estimatedDroppedTokens: Math.max(1, Math.ceil(droppedChars / 4)),
+    estimatedDroppedTokens: Math.max(1, droppedTokens),
     firstKeptTimestamp: firstKept?.timestamp,
     firstKeptRole: firstKept?.role,
     boundaryId,

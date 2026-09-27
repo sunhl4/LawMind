@@ -1,6 +1,8 @@
 export {
   buildBenchmarkReportMarkdown,
   benchmarkPassesThreshold,
+  classifyReleaseBenchmarkFile,
+  releaseReadinessBenchmarkExit,
   selectReleaseGateBenchmarkResults,
   runBenchmarks,
   BUILTIN_BENCHMARK_TASKS,

@@ -1,4 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  cassetteAssistant,
+  startCassetteModelServer,
+  type CassetteModelServer,
+} from "../agent/testkit/index.js";
 import type { ArtifactDraft } from "../types.js";
 import {
   applyDraftCritic,
@@ -51,46 +56,42 @@ describe("draft-critic", () => {
 
   describe("model critic", () => {
     const prev = { ...process.env };
+    const servers: CassetteModelServer[] = [];
 
-    afterEach(() => {
+    afterEach(async () => {
       process.env = { ...prev };
-      vi.unstubAllGlobals();
+      await Promise.all(servers.splice(0).map((s) => s.close()));
     });
 
     it("stays on rules when LAWMIND_REASONING_MODE=keyword", async () => {
+      // Loopback cassette：出口代理绕过 global fetch；keyword 模式下一字节都不应发。
+      const server = await startCassetteModelServer();
+      servers.push(server);
       process.env.LAWMIND_REASONING_MODE = "keyword";
-      process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
+      process.env.LAWMIND_AGENT_BASE_URL = server.url;
       process.env.LAWMIND_AGENT_API_KEY = "sk-test";
       process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
-      const fetchMock = vi.fn();
-      vi.stubGlobal("fetch", fetchMock);
       const next = await applyDraftCriticAsync(draft());
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(server.requests).toHaveLength(0);
       expect(next.reviewNotes.some((n) => n.includes("争议解决"))).toBe(true);
       expect(next.sections).toEqual(draft().sections);
     });
 
     it("appends model notes without rewriting sections", async () => {
+      const server = await startCassetteModelServer();
+      servers.push(server);
       delete process.env.LAWMIND_REASONING_MODE;
-      process.env.LAWMIND_AGENT_BASE_URL = "https://example.com/v1";
+      process.env.LAWMIND_AGENT_BASE_URL = server.url;
       process.env.LAWMIND_AGENT_API_KEY = "sk-test";
       process.env.LAWMIND_AGENT_MODEL = "qwen-plus";
-      const fetchMock = vi.fn(async () => ({
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  clauses: [{ id: "c1", notes: ["押金退还条件写得太笼统，执行时容易争。"] }],
-                  summary: ["全文押金条款可执行性不足。"],
-                }),
-              },
-            },
-          ],
-        }),
-      }));
-      vi.stubGlobal("fetch", fetchMock);
+      server.enqueue(
+        cassetteAssistant(
+          JSON.stringify({
+            clauses: [{ id: "c1", notes: ["押金退还条件写得太笼统，执行时容易争。"] }],
+            summary: ["全文押金条款可执行性不足。"],
+          }),
+        ),
+      );
       const original = draft();
       const { draft: next, graph } = await runDraftCriticAsync(original);
       expect(next.sections).toEqual(original.sections);
@@ -99,7 +100,7 @@ describe("draft-critic", () => {
       expect(
         graph.clauses.some((clause) => clause.criticNotes.some((note) => note.includes("押金"))),
       ).toBe(true);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(server.requests).toHaveLength(1);
     });
   });
 });

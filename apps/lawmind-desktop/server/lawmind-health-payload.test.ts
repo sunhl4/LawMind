@@ -195,7 +195,8 @@ describe("lawmind-health-payload", () => {
       (c) => c.id === "session_history_integrity",
     );
     expect(check?.state).toBe("warn");
-    expect(check?.hint).toContain("doctor --fix");
+    expect(check?.hint).toContain("下一轮对话会自动补上");
+    expect(check?.hint).not.toContain("pnpm");
   });
 
   it("buildMemoryTruthSourceFlags reports root files and client profile counts", () => {    const ws = tmpWs();
@@ -229,7 +230,8 @@ describe("lawmind-health-payload", () => {
     try {
       const row = buildCompanyRegistryHealthSummary();
       expect(row.configured).toBe(false);
-      expect(row.message).toContain("未接工商源");
+      expect(row.message).toContain("还没接上");
+      expect(row.message).toContain("不要写成已核实");
     } finally {
       if (prev === undefined) {
         delete process.env.LAWMIND_COMPANY_REGISTRY_URL;

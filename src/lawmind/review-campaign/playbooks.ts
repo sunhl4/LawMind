@@ -106,7 +106,7 @@ function normalizePlaybook(raw: unknown): FleetPlaybook | null {
       ...(assistantId ? { assistantId } : {}),
     });
   }
-  if (roles.length < 4) {
+  if (roles.length < 1) {
     return null;
   }
   return {

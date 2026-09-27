@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
     };
   },
   pickWorkspace: () => ipcRenderer.invoke("lawmind:pick-workspace"),
+  inspectWorkspaceVolume: (absPath) =>
+    ipcRenderer.invoke("lawmind:inspect-workspace-volume", { path: absPath }),
   syncWordAddinManifest: () => ipcRenderer.invoke("lawmind:addin:sync-manifest"),
   readModelSettings: () => ipcRenderer.invoke("lawmind:read-model-settings"),
   saveSetup: (payload) => ipcRenderer.invoke("lawmind:save-setup", payload),

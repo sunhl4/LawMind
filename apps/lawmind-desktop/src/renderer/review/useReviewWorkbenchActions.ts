@@ -540,7 +540,7 @@ export function useReviewWorkbenchActions(params: UseReviewWorkbenchActionsParam
     if (
       !(await confirmDialog({
         title: warn,
-        body: "将移除文书台记录与关联任务，且不可恢复。",
+        body: "将移除改稿记录与关联任务，且不可恢复。",
         confirmLabel: "删除",
         tone: "danger",
       }))

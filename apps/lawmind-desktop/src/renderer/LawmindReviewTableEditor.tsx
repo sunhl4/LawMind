@@ -8,7 +8,43 @@ import { useCallback, useEffect, useState } from "react";
 import { apiGetJson, apiSendJson } from "./api-client";
 
 type ReviewTableColumn = { key: string; label: string };
-type ReviewTableRow = { id: string; cells: Record<string, string>; group?: string; source?: string };
+type ReviewCellMeta = {
+  source?: string;
+  confidence?: "high" | "medium" | "low";
+  abstained?: boolean;
+  note?: string;
+};
+type ReviewTableRow = {
+  id: string;
+  cells: Record<string, string>;
+  group?: string;
+  source?: string;
+  cellMeta?: Record<string, ReviewCellMeta>;
+  review?: { reviewed?: boolean; locked?: boolean };
+};
+
+const ABSTAIN_TEXT = "无法判断（证据不足）";
+const IDENTITY_KEYS = new Set(["document", "item", "exhibit", "clause", "name", "file", "doc", "source"]);
+const IDENTITY_LABELS = new Set(["审查事项", "对应文件", "证据名称", "条款", "文件名", "事项", "来源"]);
+
+function cellHint(row: ReviewTableRow, col: ReviewTableColumn): string {
+  const key = col.key;
+  const meta = row.cellMeta?.[key];
+  const value = (row.cells[key] ?? "").trim();
+  if (meta?.abstained || value === ABSTAIN_TEXT) {
+    return meta?.note ? `弃答：${meta.note}` : "弃答";
+  }
+  if (meta?.source) {
+    return `出处：${meta.source}`;
+  }
+  if (IDENTITY_KEYS.has(key) || IDENTITY_LABELS.has(col.label.trim())) {
+    return "";
+  }
+  if (value) {
+    return "缺出处";
+  }
+  return "";
+}
 type ReviewTable = {
   taskId: string;
   template: string;
@@ -67,9 +103,19 @@ export function LawmindReviewTableEditor({ taskId, apiBase, editable }: Props) {
       }
       return {
         ...prev,
-        rows: prev.rows.map((row) =>
-          row.id === rowId ? { ...row, cells: { ...row.cells, [key]: value } } : row,
-        ),
+        rows: prev.rows.map((row) => {
+          if (row.id !== rowId) {
+            return row;
+          }
+          const cellMeta = { ...row.cellMeta };
+          delete cellMeta[key];
+          const { cellMeta: _dropped, ...rest } = row;
+          return {
+            ...rest,
+            cells: { ...row.cells, [key]: value },
+            ...(Object.keys(cellMeta).length > 0 ? { cellMeta } : {}),
+          };
+        }),
       };
     });
     setDirty(true);
@@ -86,6 +132,21 @@ export function LawmindReviewTableEditor({ taskId, apiBase, editable }: Props) {
           ...prev.rows,
           { id: `row-${Math.random().toString(36).slice(2, 10)}`, cells: {} },
         ],
+      };
+    });
+    setDirty(true);
+  }, []);
+
+  const unlockRow = useCallback((rowId: string) => {
+    setTable((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      return {
+        ...prev,
+        rows: prev.rows.map((row) =>
+          row.id === rowId ? { ...row, review: { ...row.review, locked: false } } : row,
+        ),
       };
     });
     setDirty(true);
@@ -186,32 +247,48 @@ export function LawmindReviewTableEditor({ taskId, apiBase, editable }: Props) {
           </thead>
           <tbody>
             {table.rows.map((row) => (
-              <tr key={row.id} data-testid="lm-review-table-row">
-                {table.columns.map((col) => (
+              <tr key={row.id} data-testid="lm-review-table-row" data-locked={row.review?.locked ? "true" : undefined}>
+                {table.columns.map((col) => {
+                  const hint = cellHint(row, col);
+                  return (
                   <td key={col.key}>
                     {editable ? (
                       <input
                         className="lm-input"
                         value={row.cells[col.key] ?? ""}
                         onChange={(e) => updateCell(row.id, col.key, e.target.value)}
-                        disabled={saving}
+                        disabled={saving || row.review?.locked === true}
+                        title={hint || undefined}
                       />
                     ) : (
                       row.cells[col.key] ?? ""
                     )}
+                    {hint ? <span className="lm-meta">{hint}</span> : null}
                   </td>
-                ))}
+                  );
+                })}
                 {editable ? (
                   <td>
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-ghost lm-btn-small"
-                      disabled={saving}
-                      onClick={() => removeRow(row.id)}
-                      aria-label="删除此行"
-                    >
-                      删
-                    </button>
+                    {row.review?.locked ? (
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-ghost lm-btn-small"
+                        disabled={saving}
+                        onClick={() => unlockRow(row.id)}
+                      >
+                        解除锁定
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-ghost lm-btn-small"
+                        disabled={saving}
+                        onClick={() => removeRow(row.id)}
+                        aria-label="删除此行"
+                      >
+                        删
+                      </button>
+                    )}
                   </td>
                 ) : null}
               </tr>

@@ -15,6 +15,9 @@ describe("compact-insert", () => {
   it("skips synthetic compact notes when finding the last real user", () => {
     expect(isCompactSyntheticUserMessage(`## ${COMPACT_REINJECTION_MARKER}`)).toBe(true);
     expect(isCompactSyntheticUserMessage("【压缩前对话蒸馏】丢弃 3 条")).toBe(true);
+    expect(isCompactSyntheticUserMessage("【案件材料路径】\n- 案件档案: cases/m/CASE.md")).toBe(
+      true,
+    );
     expect(isCompactSyntheticUserMessage("请继续改违约责任")).toBe(false);
 
     const history = [

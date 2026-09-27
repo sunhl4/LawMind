@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { inspectWorkspacePolicyFile } from "../policy/workspace-policy.js";
 import {
   evaluateTeamMemorySyncGate,
   planTeamMemoryUpload,
@@ -41,7 +42,25 @@ describe("team-memory-sync", () => {
     expect(gate.reason).toBe("team_memory_sync_disabled");
   });
 
-  it("requires firm edition when enabled in policy", () => {
+  it("policy key teamMemorySync is rejected by the commercial contract (不再生效)", () => {
+    const ws = tmpWs();
+    dirs.push(ws);
+    writePolicy(ws, {
+      edition: "firm",
+      teamMemorySync: { enabled: true, endpoint: "https://example.com/sync" },
+    });
+    // 策略合同只留 IT 硬边界：teamMemorySync 被拒绝并说明原因。
+    const inspection = inspectWorkspacePolicyFile(ws);
+    const rejected = inspection.rejected.find((r) => r.key === "teamMemorySync");
+    expect(rejected).toBeDefined();
+    expect(rejected?.reason).toContain("团队记忆同步");
+    // 被拒绝的键不静默生效：即使 firm + enabled + endpoint 全写上，门也不开。
+    const gate = evaluateTeamMemorySyncGate(ws);
+    expect(gate.allowed).toBe(false);
+    expect(gate.reason).toBe("team_memory_sync_disabled");
+  });
+
+  it("gates off on solo too (键被拒绝后无所谓 edition)", () => {
     const ws = tmpWs();
     dirs.push(ws);
     writePolicy(ws, {
@@ -50,18 +69,7 @@ describe("team-memory-sync", () => {
     });
     const gate = evaluateTeamMemorySyncGate(ws);
     expect(gate.allowed).toBe(false);
-    expect(gate.reason).toBe("team_memory_sync_requires_firm_edition");
-  });
-
-  it("allows firm + enabled + endpoint", () => {
-    const ws = tmpWs();
-    dirs.push(ws);
-    writePolicy(ws, {
-      edition: "firm",
-      teamMemorySync: { enabled: true, endpoint: "https://example.com/sync" },
-    });
-    const gate = evaluateTeamMemorySyncGate(ws);
-    expect(gate.allowed).toBe(true);
+    expect(gate.reason).toBe("team_memory_sync_disabled");
   });
 
   it("scanMemoryPathsForSecrets blocks api key patterns", () => {
@@ -74,7 +82,7 @@ describe("team-memory-sync", () => {
     expect(scan.blockedPaths).toContain(rel);
   });
 
-  it("planTeamMemoryUpload returns scan when gate allows", () => {
+  it("planTeamMemoryUpload stays on the no-upload path while the gate is off", () => {
     const ws = tmpWs();
     dirs.push(ws);
     writePolicy(ws, {
@@ -82,9 +90,10 @@ describe("team-memory-sync", () => {
       teamMemorySync: { enabled: true, endpoint: "https://example.com/sync" },
     });
     fs.writeFileSync(path.join(ws, "MEMORY.md"), "# safe memory\n", "utf8");
+    // 门控的开通道已随策略键一起移除：plan 不扫描、不带 endpoint。
     const plan = planTeamMemoryUpload(ws, ["MEMORY.md"]);
-    expect(plan.gate.allowed).toBe(true);
-    expect(plan.scan.ok).toBe(true);
-    expect(plan.endpoint).toBe("https://example.com/sync");
+    expect(plan.gate.allowed).toBe(false);
+    expect(plan.scan.scannedFiles).toBe(0);
+    expect(plan.endpoint).toBeUndefined();
   });
 });

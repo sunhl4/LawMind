@@ -6,10 +6,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { runTurn } from "./runtime.js";
 import { findUnpairedToolCallIds } from "./session-tool-call-pairing.js";
 import { deriveModelMessages, loadSession } from "./session.js";
+import {
+  cassetteToolCalls,
+  startCassetteModelServer,
+  type CassetteModelServer,
+} from "./testkit/index.js";
 import { ToolRegistry } from "./tools/registry.js";
 import type { AgentConfig } from "./types.js";
 
@@ -20,13 +25,13 @@ function tmpWorkspace(): string {
   return dir;
 }
 
-function baseConfig(workspaceDir: string): AgentConfig {
+function baseConfig(workspaceDir: string, baseUrl: string): AgentConfig {
   return {
     workspaceDir,
     strictDangerousToolApproval: true,
     model: {
       provider: "openai-compatible",
-      baseUrl: "https://example.com/v1",
+      baseUrl,
       apiKey: "sk-test",
       model: "demo",
     },
@@ -34,55 +39,26 @@ function baseConfig(workspaceDir: string): AgentConfig {
 }
 
 /** 第一轮模型同时发出 send_email（需审批）+ write_document 两个调用。 */
-function stubModelWithTwoToolCalls() {
-  const responses = [
-    {
-      choices: [
-        {
-          message: {
-            role: "assistant",
-            content: "",
-            tool_calls: [
-              {
-                id: "call-1",
-                type: "function",
-                function: { name: "send_email", arguments: JSON.stringify({ to: "a@b.com" }) },
-              },
-              {
-                id: "call-2",
-                type: "function",
-                function: { name: "write_document", arguments: "{}" },
-              },
-            ],
-          },
-          finish_reason: "tool_calls",
-        },
-      ],
-    },
-  ];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => ({
-      ok: true,
-      json: async () => {
-        const next = responses.shift();
-        if (next === undefined) {
-          throw new Error("unexpected extra model call");
-        }
-        return next;
-      },
-    })),
+function stubModelWithTwoToolCalls(server: CassetteModelServer): void {
+  server.enqueue(
+    cassetteToolCalls([
+      { id: "call-1", name: "send_email", arguments: { to: "a@b.com" } },
+      { id: "call-2", name: "write_document", arguments: {} },
+    ]),
   );
 }
 
 describe("dangling tool_calls (P0)", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
+  const servers: CassetteModelServer[] = [];
+
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => s.close()));
   });
 
   it("approval interrupt pairs every tool_call; persisted + derived history stay sendable", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     let mailExecuted = false;
     let writeExecuted = false;
@@ -111,10 +87,10 @@ describe("dangling tool_calls (P0)", () => {
         return { ok: true };
       },
     });
-    stubModelWithTwoToolCalls();
+    stubModelWithTwoToolCalls(server);
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: "请发邮件并落稿",
     });

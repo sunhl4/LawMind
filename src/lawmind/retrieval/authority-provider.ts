@@ -12,9 +12,7 @@
 
 export type AuthorityProviderId = "open" | "generic" | "pkulaw" | "lexis";
 
-export function resolveAuthorityProvider(opts?: {
-  provider?: string;
-}): AuthorityProviderId {
+export function resolveAuthorityProvider(opts?: { provider?: string }): AuthorityProviderId {
   const raw = (opts?.provider ?? process.env.LAWMIND_AUTHORITY_PROVIDER ?? "open")
     .trim()
     .toLowerCase();
@@ -38,6 +36,34 @@ export function resolveAuthorityProvider(opts?: {
   }
   // Unknown → open (fail-closed local corpus) rather than commercial
   return "open";
+}
+
+const KNOWN_AUTHORITY_PROVIDER_TOKENS = new Set([
+  "open",
+  "opensource",
+  "open-law",
+  "npc",
+  "flk",
+  "generic",
+  "http",
+  "rest",
+  "pkulaw",
+  "pku",
+  "法宝",
+  "lexis",
+  "lexisnexis",
+]);
+
+/**
+ * Non-empty provider token that is not a known alias.
+ * Empty / unset stays the open default and is not a misconfiguration.
+ */
+export function authorityProviderUnrecognized(opts?: { provider?: string }): boolean {
+  const raw = (opts?.provider ?? process.env.LAWMIND_AUTHORITY_PROVIDER ?? "").trim().toLowerCase();
+  if (!raw) {
+    return false;
+  }
+  return !KNOWN_AUTHORITY_PROVIDER_TOKENS.has(raw);
 }
 
 export function authorityProviderLabel(id: AuthorityProviderId): string {

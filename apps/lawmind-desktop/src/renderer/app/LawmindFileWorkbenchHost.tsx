@@ -18,6 +18,8 @@ export type LawmindFileWorkbenchHostProps = {
   mattersPickList: Array<{ id: string; label: string }>;
   workspaceTreeRefreshKey: number;
   casesNodeActions: FileWorkbenchCasesNodeActions | null;
+  explorerMatterId?: string | null;
+  materialsDefaultOpen?: boolean;
 };
 
 function LawmindFileWorkbenchHostImpl({
@@ -34,6 +36,8 @@ function LawmindFileWorkbenchHostImpl({
   mattersPickList,
   workspaceTreeRefreshKey,
   casesNodeActions,
+  explorerMatterId = null,
+  materialsDefaultOpen = false,
 }: LawmindFileWorkbenchHostProps) {
   useEffect(() => {
     const portaled = Boolean(showSidebarWorkbenchFiles && fileExplorerHost);
@@ -70,6 +74,8 @@ function LawmindFileWorkbenchHostImpl({
       mattersPickList={mattersPickList}
       workspaceTreeRefreshKey={workspaceTreeRefreshKey}
       casesNodeActions={isMeeting || isAgents ? null : casesNodeActions}
+      explorerMatterId={explorerMatterId}
+      materialsDefaultOpen={materialsDefaultOpen}
     />
   );
 }

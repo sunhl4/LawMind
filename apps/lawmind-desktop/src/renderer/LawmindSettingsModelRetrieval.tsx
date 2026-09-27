@@ -12,7 +12,6 @@ import {
   testModelConnection,
   type ModelCatalogEntry,
   type PlatformProviderKeyStatus,
-  type ProviderKeyStatus,
 } from "./lawmind-models-api";
 import {
   formatAuthorityProbeSuccessMsg,
@@ -29,7 +28,6 @@ type Props = {
   health: LawmindSettingsHealth;
   envFilePath?: string;
   apiBase?: string;
-  modelProviders?: ProviderKeyStatus[];
   platformProviders?: PlatformProviderKeyStatus[];
   platformMode?: "proxy" | "platform_key" | "none";
   selectedModelId?: string;
@@ -52,7 +50,6 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
     health,
     envFilePath,
     apiBase,
-    modelProviders = [],
     platformProviders = [],
     platformMode = "none",
     selectedModelId = "",
@@ -178,7 +175,7 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
           </span>
           {!health?.modelConfigured ? (
             <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={onOpenApiWizard}>
-              API 配置向导
+              连接向导
             </button>
           ) : !modelOk && apiBase ? (
             <button
@@ -218,10 +215,7 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
         </div>
         {webSearchPolicyBlocked ? (
           <p className="lm-settings-caption lm-settings-caption--warn" role="status">
-            工作区策略文件（<code className="lm-md-code">lawmind.policy.json</code>）正在禁止联网：要么写着{" "}
-            <code className="lm-md-code">allowWebSearch: false</code>，要么是{" "}
-            <code className="lm-md-code">egressMode: "offline"</code>
-            （设置 → 安全 →「离线模式」）。这两种情况下对话栏的「联网」都会被强制关回「仅本地」。
+            对话栏的联网已关闭。
           </p>
         ) : null}
         <div className="lm-settings-row">
@@ -321,31 +315,28 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
                   title={
                     isAuthorityCorpusUiReady(health?.authorityCorpus?.status)
                       ? health?.authorityCorpus?.provider === "open"
-                        ? "探测开源本地语料是否就绪（非厂商付费库核验）"
-                        : "对已配置端点发起契约健康探测（非厂商语料核验）"
-                      : "开源：检查语料；闭源/generic：需先配置合法 LAWMIND_AUTHORITY_ENDPOINT"
+                        ? "检查公开法规是否可用"
+                        : "检查已接上的权威库是否可用"
+                      : "请先在这里接上权威库"
                   }
                 >
                   {authorityProbeBusy
-                    ? "探测中…"
+                    ? "检查中…"
                     : health?.authorityCorpus?.provider === "open"
-                      ? "探测开源语料"
-                      : "探测权威端点"}
+                      ? "检查公开法规"
+                      : "检查权威库"}
                 </button>
               ) : null
             }
           />
         </div>
         {envFilePath ? (
-          <div className="lm-settings-row lm-settings-row-stack">
-            <span className="lm-settings-key">配置文件</span>
-            <code className="lm-md-code lm-settings-env-path">{envFilePath}</code>
-          </div>
+          <p className="lm-settings-caption">连接配置已保存在本机。</p>
         ) : null}
 
         {!health?.modelConfigured ? (
           <p className="lm-settings-caption" role="status">
-            请用「API 配置向导」写入密钥。
+            请用「连接向导」写入密钥。
           </p>
         ) : !modelOk ? (
           <p className="lm-settings-caption lm-settings-caption--warn" role="status">
@@ -359,7 +350,7 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
 
         <div className="lm-settings-actions">
           <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={onOpenApiWizard}>
-            API 配置向导
+            连接向导
           </button>
           {apiBase ? (
             <button
@@ -384,7 +375,7 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
       </div>
 
       <details className="lm-settings-advanced">
-        <summary>高级：起草、Worker、联网密钥、检索与自定义模型</summary>
+        <summary>高级：起草、审稿、联网与自定义模型</summary>
         <div className="lm-settings-advanced-body">
           <label className="lm-settings-row lm-settings-row-check">
             <span className="lm-settings-key">起草使用大模型</span>
@@ -417,13 +408,13 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
           ) : null}
 
           <label className="lm-settings-row">
-            <span className="lm-settings-key">Worker 模型（工具轮）</span>
+            <span className="lm-settings-key">更快模型（审稿与摘要）</span>
             <select
               className="lm-compose-select"
               data-testid="lm-settings-worker-model"
               disabled={!apiBase || !health?.modelConfigured || workerSaving}
               value={workerModelId}
-              aria-label="工具轮 Worker 模型"
+              aria-label="审稿与摘要所用的更快模型"
               onChange={(e) => {
                 const next = e.target.value;
                 setWorkerModelId(next);
@@ -447,14 +438,12 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
                 ))}
             </select>
           </label>
-          <p className="lm-settings-caption">工具轮可用更快模型。</p>
+          <p className="lm-settings-caption">
+            只用于审稿和长对话摘要。对话里选工具、改稿仍用当前模型。
+          </p>
 
           <p className="lm-settings-caption">
-            公开网页检索默认跟对话模型走同一套 Key。仅当上方关掉「共用」且法律检索模型自带厂商联网时，才会改用垂类去搜网页。Brave
-            仍是没有厂商联网时的可选备用（
-            <code className="lm-md-code">LAWMIND_WEB_SEARCH_API_KEY</code> /{" "}
-            <code className="lm-md-code">BRAVE_API_KEY</code>
-            ）。
+            公开网页检索默认跟对话模型用同一套密钥。只有关掉「共用」、并且法律检索模型自己能联网时，才会改用那一套去搜网页。没有厂商联网时，可以在连接向导里另填一个网页检索密钥。
           </p>
           <p className="lm-settings-caption">
             当前策略：{retrievalLabel}。
@@ -469,18 +458,6 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
                 : ""}
             </p>
           ) : null}
-          {modelProviders.length > 0 ? (
-            <div className="lm-provider-key-grid" aria-label="本机 API Key 状态">
-              {modelProviders.map((p) => (
-                <div className="lm-settings-row" key={p.provider}>
-                  <span className="lm-settings-key">{p.label}</span>
-                  <span className={p.configured ? "lm-pill lm-pill-neutral" : "lm-pill lm-pill-warn"}>
-                    {p.configured ? "已填 Key" : "未填 Key"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : null}
 
           {apiBase && onModelsChanged ? (
             <LawmindSettingsCustomModels
@@ -491,7 +468,7 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
           ) : null}
 
           <label className="lm-settings-row lm-settings-row-check lm-settings-diagnostics-toggle">
-            <span className="lm-settings-key">对话调试信息</span>
+            <span className="lm-settings-key">显示办理过程</span>
             <input type="checkbox" checked={turnDiagnostics} onChange={onTurnDiagnosticsChange} />
           </label>
         </div>

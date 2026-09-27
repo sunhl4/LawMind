@@ -6,7 +6,7 @@ import { workspaceDir } from "./local-server.mjs";
 import { LAWMIND_PRODUCT_NAME } from "./brand.mjs";
 import { safeOpenExternal } from "./safe-shell-command.mjs";
 
-const __electronDir = path.dirname(fileURLToPath(import.meta.url));
+const electronDir = path.dirname(fileURLToPath(import.meta.url));
 
 /** Public download landing (browser). Override with env `LAWMIND_DOWNLOAD_PAGE_URL`. */
 const DEFAULT_LAWMIND_DOWNLOAD_PAGE_URL =
@@ -52,7 +52,7 @@ export async function checkUpdatesWithUi() {
     await dialog.showMessageBox({
       type: "info",
       title: LAWMIND_PRODUCT_NAME,
-      message: "当前为开发构建，请使用菜单「下载安装包」页面获取正式版本。",
+      message: "这是开发版本，没有应用内更新。",
     });
     return;
   }
@@ -60,7 +60,7 @@ export async function checkUpdatesWithUi() {
     await dialog.showMessageBox({
       type: "info",
       title: LAWMIND_PRODUCT_NAME,
-      message: "已按环境变量关闭应用内更新，请联系管理员获取安装包。",
+      message: "应用内更新已关闭。请向管理员索取安装包。",
     });
     return;
   }
@@ -85,10 +85,11 @@ export async function checkUpdatesWithUi() {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[LawMind] check for updates:", msg);
     await dialog.showMessageBox({
       type: "warning",
       title: LAWMIND_PRODUCT_NAME,
-      message: `检查更新失败：${msg}`,
+      message: "这次没能检查更新。请稍后再试，或从下载页获取安装包。",
     });
   }
 }
@@ -100,7 +101,7 @@ export function resolveLawmindDevServerUrl() {
 
 export async function loadRendererIntoWindow(win, hash = "") {
   const devUrl = resolveLawmindDevServerUrl();
-  const distIndex = path.join(__electronDir, "..", "dist", "index.html");
+  const distIndex = path.join(electronDir, "..", "dist", "index.html");
   const useDistInE2e =
     process.env.LAWMIND_E2E === "1" && fs.existsSync(distIndex);
   if (!app.isPackaged && !useDistInE2e) {
@@ -108,7 +109,7 @@ export async function loadRendererIntoWindow(win, hash = "") {
     await win.loadURL(url);
     return;
   }
-  const indexPath = useDistInE2e ? distIndex : path.join(__electronDir, "..", "dist", "index.html");
+  const indexPath = useDistInE2e ? distIndex : path.join(electronDir, "..", "dist", "index.html");
   if (hash) {
     await win.loadFile(indexPath, { hash });
   } else {
@@ -124,19 +125,31 @@ export function setupApplicationMenu() {
   };
   const fileSubmenu = [
     {
-      label: "Save",
+      label: "保存",
       accelerator: "CommandOrControl+S",
       click: () => {
         sendFileMenu("save");
       },
     },
     {
-      label: "Save As…",
+      label: "另存为…",
       accelerator: "Shift+CommandOrControl+S",
       click: () => {
         sendFileMenu("save-as");
       },
     },
+  ];
+  const viewSubmenu = [
+    ...(app.isPackaged
+      ? []
+      : [
+          { role: "reload", label: "重新载入" },
+          { role: "toggleDevTools", label: "开发者工具" },
+          { type: "separator" },
+        ]),
+    { role: "resetZoom", label: "实际大小" },
+    { role: "zoomIn", label: "放大" },
+    { role: "zoomOut", label: "缩小" },
   ];
   const template = isMac
     ? [
@@ -168,14 +181,7 @@ export function setupApplicationMenu() {
         },
         {
           label: "显示",
-          submenu: [
-            { role: "reload" },
-            { role: "toggleDevTools" },
-            { type: "separator" },
-            { role: "resetZoom" },
-            { role: "zoomIn" },
-            { role: "zoomOut" },
-          ],
+          submenu: viewSubmenu,
         },
         {
           label: "帮助",
@@ -194,22 +200,22 @@ export function setupApplicationMenu() {
             },
           ],
         },
-        { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "front" }] },
+        { label: "窗口", submenu: [{ role: "minimize", label: "最小化" }, { role: "zoom", label: "缩放" }, { type: "separator" }, { role: "front", label: "全部置于顶层" }] },
       ]
     : [
-        { label: "File", submenu: [...fileSubmenu, { type: "separator" }, { role: "quit" }] },
+        { label: "文件", submenu: [...fileSubmenu, { type: "separator" }, { role: "quit", label: "退出" }] },
         {
-          label: "Edit",
+          label: "编辑",
           submenu: [
-            { role: "undo" },
-            { role: "redo" },
+            { role: "undo", label: "撤销" },
+            { role: "redo", label: "重做" },
             { type: "separator" },
-            { role: "cut" },
-            { role: "copy" },
-            { role: "paste" },
+            { role: "cut", label: "剪切" },
+            { role: "copy", label: "复制" },
+            { role: "paste", label: "粘贴" },
           ],
         },
-        { label: "View", submenu: [{ role: "reload" }, { role: "toggleDevTools" }] },
+        { label: "显示", submenu: viewSubmenu },
         {
           label: "帮助",
           submenu: [
@@ -227,7 +233,7 @@ export function setupApplicationMenu() {
             },
           ],
         },
-        { label: "Window", submenu: [{ role: "minimize" }, { role: "close" }] },
+        { label: "窗口", submenu: [{ role: "minimize", label: "最小化" }, { role: "close", label: "关闭" }] },
       ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }

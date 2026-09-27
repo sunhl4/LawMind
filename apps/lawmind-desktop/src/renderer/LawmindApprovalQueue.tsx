@@ -222,9 +222,9 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
                     onClick={() => {
                       void (async () => {
                         const ok = await confirmDialog({
-                          title: "通过此审批？",
+                          title: "签批这一件？",
                           body: a.reason,
-                          confirmLabel: "通过",
+                          confirmLabel: "签批",
                         });
                         if (!ok) {
                           return;
@@ -243,14 +243,14 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
                             await refresh();
                             return;
                           }
-                          setError(errorMessage(e, "通过失败"));
+                          setError(errorMessage(e, "签批失败"));
                         } finally {
                           setResolvingId(null);
                         }
                       })();
                     }}
                   >
-                    通过
+                    签批
                   </button>
                   <button
                     type="button"

@@ -132,6 +132,12 @@ function detectDeliverableType(kind: TaskKind, instruction: string): Deliverable
     if (QUICK_TRIAGE_RE.test(instruction)) {
       return "memo.internal";
     }
+    if (
+      /(计划书|执行计划|工作计划|实施方案|工作方案)/.test(instruction) &&
+      !/(法律意见|检索备忘|正反类案|命题矩阵)/.test(instruction)
+    ) {
+      return "document.general";
+    }
     return "memo.research";
   }
   if (kind !== "draft.word") {

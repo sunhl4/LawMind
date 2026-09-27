@@ -179,7 +179,13 @@ function denyReasonForIpv6(host: string, allowLocalNetwork: boolean): string | n
   if (h === "::1" || h === "0:0:0:0:0:0:0:1") {
     return allowLocalNetwork ? null : `SSRF 拒绝 loopback 地址「${host}」`;
   }
-  if (h.startsWith("fe80:") || h.startsWith("fe")) {
+  // AWS IMDS IPv6。默认允许私网时也不能放行，否则主机名解析到这里就绕过 169.254 黑名单。
+  if (h === "fd00:ec2::254" || h === "fd00:ec2:0:0:0:0:0:254") {
+    return `SSRF 拒绝云元数据地址「${host}」`;
+  }
+  // link-local 是 fe80::/10（fe80–febf），不要写成 startsWith("fe")——那会误伤 fec0 等段。
+  const firstHextet = h.split(":", 1)[0] ?? "";
+  if (/^fe[89ab][0-9a-f]$/i.test(firstHextet)) {
     return `SSRF 拒绝 link-local 地址「${host}」`;
   }
   if (h.startsWith("fc") || h.startsWith("fd")) {
@@ -189,6 +195,16 @@ function denyReasonForIpv6(host: string, allowLocalNetwork: boolean): string | n
     const mapped = h.slice("::ffff:".length);
     if (isIpv4Literal(mapped)) {
       return denyReasonForIpv4(mapped, allowLocalNetwork);
+    }
+    const hex = mapped.split(":");
+    if (
+      hex.length === 2 &&
+      /^[0-9a-f]{1,4}$/.test(hex[0] ?? "") &&
+      /^[0-9a-f]{1,4}$/.test(hex[1] ?? "")
+    ) {
+      const n = (Number.parseInt(hex[0] ?? "", 16) << 16) + Number.parseInt(hex[1] ?? "", 16);
+      const ip = [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join(".");
+      return denyReasonForIpv4(ip, allowLocalNetwork);
     }
   }
   return null;
@@ -201,7 +217,8 @@ function assertUrlAllowed(url: URL, opts: ResolvedOptions): void {
   if (url.username || url.password) {
     throw new OutboundProxyError("URL 中禁止嵌入凭据");
   }
-  const host = url.hostname.toLowerCase();
+  // Node URL 会把整段十进制 / 十六进制 / 八进制主机收成点分形式；这里剥掉 IPv6 方括号再校验。
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (url.protocol === "http:" && !isLoopbackHost(host) && !opts.allowInsecure) {
     throw new OutboundProxyError("非本地 http 默认拒绝；如需明文请设置 allowInsecure=true");
   }
@@ -257,7 +274,7 @@ async function assertProxyHopAllowed(proxyUrl: URL, opts: ResolvedOptions): Prom
   if (proxyUrl.username || proxyUrl.password) {
     throw new OutboundProxyError("代理 URL 中禁止嵌入凭据");
   }
-  const host = proxyUrl.hostname.toLowerCase();
+  const host = proxyUrl.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (isIpv4Literal(host)) {
     const reason = denyReasonForIpv4(host, opts.allowLocalNetwork);
     if (reason) {
@@ -272,10 +289,14 @@ async function assertProxyHopAllowed(proxyUrl: URL, opts: ResolvedOptions): Prom
   await assertResolvedAddressesAllowed(proxyUrl, opts);
 }
 
-async function assertResolvedAddressesAllowed(url: URL, opts: ResolvedOptions): Promise<void> {
+/**
+ * 解析并校验主机。返回应连接的地址；字面量 IP / 回环返回 undefined，调用方按原主机名连接。
+ * 生产路径必须连这个地址，不能把主机名再交给解析器（DNS 重绑定）。
+ */
+async function resolvePinnedAddress(url: URL, opts: ResolvedOptions): Promise<string | undefined> {
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (isIpv4Literal(host) || isIpv6Literal(host) || isLoopbackHost(host)) {
-    return;
+    return undefined;
   }
   const lookup = opts.dnsLookup ?? defaultOutboundDnsLookup;
   let addrs: Array<{ address: string; family?: number }>;
@@ -294,6 +315,18 @@ async function assertResolvedAddressesAllowed(url: URL, opts: ResolvedOptions): 
       throw new OutboundProxyError(`主机「${host}」解析到不可达地址：${reason}`);
     }
   }
+  // 优先钉 IPv4：双栈主机上先拿到的若是 IPv6，在仅 IPv4 网络上会白白失败。
+  const pinned =
+    addrs.find((row) => isIpv4Literal(row.address.trim()))?.address.trim() ??
+    addrs[0]?.address?.trim();
+  if (!pinned) {
+    throw new OutboundProxyError(`主机「${host}」DNS 无解析结果（fail-closed）`);
+  }
+  return pinned;
+}
+
+async function assertResolvedAddressesAllowed(url: URL, opts: ResolvedOptions): Promise<void> {
+  await resolvePinnedAddress(url, opts);
 }
 
 function parseUrl(input: Parameters<typeof fetch>[0] | URL): URL {
@@ -420,7 +453,7 @@ function responseFromIncomingMessage(res: http.IncomingMessage, maxBytes: number
         }
       }
     } else if (value != null) {
-      headers.set(key, String(value));
+      headers.set(key, value);
     }
   }
   if (maxBytes > 0) {
@@ -476,16 +509,21 @@ function directRequest(
   ca: Buffer | undefined,
   controller: AbortController,
   maxBytes: number,
+  pinnedAddress?: string,
 ): Promise<Response> {
   return new Promise((resolve, reject) => {
     const isHttps = url.protocol === "https:";
     const port = url.port ? Number(url.port) : isHttps ? 443 : 80;
+    const requestHeaders = new Headers(headers);
+    if (!requestHeaders.has("host")) {
+      requestHeaders.set("host", url.host);
+    }
     const options = {
-      hostname: url.hostname,
+      hostname: pinnedAddress ?? url.hostname,
       port,
       path: url.pathname + url.search,
       method,
-      headers: headersToRecord(headers),
+      headers: headersToRecord(requestHeaders),
       ...(isHttps ? { servername: url.hostname, ca } : {}),
     };
     const req = isHttps
@@ -637,6 +675,7 @@ function nodeRequest(
   url: URL,
   init: RequestInit | undefined,
   opts: ResolvedOptions,
+  pinnedAddress?: string,
 ): Promise<Response> {
   const method = init?.method?.toUpperCase() ?? "GET";
   const headers = new Headers(init?.headers);
@@ -662,7 +701,16 @@ function nodeRequest(
   const proxyUrlStr = selectProxyUrl(url, opts);
   const run = async (): Promise<Response> => {
     if (!proxyUrlStr) {
-      return directRequest(url, method, headers, body, ca, controller, opts.maxResponseBytes);
+      return directRequest(
+        url,
+        method,
+        headers,
+        body,
+        ca,
+        controller,
+        opts.maxResponseBytes,
+        pinnedAddress,
+      );
     }
     const proxyUrl = new URL(proxyUrlStr);
     await assertProxyHopAllowed(proxyUrl, opts);
@@ -768,18 +816,7 @@ export function createOutboundProxy(options: OutboundProxyOptions = {}): Outboun
     dnsLookup: options.dnsLookup,
   };
 
-  const needsNodeFetch = () => {
-    if (opts.fetchImpl) {
-      return false;
-    }
-    if (opts.rootCerts && opts.rootCerts.length > 0) {
-      return true;
-    }
-    if (!opts.proxyEnv) {
-      return false;
-    }
-    return Boolean(envProxyUrl("http") || envProxyUrl("https"));
-  };
+  const needsNodeFetch = () => !opts.fetchImpl;
 
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = parseUrl(input);
@@ -795,9 +832,9 @@ export function createOutboundProxy(options: OutboundProxyOptions = {}): Outboun
 
     const attemptOnce = async (target: URL, requestInit: RequestInit): Promise<Response> => {
       assertUrlAllowed(target, opts);
-      await assertResolvedAddressesAllowed(target, opts);
+      const pinned = await resolvePinnedAddress(target, opts);
       if (needsNodeFetch()) {
-        return nodeRequest(target, requestInit, opts);
+        return nodeRequest(target, requestInit, opts, pinned);
       }
       const controller = new AbortController();
       const timer =

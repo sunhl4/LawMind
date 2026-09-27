@@ -2,7 +2,6 @@
  * Deadline reminder tick: queue 待拍板-style inbox items before dueAt.
  */
 
-import { randomUUID } from "node:crypto";
 import {
   listMatterIdsFromStorage,
   loadMatter,
@@ -50,14 +49,9 @@ export function processDueDeadlineReminders(
       if (remaining > hours) {
         continue;
       }
-      const patched = patchDeadline(workspaceDir, matterId, dl.deadlineId, {
-        remindedAt: now.toISOString(),
-      });
-      if (!patched) {
-        continue;
-      }
+      const inboxId = `deadline-remind-${matterId}-${dl.deadlineId}`.replace(/[^\w.-]+/g, "_");
       saveAutomationInboxItem(workspaceDir, {
-        id: randomUUID(),
+        id: inboxId,
         automationId: "deadline-remind",
         matterId,
         title: `期限提醒 · ${dl.title}`,
@@ -65,6 +59,12 @@ export function processDueDeadlineReminders(
         status: "open",
         createdAt: now.toISOString(),
       });
+      const patched = patchDeadline(workspaceDir, matterId, dl.deadlineId, {
+        remindedAt: now.toISOString(),
+      });
+      if (!patched) {
+        continue;
+      }
       reminded += 1;
     }
   }

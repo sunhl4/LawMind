@@ -1,6 +1,22 @@
 # 第 16 章 协作、在办与案件副本
 
-这一章讲「不止一个助手」和「不止一个律师」这两种情况。
+这一章讲两件不同的事：助手在内部怎么分工，以及多个律师怎么共办一案。
+
+对照 Cursor Agents Window、Codex 子任务和 Harvey Shared Spaces，日常好用的形状是：
+
+- **律师第一眼看到要决定的事**，不是助手花名册，也不是一次过率。内部委派、岗位和配额留在引擎里，结果回到当前对话或在办。
+- **多人协作的单位是案件**（材料、签出、成员），不是让几个助手在会议室里互相发言。会议室仍在，但是次级入口。
+- **Solo 不因协作变难**。不邀请同事时，没有副本同步，在办默认就是待签批 / 待补充 / 待拍板。
+
+五条铁律在这里的取舍：
+
+| 铁律           | 这一章怎么落                                                                                                                                       |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 上手简单       | Solo 第一眼是待决定的事，不是助手花名册，也不是一次过率。会议室、委派 API 是次级入口。                                                             |
+| 交付质量       | 岗位清单是教练（必须修改 / 建议优化 / 可选）。它不给稿打分，也不靠互审次数证明写对了。                                                             |
+| 稳定           | 委派深度 3、每助手 5 条，防的是套娃把机器打满。超时如实标，不把晚到的结果当成没发生。                                                              |
+| 先复用，后自研 | 多人共案用端到端加密加共享目录或 HTTP 中继，不自造一套在线律所 IM。                                                                                |
+| 发挥模型能力   | 六个 Role 的工具名单全是不限制。一句话生成工作流时，句式只是草稿，模型那条才决定步骤；句式对不上不得拒办。律所强制互审是外发前的授权，不是质量分。 |
 
 ## 16.1 助手、岗位与 Role：三层称呼的关系
 
@@ -58,31 +74,36 @@ const BUILT_IN_ROLES = ASSISTANT_PRESETS.map(presetToRole);
 
 有一点：**六个 Role 的 `allowedToolNames` 全部是 `undefined`**，也就是不限制。
 
-这看似和「岗位化」矛盾，但和第 1 章的引导原则一致：**不靠白名单限制模型，而靠技能和审核清单引导。** 真要拦，用工具管线的其他中间件（审批、权限模式、角色上限）来做。
+这和岗位化不矛盾：不靠白名单限制模型，靠技能和审核清单引导。真要停，只停外发、改原稿和伦理墙。
 
 ### 风险上限怎么用
 
-`taskRiskExceedsRoleCeiling(taskRisk, role)` 判断任务风险是否超过岗位上限。看 `RISK_ORDER = { low: 0, medium: 1, high: 2 }`。
+`taskRiskExceedsRoleCeiling` 能判断任务风险是否超过岗位上限（`RISK_ORDER`：low 0、medium 1、high 2）。`client_memo` 的上限是 low，六个 Role 里除了 `general_default` 都把 `defaultEscalateTo` 指向它。这个函数目前只在岗位定义和单测里，不在对话中途弹出「要不要换岗位」，也不因此停掉交办。
 
-比如 `client_memo`（上限 low）拿到一个 high 风险的任务，就该升级到别的岗位——`defaultEscalateTo` 字段就是干这个的，六个 Role 里除了 `general_default` 都指向它。
+### 名册：在场、置顶与上限
 
-## 16.2 在办：一眼看全所有在跑的活
+`src/lawmind/assistants/` 里名册相关的四块：
 
-「在办」是五个工作面之一（`agents`），也是协作的日常入口。
+- **六态在场**（`presence.ts`）：`idle` / `working` / `waiting` / `blocked` / `thinking` / `done`。从在办记录和会话归属推出来（`presenceFromWork`），不是助手自己上报。对话消息栏的助手席（`LawmindAssistantDesk.tsx`）读 `GET /api/assistants/:id/desk` 展示它。
+- **置顶 / 隐藏 / 上限 50**（`roster.ts`）：`ASSISTANT_ROSTER_LIMIT = 50`——「再多就开始互相抢注意力」。置顶在前、隐藏在后、同组按名字；隐藏只影响顶栏日常切换，名册里仍看得到；默认助手不能被隐藏；当前正在用的那位即使被隐藏也留在切换列表里。
+- **跨助手检索**（`roster-search.ts`）：`GET /api/assistants/roster-search?q=` 在对话命中之外再看办件与常设工作运行记录，按助手分组（复用对话检索，不另造索引；没有助手归属的常设工作放进「未归属」）。
+- **岗位模板导出**（`share-template.ts`）：`POST /api/assistants/:id/share-template` 把一位助手的职务说明导成可分享的模板。密钥 / 私钥是硬拦（导出前必须删掉）；像电话或证件号的内容只作提醒，要律师显式确认（`acknowledgeWarnings`）才放行。
 
-界面结构（注释原话）：
+## 16.2 在办：还没了结的交办
 
-> 在办 — 与对话工作台同构：左侧待办目录 · 右侧办理区。
+「在办」是工作面之一（`agents`），也是跟进的日常入口。打开后左栏是一本交办册，三条带子：
 
-左栏可以按两种模式看：**团队模式**（按助手分组）和**队列模式**（按类型分组）。筛选维度有案件和成员，还有「稍后看」（snoozed）。
+- **停在你这里**：待签批、待补充、待发出、办到一半停住、近几日没有办完。始终展开。有这种件时，右栏先打开最靠前的一件。
+- **正在办**：对话、交给另一位助手、按流程，且还在跑或已排上。不超过几件时展开。
+- **今天办完**：今天完成或停下的。旁边还有活时收成一行；只有这一条时展开。
 
-右栏是办理区，做三件事：**签批 / 补充 / 批准仪式 + 导出条**。
+右栏先写你交办的那句话和现在停在哪里，再是签批、补充或驳回。正在办和今天办完的，主按钮是回到这场对话或去改稿。要看全文，从这一件进改稿。
 
-有一句话概括了它的定位：「集中签批 / 补充 / 批准 / 驳回 / 需修改（含不展开全文的快速决定）」。
+这和 Cursor Agents Window、Codex 任务列表、Harvey 的运行记录一致：一件事走完它的状态，要你动手只是其中一种状态，不另开一间房间。不按助手排。一次过率和均改写字数不出现在这一行。
 
-也就是说，律师不必打开每一份稿子的全文就能做决定——这是「在办」相对「改稿」的价值：**批量处理**。要看正文再决策的，从「在办条」进「改稿」。
+左栏可以按案件筛选，以及「只看要我处理」（侧栏「待我拍板」进来时默认打开）。「稍后看」仍持久化（localStorage 键 `lawmind-agents-snooze:v1`）。
 
-左栏的视图状态存在浏览器里（`fleet-desk-view-store.ts`）：列表模式、筛选项、分组展开状态、「稍后看」的集合。其中「稍后看」和「手动折叠的分组」会持久化（localStorage 键 `lawmind-agents-snooze:v1`），其余是会话态。
+**交出去的活**和**按流程办**收在顶栏「更多」里，用来撤销委派或发起一条流程。它们不是进门第一眼。助手之间的派活由模型在回合里用协作工具完成，律师不需要先选岗位再派。进行中的委派和流程会出现在「正在办」。
 
 ## 16.3 委派：把活交给另一个助手
 
@@ -150,13 +171,13 @@ pending | running | completed | failed | timeout | cancelled | completed_after_t
 | 默认咨询超时         | 60 秒  |
 | 默认委派超时         | 300 秒 |
 
-校验失败时的错误串很直白：
+校验失败时直接给律师能看懂的中文：
 
 ```text
-Cannot delegate to self.
-Delegation depth <n> exceeds maximum <m>.
-Assistant <x> has N active delegations (max M).
-Communication from X to Y is not allowed by policy.
+不能把这件活派给自己。请交给另一位助手，或自己做完再回报。
+派活已经套了 <n> 层，上限是 <m> 层。请把结论交回，不要再往下派。
+你同时在办的派活已有 <n> 件，上限是 <m> 件。等一件做完，或改派给别的助手。
+当前协作策略不允许这样派活。请改派给允许的助手，或自己做完再回报。
 ```
 
 第二条（深度限制）防的是**委派套委派无限递归**。第三条防的是单个助手被派爆。
@@ -280,11 +301,9 @@ preApproveToolNames: ["apply_surgical_edits", "render_tracked_draft", "prepare_o
 
 ### 从一句话生成工作流
 
-`parseAndBuildWorkflow` 能把自然语言（「先让 A 做 X，然后让 B 做 Y」）解析成工作流。
+`parseAndBuildWorkflow` 能把「先让 A 做 X，然后让 B 做 Y」收成一份步骤草稿。
 
-有两条路：启发式（`parseDirectiveHeuristic`，认「先让…然后让…」「同时让…」这几种句式）和模型（`parseDirectiveWithModel`，走出口代理调一次模型）。
-
-模型那条用的是 `requestTag: "directive-plan"`，走标准出口代理和任务温度配置。
+有两条路：句式（`parseDirectiveHeuristic`，认「先让…然后让…」「同时让…」）和模型（`parseDirectiveWithModel`，走出口代理，`requestTag: "directive-plan"`）。句式对不上就走模型。两条路都不冻结工具表，也不因为没匹配上句式就拒绝交办。
 
 ## 16.5 默认承办人路由
 
@@ -308,11 +327,11 @@ preApproveToolNames: ["apply_surgical_edits", "render_tracked_draft", "prepare_o
 
 解析结果带一个 `source` 字段，取值 `explicit` / `assistantId` / `roleId` / `fallback` / `none`。这样排查「为什么派给了他」很方便。
 
-路由会写审计：`routing.resolve_ok`、`routing.resolve_fallback`、`routing.resolve_failed`。
+路由解析会记 `routing.resolve_ok` / `routing.resolve_fallback` / `routing.resolve_failed`，给排障用。律师界面不展示这些事件名，也不用它们说明「这份稿可信」。
 
 ## 16.6 强制同行审核
 
-`peer-review-gate.ts` 实现「律所版要求每份稿子必须有另一个人看过」。
+`peer-review-gate.ts` 是律所档在外发前多一人看过。Solo 默认关。它不给稿打质量分；只有一个助手时记 `no_peer` 或 `self_peer` 并继续，不把律师卡在「请先再添加一名助手」。
 
 开关解析：`effectiveForcePeerReview`（policy 的 `forcePeerReview` 优先，否则看版本功能 `forcePeerReview`——firm / private_deploy 默认开）。
 
@@ -332,7 +351,7 @@ preApproveToolNames: ["apply_surgical_edits", "render_tracked_draft", "prepare_o
 
 ## 16.7 会议室：多助手围着一个议题发言
 
-「会议室」是五个工作面之一（`meeting`）。
+「会议室」是六个工作面之一（`meeting`）。
 
 ### 两种范围
 
@@ -389,7 +408,7 @@ preApproveToolNames: ["apply_surgical_edits", "render_tracked_draft", "prepare_o
 
 ## 16.8 案件副本：多个律师办同一个案子
 
-这是律所版的功能（`matterReplicaCollab`），solo 默认关。
+各版本默认都开（`matterReplicaCollab`）。独立律师不用换成律所版就能邀请同事共办一案；`matterReplica.enabled: false` 可以关掉。
 
 ### 要解决的问题
 
@@ -545,6 +564,12 @@ counterparty, causeOfAction, matterKind, practiceTags, nextActions, openQuestion
 
 默认目录 `.lawmind-matter-cloud`，端口 8788，主机 127.0.0.1。
 
+入云与邀请的三条链路：
+
+- **enroll / join**：`POST /v1/enroll` 注册账号领令牌；同事凭邀请码走 `POST /v1/invites/join` 换到自己的令牌并加入案子（两人令牌不同）。
+- **cloud-link.json**：桌面端把云地址与令牌存在 `lawmind/cloud-link.json`，权限 0600，只在本机（`matter-cloud/cloud-link.ts`）。策略文件拒收云地址与令牌（`matterReplica.cloudToken` / `endpoint` / `cloudDataDir` 写进 `lawmind.policy.json` 会被拒：「地址和令牌不能写在策略文件里」）。
+- **desktop-bridge**：配了云之后**云是权威**——邀请由服务端建、服务端记状态，桌面端不再自己造邀请码；兑换云邀请后同时写本地名册并记 `invite.accept` op，让不带云的机器也能收敛（`matter-cloud/desktop-bridge.ts`）。共享中继形态下，邀请随中继上的 `invite.create` op 到达对端，由 `ingestInviteFromSharedRelay`（`matter-replica/shared-relay.ts`）摄取，状态由 `invite.revoke` / `invite.accept` op 还原——对端不需要 `invites.jsonl`。
+
 ## 16.10 HTTP 端点
 
 ### 协作
@@ -570,6 +595,9 @@ counterparty, causeOfAction, matterKind, practiceTags, nextActions, openQuestion
 | `/api/assistants/:id`                       | PATCH / DELETE |
 | `/api/assistants/:id/duplicate`             | POST           |
 | `/api/assistants/:id/profile-sections`      | GET            |
+| `/api/assistants/roster-search`             | GET            |
+| `/api/assistants/:id/desk`                  | GET            |
+| `/api/assistants/:id/share-template`        | POST           |
 | `/api/assistant-presets`                    | GET            |
 | `/api/agent-presets`                        | GET            |
 | `/api/agent-fleet`                          | GET            |
@@ -603,23 +631,23 @@ counterparty, causeOfAction, matterKind, practiceTags, nextActions, openQuestion
 
 ## 16.11 关键文件
 
-| 关注点         | 文件                                                                                                                                                                                                                                                                       |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 协作消息与委派 | `src/lawmind/agent/collaboration/message-bus.ts`、`delegation-registry.ts`、`types.ts`                                                                                                                                                                                     |
-| 协作审计       | `src/lawmind/agent/collaboration/audit.ts`                                                                                                                                                                                                                                 |
-| 共享记忆与产物 | `src/lawmind/agent/collaboration/shared-memory.ts`、`workflow-memory-bundle.ts`                                                                                                                                                                                            |
-| 工作流模板     | `builtin-workflow-templates.ts`、`workspace-workflow-templates.ts`、`ensure-workflow-seeds.ts`                                                                                                                                                                             |
-| 工作流执行     | `src/lawmind/agent/orchestrator/executor.ts`、`directive-parser.ts`、`types.ts`                                                                                                                                                                                            |
-| 协作工具       | `src/lawmind/agent/tools/coordination/`（`delegate.ts`、`handoff.ts`、`meeting.ts`、`utils.ts`）                                                                                                                                                                           |
-| 默认路由       | `src/lawmind/routing/defaults.ts`、`peer-review-gate.ts`                                                                                                                                                                                                                   |
-| Role           | `src/lawmind/core/role.ts`、`src/lawmind/agent/assistant-presets.ts`                                                                                                                                                                                                       |
-| 助手档案与组织 | `src/lawmind/assistants/`                                                                                                                                                                                                                                                  |
-| 会议室         | `src/lawmind/cases/team-meeting.ts`；渲染层 `src/renderer/app/MeetingView.tsx`、`lawmind-meeting-*.ts`                                                                                                                                                                     |
-| 案件副本       | `src/lawmind/matter-replica/`                                                                                                                                                                                                                                              |
-| 案件云         | `src/lawmind/matter-cloud/`                                                                                                                                                                                                                                                |
-| 客户端脚本     | `scripts/lawmind/lawmind-matter-cloud-server.ts`、`lawmind-matter-replica-cross-machine-probe.ts`                                                                                                                                                                          |
-| 桌面 UI        | `LawmindAgentFleetPanel.tsx`、`LawmindAgentFleetDetail.tsx`、`LawmindCollabDelegationCards.tsx`、`LawmindCollaborationDesk.tsx`、`matter/MatterReplicaPanel.tsx`、`matter/MatterTeamRosterStrip.tsx`、`LawmindDelegateAssistDialog.tsx`、`stores/fleet-desk-view-store.ts` |
-| 文档           | `docs/lawmind/LAWMIND-MATTER-REPLICA.md`、`docs/lawmind/LAWMIND-MATTER-REPLICA-GAP-REVIEW.md`、`docs/lawmind/LAWMIND-COLLABORATION-CAPABILITY-BRIEF.md`                                                                                                                    |
+| 关注点         | 文件                                                                                                                                                                                                                                                                                                                                    |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 协作消息与委派 | `src/lawmind/agent/collaboration/message-bus.ts`、`delegation-registry.ts`、`types.ts`                                                                                                                                                                                                                                                  |
+| 协作审计       | `src/lawmind/agent/collaboration/audit.ts`                                                                                                                                                                                                                                                                                              |
+| 共享记忆与产物 | `src/lawmind/agent/collaboration/shared-memory.ts`、`workflow-memory-bundle.ts`                                                                                                                                                                                                                                                         |
+| 工作流模板     | `builtin-workflow-templates.ts`、`workspace-workflow-templates.ts`、`ensure-workflow-seeds.ts`                                                                                                                                                                                                                                          |
+| 工作流执行     | `src/lawmind/agent/orchestrator/executor.ts`、`directive-parser.ts`、`types.ts`                                                                                                                                                                                                                                                         |
+| 协作工具       | `src/lawmind/agent/tools/coordination/`（`delegate.ts`、`handoff.ts`、`meeting.ts`、`utils.ts`）                                                                                                                                                                                                                                        |
+| 默认路由       | `src/lawmind/routing/defaults.ts`、`peer-review-gate.ts`                                                                                                                                                                                                                                                                                |
+| Role           | `src/lawmind/core/role.ts`、`src/lawmind/agent/assistant-presets.ts`                                                                                                                                                                                                                                                                    |
+| 助手档案与组织 | `src/lawmind/assistants/`                                                                                                                                                                                                                                                                                                               |
+| 会议室         | `src/lawmind/cases/team-meeting.ts`；渲染层 `src/renderer/app/MeetingView.tsx`、`lawmind-meeting-*.ts`                                                                                                                                                                                                                                  |
+| 案件副本       | `src/lawmind/matter-replica/`                                                                                                                                                                                                                                                                                                           |
+| 案件云         | `src/lawmind/matter-cloud/`                                                                                                                                                                                                                                                                                                             |
+| 客户端脚本     | `scripts/lawmind/lawmind-matter-cloud-server.ts`、`lawmind-matter-replica-cross-machine-probe.ts`                                                                                                                                                                                                                                       |
+| 桌面 UI        | `LawmindAgentFleetPanel.tsx`、`LawmindAgentFleetListAside.tsx`、`LawmindAgentFleetDetail.tsx`、`lawmind-fleet-docket.ts`、`LawmindCollabDelegationCards.tsx`、`LawmindCollaborationDesk.tsx`、`matter/MatterReplicaPanel.tsx`、`matter/MatterTeamRosterStrip.tsx`、`LawmindDelegateAssistDialog.tsx`、`stores/fleet-desk-view-store.ts` |
+| 文档           | `docs/lawmind/LAWMIND-MATTER-REPLICA.md`、`docs/lawmind/LAWMIND-MATTER-REPLICA-GAP-REVIEW.md`、`docs/lawmind/LAWMIND-COLLABORATION-CAPABILITY-BRIEF.md`                                                                                                                                                                                 |
 
 ## 16.12 已知坑
 
@@ -634,6 +662,7 @@ counterparty, causeOfAction, matterKind, practiceTags, nextActions, openQuestion
 - **审查助手没响应时结果标「未经审查」。** 这个标注必须保留，它是有意义的信号。
 - **记忆快照在入队时拍。** 排期任务不能等执行时才读偏好。
 - **强制互审要求作者和互审人不同。** 只有一个助手时会被跳过（`no_peer` 或 `self_peer`）。
+- **在办第一眼是交办册，不是助手花名册。** 按助手排会让 Solo 进门看见编制，而不是还没了结的事。
 - **会议室不产生对外法律意见。** 纪要开头的说明不能去掉。
 - **会议会话和参会人存在 localStorage。** 换机器就没了。
 - **案件副本的加密只保证「看不到内容」，不保证「操作是真的」。** op 还没有签名，中继仍可丢包与重放。

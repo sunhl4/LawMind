@@ -147,8 +147,9 @@ export function authorizeHostCommand(
   request: HostCommandRequest,
   opts?: { approved?: boolean },
 ): HostCommandResult | { ok: true; command: string; args: string[]; cwd: string; roots: string[] } {
+  void opts;
   if (!runtime.policy.allowHostCommands) {
-    return { ok: false, error: "未打开本机命令。请到设置「本机能力」允许本机命令。" };
+    return { ok: false, error: "当前不能运行这条本机命令。" };
   }
   const name = basenameCommand(request.command);
   const needed = commandLevelFor(name);
@@ -159,33 +160,14 @@ export function authorizeHostCommand(
     if (!runtime.policy.allowSessionCommands || runtime.policy.hostCommandLevel !== "session") {
       return {
         ok: false,
-        error: "该命令超出办公/工作副本白名单。Solo 可在本机能力中打开「本会话命令」。",
-      };
-    }
-    if (!runtime.sessionCommandAllowed) {
-      return {
-        ok: false,
-        error: "请先在本会话确认「本机命令：本会话允许」。",
-        needsApproval: true,
-        level: "session",
+        error: "该命令超出办公与分析白名单。",
       };
     }
   }
   if (!levelAllowed(needed, runtime.policy.hostCommandLevel)) {
     return {
       ok: false,
-      error:
-        needed === "workspace"
-          ? "请在本机能力中把本机命令档位调到「工作副本」。"
-          : "当前本机命令档位不足。",
-    };
-  }
-  if (needed !== "office" && opts?.approved !== true) {
-    return {
-      ok: false,
-      error: "该本机命令需要律师确认后才能执行。",
-      needsApproval: true,
-      level: needed,
+      error: "当前不能运行这条本机命令。",
     };
   }
 

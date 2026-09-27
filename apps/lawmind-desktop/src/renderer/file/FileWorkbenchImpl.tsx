@@ -24,6 +24,7 @@ import {
   resolveRelForAbs,
 } from "./file-workbench-fs";
 import { isValidMatterId } from "../../../../../src/lawmind/cases/matter-id.ts";
+import { notifyMaterialChosen } from "../lawmind-material-chosen";
 import { apiPost } from "../lawmind-api-routes.ts";
 import { errorMessage } from "../api-client";
 import {
@@ -56,6 +57,8 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     casesNodeActions,
     mattersPickList,
     workspaceTreeRefreshKey,
+    explorerMatterId = null,
+    materialsDefaultOpen = false,
   } = props;
 
   const [childrenByDir, setChildrenByDir] = useState<Record<string, FsEntry[]>>({});
@@ -111,9 +114,14 @@ export function FileWorkbench(props: FileWorkbenchProps) {
   const [addToMatterLastError, setAddToMatterLastError] = useState<string | null>(null);
   /** 是否存在 `cases/`（用于案件目录区块提示） */
   const [casesDirProbe, setCasesDirProbe] = useState<"unknown" | "ok" | "missing">("unknown");
-  /** 默认折叠：主栏留给「对话」；需要材料时再展开 */
+  /** 默认折叠：主栏留给「对话」；会议室传入 materialsDefaultOpen 时先展开。 */
   const [workSectionOpen, setWorkSectionOpen] = useState(false);
-  const [casesSectionOpen, setCasesSectionOpen] = useState(false);
+  const [casesSectionOpen, setCasesSectionOpen] = useState(materialsDefaultOpen);
+  useEffect(() => {
+    if (materialsDefaultOpen) {
+      setCasesSectionOpen(true);
+    }
+  }, [materialsDefaultOpen]);
 
   const { width: filesExplorerWidth, onResizePointerDown: onFilesExplorerResize } = usePaneResizePx({
     storageKey: "lawmind.ui.filesExplorerWidth",
@@ -373,6 +381,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       setActiveTabId(null);
       setSelected({ root, path: relPath, kind: "file" });
       setError(null);
+      notifyMaterialChosen(root, relPath);
       return;
     }
     const tabId = `${root}:${relPath}`;
@@ -381,6 +390,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       setOfficeBlock(null);
       setImagePreview(null);
       setActiveTabId(existing.id);
+      notifyMaterialChosen(root, relPath);
       return;
     }
     setBusy(true);
@@ -399,6 +409,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
           setActiveTabId(null);
           setSelected({ root, path: relPath, kind: "file" });
           setError(null);
+          notifyMaterialChosen(root, relPath);
           return;
         }
         throw new Error(errText);
@@ -419,6 +430,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
         setActiveTabId(null);
         setSelected({ root, path: relPath, kind: "file" });
         setError(null);
+        notifyMaterialChosen(root, relPath);
         return;
       }
       if (typeof res.content !== "string") {
@@ -434,6 +446,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       setActiveTabId(tab.id);
       setSelected({ root, path: relPath, kind: "file" });
       setError(null);
+      notifyMaterialChosen(root, relPath);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -903,6 +916,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       setWorkSectionOpen={setWorkSectionOpen}
       casesSectionOpen={casesSectionOpen}
       setCasesSectionOpen={setCasesSectionOpen}
+      explorerMatterId={explorerMatterId}
       filesExplorerWidth={filesExplorerWidth}
       onFilesExplorerResize={onFilesExplorerResize}
       explorerUsesRailLayout={explorerUsesRailLayout}

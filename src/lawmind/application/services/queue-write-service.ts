@@ -3,7 +3,7 @@
  *
  * 真相源：`workspace/matters/<matterId>/queue.jsonl`。
  *
- * 与 read-side `queue-service.ts` 区分：read 仍可从 MatterIndex 派生（fallback），
+ * 与 read-side `queue-service.ts` 区分：read 从 JSON + 任务/草稿轻量派生（不扫 audit），
  * write 走 service + JSON 真相源；W4 起 engine 落 draft 时调用 `openQueueItem`。
  */
 
@@ -17,6 +17,7 @@ import {
 } from "../../adapters/matter-storage/index.js";
 import { matterDir, withExclusiveFileLock } from "../../adapters/matter-storage/io.js";
 import { attachQueueItemId, createMatterIfMissing } from "./matter-write-service.js";
+import { invalidateQueueListSnap } from "./queue-service.js";
 
 function newTimestamp(): string {
   return new Date().toISOString();
@@ -35,58 +36,108 @@ export type OpenQueueItemInput = {
   blockedReason?: string;
 };
 
+const QUEUE_STATUSES = ["open", "in_progress", "resolved", "dismissed"] as const;
+type QueueStatus = (typeof QUEUE_STATUSES)[number];
+
+/** 合法转移。终态只能 reopen 回 open，不能从已完成直接改成驳回。 */
+const QUEUE_TRANSITIONS: Record<QueueStatus, ReadonlySet<QueueStatus>> = {
+  open: new Set(["in_progress", "resolved", "dismissed"]),
+  in_progress: new Set(["open", "resolved", "dismissed"]),
+  resolved: new Set(["open"]),
+  dismissed: new Set(["open"]),
+};
+
+export function canTransitionQueueStatus(from: QueueStatus, to: QueueStatus): boolean {
+  if (from === to) {
+    return true;
+  }
+  return QUEUE_TRANSITIONS[from]?.has(to) ?? false;
+}
+
+function unresolvedDeps(items: QueueItemRecord[], dependsOn: string[] | undefined): string[] {
+  if (!dependsOn?.length) {
+    return [];
+  }
+  return dependsOn.filter((id) => {
+    const dep = items.find((q) => q.queueItemId === id);
+    return !dep || (dep.status !== "resolved" && dep.status !== "dismissed");
+  });
+}
+
+function applyDependencyFields(item: QueueItemRecord, items: QueueItemRecord[]): QueueItemRecord {
+  const unresolved = unresolvedDeps(items, item.dependsOn);
+  if (!item.dependsOn?.length) {
+    return item.blockedBy?.length ? { ...item, blockedBy: undefined } : item;
+  }
+  if (unresolved.length === 0) {
+    const auto = item.blockedReason?.startsWith("等待前置待办：");
+    return {
+      ...item,
+      blockedBy: undefined,
+      ...(auto ? { blockedReason: undefined } : {}),
+    };
+  }
+  const auto = !item.blockedReason || item.blockedReason.startsWith("等待前置待办：");
+  return {
+    ...item,
+    blockedBy: unresolved,
+    ...(auto ? { blockedReason: `等待前置待办：${unresolved.join(", ")}` } : {}),
+  };
+}
+
+function refreshDependencyFields(items: QueueItemRecord[]): QueueItemRecord[] {
+  return items.map((item) => applyDependencyFields(item, items));
+}
+
 function resolveQueueBlockedReason(
-  workspaceDir: string,
-  matterId: string,
+  items: QueueItemRecord[],
   dependsOn: string[] | undefined,
   explicit?: string,
-): string | undefined {
+): { blockedReason?: string; blockedBy?: string[] } {
+  const unresolved = unresolvedDeps(items, dependsOn);
   if (explicit?.trim()) {
-    return explicit.trim();
+    return {
+      blockedReason: explicit.trim(),
+      ...(unresolved.length > 0 ? { blockedBy: unresolved } : {}),
+    };
   }
-  if (!dependsOn?.length) {
-    return undefined;
-  }
-  const items = readQueueItems(workspaceDir, matterId);
-  const unresolved = dependsOn.filter((id) => {
-    const dep = items.find((q) => q.queueItemId === id);
-    return !dep || dep.status !== "resolved";
-  });
   if (unresolved.length === 0) {
-    return undefined;
+    return {};
   }
-  return `等待前置待办：${unresolved.join(", ")}`;
+  return {
+    blockedReason: `等待前置待办：${unresolved.join(", ")}`,
+    blockedBy: unresolved,
+  };
 }
 
 export function openQueueItem(workspaceDir: string, input: OpenQueueItemInput): QueueItemRecord {
   createMatterIfMissing(workspaceDir, { matterId: input.matterId });
   const now = newTimestamp();
-  const blockedReason = resolveQueueBlockedReason(
-    workspaceDir,
-    input.matterId,
-    input.dependsOn,
-    input.blockedReason,
-  );
-  const record: QueueItemRecord = {
-    queueItemId: input.queueItemId ?? randomUUID(),
-    matterId: input.matterId,
-    kind: input.kind,
-    status: "open",
-    priority: input.priority ?? "normal",
-    title: input.title,
-    detail: input.detail,
-    relatedTaskId: input.relatedTaskId,
-    relatedDeliverableId: input.relatedDeliverableId,
-    dependsOn: input.dependsOn,
-    blockedReason,
-    createdAt: now,
-    updatedAt: now,
-  };
-  // append 与 transitionQueueItem 的全量 rewrite 共用同一把锁，避免「开新项 + 解析旧项」并发丢条目。
+  // 依赖判断和 append 必须在同一把锁里，避免刚解析完的前置仍被写成「等待」。
   const lockPath = path.join(matterDir(workspaceDir, input.matterId), "queue.jsonl.lock");
-  withExclusiveFileLock(lockPath, () => {
-    appendQueueItem(workspaceDir, record);
+  const record = withExclusiveFileLock(lockPath, () => {
+    const existing = readQueueItems(workspaceDir, input.matterId);
+    const blocks = resolveQueueBlockedReason(existing, input.dependsOn, input.blockedReason);
+    const next: QueueItemRecord = {
+      queueItemId: input.queueItemId ?? randomUUID(),
+      matterId: input.matterId,
+      kind: input.kind,
+      status: "open",
+      priority: input.priority ?? "normal",
+      title: input.title,
+      detail: input.detail,
+      relatedTaskId: input.relatedTaskId,
+      relatedDeliverableId: input.relatedDeliverableId,
+      dependsOn: input.dependsOn,
+      blockedReason: blocks.blockedReason,
+      blockedBy: blocks.blockedBy,
+      createdAt: now,
+      updatedAt: now,
+    };
+    appendQueueItem(workspaceDir, next);
+    return next;
   });
+  invalidateQueueListSnap(workspaceDir);
   attachQueueItemId(workspaceDir, input.matterId, record.queueItemId);
   return record;
 }
@@ -104,14 +155,22 @@ export function transitionQueueItem(
     if (idx < 0) {
       return undefined;
     }
-    const next: QueueItemRecord = {
-      ...all[idx],
+    const current = all[idx];
+    if (!canTransitionQueueStatus(current.status, status)) {
+      return undefined;
+    }
+    if (current.status === status) {
+      return current;
+    }
+    all[idx] = {
+      ...current,
       status,
       updatedAt: newTimestamp(),
     };
-    all[idx] = next;
-    rewriteQueueItems(workspaceDir, matterId, all);
-    return next;
+    const refreshed = refreshDependencyFields(all);
+    rewriteQueueItems(workspaceDir, matterId, refreshed);
+    invalidateQueueListSnap(workspaceDir);
+    return refreshed[idx];
   });
 }
 

@@ -70,6 +70,18 @@ describe("research-write-bypass-gate", () => {
     expect(r.refuse).toBe(true);
   });
 
+  it("refuses any artifacts file, including json and xlsx", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-bypass-"));
+    dirs.push(ws);
+    for (const filePath of [
+      "artifacts/out.xlsx",
+      "artifacts/charts/a.json",
+      "cases/m/artifacts/n.txt",
+    ]) {
+      expect(shouldRefuseResearchWriteBypass({ workspaceDir: ws, filePath }).refuse).toBe(true);
+    }
+  });
+
   it("allows ordinary workspace notes", () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-bypass-"));
     dirs.push(ws);

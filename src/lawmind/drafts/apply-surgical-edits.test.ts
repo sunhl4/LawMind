@@ -114,7 +114,10 @@ describe("applySurgicalTextEdits", () => {
     if (!r.ok) {
       return;
     }
-    expect(r.applied).toHaveLength(6);
+    // 「甲」同时落在「甲乙丙丁」和「甲方」上，缺省整条跳过，不改第一处。
+    expect(r.applied).toHaveLength(5);
+    expect(r.skipped.map((row) => row.find)).toContain("甲");
+    expect(r.sections[0]?.body.startsWith("甲")).toBe(true);
     expect(r.sections[0]?.body).toContain("已付软件费用");
     expect(r.sections[0]?.body).toContain("本合同总额");
   });
@@ -181,5 +184,32 @@ describe("applySurgicalTextEdits", () => {
     expect(r.applied[1]?.replace).toContain("累计赔偿总额");
     expect(r.sections[0]?.body).toContain("上海仲裁委员会");
     expect(r.sections[0]?.body).toContain("并赔偿甲方因此而造成的实际损失，但累计赔偿总额");
+  });
+
+  it("同一锚点命中多处时整条跳过，不改第一处", () => {
+    const body = "甲方应于十日内通知。乙方应于十日内付款。";
+    const r = applySurgicalTextEdits({
+      sections: [{ heading: "期限", body }],
+      edits: [{ find: "十日内", replace: "五个工作日内" }],
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) {
+      return;
+    }
+    expect(r.skipped?.[0]?.reason).toContain('occurrences: "all"');
+    expect(r.error).toContain("命中 2 处");
+  });
+
+  it("occurrences all 统一替换每一处", () => {
+    const r = applySurgicalTextEdits({
+      sections: [{ heading: "期限", body: "甲方应于十日内通知。乙方应于十日内付款。" }],
+      edits: [{ find: "十日内", replace: "五个工作日内", occurrences: "all" }],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) {
+      return;
+    }
+    expect(r.sections[0]?.body).toBe("甲方应于五个工作日内通知。乙方应于五个工作日内付款。");
+    expect(r.applied).toHaveLength(2);
   });
 });

@@ -1,15 +1,14 @@
 /**
- * Team Memory cloud sync scaffold (P2). Opt-in only; default OFF.
- * Firm edition + explicit `lawmind.policy.json` `teamMemorySync.enabled` required.
+ * Team memory cloud sync scaffold. The gate stays closed.
+ *
+ * `lawmind.policy.json` rejects `teamMemorySync` (commercial-policy: not a firm
+ * hard boundary, and tokens must not live in the policy file). There is no env
+ * or edition switch. `scanMemoryPathsForSecrets` remains for a future transport
+ * that is not the policy file. Do not re-open the gate by reading a rejected key.
  */
 
 import fs from "node:fs";
 import path from "node:path";
-import { resolveEdition } from "../policy/edition.js";
-import {
-  readWorkspacePolicyFile,
-  type LawMindWorkspacePolicy,
-} from "../policy/workspace-policy.js";
 
 /** Patterns that block upload when found in file content (secret scan). */
 const SECRET_PATTERNS: ReadonlyArray<RegExp> = [
@@ -31,30 +30,12 @@ export type TeamMemoryScanResult = {
   scannedFiles: number;
 };
 
-export function isTeamMemorySyncPolicyEnabled(
-  policy: LawMindWorkspacePolicy | null | undefined,
-): boolean {
-  return policy?.teamMemorySync?.enabled === true;
-}
-
 /**
- * Whether team memory sync may run for this workspace.
- * Requires firm edition and explicit policy opt-in.
+ * 上传门保持关闭。策略文件不接受团队记忆同步（地址和令牌不能写在那里）。
+ * 以后要做内置同步，先走 scanMemoryPathsForSecrets，再另接传输，不要从策略文件把门打开。
  */
-export function evaluateTeamMemorySyncGate(workspaceDir: string): TeamMemorySyncGate {
-  const policy = readWorkspacePolicyFile(workspaceDir);
-  if (!isTeamMemorySyncPolicyEnabled(policy)) {
-    return { allowed: false, reason: "team_memory_sync_disabled" };
-  }
-  const edition = resolveEdition({ policy });
-  if (edition.edition !== "firm") {
-    return { allowed: false, reason: "team_memory_sync_requires_firm_edition" };
-  }
-  const endpoint = policy?.teamMemorySync?.endpoint?.trim();
-  if (!endpoint) {
-    return { allowed: false, reason: "team_memory_sync_endpoint_missing" };
-  }
-  return { allowed: true, reason: "ok" };
+export function evaluateTeamMemorySyncGate(_workspaceDir: string): TeamMemorySyncGate {
+  return { allowed: false, reason: "team_memory_sync_disabled" };
 }
 
 function isSafeMemoryRel(rel: string): boolean {
@@ -111,20 +92,11 @@ export type TeamMemoryUploadPlan = {
  */
 export function planTeamMemoryUpload(
   workspaceDir: string,
-  relativePaths: string[],
+  _relativePaths: string[],
 ): TeamMemoryUploadPlan {
   const gate = evaluateTeamMemorySyncGate(workspaceDir);
-  if (!gate.allowed) {
-    return {
-      gate,
-      scan: { ok: true, blockedPaths: [], scannedFiles: 0 },
-    };
-  }
-  const policy = readWorkspacePolicyFile(workspaceDir);
-  const scan = scanMemoryPathsForSecrets(workspaceDir, relativePaths);
   return {
     gate,
-    scan,
-    endpoint: policy?.teamMemorySync?.endpoint?.trim(),
+    scan: { ok: true, blockedPaths: [], scannedFiles: 0 },
   };
 }

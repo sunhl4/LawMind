@@ -45,7 +45,7 @@ LawMind 是**一个律师桌面程序**，它的架构可以浓缩成四句话�
 
 落点：`TaskIntent` → `ResearchBundle` → `ArtifactDraft`。三个契约串联整条管线，而不是「输入一句话，输出一篇 Word」。
 
-代价：多一层就多一处可能丢信息。实际后果是 `parseLegalReasoningGraphMeta()`（`src/lawmind/reasoning/legal-graph.ts:284`）只能从序列化 Markdown 里恢复 `taskId/matterId/overallConfidence/builtAt` 四个字段——`issueTree`、`argumentMatrix`、`authorityConflicts` 全部丢失。所以「结构化」是单向的：**写出去了，读不回来**。这一点在推理门禁上留下了真实后果（见第 8 节）。
+代价：多一层就多一处可能丢信息。给人看的 Markdown 仍只靠 `parseLegalReasoningGraphMeta()` 恢复 `taskId/matterId/overallConfidence/builtAt`。结构往返走 `drafts/<taskId>.reasoning.json`：原子写入，读回校验形状，坏文件当作没有图。
 
 **④ 高风险动作默认需要确认**
 
@@ -53,7 +53,8 @@ LawMind 是**一个律师桌面程序**，它的架构可以浓缩成四句话�
 
 代价：这里有一条被反复误读的边界。运行期真正会被打断回合的动作**只有一个**——`send_email`：
 
-```75:77:src/lawmind/platform/lawyer-outbound-decision.ts
+```typescript
+// src/lawmind/platform/lawyer-outbound-decision.ts:75-77
 /** 工具门禁：只有真正发信才打断律师。prepare_outbound_mail 只写入待发信，拍板在 inbox。 */
 export function toolRequiresLawyerPause(name?: string | null): boolean {
   return name?.trim() === "send_email";
@@ -141,7 +142,7 @@ export function toolRequiresLawyerPause(name?: string | null): boolean {
 5. **生成 `turnId`，推导几个开关**：`wordRevisionTurn` / `deliveryIntent` / `mailContractTurn` / `contractFastLaneTurn` / `noTaskTurn`。
 6. **构造 `AgentContext`**。这里埋了跨轮澄清门禁的种子：
    `clarificationBlockingHeavyTools = selectHardClarificationKeys(session.pendingClarificationKeys).length > 0`。
-7. **定工具表**：`resolveAssistantTooling`（Role ∩ preset ∩ 父级继承）、playbook lock、`peekPinnedDocuments`、`compileIntent`、已披露工具、隐藏工具。注意 `noTaskTurn` 会把**广告**层降到 `readonly`。
+7. **定工具表**：`resolveAssistantTooling`（Role ∩ preset ∩ 父级继承）、playbook lock（只禁误发、模板重建、只看、函件核对；目录钉选不拿掉改稿）、`peekPinnedDocuments`、`compileIntent`、已披露工具、隐藏工具。注意 `noTaskTurn` 会把**广告**层降到 `readonly`。
 8. **拼 prompt**：`prepareTurnPromptContext` → `{ memory, systemPromptFinal, lawMindRoot }`。
 9. **把用户消息原样压进历史**，然后 `freezeTurnContext`、建一个 `status:"running"` 的占位 turn 并落盘。**为什么先落盘**：进程被杀时能看出「这一轮没结束」。
 10. **绑中断**：`bindTurnAbortSignal` + 一个 200ms 的 `abortMirror` 轮询 `shouldAbort`。
@@ -216,7 +217,9 @@ sequenceDiagram
 
 **错误不抛，只收尾**。模型 HTTP 失败不会让 `runTurn` throw，而是把 turn 置为 `status:"error"` 并发 `model_error` 事件。调用方（本地 API）负责把它变成用户看得懂的话。有专门的 cassette 锁这个行为（`turn-orchestrator-cassettes.test.ts`）。
 
-**溢出是一次性补救，不是重试循环**。`pruneSessionToolResults` 只跑一次就重试，避免「prune → 还是溢出 → 再 prune」的死循环。
+**溢出是一次性补救，不是重试循环**。`pruneSessionToolResults` 只跑一次就重试，避免「prune → 还是溢出 → 再 prune」的死循环。供应商整轮没有 `choices[0]` 时，同一回合也只再要一次。
+
+**对话循环不降级模型**。选工具和写回复都走律师选的主模型。设置里的更快模型只做回合内摘要和审稿。同一工具批次（名 + 参数）连续重复三次先插入隐藏提醒，再重复就停，避免把办理上限耗在空转上。
 
 **流式的降级条件是明确的**：只有当本轮已经有工具响应、或工具表为空、或没开严格模式时，才用上游 token 流（`turn-orchestrator-model-loop.ts:257`）。一旦 `delta.tool_calls` 出现，就立刻停止往外吐 delta，改为聚合完整 chunk（`runtime-model-call.ts:322`）。原因很实在：**半个 tool_call 没法执行，吐给用户只会造成「它好像选了工具但没动」的错觉**。
 
@@ -241,7 +244,7 @@ sequenceDiagram
 
 **Compact（上下文压缩）**——`src/lawmind/agent/compact.ts:276`
 
-触发条件：预算等级到 `compact`，或历史条数超 `maxHistoryMessages`。切分时用 `adjustIndexToPreserveToolPairs` 保证不切断 tool_call/tool_result 配对（配对断了模型会 400）。压缩后插入 digest，并设置 `needsCompactReinjection`，由 `applyCompactReinjectionToSession` 注入一段标记为 `压缩后红线重注（仍有效）` 的内容（`compact-insert.ts:8`）。
+触发条件：预算等级到 `compact`，或历史条数超 `maxHistoryMessages`。切点用 `cutIndexForTokenTail` 从尾部按剩余 token 装入，并保证不切断 tool_call/tool_result 配对（配对断了模型会 400）。压缩后插入 digest，并设置 `needsCompactReinjection`，由 `applyCompactReinjectionToSession` 注入一段标记为 `压缩后红线重注（仍有效）` 的内容（`compact-insert.ts:8`）。
 
 **为什么要有「重注」**：压缩会把早期的引用、强制规则挤掉。如果不重注，律师写的红线会在第 40 轮悄无声息地失效——这属于「静默失效」，是法律场景里最不能接受的一类 bug。cassette 里专门有一条锁「被压缩掉的引用仍在下一次请求里存活」。
 
@@ -298,7 +301,8 @@ sequenceDiagram
 
 先记住这条：
 
-```158:165:src/lawmind/runtime/tool-pipeline.ts
+```typescript
+// src/lawmind/runtime/tool-pipeline.ts:158-165
    * 发给模型的工具广告清单（resolveModelToolNames）只是提示层：模型幻觉、被注入的模型输出或历史 tool_call 重放都可能绕过清单直接点名写工具，本中间件是唯一强制点。
 ```
 
@@ -316,9 +320,9 @@ flowchart TD
   C2 --> C3["discovery / hostFile 循环上限"]
   C3 --> C4["roleAllowlist / matterScope"]
   C4 --> C5["clarification / folderExplore"]
-  C5 --> C6["approval"]
-  C6 --> C7["argNormalize / argSchema"]
-  C7 --> C8["legalVerify"]
+  C5 --> C6["argNormalize / argSchema"]
+  C6 --> C7["legalVerify 预检"]
+  C7 --> C8["approval"]
   C8 --> C9["audit / timeout / sandbox / execute"]
   ADV -.->|"广告层只是提示：幻觉、注入、历史重放都能绕过它"| EXEC
 ```
@@ -327,31 +331,31 @@ flowchart TD
 
 ### 4.2 顺序，以及顺序为什么是这个顺序
 
-| #   | 中间件                        | 拦什么                                                       | 为什么在这个位置                       |
-| --- | ----------------------------- | ------------------------------------------------------------ | -------------------------------------- |
-| 1   | `unknownToolMiddleware`       | 工具不存在                                                   | 最便宜的前置检查                       |
-| 2   | `budgetMiddleware`            | 超工具预算                                                   | 同上                                   |
-| 3   | `noTaskTurnGateMiddleware`    | 非任务轮的写动作                                             | 会话级语义，先于权限                   |
-| 4   | `permissionModeMiddleware`    | `readonly`/`research` 档位的写动作                           | **安全边界**，要在业务口径之前         |
-| 5   | `discoveryLoopMiddleware`     | 重复检索                                                     | 防「检索死循环」，按 token 动态定上限  |
-| 6   | `hostFileLoopMiddleware`      | 重复读本机文件                                               | 同上，另有硬上限 `fileTaskReadHardCap` |
-| 7   | `roleAllowlistMiddleware`     | Role/playbook 不允许的工具                                   | 业务口径，在安全之后                   |
-| 8   | `matterScopeMiddleware`       | 缺 `matter_id` 的案件工具                                    | 数据完整性                             |
-| 9   | `clarificationGateMiddleware` | 澄清未决时的写动作                                           | 依赖 #4 已放行                         |
-| 10  | `folderExploreGateMiddleware` | 没探索目录就写                                               | 防「没看材料就下笔」                   |
-| 11  | `approvalMiddleware`          | 需拍板的动作                                                 | 在参数校验**之前**                     |
-| 12  | `argNormalizeMiddleware`      | 别名、默认值                                                 | 参数开始被信任                         |
-| 13  | `argSchemaMiddleware`         | schema 校验                                                  | 硬失败点                               |
-| 14  | `legalVerifyMiddleware`       | 法务复核（lint / 同轮 verify / 法条试算 / 特权与收件人检查） | 需要合法的参数                         |
-| 15  | `auditMiddleware`             | —                                                            | 包住 16–18，超时也能记上               |
-| 16  | `timeoutMiddleware`           | 超时                                                         | 给 `execute` 派生 abort signal         |
-| 17  | `subprocessSandboxMiddleware` | 需沙箱的工具                                                 | 在 execute 前短路                      |
-| 18  | `executeMiddleware`           | —                                                            | 真正执行                               |
+| #   | 中间件                        | 拦什么                             | 为什么在这个位置                       |
+| --- | ----------------------------- | ---------------------------------- | -------------------------------------- |
+| 1   | `unknownToolMiddleware`       | 工具不存在                         | 最便宜的前置检查                       |
+| 2   | `budgetMiddleware`            | 超工具预算                         | 同上                                   |
+| 3   | `noTaskTurnGateMiddleware`    | 非任务轮的写动作                   | 会话级语义，先于权限                   |
+| 4   | `permissionModeMiddleware`    | `readonly`/`research` 档位的写动作 | **安全边界**，要在业务口径之前         |
+| 5   | `discoveryLoopMiddleware`     | 重复检索                           | 防「检索死循环」，按 token 动态定上限  |
+| 6   | `hostFileLoopMiddleware`      | 重复读本机文件                     | 同上，另有硬上限 `fileTaskReadHardCap` |
+| 7   | `roleAllowlistMiddleware`     | Role/playbook 不允许的工具         | 业务口径，在安全之后                   |
+| 8   | `matterScopeMiddleware`       | 缺 `matter_id` 的案件工具          | 数据完整性                             |
+| 9   | `clarificationGateMiddleware` | 澄清未决时的写动作                 | 依赖 #4 已放行                         |
+| 10  | `folderExploreGateMiddleware` | 没探索目录就写                     | 防「没看材料就下笔」                   |
+| 11  | `argNormalizeMiddleware`      | 别名、默认值                       | 先把参数收成可校验的形状               |
+| 12  | `argSchemaMiddleware`         | schema 校验                        | 缺字段直接退回模型，不进待我拍板       |
+| 13  | `legalVerifyMiddleware`       | 外发预检；返回后做引用核对         | 预检在拍板前，坏收件人不进待我拍板     |
+| 14  | `approvalMiddleware`          | 需拍板的动作                       | 只给律师看预检已通过的那一次           |
+| 15  | `auditMiddleware`             | —                                  | 包住 16–18，超时也能记上               |
+| 16  | `timeoutMiddleware`           | 超时                               | 给 `execute` 派生 abort signal         |
+| 17  | `subprocessSandboxMiddleware` | 需沙箱的工具                       | 在 execute 前短路                      |
+| 18  | `executeMiddleware`           | —                                  | 真正执行                               |
 
 两个顺序上的细节：
 
 - **`permissionModeMiddleware`（#4）在 `roleAllowlistMiddleware`（#7）之前**。代码里解释了为什么要分成两个：allowlist 是「办件/岗位」的业务口径，权限模式是「律师设置的会话级安全边界」。分开之后，readonly 下点写工具，律师看到的是权限错误；而不是一句含糊的「你的角色不允许」。**报错文案也是设计的一部分**。
-- **`approvalMiddleware`（#11）在参数校验（#13）之前**。意味着**拍板是针对模型给的原始参数**的。律师点批准之后，参数校验仍可能报错——这个行为是对的（不能让一个非法参数因为被批准就变合法），但读代码时容易困惑。
+- **`legalVerifyMiddleware` 的预检在 `approvalMiddleware` 之前，引用核对在执行返回之后**。收件人域名和特权信息不过关时，不给律师一张点了也发不出去的卡片。
 
 ### 4.3 `__approved`：服务端能力位，不是模型参数
 
@@ -375,7 +379,7 @@ delete toolArgs.acknowledge_ethics_wall;
 
 > Approval is action-shaped: tool + matter + canonical args. Name-only template pre-approve must not cover hunk-shaped writes or outbound recipient/attachments.
 
-`ARGS_BOUND_APPROVAL_TOOLS = new Set(["apply_surgical_edits", "prepare_outbound_mail"])`（`:10`）。对这两个工具，光名字对上不够，必须 `approvalArgsMatch`（任务 id + 归一化后的 find/replace 片段；或收件人 + 排序后的附件路径）。而且 resume 时是**整体替换参数**，不是浅合并——律师批准的是「这一组参数」，合并出的第三种参数集不能被自动放行。
+`ARGS_BOUND_APPROVAL_TOOLS` 有三个：`apply_surgical_edits`、`prepare_outbound_mail`、`send_email`。光名字对上不够，必须 `approvalArgsMatch`。改稿绑任务 id 和 find/replace；待发信绑收件人和附件；真正发送再绑收件人、主题、正文、附件和案件 id。律师点批准时不靠这枚哈希再拦一次，而是把下一次同名调用整包换成卡片上的参数。resume 时是**整体替换参数**，不是浅合并——律师批准的是「这一组参数」，合并出的第三种参数集不能被自动放行。
 
 这套东西防的是很具体的一类事故：模型先申请批准一个无害的「改一句话」，拿到批准后把参数换成「改一整条免责条款」。审批缓存键把这条路堵死了。
 
@@ -386,7 +390,7 @@ delete toolArgs.acknowledge_ethics_wall;
 | 模式       | 广告层                                       | 执行层     | 拍板姿态                                |
 | ---------- | -------------------------------------------- | ---------- | --------------------------------------- |
 | `standard` | 不过滤                                       | 不额外拦   | 按 `allowDangerousToolsWithoutApproval` |
-| `strict`   | 不过滤                                       | 不额外拦   | 强制开启严格审批                        |
+| `strict`   | 不过滤                                       | 不额外拦   | `send_email` 不能被免审批开关跳过       |
 | `readonly` | 只剩 `READONLY_AGENT_TOOL_NAMES`             | 中间件硬拦 | 写动作到不了拍板                        |
 | `research` | readonly + `research_task` + `deep_research` | 同上       | 同上                                    |
 
@@ -450,7 +454,8 @@ IO 原语在 `src/lawmind/adapters/matter-storage/io.ts`：`writeJsonAtomic`（�
 
 只有两处做了状态语义保护，且都写在注释里：
 
-```8:11:src/lawmind/application/services/approval-service.ts
+```typescript
+// src/lawmind/application/services/approval-service.ts:8-11
  * `resolveApproval` 使用文件锁 + compare-and-swap（仅 pending → 终态），避免并发双写翻转。
  * CAS 输家返回 `already_resolved`（勿当作本请求写入成功）。
 ```
@@ -482,7 +487,8 @@ planned → drafting → pending_review → approved → rendered → delivered 
 
 写侧有个刻意的选择：`createMatterIfMissing` / `updateMatterStatus` / `setMatterStrategy` 是**同步**的，投影是**fire-and-forget**：
 
-```40:40:src/lawmind/application/services/matter-write-service.ts
+```typescript
+// src/lawmind/application/services/matter-write-service.ts:40
 const pendingMatterProjections = new Set<Promise<void>>();
 ```
 
@@ -705,7 +711,8 @@ flowchart TD
 
 ### 8.1 lint 的职责边界，写在类型定义里
 
-```2:5:src/lawmind/lint/types.ts
+```typescript
+// src/lawmind/lint/types.ts:2-5
  * Legal lint report — mechanical correctness signals (not legal judgment).
  * Passing lint ≠ legally correct; it means enumerated mechanical checks found no defect.
 ```
@@ -726,10 +733,7 @@ flowchart TD
 
 `ReasoningGateSpec`（`deliverables/types.ts:45`）在高危 spec 上要求 `minIssues: 2`、`mustResolveAuthorityConflicts: true`、`minFacts: 2`。校验器产出 6 项检查（`reasoning-validator.ts:93`）：`graph_present`、`min_issues`、`facts_grounded`、`authority_conflicts_resolved`、`issues_have_authority`、`confidence_ok`。
 
-问题在于**两个检查的严重级别被硬编码成了 warning**：
-
-- `facts_grounded` 的条件写成 `required ? "warning" : "warning"`——永远不可能是 blocker，`minFacts: 2` 事实上不起作用。
-- 更根本的是：当前唯一的图生产者 `buildLegalReasoningGraph`（`reasoning/legal-graph.ts:46`）**从不填充 `facts`**（只填 `evidence`）。所以 `facts_grounded` 对规则生成的图**必然失败**，又必然不拦。
+`facts_grounded` 的严重级别仍固定为 warning。只有结论引用了的事实来源写入 `facts`。未被引用的案件材料只出现在交付风险里，不计入事实数，也不升成 blocker。
 
 `ArgumentPosition.rebuttals` 同样是恒为 `[]`。这类「字段存在、语义缺失」的地方，是将来接 LLM 推理图时要补的第一批洞。门禁本身（strict 模式下和 acceptance 一起把关）是工作的，但**推理质量目前主要由规则而非模型保证**。
 
@@ -739,7 +743,8 @@ flowchart TD
 
 `render-docx-tracked.ts` 是律师最在意的功能。核心不变量：
 
-```288:290:src/lawmind/artifacts/render-docx-tracked.ts
+```typescript
+// src/lawmind/artifacts/render-docx-tracked.ts:288-290
  * 「一句话里只改几个字」时，绝不能整句删+整句增——那会让同事无法逐处接受，
  * 也会把别人手上的修订轨冲掉。
 ```
@@ -755,7 +760,8 @@ flowchart TD
 
 还有一处产品细节：
 
-```665:665:src/lawmind/artifacts/render-docx-tracked.ts
+```typescript
+// src/lawmind/artifacts/render-docx-tracked.ts:665
  * // Explicit: engine must never shell-open Word; lawyer opens the file.
 ```
 
@@ -835,9 +841,9 @@ const PROTECTED_BASENAMES = new Set([".lawmind-dms.json", "RULES.md", "ethics-wa
 
 一个容易误读的默认值：`allowLocalNetwork` 默认 **true**。桌面程序确实需要 localhost，所以 `10/8`、`172.16/12`、`192.168/16`、`::1` 默认可达；无条件拦的只有 `0.0.0.0/8`、`100.64/10`、`169.254/16`、`fe80::/10` 和 metadata 主机名。**别把出口代理当成 loopback 出口的防线**。
 
-### 9.5 本机能力：漏斗，不是开关
+### 9.5 本机访问：漏斗在网关里，不在设置里
 
-设计文档里那句话是整节的核心：
+律师设置里没有本机能力档位。`resolveHostAccessPolicy` 固定为查找加命令都开。设计文档里那句话仍是网关的核心：
 
 > 索引层可全盘只读 → 读取层逐次授权 → 写入层死守工作区。
 
@@ -889,7 +895,7 @@ JSON.stringify({ eventId, taskId, kind, actor, actorId, detail, timestamp });
 
 ### 9.7 edition 和 license 是两件事
 
-`EDITION_FEATURES`（`policy/edition.ts:33`）是一张 `feature × {solo, firm, private_deploy}` 的常量表，设计原则写得很克制：
+`EDITION_FEATURES`（`policy/edition-features.ts`）是一张 `feature × {solo, firm, private_deploy}` 的常量表，设计原则写得很克制：
 
 > 1. 单一真相源：edition 来自环境变量或 `lawmind.policy.json`（policy 优先）。2. 默认值 = `solo`，永远不报错。3. **Edition 只决定显隐，不决定数据结构**；任何 edition 写入的工作区都能被任何 edition 读取。
 
@@ -1002,9 +1008,9 @@ JSON.stringify({ eventId, taskId, kind, actor, actorId, detail, timestamp });
 
 **处置**：改为 `electronDir`。`node --check` 通过；这条路径目前没有自动化测试覆盖，所以修的是「确定会抛」的语法/作用域错误，不是端到端验证过的可用性——要真正确认弹窗能开，得手工跑一次桌面应用。
 
-### 12.5 `matter-ops` 绕过写协议（开放）
+### 12.5 ~~`matter-ops` 绕过写协议~~ → 已闭合
 
-`src/lawmind/matter-ops/storage.ts` 用裸 `fs.writeFileSync` / `appendFileSync`（`:86/:104/:123/:154`），没有排他锁、没有 tmp+rename、没有 zod。它是 `matters/<id>/` 下唯一不遵守 `adapters/matter-storage` 协议的写者。
+`src/lawmind/matter-ops/storage.ts` 的范围、计划、理论和 RAID 已改走 `writeJsonAtomic` / `appendJsonl`、zod 和 `withExclusiveFileLock`。未关闭风险按整本台账计数，并优先留在驾舱的 12 条里。已损坏的 JSON 在下一次保存时拒绝覆盖。打开时读坏文件仍显示为空，避免一坏就打不开案件。
 
 ### 12.6 指标口径重复计数（开放）
 
@@ -1014,9 +1020,9 @@ JSON.stringify({ eventId, taskId, kind, actor, actorId, detail, timestamp });
 
 `docs/LAWMIND-ARCHITECTURE.md:51` 说 `RunTurnEvent` 定义在 `platform/contracts.ts`。实际在 `agent/turn-orchestrator-events.ts:98`。`platform/contracts.ts` 里是 `TaskExecutionState` / `GateDecision` / ingest 契约。
 
-### 12.8 推理门禁的两个哑检查（开放）
+### 12.8 推理门禁的 `facts_grounded` 仍是 warning（部分闭合）
 
-见 §8.2：`facts_grounded` 的严重级别硬编码成 `warning`（`required ? "warning" : "warning"`），且图生产者从不填 `facts`。`minFacts: 2` 目前不产生任何约束力。
+严重度仍是 warning。未被引用的案件材料不写入 `facts`，只在交付风险里留给起草判断。升成 blocker 会在模型还没引用时拦住交付。
 
 ### 12.9 配置默认值的文档漂移（开放）
 
@@ -1064,7 +1070,7 @@ JSON.stringify({ eventId, taskId, kind, actor, actorId, detail, timestamp });
 
 §9.2 / §12.10 提到的两份手抄清单，此前**没有任何测试保证一致**——只改一边不会有任何东西变红，典型的「引擎拒绝、桌面放行」。
 
-**处置**：新增 `apps/lawmind-desktop/electron/fs-bridge.test.ts`，断言三件事：拒写文案逐字相同、**机器可读 code 相同**、可写根白名单集合相同；再加一条**行为等价**测试——用同一份 34 条路径语料分别喂给两份 `isProtectedWorkspaceRel`，要求判定完全一致。用行为等价而不是正则解析源码，是为了让守卫对「重排版」免疫、只对语义漂移报警。语料末尾还有一条非空洞断言（必须同时存在命中与不命中的样本），防止「两个函数都恒返回 false」让守卫静默失效。
+**处置**：新增 `apps/lawmind-desktop/electron/fs-bridge.test.ts`，断言三件事：拒写文案逐字相同、**机器可读 code 相同**、可写根白名单集合相同；再加一条**行为等价**测试——用同一份 41 条路径语料分别喂给两份 `isProtectedWorkspaceRel`，要求判定完全一致。用行为等价而不是正则解析源码，是为了让守卫对「重排版」免疫、只对语义漂移报警。语料末尾还有一条非空洞断言（必须同时存在命中与不命中的样本），防止「两个函数都恒返回 false」让守卫静默失效。
 
 覆盖范围仍然有限：它守的是**常量与判定逻辑**，守不住「某个新写入口没声明 `access`」——那类缺口现在由 §12.15 的必填参数兜住。
 
@@ -1129,7 +1135,7 @@ JSON.stringify({ eventId, taskId, kind, actor, actorId, detail, timestamp });
 | 出口代理        | `createOutboundProxy`                                | `platform/outbound-proxy.ts:750`                                                 |
 | 受保护路径      | `isProtectedWorkspaceRel`                            | `runtime/protected-workspace-rels.ts:12`                                         |
 | 挂载点只读文案  | `MOUNT_WRITE_REFUSAL`                                | `host-access/access-broker.ts`                                                   |
-| Edition 表      | `EDITION_FEATURES`                                   | `policy/edition.ts:33`                                                           |
+| Edition 表      | `EDITION_FEATURES`                                   | `policy/edition-features.ts`                                                     |
 | 真环测试        | `TestLawMind.builder()`                              | `agent/testkit/test-lawmind.ts:179`                                              |
 
 ---

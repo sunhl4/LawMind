@@ -50,6 +50,32 @@ describe("partitionToolCalls", () => {
     );
     expect(isToolConcurrencySafe(registry, "dangerous_write")).toBe(false);
   });
+
+  it("batches idempotent reads that never set isConcurrencySafe", () => {
+    const registry = new ToolRegistry();
+    registry.register(stubTool("read_case_file"));
+    registry.register(stubTool("search_precedents"));
+    registry.register(stubTool("list_mail_inbox"));
+    registry.register(stubTool("update_plan", { isConcurrencySafe: false }));
+
+    const batches = partitionToolCalls(
+      [
+        { id: "1", name: "read_case_file", arguments: {} },
+        { id: "2", name: "search_precedents", arguments: {} },
+        { id: "3", name: "list_mail_inbox", arguments: {} },
+        { id: "4", name: "update_plan", arguments: {} },
+      ],
+      registry,
+    );
+    expect(batches).toHaveLength(2);
+    expect(batches[0]?.concurrencySafe).toBe(true);
+    expect(batches[0]?.calls.map((call) => call.name)).toEqual([
+      "read_case_file",
+      "search_precedents",
+      "list_mail_inbox",
+    ]);
+    expect(batches[1]?.concurrencySafe).toBe(false);
+  });
 });
 
 describe("executeToolBatches approval race", () => {

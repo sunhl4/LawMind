@@ -19,6 +19,12 @@ describe("document-genre", () => {
     expect(classifyDocumentGenre("营业执照.pdf")).toBe("identity");
     expect(classifyDocumentGenre("隐私政策.docx")).toBe("privacy");
     expect(classifyDocumentGenre("费用.xlsx")).toBe("spreadsheet");
+    expect(classifyDocumentGenre("进项发票.xlsx")).toBe("invoice");
+    expect(classifyDocumentGenre("民事起诉状.xlsx")).toBe("pleading");
+    expect(classifyDocumentGenre("催告函.xlsx")).toBe("letter");
+    expect(classifyDocumentGenre("开庭传票.xlsx")).toBe("court_notice");
+    expect(classifyDocumentGenre("服务合同.xlsx")).toBe("spreadsheet");
+    expect(classifyDocumentGenre("证据清单.csv")).toBe("spreadsheet");
   });
 
   it("lets pleading headers beat contract clauses in the same peek", () => {

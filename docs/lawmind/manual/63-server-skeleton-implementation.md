@@ -70,12 +70,11 @@ WebKit / Word 任务窗格多半先试 `::1`。只绑 IPv4 会让 `http://localh
 
 ### 两个监听器的错误处理不对称
 
-IPv4 那个**没有** `on("error")` 监听：
+两边都有 `on("error")`，态度不同：
 
 ```text
-server   （IPv4）：无 error 监听 → EADDRINUSE 变成未捕获的 'error' 事件
-        → 被底部的 uncaughtException 处理器接住 → 打印 + 退出码 1
-serverV6 （IPv6）：有 error 监听 → 只打印一行，进程继续
+server   （IPv4）：打日志后 process.exit(1)。不把端口冲突记成 uncaughtException。
+serverV6 （IPv6）：只打印一行，进程继续
 ```
 
 IPv6 那行文案写明了它是尽力而为：
@@ -103,18 +102,16 @@ IPv6 那行文案写明了它是尽力而为：
 ⑩ 装 SIGTERM/SIGINT
 ⑪ bootstrapLawMindDesktopEnv（装载 .env.lawmind）
 ⑫ ensureBuiltinWorkflowSeeds
-⑬ resolveSkillSigningSecretSource → 派生密钥要打警告
-⑭ ensureBuiltinSkillSeeds
-⑮ LAWMIND_STRICT_TOOL_STREAM 默认 "0"
-⑯ loadAndApplyLawMindPolicy
-⑰ restoreDelegationsFromDisk + loadJobsFromDiskOnStartup
-⑱ setWorkflowJobSchedulerContext
-⑲ 定义 tickScheduled → 跑一次 + setInterval
-⑳ startMatterReplicaAutoSync
-㉑ 有 LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL → 开始外锚同步
-㉒ 索引不存在 → 后台重建
-㉓ daemonMode → 打印一行就 return（不起 HTTP）
-㉔ 初始化回环令牌与客户端凭据；建 TokenBucket；两个 createServer + listen
+⑬ LAWMIND_STRICT_TOOL_STREAM 默认 "0"
+⑭ loadAndApplyLawMindPolicy
+⑮ restoreDelegationsFromDisk + loadJobsFromDiskOnStartup
+⑯ setWorkflowJobSchedulerContext
+⑰ 定义 tickScheduled → 跑一次 + setInterval
+⑱ startMatterReplicaAutoSync
+⑲ 有 LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL → 开始外锚同步
+⑳ 索引不存在 → 后台重建
+㉑ daemonMode → 打印一行就 return（不起 HTTP）
+㉒ 初始化回环令牌与客户端凭据；建 TokenBucket；两个 createServer + listen
 ```
 
 ### 第 ⑦ 步与第 ⑧ 步是两种「谁来跑 tick」
@@ -209,14 +206,15 @@ LAWMIND_SKILL_SIGNING_SECRET（见 docs/lawmind/LAWMIND-SKILLS-SIGNING.md）。
 
 **第 ② 步才是反 DNS rebinding 的关键**——第 63.4 节细讲。
 
-### 第 ⑫ 步那条 hint 值得抄下来
+### 第 ⑫ 步那条 hint
+
+界面收到的是：
 
 ```text
-本机路由未匹配。若刚升级 LawMind，请在工作区根执行 pnpm lawmind:bundle:desktop-server
-（或 pnpm --filter lawmind-desktop bundle:server）后重启桌面端，或重启当前开发用的本地服务进程。
+这一步没能完成。请退出 LawMind 后重新打开。
 ```
 
-**「未匹配」最常见的真实原因不是路由写错，是服务端代码是旧的。** 所以 404 里直接给了那两条命令。这是一条很具体的经验：**路由文件改了但没重新 bundle**。
+开发者日志另打一行 `[LawMind] no_route`，后面是 `pnpm lawmind:bundle:desktop-server`。未匹配最常见的原因是服务端包是旧的（路由文件改了但没重新 bundle）。命令不进律师可见的响应。
 
 ### 发现端点：为什么要有它
 
@@ -515,15 +513,15 @@ MUTATION_METHODS = {POST, PUT, PATCH, DELETE}
 注册用 registerRateLimitBucket(rateBucket)
 ```
 
-**「注册」而不是「传参」意味着它是进程级的单例桶**——两个监听器、所有客户端共用一个。
+**「注册」而不是「传参」意味着它是进程级的单例桶**——两个监听器、变更类请求共用一个。
+
+不进桶的只有 `OPTIONS`，以及 `GET /.well-known/lawmind-local` 和 `GET /api/bootstrap`。体检、事件流、任务列表、历史和案件概览会扫盘，留在桶里。
 
 而拒绝响应：
 
 ```text
-429 + { ok: false, error: "rate_limited" }
+429 + { ok: false, error: "rate_limited", code: "rate_limited" }
 ```
-
-**注意它没有 `code` 字段**，与第 63.2 节那六道关的响应形状不一致（那些都有 `code`）。这是一处小的不一致。
 
 **100 请求/秒、突发 200** 的量级说明它的定位是「防失控客户端」，不是「防攻击」——因为回环服务本来就只有本机进程能访问。
 
@@ -618,12 +616,12 @@ subscribeWorkflowJobUpdates(jobId, listener) → () => void
 
 ### 不在这个文件里的两件事
 
-| 事项     | 实际在哪                                                              |
-| -------- | --------------------------------------------------------------------- |
-| 并发上限 | **没有常量**。每个作业用 `setImmediate` 起，取消靠 `shouldAbort` 轮询 |
-| SSE 缓冲 | `sse-bus.ts` 的 `SSE_REPLAY_LIMIT = 64`                               |
+| 事项     | 实际在哪                                                            |
+| -------- | ------------------------------------------------------------------- |
+| 并发上限 | `MAX_CONCURRENT_WORKFLOW_JOBS = 2`（同一工作区）。超出留在 `queued` |
+| SSE 缓冲 | `sse-bus.ts` 的 `SSE_REPLAY_LIMIT = 64`                             |
 
-**「没有并发上限」**：这里的作业**不是串行**的。串行只在 Word 插件取件那一条链上（第 63.16 节）。
+同一工作区最多两个作业同时跑，第三个等空位。取消仍靠 `shouldAbort` 轮询。Word 插件取件那一条链另外串行（第 63.16 节）。
 
 ### 十一个审计细节字符串
 
@@ -671,7 +669,7 @@ internal_error             body_too_large          invalid_json
 invalid_request_body       model_unavailable       model_network_error
 ```
 
-而作为 `error` 字段（非 `code`）发的还有：`rate_limited`、`invalid_host`、`unauthorized`、`forbidden`、`unsupported_media_type`、`not found`。
+而作为 `error` 字段（非 `code`）发的还有：`invalid_host`、`unauthorized`、`forbidden`、`unsupported_media_type`、`not found`。`rate_limited` 现在 `error` 与 `code` 同值。
 
 **这处不一致**：六道关的响应里 `error` 和 `code` 都会填，但填的值有时一样（`invalid_host`）有时不一样（`not found` vs `no_route`）。**客户端应该只依赖 `code`。**
 
@@ -720,16 +718,18 @@ Applied after `.env.lawmind` so IT can enforce guardrails without editing secret
 
 ### 八个字段与它们的副作用
 
-| 字段                                                                                                         | 副作用                                   |
-| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
-| `schemaVersion`                                                                                              | 必须 ≥1，否则整个文件不生效              |
-| `egressMode`                                                                                                 | `offline` → 设强制禁网                   |
-| `highSecurityMode`                                                                                           | **已废弃**，等同 `egressMode: "offline"` |
-| `allowWebSearch`                                                                                             | `false` → 设强制禁网                     |
-| `retrievalMode`                                                                                              | `single`/`dual` → 设检索模式变量         |
-| `enableCollaboration`                                                                                        | `false` → 关协作                         |
-| `edition`                                                                                                    | 值在 `listEditions()` 里 → 设版本变量    |
-| `agentMaxToolCallsPerTurn` / `agentMandatoryRules` / `agentMandatoryRulesPath` / `productInsightsCollection` | 读出但副作用不在这个文件                 |
+| 字段                                                                                               | 副作用                                   |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `schemaVersion`                                                                                    | 必须 ≥1，否则整个文件不生效              |
+| `egressMode`                                                                                       | `offline` → 设强制禁网                   |
+| `highSecurityMode`                                                                                 | **已废弃**，等同 `egressMode: "offline"` |
+| `allowWebSearch`                                                                                   | `false` → 设强制禁网                     |
+| `enableCollaboration`                                                                              | `false` → 关协作                         |
+| `edition`                                                                                          | 值在 `listEditions()` 里 → 设版本变量    |
+| `agentMandatoryRulesPath`                                                                          | 迁移成 `firmRulesPath`（读规则文件）     |
+| `retrievalMode` / `agentMaxToolCallsPerTurn` / `agentMandatoryRules` / `productInsightsCollection` | **拒收**，进 `policy.rejected` 并附原因  |
+
+拒收原因写在 `commercial-policy.ts` 的 `NOT_A_FIRM_KNOB`：检索通道由引擎决定、每轮工具上限会掐模型、长规则写进 `firmRulesPath` 指向的文件、产品观察默认不上传。
 
 而返回的 `applied[]` 会报告哪些键被应用了——**所以界面/日志能看出策略生效了没**。
 
@@ -1013,7 +1013,7 @@ connection: keep-alive
 实现：把 * 换成 [^:]* 再做正则匹配
 ```
 
-**注意 `[^:]*` 而不是 `.*`**——所以 `task:*` 只能匹配一层（`task:update`），跨冒号的用 `task:*:update`。**这个细节决定了通配的粒度。**
+以 `:*` 结尾的订阅用前缀匹配：`task:*` 能对上 `task:abc:update`。中间带 `:*` 的（如 `task:*:update`）才把每个 `*` 收成 `[^:]*`，一层一段。
 
 ### 客户端 id
 
@@ -1173,7 +1173,7 @@ LawmindRouteContext = {
 | 端口列表 / 握手文件                          | **不存在**；端口只走 `LAWMIND_DESKTOP_PORT`                                |
 | `/api/doctor` 或 `/api/repair`               | **不存在**；doctor 数据在 `GET /api/health` 里                             |
 | `sendError` / `withWorkspace` / `parseQuery` | **不存在**；分别是 `sendJsonError`、`parseQueryTimeMs`、`normalizeRelPath` |
-| 作业并发上限常量                             | **不存在**                                                                 |
+| 作业并发上限常量                             | `lawmind-server-jobs.ts` 的 `MAX_CONCURRENT_WORKFLOW_JOBS = 2`             |
 | 会话 CRUD                                    | `route-records.ts`（不是 `route-sessions.ts`）                             |
 | 红线（baseline/generate/resolve）            | `route-redline.ts`（不是 `route-review.ts`）                               |
 | 审查专案组                                   | `route-review-campaign.ts`                                                 |
@@ -1185,11 +1185,11 @@ LawmindRouteContext = {
 ## 63.19 已知坑（本章相关）
 
 - **端口只走环境变量**：没有端口列表、没有递增、没有握手文件。
-- **IPv4 监听没有 error 监听**（EADDRINUSE 会走到 uncaughtException）；IPv6 有，且失败不致命。
+- **IPv4 监听失败会打日志并 `exit(1)`**，不再落到 `uncaughtException`（避免体检把端口冲突记成进程已损坏）。IPv6 失败仍不致命。
 - **桌面模式没有 dispose / close**：进程生命周期归 Electron。
 - **路由表「先匹配先赢」**，顺序有语义，不要随便调。
 - **六道关的响应里 `error` 与 `code` 有时不同**；客户端只该依赖 `code`。
-- **429 那个响应没有 `code` 字段**（与其他六道关不一致）。
+- **429 的 `code` 是 `rate_limited`**，与 `error` 同值。不进桶的只有预检、发现端点和 `/api/bootstrap`。
 - **`...c` 漏写会导致「界面报连不上、服务端其实 200」**——有结构守卫测试盯着。
 - **发现端点免 bearer，因为它不含秘密**；但仍过回环 Host 校验。
 - **`LAWMIND_SKIP_API_AUTH` 在打包版被忽略**。
@@ -1198,13 +1198,13 @@ LawmindRouteContext = {
 - **公开作业字段用 `Omit` 白名单**——新增字段默认不外露。
 - **作业幂等键只在非终态复用。**
 - **重启后 `queued`/`running` 标成 `interrupted_by_restart`；`scheduled` 保留。**
-- **作业没有并发上限**（串行只在 Word 插件那条链）。
+- **同一工作区同时最多跑 2 个工作流作业**（`MAX_CONCURRENT_WORKFLOW_JOBS`）。多出来的留在 `queued`，有空位再启动。Word 插件那条链仍是自己的串行。
 - **`uncaughtException` 退出、`unhandledRejection` 不退出**，但两者都进 `degraded`。
 - **所以超时 promise 的拒绝必须被吞掉**（否则 `degraded` 会亮）。
 - **用户 `.env.lawmind` 在工作区的父目录**（不在工作区内）。
 - **守护进程子进程被剥掉七项凭据类环境变量**（daemon 不起 HTTP，不需要）。
 - **心跳陈旧线是 tick 间隔的三倍（90 秒）。**
-- **SSE 通配 `*` 只匹配一层**（`[^:]*`），跨层要写 `task:*:update`。
+- **`task:*` 是前缀匹配**，能跨冒号。`task:*:update` 才是按段的 `[^:]*`。
 - **`taskId` 是白名单校验（四个字符类），`assistantId` 是黑名单（只禁三个字符）**——严格程度不同。
 - **zod 的 `issue.path` 可能含 symbol**，`join` 会抛；必须逐个 `String()`。
 - **那个「声明比现实窄，正好掩盖边界」的观察**：类型写错不报错，只会让运行时炸在别处。

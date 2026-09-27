@@ -13,8 +13,10 @@ import { LawmindChatMessagesVirtualList } from "./LawmindChatMessagesVirtualList
 import { LawmindMsgCompactNotice } from "./LawmindMsgCompactNotice";
 import { LawmindMsgCarryoverNotice } from "./LawmindMsgCarryoverNotice";
 import { LawmindContextForkSuggestion, type ChatContextForkProps } from "./LawmindContextForkSuggestion";
+import { LawmindAssistantDesk } from "./LawmindAssistantDesk";
 import { LawmindBrandMark } from "./app/LawmindBrandMark";
 import { LAWMIND_ATTORNEY_DISCLAIMER_SHORT } from "./lawmind-attorney-disclaimer";
+import { DAY_ONE_EXAMPLE_PROMPTS } from "./lawmind-day-one";
 import { LawmindMsgToolGroup } from "./LawmindMsgToolGroup";
 import {
   getPendingClarificationState,
@@ -273,6 +275,7 @@ export function LawmindChatMessagesColumn({
           ) : null}
         </div>
       ) : null}
+      <LawmindAssistantDesk apiBase={apiBase} assistantId={selectedAssistantId} />
       <div className="lm-messages-toolbar">
         <LawmindChatHistorySearch items={renderableItems} onHighlightIndices={onHighlightIndices} />
       </div>
@@ -294,7 +297,22 @@ export function LawmindChatMessagesColumn({
             <p className="lm-messages-empty-lead">
               把材料拖进来，或直接说要办的事。传票、谈话、照片直接丢进来即可补到本案。系统会按这句话和附件判断怎么做。
             </p>
-            <p className="lm-messages-empty-hint">签批与导出仍在「在办」。</p>
+            <div className="lm-messages-empty-actions" data-testid="lm-chat-empty-examples">
+              {DAY_ONE_EXAMPLE_PROMPTS.map((example) => (
+                <button
+                  key={example.id}
+                  type="button"
+                  className="lm-btn lm-btn-secondary lm-btn-sm"
+                  data-testid={`lm-chat-empty-example-${example.id}`}
+                  onClick={() => onApplyPrompt(example.prompt)}
+                >
+                  {example.label}
+                </button>
+              ))}
+            </div>
+            <p className="lm-messages-empty-hint">
+              点一句会填进输入框，改完再发。审合同和记传票要先把文件拖进来。签批与导出仍在「在办」。
+            </p>
             <p
               className="lm-messages-empty-hint"
               data-testid="lm-chat-empty-authority-boundary"

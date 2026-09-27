@@ -14,6 +14,7 @@ import {
   collectDraftEditDeltas,
   extractChangeSpan,
   formatEditLearningCandidates,
+  isDealSpecificLearningText,
 } from "./draft-edit-learning.js";
 
 describe("draft-edit-learning", () => {
@@ -114,6 +115,22 @@ describe("draft-edit-learning", () => {
     // 候选原样落盘：律师确认的是这条「改前/改后」记录，不是被系统重写过的总结。
     expect(profile).toContain("改前");
     expect(profile).toContain("已付费用为限");
+  });
+
+  it("routes a dated amount edit onto the matter, not the lawyer profile", async () => {
+    expect(isDealSpecificLearningText("于2026年10月5日前支付1,200,000元")).toBe(true);
+    expect(isDealSpecificLearningText("责任上限写成已付费用，不含间接损失")).toBe(false);
+    const created = await captureDraftEditLearning({
+      workspaceDir,
+      auditDir,
+      taskId: "t-deal",
+      matterId: "m-1",
+      before: [{ heading: "付款", body: "买方应于签约后支付合同价款。" }],
+      after: [{ heading: "付款", body: "买方应于2026年10月5日前支付1,200,000元。" }],
+    });
+    expect(created.some((r) => r.kind === "case.progress" && r.scope === "matter")).toBe(true);
+    expect(created.some((r) => r.kind === "lawyer.profile_learning")).toBe(false);
+    expect(created[0]?.targetId).toBe("m-1");
   });
 
   it("rotates §八 overflow into the archive so the hot file stays bounded", async () => {

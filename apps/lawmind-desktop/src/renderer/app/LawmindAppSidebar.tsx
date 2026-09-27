@@ -203,7 +203,7 @@ function LawmindAppSidebarImpl({
               className="lm-btn lm-btn-sm lm-side-needs-decision-btn lm-side-needs-decision-btn--brass"
               onClick={onOpenNeedsDecisionDesk}
               data-testid="lm-side-needs-decision"
-              title="打开「在办」处理澄清、批准与待审"
+              title="打开「在办」处理澄清、签批与待审"
             >
               <span>待我拍板</span>
               <span className="lm-side-needs-decision-badge" aria-label={`${actionSummaryTotal} 项待处理`}>

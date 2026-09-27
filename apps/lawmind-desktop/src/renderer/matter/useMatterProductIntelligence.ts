@@ -145,7 +145,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
         .map((d) => {
           const c = draftCitationByTask[d.taskId];
           const ok = c && c.checked ? c.ok : false;
-          return `${d.taskId}:${Boolean(c?.checked)}:${Boolean(ok)}`;
+          return `${d.taskId}:${c?.checked}:${ok}`;
         })
         .join("|"),
     [cognitionBoardDrafts, draftCitationByTask],
@@ -279,7 +279,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
           item.matterCount >= 3 || item.totalEvents >= 8 ? "validated" : score >= 16 ? "emerging" : "watching";
         const rationale =
           item.key === "adapt-review-surface"
-            ? "多个案件都在重复把审核上下文留到文书台，说明概览层的信息前置价值最高。"
+            ? "多个案件都在重复把审核上下文留到改稿，说明概览层的信息前置价值最高。"
             : item.key === "adapt-case-form"
               ? "多个案件都在反复补 CASE 文本，说明结构化补录已经接近共性需求。"
               : item.key === "adapt-memory-fastlane"
@@ -287,7 +287,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
                 : "同一入口在多个案件中持续高频出现，说明默认展示顺序可能已经需要调整。";
         const owner =
           item.key === "adapt-review-surface"
-            ? "案件概览 / 文书台"
+            ? "案件概览 / 改稿"
             : item.key === "adapt-case-form"
               ? "CASE 档案层"
               : item.key === "adapt-memory-fastlane"
@@ -295,7 +295,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
                 : "工作台框架";
         const benefit =
           item.key === "adapt-review-surface"
-            ? "减少律师在概览与文书台之间的来回切换，把关键待审信号前置到主工作面。"
+            ? "减少律师在概览与改稿之间的来回切换，把关键待审信号前置到主工作面。"
             : item.key === "adapt-case-form"
               ? "把反复补录的案件说明转成结构化输入，降低自由文本维护成本。"
               : item.key === "adapt-memory-fastlane"
@@ -574,7 +574,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
             seenLabels.add(layer.label);
             const current = layerCounts.get(layer.label) ?? { count: 0, injected: false };
             current.count += 1;
-            current.injected = current.injected || Boolean(layer.inAgentSystemPrompt);
+            current.injected = current.injected || layer.inAgentSystemPrompt;
             layerCounts.set(layer.label, current);
           }
         }
@@ -688,7 +688,7 @@ export function useMatterProductIntelligence(params: UseMatterProductIntelligenc
     const tid = cognitionTaskId?.trim();
     if (!tid || !apiBase) {
       setCognitionReasoningReport(null);
-      return;
+      return undefined;
     }
     let cancelled = false;
     void apiGetJson<{

@@ -1,12 +1,45 @@
 import fs from "node:fs";
 import path from "node:path";
 import { loadMatter } from "../adapters/matter-storage/index.js";
-import { parseMatterCaseProfileFields } from "../cases/matter-profile.js";
-import { deriveMatterIdentity, hydrateMatterParties } from "../desk/matter-parties.js";
+import { partySidesFromCase } from "../cases/matter-profile.js";
+import { hydrateMatterParties } from "../desk/matter-parties.js";
 import { isUnderRoot, realpathOrResolve } from "./paths.js";
 import type { HostMount } from "./types.js";
 
-export type MatterParties = { clientId?: string; counterparty?: string };
+export type MatterParties = {
+  clientId?: string;
+  counterparty?: string;
+  clientNames?: string[];
+  counterpartyNames?: string[];
+};
+
+function packParties(clients: string[], counterparties: string[]): MatterParties {
+  const clientId = clients[0];
+  const counterparty = counterparties[0];
+  return {
+    ...(clientId ? { clientId } : {}),
+    ...(counterparty ? { counterparty } : {}),
+    ...(clients.length > 1 ? { clientNames: clients } : {}),
+    ...(counterparties.length > 1 ? { counterpartyNames: counterparties } : {}),
+  };
+}
+
+function partyNameKey(value: string): string {
+  return value.replace(/\s+/g, "").trim();
+}
+
+function sideNames(side: MatterParties, kind: "client" | "counterparty"): string[] {
+  const primary = kind === "client" ? side.clientId : side.counterparty;
+  const extra = kind === "client" ? side.clientNames : side.counterpartyNames;
+  return [
+    ...new Set(
+      [primary, ...(extra ?? [])]
+        .filter((value): value is string => Boolean(value?.trim()))
+        .map(partyNameKey)
+        .filter((value) => value.length > 0),
+    ),
+  ];
+}
 
 export function readMatterParties(workspaceDir: string, matterId: string): MatterParties {
   const id = matterId.trim();
@@ -16,11 +49,26 @@ export function readMatterParties(workspaceDir: string, matterId: string): Matte
   try {
     const rec = loadMatter(workspaceDir, id);
     if (rec) {
-      const derived = deriveMatterIdentity(hydrateMatterParties(rec));
-      const clientId = rec.clientId?.trim() || derived.clientId;
-      const counterparty = rec.counterparty?.trim() || derived.counterparty;
-      if (clientId || counterparty) {
-        return { clientId, counterparty };
+      const hydrated = hydrateMatterParties(rec);
+      const clients = [
+        ...new Set(
+          [rec.clientId, ...hydrated.filter((row) => row.role === "client").map((row) => row.name)]
+            .map((name) => name?.trim() ?? "")
+            .filter((name) => name.length > 0),
+        ),
+      ];
+      const counterparties = [
+        ...new Set(
+          [
+            rec.counterparty,
+            ...hydrated.filter((row) => row.role === "counterparty").map((row) => row.name),
+          ]
+            .map((name) => name?.trim() ?? "")
+            .filter((name) => name.length > 0),
+        ),
+      ];
+      if (clients.length > 0 || counterparties.length > 0) {
+        return packParties(clients, counterparties);
       }
     }
   } catch {
@@ -28,24 +76,41 @@ export function readMatterParties(workspaceDir: string, matterId: string): Matte
   }
   try {
     const raw = fs.readFileSync(path.join(workspaceDir, "cases", id, "CASE.md"), "utf8");
-    const parsed = parseMatterCaseProfileFields(raw);
-    return {
-      clientId: parsed.clientIdFromCase?.trim() || undefined,
-      counterparty: parsed.counterparty?.trim() || undefined,
-    };
+    const sides = partySidesFromCase(raw);
+    return packParties(sides.clients, sides.counterparties);
   } catch {
     return {};
   }
 }
 
 export function partiesConflict(a: MatterParties, b: MatterParties): boolean {
-  if (a.clientId && b.counterparty && a.clientId === b.counterparty) {
+  const aClients = sideNames(a, "client");
+  const aCounterparties = sideNames(a, "counterparty");
+  const bClients = sideNames(b, "client");
+  const bCounterparties = sideNames(b, "counterparty");
+  if (aClients.some((name) => bCounterparties.includes(name))) {
     return true;
   }
-  if (a.counterparty && b.clientId && a.counterparty === b.clientId) {
+  if (aCounterparties.some((name) => bClients.includes(name))) {
     return true;
   }
   return false;
+}
+
+export function mattersConflict(
+  workspaceDir: string,
+  leftMatterId: string,
+  rightMatterId: string,
+): boolean {
+  const left = leftMatterId.trim();
+  const right = rightMatterId.trim();
+  if (!left || !right || left === right) {
+    return false;
+  }
+  return partiesConflict(
+    readMatterParties(workspaceDir, left),
+    readMatterParties(workspaceDir, right),
+  );
 }
 
 export function mountBoundToOtherMatter(mount: HostMount, sessionMatterId?: string): boolean {

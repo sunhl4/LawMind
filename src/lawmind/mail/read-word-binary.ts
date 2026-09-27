@@ -3,47 +3,43 @@
  * Prefers macOS `textutil -convert txt -stdout`; falls back to LibreOffice txt export to a temp file.
  */
 
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { buildMinimalChildEnv, runSafeCommand } from "../platform/safe-command.js";
 
-function runCapture(
+const TEXT_EXTRACT_MAX_STDOUT = 2_000_000;
+const TEXT_EXTRACT_MAX_STDERR = 4_000;
+
+async function runCapture(
   command: string,
   args: string[],
   opts: { timeoutMs?: number } = {},
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const timeoutMs = opts.timeoutMs ?? 45_000;
-  return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    const timer = setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* ignore */
-      }
-    }, timeoutMs);
-    child.stdout?.on("data", (c: Buffer | string) => {
-      if (stdout.length < 2_000_000) {
-        stdout += String(c);
-      }
+  try {
+    const result = await runSafeCommand({
+      command,
+      args,
+      env: buildMinimalChildEnv(),
+      timeoutMs,
+      killSignal: "SIGKILL",
+      stdio: ["ignore", "pipe", "pipe"],
+      maxStdoutBytes: TEXT_EXTRACT_MAX_STDOUT,
+      maxStderrBytes: TEXT_EXTRACT_MAX_STDERR,
     });
-    child.stderr?.on("data", (c: Buffer | string) => {
-      if (stderr.length < 4_000) {
-        stderr += String(c);
-      }
-    });
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      resolve({ code: 127, stdout: "", stderr: err.message });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code, stdout, stderr });
-    });
-  });
+    return {
+      code: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  } catch (err) {
+    return {
+      code: 127,
+      stdout: "",
+      stderr: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 function normalizeText(raw: string): string {

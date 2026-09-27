@@ -6,6 +6,7 @@ import {
   AGENT_MANDATORY_RULES_MAX_CHARS,
   DEFAULT_AGENT_MAX_TOOL_CALLS_PER_TURN,
   readWorkspacePolicyFile,
+  inspectWorkspacePolicyFile,
   resolveAgentMandatoryRulesForPrompt,
   resolveAgentMaxHistoryMessages,
   resolveAgentMaxToolCallsPerTurn,
@@ -28,6 +29,17 @@ describe("readWorkspacePolicyFile", () => {
     expect(readWorkspacePolicyFile(dir)).toBeNull();
   });
 
+  it("drops a build-channel key from the policy file", () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-pol-"));
+    fs.writeFileSync(
+      path.join(dir, "lawmind.policy.json"),
+      JSON.stringify({ schemaVersion: 1, edition: "firm", buildChannel: "commercial" }),
+    );
+    const pol = readWorkspacePolicyFile(dir);
+    expect(pol?.edition).toBe("firm");
+    expect(pol && "buildChannel" in pol).toBe(false);
+  });
+
   it("parses valid policy", () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-pol-"));
     const p = path.join(dir, "lawmind.policy.json");
@@ -42,7 +54,7 @@ describe("readWorkspacePolicyFile", () => {
     );
     const pol = readWorkspacePolicyFile(dir);
     expect(pol?.edition).toBe("firm");
-    expect(pol?.benchmarkGateMinScore).toBeCloseTo(0.72, 5);
+    expect(pol?.benchmarkGateMinScore).toBeUndefined();
   });
 
   it("returns null when schemaVersion missing", () => {
@@ -151,7 +163,7 @@ describe("resolveMatterMandatoryRulesForPrompt", () => {
 });
 
 describe("resolveAgentMaxHistoryMessages (F6)", () => {
-  it("uses policy value when set (clamped)", () => {
+  it("ignores history and tool-call caps in the policy file", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-mhist-"));
     try {
       fs.writeFileSync(
@@ -159,13 +171,9 @@ describe("resolveAgentMaxHistoryMessages (F6)", () => {
         JSON.stringify({ schemaVersion: 1, agentMaxHistoryMessages: 40 }),
         "utf8",
       );
-      expect(resolveAgentMaxHistoryMessages(dir, 100)).toBe(40);
-      fs.writeFileSync(
-        path.join(dir, "lawmind.policy.json"),
-        JSON.stringify({ schemaVersion: 1, agentMaxHistoryMessages: 999 }),
-        "utf8",
-      );
-      expect(resolveAgentMaxHistoryMessages(dir, 100)).toBe(200);
+      expect(resolveAgentMaxHistoryMessages(dir, 100)).toBe(100);
+      const inspected = inspectWorkspacePolicyFile(dir);
+      expect(inspected.rejected.some((row) => row.key === "agentMaxHistoryMessages")).toBe(true);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -182,7 +190,7 @@ describe("resolveAgentMaxHistoryMessages (F6)", () => {
 });
 
 describe("resolveAgentMaxToolCallsPerTurn", () => {
-  it("uses policy value when set", () => {
+  it("ignores a tool-call cap written in the policy file", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-mtc-"));
     const prev = process.env.LAWMIND_AGENT_MAX_TOOL_CALLS;
     try {
@@ -192,7 +200,7 @@ describe("resolveAgentMaxToolCallsPerTurn", () => {
         JSON.stringify({ schemaVersion: 1, agentMaxToolCallsPerTurn: 8 }),
         "utf8",
       );
-      expect(resolveAgentMaxToolCallsPerTurn(dir)).toBe(8);
+      expect(resolveAgentMaxToolCallsPerTurn(dir)).toBe(DEFAULT_AGENT_MAX_TOOL_CALLS_PER_TURN);
     } finally {
       if (prev !== undefined) {
         process.env.LAWMIND_AGENT_MAX_TOOL_CALLS = prev;

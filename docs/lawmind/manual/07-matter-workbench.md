@@ -21,7 +21,7 @@ LawMind 里最容易混的是四个词。它们不是同义词，混了就会看
 
 > 设计目标：service 层完全不直接 touch fs；所有 fs 调用集中在 storage adapter。
 
-这个「不许绕过去」的约定有个例外，7.21 会讲。
+`matters/<id>/ops/` 不是第六个域对象。范围、计划、风险、理论走 `matter-ops/storage.ts`，但落盘已经用同一套原子写、zod 和文件锁（7.17、7.21）。
 
 ## 7.2 律师侧：案件怎么建
 
@@ -38,6 +38,8 @@ LawMind 里最容易混的是四个词。它们不是同义词，混了就会看
 **创建时会自动开一条待办**：`need_conflict_check`（完成利益冲突检查）。
 
 状态上有条硬规则：只有同时传了 `conflictCheckConfirmed` 和 `engagementAccepted` 两个确认，案件状态才是 `active`；否则是 `intake`（收案）。也就是说，**利益冲突检查和委托确认没做完，案件不进入进行中状态**。
+
+这道门只挡「进行中」这个状态，不拦对话里起草。利益冲突是执业义务，用待办和状态表达；把它做成起草前的关键词硬拦，会挡住律师还在收材料时的正常交办。
 
 ## 7.3 案件真相源：`matters/<id>/` 里到底有什么
 
@@ -77,15 +79,15 @@ workspace/cases/<matterId>/
 
 ### 一张表看懂每个文件谁写
 
-| 文件                     | 写入者                                     | 格式                       |
-| ------------------------ | ------------------------------------------ | -------------------------- |
-| `matter.json`            | `matter-write-service.ts`                  | 单个 JSON，原子替换        |
-| `deliverables/<id>.json` | `deliverable-service.ts`                   | 单文件，原子替换           |
-| `approvals.jsonl`        | `approval-service.ts`                      | 追加 + 条件重写            |
-| `queue.jsonl`            | `queue-write-service.ts`                   | 追加 + 条件重写            |
-| `deadlines.jsonl`        | `deadline-service.ts`                      | 追加 + 条件重写            |
-| `CASE.md`                | `case-writes.ts`（经 `case-md-lock` 串行） | Markdown 段落追加          |
-| `ops/*`                  | `matter-ops/storage.ts`                    | **裸 fs，无锁**（见 7.21） |
+| 文件                     | 写入者                                     | 格式                                  |
+| ------------------------ | ------------------------------------------ | ------------------------------------- |
+| `matter.json`            | `matter-write-service.ts`                  | 单个 JSON，原子替换                   |
+| `deliverables/<id>.json` | `deliverable-service.ts`                   | 单文件，原子替换                      |
+| `approvals.jsonl`        | `approval-service.ts`                      | 追加 + 条件重写                       |
+| `queue.jsonl`            | `queue-write-service.ts`                   | 追加 + 条件重写                       |
+| `deadlines.jsonl`        | `deadline-service.ts`                      | 追加 + 条件重写                       |
+| `CASE.md`                | `case-writes.ts`（经 `case-md-lock` 串行） | Markdown 段落追加                     |
+| `ops/*`                  | `matter-ops/storage.ts`                    | 原子写 + zod + 文件锁；坏文件不许覆盖 |
 
 ### 原子写与锁
 
@@ -105,7 +107,7 @@ workspace/cases/<matterId>/
 > **没有 fsync**。rename 保证「进程崩溃后读者看不到半截 JSON」，但掉电不保证。
 > **锁是协商性的**。绕过 `withExclusiveFileLock` 的写者不受约束。
 
-「协商性」的意思是：锁只对愿意加锁的代码有效。仓库里恰好有一个写者不加锁，见 7.21。
+「协商性」的意思是：锁只对愿意加锁的代码有效。ops 写者已经加锁。新的写者如果绕过 `withExclusiveFileLock`，锁仍然管不住它。
 
 ## 7.4 双真相源：JSON 是对的，CASE.md 是给人看的
 
@@ -187,7 +189,7 @@ planned → drafting → pending_review → approved → rendered → delivered 
 invalid deliverable transition: A -> B
 ```
 
-注意最后三条「重开审核」。**已经批准甚至已经渲染的东西，可以退回重审。** 现实里这很常见：客户临时改需求，签过的稿子得重新过一遍。
+注意最后三条「重开审核」。**已经批准甚至已经渲染的东西，可以退回重审。** 现实里这很常见：客户临时改需求，签过的稿子得重新过一遍。这几条边留着：删掉「已渲染退回审核」会让律师只能另开一份交付物，卷宗里会出现两份都像终稿的东西。
 
 ### 审批的四态
 
@@ -233,6 +235,8 @@ invalid deliverable transition: A -> B
 
 注意它的取舍：不是把所有东西堆上来，而是**只留今天该看的**。邮件里 `fyi` 和 `contract` 类的不会出现在今日，因为那两类不是「今天必须回」。
 
+结转计划最多带 8 条。多出来的条数在快照的 `carryOmitted` 里，界面不该把「没带上」说成「没有」。
+
 这一层是纯读，不写文件、不扫审计日志。原因是打开工作台要快。
 
 ## 7.7 每日计划：手写的，能结转
@@ -243,7 +247,7 @@ invalid deliverable transition: A -> B
 
 几个实用特性：
 
-- **结转**：昨天没做完的会带过来。往回看 14 天（`CARRY_LOOKBACK_DAYS = 14`），最多带 8 条（`CARRY_SNAPSHOT_CAP = 8`）。
+- **结转**：昨天没做完的会带过来。往回看 14 天（`CARRY_LOOKBACK_DAYS = 14`），最多带 8 条（`CARRY_SNAPSHOT_CAP = 8`）。`listOpenLawyerPlanItemsBefore` 返回 `{ items, omitted }`：`omitted` 是这 14 天里没排进这 8 条的未完成手写计划。邮件、期限、审批来源的行不结转，它们从各自的活数据里重新出现。
 - **从来源标记完成**：`markDailyPlanSourceDone("deadline", id)` 表示「这条期限办完了，把计划里对应的那条也勾掉」。支持的来源有三种：`mail`、`deadline`、`approval`。
 - **勾完成**：PATCH 一条计划项，把 `done` 置真。
 
@@ -276,7 +280,7 @@ POST  /api/desk/plan/source-done   # 由来源反向勾完成
 
 `src/lawmind/desk/deadline-remind.ts` 的 `processDueDeadlineReminders` 是个定时任务：在 `dueAt` 之前，往「待我拍板」风格的收件箱里放一条提醒。
 
-提醒落到 `lawmind/automation-inbox/<id>.json`，`automationId` 是 `"deadline-remind"`。放完之后给期限打上 `remindedAt` 时间戳，避免重复提醒。
+提醒落到 `lawmind/automation-inbox/<id>.json`，`automationId` 是 `"deadline-remind"`。文件先写进收件箱，成功之后才给期限打 `remindedAt`。id 按案件和期限固定（`deadline-remind-<matterId>-<deadlineId>`），写失败时下一轮会盖写同一条，不会因为先盖章而导致这期提醒永远消失。
 
 ### 导出日历
 
@@ -284,7 +288,10 @@ POST  /api/desk/plan/source-done   # 由来源反向勾完成
 
 - `PRODID` 是 `-//LawMind//Desk//ZH`
 - 默认日历名「LawMind 期限」
-- 行折叠按 75 字符
+- 行折叠按 **75 字节**（RFC 5545）。按字符折，中文摘要会超长，日历软件会把后半句吃掉
+- 只有日期、没有钟点的 `dueAt`（`YYYY-MM-DD`）写成全天事件：`DTSTART;VALUE=DATE` 加上次日的 `DTEND;VALUE=DATE`（结束日不含当天）。不当成 UTC 午夜，日历里也能显示出来
+- `DTSTAMP` 是导出时刻，不是开庭时刻
+- `remindBeforeHours` 写成 `VALARM`（没填则用 7.9 的默认提前量）。还在等前置期限的那条不写闹钟，避免没释放就响
 - UID 默认是 `<deadlineId>@lawmind.local`
 
 HTTP 上直接下载：
@@ -305,7 +312,9 @@ GET /api/matters/:matterId/deadlines.ics
 
 > Heuristic only — lawyer confirms before writing deadlines.
 
-也就是说，它只提出**候选**，写进工作台之前必须律师确认。
+也就是说，它只提出**候选**，写进工作台之前必须律师确认。确认这一步留下：模型变强之后可以换抽取器，但没经律师点头的日期不能进期限表。
+
+每条候选只用**同一句里离关键词最近**的日期。句号、问号、叹号、分号和换行算另一句。这一句没有日期就空着，不借用下一句，所以「开庭时间另行通知」不会记成后面的举证日。同一句里有两个日子时，取离该关键词更近的那个。`2026年2月31日` 这种不存在的日子直接空着，不再被 `Date.UTC` 滚进三月。钟点按中国 UTC+8 折成绝对时间。
 
 抽取结果的置信度分三档（`high` / `medium` / `low`），每种事件的默认提前提醒时间是写死的（`defaultRemindBeforeHours`）：
 
@@ -368,6 +377,8 @@ POST /api/desk/events/confirm       # 确认写入（一次最多 12 条）
 
 第三条尤其重要。谈话里说「张三告了李四」，系统不知道你是张三的律师还是李四的律师，这时候它不会瞎猜，只登记双方和诉讼地位。
 
+当事人候选仍是标签抽取，最多 16 条，不是写进档案的当事人表（那张表上限 32，见 7.12）。这里不改成「模型直接写当事人」：确认之前的摘要可以错，写穿之后的档案不能靠模型补立场。
+
 ### 当事人抽取
 
 `extractPartyCandidates` 靠一组标签词：
@@ -391,6 +402,8 @@ POST /api/desk/events/confirm       # 确认写入（一次最多 12 条）
 > No SHA hashing — pulse/open-dossier must stay cheap; replica publish still hashes.
 
 也就是说，日常打开案件时不计算哈希（慢），只有案件副本同步时才计算。上限：最多列 80 个文件（`MATTER_MATERIALS_LIST_CAP`），遍历上限 4000 个（`MATTER_MATERIALS_WALK_CEILING`），单文件 50MB 以上略过（`MATTER_MATERIALS_MAX_FILE_BYTES`）。
+
+按修改时间排序时，先走到上限再排序再截断。以前按目录读到 80 个就停，后出现的新文件会从材料页消失。`inspectMatterMaterialFiles` 同时给出 `omitted`（这一页之外还看到多少）和 `saturated`（走查中途撞上 4000，后面还有没数到的文件，`omitted` 只是下界）。正好 4000 份且已经走完时 `saturated` 为假。驾舱把这两项放进 `counts.materialsOmitted` 和 `counts.materialsSaturated`；材料页在撞顶时写「至少还有」。
 
 ### 在材料里搜
 
@@ -438,6 +451,8 @@ export const MATTER_PARTIES_CAP = 32;
 
 典型的静默丢数据 bug：共同诉讼有 10 个被告，第 9、10 个被悄悄扔掉，还没人知道为什么。
 
+档案写入（`updateMatterProfile`）在有名字的当事人超过 32 时直接拒绝，错误是 `matter_parties_cap:32`，原名单不动。`normalizeMatterParties` 仍会截断，那是给已经落盘的旧数据和编辑器草稿用的，不能再当保存路径。
+
 ## 7.13 案件门类与案由
 
 ### 门类
@@ -456,7 +471,7 @@ export const MATTER_PARTIES_CAP = 32;
 
 > Lawyer-maintained 案由词表. Not a national classifier — candidates only.
 
-它不是全国案由分类器，只给候选。之所以让律师自己维护，是因为案由的写法各地法院有差异，硬编码的标准案由表经常对不上。
+它不是全国案由分类器，只给候选。之所以让律师自己维护，是因为案由的写法各地法院有差异，硬编码的标准案由表经常对不上。门类正则只做意图平局，不覆盖律师改过的 `matterKind`。
 
 `/api/workspace/cause-lexicon` 可以读写，一次最多 80 条。
 
@@ -468,7 +483,7 @@ export const MATTER_PARTIES_CAP = 32;
 
 `MatterPulse` 里比较有用的几个字段：
 
-- `counts`：文件、任务、材料、期限、邮件、审批的各类计数
+- `counts`：文件、任务、材料、期限、邮件、审批的各类计数。`materialsOmitted` 是材料页没列出的份数（7.11）
 - `daysUntilHearing`：距开庭还有几天
 - `timeline`：一条时间线（最多 24 条 `MATTER_TIMELINE_CAP`），事件类型有 `deadline`、`hearing`、`mail`、`document`、`task`、`approval`、`intake`
 - `nextActions`：下一步做什么
@@ -501,7 +516,7 @@ GET /api/matters/session-timeline?matterId=...&limit=40
 旧案事实不得写入本案。只作案由与证据整理对照。
 ```
 
-这个字段叫 `displayWarning`，界面上必须显示。为什么这么强调？因为把旧案事实混进本案是灾难性的——当事人不同、金额不同、时间不同，混了就是错案。
+这个字段叫 `displayWarning`，界面上必须显示。为什么这么强调？因为把旧案事实混进本案是灾难性的——当事人不同、金额不同、时间不同，混了就是错案。接口层每次都带上这句话，不靠前端记得自己写。对照可以帮质量，混入会直接写错交付。
 
 相似度算法在 `memory/similar-case-recall.ts`，各节权重不同：争点 2.6、风险 2.2、策略 1.6、基本信息 1.2、进度 0.9。默认取 3 条，最低分 0.15（工作台用 0.12 放宽一点，取 5 条）。
 
@@ -529,7 +544,7 @@ GET /api/matters/session-timeline?matterId=...&limit=40
 documentId,documentTitle,questionId,question,excerpt,status,citation
 ```
 
-矩阵还有个对比功能（`compareMatrixExcerpts`），专门找**危险变更**，正则盯着这些词：`无限责任|全部损失|放弃|不可撤销|单方解除|自动续期`。命中就提示「危险变更：出现高风险表述」，没有命中但内容变了就提示「条款内容有变化，请人工核对」。
+矩阵还有个对比功能（`compareMatrixExcerpts`），专门找**危险变更**。新出现 `无限责任|全部损失|放弃|不可撤销|单方解除|自动续期` 时提示「危险变更：出现高风险表述」。原文有 `责任上限|赔偿上限|赔偿限额`、改后没有，提示「危险变更：责任上限被拿掉」。其余改动只提示「条款内容有变化，请人工核对」。这是给律师看的提示，不是签批门禁。
 
 审查表的完整能力（包括批量抽取、编辑、导出）在第 9 章。
 
@@ -539,7 +554,7 @@ documentId,documentTitle,questionId,question,excerpt,status,citation
 
 - **范围**（`scope.json`）：基线 + 变更记录（保留最近 20 条）。变更时会自动记一条「基线更新：<旧内容前 80 字>」。
 - **计划**（`plan.json`）：阶段、里程碑。
-- **RAID 台账**（`raid.jsonl`）：Risk、Assumption、Issue、Decision 四类条目。读的时候取最近 40 条再倒序取 12 条展示，`openRiskCount` 数的是未关闭的风险。
+- **RAID 台账**（`raid.jsonl`）：Risk、Assumption、Issue、Decision 四类条目。`openRiskCount` 数整本台账里未关闭的风险。展示最多 12 条，未关闭的风险排在前面，不会因为后面写满决定就被挤出驾舱。坏行仍跳过。`scope.json` / `plan.json` / `theory-lite.json` 如果已经写坏，下一次保存会抛 `matter_ops_corrupt:<文件名>`，不会用一份新 JSON 把历史盖掉。
 - **理论**（`theory-lite.json`）：争点、依据、待决问题，还有一个 `anchored` 标记。
 
 `matterTheoryBlocksStrictExport` 这个函数名说明了一件事：**理论没锚定，严格模式下不许导出**。这是「有理论依据才能出稿」的一条硬线。
@@ -563,7 +578,7 @@ PUT /api/matters/team-roster   # { matterId, participantAssistantIds[], synthesi
 ## 案件团队会议室纪要（内部协作用，非对外法律意见）
 ```
 
-「非对外法律意见」是必须的——会议室里的讨论不是给客户看的。
+「非对外法律意见」是必须的——会议室里的讨论不是给客户看的。纪要留在案件目录，不进交付物生命周期，也不能靠「整理一下」就变成对外稿。
 
 完整的协作能力在第 16 章。
 
@@ -593,7 +608,7 @@ PUT /api/matters/team-roster   # { matterId, participantAssistantIds[], synthesi
 | `/api/matters/team-meeting`                   | GET       | 会议记录（`limit` / `skipFromEnd`）                        |
 | `/api/matters/:matterId/ops`                  | GET/PATCH | Ops 四件套                                                 |
 | `/api/matters/:matterId/theory`               | GET/PUT   | 理论                                                       |
-| `/api/matters/:matterId/pulse`                | GET       | 案件快照                                                   |
+| `/api/matters/:matterId/pulse`                | GET       | 案件快照（`counts.materialsOmitted`）                      |
 | `/api/matters/:matterId/materials/search`     | GET       | 材料检索                                                   |
 | `/api/matters/:matterId/precedents`           | GET       | 先例库                                                     |
 | `/api/matters/:matterId/similar-cases`        | GET       | 相似案件                                                   |
@@ -603,23 +618,23 @@ PUT /api/matters/team-roster   # { matterId, participantAssistantIds[], synthesi
 
 ### 工作台相关
 
-| 端点                                           | 方法     | 说明                  |
-| ---------------------------------------------- | -------- | --------------------- |
-| `/api/desk/today`                              | GET      | 今日一屏              |
-| `/api/desk/matters`                            | GET      | 按门类列案件          |
-| `/api/desk/plan`                               | POST     | 加计划                |
-| `/api/desk/plan/items/:itemId`                 | PATCH    | 勾完成                |
-| `/api/desk/plan/source-done`                   | POST     | 由来源勾完成          |
-| `/api/desk/events/extract`                     | POST     | 抽事件                |
-| `/api/desk/events/extract-file`                | POST     | 从文件抽              |
-| `/api/desk/events/confirm`                     | POST     | 确认写入期限          |
-| `/api/desk/standards/match`                    | POST     | 匹配办案标准          |
-| `/api/desk/replica-feed`                       | GET      | 副本动态（Firm 门控） |
-| `/api/matters/:matterId/deadlines`             | GET/POST | 期限                  |
-| `/api/matters/:matterId/deadlines.ics`         | GET      | 导出日历              |
-| `/api/matters/:matterId/deadlines/:deadlineId` | PATCH    | 改期限（完成/稍后）   |
-| `/api/workspace/standards`                     | GET/POST | 办案标准              |
-| `/api/workspace/cause-lexicon`                 | GET/POST | 案由词表              |
+| 端点                                           | 方法     | 说明                          |
+| ---------------------------------------------- | -------- | ----------------------------- |
+| `/api/desk/today`                              | GET      | 今日一屏（含 `carryOmitted`） |
+| `/api/desk/matters`                            | GET      | 按门类列案件                  |
+| `/api/desk/plan`                               | POST     | 加计划                        |
+| `/api/desk/plan/items/:itemId`                 | PATCH    | 勾完成                        |
+| `/api/desk/plan/source-done`                   | POST     | 由来源勾完成                  |
+| `/api/desk/events/extract`                     | POST     | 抽事件                        |
+| `/api/desk/events/extract-file`                | POST     | 从文件抽                      |
+| `/api/desk/events/confirm`                     | POST     | 确认写入期限                  |
+| `/api/desk/standards/match`                    | POST     | 匹配办案标准                  |
+| `/api/desk/replica-feed`                       | GET      | 副本动态（Firm 门控）         |
+| `/api/matters/:matterId/deadlines`             | GET/POST | 期限                          |
+| `/api/matters/:matterId/deadlines.ics`         | GET      | 导出日历                      |
+| `/api/matters/:matterId/deadlines/:deadlineId` | PATCH    | 改期限（完成/稍后）           |
+| `/api/workspace/standards`                     | GET/POST | 办案标准                      |
+| `/api/workspace/cause-lexicon`                 | GET/POST | 案由词表                      |
 
 ## 7.20 关键文件
 
@@ -640,11 +655,11 @@ PUT /api/matters/team-roster   # { matterId, participantAssistantIds[], synthesi
 
 ## 7.21 已知坑
 
-- **`matter-ops/storage.ts` 绕过写协议。** 它用裸的 `fs.writeFileSync` / `appendFileSync`，没有排他锁、没有 tmp+rename、没有 zod。这是 `matters/<id>/` 下唯一不遵守 `adapters/matter-storage` 协议的写者。工程研究笔记里把它列为「目前最明显的一处双标准」。
-- **锁是协商性的。** 上面那个写者就是活例子：它不受锁约束，别人加锁也管不住它。
+- **锁是协商性的。** ops 写者已经进锁。谁要是再绕过 `withExclusiveFileLock`，锁照样管不住。
+- **ops 读坏文件仍返回空。** 打开驾舱时，损坏的 `scope.json` 显示成「还没有范围」，避免一坏就打不开案件。保存才会拒绝覆盖。律师如果看到范围突然空了，先看文件是不是半截 JSON，不要直接再存一版。
 - **交付物的终态审核印记不许被覆盖。** 代码里有一段注释：一旦交付物上有 `approved` 或 `rejected` 印记，后续生命周期转移不能因为草稿里 `reviewStatus` 漂了就把印记冲掉。
 - **批准之后又改了正文，审核要重开。** 否则界面会出现「已批准但正文是未审文字」这种自相矛盾的状态。
 - **CASE.md 的叙事小节不回写 JSON。** 所以不要指望「改了 CASE.md 的争点，JSON 里也有」——一致性检查也不查这些。
 - **材料列表不算哈希。** 想校验材料是否被改过，得走案件副本那条路。
-- **当事人上限 32，不是无限。** 超过会被截。真需要更多，改 `MATTER_PARTIES_CAP` 而不是绕过校验。
+- **当事人上限 32，不是无限。** 保存档案时超过会拒绝（`matter_parties_cap:32`），不会悄悄丢掉后面的人。`normalizeMatterParties` 仍截断，只用于读取旧数据和编辑草稿。真需要更多，改 `MATTER_PARTIES_CAP` 而不是绕过校验。
 - **开庭期限不参与释放判断。** 有前置未完成的期限不催办，但开庭照常提醒，这条别改。

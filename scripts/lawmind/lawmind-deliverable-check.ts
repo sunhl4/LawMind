@@ -20,11 +20,10 @@
 import path from "node:path";
 import {
   listDeliverableSpecs,
-  registerExtraDeliverableSpecs,
   validateDraftAgainstSpec,
 } from "../../src/lawmind/deliverables/index.js";
 import type { AcceptanceReport } from "../../src/lawmind/deliverables/index.js";
-import { loadWorkspaceDeliverableSpecs } from "../../src/lawmind/deliverables/workspace-loader.js";
+import { applyWorkspaceDeliverableSpecs } from "../../src/lawmind/deliverables/workspace-loader.js";
 import { buildDraftAcceptancePackMarkdown } from "../../src/lawmind/delivery/draft-acceptance-pack.js";
 import { readDraft } from "../../src/lawmind/drafts/index.js";
 import { listTaskRecords } from "../../src/lawmind/tasks/index.js";
@@ -135,11 +134,9 @@ function formatHuman(report: AcceptanceReport, draft: ArtifactDraft): string {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
-  // 工作区扩展规范：与 engine bootstrap 行为一致，CLI 也能识别事务所私有交付物。
-  const wsSpecs = loadWorkspaceDeliverableSpecs(args.workspaceDir);
-  if (wsSpecs.specs.length > 0) {
-    registerExtraDeliverableSpecs(wsSpecs.specs);
-  }
+  // 与 createLawMindEngine 同一入口：Solo 默认加载；feature 关掉则两边都不认。
+  const applied = applyWorkspaceDeliverableSpecs(args.workspaceDir);
+  const wsSpecs = applied.result;
   if (wsSpecs.warnings.length > 0 && !args.json) {
     for (const w of wsSpecs.warnings) {
       console.warn(`[lawmind-gate] 跳过无效规范 ${w.file}: ${w.message}`);

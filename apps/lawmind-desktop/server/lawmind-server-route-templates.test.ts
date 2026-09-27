@@ -62,15 +62,9 @@ describe("handleTemplateRoutes", () => {
     tempDirs.length = 0;
   });
 
-  it("GET /api/templates returns built-in and uploaded lists", async () => {
+  it("GET /api/templates returns built-in only (uploaded always empty)", async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-tpl-api-"));
     tempDirs.push(workspaceDir);
-    fs.mkdirSync(path.join(workspaceDir, "lawmind", "templates"), { recursive: true });
-    fs.writeFileSync(
-      path.join(workspaceDir, "lawmind", "templates", "index.json"),
-      JSON.stringify({ templates: [] }),
-      "utf8",
-    );
 
     const ctx: LawmindDispatchContext = {
       workspaceDir,
@@ -97,55 +91,12 @@ describe("handleTemplateRoutes", () => {
     expect(j.ok).toBe(true);
     expect(Array.isArray(j.builtIn)).toBe(true);
     expect(j.builtIn?.some((t) => t.id === "word/legal-memo-default")).toBe(true);
-    expect(Array.isArray(j.uploaded)).toBe(true);
+    expect(j.uploaded).toEqual([]);
   });
 
-  it("POST /api/templates/register rejects invalid id", async () => {
+  it("POST /api/templates/register is retired", async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-tpl-reg-"));
     tempDirs.push(workspaceDir);
-    fs.mkdirSync(path.join(workspaceDir, "lawmind", "templates"), { recursive: true });
-    fs.writeFileSync(
-      path.join(workspaceDir, "lawmind", "templates", "index.json"),
-      JSON.stringify({ templates: [] }),
-      "utf8",
-    );
-
-    const ctx: LawmindDispatchContext = {
-      workspaceDir,
-      envFile: undefined,
-      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
-      policy: { loaded: false },
-    };
-    const cap = createResponseCapture();
-    const ok = await handleTemplateRoutes({
-      ctx,
-      req: createJsonRequest("POST", {
-        id: "bad id",
-        path: "x.docx",
-      }),
-      res: cap.res,
-      url: new URL("http://127.0.0.1/api/templates/register"),
-      pathname: "/api/templates/register",
-      c: {},
-    });
-    expect(ok).toBe(true);
-    expect(cap.status).toBe(400);
-    expect(cap.json()).toMatchObject({ ok: false });
-  });
-
-  it("POST /api/templates/register accepts absolutePath outside workspace", async () => {
-    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-tpl-abs-ws-"));
-    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-tpl-abs-src-"));
-    tempDirs.push(workspaceDir, outsideDir);
-    fs.mkdirSync(path.join(workspaceDir, "lawmind", "templates"), { recursive: true });
-    fs.writeFileSync(
-      path.join(workspaceDir, "lawmind", "templates", "index.json"),
-      JSON.stringify({ templates: [] }),
-      "utf8",
-    );
-    const absDocx = path.join(outsideDir, "firm-letter.docx");
-    // Minimal zip-like bytes are enough for copy; fill/scan not exercised here.
-    fs.writeFileSync(absDocx, "PK\u0003\u0004fake-docx");
 
     const ctx: LawmindDispatchContext = {
       workspaceDir,
@@ -158,9 +109,7 @@ describe("handleTemplateRoutes", () => {
       ctx,
       req: createJsonRequest("POST", {
         id: "upload/firm-letter",
-        label: "所函",
-        format: "docx",
-        absolutePath: absDocx,
+        absolutePath: "/tmp/x.docx",
       }),
       res: cap.res,
       url: new URL("http://127.0.0.1/api/templates/register"),
@@ -168,10 +117,31 @@ describe("handleTemplateRoutes", () => {
       c: {},
     });
     expect(ok).toBe(true);
-    expect(cap.status).toBe(200);
-    expect(cap.json()).toMatchObject({
-      ok: true,
-      template: { id: "upload/firm-letter", label: "所函", format: "docx" },
+    expect(cap.status).toBe(405);
+    expect(cap.json()).toMatchObject({ ok: false });
+    const error = cap.json().error;
+    expect(typeof error === "string" ? error : "").toContain("不再支持上传");
+  });
+
+  it("POST /api/templates/scan is retired", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-tpl-scan-"));
+    tempDirs.push(workspaceDir);
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const cap = createResponseCapture();
+    const ok = await handleTemplateRoutes({
+      ctx,
+      req: createJsonRequest("POST", { absolutePath: "/tmp/x.docx" }),
+      res: cap.res,
+      url: new URL("http://127.0.0.1/api/templates/scan"),
+      pathname: "/api/templates/scan",
+      c: {},
     });
+    expect(ok).toBe(true);
+    expect(cap.status).toBe(405);
   });
 });

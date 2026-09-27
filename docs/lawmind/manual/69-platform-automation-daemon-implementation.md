@@ -56,6 +56,8 @@ createdAt  updatedAt
 | 5   | 标题             | `title`             |
 | 6   | 计划             | `schedule`          |
 
+另有 `lastQuietKey`：同一批来信或同一份已被门禁拦住的附件，不再每个周期重推收件箱。
+
 **前四项各有一个专门字段，后两项复用了已有字段**——这就是那句注释的意思。
 
 而四项的中文标签是代码原文：
@@ -78,7 +80,7 @@ const CONFIRMATION_LABELS = {
 expectedResult
 /** 哪些动作必须停下来问律师（外发、改原稿等）。 */
 approvalBoundary
-/** 源数据缺失时怎么办（缺省 report_failure）。 */
+/** 源数据缺失时怎么办（缺字段时按 report_partial 读）。 */
 missingDataPolicy
 /** 什么时候才打扰律师（缺省 always，保持老行为）。 */
 notifyPolicy
@@ -249,7 +251,7 @@ Due-automation tick: enqueue workflows, digest mail, push results to automation 
 
 **第 ⑥ 步那句「推到 1 小时后」**（`computeNextRunAt(failed.schedule, now + 3_600_000)`）——**失败不立刻重试**，而是等一小时。这是很实际的取舍：立刻重试多半还是失败。
 
-### 十一条错误码与它们的处理
+### 五条错误码与它们的处理
 
 ```text
 missing_api_key          模型没配
@@ -404,7 +406,9 @@ runId  automationId  trigger  status  startedAt  finishedAt
 summary?  errorCode?  errorMessage?  jobId?  missingData?  notified?
 ```
 
-而 `trigger` 三种：`schedule` / `manual` / `test`，`status` 四种：`ok` / `failed` / `skipped` / `blocked`。
+而 `trigger` 四种：`schedule` / `manual` / `test` / `event`（本机事件：本案文件名、新来信发件人或标题、本机 webhook 文本），`status` 四种：`ok` / `failed` / `skipped` / `blocked`。
+
+事件触发的三件套：`automation-event-trigger.ts`（校验：只认 `matter_files` / `mail` / `webhook` 三处来源，子串匹配，「全部 / 每条 / `*`」无界条件直接拒绝，间隔夹在 15 分钟到 24 小时）、`automation-event-scan.ts`（读本机三源看条件是否出现，不发网络请求——webhook 只读投到工作区里的一个 json）、`automation-source-gap.ts`（开跑前各预设自己的「源在不在」：卷宗不在算缺源，卷宗在只是还没到期合同算诚实空结果）。桌面与 lawmindd 可能同时扫到同一事件，先领到文件锁的写 `lastEventFiredAt`，后拿到的复验间隔后让位，不会双发。
 
 ### 那个「记录的是事实」的注释
 
@@ -612,7 +616,9 @@ LAWMIND_LOCAL_API_INSTANCE_ID
 
 **「Keep in sync」**——所以这是第 39 章那条「两处实现」的第三例。
 
-而**传给守护进程**的是：`LAWMIND_WORKSPACE_DIR` / `LAWMIND_ENV_FILE` / `LAWMIND_REPO_ROOT` + 两把本地密钥 + `LAWMIND_DAEMON=1`；监督模式还要删 `LAWMIND_DAEMON` 并设 `LAWMIND_DAEMON_SUPERVISOR=1`。
+而**传给守护进程**的是：宿主 `PATH` / `HOME` 等 + `LAWMIND_*` 与 `BRAVE_*` 前缀（联网检索与模型调用靠它们）+ `LAWMIND_WORKSPACE_DIR` / `LAWMIND_ENV_FILE` / `LAWMIND_REPO_ROOT` + 两把本地密钥 + `LAWMIND_DAEMON=1`；监督模式还要删 `LAWMIND_DAEMON` 并设 `LAWMIND_DAEMON_SUPERVISOR=1`。
+
+spawn 统一走 `safeCommand`（`platform/safe-command.ts`）：子进程**不继承父 env**；加载器钩子（`LD_PRELOAD` / `DYLD_*` / `NODE_OPTIONS` 等）与凭据根即使在显式 env 里也会被剥掉——`buildDaemonProcessEnv` 的显式 env 是一方调用方的刻意授予，所以 `LAWMIND_*` / `BRAVE_*` 保留，只剥凭据根与加载器钩子。
 
 ## 69.7 监督决策：一个纯函数回答三个问题
 

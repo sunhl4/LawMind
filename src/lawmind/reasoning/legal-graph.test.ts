@@ -319,6 +319,36 @@ describe("IRAC 槽位映射（P0-4a）", () => {
     expect(graph.issueTree[0]?.facts).toEqual([]);
   });
 
+  it("未被结论引用的案件材料不写入争点事实，只留给起草判断", () => {
+    const bundle = makeBundle({
+      sources: [
+        { id: "src-statute-1", title: "《民法典》第585条", kind: "statute" },
+        { id: "src-memo-1", title: "案件文件：m-1", kind: "memo", citation: "买方逾期付款" },
+        { id: "src-ws-1", title: "客户画像", kind: "workspace" },
+      ],
+      claims: [
+        {
+          text: "违约金可由当事人约定",
+          sourceIds: ["src-statute-1"],
+          confidence: 0.9,
+          model: "legal",
+        },
+        {
+          text: "法院有权调整过高违约金",
+          sourceIds: ["src-statute-1"],
+          confidence: 0.8,
+          model: "legal",
+        },
+      ],
+    });
+    const graph = buildLegalReasoningGraph({ intent: makeIntent(), bundle });
+    expect(graph.issueTree[0]?.facts).toEqual([]);
+    expect(graph.issueTree[1]?.facts).toEqual([]);
+    expect(graph.deliveryRisks.join("\n")).toContain("买方逾期付款");
+    expect(graph.deliveryRisks.join("\n")).toContain("客户画像");
+    expect(graph.deliveryRisks.join("\n")).toContain("自行判断");
+  });
+
   it("无事实材料来源时 facts 保持空数组（不编造事实）", () => {
     const graph = buildLegalReasoningGraph({ intent: makeIntent(), bundle: makeBundle() });
     const factsTotal = graph.issueTree.reduce((n, i) => n + i.facts.length, 0);

@@ -8,6 +8,10 @@ import path from "node:path";
 import { createLawMindEngine } from "../../../src/lawmind/index.js";
 import { MOUNT_WRITE_REFUSAL } from "../../../src/lawmind/host-access/access-broker.js";
 import { buildLawMindRetrievalAdaptersFromEnvForTest } from "../../../src/lawmind/agent/tools/engine-tools.js";
+import {
+  contextTokensForConversation,
+  resolveConversationLength,
+} from "../../../src/lawmind/agent/context-preset.js";
 import type { AgentConfig } from "../../../src/lawmind/agent/types.js";
 import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 import { readModelsStore } from "../../../src/lawmind/models/custom-store.js";
@@ -270,14 +274,20 @@ export function buildAgentConfig(
   }
 
   const enableCollaboration = process.env.LAWMIND_ENABLE_COLLABORATION?.trim().toLowerCase() !== "false";
+  const policyState = readLawMindPolicyFile(workspaceDir);
+  const policyForEdition: LawMindWorkspacePolicy | null = policyState.loaded
+    ? (policyState.policy as LawMindWorkspacePolicy)
+    : null;
+  const conversationLength = resolveConversationLength(policyForEdition?.conversationLength);
+  modelConfig.contextTokens = contextTokensForConversation(
+    modelConfig.contextTokens,
+    conversationLength,
+  );
   const envelope = resolveCapabilityEnvelope({
     contextTokens: modelConfig.contextTokens,
     timeoutMs: modelConfig.timeoutMs ?? modelTimeoutMs,
     taskKind: "chat",
   });
-  if (!modelConfig.contextTokens) {
-    modelConfig.contextTokens = envelope.contextTokens;
-  }
   if (!modelConfig.maxTokens || modelConfig.maxTokens < envelope.maxOutputTokens) {
     // Prefer envelope when legacy 4096 (or lower) slipped through.
     if (!modelConfig.maxTokens || modelConfig.maxTokens <= 4096) {
@@ -288,10 +298,6 @@ export function buildAgentConfig(
     // E2: chat default 0.35 (legacy hardcoded 0.3 treated as unset).
     modelConfig.temperature = resolveTemperatureForTask("chat");
   }
-  const policyState = readLawMindPolicyFile(workspaceDir);
-  const policyForEdition: LawMindWorkspacePolicy | null = policyState.loaded
-    ? (policyState.policy as LawMindWorkspacePolicy)
-    : null;
   const explicitToolCap =
     (typeof policyForEdition?.agentMaxToolCallsPerTurn === "number" &&
       policyForEdition.agentMaxToolCallsPerTurn > 0) ||
@@ -311,7 +317,7 @@ export function buildAgentConfig(
     modelConfig,
   );
 
-  // E7: optional worker (fast) model for tool rounds.
+  // Optional faster model for review and mid-turn summaries (not the tool loop).
   let workerModel = undefined as typeof modelConfig | undefined;
   const workerId = readModelsStore(lawMindRoot).workerModelId?.trim();
   if (workerId && workerId !== resolved.resolvedModelId) {

@@ -102,7 +102,7 @@ describe("buildMatterHealthMetrics", () => {
     expect(metrics.lintTriggerCount).toBe(2);
     expect(metrics.lintRuleCount).toBe(expectedRuleCount);
     expect(metrics.lintCoverageRate).toBeCloseTo(2 / expectedRuleCount, 10);
-    expect(metrics.lintFindingCount).toBe(2); // failCount 1 + blockerCount 1
+    expect(metrics.lintFindingCount).toBe(1); // failCount 已含 blocker，不再加一遍
     expect(metrics.lawyerEditCount).toBe(2);
     expect(metrics.lawyerEditModifiedCount).toBe(1);
     expect(metrics.editRate).toBe(0.5);

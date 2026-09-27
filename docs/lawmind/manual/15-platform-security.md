@@ -2,6 +2,16 @@
 
 这一章讲 LawMind 的信任边界：什么东西能出网、什么东西能起进程、什么东西不许被改、什么内容不许当指令。
 
+五条铁律在这里的取舍：
+
+| 铁律           | 这一层怎么落                                                                                                               |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 上手简单       | 许可到期只提醒，不锁死交办。Solo 不因为律所墙变难。                                                                        |
+| 交付质量       | 质量看稿能不能用。哈希链、合规导出、治理报告不证明结论正确。                                                               |
+| 稳定           | 出网和起进程走固定两道门，失败说明原因，不静默改写成「已安全」。                                                           |
+| 先复用，后自研 | SSRF、命令白名单、内容围栏沿用常见桌面代理的收口。Electron 拉起自家 API 不另造一份 `.mjs` 镜像。                           |
+| 发挥模型能力   | 硬控只留出网、起进程、改治理文件、外发确认和伦理墙。受众词表只决定要不要停在外发卡上，不代替律师决定发不发，也不给稿打分。 |
+
 ## 15.1 定位：两个统一出口
 
 安全设计的核心思路很简单：**外部交互只留两个口子，其他一律走这两个口子。**
@@ -15,29 +25,35 @@
 
 `platform/README.md` 里列了接入点清单（能力 → 入口文件 → 走哪个网关）。这是那份清单的内容：
 
-| 能力            | 入口                                     | 网关                  |
-| --------------- | ---------------------------------------- | --------------------- |
-| MCP stdio       | `mcp/mcp-jsonrpc-client.ts`              | `safeCommand`         |
-| MCP HTTP        | `mcp/mcp-jsonrpc-client.ts`              | `createOutboundProxy` |
-| 模型 API        | `agent/runtime-model-call.ts`            | `createOutboundProxy` |
-| 模型探测        | `models/probe.ts`                        | `createOutboundProxy` |
-| JSON LLM 客户端 | `llm/openai-json.ts`                     | `createOutboundProxy` |
-| OpenAI 兼容检索 | `retrieval/openai-compatible.ts`         | `createOutboundProxy` |
-| LexEdge 检索    | `retrieval/providers.ts`                 | `createOutboundProxy` |
-| URL 档案        | `research/url-dossier.ts`                | `createOutboundProxy` |
-| open-law 检索   | `retrieval/providers/open-law/client.ts` | `createOutboundProxy` |
-| 北大法宝检索    | `retrieval/providers/pkulaw/client.ts`   | `createOutboundProxy` |
-| Brave 联网检索  | `agent/tools/lawmind-web-search.ts`      | `createOutboundProxy` |
-| 工具沙箱        | `runtime/tool-sandbox.ts`                | `safeCommand`         |
-| lawmindd 启动   | `server/lawmind-server-route-daemon.ts`  | `safeCommand`         |
+| 能力                  | 入口                                                  | 网关                  |
+| --------------------- | ----------------------------------------------------- | --------------------- |
+| MCP stdio             | `mcp/mcp-jsonrpc-client.ts`                           | `safeCommand`         |
+| MCP HTTP              | `mcp/mcp-jsonrpc-client.ts`                           | `createOutboundProxy` |
+| 模型 API              | `agent/runtime-model-call.ts`                         | `createOutboundProxy` |
+| 模型探测              | `models/probe.ts`                                     | `createOutboundProxy` |
+| JSON LLM 客户端       | `llm/openai-json.ts`                                  | `createOutboundProxy` |
+| OpenAI 兼容检索       | `retrieval/openai-compatible.ts`                      | `createOutboundProxy` |
+| LexEdge 检索          | `retrieval/providers.ts`                              | `createOutboundProxy` |
+| URL 档案              | `research/url-dossier.ts`                             | `createOutboundProxy` |
+| open-law 检索         | `retrieval/providers/open-law/client.ts`              | `createOutboundProxy` |
+| 北大法宝检索          | `retrieval/providers/pkulaw/client.ts`                | `createOutboundProxy` |
+| Brave 联网检索        | `agent/tools/lawmind-web-search.ts`                   | `createOutboundProxy` |
+| Graph 邮件            | `mail/graph-mail.ts`                                  | `createOutboundProxy` |
+| SharePoint            | `integrations/sharepoint-graph.ts`                    | `createOutboundProxy` |
+| 工具沙箱              | `runtime/tool-sandbox.ts`                             | `safeCommand`         |
+| lawmindd 启动         | `server/lawmind-server-route-daemon.ts`               | `safeCommand`         |
+| officecli 修订稿      | `artifacts/render-docx-tracked.ts`                    | `runSafeCommand`      |
+| 邮件转 docx / 读 .doc | `mail/convert-to-docx.ts`、`mail/read-word-binary.ts` | `runSafeCommand`      |
+| 本机 Spotlight        | `host-access/host-search.ts`                          | `runSafeCommandSync`  |
+| 分析脚本沙箱          | `agent/tools/legal/analysis-runner.ts`                | `safeCommand`（ipc）  |
 
-### 一个已知的未接入点
+### 有意保留的未接入点
 
-README 里诚实列出来了：**Electron 主进程启动本地服务那条路径没有走网关**。
+README 里诚实列出来了：
 
-原因是技术限制：`electron/local-server.mjs` 是 `.mjs`，没法直接 import TS 的 `safe-command.ts`，而仓库里也没有对应的 `.mjs` 镜像。README 的说法是本次安全收口在 server / 引擎侧完成，桌面主进程那条路径保持原行为，后续可以通过维护一个 `safe-command.mjs` 镜像或打包时注入来收口。
+1. **Electron 主进程启动本地服务**（`electron/local-server.mjs`）仍直接 `spawn`。原因是 `.mjs` 一时接不上 TS 的 `safe-command.ts`，也没有对应的 `.mjs` 镜像；安全收口先落在 server / 引擎侧。起的是自家本地 API，不是律师数据出口——按铁律 1/4，本轮不另造镜像。
 
-记这条的意义在于：**「统一出口」是有例外的**，别以为全仓百分之百覆盖。
+记这条的意义在于：**「统一出口」覆盖引擎侧的律师数据面与文书 / 分析工具链**；新增能力时默认接网关。
 
 ## 15.2 HTTP 出口代理
 
@@ -86,6 +102,10 @@ URL 中禁止嵌入凭据
 > DNS 无解析结果（fail-closed）
 
 还有一条细节：`::ffff:` 开头的映射式 IPv4 会被还原成 IPv4 再校验——否则用 IPv6 写法就能绕过 IPv4 黑名单。
+
+校验通过之后，生产路径连的是**这次解析出来的地址**（双栈时优先 IPv4），`Host` / SNI 仍用原来的主机名。只校验、再把主机名交给 `fetch` 重解析，是 DNS 重绑定：第一次解析到公网，连接时已经换成 `169.254.169.254`。测试注入的 `fetchImpl` 不走这条钉死路径。
+
+Node 的 URL 解析会把整段十进制、十六进制和八进制地址先收成点分形式（`2852039166` → `169.254.169.254`），黑名单看到的是规范化后的地址。IPv6 字面量在 `hostname` 里带着方括号，校验前要先剥掉，否则 `isIP` 认不出，`[fd00:ec2::254]` 和 `[::ffff:169.254.169.254]` 会整段漏过。link-local 按 `fe80::/10`（`fe80`–`febf`）判断，不要写成「以 `fe` 开头」——那会误伤别的段。`fd00:ec2::254` 即使 `allowLocalNetwork` 为真也拒绝。
 
 ### 超时与重试
 
@@ -216,6 +236,10 @@ LAWMIND_LOCAL_API_REVOKED_CLIENTS, LAWMIND_LOCAL_API_INSTANCE_ID
 
 三种预设：`buildMinimalChildEnv`（MCP 用，不给密钥）、`buildSandboxChildEnv`（沙箱子进程用）、`buildSafeChildEnv`（通用）。
 
+`extra` 是显式授予：MCP 可以把自己的 `LAWMIND_MCP_SECRET` 传给子进程。模型密钥前缀（`OPENAI_` 等）、凭据根和加载器钩子（`LD_PRELOAD`、`DYLD_INSERT_LIBRARIES`、`NODE_OPTIONS`、`PYTHONPATH`、`GIT_SSH_COMMAND` 等）即使写在 `extra` 里也进不去。从当前进程继承的 `LAWMIND_*_KEY` / `_TOKEN` / `_SECRET` / `_PASSWORD` 仍然不传。
+
+没传 `env` 时不再继承当前进程环境。本机命令（`runHostCommand`）曾经因此把模型密钥带进 officecli。显式传入的环境（例如 lawmindd 需要的 `LAWMIND_AGENT_API_KEY` / `BRAVE_*`）会保留，但凭据根、厂商密钥前缀（`OPENAI_` 等）和加载器钩子仍会被剥掉。
+
 ### cwd 围栏
 
 `normalizeCwd(cwd, allowedRoots)`：给了根就用 `path.relative` 判是否在根内（**不用 `startsWith`**），不在就报 `cwd 超出允许目录：…`。
@@ -244,11 +268,11 @@ stdout / stderr 各自截到 1000 字。
 
 三组名单：
 
-| 类别               | 内容                                                    |
-| ------------------ | ------------------------------------------------------- |
-| 精确               | `lawmind.policy.json`、`.env`、`.env.lawmind`           |
-| 前缀               | `lawmind/`、`audit/`、`sessions/`、`tasks/`、`matters/` |
-| 文件名（任意深度） | `.lawmind-dms.json`、`RULES.md`、`ethics-wall.json`     |
+| 类别               | 内容                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| 精确               | `lawmind.policy.json`                                                               |
+| 前缀               | `lawmind/`、`audit/`、`sessions/`、`tasks/`、`matters/`、`drafts/`、`.git/`         |
+| 文件名（任意深度） | `.env` 家族、`.lawmind-dms.json`、`RULES.md`、`ethics-wall.json`、`.signing-secret` |
 
 头部注释解释了不通融的后果：
 
@@ -276,13 +300,11 @@ rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 
 返回类型是显式的三态：`{ ok: true, abs, rel }` 或 `{ ok: false, error: "empty" | "escape" }`。
 
-## 15.6 审计完整性
+## 15.6 审计：排障与调查，不是质量证明
 
-`src/lawmind/audit/` 是整套审计体系。先看它的定位（README）：
+`src/lawmind/audit/` 按天把事件追加进文件。它服务调试、恢复、撤销和安全调查。记录了过程不等于稿是对的，能验哈希也不等于律师可以少看一遍。产品文案不得用「可审计」代替正确率和可交稿。
 
-> 审计链密钥（`LAWMIND_AUDIT_CHAIN_KEY` 或 `~/.lawmind/keys/audit-chain.key`）必须与工作区分开保存；攻击者只有同时拿到密钥和全部审计文件才能伪造链。
->
-> 外部锚同步是 best-effort：网络失败会打印警告，但不会让审计事件写入失败。
+链密钥必须和工作区分开放（`LAWMIND_AUDIT_CHAIN_KEY` 或 `~/.lawmind/keys/audit-chain.key`）：攻击者要同时拿到密钥和全部审计文件才能伪造链。外锚同步失败只警告，不阻断交办。
 
 ### `emit()` 做什么
 
@@ -359,7 +381,7 @@ rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 
 > 密钥不可用时降级 legacy 纯 SHA-256 并告警一次：审计追加是 best-effort，不因密钥面故障阻断业务事件落盘。
 
-这个取舍值得琢磨：审计链的**完整性保证**降级了，但**记录本身**不能丢。两者相比，丢记录更糟。
+这个取舍是：密钥面故障不阻断交办。链的保证变弱时，校验能看出 `legacy` / `mixed`。不要为了「链必须强」停掉律师正在办的事。
 
 校验时会区分 `hmacCount` 和 `legacyCount`，所以你能看出「这段时间的链是弱保证」。
 
@@ -431,41 +453,42 @@ base64url(payload JSON) + "." + base64url(签名)
 
 ## 15.8 版本功能表
 
-`src/lawmind/policy/edition.ts` 里是一张三档对照表。完整列一下（solo / firm / private_deploy）：
+`src/lawmind/policy/edition-features.ts` 里是一张三档对照表（Solo 优先：单人能用的默认开；多律师墙与私有化包装才抬档）。完整列一下（solo / firm / private_deploy）：
 
 | 功能键                           | solo | firm | private_deploy |
 | -------------------------------- | ---- | ---- | -------------- |
 | `acceptanceGateStrict`           | ✓    | ✓    | ✓              |
 | `citationGateStrict`             | ✓    | ✓    | ✓              |
-| `crossMatterRoadmap`             | ✗    | ✓    | ✓              |
-| `crossMatterAcceptanceDashboard` | ✗    | ✓    | ✓              |
-| `collaborationSummary`           | ✗    | ✓    | ✓              |
+| `crossMatterRoadmap`             | ✓    | ✓    | ✓              |
+| `crossMatterAcceptanceDashboard` | ✓    | ✓    | ✓              |
 | `complianceAuditExport`          | ✗    | ✗    | ✓              |
 | `auditIntegrityExport`           | ✓    | ✓    | ✓              |
 | `securitySbomPanel`              | ✗    | ✗    | ✓              |
-| `qualityDashboardJsonExport`     | ✗    | ✓    | ✓              |
-| `customDeliverableSpec`          | ✗    | ✓    | ✓              |
+| `qualityDashboardJsonExport`     | ✓    | ✓    | ✓              |
+| `customDeliverableSpec`          | ✓    | ✓    | ✓              |
 | `acceptancePackExport`           | ✓    | ✓    | ✓              |
 | `strictDangerousToolApproval`    | ✗    | ✓    | ✓              |
 | `reviewCampaignParallel`         | ✓    | ✓    | ✓              |
 | `forcePeerReview`                | ✗    | ✓    | ✓              |
-| `matterReplicaCollab`            | ✗    | ✓    | ✓              |
+| `matterReplicaCollab`            | ✓    | ✓    | ✓              |
 | `ethicsWall`                     | ✗    | ✓    | ✓              |
 | `wordAddinAutoRun`               | ✓    | ✗    | ✗              |
 | `guardianTrackedRedlineBlock`    | ✗    | ✓    | ✓              |
 
-注意两个反直觉的：
+注意几个产品口径：
 
-- **`acceptanceGateStrict` 在 solo 也是开的。** 单人版不会放松交付门。
-- **`wordAddinAutoRun` 在 solo 开、律所版关。** 理由是律所版保留「桌面端必须有一次显式动作」这个档位。
+- **Solo 是主产品档**：自定义文书、跨案概览、验收包默认开。审计完整性导出默认开，是调查时能拿出文件，不是律师主页上的信任徽章。
+- **`wordAddinAutoRun` 在 solo 开、律所版关**：律所版保留「桌面端必须有一次显式动作」。
+- **死键 `collaborationSummary` 已删除**：协作开关走 `enableCollaboration` / `LAWMIND_ENABLE_COLLABORATION`，不要再造平行键。
+- **服务端真拦**：`customDeliverableSpec`、`complianceAuditExport`、`auditIntegrityExport`、`acceptancePackExport` 等在本地 API / 引擎入口强制，不只是按钮灰掉。
 
-解析优先级：`policy.edition` > `LAWMIND_EDITION` > `solo`。返回里带 `source`（`policy_file` / `env` / `default`），方便排查「为什么是这个版本」。
+解析优先级：`policy.edition` > `LAWMIND_EDITION` > `solo`（大小写不敏感）。返回里带 `source`（`policy_file` / `env` / `default`）。可选 `policy.features.<key>` 覆盖单键默认（试用关严门、私有化临时开合规包等）。
 
-设计原则里有一条：
+设计原则：
 
-> Edition 只决定显隐，不决定数据结构；任何 edition 写入的工作区都能被任何 edition 读取。
+> Edition 只决定显隐与门禁默认，不决定数据结构；任何 edition 写入的工作区都能被任何 edition 读取。
 
-这条保证了「换版本不会读不了数据」。
+许可证里的 edition 不驱动本表（软门槛，见 §15.7）。
 
 ### 依赖模式（新旧对照）
 
@@ -517,7 +540,9 @@ base64url(payload JSON) + "." + base64url(签名)
 ---
 ```
 
-配套两个东西：`wrapUntrustedDocumentContent(content)`（包起来），以及 `untrustedDocumentFields()`（返回 `{ contentTrust: "untrusted_user_document" }`，让下游知道这段内容的信任级别）。
+配套几个东西：`wrapUntrustedDocumentContent`、`unwrapUntrustedDocumentContent`（对照稿剥壳），以及 `untrustedDocumentFields()`（返回 `{ contentTrust: "untrusted_user_document" }`）。
+
+围栏不用 Markdown 的 `---`：合同里横线太常见，用它等于邀请正文提前关栏。开/闭标记是 `<<<LAWMIND_UNTRUSTED_DOC>>>` / `<<<END_LAWMIND_UNTRUSTED_DOC>>>`，包装时会把正文里的同形标记换成中性说明。合同里写「忽略之前的指令」仍然当正文交给模型，硬控只加在围栏本身。
 
 协作场景里也有同型处理：助手之间传结果时会包上 `<<<BEGIN_UNTRUSTED_ASSISTANT_RESULT>>>` 和 `<<<END_UNTRUSTED_ASSISTANT_RESULT>>>` 标记（第 16 章）。
 
@@ -527,16 +552,7 @@ base64url(payload JSON) + "." + base64url(签名)
 
 ### 受众分类
 
-`classifyOutboundAudience({to, subject?, body?})` 返回六种之一：`client`、`opposing`、`court`、`public`、`internal`、`unknown`。
-
-判据是正则（部分）：
-
-| 类别 | 匹配                                                |
-| ---- | --------------------------------------------------- |
-| 法院 | `法院`、`仲裁委`、`仲裁委员会`、`@court.`、`检察院` |
-| 对方 | `对方`、`对方律师`、`国浩`、`金杜`、`opposing`      |
-| 客户 | `客户`、`委托人`、`我方`、`受托人`                  |
-| 公开 | `新闻稿`、`官网`、`公示`、`公开信`、`媒体`          |
+`classifyOutboundAudience` 用收件人、主题里的词把邮件标成六类之一：`client`、`opposing`、`court`、`public`、`internal`、`unknown`。对不上就是 `unknown`。特权检查打开时，`warn` 变成外发前的待确认（`awaiting_confirmation`），律师仍在外发卡上决定发不发。它不是质量分，也不是静默拒发。不要把词表加长来冒充「判对了受众」。
 
 ### 为什么必须看收件人
 
@@ -555,9 +571,7 @@ base64url(payload JSON) + "." + base64url(签名)
 
 附件名也看，匹配 `策略|内部备忘|privileged|工作成果|底线|不得外传|仅供所内`——一份叫「谈判底线.docx」的附件发给对方律师，会被标出来。
 
-升级原则写得很干脆：**「只加严，不放松。」**
-
-这一步只是**给准备外发的邮件盖标记**，不负责发送。
+升级原则是标记只加严：旧逻辑已经 warn 的场合，新逻辑仍 warn。warn 在特权检查打开时会停在外发确认，不静默发出，也不把稿判成写错了。律师确认后才发。伦理墙的解除只能由律师做。
 
 ## 15.12 伦理墙
 
@@ -625,7 +639,7 @@ base64url(payload JSON) + "." + base64url(签名)
 ## Audit logs
 ```
 
-其中策略那节列出 `schemaVersion`、`edition`、`benchmarkGateMinScore`、`auditExportCadenceHint`、`allowWebSearch`、`enableCollaboration`。审计那节只有一行计数。
+其中策略那节列出 `schemaVersion`、`edition`、`allowWebSearch`、`enableCollaboration`；`benchmarkGateMinScore` 与 `auditExportCadenceHint` 两行仍在报告里，但这两个键已不被策略文件接受（`commercial-policy.ts` 拒收），所以恒为「—」。审计那节只有一行计数。
 
 它会被拼进工作区级验收包（第 12 章）。
 
@@ -649,7 +663,9 @@ base64url(payload JSON) + "." + base64url(签名)
 
 ## 15.17 已知坑
 
-- **「统一出口」有例外。** Electron 主进程启动本地服务那条路径没走 `safe-command` 网关，README 已如实列出。
+- **「统一出口」有例外。** Electron 主进程启动本地服务那条路径没走 `safe-command` 网关（自家 API，非律师数据出口）。README 与 §15.1 已如实列出。
+- **走 HTTP 代理时，目标主机名仍由代理代为解析。** 直连已经钉死解析地址；代理那一跳做不到同样的钉死，SSRF 校验发生在 CONNECT 之前。
+- **`.git/` 与 `.signing-secret` 不能经通用写入口改。** 钩子和技能签名密钥都是代码执行面。
 - **只支持 http 代理，不支持 https 代理。**
 - **审计不记 query。** 这是有意的（查询词本身是敏感信息），别为了「更好排查」加上。
 - **审计链密钥必须放在工作区外。** 放进去等于让被审查的材料能改自己的锁。

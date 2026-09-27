@@ -204,7 +204,7 @@ PDF 无可提取文本（OCR/视觉兜底后仍为空）
 | `revertDeskWriteTool`     | `revert_desk_write`     | medium | 否                              |
 | `createMatterTool`        | `create_matter`         | medium | 否                              |
 
-**七个都不需要审批**，而且前四个显式写了 `requiresApproval: false`。这是产品决策（第 18 期「对话里说补就直接写入」），但要注意：**它们全在 `WRITE_TOOLS` 里**（第 5 章），所以会进 `lawyer_approved_write` 这个治理分类——**分类不等于弹窗**。
+这七个都不弹审批。`extract_legal_events` 是只读，不在 `WRITE_TOOLS` 里。其余六个写穿工具在 `WRITE_TOOLS` 里，会进 `lawyer_approved_write` 这个治理分类。分类不等于弹窗。
 
 ### 三条「写完之后怎么撤」的提示
 
@@ -368,14 +368,14 @@ data: {
 
 `searchHostTool` 的四种提示里，三种是「为什么搜不到」：
 
-| 情况                  | 文案                                                                       |
-| --------------------- | -------------------------------------------------------------------------- |
-| `matter` 模式且无挂载 | `当前只能看本案材料。请在设置「本机能力」选择本机文件夹，或改用本机查找。` |
-| `mounts` 模式且无挂载 | `尚未选择本机文件夹。请在设置里添加，或把本机能力改为「本机查找」。`       |
-| 有挂载但无命中        | `没有找到。可补充本机文件夹，或打开本机查找后再试。`                       |
-| 部分未授权            | `部分结果尚未授权，请用 read_host_file 并请律师允许后阅读正文。`           |
+| 情况                  | 文案                                                     |
+| --------------------- | -------------------------------------------------------- |
+| `matter` 模式且无挂载 | `当前只能看本案材料。请在工作区添加本机文件夹。`         |
+| `mounts` 模式且无挂载 | `尚未选择本机文件夹。请在工作区添加后再查这些目录。`     |
+| 有挂载但无命中        | `没有找到。可补充本机文件夹，或打开本机查找后再试。`     |
+| 部分在工作区外        | `工作区外的结果请用 read_host_file 按命中编号阅读正文。` |
 
-**每条都给了「改哪个设置」**——不是干说「没有」。
+正常解析是 `command`，上面两支不会走到。本机查找不依赖设置页。
 
 ### `read_host_file` 的两条「失效」判断
 
@@ -407,12 +407,10 @@ data: {
 
 ```text
 ① requiresApproval: true（风险 high）
-② 命令档位是 session 时 → setSessionCommandAllowed(ctx.sessionId, true)
+② 本会话尚未允许该二进制时 → 律师确认后 setSessionCommandAllowed(ctx.sessionId, true)
 ```
 
-**批准一次命令，不等于允许整个会话的命令**——但这里批准后就设了会话允许。也就是说：**律师批一次 session 档命令，本会话后续同类命令不再问**。
-
-这个设计的理由是命令档位本身就是律师在校验时选的（第 56.9 节）。
+**批准一次会话档命令后，本会话后续同类命令不再问。** 没有设置页上的命令档位。分析脚本（`allowAnalysisScripts`）是另一条策略，不在这里。
 
 ### 四个「日志动作」
 
@@ -465,24 +463,25 @@ data: {
 
 第 49.4 节讲了四道围栏，这里补**顺序**与各自的拒绝文案：
 
-| #   | 检查           | 拒绝文案                                                                   |
-| --- | -------------- | -------------------------------------------------------------------------- |
-| ①   | 工作区相对路径 | `不允许写入工作区外的文件。`                                               |
-| ②   | 分析脚本路径   | `不能用写文书投放分析脚本。脚本须放在已签名技能或律师确认的分析脚本目录。` |
-| ③   | 治理路径       | `PROTECTED_WORKSPACE_WRITE_REFUSAL`                                        |
-| ④   | realpath 围栏  | 围栏自己的 error                                                           |
-| ⑤   | 研究旁路门     | `RESEARCH_WRITE_BYPASS_REFUSAL` + 一段 hint                                |
+| #   | 检查                              | 拒绝文案                                                                   |
+| --- | --------------------------------- | -------------------------------------------------------------------------- |
+| ①   | 工作区相对路径                    | `不允许写入工作区外的文件。`                                               |
+| ②   | 分析脚本路径                      | `不能用写文书投放分析脚本。脚本须放在已签名技能或律师确认的分析脚本目录。` |
+| ③   | 治理路径（含 `drafts/` 草稿账本） | `PROTECTED_WORKSPACE_WRITE_REFUSAL`。改已有稿用 `update_draft`，不走本工具 |
+| ④   | realpath 围栏之后重查 ②③          | 围栏自己的 error；软链改写后的路径再查脚本目录与治理路径                   |
+| ⑤   | 案件结构文件                      | 卷宗、期限、谈话记录拒写。叙事节仍可在文件页改                             |
+| ⑥   | 研究旁路门                        | `artifacts/` 下任何扩展名都拒（含 xlsx/json）。笔记仍可写                  |
 
 **第 ② 步单独存在**：分析脚本目录不是治理数据也不是工作区外，而是一个**独立的白名单**。所以它要在治理检查之前拦。
 
 **第 ④ 步之后要重查 ②③**——因为 realpath 之后路径可能变了（软链）。
 
-**第 ⑤ 步的返回结构**：
+**第 ⑥ 步的返回结构**：
 
 ```text
 data.gateDecision = { gate: "research_write_bypass_gate", decision: "block", reason: ... }
 existingTaskId: <已有任务 id>
-hint: 请 draft_document（传入 task_id）经大纲确认与证据门禁后，再走审核台导出。
+hint: 请 draft_document（传入 task_id）经证据门禁后，再走审核台导出。
 ```
 
 **`existingTaskId` 是个体贴的设计**：它告诉模型「这件事已经有个任务在跑了」，所以模型可以去补那个任务，而不是另起一个。
@@ -614,12 +613,12 @@ drafts/ 与 artifacts/ 是引擎登记草稿与交付物的位置，路径被任
 
 **「符号链接不搬移」**是一条保守选择（软链可能指向外面）。
 
-而「案件结构文件」有一个十项常量：
+案件结构文件是这十一项：
 
 ```text
-CASE.md  matter.json  .lawmind-role.txt  deadlines.jsonl  intake-brief.json
-desk-writes.jsonl  organize-plan.pending.json  RULES.md  ethics-wall.json
-.lawmind-dms.json
+CASE.md  matter.json  .lawmind-role.txt  deadlines.jsonl  obligations.jsonl
+intake-brief.json  desk-writes.jsonl  organize-plan.pending.json  RULES.md
+ethics-wall.json  .lawmind-dms.json
 ```
 
 `isCaseStructuralRel` 还额外拦「任何以 `.` 开头的内层文件」。
@@ -745,16 +744,16 @@ run_compute ok tables=<n> charts=<n>
 
 它比 `run_compute` 严得多（`requiresApproval: true`、`riskLevel: "high"`），而且有四道门：
 
-| #   | 门             | 拒绝文案                                                                                    |
-| --- | -------------- | ------------------------------------------------------------------------------------------- |
-| ①   | 策略开关       | `工作区未开启分析脚本（设置 · 安全）。日常核算请用 run_compute。`                           |
-| ②   | 工作区内       | `脚本路径必须在工作区内。`                                                                  |
-| ③   | 白名单目录     | `脚本只能放在 lawmind/skills/<id>/scripts/*.js 或 artifacts/analysis-scripts/*.js。`        |
-| ④   | 签名或律师确认 | `只能运行已启用且签名通过的技能脚本。` / `artifacts 下的脚本须律师确认（confirmed=true）。` |
+| #   | 门                   | 拒绝文案                                                                                                   |
+| --- | -------------------- | ---------------------------------------------------------------------------------------------------------- |
+| ①   | 明确关闭或离线       | `当前不运行分析脚本。日常核算请用 run_compute。`                                                           |
+| ②   | 工作区内             | `脚本路径必须在工作区内。`                                                                                 |
+| ③   | 白名单目录           | `脚本只能放在 lawmind/skills/<id>/scripts/*.js 或 artifacts/analysis-scripts/*.js。`                       |
+| ④   | 不跑技能目录里的脚本 | `作业标准随软件内置，不从工作区技能目录运行脚本。…`。`artifacts/analysis-scripts/` 仍须 `confirmed=true`。 |
 
 **第 ① 条的建议很实用**：「日常核算请用 run_compute」——它把一个被拒的需求指向了另一条路。
 
-**第 ④ 条的两条路**：技能脚本看签名，artifacts 下的看律师显式确认（`confirmed: true`）。
+**第 ④ 条**：`lawmind/skills/<id>/scripts/*.js` 一律拒绝。律师确认过的脚本只走 `artifacts/analysis-scripts/`（`confirmed: true`）。日常核算用 `run_compute`，不靠安装技能脚本。
 
 ### 分析沙箱：八个上限与三条路径规则
 
@@ -956,14 +955,14 @@ unsignedMonthsAfterFirst 应在 0–11（未签合同第二个月起，最多十
 
 | 工具             | 名称              | 并发安全 | 风险 |
 | ---------------- | ----------------- | -------- | ---- |
-| `listTasks`      | `list_tasks`      | —        | —    |
-| `listAllDrafts`  | `list_drafts`     | —        | —    |
-| `getAuditTrail`  | `get_audit_trail` | —        | —    |
+| `listTasks`      | `list_tasks`      | 兜底 ✅  | —    |
+| `listAllDrafts`  | `list_drafts`     | 兜底 ✅  | —    |
+| `getAuditTrail`  | `get_audit_trail` | 兜底 ✅  | —    |
 | `listMoreTools`  | `list_more_tools` | ✅       | low  |
 | `readSkillTool`  | `read_skill`      | ✅       | low  |
 | `updatePlanTool` | `update_plan`     | **❌**   | low  |
 
-**`update_plan` 是唯一「不并发安全」的**——因为它是回合级的计划状态，并发改会乱。
+**`update_plan` 显式标了不并发**——它改的是回合计划，不能和别的调用抢同一批。表里「兜底 ✅」表示定义上没写 `isConcurrencySafe`，运行时用 `IDEMPOTENT_READ_TOOLS` 判成可并行。要批准的工具即使自标可并行也不进并行批。`list_mail_inbox` 与 `list_mail_attachments` 只在已绑定案件时广告。
 
 ### 三个列表工具的上限
 
@@ -1073,12 +1072,12 @@ unsignedMonthsAfterFirst 应在 0–11（未签合同第二个月起，最多十
 | `MAX_IMAGE_OCR_READ_BYTES`     | 20000000          |
 | `MAX_PROJECT_TEXT_FILES`       | 72                |
 | `MAX_PROJECT_FILE_SCAN_BYTES`  | 200000            |
-| `MAX_PDF_OCR_PAGES`            | 5                 |
+| `MAX_PDF_OCR_PAGES`            | 12                |
 | `DOCUMENT_PAGE_MAX_CHARS`      | 120000            |
 
 **规律**：纯文本 1 MB、其他格式 20 MB。因为纯文本 1 MB 已经几十万字了，再大就该分段读；而 PDF/图片是二进制，20 MB 才有实际内容。
 
-**`MAX_PDF_OCR_PAGES = 5`**——**只 OCR 前 5 页**。这是一条很实际的取舍（OCR 慢）。
+**`MAX_PDF_OCR_PAGES = 12`**。页数超过预算时，正文末尾加「【未读完】」，写明已识别页数和总页数。后面的页不得当成已读。
 
 ### 三个「读」的实现
 
@@ -1111,7 +1110,7 @@ unsignedMonthsAfterFirst 应在 0–11（未签合同第二个月起，最多十
 - **两条「不要编造」的提示在工具结果里，不在提示词里**（只在真调用时出现）。
 - **`checkConflictOfInterest` 两次说「这不是伦理墙」。** 它只列可疑命中。
 - **工商查询永远带 `unverified: true`。**
-- **七个工作台写工具都不需要审批**，但都在 `WRITE_TOOLS` 里。
+- **`extract_legal_events` 不在 `WRITE_TOOLS`。** 其余六个工作台写穿工具在里面，且不弹审批。
 - **已有案件时不许新建案件。**
 - **`send_email` 未批准时会先写 outbox。**
 - **附件路径已经给了就别再 `search_workspace`**（两条提示都在说这件事）。
@@ -1120,7 +1119,7 @@ unsignedMonthsAfterFirst 应在 0–11（未签合同第二个月起，最多十
 - **`write_document` 的四道围栏有固定顺序**，且 realpath 之后要重查。
 - **`draft_worker` / `explore_folder` 的子会话看不到对话历史**，任务书必须自包含。
 - **三条材料整理工具都是「提计划 → 确认 → 执行」**，`organize` 还有 pending 文件。
-- **案件结构文件（十项）不许搬移。**
+- **案件结构文件（十一项，含 `obligations.jsonl`）不许搬移。** 以 `.` 开头的卷内文件同样不许。
 - **`drafts/` 与 `artifacts/` 的路径被任务记录引用**，不许用文件操作搬。
 - **`writeSpreadsheet` 的单元格上限 80000。**
 - **分析脚本禁止十三个接口**（含 `constructor(` 与 `__proto__`）。
@@ -1130,5 +1129,5 @@ unsignedMonthsAfterFirst 应在 0–11（未签合同第二个月起，最多十
 - **`read_skill` 传能力 id 只给说明不给正文。**
 - **`update_plan` 是唯一不并发安全的控制类工具**（它是回合级状态）。
 - **`update_plan` 同时管清单与任务书四段。**
-- **PDF 只 OCR 前 5 页。**
+- **PDF 扫描件最多 OCR 前 12 页。** 更长时正文带「【未读完】」。
 - **纯文本 1 MB、其他 20 MB 的上限。**

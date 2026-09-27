@@ -97,7 +97,6 @@ export function ReviewWorkbench(props: Props) {
   const [lastExportPath, setLastExportPath] = useState<string | null>(null);
   const [templateCatalog, setTemplateCatalog] = useState<{
     builtIn: Array<{ id: string; format: string; label: string }>;
-    uploaded: Array<{ id: string; format: string; label: string; enabled: boolean }>;
   } | null>(null);
   const [renderTemplateId, setRenderTemplateId] = useState("");
   const [includeProvenance, setIncludeProvenance] = useState(false);
@@ -199,10 +198,9 @@ export function ReviewWorkbench(props: Props) {
         const j = await apiGetJson<{
           ok?: boolean;
           builtIn?: Array<{ id: string; format: string; label: string }>;
-          uploaded?: Array<{ id: string; format: string; label: string; enabled: boolean }>;
         }>(apiBase, "/api/templates");
-        if (j.ok && Array.isArray(j.builtIn) && Array.isArray(j.uploaded)) {
-          setTemplateCatalog({ builtIn: j.builtIn, uploaded: j.uploaded });
+        if (j.ok && Array.isArray(j.builtIn)) {
+          setTemplateCatalog({ builtIn: j.builtIn });
         } else {
           setTemplateCatalog(null);
         }
@@ -298,19 +296,15 @@ export function ReviewWorkbench(props: Props) {
 
   const templateOptions = useMemo(() => {
     if (!detail || !templateCatalog) {
-      return [] as Array<{ id: string; label: string; kind: "built-in" | "uploaded" }>;
+      return [] as Array<{ id: string; label: string; kind: "built-in" }>;
     }
     const fmt = detail.output;
     if (fmt !== "docx" && fmt !== "pptx") {
       return [];
     }
-    const builtIn = templateCatalog.builtIn
+    return templateCatalog.builtIn
       .filter((t) => t.format === fmt)
       .map((t) => ({ id: t.id, label: t.label, kind: "built-in" as const }));
-    const uploaded = templateCatalog.uploaded
-      .filter((t) => t.format === fmt && t.enabled)
-      .map((t) => ({ id: t.id, label: t.label, kind: "uploaded" as const }));
-    return [...builtIn, ...uploaded];
   }, [detail, templateCatalog]);
 
   useEffect(() => {

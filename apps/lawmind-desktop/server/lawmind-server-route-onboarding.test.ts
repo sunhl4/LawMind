@@ -70,6 +70,44 @@ describe("lawmind-server-route-onboarding", () => {
     expect(res.status).toBe(400);
   });
 
+  it("GET /api/onboarding/firstrun reports dismiss and pending independently", async () => {
+    const res = mockRes();
+    const handled = await handleOnboardingRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/onboarding/firstrun"),
+      pathname: "/api/onboarding/firstrun",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, dismissed: false, pendingMatterId: null });
+
+    const dismissRes = mockRes();
+    const dismissed = await handleOnboardingRoutes({
+      ctx,
+      req: mockPostReq({}),
+      res: dismissRes,
+      url: new URL("http://127.0.0.1/api/onboarding/firstrun-dismiss"),
+      pathname: "/api/onboarding/firstrun-dismiss",
+      c: {},
+    });
+    expect(dismissed).toBe(true);
+    expect(dismissRes.status).toBe(200);
+
+    const again = mockRes();
+    await handleOnboardingRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res: again,
+      url: new URL("http://127.0.0.1/api/onboarding/firstrun"),
+      pathname: "/api/onboarding/firstrun",
+      c: {},
+    });
+    expect(again.body).toMatchObject({ ok: true, dismissed: true });
+  });
+
   it("POST /api/onboarding/firstrun-wizard succeeds when case dir exists", async () => {
     const matterId = "onboard-matter-01";
     await fs.mkdir(path.join(workspaceDir, "cases", matterId), { recursive: true });

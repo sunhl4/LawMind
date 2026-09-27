@@ -65,9 +65,9 @@ drafts/<taskId>.table.json
 { source?: string; confidence?: "high" | "medium" | "low"; abstained?: boolean; note?: string }
 ```
 
-规则（注释原话）：「每格要么有 source，要么显式弃答（abstained），不得编造。」
+规则：「每格要么有**本格**出处，要么显式弃答（abstained），不得编造。」行上的文件名、来源列只说明这行是哪份材料，不能把旁边猜出来的发现洗成「有出处」。
 
-还有一个 `CellProvenance` 的三态视图：`sourced`（有出处）、`abstained`（弃答）、`missing`（没有）。界面上就是靠这个决定显示什么。
+`CellProvenance` 三态：`sourced`（本格 `cellMeta.source`）、`abstained`（弃答）、`missing`（有值或空着，但没有本格出处）。编辑器只在实质格下显示这三态，文件名列和来源列不标「缺出处」。已锁定的行不能改、不能删，要点「解除锁定」之后才能动。保存若漏掉锁定行，服务端会把该行补回去。律师改某一格时，只丢掉这一格的旧出处。
 
 ### 行的审核状态
 
@@ -99,8 +99,8 @@ drafts/<taskId>.table.json
 三条规则：
 
 1. 表里一行都没有 → 报「审查表为空」。
-2. 逐行看：这一行有没有 `source`（行级），或者「来源」列里有没有值。有就跳过。
-3. 没有出处的行，再看它是不是「全弃答」。只要有一格填了值又不是弃答，这行就记一笔。最后报「N 行缺来源」。
+2. 只看实质列（发现、风险、建议等）。文件名列和来源列不算。
+3. 实质列里有字、又不是弃答、又没有本格出处 → 这一行记一笔。最后报「N 行缺来源」。只有行级文件名时，空着的实质列不算缺陷；填了猜测才算。
 
 判定「弃答」的条件是：
 
@@ -142,7 +142,7 @@ export const REVIEW_TABLE_ABSTAIN_TEXT = "无法判断（证据不足）";
 | `REVIEW_EXTRACT_DEFAULT_DOCS` | 120               | 默认最多抽多少份 |
 | `REVIEW_EXTRACT_MAX_DOCS`     | 500               | 硬上限           |
 
-行 id 的生成是 `row-<序号>-<8位随机>`。
+行 id 是 `row-<序号>-<路径哈希 8 位>`。同一路径、同一序号，两次抽取 id 相同，锁定和 diff 才对得上。
 
 ### 两种抽取器：模式优先，模型兜底
 
@@ -169,12 +169,12 @@ export const REVIEW_TABLE_ABSTAIN_TEXT = "无法判断（证据不足）";
 
 失败时的弃答原因有四种：
 
-| 原因                   | 场景               |
-| ---------------------- | ------------------ |
-| `扫描件未能识别出正文` | OCR 跑完了但没结果 |
-| `该材料无可用正文`     | 根本没有文本层     |
-| `已取消`               | 中途取消           |
-| `证据不足`             | 模型判定信息不够   |
+| 原因                   | 场景                                              |
+| ---------------------- | ------------------------------------------------- |
+| `扫描件未能识别出正文` | **这一份**材料 OCR 跑完了但没结果                 |
+| `该材料无可用正文`     | 这一份根本没有文本层。不看别的材料有没有 OCR 失败 |
+| `已取消`               | 中途取消                                          |
+| `证据不足`             | 模型判定信息不够                                  |
 
 走 OCR 的格子备注是「OCR 只读抽取」，置信度降到 `low`。**失败即弃答，不空跑、不假装成功。**
 
@@ -197,6 +197,10 @@ export const REVIEW_TABLE_ABSTAIN_TEXT = "无法判断（证据不足）";
 > 否则 diff 与验收都失去意义。故这里按路径排序，与 mtime 抖动无关。
 
 也就是说，给你看的时候按修改时间倒序（方便），但表格行序按路径排序（可复现）。两种顺序服务两个目的，不能混。
+
+重抽时按材料路径对齐：**已锁定的行整行留住**，不换成新抽的格子。这份材料已经不在本轮清单里时，锁定行仍留在表尾，不会被删掉。
+
+文件名列按列 key 或整词标签识别（`条款`、`审查事项`、`对应文件`、`证据名称`）。标签里带「付款条款」「违约事项」的自定义列仍要抽，不会被当成文件名跳过。
 
 ## 9.5 `review_table_update` 的九个动作
 
@@ -246,7 +250,7 @@ export const REVIEW_TABLE_ABSTAIN_TEXT = "无法判断（证据不足）";
 
 ### 分区标记的默认行为
 
-`set_review` 有一条细节：默认只改**被点名的行**，已锁定的行会跳过（除非显式要求覆盖）。回执里会如实报「N 行已锁定未动」。
+`set_review` 默认只改被点名的行。已锁定的行，再标「已看」或再次锁定都会跳过，回执报「N 行已锁定未动」。只有 `unlocked` 会改锁定行。
 
 ## 9.6 工作队列：那些待办从哪来
 
@@ -278,11 +282,20 @@ export const REVIEW_TABLE_ABSTAIN_TEXT = "无法判断（证据不足）";
 等待前置待办：<未完成的 id 列表>
 ```
 
-`blockedBy` 这个字段目前**只有 schema，没有写入者**，但读取时会看（`insights/session-health.ts` 里判断「这项算不算被挡」时会一并看 `blockedReason`、`blockedBy`、`dependsOn` 三者）。
+`blockedBy` 在开待办时写入：未完成的前置 id 列表。前置变成 `resolved` 或 `dismissed` 后，依赖它的条目会清掉自动生成的「等待前置待办」和 `blockedBy`。律师手写的其他 `blockedReason` 不动。
 
 ### 一个已知的口径问题
 
-队列项**没有状态转移图**。`transitionQueueItem` 接受任何目标状态，实际调用点基本只用 `"resolved"`。也就是说，理论上你可以把一条 `open` 直接改成 `dismissed`，中间没有任何校验。这是一个「目前没人管」的地方，不是设计。
+队列项有状态转移：
+
+| 从            | 可以到                                 |
+| ------------- | -------------------------------------- |
+| `open`        | `in_progress`、`resolved`、`dismissed` |
+| `in_progress` | `open`、`resolved`、`dismissed`        |
+| `resolved`    | `open`（重新打开）                     |
+| `dismissed`   | `open`（重新打开）                     |
+
+相同状态是空操作。`resolved` 不能直接改成 `dismissed`，调用返回空、文件不改。现有调用点仍是把 `open` 收成 `resolved`。
 
 ## 9.7 审查专案组
 
@@ -347,7 +360,7 @@ export const REVIEW_TABLE_ABSTAIN_TEXT = "无法判断（证据不足）";
 
 > 不展示启发式 Safety Score，仅显示 runtime-events / lint / 律师编辑统计。
 
-**这个分数是给引擎内部用的排序信号，不是给律师看的质量证明。** 界面显示的是真实的运行时统计。这和全书第 1 章讲的「不包装假指标」是一致的。
+**这个分数是给引擎内部用的排序信号，不是给律师看的质量证明。** 界面上的覆盖、发现、已处理只来自运行记录和机械核对；没有记录时显示「—」，不用关键词的高/中/低计数去填。角色页不印启发式分数。报告和界面里的清单标题是「关键词信号」，并写明不是法律结论。这和全书第 1 章讲的「不包装假指标」是一致的。
 
 ### 专案组数据的存放位置
 
@@ -355,7 +368,7 @@ export const REVIEW_TABLE_ABSTAIN_TEXT = "无法判断（证据不足）";
 - 没绑案件的：`workspace/lawmind/campaigns/<campaignId>.json`
 - 自定义 playbook：`workspace/lawmind/fleet-playbooks/*.json`
 
-`sourceText` 会截到 200000 字。自定义 playbook 有个要求：`roles.length >= 4`，少于 4 个角色会被判非法。
+`sourceText` 会截到 200000 字。自定义 playbook 至少 1 个认得出的角色。早先「少于 4 个就非法」是没有安全理由的硬门槛，一个角色（例如只核引用）也是合法专案组。
 
 ### 审查口径随稿带走
 
@@ -417,26 +430,27 @@ documentId,documentTitle,questionId,question,excerpt,status,citation
 
 ### 批注存在浏览器里
 
-矩阵的人工批注和「已核对」标记存在 localStorage（键 `lawmind.reviewMatrix.notes.v1.<matterId>`）。也就是说：**这些批注是本地界面状态，不在工作区文件里，换机器就没了**。头部注释也如实写了「per matter, local only」。
+批注和「已核对」写在案件目录 `matters/<matterId>/review-matrix-notes.json`（`GET/PUT /api/matters/review-matrix/notes`）。浏览器 localStorage 仍留一份副本：工作区里已有内容时以工作区为准；工作区是空的、浏览器里还有旧批注时，打开矩阵会把旧批注补写进案件目录。换机器只要带走工作区，批注还在。
 
 ## 9.9 HTTP 端点
 
-| 端点                                           | 方法  | 说明                                                                        |
-| ---------------------------------------------- | ----- | --------------------------------------------------------------------------- |
-| `/api/drafts/:id/table`                        | GET   | 读审查表（没有则 404 `table_not_found`）                                    |
-| `/api/drafts/:id/table`                        | PATCH | 整表替换（草稿不在待审/需修改状态则 409 `draft_not_editable`）              |
-| `/api/drafts/:id/table.xlsx`                   | GET   | 导出 xlsx，工作表名取标题前 31 字，缺省「审查表」                           |
-| `/api/matters/review-matrix?matterId=`         | GET   | 读矩阵                                                                      |
-| `/api/matters/review-matrix/export?matterId=`  | GET   | 导出 CSV                                                                    |
-| `/api/queues?matterId=&kind=`                  | GET   | 读工作队列                                                                  |
-| `/api/approvals?matterId=&status=&targetRole=` | GET   | 读审批（可按目标角色）                                                      |
-| `/api/fleet-playbooks`                         | GET   | 列专案组模板（含角色数）                                                    |
-| `/api/fleet-playbooks/:id`                     | GET   | 读一个模板                                                                  |
-| `/api/review-campaigns?taskId=&matterId=`      | GET   | 读专案组运行                                                                |
-| `/api/review-campaigns`                        | POST  | 建专案组（可传 `idempotencyKey`、`runNow`、`preferFast`、`preferParallel`） |
-| `/api/review-campaigns/:id/cancel`             | POST  | 取消                                                                        |
-| `/api/review-campaigns/:id/roles/:role/rerun`  | POST  | 重跑某个角色                                                                |
-| `/api/review-campaigns/:id/report`             | GET   | 出 Markdown 报告                                                            |
+| 端点                                           | 方法      | 说明                                                                              |
+| ---------------------------------------------- | --------- | --------------------------------------------------------------------------------- |
+| `/api/drafts/:id/table`                        | GET       | 读审查表（没有则 404 `table_not_found`）                                          |
+| `/api/drafts/:id/table`                        | PATCH     | 整表替换（草稿不在待审/需修改状态则 409 `draft_not_editable`）                    |
+| `/api/drafts/:id/table.xlsx`                   | GET       | 导出 xlsx。第一张是表，第二张「逐格出处」。工作表名取标题前 31 字，缺省「审查表」 |
+| `/api/matters/review-matrix/notes?matterId=`   | GET / PUT | 矩阵批注与已核对标记（案件目录 JSON）                                             |
+| `/api/matters/review-matrix?matterId=`         | GET       | 读矩阵                                                                            |
+| `/api/matters/review-matrix/export?matterId=`  | GET       | 导出 CSV                                                                          |
+| `/api/queues?matterId=&kind=`                  | GET       | 读工作队列                                                                        |
+| `/api/approvals?matterId=&status=&targetRole=` | GET       | 读审批（可按目标角色）                                                            |
+| `/api/fleet-playbooks`                         | GET       | 列专案组模板（含角色数）                                                          |
+| `/api/fleet-playbooks/:id`                     | GET       | 读一个模板                                                                        |
+| `/api/review-campaigns?taskId=&matterId=`      | GET       | 读专案组运行                                                                      |
+| `/api/review-campaigns`                        | POST      | 建专案组（可传 `idempotencyKey`、`runNow`、`preferFast`、`preferParallel`）       |
+| `/api/review-campaigns/:id/cancel`             | POST      | 取消                                                                              |
+| `/api/review-campaigns/:id/roles/:role/rerun`  | POST      | 重跑某个角色                                                                      |
+| `/api/review-campaigns/:id/report`             | GET       | 出 Markdown 报告                                                                  |
 
 有一个坑写在 xlsx 那条路由的注释里，挺典型：
 
@@ -453,7 +467,7 @@ documentId,documentTitle,questionId,question,excerpt,status,citation
 | 批量抽取       | `src/lawmind/deliverables/review-table-extract.ts`                                                                                                                                                             |
 | 确定性模式     | `src/lawmind/deliverables/review-table-patterns.ts`                                                                                                                                                            |
 | 工具           | `src/lawmind/agent/tools/legal/review-table-tool.ts`                                                                                                                                                           |
-| 案件审查矩阵   | `src/lawmind/matter/review-matrix.ts`、`review-matrix-compare.ts`                                                                                                                                              |
+| 案件审查矩阵   | `src/lawmind/matter/review-matrix.ts`、`review-matrix-compare.ts`、`review-matrix-notes-store.ts`                                                                                                              |
 | 专案组         | `src/lawmind/review-campaign/`（`playbooks.ts`、`serial-runner.ts`、`bind-assistants.ts`、`safety-score.ts`、`review-brief.ts`、`storage.ts`、`types.ts`）                                                     |
 | 队列           | `src/lawmind/application/services/queue-write-service.ts`、`queue-service.ts`                                                                                                                                  |
 | 队列派生       | `src/lawmind/core/contracts.ts`（`buildQueueItemsFromMatterIndex`）                                                                                                                                            |
@@ -470,7 +484,7 @@ documentId,documentTitle,questionId,question,excerpt,status,citation
 - **表格本体在侧车，不在草稿正文里。** 想读原始数据就读 `drafts/<taskId>.table.json`。
 - **专案组的安全分是内部信号，不给律师看。** 界面上显示的是运行时统计。`LawmindReviewCampaignPanel` 的注释明确写了这一点。
 - **打包的串行角色跑的是启发式规则，不调模型。** 看到「专案组跑完了」不要以为模型读了合同。
-- **自定义 playbook 至少 4 个角色**，少了会被判非法。
-- **矩阵批注在 localStorage。** 换机器、换浏览器就没了，别当持久数据。
-- **队列项没有状态转移校验。** 想加约束得自己加，现有代码不管。
+- **自定义 playbook 至少 1 个角色。** 认不出角色 id 的条目会被丢掉；一个都没有则整份模板无效。
+- **矩阵批注在案件目录。** 浏览器副本只是断网时的缓存，以 `review-matrix-notes.json` 为准。
+- **队列终态不能互改。** `resolved` 不能直接 `dismissed`，要先 reopen 成 `open`。
 - **手写 `writeHead` 必须带 CORS 头。** 症状是前端 `Failed to fetch`（几毫秒内失败）而后端日志正常。

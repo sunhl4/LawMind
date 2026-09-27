@@ -175,14 +175,34 @@ export const REVIEW_TABLE_ABSTAIN_TEXT = "无法判断（证据不足）";
  * 识别「文件名列」：批量抽取时每行填材料名，且**不作为抽取目标**
  * （它是元数据，不是要从正文里抽的内容）。source 列同理。
  */
+const REVIEW_NAME_COLUMN_KEYS = new Set([
+  "document",
+  "item",
+  "exhibit",
+  "clause",
+  "name",
+  "file",
+  "doc",
+]);
+
+/** 行身份列的标签。整词匹配，避免「付款条款」「违约事项」被当成文件名列而跳过抽取。 */
+const REVIEW_NAME_COLUMN_LABELS = new Set([
+  "审查事项",
+  "对应文件",
+  "证据名称",
+  "条款",
+  "文件名",
+  "事项",
+]);
+
 export function detectNameColumnKeys(table: {
   columns: { key: string; label: string }[];
 }): string[] {
   return table.columns
     .filter(
       (c) =>
-        /^(document|item|exhibit|clause|name|file|doc)$/i.test(c.key) ||
-        /对应文件|文件名|证据名称|条款|审查事项|事项|文件/.test(c.label),
+        REVIEW_NAME_COLUMN_KEYS.has(c.key.trim().toLowerCase()) ||
+        REVIEW_NAME_COLUMN_LABELS.has(c.label.trim()),
     )
     .map((c) => c.key);
 }
@@ -216,7 +236,9 @@ export function cellProvenance(row: ReviewTableRow, columnKey: string): CellProv
   if (meta?.abstained || value === REVIEW_TABLE_ABSTAIN_TEXT) {
     return { state: "abstained", ...(meta?.note ? { reason: meta.note } : {}) };
   }
-  const source = (meta?.source ?? row.source ?? "").trim();
+  // 行级 source 只标识「这行是哪份材料」，不能替实质格充当出处。
+  // Harvey 审查表的引用在格子上；文件名列有值不等于发现格可核验。
+  const source = (meta?.source ?? "").trim();
   if (source) {
     return {
       state: "sourced",
@@ -224,15 +246,14 @@ export function cellProvenance(row: ReviewTableRow, columnKey: string): CellProv
       ...(meta?.confidence ? { confidence: meta.confidence } : {}),
     };
   }
-  if (value) {
-    return { state: "missing" };
-  }
   return { state: "missing" };
 }
 
 /**
- * 验收口径：空表不可交付；每个非 source 列的值都要么有出处，要么显式弃答。
- * 「显式弃答」是诚实交付，不算缺口；「有值但整行无出处」才是缺口。
+ * 验收口径：空表不可交付。
+ * 实质列（发现、风险、建议等）每一格要么有**本格**出处，要么显式弃答。
+ * 行级文件名 / 「来源」列只说明材料是谁，不能把旁边猜出来的格子洗成合格。
+ * 「显式弃答」是诚实交付，不算缺口。
  */
 export function reviewTableAcceptanceProblems(table: ReviewTable): string[] {
   const problems: string[] = [];
@@ -240,20 +261,17 @@ export function reviewTableAcceptanceProblems(table: ReviewTable): string[] {
     problems.push("审查表为空");
     return problems;
   }
-  const sourceKey = table.columns.find((c) => c.key === "source")?.key;
-  const valueColumns = table.columns.filter((c) => c.key !== sourceKey);
+  const valueColumns = reviewTableValueColumns(table);
   let unsourcedRows = 0;
   for (const row of table.rows) {
-    const rowSource =
-      (row.source ?? "").trim() || (sourceKey ? (row.cells[sourceKey] ?? "").trim() : "");
-    if (rowSource) {
-      continue;
-    }
-    // 整行无出处时，只有「每格都显式弃答」才算诚实可交付。
-    const hasValue = valueColumns.some(
-      (c) => cellProvenance(row, c.key).state !== "abstained" && (row.cells[c.key] ?? "").trim(),
-    );
-    if (hasValue) {
+    const hasUnsourcedValue = valueColumns.some((c) => {
+      const value = (row.cells[c.key] ?? "").trim();
+      if (!value) {
+        return false;
+      }
+      return cellProvenance(row, c.key).state === "missing";
+    });
+    if (hasUnsourcedValue) {
       unsourcedRows += 1;
     }
   }
@@ -261,4 +279,76 @@ export function reviewTableAcceptanceProblems(table: ReviewTable): string[] {
     problems.push(`${unsourcedRows} 行缺来源`);
   }
   return problems;
+}
+
+/**
+ * 律师在表格里改字时保留锁定与未改动格子的出处。
+ * 改过的格子丢掉旧出处，避免「原文引用还挂在律师改过的句子上」。
+ */
+export function mergeLawyerReviewRows(
+  previous: ReviewTableRow[],
+  incoming: ReviewTableRow[],
+): ReviewTableRow[] {
+  const prevById = new Map(previous.map((row) => [row.id, row]));
+  const merged = incoming.map((row) => {
+    const prev = prevById.get(row.id);
+    if (!prev) {
+      return row;
+    }
+    // 锁定只防重抽和误保存。律师显式解除锁定（locked: false）后，这一次提交才改格子。
+    if (prev.review?.locked && row.review?.locked !== false) {
+      return prev;
+    }
+    const cellMeta: Record<string, ReviewCellMeta> = { ...prev.cellMeta };
+    const keys = new Set([...Object.keys(prev.cells), ...Object.keys(row.cells)]);
+    for (const key of keys) {
+      if ((prev.cells[key] ?? "").trim() !== (row.cells[key] ?? "").trim()) {
+        delete cellMeta[key];
+      }
+    }
+    const keptMeta = Object.keys(cellMeta).length > 0 ? cellMeta : undefined;
+    return {
+      ...row,
+      source: row.source ?? prev.source,
+      ...(keptMeta ? { cellMeta: keptMeta } : {}),
+      ...(row.review || prev.review ? { review: row.review ?? prev.review } : {}),
+    };
+  });
+  const seen = new Set(merged.map((row) => row.id));
+  for (const prev of previous) {
+    if (prev.review?.locked && !seen.has(prev.id)) {
+      merged.push(prev);
+    }
+  }
+  return merged;
+}
+
+/** 第二张工作表：逐格出处。主表仍是律师要看的值，出处不混进同一张网格。 */
+export function reviewTableProvenanceXlsxRows(table: ReviewTable): unknown[][] {
+  const header = ["行", "列", "值", "状态", "出处", "置信度", "备注"];
+  const rows: unknown[][] = [header];
+  const nameKeys = new Set(detectNameColumnKeys(table));
+  for (const row of table.rows) {
+    const label = (row.cells[table.columns[0]?.key ?? ""] ?? "").trim() || row.id;
+    for (const col of table.columns) {
+      if (col.key === "source" || nameKeys.has(col.key)) {
+        continue;
+      }
+      const prov = cellProvenance(row, col.key);
+      const value = row.cells[col.key] ?? "";
+      if (!value.trim() && prov.state === "missing") {
+        continue;
+      }
+      rows.push([
+        label,
+        col.label,
+        value,
+        prov.state === "sourced" ? "有出处" : prov.state === "abstained" ? "弃答" : "缺出处",
+        prov.state === "sourced" ? prov.source : (row.source ?? ""),
+        prov.state === "sourced" ? (prov.confidence ?? "") : "",
+        prov.state === "abstained" ? (prov.reason ?? "") : (row.cellMeta?.[col.key]?.note ?? ""),
+      ]);
+    }
+  }
+  return rows;
 }

@@ -5,6 +5,7 @@
  * in-window. Identity growth belongs on disk; this module only packs fingerprints.
  */
 
+import { clampPromptWindowScale } from "../memory/prompt-windows.js";
 import { estimateTextTokens, TOKEN_BUDGET_WARN_RATIO } from "./context-budget.js";
 import { wrapWorldStateSection, type WorldStateSectionId } from "./world-state.js";
 
@@ -72,7 +73,7 @@ export function scaleFragmentCapTokens(kind: PromptFragmentKind, scale = 1): num
   if (!SCALED_FRAGMENT_KINDS.has(kind)) {
     return base;
   }
-  const s = Number.isFinite(scale) && scale > 0 ? Math.min(2.5, Math.max(0.5, scale)) : 1;
+  const s = clampPromptWindowScale(scale);
   return Math.max(base, Math.floor(base * s));
 }
 

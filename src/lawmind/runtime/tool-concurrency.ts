@@ -1,3 +1,4 @@
+import { IDEMPOTENT_READ_TOOLS } from "../agent/tool-name-sets.js";
 import type { ToolRegistry } from "../agent/tools/registry.js";
 
 export type ToolCallRef = {
@@ -32,34 +33,9 @@ export function isToolConcurrencySafe(registry: ToolRegistry, toolName: string):
   if (tool?.definition.isConcurrencySafe === false) {
     return false;
   }
-  const readOnly = new Set([
-    "search_workspace",
-    "search_conversations",
-    "read_conversation",
-    "read_project_file",
-    "list_dir",
-    "search_host",
-    "read_host_file",
-    "analyze_document",
-    "search_matter",
-    "list_matters",
-    "get_matter_summary",
-    "list_tasks",
-    "list_drafts",
-    "get_audit_trail",
-    "list_templates",
-    "list_delegations",
-    "get_delegation_result",
-    "check_conflict_of_interest",
-    "search_statute",
-    "search_case_law",
-    "search_statute_web",
-    "web_search",
-    "url_dossier",
-    "explore_folder",
-    "compare_documents",
-  ]);
-  return readOnly.has(toolName);
+  // One list with governance. A second hardcoded read set drifted and
+  // serialized read_case_file / search_precedents / list_mail_inbox.
+  return IDEMPOTENT_READ_TOOLS.has(toolName);
 }
 
 /**

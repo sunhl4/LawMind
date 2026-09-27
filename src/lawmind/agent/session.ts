@@ -20,6 +20,7 @@ import {
   withEphemeralBudgetNote,
   withEphemeralTurnContext,
 } from "./prompt-fragments.js";
+import { slimSessionForDesk, writeSessionDeskSnapshot } from "./session-desk-snapshot.js";
 import { persistOrThrow } from "./session-persist.js";
 import {
   hasOpenToolGroup,
@@ -42,6 +43,13 @@ export const AUTO_CHAT_TITLE_MAX_LENGTH = 72;
 export function displayChatSessionTitle(session: Pick<AgentSession, "title">): string {
   const t = session.title?.trim();
   return t && t.length > 0 ? t : DEFAULT_CHAT_SESSION_TITLE;
+}
+
+/** 侧栏会话列表。协作子回合留在在办，不和律师的对话混在一起。 */
+export function isLawyerChatSwitcherSession(
+  session: Pick<AgentSession, "omitFromChatSwitcher" | "collaborationDelegationId">,
+): boolean {
+  return session.omitFromChatSwitcher !== true && !session.collaborationDelegationId?.trim();
 }
 
 function firstNonEmptyLine(raw: string): string {
@@ -253,6 +261,11 @@ export function saveSession(workspaceDir: string, session: AgentSession): void {
   const target = persistableSnapshot(session);
   persistOrThrow("session", () => {
     writeJsonAtomic(sessionFilePath(workspaceDir, session.sessionId), target);
+    try {
+      writeSessionDeskSnapshot(workspaceDir, target);
+    } catch {
+      /* 目录索引写失败时，下次打开在办会从完整会话重建 */
+    }
     const last = target.conversationHistory[target.conversationHistory.length - 1];
     if (last) {
       const transcriptOpts = session.collaborationDelegationId
@@ -263,9 +276,10 @@ export function saveSession(workspaceDir: string, session: AgentSession): void {
   });
 }
 
-/** 删除会话磁盘文件（json / turns / transcript / events / pending sidecars / spills）。至少删掉一个文件则返回 true。 */
+/** 删除会话磁盘文件（json / turns / transcript / events / 侧车 / 回合租约 / spills / drops）。至少删掉一个文件则返回 true。 */
 export function deleteSession(workspaceDir: string, sessionId: string): boolean {
   const jsonPath = sessionFilePath(workspaceDir, sessionId);
+  const deskPath = path.join(sessionsDir(workspaceDir), `${sessionId}.desk.json`);
   const turnsPath = turnsFilePath(workspaceDir, sessionId);
   const transcript = path.join(sessionsDir(workspaceDir), `${sessionId}.transcript.jsonl`);
   const eventsPath = path.join(sessionsDir(workspaceDir), `${sessionId}.events.jsonl`);
@@ -275,26 +289,34 @@ export function deleteSession(workspaceDir: string, sessionId: string): boolean 
     sessionsDir(workspaceDir),
     `${sessionId}.pending-followup.json`,
   );
+  const turnGate = path.join(sessionsDir(workspaceDir), `${sessionId}.turn-gate.json`);
   const spillsDir = path.join(sessionsDir(workspaceDir), `${sessionId}.spills`);
+  const dropsDir = path.join(sessionsDir(workspaceDir), `${sessionId}.drops`);
   try {
     let did = false;
     for (const p of [
       jsonPath,
+      deskPath,
       turnsPath,
       transcript,
       eventsPath,
       pendingPins,
+      `${pendingPins}.inflight`,
       pendingSteer,
+      `${pendingSteer}.inflight`,
       pendingFollowup,
+      turnGate,
     ]) {
       if (fs.existsSync(p)) {
         fs.unlinkSync(p);
         did = true;
       }
     }
-    if (fs.existsSync(spillsDir)) {
-      fs.rmSync(spillsDir, { recursive: true, force: true });
-      did = true;
+    for (const dir of [spillsDir, dropsDir]) {
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        did = true;
+      }
     }
     return did;
   } catch {
@@ -530,7 +552,9 @@ export function listSessions(workspaceDir: string): AgentSession[] {
   try {
     const files = fs
       .readdirSync(dir)
-      .filter((f) => f.endsWith(".json") && !f.endsWith(".turns.jsonl"));
+      .filter(
+        (f) => f.endsWith(".json") && !f.endsWith(".turns.jsonl") && !f.endsWith(".desk.json"),
+      );
     return files
       .map((file) => {
         const full = path.join(dir, file);
@@ -556,6 +580,95 @@ export function listSessions(workspaceDir: string): AgentSession[] {
       })
       .filter((session): session is AgentSession => session !== null)
       .toSorted((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  } catch {
+    return [];
+  }
+}
+
+/** 在办目录用。优先读 saveSession 写下的小索引；没有索引时才读完整会话并补上。不要把结果交给 saveSession。 */
+const listSessionsDeskCache = new Map<
+  string,
+  { mtimeMs: number; size: number; session: AgentSession }
+>();
+
+function readDeskCache(filePath: string, stat: fs.Stats): AgentSession | null {
+  const cached = listSessionsDeskCache.get(filePath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return cached.session;
+  }
+  return null;
+}
+
+function rememberDesk(filePath: string, stat: fs.Stats, session: AgentSession): void {
+  if (listSessionsDeskCache.size > 512) {
+    const oldest = listSessionsDeskCache.keys().next().value;
+    if (oldest) {
+      listSessionsDeskCache.delete(oldest);
+    }
+  }
+  listSessionsDeskCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, session });
+}
+
+export function listSessionsForDesk(workspaceDir: string): AgentSession[] {
+  const dir = sessionsDir(workspaceDir);
+  try {
+    const names = fs.readdirSync(dir);
+    const deskNames = new Set(names.filter((name) => name.endsWith(".desk.json")));
+    const byId = new Map<string, AgentSession>();
+    for (const name of names) {
+      if (!name.endsWith(".desk.json")) {
+        continue;
+      }
+      const full = path.join(dir, name);
+      try {
+        const stat = fs.statSync(full);
+        const cached = readDeskCache(full, stat);
+        const session = cached ?? (JSON.parse(fs.readFileSync(full, "utf8")) as AgentSession);
+        if (!session?.sessionId) {
+          continue;
+        }
+        if (!cached) {
+          rememberDesk(full, stat, session);
+        }
+        byId.set(session.sessionId, session);
+      } catch {
+        /* 坏索引下面用完整会话重建 */
+      }
+    }
+    for (const name of names) {
+      if (!name.endsWith(".json") || name.endsWith(".turns.jsonl") || name.endsWith(".desk.json")) {
+        continue;
+      }
+      const sessionId = name.slice(0, -".json".length);
+      if (deskNames.has(`${sessionId}.desk.json`)) {
+        continue;
+      }
+      const jsonPath = path.join(dir, name);
+      const deskPath = path.join(dir, `${sessionId}.desk.json`);
+      try {
+        const full = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as AgentSession;
+        if (!full?.sessionId) {
+          continue;
+        }
+        const slim = slimSessionForDesk(full);
+        try {
+          writeSessionDeskSnapshot(workspaceDir, full);
+        } catch {
+          /* 下次再补 */
+        }
+        byId.set(full.sessionId, slim);
+        try {
+          rememberDesk(deskPath, fs.statSync(deskPath), slim);
+        } catch {
+          /* 索引没写上时，这一轮仍用内存里的瘦副本 */
+        }
+      } catch {
+        /* 坏文件跳过 */
+      }
+    }
+    return [...byId.values()].toSorted(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+    );
   } catch {
     return [];
   }
@@ -604,6 +717,7 @@ export type ModelChatMessage = {
  * 送出前的最后一道配对修复，并写回 session（随下一次 saveSession 落盘）：
  *   - 孤立 tool 结果：调用还在就挪回去，调用已被压缩丢掉就删除（DeepSeek 400）。
  *   - 悬空 tool_call：补「已取消」占位，避免缺结果的 tool_calls 整请求 400。
+ *   - 一条 tool 消息里的多个结果：展开成每个 tool_call_id 一条 wire 消息（不改落盘行数）。
  *
  * Remaining-token notes are sample-time only — use {@link deriveModelMessagesForSampling}.
  */
@@ -617,7 +731,29 @@ export function deriveModelMessages(session: AgentSession): ModelChatMessage[] {
     normalized.changed || pairing.repairedToolCallIds.length > 0
       ? pairing.messages
       : session.conversationHistory;
-  return source.map((msg) => {
+  return projectHistoryToModelMessages(source);
+}
+
+/**
+ * One persisted tool row may carry several responses. OpenAI-compatible
+ * APIs (and Codex) require one wire `tool` message per `tool_call_id`;
+ * dropping every response after the first makes later calls look unanswered.
+ */
+function projectHistoryToModelMessages(source: AgentMessage[]): ModelChatMessage[] {
+  const out: ModelChatMessage[] = [];
+  for (const msg of source) {
+    const responses = msg.toolCallResponses ?? [];
+    if (msg.role === "tool" && responses.length > 1) {
+      for (const resp of responses) {
+        out.push({
+          role: "tool",
+          content: JSON.stringify(resp.result),
+          tool_call_id: resp.toolCallId,
+        });
+      }
+      continue;
+    }
+
     const base: ModelChatMessage = {
       role: msg.role,
       content: msg.content,
@@ -631,13 +767,14 @@ export function deriveModelMessages(session: AgentSession): ModelChatMessage[] {
       }));
     }
 
-    if (msg.toolCallResponses && msg.toolCallResponses.length > 0) {
-      base.tool_call_id = msg.toolCallResponses[0].toolCallId;
-      base.content = JSON.stringify(msg.toolCallResponses[0].result);
+    if (responses.length > 0) {
+      base.tool_call_id = responses[0].toolCallId;
+      base.content = JSON.stringify(responses[0].result);
     }
 
-    return base;
-  });
+    out.push(base);
+  }
+  return out;
 }
 
 /** Alias kept for existing imports; same function as {@link deriveModelMessages}. */

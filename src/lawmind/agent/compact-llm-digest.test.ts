@@ -55,7 +55,7 @@ describe("compact-llm-digest", () => {
     expect(isCompactLlmDigestEnabled({} as NodeJS.ProcessEnv)).toBe(true);
   });
 
-  it("prepends 摘要： when model succeeds", async () => {
+  it("appends 摘要 after the extractive digest", async () => {
     const extractive = "【压缩前对话蒸馏】共丢弃约 2 条消息\n\n### 律师要点\n1. 审查违约金";
     const dropped: AgentMessage[] = [
       { role: "user", content: "请审查违约金条款", timestamp: "t1" },
@@ -68,7 +68,8 @@ describe("compact-llm-digest", () => {
       contextTokens: 128_000,
     });
     expect(out.usedLlm).toBe(true);
-    expect(out.digest).toContain("摘要：");
+    expect(out.digest.indexOf("审查违约金")).toBeGreaterThanOrEqual(0);
+    expect(out.digest.indexOf("摘要：")).toBeGreaterThan(out.digest.indexOf("审查违约金"));
     expect(out.digest).toContain("20%");
     expect(callModelWithRetry).toHaveBeenCalledTimes(1);
     const cfg = vi.mocked(callModelWithRetry).mock.calls[0]?.[0] as {
@@ -77,6 +78,20 @@ describe("compact-llm-digest", () => {
     };
     expect(cfg.maxTokens).toBe(resolveClassifySidecarLimits({ contextTokens: 128_000 }).maxTokens);
     expect(cfg.maxRetries).toBe(0);
+  });
+
+  it("drops the summary tail when the extractive digest already fills the cap", async () => {
+    const extractive = `【压缩前对话蒸馏】任务标记KEEP_TASK\n${"律师原话。".repeat(2_100)}`;
+    const out = await enhanceCompactDigestWithLlm({
+      model,
+      extractiveDigest: extractive,
+      dropped: [{ role: "user", content: "请审查", timestamp: "t" }],
+      contextTokens: 128_000,
+    });
+    expect(out.usedLlm).toBe(true);
+    expect(out.digest).toContain("KEEP_TASK");
+    expect(out.digest).not.toContain("20%");
+    expect(out.digest.startsWith("【压缩前对话蒸馏】任务标记KEEP_TASK")).toBe(true);
   });
 
   it("resamples a short digest then uses the next draw", async () => {

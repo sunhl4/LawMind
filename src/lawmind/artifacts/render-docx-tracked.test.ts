@@ -23,8 +23,8 @@ const spawnState = vi.hoisted(() => ({
   lastSetArgs: [] as string[],
 }));
 
-vi.mock("node:child_process", () => ({
-  spawn: vi.fn((_cmd: string, args: string[]) => {
+vi.mock("node:child_process", () => {
+  const spawn = vi.fn((_cmd: string, args: string[]) => {
     const isSet = args[0] === "set";
     const isClose = args[0] === "close";
     if (isSet) {
@@ -39,6 +39,7 @@ vi.mock("node:child_process", () => ({
       isSet && spawnState.setSucceeds ? JSON.stringify({ success: true, matched, data: "ok" }) : "";
     let stdoutHandler: ((arg?: unknown) => void) | undefined;
     let closeHandler: ((arg?: unknown) => void) | undefined;
+    let exitHandler: ((code: number | null, signal: string | null) => void) | undefined;
     // stdout 只发一次：注册 data 与 close 时都会 flush，重复发送会让 JSON.parse 失败。
     let stdoutSent = false;
     const flush = () => {
@@ -46,12 +47,16 @@ vi.mock("node:child_process", () => ({
         stdoutSent = true;
         stdoutHandler(stdout);
       }
-      if (closeHandler) {
-        queueMicrotask(() => closeHandler?.(code));
+      if (closeHandler || exitHandler) {
+        queueMicrotask(() => {
+          exitHandler?.(code, null);
+          closeHandler?.(code);
+        });
       }
     };
     return {
       stdout: {
+        setEncoding: () => undefined,
         on: (ev: string, fn: (arg?: unknown) => void) => {
           if (ev === "data") {
             stdoutHandler = fn;
@@ -59,17 +64,25 @@ vi.mock("node:child_process", () => ({
           }
         },
       },
-      stderr: { on: () => undefined },
-      on: (ev: string, fn: (arg?: unknown) => void) => {
+      stderr: {
+        setEncoding: () => undefined,
+        on: () => undefined,
+      },
+      on: (ev: string, fn: (...args: unknown[]) => void) => {
         if (ev === "close") {
-          closeHandler = fn;
+          closeHandler = fn as (arg?: unknown) => void;
+          flush();
+        } else if (ev === "exit") {
+          exitHandler = fn as (code: number | null, signal: string | null) => void;
           flush();
         }
       },
       kill: vi.fn(),
+      unref: vi.fn(),
     };
-  }),
-}));
+  });
+  return { spawn, spawnSync: vi.fn(), fork: vi.fn() };
+});
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();

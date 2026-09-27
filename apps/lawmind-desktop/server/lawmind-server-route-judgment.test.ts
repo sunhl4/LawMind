@@ -277,28 +277,28 @@ describe("G3 API：/api/judgment/*", () => {
       );
     }
 
-    it("策略文件写 edition=firm + 通道 on（**无任何 env**）→ 界面拿到的姿态是 block", async () => {
+    it("策略文件写 edition=firm 时姿态是 block；判断通道不由策略文件打开", async () => {
       await writePolicy({ edition: "firm", judgmentEscalation: "on" });
       const { body } = call(ctx, "/api/judgment/task?taskId=t1");
-      expect(body.escalationChannel).toBe("on");
+      expect(body.escalationChannel).toBe("off");
       expect(body.escalationPosture).toBe("block");
     });
 
-    it("同一份策略写到 solo → advisory（firm 的硬墙不是写死给所有人的）", async () => {
+    it("同一份策略写到 solo → advisory", async () => {
       await writePolicy({ edition: "solo", judgmentEscalation: "on" });
       const { body } = call(ctx, "/api/judgment/escalations");
-      expect(body.escalationChannel).toBe("on");
+      expect(body.escalationChannel).toBe("off");
       expect(body.escalationPosture).toBe("advisory");
     });
 
-    it("策略里的显式姿态优先于 edition（律所也能自行调回不打断）", async () => {
+    it("策略里的放宽姿态不生效，律所仍是 block", async () => {
       await writePolicy({
         edition: "firm",
         judgmentEscalation: "on",
         judgmentEscalationPosture: "advisory",
       });
       const { body } = call(ctx, "/api/judgment/task?taskId=t1");
-      expect(body.escalationPosture).toBe("advisory");
+      expect(body.escalationPosture).toBe("block");
     });
 
     it("策略文件坏掉（schemaVersion 缺失）→ 不算「配了」：回落 env，通道如实报 off", async () => {

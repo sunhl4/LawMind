@@ -43,6 +43,8 @@ export type TestLawMindTurnOpts = {
   contextPins?: import("../../platform/compose-context-pin.js").ComposeContextPin[];
   /** When set, production streams SSE from the cassette server. */
   onEvent?: (event: RunTurnEvent) => void;
+  /** Cooperative stop, same contract as `runTurn({ shouldAbort })`. */
+  shouldAbort?: () => boolean;
   skipSessionTurnGate?: boolean;
   /**
    * G3：把回合绑定到某个任务 id。
@@ -302,6 +304,7 @@ export class TestLawMind {
       preApproveToolNames: opts.preApproveToolNames,
       contextPins: opts.contextPins,
       onEvent,
+      shouldAbort: opts.shouldAbort,
       skipSessionTurnGate: opts.skipSessionTurnGate,
       ...(opts.linkedTaskId ? { linkedTaskId: opts.linkedTaskId } : {}),
     });

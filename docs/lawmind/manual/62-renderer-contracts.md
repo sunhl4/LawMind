@@ -4,7 +4,7 @@
 
 「契约」在这里是有意义的词——因为很多约束**被测试守着**（第 62.8 节列出所有相关测试）。
 
-## 62.1 五个一级面板的结构
+## 62.1 六个工作面面板的结构
 
 ### 对话：三层拆分
 
@@ -33,19 +33,19 @@ lm-compose-research-fast-lane
 
 `LawmindChatMessageRow` 是交互最密的一个：
 
-| testid                                                | 干什么                                     |
-| ----------------------------------------------------- | ------------------------------------------ |
-| `lm-msg-edit` / `lm-msg-edit-submit`                  | 编辑消息                                   |
-| `lm-msg-delete` / `lm-msg-delete-assistant`           | 删消息（**两条，用户消息与助手消息分开**） |
-| `lm-msg-gate`                                         | 门禁标记                                   |
-| `lm-authority-gap-banner`                             | 权威缺口横幅                               |
-| `lm-demo-corpus-banner`                               | **演示语料横幅**                           |
-| `lm-research-recovery-banner` + `-doctor` + `-models` | 检索失败恢复（三条：横幅 + 两个跳转）      |
-| `lm-clarify-open-desk`                                | 打开在办处理澄清                           |
+| testid                                      | 干什么                                     |
+| ------------------------------------------- | ------------------------------------------ |
+| `lm-msg-edit` / `lm-msg-edit-submit`        | 编辑消息                                   |
+| `lm-msg-delete` / `lm-msg-delete-assistant` | 删消息（**两条，用户消息与助手消息分开**） |
+| `lm-msg-gate`                               | 门禁标记                                   |
+| `lm-authority-gap-banner`                   | 权威缺口横幅                               |
+| `lm-demo-corpus-banner`                     | **演示语料横幅**                           |
+| `lm-research-recovery-banner` + `-models`   | 检索失败恢复（两条：横幅 + 跳转）          |
+| `lm-clarify-open-desk`                      | 打开在办处理澄清                           |
 
 **「演示语料横幅」单独一条**——第 10.5 节那条水印在界面上有专门的位置。
 
-**「检索失败恢复」有两条跳转**（去体检 / 去模型设置）——**它不只报错，还给了两个去处**。
+**「检索失败恢复」有一条跳转**（去模型与连接；`open_settings_doctor` 等旧动作也落到同一个按钮）——**它不只报错，还给了去处**。
 
 ### 三个「空态」分支
 
@@ -61,7 +61,7 @@ lm-chat-empty-create-matter    ← 建议建案
 
 ### 工作台：一个巨型文件与一条不变量
 
-`LawmindLawyerWorkbench.tsx` 是渲染层最大的文件（约 106 KB、2600+ 行，冻结在文件大小棘轮里）。
+`LawmindLawyerWorkbench.tsx` 是渲染层最大的文件（约 95 KB、2418 行，冻结在文件大小棘轮里）。
 
 它的 testid 有 **27 条**，其中最能反映功能的是：
 
@@ -142,6 +142,27 @@ allQueue 非空但本案队列空 → <LawmindAgentFleetEmpty kind="filter">
 
 **而 `LawmindReviewCampaignPanel` 有 16 条**——因为它的交互最多（选 playbook、快速/并行开关、跑、取消、重跑角色、下载报告、看指标、看问题）。
 
+### 整理资料：三步页
+
+`LawmindArchiveOrganizePage.tsx`（从设置 → 工作区「整理电脑上的资料」进入，入口 testid `lm-archive-organize-open`）：指定范围 → 查看分类 → 勾选确认，确认后才复制。
+
+| testid                                              | 干什么                                       |
+| --------------------------------------------------- | -------------------------------------------- |
+| `lm-archive-organize` / `-back`                     | 页面容器 / 返回                              |
+| `lm-archive-organize-roots` / `-remove` / `-pick`   | 范围列表 / 移除 / 添加文件夹                 |
+| `lm-archive-organize-run` / `-common`               | 跑扫描 / 看常见位置                          |
+| `lm-archive-organize-result`                        | 分类结果区                                   |
+| `lm-archive-organize-create` / `-into` / `-library` | 三类去向：新建案件 / 归入已有案件 / 一般资料 |
+| `lm-archive-organize-file`                          | 勾选确认后执行复制                           |
+
+### 助手席、守护回执与全局错误弹窗
+
+| 组件                                                              | 挂点                                                                       | testid                                                    | 读什么                                                                                                 |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `LawmindAssistantDesk.tsx`                                        | 对话消息栏（`lawmind-chat-messages-column.tsx`）                           | `lm-assistant-desk`                                       | `GET /api/assistants/:id/desk`：在场状态、职责与禁令、常设工作近况；`visible` 为假时不渲染             |
+| `LawmindDaemonRecap.tsx`                                          | 工作台与在办（`LawmindLawyerWorkbench.tsx`、`LawmindAgentFleetPanel.tsx`） | `lm-fleet-daemon-recap`                                   | `GET /api/daemon` 的 `recap`（「你走后发生了什么」）；设置 → 工作区里同一份回执用 `lm-daemon-recap`    |
+| `LawmindErrorReportDialog.tsx` + `LawmindUnexpectedErrorHost.tsx` | 全局（`main.tsx`）                                                         | `lm-error-report-dialog` / `-body` / `-copy` / `-dismiss` | 渲染层未捕获错误的说明弹窗，详情只带错误本身（类型 / 说明 / 堆栈，不含案件内容与密钥），可复制后发出去 |
+
 ## 62.2 六个「有判定逻辑」的组件
 
 这一节是这一章的核心：那些**有明确分支判断**的组件。
@@ -217,48 +238,11 @@ loading && 有文本 && 有 apiBase && 有 sessionId
 
 **另一个按钮是不同的**：`onEnqueueNextTurn`（`lm-compose-enqueue-next`）走的是**跟进队列**（`onSend`），不是 steer。**「排队下一条」和「中途插话」是两件事。**
 
-### `LawmindComposeContextUsage`：十个桶与三条水位
+### `LawmindComposeContextUsage`：对话长度，不是十二个桶
 
-它显示的用量分解**顺序与引擎一致**（第 3.18 节那张表）：
+短对话不显示这个入口。`effectiveLimit <= 0` 时也不显示。变长或已经整理过才出现按钮，文案是「对话较长」「对话已很长」「已整理过」。打开后可以「整理这场对话」或另开一段。
 
-| 桶            | 界面标签       |
-| ------------- | -------------- |
-| `lawyer`      | 律师发言       |
-| `assistant`   | 助手回复       |
-| `toolResults` | 工具回包       |
-| `digest`      | 压缩摘要       |
-| `turnContext` | 本轮上下文     |
-| `pins`        | 钉选材料       |
-| `plan`        | 本轮清单       |
-| `craft`       | 改稿手艺       |
-| `workspace`   | 交付与案件设置 |
-| `rules`       | 系统规则       |
-
-**代码注释明确说了「order matches engine TOKEN_BUDGET_BUCKET_ORDER」**——所以改顺序要两边一起改。
-
-三条水位与后缀：
-
-| level     | 环的颜色 | 后缀                       |
-| --------- | -------- | -------------------------- |
-| `compact` | danger   | `· 已达自动整理线`         |
-| `warn`    | warn     | `· 接近自动整理线，可整理` |
-| 其他      | ok       | （无）                     |
-
-**百分比算法**：
-
-```text
-pct = min(100, max(0, used / effectiveLimit × 100))
-```
-
-**三条值得一提的显示规则**：
-
-1. **`effectiveLimit <= 0` 时整个组件返回 `null`** ——没有预算就不显示环。
-2. **只显示 tokens > 0 的桶**（`filter`）——空桶不占位置。
-3. **数字格式化三档**：≥10000 → `Nk`（整数）；≥1000 → 一位小数 `k`（去掉 `.0`）；其他 → 整数。
-
-第 2 条很实际：十个桶里通常只有三四个有内容，全列出来是噪音。
-
-**环的画法**（SVG）：`r = 7`、周长 `c = 2πr`、`dashoffset = c × 0.25`、`transform = rotate(-90 9 9)`——**从 12 点开始顺时针**，这是进度环的常规做法。
+水位仍用 `warn` / `compact`：前者是「这场对话开始变长」，后者是「这场对话已经很长」。整理前若提供了 `onPreviewCompact`，先出预览再执行。
 
 **确认流程**：
 
@@ -268,6 +252,15 @@ pct = min(100, max(0, used / effectiveLimit × 100))
 ```
 
 **「先预览再执行」**——因为压缩不可逆（虽然原文还在磁盘，但上下文里没了）。所以给一个确认。
+
+### `LawmindSettingsConversationLength`：对话长度三档
+
+对话输入栏工具条里的档位选择（`lawmind-chat-compose-toolbar.tsx`，**不是设置页**）：200K / 500K / 1M（`src/lawmind/agent/context-preset.ts`）。testid 是 `lm-compose-context-length` 与 `lm-compose-context-length-select`。
+
+- 改写走 `PATCH /api/policy/workspace`（键 `conversationLength`），读取走 `GET /api/policy/workspace`。
+- 硬天花板 = min(模型自己的窗口, 所选档)。历史整理不随 500K / 1M 推迟，仍按 200K 质量带。
+- 旧策略值 `daily` / `dossier` 读出时自动迁移成 200K / 1M（`normalizeConversationLength`）。
+- 它和上面的用量按钮是两件事：档位定本轮硬天花板，用量按钮仍只在「变长或整理过」时才出现。
 
 ### `LawmindClarificationForm`：三条提交路径
 
@@ -284,6 +277,8 @@ pct = min(100, max(0, used / effectiveLimit × 100))
 提交按钮的 disabled 条件是 `loading || !complete`，而 `complete` 由 `clarificationAnswersComplete(questions, answers)` 判——**必答项没填完不能提交**。
 
 ### 大纲确认那四条的编排
+
+这张卡只在律师要求先看大纲时出现（`lawyerWantsOutlineHold`）。默认交办不会弹出它。
 
 `OUTLINE_CONFIRM_KEY = "research_outline_confirm"` 是一个特殊字段，它有**三个动作**（三个按钮）：
 
@@ -380,13 +375,14 @@ useEffect 里每当 shouldExpand 为真就展开，忽略 defaultCollapsed
 
 **三个早退分支**：
 
-| 条件                   | 渲染                                     |
-| ---------------------- | ---------------------------------------- |
-| 没有 `report`          | `null`                                   |
-| 没有 `deliverableType` | `这不是声明交付物类型，按通用文书放行。` |
-| —                      | 正常渲染                                 |
+| 条件                                        | 渲染                                                   |
+| ------------------------------------------- | ------------------------------------------------------ |
+| 没有 `report`                               | `null`                                                 |
+| 没有 `deliverableType` 且 `ready === false` | 与有类型时同一张出稿清单（「未标明这是哪一类文书」）   |
+| 没有 `deliverableType` 且 `ready === true`  | `未标明文书类型。导出前会再按已登记的文书规范核一次。` |
+| —                                           | 正常渲染                                               |
 
-**第二个分支把「没类型」显式说成「放行」**——而不是静默不显示。
+**没类型且未通过时展开同一张出稿清单**，不静默，也不写成放行。`ready === true` 的空类型只提醒导出前还会再核一次。
 
 **摘要行**：
 
@@ -585,7 +581,7 @@ rank(spec):
 
 保留的字符集是 `\p{L}\p{N}._-` 加空格；兜底 `演示案件-示例`。
 
-而「跳过向导」那条路用的是**固定名 `演示案件`**（不拼业务名）——因为跳过时还没有业务名。
+而「直接开始」那条路用的是**固定名 `演示案件`**（不拼业务名），并且**不往输入框放说明**。示例句在空对话里点选后才填入。
 
 ### 偏好写成什么
 
@@ -601,7 +597,7 @@ rank(spec):
 
 而且提交与跳过**都会调** `applyPostFirstrunPermissionDefaults({ executable: true })`——**首跑直接给可执行权限**（第 2.2 节那条「不再弹首跑向导」的配套）。
 
-## 62.4 存储：本节逐条列出的 33 个 localStorage 键与 4 个 sessionStorage 键
+## 62.4 存储：本节逐条列出的 33 个 localStorage 键与 2 个 sessionStorage 键
 
 **先说清口径**：渲染层里形如 `lawmind.*` / `lm.*` 的存储键字面量，2026-09-23 静态数出约 **44 个**（非测试文件）。本节只逐条讲**有行为含义**的那些，不去凑总数——边角键（面板宽度之类）列全了没有增量信息。
 
@@ -686,18 +682,16 @@ lawmind.ui.chatComposeHeight.v3          ← 第 3 版
 
 `chatComposeHeight.v3` 到第 3 版说明这个值改过两次结构。
 
-### 四个 sessionStorage 键
+### 两个 sessionStorage 键
 
 ```text
-lawmind.teamMeeting.session.<matterId>
-lawmind.teamMeeting.participants.<matterId>
 lawmind-lawyer-review-sig:<key>
 lm.firstRun.requestOpen
 ```
 
-**前两个是会议室**（第 16.7 节讲的「换机器就没了」）。
+会议室的参会会话和参会人缓存在 **localStorage**（`lawmind.teamMeeting.session.<matterId>`、`lawmind.teamMeeting.participants.<matterId>`）。关掉应用还在，换机器就没了。
 
-**第三个是「律师审核通知」的去重签名**——避免同一个审核重复弹通知。
+**`lawmind-lawyer-review-sig` 是「律师审核通知」的去重签名**——避免同一个审核重复弹通知。
 
 ### 三个「按案件/任务分键」的
 
@@ -866,23 +860,23 @@ CLIENT_PROFILE.md
 
 **根级客户档案不是某个客户**，所以用 sentinel 而不是 `clients/<id>/` 那种路径。
 
-### 设置导航的四个常量
+### 设置导航的三个常量
 
-| 常量                               | 内容                                                |
-| ---------------------------------- | --------------------------------------------------- |
-| `LAWMIND_SETTINGS_DEFAULT_SECTION` | `"models"`                                          |
-| `LAWMIND_SETTINGS_SCROLL_ANCHORS`  | `{ memoryTruth: "lawmind-settings-memory-truth" }`  |
-| `SETTINGS_LAST_SECTION_KEY`        | `"lawmind.settings.lastSection"`                    |
-| `DAY1_SECTION_IDS`                 | models / workspace / host / appearance / disclaimer |
+| 常量                               | 内容                                               |
+| ---------------------------------- | -------------------------------------------------- |
+| `LAWMIND_SETTINGS_DEFAULT_SECTION` | `"models"`                                         |
+| `LAWMIND_SETTINGS_SCROLL_ANCHORS`  | `{ memoryTruth: "lawmind-settings-memory-truth" }` |
+| `SETTINGS_LAST_SECTION_KEY`        | `"lawmind.settings.lastSection"`                   |
 
-而四个「退役但可深链」的分区有专门的常量：
+侧栏是一条 8 项平铺目录（账号 / 模型与连接 / 工作区 / 外观 / 自动办件 / 记忆库 / 助手编制 / 免责声明），没有「更多设置」折叠桶。退役但可深链的分区有专门的常量：
 
 ```text
-SETTINGS_NAV_LEGACY_SECTION_IDS  = ["review-prefs", "roles", "collaboration", "skills", "edition"]
-RETIRED_LAST_SECTION_IDS         = { roles, collaboration, skills, edition }
+SETTINGS_NAV_LEGACY_SECTION_IDS  = ["review-prefs", "host", "roles", "collaboration", "skills",
+                                    "edition", "doctor", "tools", "templates", "app-update"]
+RETIRED_LAST_SECTION_IDS         = { roles, collaboration, skills, edition, doctor, tools, templates }
 ```
 
-**两组的差别**：`review-prefs` 是「旧分区名」（现在叫 `appearance`），所以它**会被重定向**；而另外四个是「退役的」，只是不出现在侧栏。
+**两组的差别**：`review-prefs` / `host` / `doctor` / `tools` / `app-update` 是「旧分区名」，存进 lastSection 时**会被重定向**（分别到外观、工作区、工作区、模型与连接、账号）；`RETIRED_LAST_SECTION_IDS` 里的七个只深链只读，lastSection 存了会回落到默认分区 `models`。
 
 **默认分区是 `models`** 的注释写明了原因：
 
@@ -891,6 +885,13 @@ Day-1 landing: connect models first, not a health dashboard.
 ```
 
 **「先连模型，不是先看体检」**——首跑优先级的体现。
+
+设置页新组件的 testid：
+
+| 组件                               | testid                                                                                                                                                                                              | 说明                                                       |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `LawmindSettingsAccount.tsx`       | `lm-settings-account`、`lm-account-name` / `-plan` / `-subscription` / `-license` / `-model-source` / `-model-name` / `-included-models` / `-usage`、`lm-account-open-models`、`lm-reopen-firstrun` | 账号页：登录身份、订阅、许可、模型来源与用量               |
+| `LawmindSettingsWorkspaceCare.tsx` | `lm-workspace-search` / `lm-workspace-rebuild-search` / `lm-workspace-matter-repair`                                                                                                                | 工作区页里的「查找重建」与「案件档案整理」，只在需要时渲染 |
 
 ## 62.7 测试守着的那些契约
 
@@ -945,7 +946,7 @@ Day-1 landing: connect models first, not a health dashboard.
 - **`FileWorkbench` 没有拖放导入。** 树行是拖放来源；导入走「导入案件」菜单。
 - **同一条「发送」按钮在回合进行中会变成「中途指示」。**
 - **「排队下一条」和「中途插话」是两个按钮、两条路。**
-- **用量桶的顺序必须与引擎一致**（注释里写明了）。
+- **对话长度入口在变长或已整理过后才出现。** 界面不再列十二个用量桶。
 - **`effectiveLimit <= 0` 时用量环整个不渲染。**
 - **`view` 为 null 时「必核清单」按未完成处理。**
 - **验收没过时不许「一键勾选必核」。**

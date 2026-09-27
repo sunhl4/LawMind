@@ -526,9 +526,9 @@ describe("word addin orphan reconcile", () => {
       { requestId: id, result: "reconciled", reason: "completed_without_result" },
     ]);
     const note = readWordAddinReview(workspaceDir, id)?.note ?? "";
-    // 真机实测最常见的真因是模型调用失败（引擎仍把该步骤算 completed），
+    // 真机实测最常见的真因是模型密钥失效（引擎仍把该步骤算 completed），
     // 所以文案不能只提「降级导出」把人往错方向带。
-    expect(note).toContain("模型调用失败");
+    expect(note).toContain("模型密钥失效");
     expect(note).toContain("桌面端");
   });
 

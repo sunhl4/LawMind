@@ -87,7 +87,7 @@ export async function handleModelsRoutes({
     if (!probe.ok) {
       let msg = probe.error;
       if (resolved.resolvedModelId.startsWith("custom:") && /404|not.?found|model.*(exist|access)/i.test(probe.error || "")) {
-        msg = `${probe.error}\n提示：自定义模型的「模型 ID」必须是该 Base URL 真正支持的名称（不是 custom:xxx）。请确认你填的模型名在该服务商/端点的模型列表中存在，且 Key 有权限。`;
+        msg = `${probe.error}\n请确认「模型名」是服务商实际提供的名称，并且密钥有权使用它。`;
       }
       sendJson(
         res,
@@ -148,7 +148,7 @@ export async function handleModelsRoutes({
       return true;
     }
     if (!row.configured) {
-      sendJsonError(res, 400, "model_not_configured", "该模型尚未配置 API Key，无法设为默认。", c);
+      sendJsonError(res, 400, "model_not_configured", "该模型还没填写密钥，无法设为默认。", c);
       return true;
     }
     setDefaultModelId(lawMindRoot, modelId);
@@ -172,11 +172,11 @@ export async function handleModelsRoutes({
       const catalog = buildModelCatalog(lawMindRoot);
       const row = catalog.models.find((m) => m.id === modelId);
       if (!row) {
-        sendJsonError(res, 404, "unknown_model", "未找到该 Worker 模型。", c);
+        sendJsonError(res, 404, "unknown_model", "未找到所选的更快模型。", c);
         return true;
       }
       if (!row.configured) {
-        sendJsonError(res, 400, "model_not_configured", "该模型尚未配置，无法设为 Worker。", c);
+        sendJsonError(res, 400, "model_not_configured", "该模型还没填写密钥，无法用作审稿模型。", c);
         return true;
       }
     }
@@ -303,7 +303,7 @@ export async function handleModelsRoutes({
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === "custom_model_fields_required") {
-        sendJsonError(res, 400, "custom_model_fields_required", "请填写名称、Base URL、模型名与 API Key。", c);
+        sendJsonError(res, 400, "custom_model_fields_required", "请填写名称、服务地址、模型名和密钥。", c);
         return true;
       }
       if (msg === "custom_model_invalid_model_name") {

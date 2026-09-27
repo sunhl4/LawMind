@@ -111,11 +111,15 @@ describe("Quarterly acceptance (W3 + W4 + W5 + W7 + W9)", () => {
     }
   });
 
-  it("Reasoning gate blocks render when high-risk spec lacks supporting graph", () => {
+  it("Reasoning gate downgrades a missing graph to a warning (铁律 5：不再硬拦渲染)", () => {
     const report = validateReasoningAgainstSpec(undefined, "litigation.outline");
+    // spec 仍声明该门禁（required），但 graph_present 已降为 warning：
+    // 缺图如实提示，不再把渲染掐死。
     expect(report.required).toBe(true);
-    expect(report.ready).toBe(false);
     expect(report.checks[0].key).toBe("graph_present");
+    expect(report.checks[0].severity).toBe("warning");
+    expect(report.blockerCount).toBe(0);
+    expect(report.ready).toBe(true);
   });
 
   it("Memory Adoption Service records suggestions and lists them by scope", async () => {

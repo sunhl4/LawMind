@@ -9,6 +9,22 @@
  */
 export const MATTER_PARTIES_CAP = 32;
 
+export class MatterPartiesCapError extends Error {
+  readonly code = "matter_parties_cap";
+
+  constructor(
+    readonly cap: number,
+    readonly submitted: number,
+  ) {
+    super(`matter_parties_cap:${cap}`);
+    this.name = "MatterPartiesCapError";
+  }
+}
+
+export function namedPartyCount(input: readonly { name?: string }[]): number {
+  return input.reduce((count, row) => count + (row.name?.trim() ? 1 : 0), 0);
+}
+
 export const MATTER_PARTY_ROLES = ["client", "counterparty", "agent", "counsel", "other"] as const;
 export type MatterPartyRole = (typeof MATTER_PARTY_ROLES)[number];
 
@@ -192,6 +208,36 @@ export function formatPartyServiceLine(party: MatterParty): string | undefined {
       : undefined;
   const line = [method, party.serviceAddress?.trim()].filter(Boolean).join(" · ");
   return line || undefined;
+}
+
+const PARTY_ORG_SUFFIXES = [
+  "股份有限公司",
+  "有限责任公司",
+  "有限公司",
+  "集团公司",
+  "公司",
+] as const;
+
+/** 比对用的名字。去掉空白和末尾组织形式，不改律师看见的原名。 */
+export function partyNameKey(name: string): string {
+  let core = name
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s\u3000]+/g, "");
+  for (const suffix of PARTY_ORG_SUFFIXES) {
+    if (core.endsWith(suffix) && core.length - suffix.length >= 2) {
+      core = core.slice(0, -suffix.length);
+      break;
+    }
+  }
+  return core;
+}
+
+/** 同一当事人：键相等才算对上。短名包含在长名里不算。 */
+export function samePartyName(a: string, b: string): boolean {
+  const left = partyNameKey(a);
+  const right = partyNameKey(b);
+  return left.length >= 2 && left === right;
 }
 
 export function matterPartyIdentityNames(input: {

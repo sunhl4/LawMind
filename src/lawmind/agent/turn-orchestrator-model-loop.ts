@@ -25,11 +25,6 @@ import type { ToolCallRef } from "../runtime/tool-concurrency.js";
 import { contextUsesHostFileLedger } from "../runtime/tool-pipeline.js";
 import type { ClarificationQuestion } from "../types.js";
 import { claimAndApplyWorkGoal } from "../work/goal.js";
-import {
-  enhanceCompactDigestWithLlm,
-  isCompactLlmDigestEnabled,
-  replaceDroppedDigestInMessages,
-} from "./compact-llm-digest.js";
 import { estimateTokenBudget } from "./context-budget.js";
 import {
   dropContextDeferralBounces,
@@ -47,7 +42,12 @@ import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-cal
 import { claimAndApplyPendingContextPins, appendContextPins } from "./session-context-inject.js";
 import { claimAndApplyPendingSteer } from "./session-context-steer.js";
 import { normalizeToolResultMessages, repairToolCallPairing } from "./session-tool-call-pairing.js";
-import { isContextOverflowError, pruneSessionToolResults } from "./session-tool-result-prune.js";
+import {
+  isContextOverflowError,
+  OVERFLOW_PRUNE_KEEP_RECENT,
+  OVERFLOW_PRUNE_MAX_TOKENS,
+  pruneSessionToolResults,
+} from "./session-tool-result-prune.js";
 import {
   beginSessionToolBatch,
   commitSessionToolBatch,
@@ -93,6 +93,63 @@ export function resolveStrictUpstreamToolStreaming(
 /** Soft warn when tool calls reach 80% of the hard ceiling. */
 export function shouldWarnToolBudget(used: number, maxToolCalls: number): boolean {
   return maxToolCalls > 0 && used >= Math.ceil(maxToolCalls * 0.8);
+}
+
+/**
+ * Same tool batch this many times in a row is a spin, not progress.
+ * Nudge once (the model may still change course); the next identical batch stops.
+ */
+export const IDENTICAL_TOOL_REPEAT_NUDGE_AT = 3;
+
+export type IdenticalToolStreak = {
+  signature: string;
+  streak: number;
+  nudged: boolean;
+};
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value) ?? "null";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(",")}]`;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).toSorted();
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
+}
+
+/** Exact batch the model just requested, argument key order ignored. */
+export function toolCallBatchSignature(
+  calls: ReadonlyArray<{ name: string; arguments: unknown }>,
+): string {
+  return calls.map((call) => `${call.name}\n${stableJson(call.arguments)}`).join("\n---\n");
+}
+
+export function advanceIdenticalToolStreak(
+  prev: IdenticalToolStreak | null,
+  signature: string,
+): IdenticalToolStreak {
+  if (prev && prev.signature === signature) {
+    return { signature, streak: prev.streak + 1, nudged: prev.nudged };
+  }
+  return { signature, streak: 1, nudged: false };
+}
+
+/** Soft coach after a repeated batch; hard stop only if the nudge is ignored. */
+export function identicalToolRepeatDecision(state: IdenticalToolStreak): "ok" | "nudge" | "stop" {
+  if (state.streak < IDENTICAL_TOOL_REPEAT_NUDGE_AT) {
+    return "ok";
+  }
+  return state.nudged ? "stop" : "nudge";
+}
+
+export function formatIdenticalToolRepeatNudge(): string {
+  return "【重复调用】刚才这组工具和参数已经连续重复，没有新信息。换一种做法，或根据已有结果直接写回复。";
+}
+
+export function formatIdenticalToolRepeatStop(): string {
+  return "同一操作已连续重复，先停在这里以防空转。已有的结果都还在。需要时在对话里接着办。";
 }
 
 /**
@@ -153,6 +210,9 @@ export async function runModelToolLoop(opts: {
   let pendingClarificationQuestions = opts.pendingClarificationQuestions;
   let toolBudgetWarned = false;
   let overflowRetryUsed = false;
+  /** One missing provider choice per turn is a glitch, not a failed delivery. */
+  let emptyChoiceRetryUsed = false;
+  let identicalToolStreak: IdenticalToolStreak | null = null;
 
   const strictUpstreamToolStreaming = resolveStrictUpstreamToolStreaming(opts.hasOnEvent);
   const hardCeiling =
@@ -267,56 +327,7 @@ export async function runModelToolLoop(opts: {
       },
     });
 
-    // ── 回合内的模型摘要（对齐 Codex 的「模型摘要」；Cursor 的自摘要同向）──────
-    // 提取式摘要在「因果与决策理由」上会丢东西，这正是长任务变笨的主因。
-    // 但这里是在工具轮边界**同步等**，所以三条硬约束：
-    //   1) **不重试**（attempts=1）——重试的延迟会直接叠进律师的等待；
-    //   2) **限时**（`context.midTurn.llmDigestTimeoutMs`，默认 15s）——超时即回落提取式；
-    //   3) **够大才做**（`context.midTurn.llmDigestMinChars`）——太短时提取式已够用。
-    // 失败/超时/被中止一律回落，绝不因此中断回合（fork 与手动整理同一取向）。
-    if (
-      outcome.droppedDigest &&
-      isCompactLlmDigestEnabled(process.env, tuning.digest.llmDigestEnabled)
-    ) {
-      const worthIt = outcome.droppedDigest.length >= tuning.midTurn.llmDigestMinChars;
-      const model = opts.config.model;
-      if (worthIt && model.model) {
-        const startedAt = Date.now();
-        let usedLlm = false;
-        try {
-          const enhanced = await enhanceCompactDigestWithLlm({
-            model,
-            extractiveDigest: outcome.droppedDigest,
-            dropped: outcome.droppedSpan ?? [],
-            contextTokens: model.contextTokens ?? policyForTurn()?.context?.contextTokens,
-            abortSignal: opts.abortSignal,
-            maxAttempts: 1,
-            timeoutCapMs: tuning.midTurn.llmDigestTimeoutMs,
-            tuning,
-          });
-          if (enhanced.usedLlm) {
-            opts.session.conversationHistory = replaceDroppedDigestInMessages(
-              opts.session.conversationHistory,
-              enhanced.digest,
-            );
-            usedLlm = true;
-          }
-        } catch {
-          /* 回落提取式：绝不因摘要失败中断回合 */
-        }
-        recordContextPressure(opts.config.workspaceDir, "mid_turn_llm_digest", {
-          turnId: opts.turn.turnId,
-          ...(opts.session.matterId ? { matterId: opts.session.matterId } : {}),
-          sessionId: opts.session.sessionId,
-          meta: {
-            usedLlm,
-            latencyMs: Date.now() - startedAt,
-            extractiveChars: outcome.droppedDigest.length,
-            roundIndex,
-          },
-        });
-      }
-    }
+    // 自动整理只留提取式原文。模型摘要只在手动「整理」和承前分叉（useLlmDigest）里跑。
     return true;
   };
 
@@ -373,6 +384,7 @@ export async function runModelToolLoop(opts: {
         workspaceDir: opts.config.workspaceDir,
         pins: opts.ctx.contextPins,
         registry: opts.registry,
+        hiddenNames: opts.turnContext.hiddenToolNames,
         instruction: lastUser?.content,
         matterId: opts.ctx.matterId ?? opts.turnContext.matterId,
         projectDir: opts.ctx.projectDir,
@@ -463,11 +475,9 @@ export async function runModelToolLoop(opts: {
       opts.hasOnEvent &&
       (!strictUpstreamToolStreaming || openAITools.length === 0 || hadToolResponsesThisTurn);
 
-    // E7: tool rounds prefer workerModel when configured; final no-tool reply uses primary.
-    const modelForRound =
-      openAITools.length > 0 && opts.config.workerModel
-        ? opts.config.workerModel
-        : opts.config.model;
+    // 选工具、读结果、写回复都是判断，一律用律师选的主模型。
+    // 更快模型只做摘要（上面）和审稿（reviewModel），不接管这一轮。
+    const modelForRound = opts.config.model;
 
     const callModelRound = () => {
       const budget = estimateTokenBudget(opts.session, policyForTurn(), {
@@ -521,7 +531,10 @@ export async function runModelToolLoop(opts: {
         };
       }
       if (!overflowRetryUsed && isContextOverflowError(err)) {
-        const pruned = pruneSessionToolResults(opts.session);
+        const pruned = pruneSessionToolResults(opts.session, {
+          maxTokens: OVERFLOW_PRUNE_MAX_TOKENS,
+          keepRecent: OVERFLOW_PRUNE_KEEP_RECENT,
+        });
         if (pruned.prunedCount > 0 && pruned.charsRemoved > 0) {
           overflowRetryUsed = true;
           opts.emitEvent({
@@ -566,7 +579,35 @@ export async function runModelToolLoop(opts: {
       lastMeasuredPromptTokens = measuredPromptTokens;
     }
 
-    const choice = response.choices[0];
+    let choice = response.choices[0];
+    if (!choice && !emptyChoiceRetryUsed) {
+      emptyChoiceRetryUsed = true;
+      try {
+        response = await callModelRound();
+      } catch (err) {
+        if (
+          err instanceof ModelCallUserAbortError ||
+          opts.abortSignal?.aborted ||
+          opts.abortRequested()
+        ) {
+          collapseHistoryForEnd();
+          return {
+            finalReply,
+            pendingClarificationQuestions,
+            turnUsage,
+            aborted: true,
+          };
+        }
+        closeOnModelFailure(err, roundIndex);
+        break;
+      }
+      turnUsage = mergeUsageSnapshots(turnUsage, usageFromProvider(response.usage));
+      const retryPromptTokens = usageFromProvider(response.usage)?.promptTokens ?? 0;
+      if (retryPromptTokens > 0) {
+        lastMeasuredPromptTokens = retryPromptTokens;
+      }
+      choice = response.choices[0];
+    }
     if (!choice) {
       closeOnModelFailure(new Error("Empty response from model"), roundIndex);
       break;
@@ -770,6 +811,31 @@ export async function runModelToolLoop(opts: {
 
     if (opts.turn.status === "awaiting_approval") {
       break;
+    }
+
+    if (toolRefs.length > 0) {
+      identicalToolStreak = advanceIdenticalToolStreak(
+        identicalToolStreak,
+        toolCallBatchSignature(toolRefs),
+      );
+      const repeat = identicalToolRepeatDecision(identicalToolStreak);
+      if (repeat === "nudge") {
+        identicalToolStreak = { ...identicalToolStreak, nudged: true };
+        const nudge = {
+          role: "user" as const,
+          content: formatIdenticalToolRepeatNudge(),
+          timestamp: new Date().toISOString(),
+          hiddenFromLawyer: true,
+        };
+        opts.session.conversationHistory.push(nudge);
+        opts.turn.messages.push(nudge);
+        continue;
+      }
+      if (repeat === "stop") {
+        opts.turn.status = "completed";
+        finalReply = formatIdenticalToolRepeatStop();
+        break;
+      }
     }
 
     if (opts.abortRequested() || opts.abortSignal?.aborted) {

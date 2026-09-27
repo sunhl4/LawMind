@@ -25,6 +25,7 @@ import {
 import { createPinnedAuthorityFetch } from "./authority-pinned-fetch.js";
 import {
   authorityProviderNeedsEndpoint,
+  authorityProviderUnrecognized,
   resolveAuthorityProvider,
   type AuthorityProviderId,
 } from "./authority-provider.js";
@@ -157,6 +158,8 @@ export function createAuthorityAdapterFromEnv(opts?: {
   const openLawFetch = opts?.fetchImpl ?? createOpenLawPinnedFetch(fetchImpl, commercialFetch);
   const validated = raw ? validateAuthorityEndpointUrl(raw) : null;
   const provider: AuthorityProviderId = resolveAuthorityProvider({ provider: opts?.provider });
+  const unrecognizedProvider = authorityProviderUnrecognized({ provider: opts?.provider });
+  const providerRaw = (opts?.provider ?? process.env.LAWMIND_AUTHORITY_PROVIDER ?? "").trim();
   const apiKey = opts?.apiKey ?? resolveAuthorityApiKey();
   const workspaceDir =
     opts?.workspaceDir?.trim() || process.env.LAWMIND_WORKSPACE_DIR?.trim() || "";
@@ -197,7 +200,7 @@ export function createAuthorityAdapterFromEnv(opts?: {
             endpointNormalized: validated.normalized,
             query,
             apiKey,
-            mode: resolvePkulawMode(),
+            mode: resolvePkulawMode({ endpoint: validated.normalized }),
             fetchImpl: commercialFetch,
             lookup,
             searchKind: opts?.searchKind,
@@ -213,6 +216,19 @@ export function createAuthorityAdapterFromEnv(opts?: {
         }
       } else {
         outcome = { result: unsetAuthorityResult() };
+      }
+
+      if (unrecognizedProvider) {
+        outcome = {
+          ...outcome,
+          result: {
+            ...outcome.result,
+            riskFlags: [
+              `法源提供方「${providerRaw}」无法识别，已退回开源语料，未连接商业库。`,
+              ...outcome.result.riskFlags,
+            ],
+          },
+        };
       }
 
       if (workspaceDir) {

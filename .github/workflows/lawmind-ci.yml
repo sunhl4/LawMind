@@ -33,8 +33,19 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Test (LawMind + desktop packages)
-        run: pnpm test
+      - name: Test with coverage (one pass)
+        run: pnpm test:coverage
+
+      - name: Coverage ratchet
+        run: pnpm test:coverage:ratchet
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: coverage/
+          if-no-files-found: ignore
 
       - name: Skills golden smoke (G0)
         run: pnpm lawmind:skills:golden -- --compare
@@ -68,22 +79,19 @@ jobs:
       - name: "Renderer must not pull node builtins"
         run: pnpm lawmind:check:renderer-node
 
+      # 律师可见文案：硬拦档命中即失败；近义词棘轮档新增即失败（地板见
+      # scripts/lawmind/ui-copy-lint-synonym-baseline.json，只许下降）。
+      - name: "Lawyer-facing copy: banned terms + synonym ratchet"
+        run: pnpm lawmind:ui-copy-lint
+
+      - name: Engine tests must not stub global fetch
+        run: pnpm lawmind:check:no-global-fetch-stub
+
+      - name: Platform contracts
+        run: pnpm lawmind:check:platform-contracts
+
       - name: Desktop HTTP smoke
         run: pnpm lawmind:desktop:http-smoke
-
-      - name: Coverage
-        run: pnpm test:coverage
-
-      - name: Coverage ratchet
-        run: node scripts/pre-commit/check-coverage-ratchet.mjs
-
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-report
-          path: coverage/
-          if-no-files-found: ignore
 
       - name: Release readiness report
         run: pnpm lawmind:release-readiness -- --out dist/lawmind-release-readiness.md

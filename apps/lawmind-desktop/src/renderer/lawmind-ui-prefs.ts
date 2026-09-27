@@ -3,14 +3,22 @@ const DENSITY_KEY = "lm.ui.density.v1";
 const REDUCED_MOTION_KEY = "lm.ui.reducedMotion.v1";
 const THEME_KEY = "lm.ui.theme.v1";
 
-export type UiFontScale = "default" | "comfortable";
+/** 标准是现行正文 14px。旧值 comfortable 读成大一点。 */
+export type UiFontScale = "small" | "default" | "large";
 export type UiDensity = "default" | "compact";
 /** Default is light (skills epic mockups). */
 export type UiTheme = "light" | "dark";
 
 export function readUiFontScale(): UiFontScale {
   try {
-    return localStorage.getItem(FONT_SCALE_KEY) === "comfortable" ? "comfortable" : "default";
+    const stored = localStorage.getItem(FONT_SCALE_KEY);
+    if (stored === "small") {
+      return "small";
+    }
+    if (stored === "large" || stored === "comfortable") {
+      return "large";
+    }
+    return "default";
   } catch {
     return "default";
   }
@@ -58,10 +66,10 @@ export function writeReducedMotionForced(forced: boolean): void {
 
 export function applyUiFontScale(scale: UiFontScale): void {
   const root = document.documentElement;
-  if (scale === "comfortable") {
-    root.dataset.lmFontScale = "comfortable";
-  } else {
+  if (scale === "default") {
     delete root.dataset.lmFontScale;
+  } else {
+    root.dataset.lmFontScale = scale;
   }
 }
 

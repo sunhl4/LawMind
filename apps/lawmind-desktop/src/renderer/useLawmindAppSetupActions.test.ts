@@ -4,7 +4,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   FIRST_RUN_DEMO_MATTER_ID,
-  FIRST_RUN_SEED_PROMPT,
   startWorkingConversation,
 } from "./useLawmindAppSetupActions";
 import { readComposePermissionMode } from "./lawmind-compose-prefs";
@@ -62,9 +61,9 @@ describe("startWorkingConversation (keys → working chat, zero choice)", () => 
     expect(seen[0]?.body).toEqual({ matterId: FIRST_RUN_DEMO_MATTER_ID });
     // 钥匙后直接可执行，不落只读/计划模式。
     expect(readComposePermissionMode()).toBe("standard");
-    // 落点就在对话输入框，带种子提示。
+    // 不往输入框塞说明；示例句在空对话里点选。
     expect(seeds).toEqual([
-      { matterId: FIRST_RUN_DEMO_MATTER_ID, seedPrompt: FIRST_RUN_SEED_PROMPT },
+      { matterId: FIRST_RUN_DEMO_MATTER_ID, seedPrompt: "" },
     ]);
     // 不再请求首跑弹窗。
     expect(window.sessionStorage.getItem("lm.firstRun.requestOpen")).toBeNull();

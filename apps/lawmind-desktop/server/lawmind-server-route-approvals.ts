@@ -9,6 +9,7 @@
 
 import { createLegalToolRegistry } from "../../../src/lawmind/agent/tools/index.js";
 import { resumeTurn } from "../../../src/lawmind/agent/runtime-resume.js";
+import { continueWorkflowJobsHeldOnSession } from "./lawmind-server-jobs.js";
 import { listSessions } from "../../../src/lawmind/agent/session.js";
 import { resolveApproval } from "../../../src/lawmind/application/services/approval-service.js";
 import { listApprovalRequests } from "../../../src/lawmind/application/services/queue-service.js";
@@ -169,6 +170,9 @@ async function resolveToolApproval(
     resolvedBy,
   };
   const result = await resumeTurn(built.config, registry, input, { registry });
+  if (result.turn.status === "completed") {
+    continueWorkflowJobsHeldOnSession(result.sessionId, built.config, { reply: result.reply });
+  }
   return { result };
 }
 

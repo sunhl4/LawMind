@@ -12,31 +12,18 @@ import {
   readSkillPromptBodies,
 } from "../../../skills/lawyer-capabilities.js";
 import { LAWYER_CAPABILITY_DESK_ITEMS } from "../../../skills/lawyer-capability-lock.js";
-import { listLocalSkills } from "../../../skills/skill-runtime.js";
+import { listProductPlaybooks } from "../../../skills/product-playbooks.js";
 import type { AgentTool } from "../../types.js";
 
 export const READ_SKILL_TOOL_NAME = "read_skill";
 
 const MAX_BODY_CHARS = 12_000;
 
-function listEnabledLocalIds(workspaceDir: string | undefined): string[] {
-  if (!workspaceDir) {
-    return [];
-  }
-  try {
-    return listLocalSkills(workspaceDir)
-      .filter((s) => s.enabled && s.signatureOk)
-      .map((s) => s.id);
-  } catch {
-    return [];
-  }
-}
-
 export const readSkillTool: AgentTool = {
   definition: {
     name: READ_SKILL_TOOL_NAME,
     description:
-      "按需读取一份技能正文（builtin 或本机已启用 Skill）。绑定后索引里的技能不要通读，需要时再调用。可传 skill_id（如 contract-review-layers）或律师能力名（如 合同审查）。省略 skill_id 时返回可执行目录 + 规范库元数据索引（不装包、不执行第三方正文）。",
+      "按需读取一份内置作业标准正文。绑定后索引里的标准不要通读，需要时再调用。可传 skill_id（如 contract-review-layers）或能力名（如 合同审查）。省略 skill_id 时返回产品目录 + 规范库元数据索引（不装包、不执行第三方正文）。工作区里自行放入的 SKILL.md 不会被读取。",
     category: "system",
     parameters: {
       skill_id: {
@@ -51,8 +38,8 @@ export const readSkillTool: AgentTool = {
     const requested = typeof params.skill_id === "string" ? params.skill_id.trim() : "";
     const catalog = [
       ...LAWYER_CAPABILITY_DESK_ITEMS.map((item) => `${item.id}（${item.label}）`),
-      ...listEnabledLocalIds(ctx.workspaceDir).map((id) => `${id}（本机）`),
-    ].slice(0, 40);
+      ...listProductPlaybooks().map((s) => `${s.id}（${s.name}）`),
+    ].slice(0, 80);
     const externalIndex = formatCanonicalSkillIndexCatalog(40);
     if (!requested) {
       return {
@@ -98,7 +85,7 @@ export const readSkillTool: AgentTool = {
           notWhen: canonical.notWhen,
           body: undefined,
           message:
-            "规范库索引条目：仅元数据。不要假装已装第三方 SKILL 正文；消化后应落成本机/builtin Skill 再执行。",
+            "规范库索引条目：仅元数据。不要假装已有第三方正文；消化后应写进 builtin，由软件带上，不能安装。",
         },
       };
     }

@@ -150,6 +150,8 @@ export type UseLawmindFileWorkbenchHostPropsInput = {
   fileWorkbenchMattersPickList: Array<{ id: string; label: string }>;
   matterRefreshVersion: number;
   workspaceCasesMenu: FileWorkbenchCasesNodeActions | null;
+  /** 当前对话范围。有案件时材料树只展开这一案。 */
+  explorerMatterId?: string | null;
 };
 
 export function useLawmindFileWorkbenchHostProps(
@@ -172,6 +174,7 @@ export function useLawmindFileWorkbenchHostProps(
     fileWorkbenchMattersPickList,
     matterRefreshVersion,
     workspaceCasesMenu,
+    explorerMatterId = null,
   } = input;
 
   return useMemo((): LawmindFileWorkbenchHostProps | null => {
@@ -219,6 +222,8 @@ export function useLawmindFileWorkbenchHostProps(
       mattersPickList: fileWorkbenchMattersPickList,
       workspaceTreeRefreshKey: matterRefreshVersion,
       casesNodeActions: workspaceCasesMenu,
+      explorerMatterId,
+      materialsDefaultOpen: isMeeting,
     };
   }, [
     workspaceDir,
@@ -237,5 +242,6 @@ export function useLawmindFileWorkbenchHostProps(
     fileWorkbenchMattersPickList,
     matterRefreshVersion,
     workspaceCasesMenu,
+    explorerMatterId,
   ]);
 }

@@ -69,10 +69,6 @@ const PRIVACY_BODY_RE = /(个人信息保护|处理者|数据出境|隐私政策
 
 export function classifyDocumentGenre(relPath: string, peekText = ""): DocumentGenre {
   const name = fileBaseName(relPath);
-  if (/\.(xlsx|csv)$/i.test(name)) {
-    return "spreadsheet";
-  }
-
   const stem = filenameStem(relPath);
   let fromName: DocumentGenre = "unknown";
   for (const rule of FILENAME_RULES) {
@@ -80,6 +76,18 @@ export function classifyDocumentGenre(relPath: string, peekText = ""): DocumentG
       fromName = rule.genre;
       break;
     }
+  }
+
+  // Only high-precision names beat a spreadsheet extension.
+  // `进项发票.xlsx` / `民事起诉状.xlsx` / `催告函.xlsx` keep their genre.
+  // `服务合同.xlsx` and `证据清单.csv` stay tables: 合同|协议|证据清单 are too wide.
+  const spreadsheetNameWins =
+    fromName === "invoice" ||
+    fromName === "pleading" ||
+    fromName === "letter" ||
+    fromName === "court_notice";
+  if (/\.(xlsx|csv)$/i.test(name) && !spreadsheetNameWins) {
+    return "spreadsheet";
   }
 
   const peek = peekText.slice(0, 8000);

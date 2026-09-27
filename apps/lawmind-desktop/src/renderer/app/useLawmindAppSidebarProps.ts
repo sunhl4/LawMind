@@ -22,9 +22,8 @@ export type UseLawmindAppSidebarPropsInput = {
   mainView: LawmindMainView;
   apiBase?: string;
   setMainView: (view: LawmindMainView) => void;
-  setMatterCockpitOpen: (open: boolean) => void;
-  setAgentsDeskTab?: (tab: import("../lawmind-agents-desk").AgentsDeskTab) => void;
-  setAgentsNeedsDecisionFocus?: (focus: boolean) => void;
+  /** Same inbox opener as the header fallback. */
+  onOpenNeedsDecisionDesk: () => void;
   chatSessions?: SideChatSessionRow[];
   activeChatSessionId?: string;
   chatSessionsLoading?: boolean;
@@ -58,9 +57,7 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
     mainView,
     apiBase,
     setMainView,
-    setMatterCockpitOpen,
-    setAgentsDeskTab,
-    setAgentsNeedsDecisionFocus,
+    onOpenNeedsDecisionDesk,
     chatSessions,
     activeChatSessionId,
     chatSessionsLoading,
@@ -93,12 +90,7 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       matterCockpitOpen,
       mainView,
       apiBase,
-      onOpenNeedsDecisionDesk: () => {
-        setMatterCockpitOpen(false);
-        setAgentsNeedsDecisionFocus?.(true);
-        setAgentsDeskTab?.("active");
-        setMainView("agents");
-      },
+      onOpenNeedsDecisionDesk,
       chatSessions,
       activeChatSessionId,
       chatSessionsLoading,
@@ -143,9 +135,7 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       mainView,
       apiBase,
       setMainView,
-      setMatterCockpitOpen,
-      setAgentsDeskTab,
-      setAgentsNeedsDecisionFocus,
+      onOpenNeedsDecisionDesk,
       chatSessions,
       activeChatSessionId,
       chatSessionsLoading,

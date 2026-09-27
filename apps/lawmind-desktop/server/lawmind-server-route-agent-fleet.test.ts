@@ -40,6 +40,22 @@ describe("lawmind-server-route-agent-fleet", () => {
     await fs.rm(workspaceDir, { recursive: true, force: true });
   });
 
+  it("GET /api/agent-fleet omits growth unless windowDays is set", async () => {
+    const res = mockRes();
+    const handled = await handleAgentFleetRoutes({
+      ctx,
+      req: { method: "GET" } as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/agent-fleet"),
+      pathname: "/api/agent-fleet",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, runs: expect.any(Array) });
+    expect(res.body).not.toHaveProperty("growth");
+  });
+
   it("GET /api/agent-fleet returns summary with growth", async () => {
     const res = mockRes();
     const handled = await handleAgentFleetRoutes({

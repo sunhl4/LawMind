@@ -118,6 +118,7 @@ describe("buildMatterReviewMatrix", () => {
     expect(csv).toMatch(/citation/);
     expect(csv).toMatch(/task-csv|draft:/);
     expect(compareMatrixExcerpts("普通条款", "乙方承担无限责任").danger).toBe(true);
+    expect(compareMatrixExcerpts("赔偿上限为合同价款", "据实赔偿").summary).toContain("责任上限");
     expect(compareMatrixExcerpts("a", "a").changed).toBe(false);
   });
 });

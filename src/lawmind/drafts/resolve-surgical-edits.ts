@@ -28,7 +28,7 @@ export function resolveSurgicalEditsForApply(input: {
       // Fall through to sidecar on unlocked paths.
     }
   } else if (locked) {
-    throw new Error("edits 必须是非空数组，每项为 { find, replace, note? }");
+    throw new Error("edits 必须是非空数组，每项为 { find, replace, note?, occurrences? }");
   }
 
   const plan = readRedlinePlan(input.workspaceDir, input.taskId);
@@ -42,7 +42,7 @@ export function resolveSurgicalEditsForApply(input: {
   }
   throw new Error(
     locked
-      ? "edits 必须是非空数组，每项为 { find, replace, note? }"
+      ? "edits 必须是非空数组，每项为 { find, replace, note?, occurrences? }"
       : "edits 为空，且 drafts/<taskId>.redline-plan.json 无可用条目。请先在意见里写「原句」→「推荐措辞」，或传入 edits。",
   );
 }

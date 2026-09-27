@@ -27,6 +27,47 @@ export type AgentRunStatus =
   | "cancelled"
   | "scheduled";
 
+/** 未完成的交办留在在办里，避免过一夜就从律师眼前消失。 */
+export const FLEET_FAILED_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function isSameLocalDay(iso: string, now = new Date()): boolean {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) {
+    return false;
+  }
+  const d = new Date(t);
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
+}
+
+/**
+ * 今天办完的，以及近几日没有办完的，才进入在办。
+ * 更早的已办完不占列表。
+ */
+export function isFleetSettledVisible(
+  status: AgentRunStatus,
+  stamp: string | undefined,
+  now = new Date(),
+): boolean {
+  if (!stamp) {
+    return false;
+  }
+  const t = Date.parse(stamp);
+  if (!Number.isFinite(t) || t > now.getTime() + 60_000) {
+    return false;
+  }
+  if (status === "failed") {
+    return now.getTime() - t <= FLEET_FAILED_KEEP_MS;
+  }
+  if (status === "completed" || status === "cancelled") {
+    return isSameLocalDay(stamp, now);
+  }
+  return false;
+}
+
 export type AgentRunProgress = {
   total: number;
   completed: number;
@@ -56,6 +97,8 @@ export type AgentRunSummary = {
   createdAt: string;
   /** Lower = higher priority in fleet sort */
   priority: number;
+  /** 失败或超时的一句说明。不是交办原文。 */
+  note?: string;
 };
 
 export type AssistantGrowthRatesView = {

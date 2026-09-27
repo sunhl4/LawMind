@@ -73,17 +73,18 @@ describe("reasoning-validator", () => {
     expect(report.ready).toBe(true);
   });
 
-  it("required=true with single issue blocks render (minIssues=2 default for high-risk)", () => {
+  it("required=true with a single issue warns but does not block render", () => {
     const report = validateReasoningAgainstSpec(
       buildGraph({ overallConfidence: 0.5 }),
       "letter.demand",
     );
     expect(report.required).toBe(true);
-    expect(report.ready).toBe(false);
+    expect(report.ready).toBe(true);
     expect(report.checks.find((c) => c.key === "min_issues")?.passed).toBe(false);
+    expect(report.checks.find((c) => c.key === "min_issues")?.severity).toBe("warning");
   });
 
-  it("required=true with unresolved authority conflicts blocks render", () => {
+  it("unresolved authority conflicts warn and do not block render", () => {
     const report = validateReasoningAgainstSpec(
       buildGraph({
         issueTree: [
@@ -112,15 +113,19 @@ describe("reasoning-validator", () => {
       "letter.demand",
     );
     expect(report.required).toBe(true);
-    expect(report.ready).toBe(false);
+    expect(report.ready).toBe(true);
     expect(report.checks.find((c) => c.key === "authority_conflicts_resolved")?.passed).toBe(false);
+    expect(report.checks.find((c) => c.key === "authority_conflicts_resolved")?.severity).toBe(
+      "warning",
+    );
   });
 
-  it("missing graph but required=true → blocks", () => {
+  it("missing graph warns and does not block render", () => {
     const report = validateReasoningAgainstSpec(undefined, "letter.demand");
     expect(report.required).toBe(true);
-    expect(report.ready).toBe(false);
+    expect(report.ready).toBe(true);
     expect(report.checks[0].key).toBe("graph_present");
+    expect(report.checks[0].severity).toBe("warning");
   });
 
   it("missing graph and required=false → soft warning, ready=true", () => {
@@ -186,8 +191,8 @@ describe("reasoning-validator", () => {
       "letter.demand",
     );
     const hint = report.checks.find((c) => c.key === "facts_grounded")?.hint ?? "";
-    expect(hint).toMatch(/结构性缺口/);
-    expect(hint).toMatch(/不代表本次稿件有质量问题/);
+    expect(hint).toMatch(/没有争点可挂|没有返回这类来源/);
+    expect(hint).toMatch(/不自动等于本次稿件有质量问题/);
   });
 
   it("P0-4a：有事实但不足 minFacts 时，hint 指向补材料（与结构性缺口区分）", () => {

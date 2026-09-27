@@ -24,9 +24,8 @@ import {
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
 import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 import { sendMailViaAccount } from "../../../src/lawmind/mail/index.js";
-import {
-  validateAutomationConfirmations,
-} from "../../../src/lawmind/platform/lawyer-automations.js";
+import { validateAutomationConfirmations } from "../../../src/lawmind/platform/lawyer-automations.js";
+import { validateEventTrigger } from "../../../src/lawmind/platform/automation-event-trigger.js";
 import {
   AUTOMATION_RUN_RETENTION,
   assessAutomationPromotion,
@@ -71,6 +70,7 @@ const createSchema = z.object({
     "custom",
   ]),
   matterId: z.string().trim().min(1),
+  assistantId: z.string().trim().max(80).optional(),
   instruction: z.string().trim().max(4000).optional(),
   schedule: scheduleSchema.optional(),
   enabled: z.boolean().optional(),
@@ -81,6 +81,13 @@ const createSchema = z.object({
   approvalBoundary: z.string().trim().max(500).optional(),
   missingDataPolicy: z.enum(["report_failure", "report_partial", "skip_run"]).optional(),
   notifyPolicy: z.enum(["always", "on_problem", "never"]).optional(),
+  eventTrigger: z
+    .object({
+      source: z.enum(["matter_files", "mail", "webhook"]),
+      match: z.string().trim().max(80),
+      minIntervalMinutes: z.number().optional(),
+    })
+    .optional(),
 });
 
 const customSchema = z.object({
@@ -207,10 +214,20 @@ export async function handleAutomationsRoutes({
       );
       return true;
     }
+    let eventTrigger = body.eventTrigger;
+    if (eventTrigger) {
+      const verdict = validateEventTrigger(eventTrigger);
+      if (!verdict.ok) {
+        sendJsonError(res, 400, "event_trigger_invalid", verdict.message, c);
+        return true;
+      }
+      eventTrigger = verdict.trigger;
+    }
     const automation = createAutomation(workspaceDir, {
       ...body,
       presetId: body.presetId as AutomationPresetId,
       schedule: body.schedule as AutomationSchedule | undefined,
+      eventTrigger,
     });
     sendJson(res, 201, { ok: true, automation }, c);
     return true;
@@ -400,7 +417,7 @@ export async function handleAutomationsRoutes({
       if (remote.ok) {
         item.summary = `${item.summary}\n\n已批准并通过 ${remote.via} 发送（归档 sent/${sentId}）。`;
       } else {
-        item.summary = `${item.summary}\n\n已批准并写入本地 sent/${sentId}；远程发信未成功：${remote.hint || remote.error}。请检查「交办 → 邮箱配置」。`;
+        item.summary = `${item.summary}\n\n已批准并写入本地 sent/${sentId}；远程发信未成功：${remote.hint || remote.error}。请到「设置 → 自动办件」检查邮箱。`;
       }
       saveAutomationInboxItem(workspaceDir, item);
       sendJson(res, 200, { ok: true, item, sentId, remote }, c);

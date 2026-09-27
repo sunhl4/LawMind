@@ -79,8 +79,12 @@ describe("lawyer-capabilities", () => {
     expect(bound?.deliverableType).toBe("contract.general");
     expect(bound?.pipelineHint).toContain("render_tracked_draft");
     expect(bound?.pipelineHint).toContain("不要准备外发邮件");
-    expect(bound?.skillIds).toEqual(["contract-review-layers", "contract-redline-craft"]);
-    expect(bound?.skillIds).toContain("contract-review-layers");
+    expect(bound?.pipelineHint).toContain("contract-playbook-review");
+    expect(bound?.skillIds.slice(0, 2)).toEqual([
+      "contract-review-layers",
+      "contract-redline-craft",
+    ]);
+    expect(bound?.skillIds).toContain("contract-playbook-review");
   });
 
   it("does not bind dialog 立场/导出 to tracked redline when a Word is pinned", () => {
@@ -114,8 +118,54 @@ describe("lawyer-capabilities", () => {
     expect(bound?.id).toBe("litigation.draft");
     expect(bound?.pipeline).toBe("tracked_redline");
     expect(bound?.deliverableType).toBe("document.general");
+    expect(bound?.skillIds.slice(0, 2)).toEqual([
+      "complaint-elements-fill",
+      "evidence-argument-chain",
+    ]);
     expect(bound?.skillIds).not.toContain("contract-redline-craft");
-    expect(bound?.skillIds).toContain("complaint-elements-fill");
+    expect(bound?.skillIds).toContain("litigation-stage-route");
+  });
+
+  it("does not pin the complaint template when the Word is a defense", () => {
+    const bound = bindLawyerCapability({
+      instruction: "帮我改一下",
+      pins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "民事答辩状.docx",
+          kind: "file",
+        },
+      ],
+    });
+    expect(bound?.id).toBe("litigation.draft");
+    expect(bound?.pipeline).toBe("tracked_redline");
+    expect(bound?.skillIds.slice(0, 2)).toEqual([
+      "litigation-stage-route",
+      "evidence-argument-chain",
+    ]);
+    expect(planLeanSkillPrompt(bound!, "帮我改一下").primaryIds).toEqual([
+      "litigation-stage-route",
+      "evidence-argument-chain",
+    ]);
+  });
+
+  it("follows the named target when revising a pleading into another", () => {
+    const bound = bindLawyerCapability({
+      instruction: "帮我改一下，写成答辩状",
+      pins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "民事起诉状.docx",
+          kind: "file",
+        },
+      ],
+    });
+    expect(bound?.skillIds.slice(0, 2)).toEqual([
+      "litigation-stage-route",
+      "evidence-argument-chain",
+    ]);
   });
 
   it("honors an explicit 办件 lock over keywords", () => {
@@ -272,6 +322,16 @@ describe("lawyer-capabilities", () => {
     const bodies = readSkillPromptBodies(undefined, ["contract-review-layers"]);
     const block = formatBoundCapabilityBlock(bound!, bodies);
     expect(block).toContain("不是只能走一条管线");
+  });
+
+  it("prints a capability chain with labels and keeps the order adjustable", () => {
+    const instruction = "审查这份合同并写催告函";
+    const bound = bindLawyerCapability({ instruction });
+    const compiled = compileIntent({ instruction });
+    expect(bound).toBeTruthy();
+    const block = formatBoundCapabilityBlock(bound!, [], { compiled });
+    expect(block).toContain("组合（可调整顺序）：合同审查 → 函件起草");
+    expect(block).not.toContain("contract.review →");
   });
 
   it("reads builtin skill markdown", () => {

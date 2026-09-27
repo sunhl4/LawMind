@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createLawyerWork, workEventsPath } from "../work/store.js";
-import { classifyRejectionLabels, recordRejectionRatchet } from "./rejection-ratchet.js";
+import {
+  classifyRejectionLabels,
+  formatRejectionCoach,
+  recordRejectionRatchet,
+} from "./rejection-ratchet.js";
 
 describe("rejection-ratchet", () => {
   it("maps citation labels to verify and skips bare reject", () => {
@@ -41,5 +45,9 @@ describe("rejection-ratchet", () => {
     const events = fs.readFileSync(workEventsPath(ws, work.workId), "utf8");
     expect(events).toContain("rejection_ratchet");
     expect(events).toContain("verify");
+    const coach = formatRejectionCoach(ws, "t-1");
+    expect(coach).toContain("引用核对");
+    expect(coach).toContain("不是新的禁写规则");
+    expect(formatRejectionCoach(ws, "missing")).toBeUndefined();
   });
 });

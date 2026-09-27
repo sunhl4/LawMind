@@ -212,18 +212,17 @@ export function useLawmindComposeExtras(opts: {
           distillBits.push(`偏好建议 ${j.distill.preferenceSnippetCount} 条`);
         }
         if (j.distill?.suggestionIds?.length) {
-          distillBits.push("待记忆检查采纳");
+          distillBits.push("请到记忆里确认");
         }
         const distillHint = distillBits.length > 0 ? ` · ${distillBits.join(" · ")}` : "";
-        const llmHint = j.usedLlmDigest ? " · 已智能摘要" : "";
         setCompactHint(
           j.compacted
-            ? `已整理上下文${typeof j.droppedMessageCount === "number" ? `（压缩 ${j.droppedMessageCount} 条）` : ""}${llmHint}${distillHint}`
+            ? `这场对话已整理${typeof j.droppedMessageCount === "number" ? `（收起较早的 ${j.droppedMessageCount} 条来回）` : ""}${distillHint}`
             : opts2?.distill
               ? distillHint
-                ? `已沉淀学习${distillHint}`
-                : "未识别到可沉淀的偏好/摘要"
-              : "当前无需压缩",
+                ? `已交给你确认${distillHint}`
+                : "这次没有可记住的习惯"
+              : "这场对话还不需要整理",
         );
         await refreshContextBudget();
       } catch (e) {

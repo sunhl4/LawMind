@@ -19,6 +19,42 @@ describe("application/matter-consistency", () => {
     await fs.rm(workspaceDir, { recursive: true, force: true });
   });
 
+  it("repair adopts CASE.md that has no matter.json and keeps narrative sections", async () => {
+    const { repairMatterProjections } = await import("./matter-consistency.js");
+    const casePath = path.join(workspaceDir, "cases", "matter-orphan", "CASE.md");
+    await fs.mkdir(path.dirname(casePath), { recursive: true });
+    await fs.writeFile(
+      casePath,
+      `# 案件档案：matter-orphan
+
+## 1. 基本信息
+
+- matterId: matter-orphan
+- 案件名称（展示用）: 孤儿档案
+- 客户 / clientId: client-orphan
+- 当前阶段: 已结案
+
+## 4. 核心争点
+
+- 定金是否可没收
+`,
+      "utf8",
+    );
+    const before = await checkMatterConsistency(workspaceDir);
+    expect(before.some((i) => i.code === "missing_matter_json")).toBe(true);
+    await repairMatterProjections(workspaceDir);
+    const record = loadMatter(workspaceDir, "matter-orphan");
+    expect(record?.title).toBe("孤儿档案");
+    expect(record?.clientId).toBe("client-orphan");
+    expect(record?.status).toBe("closed");
+    const raw = await fs.readFile(casePath, "utf8");
+    expect(raw).toContain("定金是否可没收");
+    const after = await checkMatterConsistency(workspaceDir);
+    expect(
+      after.some((i) => i.matterId === "matter-orphan" && i.code === "missing_matter_json"),
+    ).toBe(false);
+  });
+
   it("reports missing matter.json when only CASE.md exists", async () => {
     await ensureCaseWorkspace(workspaceDir, "matter-x");
     const issues = await checkMatterConsistency(workspaceDir);
@@ -89,6 +125,27 @@ describe("application/matter-consistency", () => {
     const issues = await checkMatterConsistency(workspaceDir);
     expect(issues.some((i) => i.matterId === "matter-sens" && i.code === "sensitivity_drift")).toBe(
       true,
+    );
+  });
+
+  it("ignores the CASE template hint in the client field", async () => {
+    await ensureMatterWithProjection(workspaceDir, {
+      matterId: "matter-hint",
+      title: "未填客户",
+    });
+    const casePath = path.join(workspaceDir, "cases", "matter-hint", "CASE.md");
+    let raw = await fs.readFile(casePath, "utf8");
+    const hint =
+      "客户 / clientId: _（与目录 clients/该id/ 下 CLIENT_PROFILE 对应；可与 matterId 同或单独指向常年客户主档案）_";
+    if (/客户\s*\/\s*clientId[:：]/.test(raw)) {
+      raw = raw.replace(/客户\s*\/\s*clientId[:：][^\n]*/, hint);
+    } else {
+      raw = `${raw.trimEnd()}\n- ${hint}\n`;
+    }
+    await fs.writeFile(casePath, raw, "utf8");
+    const issues = await checkMatterConsistency(workspaceDir);
+    expect(issues.some((i) => i.matterId === "matter-hint" && i.code === "client_drift")).toBe(
+      false,
     );
   });
 

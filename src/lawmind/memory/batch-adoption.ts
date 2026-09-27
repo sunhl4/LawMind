@@ -12,6 +12,7 @@
  * 未确认的一条都不写；写入面缺失的条目按既有口径记 `recorded_noop`，不假装生效。
  */
 
+import { isDealSpecificLearningText } from "../learning/draft-edit-learning.js";
 import { adoptLearningSuggestion } from "../learning/suggestion-queue.js";
 import { applyMemoryAdoptionWrite } from "./adoption-apply.js";
 import { buildAdoptionPreviewDiff } from "./adoption-preview-diff.js";
@@ -42,8 +43,18 @@ export function learningSuggestionId(id: string): string | undefined {
   return raw || undefined;
 }
 
-export function isLowRiskStyleAdoption(item: { kind: string }): boolean {
-  return (LOW_RISK_STYLE_KINDS as readonly string[]).includes(item.kind);
+export function isLowRiskStyleAdoption(item: { kind: string; payload?: string }): boolean {
+  if (!(LOW_RISK_STYLE_KINDS as readonly string[]).includes(item.kind)) {
+    return false;
+  }
+  if (
+    (item.kind === "lawyer.profile_learning" || item.kind === "lawyer.habit_pattern") &&
+    item.payload &&
+    isDealSpecificLearningText(item.payload)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function payloadSummary(payload: string): string {

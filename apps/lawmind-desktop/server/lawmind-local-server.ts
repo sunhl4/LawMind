@@ -22,8 +22,6 @@ import path from "node:path";
 import { bootstrapLawMindDesktopEnv } from "./lawmind-desktop-env-bootstrap.js";
 import { restoreDelegationsFromDisk } from "../../../src/lawmind/agent/collaboration/index.js";
 import { ensureBuiltinWorkflowSeeds } from "../../../src/lawmind/agent/collaboration/ensure-workflow-seeds.js";
-import { ensureBuiltinSkillSeeds } from "../../../src/lawmind/skills/ensure-builtin-skill-seeds.js";
-import { resolveSkillSigningSecretSource } from "../../../src/lawmind/skills/skill-runtime.js";
 import { startAuditExternalAnchorSync } from "../../../src/lawmind/audit/external-anchor.js";
 import { loadAndApplyLawMindPolicy } from "./lawmind-policy.js";
 import { corsHeaders, LAWMIND_LOCAL_HOST, LAWMIND_LOCAL_HOST_V6 } from "./lawmind-server-helpers.js";
@@ -34,7 +32,7 @@ import {
   initLocalApiCredentialsFromEnv,
   initLoopbackBearerFromEnv,
 } from "./lawmind-local-api-auth.js";
-import { registerRateLimitBucket, TokenBucket } from "./lawmind-local-rate-limit.js";
+import { isShellLaneRequest, registerRateLimitBucket, TokenBucket } from "./lawmind-local-rate-limit.js";
 import { getGlobalSseBus } from "./lawmind-sse-bus.js";
 import {
   noteUncaughtException,
@@ -50,7 +48,7 @@ import { buildAgentConfig } from "./lawmind-server-helpers.js";
 import {
   getSearchIndexStatus,
   indexExists,
-  rebuildWorkspaceSearchIndex,
+  syncWorkspaceSearchIndex,
 } from "../../../src/lawmind/indexing/index.js";
 import { computeSearchIndexFreshness } from "../../../src/lawmind/indexing/fts-search.js";
 import { readWorkspacePolicyFile } from "../../../src/lawmind/policy/workspace-policy.js";
@@ -350,10 +348,7 @@ async function main() {
     process.on("SIGTERM", stop);
     process.on("SIGINT", stop);
   }
-  // 先把 .env.lawmind 加载进 process.env，再动任何「要读密钥」的事情。
-  // 顺序是硬约束：`ensureBuiltinSkillSeeds` 会用签名密钥签 SKILL.sig，而消费方
-  // （listLocalSkills → skill-match / read_skill）用**加载后**的密钥验签；
-  // 若 seed 跑在 env 之前，签的是 `derived` 兜底值，验签必然不通过 ⇒ Skill 静默失效。
+  // 作业标准在安装包的 builtin/ 里，启动不往工作区抄 SKILL.md。
   const { userEnvPath } = bootstrapLawMindDesktopEnv({
     workspaceDir,
     envFile,
@@ -366,22 +361,6 @@ async function main() {
       `[lawmind-local-server] seeded workflow templates: ${wfSeed.created.join(", ")}`,
     );
   }
-  // 显式把「此刻解析出来的密钥」交给 seed，避免它自己去猜来源（见上面的顺序约束）。
-  const skillSecret = resolveSkillSigningSecretSource(workspaceDir);
-  if (skillSecret.source === "derived") {
-    console.error(
-      "[lawmind-local-server] 警告：未配置 Skill 签名密钥，正在用「按工作区路径派生」的兜底值。" +
-        "它不是秘密，任何知道该路径的人都能伪造 SKILL.md + SKILL.sig；打包部署请设 " +
-        "LAWMIND_SKILL_SIGNING_SECRET（见 docs/lawmind/LAWMIND-SKILLS-SIGNING.md）。",
-    );
-  }
-  const skillSeed = ensureBuiltinSkillSeeds(workspaceDir, { secret: skillSecret.secret });
-  if (skillSeed.created.length > 0 || skillSeed.upgraded.length > 0) {
-    console.error(
-      `[lawmind-local-server] seeded skills: created=${skillSeed.created.join(",") || "—"} upgraded=${skillSeed.upgraded.join(",") || "—"}`,
-    );
-  }
-
   // 桌面端默认开启全轮次 token 流式，便于对话区展示模型真实输出（Cursor 式）
   if (!process.env.LAWMIND_STRICT_TOOL_STREAM?.trim()) {
     process.env.LAWMIND_STRICT_TOOL_STREAM = "0";
@@ -484,7 +463,8 @@ async function main() {
   });
   const autoRebuildSearchIndexIfStale = () => {
     try {
-      // policy 门禁（默认关）：searchIndexAutoRebuild=true 才允许过期自动轻量重建。
+      // policy 门禁（默认关）：searchIndexAutoRebuild=true 才在后台把改过的文件补进索引。
+      // 律师检索本身会增量同步，不依赖这个开关，也不再按 24 小时整库重建。
       const policy = readWorkspacePolicyFile(workspaceDir);
       if (policy?.searchIndexAutoRebuild !== true) {
         return;
@@ -493,7 +473,7 @@ async function main() {
       if (!computeSearchIndexFreshness(status).stale) {
         return;
       }
-      void rebuildWorkspaceSearchIndex(workspaceDir).catch(() => {
+      void syncWorkspaceSearchIndex(workspaceDir).catch(() => {
         /* best-effort */
       });
     } catch {
@@ -561,13 +541,17 @@ async function main() {
     });
   }
 
-  if (!indexExists(workspaceDir)) {
-    void rebuildWorkspaceSearchIndex(workspaceDir).catch(() => {
-      /* best-effort background index */
-    });
-  }
+  const rebuildMissingSearchIndex = (): void => {
+    if (!indexExists(workspaceDir)) {
+      void syncWorkspaceSearchIndex(workspaceDir).catch(() => {
+        /* best-effort background index */
+      });
+    }
+  };
 
   if (daemonMode) {
+    // 守护进程不起 HTTP，缺索引要在这里补。桌面进程改到 listen 成功之后，避免挡在端口前面。
+    rebuildMissingSearchIndex();
     console.error(`[lawmindd] workspace=${workspaceDir} pid=${process.pid}`);
     return;
   }
@@ -584,20 +568,38 @@ async function main() {
 
   // 两个监听（IPv4 / IPv6 回环）共用同一个 handler 与同一个限流桶。
   const handleRequest = (req: http.IncomingMessage, res: http.ServerResponse): void => {
-    if (!rateBucket.tryConsume(1)) {
+    const pathname = (req.url ?? "/").split("?")[0] || "/";
+    if (!isShellLaneRequest(req.method, pathname) && !rateBucket.tryConsume(1)) {
       // 限流响应也要带 CORS 头，否则浏览器侧拿不到错误体（只看到网络错误）。
       res.writeHead(429, { "content-type": "application/json", ...corsHeaders(req.headers.origin) });
-      res.end(JSON.stringify({ ok: false, error: "rate_limited" }));
+      res.end(JSON.stringify({ ok: false, error: "rate_limited", code: "rate_limited" }));
       return;
     }
     void lawmindHandleHttpRequest(ctx, req, res);
   };
 
+  const tuneLoopbackServer = (httpServer: http.Server): void => {
+    // 默认 keep-alive 只有 5 秒。切对话 / 工作台 / 在办时连接已经拆掉，每次都要重新握手。
+    // 拉长到一分钟，让界面切换复用同一条回环连接。headersTimeout 必须大于 keepAliveTimeout。
+    httpServer.keepAliveTimeout = 65_000;
+    httpServer.headersTimeout = 70_000;
+  };
+
   const server = http.createServer(handleRequest);
+  tuneLoopbackServer(server);
+  server.on("error", (err) => {
+    // 端口被占时必须在这里退出。没有监听的话 Node 会当成 uncaughtException，
+    // 体检把「端口冲突」记成进程已损坏。
+    console.error(
+      `[lawmind-local-server] IPv4 回环监听失败: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exit(1);
+  });
   // `localhost` 在 macOS 上同时解析到 `::1` 与 `127.0.0.1`，WebKit（Word 任务窗格）多半先试 `::1`。
   // 只绑 IPv4 时，用 `http://localhost:<port>` 打开的客户会连不上，Word 里报「无法加载该加载项」。
   // 所以同一个 handler 再挂一个 IPv6 回环监听；仍是回环，不对局域网暴露。
   const serverV6 = http.createServer(handleRequest);
+  tuneLoopbackServer(serverV6);
   serverV6.on("error", (err) => {
     // best-effort：内核无 IPv6、端口被占、权限不足都不该阻断主服务启动。
     console.error(
@@ -607,6 +609,7 @@ async function main() {
 
   server.listen(port, LAWMIND_LOCAL_HOST, () => {
     console.error(`[lawmind-local-server] http://${LAWMIND_LOCAL_HOST}:${port} workspace=${workspaceDir}`);
+    rebuildMissingSearchIndex();
   });
   serverV6.listen(port, LAWMIND_LOCAL_HOST_V6, () => {
     console.error(

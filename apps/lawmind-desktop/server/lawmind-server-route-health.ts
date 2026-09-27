@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import { resolveConversationLength } from "../../../src/lawmind/agent/context-preset.js";
 import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
+import { effectivePolicyRows } from "../../../src/lawmind/policy/commercial-policy.js";
 import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
 import {
-  readWorkspacePolicyFile,
+  inspectWorkspacePolicyFile,
   resolveEgressMode,
 } from "../../../src/lawmind/policy/workspace-policy.js";
 import { resolveCitationMode } from "../../../src/lawmind/policy/citation-mode.js";
@@ -127,8 +129,8 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
           authorityCorpus: summary,
           note:
             summary.provider === "lexis"
-              ? "Lexis 适配器尚未实现；探测不会对占位端点报成功。"
-              : "权威适配器尚未实现（status=unimplemented）；探测 fail-closed。",
+              ? "Lexis 还没接上，这次检查不会当成成功。"
+              : "这一来源还没接上，这次检查不会当成成功。",
         },
         c,
       );
@@ -139,7 +141,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
         res,
         400,
         "authority_endpoint_unset",
-        summary.message || "未配置 LAWMIND_AUTHORITY_ENDPOINT，无法探测。",
+        summary.message || "权威库还没接上，无法检查。",
         c,
         { authorityCorpus: summary },
       );
@@ -150,7 +152,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
         res,
         400,
         "authority_endpoint_invalid",
-        summary.message || "权威端点配置无效（fail-closed）。",
+        summary.message || "权威库地址无效，已停止连接。",
         c,
         { authorityCorpus: summary },
       );
@@ -187,7 +189,8 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
   // `ctx.policy` 是**启动时**的快照（lawmind-local-server 只在 boot 调一次
   // loadAndApplyLawMindPolicy）。健康检查要报当前真值，所以这里重新读盘；
   // `path` / `applied` 仍取启动快照，并在返回里标明它只代表启动时应用过的键。
-  const livePolicy = readWorkspacePolicyFile(workspaceDir);
+  const liveInspection = inspectWorkspacePolicyFile(workspaceDir);
+  const livePolicy = liveInspection.policy;
   const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
   const catalog = buildModelCatalog(lawMindRoot);
   const built = buildAgentConfig(workspaceDir, { envFile });
@@ -229,6 +232,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
     reasoningModeRaw || (draftWithModelActive ? "model" : "off");
   const lawmindAgentMaxToolCalls = resolveAgentMaxToolCallsPerTurn(workspaceDir);
   const capabilityEnvelope = {
+    conversationLength: resolveConversationLength(livePolicy?.conversationLength),
     contextTokens: built.config?.model?.contextTokens ?? null,
     maxOutputTokens: built.config?.model?.maxTokens ?? null,
     temperature: built.config?.model?.temperature ?? null,
@@ -384,21 +388,18 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
         repoEnvPath: repoEnvPath || null,
         repoEnvExists: repoEnvPath ? fs.existsSync(repoEnvPath) : false,
       },
-      policy: policy.loaded
-        ? {
-            loaded: true,
-            path: policy.path,
-            /** 启动时应用过的键（快照，不随 PATCH 变化）。 */
-            applied: policy.applied,
-            egressMode,
-            // 原始偏好：离线模式下被压制但不被改写，退出离线后自动恢复。
-            allowWebSearch: livePolicy?.allowWebSearch ?? null,
-            retrievalMode: livePolicy?.retrievalMode ?? null,
-            enableCollaboration: livePolicy?.enableCollaboration ?? null,
-            networkAllowlist: livePolicy?.networkAllowlist ?? null,
-            networkAllowlistEnforced: livePolicy?.networkAllowlistEnforced ?? null,
-          }
-        : { loaded: false },
+      policy: {
+        loaded: Boolean(livePolicy),
+        path: policy.loaded ? policy.path : null,
+        applied: policy.loaded ? policy.applied : [],
+        effective: effectivePolicyRows(livePolicy),
+        rejected: liveInspection.rejected,
+        migrated: liveInspection.migrated,
+        egressMode,
+        allowWebSearch: livePolicy?.allowWebSearch ?? null,
+        networkAllowlist: livePolicy?.networkAllowlist ?? null,
+        networkAllowlistEnforced: livePolicy?.networkAllowlistEnforced ?? null,
+      },
     },
     c,
   );

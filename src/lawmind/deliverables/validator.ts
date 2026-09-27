@@ -12,6 +12,7 @@
  */
 
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
+import { buildObjectiveContentChecks } from "./content-checks.js";
 import { inferDeliverableTypeForAcceptance } from "./draft-deliverable-infer.js";
 import { heuristicPlaceholderRatio } from "./draft-sanity.js";
 import {
@@ -31,9 +32,29 @@ function normalizeHeading(heading: string): string {
   return heading.replace(/\s+/g, "").toLowerCase();
 }
 
-function sectionMatches(section: ArtifactSection, keywords: string[]): boolean {
-  const haystack = `${normalizeHeading(section.heading)} ${normalizeHeading(section.body.slice(0, 80))}`;
-  return keywords.some((keyword) => haystack.includes(normalizeHeading(keyword)));
+function keywordToken(keyword: string): string {
+  return normalizeHeading(keyword);
+}
+
+function sectionMatches(
+  section: ArtifactSection,
+  keywords: string[],
+  claimedKeywords: readonly string[] = keywords,
+): boolean {
+  const tokens = keywords.map(keywordToken).filter((token) => token.length >= 2);
+  if (tokens.length === 0) {
+    return false;
+  }
+  const heading = normalizeHeading(section.heading);
+  if (tokens.some((token) => heading.includes(token))) {
+    return true;
+  }
+  const claimed = claimedKeywords.map(keywordToken).filter((token) => token.length >= 2);
+  if (claimed.some((token) => heading.includes(token))) {
+    return false;
+  }
+  const prefix = normalizeHeading(section.body.slice(0, 80));
+  return tokens.some((token) => prefix.includes(token));
 }
 
 function findPlaceholders(draft: ArtifactDraft, pattern: RegExp): string[] {
@@ -58,17 +79,23 @@ function findPlaceholders(draft: ArtifactDraft, pattern: RegExp): string[] {
   return matches;
 }
 
+function claimedKeywords(spec: DeliverableSpec): string[] {
+  return spec.requiredSections.flatMap((section) => section.headingKeywords);
+}
+
 function buildSectionChecks(draft: ArtifactDraft, spec: DeliverableSpec): AcceptanceCheck[] {
+  const claimed = claimedKeywords(spec);
   return spec.requiredSections.map((req, idx) => {
-    const passed = draft.sections.some((section) => sectionMatches(section, req.headingKeywords));
+    const passed = draft.sections.some((section) =>
+      sectionMatches(section, req.headingKeywords, claimed),
+    );
     return {
       key: `section.${idx}.${req.headingKeywords[0] ?? "section"}`,
       label: `${req.purpose}（关键词：${req.headingKeywords.join(" / ")}）`,
       passed,
-      severity: req.severity,
-      hint: passed
-        ? undefined
-        : `未发现"${req.purpose}"对应章节。建议补充包含 ${req.headingKeywords.join("、")} 等关键词的章节。`,
+      // 标题关键词是结构提示，不是空交付。缺节只警告，不挡导出（铁律 5）。
+      severity: "warning",
+      hint: passed ? undefined : `请补上「${req.purpose}」。`,
     };
   });
 }
@@ -121,7 +148,7 @@ function buildContractReviewClauseAnchorCheck(
     key: "contract.review.clause_anchor",
     label: "主要风险须锚定条款（第×条 / Article / 〔待核实〕）",
     passed,
-    severity: "blocker",
+    severity: "warning",
     hint: passed ? undefined : "风险章节须引用「第×条」或 Article N；无法核实时写〔待核实〕。",
   };
 }
@@ -215,10 +242,13 @@ function buildCriteriaCoverageCheck(draft: ArtifactDraft, spec: DeliverableSpec)
   }
   // 简单结构覆盖：必要章节全过即视为 acceptanceCriteria 已被结构性覆盖。
   // 真正的语义覆盖留给后续 LLM-graded eval。
-  const sectionChecks = buildSectionChecks(draft, spec);
-  const blockerSectionsPassed = sectionChecks
-    .filter((c) => c.severity === "blocker")
-    .every((c) => c.passed);
+  const declaredBlockers = spec.requiredSections.filter(
+    (section) => section.severity === "blocker",
+  );
+  const claimed = claimedKeywords(spec);
+  const blockerSectionsPassed = declaredBlockers.every((section) =>
+    draft.sections.some((candidate) => sectionMatches(candidate, section.headingKeywords, claimed)),
+  );
   return {
     key: "criteria.coverage",
     label: `验收标准覆盖（共 ${criteria.length} 条）`,
@@ -226,7 +256,15 @@ function buildCriteriaCoverageCheck(draft: ArtifactDraft, spec: DeliverableSpec)
     severity: "warning",
     hint: blockerSectionsPassed
       ? undefined
-      : "部分必要章节缺失，导致验收标准未被结构性覆盖；请先补齐 blocker 章节。",
+      : `还缺：${declaredBlockers
+          .filter(
+            (section) =>
+              !draft.sections.some((candidate) =>
+                sectionMatches(candidate, section.headingKeywords, claimed),
+              ),
+          )
+          .map((section) => section.purpose)
+          .join("、")}。缺标题不挡导出，请补上对应节。`,
   };
 }
 
@@ -289,6 +327,7 @@ export const validateDraftAgainstSpec: ValidateDraftFn = (
   if (scaffold) {
     checks.push(scaffold);
   }
+  checks.push(...buildObjectiveContentChecks(draft, spec));
 
   const blockerCount = checks.filter((c) => c.severity === "blocker" && !c.passed).length;
   const warningCount = checks.filter((c) => c.severity === "warning" && !c.passed).length;

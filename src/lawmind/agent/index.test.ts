@@ -552,13 +552,15 @@ describe("System Prompt", () => {
     expect(prompt).toContain("read_project_file");
   });
 
-  it("includes team meeting mode section when teamMeetingMode is true", () => {
+  it("does not put a team-meeting script or a writer self-check into the prompt", () => {
     const prompt = buildSystemPrompt({
       availableTools: [],
-      teamMeetingMode: true,
+      roleTitle: "合同审查",
+      roleDirective: "从权利义务拆解条款。",
     });
-    expect(prompt).toContain("团队会议室模式");
-    expect(prompt).toContain("delegate_task");
+    expect(prompt).toContain("合同审查");
+    expect(prompt).not.toContain("团队会议室模式");
+    expect(prompt).not.toContain("交付前自检清单");
   });
 
   it("includes linked draft task id when linkedTaskId is set", () => {

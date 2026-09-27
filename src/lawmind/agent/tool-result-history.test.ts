@@ -52,6 +52,8 @@ describe("tool-result-history", () => {
         guardian: { verdict: "fail", gaps: [{ code: "coverage_gap", message: "缺口" }] },
         redlinePending: 3,
         warning: "幅度较大",
+        skipped: [{ reason: "anchor_miss" }],
+        appliedCount: 2,
         applied: Array.from({ length: 200 }, (_, i) => ({
           find: `find-${i}-${"x".repeat(80)}`,
           replace: `rep-${i}`,
@@ -68,6 +70,8 @@ describe("tool-result-history", () => {
     expect(slim.data?.guardian).toEqual(huge.data.guardian);
     expect(slim.data?.redlinePending).toBe(3);
     expect(slim.data?.warning).toBe("幅度较大");
+    expect(slim.data?.skipped).toEqual([{ reason: "anchor_miss" }]);
+    expect(slim.data?.appliedCount).toBe(2);
   });
 
   it("CJK counts ~1 token per char under an explicit cap; ASCII does not", () => {

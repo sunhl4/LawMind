@@ -2,7 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ensureBuiltinSkillSeeds } from "./ensure-builtin-skill-seeds.js";
+import { BUILTIN_SKILL_SEED_IDS, ensureBuiltinSkillSeeds } from "./ensure-builtin-skill-seeds.js";
+import { productPlaybookIds } from "./product-playbooks.js";
 import { listLocalSkills, skillSignatureSecret, verifySkillSignature } from "./skill-runtime.js";
 
 describe("ensureBuiltinSkillSeeds", () => {
@@ -60,5 +61,13 @@ describe("ensureBuiltinSkillSeeds", () => {
     expect(verifySkillSignature(body, sig, viaEnv).ok).toBe(true);
     // 用「派生的兜底值」验同一份签名必须失败（否则说明它根本没听调用方）。
     expect(verifySkillSignature(body, sig, skillSignatureSecret(ws)).ok).toBe(false);
+  });
+
+  it("seeds every product playbook file", () => {
+    const seeded = new Set<string>(BUILTIN_SKILL_SEED_IDS);
+    for (const id of productPlaybookIds()) {
+      expect(seeded.has(id), id).toBe(true);
+    }
+    expect(seeded.size).toBe(productPlaybookIds().length);
   });
 });

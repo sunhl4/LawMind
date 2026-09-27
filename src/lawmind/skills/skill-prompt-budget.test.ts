@@ -55,6 +55,47 @@ describe("skill-prompt-budget", () => {
     ]);
   });
 
+  it("does not inject the complaint template when the complaint is only the source", () => {
+    const bound = bindLawyerCapability({ instruction: "根据起诉状写答辩状" });
+    expect(bound?.id).toBe("litigation.draft");
+    expect(primarySkillIdsForBound(bound!, "根据起诉状写答辩状")).toEqual([
+      "litigation-stage-route",
+      "evidence-argument-chain",
+    ]);
+  });
+
+  it("keeps the complaint template when 答辩状 is only the source", () => {
+    const instruction = "针对被告的答辩状写一份起诉状";
+    const bound = bindLawyerCapability({ instruction });
+    expect(bound?.id).toBe("litigation.draft");
+    expect(primarySkillIdsForBound(bound!, instruction)).toEqual([
+      "complaint-elements-fill",
+      "evidence-argument-chain",
+    ]);
+  });
+
+  it("does not inject the complaint template for 答辩状", () => {
+    const bound = bindLawyerCapability({ instruction: "写答辩状" });
+    expect(bound?.id).toBe("litigation.draft");
+    expect(primarySkillIdsForBound(bound!, "写答辩状")).toEqual([
+      "litigation-stage-route",
+      "evidence-argument-chain",
+    ]);
+  });
+
+  it("injects both timeline skills and the status scope skill", () => {
+    const timeline = bindLawyerCapability({ instruction: "把这些材料做成时间轴" });
+    expect(primarySkillIdsForBound(timeline!, "把这些材料做成时间轴")).toEqual([
+      "chronology-two-stage",
+      "chronology-from-materials",
+    ]);
+    const status = bindLawyerCapability({ instruction: "写本案办案周报" });
+    expect(primarySkillIdsForBound(status!, "写本案办案周报")).toEqual([
+      "matter-status-report",
+      "matter-status-scope-budget",
+    ]);
+  });
+
   it("non-contract skills carry 交件量规 in the injected body", () => {
     const samples: Array<{ instruction: string; needle: string }> = [
       { instruction: "他一直拖欠工资这算不算违法", needle: "交件量规" },

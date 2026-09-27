@@ -10,6 +10,8 @@ import {
   findWorkflowDependencyCycle,
   resolveCollabStepTimeoutMs,
   resolveStepAssigneeByRole,
+  buildWorkflowReport,
+  releaseWorkflowLawyerHold,
 } from "./executor.js";
 import type { CollaborationWorkflow, WorkflowStep } from "./types.js";
 
@@ -34,6 +36,7 @@ vi.mock("../collaboration/delegation-registry.js", () => ({
     startedAt: new Date().toISOString(),
   }),
   markDelegationRunning: vi.fn(),
+  markDelegationAwaitingLawyer: vi.fn(),
   markDelegationCompleted: vi.fn(),
   markDelegationFailed: vi.fn(),
 }));
@@ -177,6 +180,104 @@ describe("resolveStepAssigneeByRole", () => {
     };
     resolveStepAssigneeByRole(workspaceDir, step, envFile);
     expect(step.assignee).toBe("default");
+    expect(step.roleMissNote).toContain("没有承担");
+    expect(step.roleMissNote).toContain("默认助手");
+    fs.rmSync(lawMindRoot, { recursive: true, force: true });
+  });
+
+  it("refuses to reassign a missing role when several assistants are on the roster", () => {
+    const lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lm-root3-"));
+    const workspaceDir = path.join(lawMindRoot, "workspace");
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    upsertAssistant(lawMindRoot, {
+      assistantId: "default",
+      displayName: "默认助手",
+      introduction: "",
+      presetKey: "general_default",
+    });
+    upsertAssistant(lawMindRoot, {
+      assistantId: "lit",
+      displayName: "诉讼助手",
+      introduction: "",
+      presetKey: "general_litigation",
+    });
+    const envFile = path.join(lawMindRoot, ".env.lawmind");
+    fs.writeFileSync(envFile, "x=1\n", "utf8");
+    const step: WorkflowStep = {
+      stepId: "redline",
+      assignee: "contract_review",
+      assigneeRoleId: "contract_review",
+      task: "edit",
+      dependsOn: [],
+      autoApprove: true,
+      status: "pending",
+    };
+    expect(() => resolveStepAssigneeByRole(workspaceDir, step, envFile)).toThrow(/不能改派/);
+    fs.rmSync(lawMindRoot, { recursive: true, force: true });
+  });
+
+  it("maps a legacy template name onto the real role when someone holds it", () => {
+    const lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lm-root-alias-"));
+    const workspaceDir = path.join(lawMindRoot, "workspace");
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    upsertAssistant(lawMindRoot, {
+      assistantId: "memo",
+      displayName: "备忘录",
+      introduction: "",
+      presetKey: "client_memo",
+    });
+    upsertAssistant(lawMindRoot, {
+      assistantId: "default",
+      displayName: "默认助手",
+      introduction: "",
+      presetKey: "general_default",
+    });
+    const envFile = path.join(lawMindRoot, ".env.lawmind");
+    fs.writeFileSync(envFile, "x=1\n", "utf8");
+    const step: WorkflowStep = {
+      stepId: "deck",
+      assignee: "client_communicator",
+      task: "课件",
+      dependsOn: [],
+      autoApprove: true,
+      status: "pending",
+    };
+    resolveStepAssigneeByRole(workspaceDir, step, envFile);
+    expect(step.assignee).toBe("memo");
+    expect(step.roleMissNote).toBeUndefined();
+    fs.rmSync(lawMindRoot, { recursive: true, force: true });
+  });
+
+  it("does not block a legacy template name when nobody holds the mapped role", () => {
+    const lawMindRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lm-root-alias2-"));
+    const workspaceDir = path.join(lawMindRoot, "workspace");
+    fs.mkdirSync(workspaceDir, { recursive: true });
+    upsertAssistant(lawMindRoot, {
+      assistantId: "default",
+      displayName: "默认助手",
+      introduction: "",
+      presetKey: "general_default",
+    });
+    upsertAssistant(lawMindRoot, {
+      assistantId: "lit",
+      displayName: "诉讼助手",
+      introduction: "",
+      presetKey: "general_litigation",
+    });
+    const envFile = path.join(lawMindRoot, ".env.lawmind");
+    fs.writeFileSync(envFile, "x=1\n", "utf8");
+    const step: WorkflowStep = {
+      stepId: "deck",
+      assignee: "client_communicator",
+      task: "课件",
+      dependsOn: [],
+      autoApprove: true,
+      status: "pending",
+    };
+    resolveStepAssigneeByRole(workspaceDir, step, envFile);
+    expect(step.assignee).toBe("default");
+    expect(step.roleMissNote).toContain("客户沟通与备忘录");
+    expect(step.roleMissNote).toContain("默认助手");
     fs.rmSync(lawMindRoot, { recursive: true, force: true });
   });
 });
@@ -339,5 +440,102 @@ describe("executeWorkflow dependency graph hardening", () => {
     expect(mockSendAndWait).toHaveBeenCalledTimes(7);
     expect(maxInFlight).toBe(3);
     fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("writes named workflow steps on a deliver turn, and reviews them in isolation", async () => {
+    const workspaceDir = tmpWorkspace();
+    const workflow = wfTwoStepChain();
+    workflow.steps = [
+      {
+        ...workflow.steps[0],
+        autoApprove: false,
+        reviewBy: "reviewer",
+      },
+    ];
+    workflow.preApproveToolNames = ["apply_surgical_edits", "render_tracked_draft", "send_email"];
+    await executeWorkflow(stubConfig(workspaceDir), workflow);
+    const executions = mockSendAndWait.mock.calls.map(
+      (call) => (call[0] as { execution?: string }).execution,
+    );
+    expect(executions).toEqual(["deliver", "isolated"]);
+    expect(mockSendAndWait.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        preApproveToolNames: ["apply_surgical_edits", "render_tracked_draft"],
+      }),
+    );
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("reads peer-review steps in isolation", async () => {
+    const workspaceDir = tmpWorkspace();
+    const workflow = wfTwoStepChain();
+    workflow.steps[1] = {
+      ...workflow.steps[1],
+      task: "互审合同审查意见：核对风险分级",
+    };
+    await executeWorkflow(stubConfig(workspaceDir), workflow);
+    const executions = mockSendAndWait.mock.calls.map(
+      (call) => (call[0] as { execution?: string }).execution,
+    );
+    expect(executions).toEqual(["deliver", "isolated"]);
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("does not start the next step while a turn is waiting on the lawyer", async () => {
+    const workspaceDir = tmpWorkspace();
+    mockSendAndWait.mockResolvedValue({
+      reply: "请确认大纲",
+      sessionId: "sess-1",
+      hold: "awaiting_clarification",
+    });
+    const workflow = wfTwoStepChain();
+    const finished = await executeWorkflow(stubConfig(workspaceDir), workflow);
+    expect(finished.status).toBe("awaiting_lawyer");
+    expect(finished.steps[0]?.status).toBe("awaiting_lawyer");
+    expect(finished.steps[0]?.sessionId).toBe("sess-1");
+    expect(finished.steps[1]?.status).toBe("pending");
+    expect(mockSendAndWait).toHaveBeenCalledTimes(1);
+    expect(buildWorkflowReport(finished)).toContain("待确认");
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("holds an outline step until the lawyer confirms, then continues", async () => {
+    const workspaceDir = tmpWorkspace();
+    const workflow = wfTwoStepChain();
+    workflow.steps[0] = {
+      ...workflow.steps[0],
+      task: "输出课件大纲并等待律师确认（research_outline_confirm）",
+    };
+    mockSendAndWait.mockResolvedValue({
+      reply: "一、开场",
+      sessionId: "sess-1",
+    });
+    const held = await executeWorkflow(stubConfig(workspaceDir), workflow);
+    expect(held.status).toBe("awaiting_lawyer");
+    expect(held.steps[1]?.status).toBe("pending");
+    expect(releaseWorkflowLawyerHold(held)).toBe(true);
+    mockSendAndWait.mockResolvedValue({
+      reply: "正文已写",
+      sessionId: "sess-2",
+    });
+    const finished = await executeWorkflow(stubConfig(workspaceDir), held);
+    expect(finished.status).toBe("completed");
+    expect(finished.steps[1]?.status).toBe("completed");
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+});
+
+describe("buildWorkflowReport", () => {
+  it("shows the lawyer who covered a missing role", () => {
+    const workflow = wfTwoStepChain();
+    workflow.steps[0] = {
+      ...workflow.steps[0],
+      status: "completed",
+      result: "意见已写好",
+      roleMissNote: "没有承担「合同审查」的助手。本步由「默认助手」办理。",
+    };
+    const report = buildWorkflowReport(workflow);
+    expect(report).toContain("没有承担「合同审查」的助手");
+    expect(report).toContain("默认助手");
   });
 });

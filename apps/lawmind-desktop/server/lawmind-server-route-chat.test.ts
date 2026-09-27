@@ -5,6 +5,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleChatRoute } from "./lawmind-server-route-chat.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
+import { EMBED_TURN_EVENT_TYPES } from "../../../src/lawmind/agent/embed-turn-events.js";
 
 const mockChat = vi.fn();
 
@@ -709,7 +710,7 @@ describe("lawmind-server-route-chat", () => {
     });
     expect(mockChat).not.toHaveBeenCalled();
     expect(capture.status).toBe(400);
-    expect(capture.json()).toMatchObject({ ok: false, code: "meeting_matter_required" });
+    expect(capture.json()).toMatchObject({ ok: false, code: "meeting_retired" });
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -785,21 +786,9 @@ describe("lawmind-server-route-chat", () => {
       pathname: "/api/chat",
       c: {},
     });
-    expect(capture.status).toBe(200);
-    expect(mockChat).toHaveBeenCalledTimes(1);
-    const firstArg = mockChat.mock.calls[0][0] as string;
-    expect(firstArg).toContain("本会发言主题");
-    expect(firstArg).toContain("议题 A");
-    expect(mockChat.mock.calls[0][1]).toMatchObject({ teamMeetingMode: true });
-    const tmPath = path.join(workspaceDir, "cases", "matter-meet", "team-meeting.jsonl");
-    const raw = fs.readFileSync(tmPath, "utf8").trim().split("\n").filter(Boolean);
-    expect(raw.length).toBe(2);
-    const u = JSON.parse(raw[0]) as { kind: string; text: string };
-    const a = JSON.parse(raw[1]) as { kind: string; text: string };
-    expect(u.kind).toBe("user");
-    expect(u.text).toBe("议题 A");
-    expect(a.kind).toBe("assistant");
-    expect(a.text).toBe("收到");
+    expect(capture.status).toBe(400);
+    expect(mockChat).not.toHaveBeenCalled();
+    expect(capture.json()).toMatchObject({ ok: false, code: "meeting_retired" });
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -876,14 +865,9 @@ describe("lawmind-server-route-chat", () => {
       pathname: "/api/chat",
       c: {},
     });
-    expect(capture.status).toBe(200);
-    const firstArg = mockChat.mock.calls[0][0] as string;
-    expect(firstArg).toContain("会议议程");
-    expect(firstArg).toContain("讨论管辖");
-    const tmPath = path.join(workspaceDir, "cases", "matter-ag", "team-meeting.jsonl");
-    const raw = fs.readFileSync(tmPath, "utf8").trim().split("\n").filter(Boolean);
-    const u = JSON.parse(raw[0]) as { text: string };
-    expect(u.text).toBe("短指示");
+    expect(capture.status).toBe(400);
+    expect(mockChat).not.toHaveBeenCalled();
+    expect(capture.json()).toMatchObject({ ok: false, code: "meeting_retired" });
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -960,19 +944,9 @@ describe("lawmind-server-route-chat", () => {
       pathname: "/api/chat",
       c: {},
     });
-    expect(capture.status).toBe(200);
-    const firstArg = mockChat.mock.calls[0][0] as string;
-    expect(firstArg).toContain("会议主持");
-    expect(firstArg).toContain("请从管辖角度发言");
-    const tmPath = path.join(workspaceDir, "cases", "matter-chair", "team-meeting.jsonl");
-    const raw = fs.readFileSync(tmPath, "utf8").trim().split("\n").filter(Boolean);
-    expect(raw.length).toBe(2);
-    const s = JSON.parse(raw[0]) as { kind: string; text: string };
-    const a = JSON.parse(raw[1]) as { kind: string; text: string };
-    expect(s.kind).toBe("system");
-    expect(s.text).toContain("主持人");
-    expect(a.kind).toBe("assistant");
-    expect(a.text).toBe("我的观点");
+    expect(capture.status).toBe(400);
+    expect(mockChat).not.toHaveBeenCalled();
+    expect(capture.json()).toMatchObject({ ok: false, code: "meeting_retired" });
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -996,7 +970,7 @@ describe("lawmind-server-route-chat", () => {
           return true;
         },
         end(fragment?: string) {
-          if (fragment) {chunks.push(fragment.toString());}
+          if (fragment) {chunks.push(fragment);}
           chunks.push("__END__");
         },
       } as unknown as http.ServerResponse;
@@ -1098,6 +1072,98 @@ describe("lawmind-server-route-chat", () => {
       expect(events.some((n) => n === "payload")).toBe(true);
       expect(events[events.length - 1]).toBe("done");
       fs.rmSync(workspaceDir, { recursive: true, force: true });
+    });
+
+    it("forwards mid-turn approval_request and requires_action instead of dropping them", async () => {
+      // 回归背景：这两个事件都在契约 EMBED_TURN_EVENT_TYPES 里，但路由的 switch 曾没有
+      // 对应的 case，于是掉进 default 被静默丢弃——第二个窗口 / live-turn 只能等回合
+      // 收口后从末端 payload 看到暂停。这里断言它们真的出现在流上。
+      const { workspaceDir } = minimalWorkspaceDirs();
+      mockChat.mockImplementation(async (_instruction, opts) => {
+        opts?.onEvent?.({
+          type: "approval_request",
+          roundIndex: 2,
+          toolCallId: "call-1",
+          toolName: "render_document",
+          gateDecision: {
+            gate: "approval_gate",
+            decision: "awaiting_confirmation",
+            reason: "外发需要律师确认",
+          },
+        });
+        opts?.onEvent?.({
+          type: "requires_action",
+          payload: {
+            id: "act-1",
+            kind: "tool_approval",
+            threadId: "m1:t1:s1",
+            title: "等待确认",
+            summary: "需要您确认是否外发",
+            decisions: ["approve", "reject"],
+            decision: "approve",
+          },
+        });
+        opts?.onEvent?.({ type: "final", status: "completed", reply: "已暂停，等待确认" });
+        return {
+          reply: "已暂停，等待确认",
+          sessionId: "sess-ar",
+          turn: {
+            turnId: "turn-ar",
+            sessionId: "sess-ar",
+            instruction: "",
+            messages: [],
+            toolCallsExecuted: 1,
+            status: "completed",
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+          },
+        };
+      });
+      const ctx: LawmindDispatchContext = {
+        workspaceDir,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const cap = sseResponseCapture();
+      await handleChatRoute({
+        ctx,
+        req: streamReq("外发这份文件"),
+        res: cap.res,
+        url: new URL("http://127.0.0.1/api/chat"),
+        pathname: "/api/chat",
+        c: {},
+      });
+      const events = parseNamedSseEvents(cap.chunks);
+      const names = events.map((e) => e.name);
+      expect(names).toContain("approval_request");
+      expect(names).toContain("requires_action");
+      expect(events.find((e) => e.name === "approval_request")?.data).toMatchObject({
+        roundIndex: 2,
+        toolCallId: "call-1",
+        toolName: "render_document",
+      });
+      expect(events.find((e) => e.name === "requires_action")?.data).toMatchObject({
+        payload: { kind: "tool_approval", threadId: "m1:t1:s1" },
+      });
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    });
+
+    it("forwards every event type the embed contract declares", () => {
+      // 漂移守卫：契约（EMBED_TURN_EVENT_TYPES）声明了几个事件，路由的 onEvent switch
+      // 就必须有几个 case。少一个 = 静默丢事件，是上面那个 bug 的同一类。
+      //
+      // 用源码扫描而不是导出常量：导出常量等于又抄一份清单（漏抄一样会绿），
+      // 而 `case "<事件名>":` 只可能出现在这个事件的 switch 里，交集是安全的。
+      const source = fs.readFileSync(
+        path.join(import.meta.dirname, "lawmind-server-route-chat.ts"),
+        "utf8",
+      );
+      const caseLabels = new Set(
+        [...source.matchAll(/\bcase\s+"([a-z_]+)":/g)].map((m) => m[1]),
+      );
+      const missing = EMBED_TURN_EVENT_TYPES.filter((type) => !caseLabels.has(type));
+      expect(missing).toEqual([]);
     });
 
     it("JSON Accept branch does not pass onEvent", async () => {

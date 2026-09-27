@@ -4,6 +4,7 @@
 
 import type { BoundLawyerCapability } from "./lawyer-capabilities.js";
 import { readBuiltinSkillMarkdown } from "./lawyer-capabilities.js";
+import { litigationPrimary } from "./litigation-primary.js";
 
 const PRIMARY_BY_CAPABILITY: Record<string, readonly string[]> = {
   "contract.review": ["contract-review-layers", "contract-redline-craft"],
@@ -15,7 +16,7 @@ const PRIMARY_BY_CAPABILITY: Record<string, readonly string[]> = {
   "analysis.quick": ["quick-legal-triage", "legal-element-extraction"],
   "labor.calc": ["labor-compensation-calc"],
   "period.calc": ["legal-period-calc"],
-  "chronology.timeline": ["chronology-from-materials"],
+  "chronology.timeline": ["chronology-two-stage", "chronology-from-materials"],
   "matter.intake": ["matter-from-materials", "matter-budget-lite"],
   "ops.invoice": ["invoice-organizer"],
   "ops.court_sms": ["court-sms-intake", "legal-event-extract"],
@@ -24,33 +25,11 @@ const PRIMARY_BY_CAPABILITY: Record<string, readonly string[]> = {
   "deal.ma": ["ma-diligence-route", "legal-element-extraction"],
   "compliance.data": ["data-compliance-route", "norm-validity"],
   "compliance.ads": ["ads-compliance-route", "norm-validity"],
-  "matter.status": ["matter-status-report"],
+  "matter.status": ["matter-status-report", "matter-status-scope-budget"],
   "family.matter": ["family-matter-route", "legal-element-extraction"],
   "capital.markets": ["capital-markets-route", "citation-grounding"],
   "corp.governance": ["governance-route", "norm-validity"],
 };
-
-function litigationPrimary(instruction: string, deliverableType?: string): string[] {
-  if (/(离婚诉讼|抚养权|探望权|遗产继承|婚内财产分割|遗嘱继承)/.test(instruction)) {
-    return ["family-matter-route", "legal-element-extraction"];
-  }
-  if (/(侦查阶段|审查起诉|取保候审|刑事辩护|死刑复核|会见申请|辩护词)/.test(instruction)) {
-    return ["criminal-stage-route", "evidence-argument-chain"];
-  }
-  if (/(债权申报|破产重整|债权人会议|破产清算|重整计划)/.test(instruction)) {
-    return ["bankruptcy-stage-route", "legal-period-calc"];
-  }
-  if (/(知产争议|专利侵权|商标侵权|著作权侵权|被控侵权)/.test(instruction)) {
-    return ["ip-dispute-route", "evidence-argument-chain"];
-  }
-  if (deliverableType === "litigation.complaint" || /起诉状/.test(instruction)) {
-    return ["complaint-elements-fill", "evidence-argument-chain"];
-  }
-  if (/(上诉状|执行异议|立案材料清单)/.test(instruction)) {
-    return ["litigation-stage-route", "evidence-argument-chain"];
-  }
-  return ["litigation-stage-route", "complaint-elements-fill"];
-}
 
 export function primarySkillIdsForBound(
   bound: BoundLawyerCapability,
@@ -60,6 +39,10 @@ export function primarySkillIdsForBound(
   if (bound.id === "mail.contract") {
     const mail = ["contract-review-layers", "citation-grounding"].filter((id) => allowed.has(id));
     return mail.length > 0 ? mail : [...bound.skillIds].slice(0, 2);
+  }
+  if (bound.pipeline === "tracked_redline" && bound.id === "litigation.draft") {
+    const head = [...bound.skillIds].filter((id) => allowed.has(id)).slice(0, 2);
+    return head.length > 0 ? head : [...bound.skillIds].slice(0, 2);
   }
   const wanted =
     bound.id === "litigation.draft"

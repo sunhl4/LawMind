@@ -29,6 +29,18 @@
       "pattern": "path.workspace-md-rel",
       "lineIncludes": "drafts/nda-v2.md",
       "reason": "「从文件路径写入（少用）」折叠区路径输入框占位示例，用于说明输入格式"
+    },
+    {
+      "file": "apps/lawmind-desktop/src/renderer/matter/matter-interaction.ts",
+      "pattern": "term.wenshutai",
+      "lineIncludes": "进入(?:审核台|文书台|改稿)",
+      "reason": "解析历史案件动作日志：旧事件仍写「文书台」，识别旧词不等于再展示给律师"
+    },
+    {
+      "file": "apps/lawmind-desktop/src/renderer/lawmind-settings-nav.ts",
+      "pattern": "term.zhinengti",
+      "lineIncludes": "keywords",
+      "reason": "设置搜索同义词串（帮助律师用旧词「智能体」检索到新词「助手」），不直接展示"
     }
   ]
 }

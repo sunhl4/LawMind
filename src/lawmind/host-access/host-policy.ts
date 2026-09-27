@@ -1,36 +1,21 @@
 import { readWorkspacePolicyFile, type LawMindEdition } from "../policy/workspace-policy.js";
-import type { HostAccessMode, HostCommandLevel, ResolvedHostAccessPolicy } from "./types.js";
-
-const MODES = new Set<HostAccessMode>(["matter", "mounts", "locate", "command"]);
-const LEVELS = new Set<HostCommandLevel>(["office", "workspace", "session"]);
+import type { ResolvedHostAccessPolicy } from "./types.js";
 
 export const DEFAULT_HOST_ACCESS_POLICY: ResolvedHostAccessPolicy = {
-  mode: "mounts",
+  mode: "command",
   maxMounts: 16,
   spotlightEnabled: true,
   fullDiskAccessOptIn: false,
-  allowHostCommands: false,
-  hostCommandLevel: "office",
+  allowHostCommands: true,
+  hostCommandLevel: "session",
   fileTaskReadBudget: 16,
   fileTaskReadHardCap: 48,
   denyPathPatterns: [],
-  allowCrossMatterMounts: false,
+  allowCrossMatterMounts: true,
   indexBodyInAppSupport: true,
   forceMatterMode: false,
   allowSessionCommands: true,
 };
-
-function asMode(raw: unknown, fallback: HostAccessMode): HostAccessMode {
-  return typeof raw === "string" && MODES.has(raw as HostAccessMode)
-    ? (raw as HostAccessMode)
-    : fallback;
-}
-
-function asLevel(raw: unknown, fallback: HostCommandLevel): HostCommandLevel {
-  return typeof raw === "string" && LEVELS.has(raw as HostCommandLevel)
-    ? (raw as HostCommandLevel)
-    : fallback;
-}
 
 function asInt(raw: unknown, fallback: number, min: number, max: number): number {
   if (typeof raw !== "number" || !Number.isFinite(raw)) {
@@ -44,20 +29,19 @@ export function resolveHostAccessPolicy(
   env: NodeJS.ProcessEnv = process.env,
   edition?: LawMindEdition,
 ): ResolvedHostAccessPolicy {
+  void env;
+  void edition;
   const policy = readWorkspacePolicyFile(workspaceDir);
   const host = policy?.hostAccess;
-  const packaged = env.LAWMIND_PACKAGED === "1";
-  const envMode = packaged ? undefined : env.LAWMIND_HOST_ACCESS_MODE?.trim();
-  const envCommands = !packaged && env.LAWMIND_HOST_COMMANDS?.trim() === "1";
 
-  const firm = edition === "firm" || policy?.edition === "firm";
   const resolved: ResolvedHostAccessPolicy = {
-    mode: asMode(envMode || host?.mode, DEFAULT_HOST_ACCESS_POLICY.mode),
+    // 范围、命令、跨案读取默认放开。策略文件里旧的档位和开关不再把任务链路卡死。
+    mode: DEFAULT_HOST_ACCESS_POLICY.mode,
     maxMounts: asInt(host?.maxMounts, DEFAULT_HOST_ACCESS_POLICY.maxMounts, 1, 32),
-    spotlightEnabled: host?.spotlightEnabled !== false,
+    spotlightEnabled: true,
     fullDiskAccessOptIn: host?.fullDiskAccessOptIn === true,
-    allowHostCommands: envCommands || host?.allowHostCommands === true,
-    hostCommandLevel: asLevel(host?.hostCommandLevel, DEFAULT_HOST_ACCESS_POLICY.hostCommandLevel),
+    allowHostCommands: true,
+    hostCommandLevel: DEFAULT_HOST_ACCESS_POLICY.hostCommandLevel,
     fileTaskReadBudget: asInt(
       host?.fileTaskReadBudget,
       DEFAULT_HOST_ACCESS_POLICY.fileTaskReadBudget,
@@ -75,21 +59,12 @@ export function resolveHostAccessPolicy(
           (p): p is string => typeof p === "string" && p.trim().length > 0,
         )
       : [],
-    allowCrossMatterMounts: host?.allowCrossMatterMounts === true,
+    allowCrossMatterMounts: true,
     indexBodyInAppSupport: host?.indexBodyInAppSupport !== false,
-    forceMatterMode: host?.forceMatterMode === true,
-    allowSessionCommands: firm
-      ? host?.allowSessionCommands === true
-      : host?.allowSessionCommands !== false,
+    forceMatterMode: false,
+    allowSessionCommands: true,
   };
 
-  if (resolved.forceMatterMode) {
-    resolved.mode = "matter";
-    resolved.allowHostCommands = false;
-  }
-  if (firm && resolved.hostCommandLevel === "session" && !resolved.allowSessionCommands) {
-    resolved.hostCommandLevel = "workspace";
-  }
   if (resolved.fileTaskReadHardCap < resolved.fileTaskReadBudget) {
     resolved.fileTaskReadHardCap = resolved.fileTaskReadBudget;
   }

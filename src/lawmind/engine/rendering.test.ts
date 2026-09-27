@@ -66,6 +66,33 @@ describe("engine/rendering", () => {
     expect(result.citationIntegrity?.checked).toBe(true);
   });
 
+  it("names the unfilled placeholder when the acceptance gate blocks export", async () => {
+    const draft: ArtifactDraft = {
+      taskId: "task-acceptance-copy",
+      matterId: "matter-acc",
+      title: "房屋租赁合同",
+      summary: "summary",
+      sections: [{ heading: "一、合同主体", body: "甲方：【待补充：出租人姓名】", citations: [] }],
+      reviewStatus: "approved",
+      reviewNotes: [],
+      output: "docx",
+      templateId: "word/contract-default",
+      deliverableType: "contract.rental",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(workspaceDir, draft);
+    const ctx = buildEngineContext({ workspaceDir, adapters: [] });
+    const result = await renderDraft(ctx, draft, {
+      strictGates: true,
+      citationGateStrict: false,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/^还不能导出。/);
+    expect(result.error).toMatch(/未填|待补充/);
+    expect(result.error).not.toContain("LawmindAcceptanceGate");
+    expect(result.outputPath).toBeUndefined();
+  });
+
   it("writes a new deliverable under the matter artifacts folder with a date name", async () => {
     const draft: ArtifactDraft = {
       taskId: "task-out-loc",

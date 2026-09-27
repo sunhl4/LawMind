@@ -5,7 +5,6 @@ export {
   resolveAgentMandatoryRulesForPrompt,
   resolveAgentMaxToolCallsPerTurn,
   workspacePolicyPath,
-  type LawMindEdition,
   type LawMindWorkspacePolicy,
   type ResolvedAgentMandatoryRules,
 } from "./workspace-policy.js";
@@ -14,9 +13,17 @@ export { buildGovernanceReportMarkdown } from "./governance-report.js";
 export {
   EDITION_FEATURES,
   EDITION_LABELS,
+  EDITION_VALUES,
+  featuresForEdition,
   isFeatureEnabled,
+  isWordAddinAutoRunEnabled,
   listEditions,
+  normalizeEdition,
   resolveEdition,
+  resolveProductInsightsCollection,
+  isProductInsightsCollectionEnabled,
+  soloEditionFeatures,
   type EditionContext,
   type EditionFeatureKey,
+  type LawMindEdition,
 } from "./edition.js";

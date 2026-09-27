@@ -184,7 +184,7 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
   useEffect(() => {
     if (!apiBase || !matterId) {
       setMatterJobs([]);
-      return;
+      return undefined;
     }
     let cancelled = false;
     void apiGetJson<{
@@ -229,7 +229,7 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
   /** Live-refresh running/queued matter jobs via the same SSE as 在办. */
   useEffect(() => {
     if (!apiBase) {
-      return;
+      return undefined;
     }
     const running = matterJobs
       .filter((j) => j.status === "queued" || j.status === "running")
@@ -447,7 +447,7 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
       count: modifiedDrafts.length,
       tone: "info",
       hint: modifiedDrafts[0]?.title ?? "当前没有需修改草稿",
-      actionLabel: modifiedDrafts.length > 0 ? "去复核" : "无待办",
+      actionLabel: modifiedDrafts.length > 0 ? "去审核" : "已清空",
       actionTaskId: modifiedDrafts[0]?.taskId,
       statusFilter: "modified",
       listMode: "all",

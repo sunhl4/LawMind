@@ -51,33 +51,45 @@ export async function loadInitialAppConfig(): Promise<AppConfig> {
   );
 }
 
-export async function loadAppBootstrapSnapshot(apiBase: string) {
+export type AppBootstrapShell = {
+  health: Awaited<ReturnType<typeof loadHealthPayload>>;
+  assistants: Awaited<ReturnType<typeof loadAssistantsPayload>>;
+};
+
+/**
+ * 首屏分两拍：引导载荷（模型、版本、助手）到了就交给 `onShell`，
+ * 任务列表和协作记录在后面到。这只发生在打开窗口和重新连接时，不发生在每次切界面。
+ */
+export async function loadAppBootstrapSnapshot(
+  apiBase: string,
+  hooks?: { onShell?: (shell: AppBootstrapShell) => void },
+) {
   const base = apiBase.replace(/\/$/, "");
-  const [bootstrapRes, records, collaboration] = await Promise.all([
-    fetch(`${base}/api/bootstrap`, { headers: apiAuthHeaders() })
-      .then(async (res) => (res.ok ? ((await res.json()) as Record<string, unknown>) : null))
-      .catch(() => null),
-    loadRecordsPayload(apiBase),
-    loadCollaborationPayload(apiBase),
-  ]);
+  const recordsPromise = loadRecordsPayload(apiBase);
+  const collaborationPromise = loadCollaborationPayload(apiBase);
+  const bootstrapRes = await fetch(`${base}/api/bootstrap`, { headers: apiAuthHeaders() })
+    .then(async (res) => (res.ok ? ((await res.json()) as Record<string, unknown>) : null))
+    .catch(() => null);
 
+  let health: AppBootstrapShell["health"];
+  let assistants: AppBootstrapShell["assistants"];
   if (bootstrapRes?.ok === true) {
-    return {
-      health: (bootstrapRes.health ?? {}) as Awaited<ReturnType<typeof loadHealthPayload>>,
-      records,
-      assistants: {
-        ok: true,
-        assistants: (bootstrapRes.assistants as Awaited<ReturnType<typeof loadAssistantsPayload>>["assistants"]) ?? [],
-        presets: (bootstrapRes.presets as Awaited<ReturnType<typeof loadAssistantsPayload>>["presets"]) ?? [],
-      },
-      collaboration,
+    health = (bootstrapRes.health ?? {}) as AppBootstrapShell["health"];
+    assistants = {
+      assistants: (bootstrapRes.assistants as AppBootstrapShell["assistants"]["assistants"]) ?? [],
+      presets: (bootstrapRes.presets as AppBootstrapShell["assistants"]["presets"]) ?? [],
     };
+  } else {
+    const [fallbackHealth, fallbackAssistants] = await Promise.all([
+      loadHealthPayload(apiBase),
+      loadAssistantsPayload(apiBase),
+    ]);
+    health = fallbackHealth;
+    assistants = fallbackAssistants;
   }
+  hooks?.onShell?.({ health, assistants });
 
-  const [health, assistants] = await Promise.all([
-    loadHealthPayload(apiBase),
-    loadAssistantsPayload(apiBase),
-  ]);
+  const [records, collaboration] = await Promise.all([recordsPromise, collaborationPromise]);
   return {
     health,
     records,

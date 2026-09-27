@@ -5,6 +5,44 @@
   align-items: center;
 }
 
+.lm-compose-context-length-select {
+  appearance: none;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 5px 22px 5px 8px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 11px) 55%,
+    calc(100% - 7px) 55%;
+  background-size:
+    4px 4px,
+    4px 4px;
+  background-repeat: no-repeat;
+}
+
+.lm-compose-context-length-select:hover:not(:disabled) {
+  border-color: var(--border-md);
+  background-color: var(--surface-3);
+}
+
+.lm-compose-context-length-select:focus-visible:not(:disabled) {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: var(--focus-ring);
+}
+
+.lm-compose-context-length-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .lm-model-picker-trigger {
   display: inline-flex;
   align-items: center;
@@ -55,6 +93,8 @@
 }
 
 .lm-model-picker-popover {
+  /* position/size come from fixed inline style (portaled to body) */
+  box-sizing: border-box;
   background: var(--surface-2);
   border: 1px solid var(--border-md);
   border-radius: var(--r);
@@ -62,7 +102,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  max-height: 420px;
+  max-height: min(420px, 70vh);
   animation: lm-pop-in var(--t-md) var(--ease-out);
 }
 

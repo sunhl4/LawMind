@@ -30,7 +30,7 @@ export type ReviewWorkbenchDocumentColumnProps = {
   reviewEditorWidth: number;
   onReviewEditorResize: (e: ReactPointerEvent) => void;
   hasDetailPane: boolean;
-  templateOptions?: Array<{ id: string; label: string; kind: "built-in" | "uploaded" }>;
+  templateOptions?: Array<{ id: string; label: string; kind: "built-in" }>;
   renderTemplateId?: string;
   onRenderTemplateIdChange?: (id: string) => void;
   actionBusy?: boolean;
@@ -162,8 +162,7 @@ export function ReviewWorkbenchDocumentColumn(props: ReviewWorkbenchDocumentColu
                   >
                     {templateOptions.map((o) => (
                       <option key={o.id} value={o.id}>
-                        {o.label}
-                        {o.kind === "uploaded" ? "（上传）" : "（内置）"}
+                        {o.label}（内置）
                       </option>
                     ))}
                   </select>

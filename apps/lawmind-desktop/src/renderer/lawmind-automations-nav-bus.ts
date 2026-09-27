@@ -29,3 +29,21 @@ export function requestOpenAutomationsSettings(): void {
 export function requestOpenWorkspaceSettings(): void {
   requestOpenSettingsSection("workspace");
 }
+
+type ReturnListener = () => void;
+
+const archiveReturnListeners = new Set<ReturnListener>();
+
+/** 整理资料页返回：回到对话，并重新打开设置里的工作区。 */
+export function subscribeReturnFromArchiveOrganize(listener: ReturnListener): () => void {
+  archiveReturnListeners.add(listener);
+  return () => {
+    archiveReturnListeners.delete(listener);
+  };
+}
+
+export function requestReturnFromArchiveOrganize(): void {
+  for (const listener of archiveReturnListeners) {
+    listener();
+  }
+}

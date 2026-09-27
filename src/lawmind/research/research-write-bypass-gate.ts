@@ -9,17 +9,7 @@ import { readTaskRecord } from "../tasks/index.js";
 import { readResearchOutline } from "./outline-store.js";
 
 export const RESEARCH_WRITE_BYPASS_REFUSAL =
-  "请使用 draft_document（经大纲确认与证据门禁），勿用 write_document 旁路交付。";
-
-const ARTIFACT_DELIVERY_EXTS = new Set([
-  ".md",
-  ".markdown",
-  ".txt",
-  ".docx",
-  ".pptx",
-  ".html",
-  ".htm",
-]);
+  "请使用 draft_document（经证据门禁），勿用 write_document 旁路交付。";
 
 function normalizeRel(filePath: string): string {
   return filePath.replace(/\\/g, "/").replace(/^\.?\//, "");
@@ -46,11 +36,11 @@ export function shouldRefuseResearchWriteBypass(opts: {
   linkedTaskId?: string;
 }): { refuse: boolean; reason?: string; taskId?: string } {
   const rel = normalizeRel(opts.filePath);
-  const ext = path.extname(rel).toLowerCase();
   const underArtifacts = rel.startsWith("artifacts/") || rel.includes("/artifacts/");
 
-  // Any client-facing delivery file under artifacts/ must go through draft/render.
-  if (underArtifacts && ARTIFACT_DELIVERY_EXTS.has(ext)) {
+  // artifacts/ 是导出落点。write_document 不按扩展名开口子：xlsx/json 同样不能旁路交付。
+  // 图表、表格、分析脚本和正式导出走各自的工具，直接写文件，不经过本门。
+  if (underArtifacts) {
     return { refuse: true, reason: RESEARCH_WRITE_BYPASS_REFUSAL };
   }
 

@@ -164,4 +164,42 @@ describe("lawmind-server-route-historical-scan", () => {
       job: { stats: { incremental: false, filesUnchanged: 0, filesChanged: 2, cataloged: 2 } },
     });
   });
+
+  it("files a confirmed matter and leaves the source file", async () => {
+    await handleHistoricalScanRoutes({
+      ctx,
+      req: mockPostReq({ absPath: scanRoot }),
+      res: mockRes(),
+      url: new URL("http://127.0.0.1/api/historical-scan/roots"),
+      pathname: "/api/historical-scan/roots",
+      c: {},
+    });
+    await handleHistoricalScanRoutes({
+      ctx,
+      req: mockPostReq({}),
+      res: mockRes(),
+      url: new URL("http://127.0.0.1/api/historical-scan/run"),
+      pathname: "/api/historical-scan/run",
+      c: {},
+    });
+    const fileRes = mockRes();
+    const handled = await handleHistoricalScanRoutes({
+      ctx,
+      req: mockPostReq({ labels: ["华能采购案"] }),
+      res: fileRes,
+      url: new URL("http://127.0.0.1/api/historical-scan/file"),
+      pathname: "/api/historical-scan/file",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(fileRes.status).toBe(200);
+    expect(fileRes.body).toMatchObject({
+      ok: true,
+      filed: [{ label: "华能采购案", copied: 2, created: true }],
+    });
+    expect(fs.readFileSync(path.join(scanRoot, "华能采购案", "供货合同.docx"), "utf8")).toBe("x");
+    expect(fs.readFileSync(path.join(workspaceDir, "cases", "华能采购案", "materials", "供货合同.docx"), "utf8")).toBe(
+      "x",
+    );
+  });
 });

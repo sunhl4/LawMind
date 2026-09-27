@@ -117,15 +117,62 @@ describe("host tools", () => {
     expect(fs.existsSync(path.join(workspace, "cases", "刘学江侵权案"))).toBe(false);
   });
 
-  it("read_host_file asks for a grant outside mounts", async () => {
+  it("read_host_file reads a workspace-external plain file directly (默认放开，不再要授权)", async () => {
     const workspace = tmp("lm-ht-ws-");
     const outside = tmp("lm-ht-out-");
     const file = path.join(outside, "solo.pdf");
     fs.writeFileSync(file, "x");
     const agent = ctx(workspace, { hostMounts: [] });
     const result = await readHostFileTool.execute({ path: file }, agent);
-    expect(result.ok).toBe(false);
-    expect(result.approvalRequest).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(result.approvalRequest).toBeUndefined();
+    expect((result.data as { content: string }).content).toBe("x");
+  });
+
+  it("read_host_file still hard-denies secret paths outside the workspace (授权也救不回)", async () => {
+    const workspace = tmp("lm-ht-ws-");
+    const outside = tmp("lm-ht-out-");
+    const secret = path.join(outside, ".env");
+    fs.writeFileSync(secret, "SECRET=1");
+    const agent = ctx(workspace, { hostMounts: [] });
+    const denied = await readHostFileTool.execute({ path: secret }, agent);
+    expect(denied.ok).toBe(false);
+    // 硬拒绝名单不是「待授权」：不走 grant 流程。
+    expect(denied.approvalRequest).toBeUndefined();
+    expect(String(denied.error)).toContain("密钥");
+    // 即使律师点了确认，硬拒绝名单仍然不让读。
+    const stillDenied = await readHostFileTool.execute(
+      { path: secret, grant_duration: "always", __approved: true },
+      agent,
+    );
+    expect(stillDenied.ok).toBe(false);
+  });
+
+  it("read_host_file still denies a mount bound to an opposing party (利益冲突隔离)", async () => {
+    const workspace = tmp("lm-ht-ws-");
+    fs.mkdirSync(path.join(workspace, "cases", "m-a"), { recursive: true });
+    fs.mkdirSync(path.join(workspace, "cases", "m-b"), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspace, "cases", "m-a", "CASE.md"),
+      "## 1. 基本信息\n\n- 客户 / clientId: 甲公司\n- 对方当事人: 乙公司\n\n## 2. 其他\n",
+      "utf8",
+    );
+    fs.writeFileSync(
+      path.join(workspace, "cases", "m-b", "CASE.md"),
+      "## 1. 基本信息\n\n- 客户 / clientId: 乙公司\n- 对方当事人: 甲公司\n\n## 2. 其他\n",
+      "utf8",
+    );
+    const folderB = tmp("lm-ht-b-");
+    fs.writeFileSync(path.join(folderB, "b.md"), "b");
+    const agent = ctx(workspace, {
+      matterId: "m-a",
+      hostMounts: [
+        { id: "mb", absPath: folderB, addedAt: "2026-09-12T00:00:00.000Z", matterId: "m-b" },
+      ],
+    });
+    const denied = await readHostFileTool.execute({ path: path.join(folderB, "b.md") }, agent);
+    expect(denied.ok).toBe(false);
+    expect(String(denied.error)).toContain("利益冲突");
   });
 
   it("search_host authorized hits expose absPath but never locateAbs", async () => {
@@ -142,23 +189,18 @@ describe("host tools", () => {
     expect(hits.some((h) => h.absPath && !h.locateAbs && h.hitId)).toBe(true);
   });
 
-  it("read_host_file via hit_id waits for grant then returns body", async () => {
+  it("read_host_file via hit_id reads the plain file directly (无需再等授权)", async () => {
     const workspace = tmp("lm-ht-ws-");
     const outside = tmp("lm-ht-out-");
     const file = path.join(outside, "PdZn-notes.md");
     fs.writeFileSync(file, "PdZn alloy paper");
     const agent = ctx(workspace, { hostMounts: [] });
     rememberLocateHit(agent.sessionId, "hit-loc-1", file);
-    const blocked = await readHostFileTool.execute({ hit_id: "hit-loc-1" }, agent);
-    expect(blocked.ok).toBe(false);
-    expect(blocked.approvalRequest).toBe(true);
-    expect((blocked.data as { hitId?: string }).hitId).toBe("hit-loc-1");
-    const allowed = await readHostFileTool.execute(
-      { hit_id: "hit-loc-1", grant_duration: "session", __approved: true },
-      agent,
-    );
-    expect(allowed.ok).toBe(true);
-    expect((allowed.data as { content: string }).content).toContain("alloy");
+    // 默认放开：工作区外的普通文件按命中编号直接读，不再先弹授权。
+    const read = await readHostFileTool.execute({ hit_id: "hit-loc-1" }, agent);
+    expect(read.ok).toBe(true);
+    expect(read.approvalRequest).toBeUndefined();
+    expect((read.data as { content: string }).content).toContain("alloy");
   });
 
   it("read_host_file lists a mounted directory recursively", async () => {

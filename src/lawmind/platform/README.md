@@ -42,6 +42,7 @@ const res = await proxy.fetch("https://api.example.com/v1/endpoint", {
   - 常见云元数据主机名（`metadata`、`metadata.google.internal` 等）
 - `allowLocalNetwork: false` 时额外拒绝 `127.0.0.0/8`、`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16` 及对应 IPv6 私网/loopback。
 - URL 中嵌入的凭据（`username:password`）会被拒绝。
+- 主机名解析通过后，直连钉死在这次的地址上（双栈优先 IPv4；`Host` / SNI 仍用原主机名），避免 DNS 重绑定。IPv6 字面量先剥方括号；`fe80::/10`、`fd00:ec2::254` 与 `::ffff:` 映射地址按对应 IPv4 规则再判。注入的 `fetchImpl` 只用于测试，不钉死连接。
 
 ### 超时与重试
 
@@ -124,7 +125,8 @@ const result = await runSafeCommand({
      - `LAWMIND_LOCAL_API_TOKEN`、`LAWMIND_SKIP_API_AUTH`、`LAWMIND_DESKTOP_PORT`
      - 模型 / 集成密钥前缀（`OPENAI_*`、`BRAVE_*`、`ANTHROPIC_*` 等）
      - `LAWMIND_*_KEY` / `*_TOKEN` / `*_SECRET` / `*_PASSWORD`
-   - 调用方也可传入 `env` 自定义环境变量。
+   - 调用方也可传入 `env` 自定义环境变量。未传时用最小宿主环境，不继承当前进程的密钥。
+   - `extra` 与最终 spawn 都会去掉加载器钩子（`LD_PRELOAD`、`NODE_OPTIONS` 等）和凭据根。显式传入的 `BRAVE_*` 等仍保留，供 lawmindd 使用。
 4. **cwd 限制**：
    - 提供 `allowedRoots` 时，`cwd` 必须落在其中一个根目录下；否则抛出 `SafeCommandError`。
 5. **超时与资源清理**：
@@ -161,12 +163,18 @@ const result = await runSafeCommand({
 | open-law 检索          | `src/lawmind/retrieval/providers/open-law/client.ts`         | `createOutboundProxy`                                      |
 | 北大法宝检索           | `src/lawmind/retrieval/providers/pkulaw/client.ts`           | `createOutboundProxy`                                      |
 | Brave web search       | `src/lawmind/agent/tools/lawmind-web-search.ts`              | `createOutboundProxy`                                      |
+| Graph mail             | `src/lawmind/mail/graph-mail.ts`                             | `createOutboundProxy`                                      |
+| SharePoint Graph       | `src/lawmind/integrations/sharepoint-graph.ts`               | `createOutboundProxy`                                      |
 | Tool sandbox           | `src/lawmind/runtime/tool-sandbox.ts`                        | `safeCommand` + `buildSandboxChildEnv`                     |
 | lawmindd 启动          | `apps/lawmind-desktop/server/lawmind-server-route-daemon.ts` | `safeCommand` + `buildDaemonProcessEnv`                    |
+| officecli 修订稿       | `src/lawmind/artifacts/render-docx-tracked.ts`               | `runSafeCommand` + `buildMinimalChildEnv`                  |
+| 邮件转 docx / 读 .doc  | `src/lawmind/mail/convert-to-docx.ts`、`read-word-binary.ts` | `runSafeCommand` + `buildMinimalChildEnv`                  |
+| 本机 Spotlight         | `src/lawmind/host-access/host-search.ts`                     | `runSafeCommandSync` + `buildMinimalChildEnv`              |
+| 分析脚本沙箱           | `src/lawmind/agent/tools/legal/analysis-runner.ts`           | `safeCommand`（ipc）+ `buildMinimalChildEnv`               |
 
 ### 已知未接入点
 
-- `apps/lawmind-desktop/electron/local-server.mjs` 仍在 Electron 主进程中直接 `spawn` 本地服务器。Electron 主进程是 `.mjs` 文件，无法直接 import `src/lawmind/platform/safe-command.ts`（TypeScript 源码），且当前未提供 `.mjs` 镜像文件；本次安全收口在 server/引擎侧完成，桌面主进程启动路径仍保持原有行为，后续可通过生成/维护 `safe-command.mjs` 镜像或打包时注入统一网关再收口。
+- `apps/lawmind-desktop/electron/local-server.mjs` 仍在 Electron 主进程中直接 `spawn` 本地服务器。Electron 主进程是 `.mjs` 文件，无法直接 import `src/lawmind/platform/safe-command.ts`（TypeScript 源码），且当前未提供 `.mjs` 镜像文件；起的是自家本地 API（非律师数据出口）。按铁律 1/4，本轮不另造 `safe-command.mjs` 镜像。
 
 ## 4. 扩展指南
 

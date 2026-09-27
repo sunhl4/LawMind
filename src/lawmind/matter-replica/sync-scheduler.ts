@@ -9,7 +9,7 @@
  *
  * ## 节流与背压
  *
- * - **总开关**：门控关闭（Solo 默认）直接不启动，行为与今天完全一致；
+ * - **总开关**：门控关闭（`matterReplica.enabled: false` 或功能键关闭）直接不启动；
  * - **单案最小间隔**：避免每轮 tick 都对同一个案件做一次全量扫描；
  * - **单飞**：上一轮还没跑完就跳过本轮，不堆积；
  * - **中继监听 + 去抖**：共享目录有动静时立刻同步，但把连续写入合并成一次；
@@ -157,6 +157,32 @@ export class MatterReplicaSyncScheduler {
     // 不因为一个后台定时器把进程钉住（沿用 audit external anchor 的写法）
     this.timer.unref?.();
 
+    this.watchRelay(gate.sharedRelayDir);
+  }
+
+  /**
+   * 共享文件夹刚选好时重挂监听。已经在跑就只换监听目录；门控关了就停。
+   */
+  rearm(): void {
+    const gate = this.gate();
+    if (!gate.enabled || !gate.autoSync) {
+      if (this.running) {
+        this.stop();
+      }
+      return;
+    }
+    if (!this.running) {
+      this.start();
+      return;
+    }
+    if (this.watcher) {
+      try {
+        this.watcher.close();
+      } catch {
+        /* 已关闭 */
+      }
+      this.watcher = null;
+    }
     this.watchRelay(gate.sharedRelayDir);
   }
 

@@ -21,11 +21,8 @@ import {
 } from "./lawmind-chat-trace.js";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { ChatSessionListEntry } from "./useLawmindChatShell";
-import {
-  chatSessionStoreKey,
-  DEFAULT_CHAT_SESSION_TITLE,
-  persistActiveChatSessionId,
-} from "./useLawmindChatShell";
+import { chatSessionStoreKey, persistActiveChatSessionId } from "./useLawmindChatShell";
+import { mapChatSessionListPayload } from "./lawmind-chat-session-list";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 
 export type BackgroundWatchOpts = {
@@ -166,22 +163,24 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
 
       try {
         if (!resumeOnly) {
-          const listRes = await fetch(
-            `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
-            { headers: { ...apiAuthHeaders() } },
-          );
+          const listRes = await fetch(`${config.apiBase}/api/sessions`, {
+            headers: { ...apiAuthHeaders() },
+          });
           const listJ = (await listRes.json()) as {
             ok?: boolean;
-            sessions?: Array<{ sessionId: string; title?: string; updatedAt: string }>;
+            sessions?: Array<{
+              sessionId?: string;
+              title?: string;
+              updatedAt?: string;
+              lastPreview?: string;
+              matterId?: string | null;
+              assistantId?: string;
+              forkedToSessionId?: string;
+            }>;
           };
-          if (listJ.ok && Array.isArray(listJ.sessions)) {
-            setChatSessionList(
-              listJ.sessions.map((s) => ({
-                sessionId: s.sessionId,
-                title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
-                updatedAt: s.updatedAt,
-              })),
-            );
+          const mapped = listJ.ok ? mapChatSessionListPayload(listJ.sessions) : null;
+          if (mapped) {
+            setChatSessionList(mapped);
           }
 
           const sessionRes = await fetch(
@@ -372,22 +371,24 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
             setMatterRefreshVersion((v) => v + 1);
           }
           try {
-            const listRes2 = await fetch(
-              `${config.apiBase}/api/sessions?assistantId=${encodeURIComponent(assistantId)}`,
-              { headers: { ...apiAuthHeaders() } },
-            );
+            const listRes2 = await fetch(`${config.apiBase}/api/sessions`, {
+              headers: { ...apiAuthHeaders() },
+            });
             const listJ2 = (await listRes2.json()) as {
               ok?: boolean;
-              sessions?: Array<{ sessionId: string; title?: string; updatedAt: string }>;
+              sessions?: Array<{
+                sessionId?: string;
+                title?: string;
+                updatedAt?: string;
+                lastPreview?: string;
+                matterId?: string | null;
+                assistantId?: string;
+                forkedToSessionId?: string;
+              }>;
             };
-            if (listJ2.ok && Array.isArray(listJ2.sessions)) {
-              setChatSessionList(
-                listJ2.sessions.map((s) => ({
-                  sessionId: s.sessionId,
-                  title: typeof s.title === "string" && s.title.trim() ? s.title : DEFAULT_CHAT_SESSION_TITLE,
-                  updatedAt: s.updatedAt,
-                })),
-              );
+            const mapped2 = listJ2.ok ? mapChatSessionListPayload(listJ2.sessions) : null;
+            if (mapped2) {
+              setChatSessionList(mapped2);
             }
           } catch {
             /* ignore */

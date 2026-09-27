@@ -43,7 +43,7 @@ function bundle(): ResearchBundle {
 }
 
 describe("research-draft-gates", () => {
-  it("emits outline-only draft until approved", () => {
+  it("writes the body in the same turn unless the lawyer asked for the outline first", () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-outline-"));
     dirs.push(ws);
     const intent: TaskIntent = {
@@ -59,12 +59,32 @@ describe("research-draft-gates", () => {
       createdAt: new Date().toISOString(),
     };
     const draft = buildDraft({ intent, bundle: bundle(), workspaceDir: ws });
+    expect(draft.title).not.toMatch(/大纲待确认/);
+    expect(readResearchOutline(ws, intent.taskId)?.status).toBe("approved");
+  });
+
+  it("holds the draft when the lawyer asked to confirm the outline first", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-outline-hold-"));
+    dirs.push(ws);
+    const intent: TaskIntent = {
+      taskId: "task-gate-hold",
+      kind: "draft.word",
+      output: "docx",
+      deliverableType: "report.compliance",
+      instruction: "先出大纲，确认后再写涉外合规卷宗备忘录",
+      summary: "合规",
+      riskLevel: "medium",
+      models: ["general", "legal"],
+      requiresConfirmation: false,
+      createdAt: new Date().toISOString(),
+    };
+    const draft = buildDraft({ intent, bundle: bundle(), workspaceDir: ws });
     expect(draft.title).toMatch(/大纲待确认/);
     expect(draft.sections[0]?.heading).toMatch(/待确认/);
     expect(readResearchOutline(ws, intent.taskId)?.status).toBe("pending");
   });
 
-  it("keeps outline pending when bare 大纲已确认 appears in first ask", () => {
+  it("keeps outline pending when bare 大纲已确认 appears in a hold-first ask", () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-outline-bare-"));
     dirs.push(ws);
     const intent: TaskIntent = {
@@ -72,7 +92,7 @@ describe("research-draft-gates", () => {
       kind: "draft.word",
       output: "docx",
       deliverableType: "report.compliance",
-      instruction: "输出涉外合规卷宗备忘录。大纲已确认",
+      instruction: "先出大纲。输出涉外合规卷宗备忘录。大纲已确认",
       summary: "合规",
       riskLevel: "medium",
       models: ["general", "legal"],
@@ -157,7 +177,7 @@ describe("research-draft-gates", () => {
       output: "docx",
       deliverableType: "report.compliance",
       instruction: [
-        "输出涉外合规卷宗备忘录。",
+        "先出大纲。输出涉外合规卷宗备忘录。",
         "【补充信息】",
         "请确认或调整研究大纲。",
         "答：不同意大纲",
@@ -173,6 +193,32 @@ describe("research-draft-gates", () => {
     const draft = buildDraft({ intent, bundle: bundle(), workspaceDir: ws });
     expect(draft.title).toMatch(/大纲待确认/);
     expect(readResearchOutline(ws, intent.taskId)?.notes.some((n) => /重建/.test(n))).toBe(true);
+  });
+
+  it("holds again when the lawyer asks for the outline after a body was already approved", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-outline-rehold-"));
+    dirs.push(ws);
+    const first: TaskIntent = {
+      taskId: "task-gate-1",
+      kind: "draft.word",
+      output: "docx",
+      deliverableType: "report.compliance",
+      instruction: "输出涉外合规卷宗备忘录",
+      summary: "合规",
+      riskLevel: "medium",
+      models: ["general", "legal"],
+      requiresConfirmation: false,
+      createdAt: new Date().toISOString(),
+    };
+    const written = buildDraft({ intent: first, bundle: bundle(), workspaceDir: ws });
+    expect(written.title).not.toMatch(/大纲待确认/);
+    const second: TaskIntent = {
+      ...first,
+      instruction: "先出大纲，确认后再写",
+    };
+    const held = buildDraft({ intent: second, bundle: bundle(), workspaceDir: ws });
+    expect(held.title).toMatch(/大纲待确认/);
+    expect(readResearchOutline(ws, first.taskId)?.status).toBe("pending");
   });
 
   it("blocks training draft on unsanitized phone numbers", () => {

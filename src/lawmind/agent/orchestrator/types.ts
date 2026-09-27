@@ -10,7 +10,13 @@
 // 1. Workflow Definition
 // ─────────────────────────────────────────────
 
-export type WorkflowStepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
+export type WorkflowStepStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "awaiting_lawyer";
 
 export type WorkflowStep = {
   stepId: string;
@@ -32,13 +38,27 @@ export type WorkflowStep = {
   status: WorkflowStepStatus;
   /** Delegation ID once dispatched */
   delegationId?: string;
+  /** 子回合会话。律师稍后在「在办」里回答时，用来把流程接着办完。 */
+  sessionId?: string;
   result?: string;
   error?: string;
   startedAt?: string;
   completedAt?: string;
+  /** 岗位对不上、且名册只有一位时，写明由谁代办。 */
+  roleMissNote?: string;
+  /** isolated：只读互审。缺省时，任务书以「互审」开头也走只读。 */
+  execution?: "isolated" | "deliver";
+  /** 写出结果后停住，等律师确认再跑后续步骤。任务书含 research_outline_confirm 时同样停住。 */
+  holdForLawyer?: boolean;
 };
 
-export type WorkflowStatus = "draft" | "running" | "completed" | "failed" | "cancelled";
+export type WorkflowStatus =
+  | "draft"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "awaiting_lawyer";
 
 export type CollaborationWorkflow = {
   workflowId: string;

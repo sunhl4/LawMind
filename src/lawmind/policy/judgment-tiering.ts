@@ -134,7 +134,9 @@ export function effectiveTier(input: {
  *   1. 判据分级的 `shadow` 期还没攒到一致率数据（转 `on` 的前置，见计划 §3.8）；
  *   2. 升级通道只在 `mode === "on"` 时才真的摘项，所以两档必须一起开。
  *
- * 解析顺序（沿用既有 posture 先例）：policy 显式 → env 显式 → **按 edition 缺省**。
+ * 解析顺序：进程内 policy 对象 → 环境变量 `LAWMIND_JUDGMENT_ESCALATION` → 缺省 off。
+ * `lawmind.policy.json` 写 `judgmentEscalation` 会被拒绝，不会从文件生效。
+ * policy 参数留给测试和以后的内置接线。
  */
 export function resolveLawyerEscalationPosture(opts?: {
   policy?: { judgmentEscalation?: unknown; edition?: unknown } | null;

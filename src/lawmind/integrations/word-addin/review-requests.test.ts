@@ -6,6 +6,7 @@ import type { RedlineHunk } from "../../drafts/redline-proposal.js";
 import { attachWordAddinResultForSource } from "./attach-result.js";
 import {
   createWordAddinReview,
+  fingerprintWordFile,
   hunksFromRedlineProposal,
   listWordAddinReviews,
   normalizeWordSourcePath,
@@ -25,6 +26,19 @@ describe("word addin review requests", () => {
 
   afterEach(async () => {
     await fs.rm(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("hashes bytes past the old 256 KiB head so a tail edit is stale", async () => {
+    const file = path.join(workspaceDir, "合同.docx");
+    const body = Buffer.alloc(300 * 1024, 1);
+    await fs.writeFile(file, body);
+    const before = fingerprintWordFile(file);
+    body[body.length - 1] = 2;
+    await fs.writeFile(file, body);
+    const after = fingerprintWordFile(file);
+    expect(before?.hash).toBeTruthy();
+    expect(after?.hash).not.toBe(before?.hash);
+    expect(after?.size).toBe(before?.size);
   });
 
   it("refuses paths that are not absolute Word files", () => {
@@ -311,22 +325,23 @@ describe("hunksFromRedlineProposal", () => {
     expect(result.hunks[0]?.replace).toBe("，但累计赔偿总额不超过该项目已付软件费用。");
   });
 
-  it("过长的真换整节不上插件，如实计数", () => {
+  it("重算后仍超过 60 字的整段替换不上插件", () => {
+    const before = "甲".repeat(80);
+    const after = "乙".repeat(80);
     const result = hunksFromRedlineProposal({
       hunks: [
         {
           hunkId: "h1",
           sectionIndex: 0,
-          // 两段没有任何共有片段 → 本身就是 60 字以上的一处改动 → 不上插件。
-          before: "甲".repeat(80),
-          after: "乙".repeat(80),
+          before,
+          after,
           status: "pending",
           granularity: "section",
         },
       ],
     });
-    expect(result.hunks).toEqual([]);
     expect(result.skippedSectionHunks).toBe(1);
+    expect(result.hunks).toEqual([]);
   });
 });
 

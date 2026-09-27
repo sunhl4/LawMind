@@ -1,6 +1,4 @@
 import { listAssistantPresets } from "../../../src/lawmind/agent/assistant-presets.js";
-import { listMatterIds } from "../../../src/lawmind/cases/index.js";
-import { listDrafts } from "../../../src/lawmind/drafts/index.js";
 import {
   loadAssistantProfiles,
   loadAssistantStats,
@@ -8,17 +6,12 @@ import {
 } from "../../../src/lawmind/assistants/store.js";
 import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
-import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
 import { isResolvedModelVerified } from "../../../src/lawmind/models/index.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { buildAgentConfig, isDesktopModelConfigured, sendJson } from "./lawmind-server-helpers.js";
-import {
-  buildDoctorStats,
-  buildMemoryTruthSourceFlags,
-  buildRuntimeCapabilityFlags,
-} from "./lawmind-health-payload.js";
+import { buildRuntimeCapabilityFlags } from "./lawmind-health-payload.js";
 
-export async function handleBootstrapRoute({ ctx, pathname, req, res, c }: LawmindRouteContext): Promise<boolean> {
+export function handleBootstrapRoute({ ctx, pathname, req, res, c }: LawmindRouteContext): boolean {
   if (!(pathname === "/api/bootstrap" && req.method === "GET")) {
     return false;
   }
@@ -48,10 +41,8 @@ export async function handleBootstrapRoute({ ctx, pathname, req, res, c }: Lawmi
     stats: stats[profile.assistantId] ?? { lastUsedAt: "", turnCount: 0, sessionCount: 0 },
   }));
 
-  const tasks = listTaskRecords(workspaceDir);
-  const drafts = listDrafts(workspaceDir);
-  const matters = await listMatterIds(workspaceDir);
-
+  // 任务 / 草稿 / 案件计数不放在这条首屏路径上。渲染层另有 /api/tasks 与 /api/history，
+  // 体检计数留在 /api/health。在这里再扫一遍会和那两条请求抢同一条事件循环。
   sendJson(
     res,
     200,
@@ -74,8 +65,6 @@ export async function handleBootstrapRoute({ ctx, pathname, req, res, c }: Lawmi
         policy: policy.loaded
           ? { loaded: true, allowWebSearch: policy.policy.allowWebSearch ?? null }
           : { loaded: false },
-        doctor: buildDoctorStats(workspaceDir),
-        memoryTruthSources: buildMemoryTruthSourceFlags(workspaceDir),
       },
       edition: {
         id: edition.edition,
@@ -84,12 +73,6 @@ export async function handleBootstrapRoute({ ctx, pathname, req, res, c }: Lawmi
       },
       assistants,
       presets: listAssistantPresets(),
-      records: {
-        taskCount: tasks.length,
-        draftCount: drafts.length,
-        matterCount: matters.length,
-        pendingReviewCount: drafts.filter((d) => d.reviewStatus === "pending").length,
-      },
     },
     c,
   );

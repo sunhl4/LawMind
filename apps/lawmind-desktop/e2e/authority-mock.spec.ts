@@ -30,7 +30,7 @@ test.describe("authority settings mock", () => {
     const probe = page.getByTestId("lm-settings-authority-probe");
     await expect(probe).toBeVisible();
     await expect(probe).toBeEnabled();
-    await expect(probe).toHaveText("探测开源语料");
+    await expect(probe).toHaveText("检查公开法规");
     await probe.click();
     await expect(page.getByTestId("lm-settings-authority-probe-msg")).toContainText(/语料|开源语料|探测成功/);
   });

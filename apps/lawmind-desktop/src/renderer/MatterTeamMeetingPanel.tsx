@@ -99,7 +99,7 @@ export function MatterTeamMeetingPanel(props: Props): ReactNode {
           return;
         }
       } catch {
-        /* fall through to sessionStorage */
+        /* 名册接口失败时用本机记住的参会人 */
       }
       const stored = readParticipants(matterId);
       applyParticipants(stored?.length ? stored : [shellAssistantId]);

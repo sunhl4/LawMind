@@ -1,6 +1,7 @@
 /** Settings sidebar metadata (grouped nav + deep-link anchors). */
 
 export type LawmindSettingsSectionId =
+  | "account"
   | "doctor"
   | "appearance"
   | "review-prefs"
@@ -45,9 +46,9 @@ export type SettingsNavGroup = {
 };
 
 /**
- * Lawyer-facing settings. Role / skills / edition admin stay deep-linkable
+ * Lawyer-facing settings. Role / skills / edition / templates admin stay deep-linkable
  * (see SETTINGS_NAV_RETIRED_ITEMS) but are not in the sidebar.
- * 助手编制 is in 办案（Day-1 落在「更多设置」），便于新建助手。
+ * The sidebar is a single flat list (Cursor-style); groups here are only source order.
  */
 export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
   {
@@ -55,28 +56,28 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
     label: "本机与外观",
     items: [
       {
+        id: "account",
+        label: "账号",
+        description: "登录身份、订阅方案与用量",
+        keywords: "account profile 账号 账户 订阅 套餐 登录 用量 账单 会员 plan billing 许可 激活 激活码",
+      },
+      {
         id: "models",
         label: "模型与连接",
-        description: "API、默认模型与检索通道",
+        description: "密钥、当前模型、联网与法源",
         keywords: "model api key 检索 retrieval brave 联网 密钥 连接 权威 法宝 法规库 数据源 pkulaw 垂类 共用",
       },
       {
         id: "workspace",
         label: "工作区",
-        description: "案件数据目录、材料夹与办案标准",
-        keywords: "workspace 工作区 项目 project 目录 扫描 历史材料 材料夹 文件夹 标准 口径 playbook",
-      },
-      {
-        id: "host",
-        label: "本机能力",
-        description: "本机查找、本机命令与案件隔离",
-        keywords: "本机 查找 挂载 文件夹 host 命令 磁盘 索引",
+        description: "案件数据目录、本机文件夹与办案标准",
+        keywords: "workspace 工作区 项目 project 目录 扫描 历史材料 整理资料 旧卷宗 材料夹 文件夹 本机 标准 口径 playbook 查找 重建",
       },
       {
         id: "appearance",
         label: "外观",
-        description: "主题、字号、版面、签批审阅与导出",
-        keywords: "appearance 字体 字号 ui 主题 导出 word 签批 审阅 红线 review 对外",
+        description: "浅色或深色、全软件字号，以及审稿是否要您拍板",
+        keywords: "appearance 字体 字号 全局 ui 主题 深色 浅色 疏密 导出 word 签批 审阅 review",
       },
     ],
   },
@@ -87,14 +88,8 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
       {
         id: "automations",
         label: "自动办件",
-        description: "定时任务与邮箱配置",
+        description: "选一件事，定多久办一次",
         keywords: "automations 自动办件 定时任务 定时 邮件 续签 周报 邮箱 落款",
-      },
-      {
-        id: "templates",
-        label: "文书模板",
-        description: "Word / PPT 交付模板",
-        keywords: "templates 模板 docx word ppt pptx 文稿",
       },
       {
         id: "memory",
@@ -105,7 +100,7 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
       {
         id: "assistants",
         label: "助手编制",
-        description: "新建、切换与编辑助手",
+        description: "名册、置顶、隐藏与职务说明书",
         keywords: "assistant 智能体 岗位 persona 助手 编制 新建助手",
       },
     ],
@@ -119,31 +114,6 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
         label: "免责声明",
         description: "使用边界与责任",
         keywords: "disclaimer 免责",
-      },
-    ],
-  },
-  {
-    id: "advanced",
-    label: "专业控制",
-    items: [
-      {
-        id: "doctor",
-        label: "系统健康",
-        description: "连接、核对与运行体检",
-        keywords:
-          "doctor 体检 健康 用量 索引 memory truth 真相源 overview 概览 内测 团队成长 基线 一次过 开始使用 北极星 无干预 逃逸",
-      },
-      {
-        id: "tools",
-        label: "安全",
-        description: "高安全开关与联网策略",
-        keywords: "tools mcp 工具 沙箱 policy 安全 高安全",
-      },
-      {
-        id: "app-update",
-        label: "应用更新",
-        description: "检查桌面版更新",
-        keywords: "update 更新 安装包",
       },
     ],
   },
@@ -167,15 +137,27 @@ export const SETTINGS_NAV_RETIRED_ITEMS: readonly SettingsNavItem[] = [
   },
   {
     id: "skills",
-    label: "技能库",
-    description: "开箱技能自动启用，不必在此开关",
-    keywords: "skills 技能 skill 签名 中国包 cn pack",
+    label: "作业标准",
+    description: "写在软件里，交办时自动带上，不能安装或开关",
+    keywords: "skills 技能 skill 作业标准 内置",
   },
   {
     id: "edition",
     label: "版本与授权",
     description: "版本号见设置侧栏底部",
     keywords: "edition 版本 firm solo 授权",
+  },
+  {
+    id: "doctor",
+    label: "系统健康",
+    description: "已收进工作区、外观与应用更新",
+    keywords: "doctor 体检 健康",
+  },
+  {
+    id: "templates",
+    label: "文书模板",
+    description: "出稿用内置模板，不能上传",
+    keywords: "templates 模板 docx word ppt pptx 文稿",
   },
 ];
 
@@ -195,47 +177,19 @@ export function filterSettingsNavGroups(query: string): SettingsNavGroup[] {
   })).filter((group) => group.items.length > 0);
 }
 
-/** Day-1 sidebar: connect, folders, host, look, legal. Everything else is「更多设置」. */
-const DAY1_SECTION_IDS = new Set<LawmindSettingsSectionId>([
-  "models",
-  "workspace",
-  "host",
-  "appearance",
-  "disclaimer",
-]);
-
-function flattenNavItems(groups: SettingsNavGroup[]): SettingsNavItem[] {
-  return groups.flatMap((group) => [...group.items]);
-}
-
-function day1AndMoreGroups(groups: SettingsNavGroup[]): SettingsNavGroup[] {
-  const items = flattenNavItems(groups);
-  const day1 = items.filter((item) => DAY1_SECTION_IDS.has(item.id));
-  const more = items.filter((item) => !DAY1_SECTION_IDS.has(item.id));
-  const out: SettingsNavGroup[] = [];
-  const workspaceItems = day1.filter((item) => item.id !== "disclaimer");
-  const aboutItems = day1.filter((item) => item.id === "disclaimer");
-  if (workspaceItems.length > 0) {
-    out.push({ id: "workspace", label: "本机与外观", items: workspaceItems });
-  }
-  if (aboutItems.length > 0) {
-    out.push({ id: "about", label: "关于", items: aboutItems });
-  }
-  if (more.length > 0) {
-    out.push({ id: "more", label: "更多设置", items: more });
-  }
-  return out;
-}
-
+/** Sidebar order: every lawyer-facing section, no collapsed “更多设置” bucket. */
 export function settingsNavGroupsForEdition(
   _edition: string | undefined,
   query = "",
 ): SettingsNavGroup[] {
-  const groups = filterSettingsNavGroups(query);
-  if (query.trim()) {
-    return groups;
-  }
-  return day1AndMoreGroups(groups);
+  return filterSettingsNavGroups(query);
+}
+
+export function settingsNavItemsForEdition(
+  edition?: string,
+  query = "",
+): SettingsNavItem[] {
+  return settingsNavGroupsForEdition(edition, query).flatMap((group) => [...group.items]);
 }
 
 export function firstSettingsNavMatch(
@@ -252,10 +206,19 @@ export function settingsNavItem(id: LawmindSettingsSectionId): SettingsNavItem |
 export function lawmindSettingsSectionFromDomId(domId: string): LawmindSettingsSectionId | undefined {
   const suffix = domId.replace(/^lawmind-settings-/, "");
   if (suffix === "doctor" || suffix === "usage") {
-    return "doctor";
+    return "workspace";
   }
   if (suffix === "review-prefs") {
     return "review-prefs";
+  }
+  if (suffix === "host") {
+    return "workspace";
+  }
+  if (suffix === "tools") {
+    return "models";
+  }
+  if (suffix === "app-update") {
+    return "account";
   }
   if (SETTINGS_NAV_FLAT.some((item) => item.id === suffix) || SETTINGS_NAV_RETIRED_ITEMS.some((item) => item.id === suffix)) {
     return suffix as LawmindSettingsSectionId;
@@ -266,10 +229,15 @@ export function lawmindSettingsSectionFromDomId(domId: string): LawmindSettingsS
 /** Sections still routable but removed from the sidebar (deep-link / legacy lastSection). */
 export const SETTINGS_NAV_LEGACY_SECTION_IDS: readonly LawmindSettingsSectionId[] = [
   "review-prefs",
+  "host",
   "roles",
   "collaboration",
   "skills",
   "edition",
+  "doctor",
+  "tools",
+  "templates",
+  "app-update",
 ];
 
 const RETIRED_LAST_SECTION_IDS = new Set<LawmindSettingsSectionId>([
@@ -277,6 +245,9 @@ const RETIRED_LAST_SECTION_IDS = new Set<LawmindSettingsSectionId>([
   "collaboration",
   "skills",
   "edition",
+  "doctor",
+  "tools",
+  "templates",
 ]);
 
 export function isKnownSettingsSectionId(id: string): id is LawmindSettingsSectionId {
@@ -294,6 +265,18 @@ export function readStoredSettingsSection(): LawmindSettingsSectionId {
     if (raw && isKnownSettingsSectionId(raw)) {
       if (raw === "review-prefs") {
         return "appearance";
+      }
+      if (raw === "host") {
+        return "workspace";
+      }
+      if (raw === "doctor") {
+        return "workspace";
+      }
+      if (raw === "tools") {
+        return LAWMIND_SETTINGS_DEFAULT_SECTION;
+      }
+      if (raw === "app-update") {
+        return "account";
       }
       if (RETIRED_LAST_SECTION_IDS.has(raw)) {
         return LAWMIND_SETTINGS_DEFAULT_SECTION;

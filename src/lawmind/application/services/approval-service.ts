@@ -21,6 +21,7 @@ import {
 } from "../../adapters/matter-storage/index.js";
 import { withExclusiveFileLock } from "../../adapters/matter-storage/io.js";
 import { createMatterIfMissing } from "./matter-write-service.js";
+import { invalidateQueueListSnap } from "./queue-service.js";
 
 function newTimestamp(): string {
   return new Date().toISOString();
@@ -77,6 +78,7 @@ export function requestApproval(workspaceDir: string, input: RequestApprovalInpu
   withExclusiveFileLock(lockPath, () => {
     appendApproval(workspaceDir, record);
   });
+  invalidateQueueListSnap(workspaceDir);
   return record;
 }
 
@@ -120,6 +122,7 @@ export function resolveApproval(
     };
     all[idx] = next;
     rewriteApprovals(workspaceDir, matterId, all);
+    invalidateQueueListSnap(workspaceDir);
     return { outcome: "written" as const, approval: next };
   });
 }

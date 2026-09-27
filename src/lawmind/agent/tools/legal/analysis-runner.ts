@@ -1,11 +1,14 @@
 /**
  * Shared guest execution for run_analysis (file) and run_compute (inline).
+ *
+ * 子进程路径复用 `safeCommand`（ipc fork）：绝对路径、超时、最小 env。
+ * 不另造「沙箱审计产品面」——可审计不是卖点；需要调查时走既有 safe_command 通道即可。
  */
 
-import { fork, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildMinimalChildEnv, safeCommand } from "../../../platform/safe-command.js";
 import type { ToolCallResult } from "../../types.js";
 import { ANALYSIS_TIMEOUT_MS, runAnalysisScriptInVm } from "./analysis-sandbox.js";
 
@@ -47,6 +50,7 @@ export async function runSandboxedAnalysisSource(
 async function runInChild(source: string, workspaceDir: string): Promise<ToolCallResult> {
   const entry = childEntryPath();
   if (!entry) {
+    // 缺子进程入口时退回同进程 VM：保持交件可用（铁律 2/3），不硬拒。
     const result = await runAnalysisScriptInVm({
       source,
       workspaceDir,
@@ -54,37 +58,34 @@ async function runInChild(source: string, workspaceDir: string): Promise<ToolCal
     });
     return { ok: true, data: result, sandboxed: true };
   }
+
   return new Promise((resolve) => {
     let settled = false;
-    let child: ChildProcess | undefined;
+    let handle!: ReturnType<typeof safeCommand>;
     const finish = (result: ToolCallResult) => {
       if (settled) {
         return;
       }
       settled = true;
       try {
-        child?.kill();
+        handle?.kill();
       } catch {
         /* ignore */
       }
       resolve(result);
     };
-    const timer = setTimeout(() => {
-      finish({ ok: false, error: "分析脚本超时（15 秒）。", sandboxed: true, timedOut: true });
-    }, ANALYSIS_TIMEOUT_MS + 500);
+
     try {
-      const execArgv = entry.endsWith(".ts") ? ["--import", "tsx"] : [];
-      child = fork(entry, [], {
-        execArgv,
-        stdio: ["ignore", "ignore", "ignore", "ipc"],
-        env: {
-          PATH: process.env.PATH,
-          HOME: process.env.HOME,
-          TMPDIR: process.env.TMPDIR,
-        },
+      handle = safeCommand({
+        command: entry,
+        args: [],
+        ipc: true,
+        execArgv: entry.endsWith(".ts") ? ["--import", "tsx"] : [],
+        env: buildMinimalChildEnv(),
+        timeoutMs: ANALYSIS_TIMEOUT_MS + 500,
+        // 不传 auditDir：分析脚本起停不是律师面卖点；调查时可在上层接线。
       });
     } catch (err) {
-      clearTimeout(timer);
       finish({
         ok: false,
         error: `无法启动分析沙箱：${err instanceof Error ? err.message : String(err)}`,
@@ -92,8 +93,8 @@ async function runInChild(source: string, workspaceDir: string): Promise<ToolCal
       });
       return;
     }
-    child.on("message", (msg: unknown) => {
-      clearTimeout(timer);
+
+    handle.child.on("message", (msg: unknown) => {
       const m = msg as { ok?: boolean; result?: unknown; error?: string };
       if (m.ok === true) {
         finish({ ok: true, data: m.result, sandboxed: true });
@@ -101,16 +102,35 @@ async function runInChild(source: string, workspaceDir: string): Promise<ToolCal
       }
       finish({ ok: false, error: m.error ?? "分析沙箱失败", sandboxed: true });
     });
-    child.on("error", (err) => {
-      clearTimeout(timer);
+
+    handle.child.on("error", (err) => {
       finish({ ok: false, error: err.message, sandboxed: true });
     });
-    child.on("exit", (code) => {
-      if (!settled) {
-        clearTimeout(timer);
-        finish({ ok: false, error: `分析沙箱退出（${code ?? "unknown"}）`, sandboxed: true });
-      }
-    });
-    child.send({ source, workspaceDir, timeoutMs: ANALYSIS_TIMEOUT_MS });
+
+    handle.finished
+      .then((res) => {
+        if (!settled) {
+          finish({
+            ok: false,
+            error:
+              res.exitSignal === "SIGTERM" || res.exitSignal === "SIGKILL"
+                ? "分析脚本超时（15 秒）。"
+                : `分析沙箱退出（${res.exitCode ?? res.exitSignal ?? "unknown"}）`,
+            sandboxed: true,
+            ...(res.exitSignal === "SIGTERM" || res.exitSignal === "SIGKILL"
+              ? { timedOut: true }
+              : {}),
+          });
+        }
+      })
+      .catch((err) => {
+        finish({
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+          sandboxed: true,
+        });
+      });
+
+    handle.child.send({ source, workspaceDir, timeoutMs: ANALYSIS_TIMEOUT_MS });
   });
 }

@@ -384,3 +384,185 @@ export function ingestKnowledgeRows(
 export function isDailyLogKnowledgePath(relPath: string): boolean {
   return isDailyLogPath(relPath);
 }
+
+type SourceStamp = { key: string; mtime: number; size: number };
+
+function stampOf(abs: string): { mtime: number; size: number } | null {
+  try {
+    const stat = fs.statSync(abs);
+    if (!stat.isFile()) {
+      return null;
+    }
+    return { mtime: Math.floor(stat.mtimeMs), size: stat.size };
+  } catch {
+    return null;
+  }
+}
+
+/** 知识文件与先例稿的当前戳，供增量比对。不读正文。 */
+export function listKnowledgeSourceStamps(workspaceDir: string): SourceStamp[] {
+  const out: SourceStamp[] = [];
+  for (const rel of collectKnowledgeRelPaths(workspaceDir)) {
+    const stamp = stampOf(path.join(workspaceDir, rel));
+    if (stamp) {
+      out.push({ key: rel.replace(/\\/g, "/"), ...stamp });
+    }
+  }
+  if (isPrecedentIngestEnabled()) {
+    const dir = path.join(workspaceDir, "drafts");
+    let names: string[] = [];
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      names = [];
+    }
+    for (const name of names) {
+      if (!name.endsWith(".json") || name.startsWith(".") || name.includes(".research.")) {
+        continue;
+      }
+      const stamp = stampOf(path.join(dir, name));
+      if (stamp) {
+        out.push({ key: `drafts/${name}`, ...stamp });
+      }
+    }
+  }
+  return out;
+}
+
+function deleteKnowledgePath(db: DatabaseSync, rel: string): void {
+  db.prepare(`DELETE FROM knowledge_fts WHERE path = ?`).run(rel);
+}
+
+function insertKnowledgeRel(
+  db: DatabaseSync,
+  workspaceDir: string,
+  rel: string,
+  isMatterRestricted: (matterId: string) => boolean,
+  maxRows: number,
+  count: number,
+): { count: number; truncated: boolean } {
+  const insert = db.prepare(
+    `INSERT INTO knowledge_fts(path, matter_id, doc_kind, section, body) VALUES (?, ?, ?, ?, ?)`,
+  );
+  if (rel.startsWith("drafts/") && rel.endsWith(".json")) {
+    const rows = collectPrecedentDraftRows(workspaceDir).filter((row) => row.rel === rel);
+    for (const row of rows) {
+      if (isMatterRestricted(row.matterId)) {
+        return { count, truncated: false };
+      }
+      for (const chunk of chunkMarkdown(row.text)) {
+        if (count >= maxRows) {
+          return { count, truncated: true };
+        }
+        insert.run(row.rel, row.matterId, "precedent", chunk.section || row.title, chunk.body);
+        count++;
+      }
+    }
+    return { count, truncated: false };
+  }
+  const kind = classifyPath(rel);
+  if (!kind) {
+    return { count, truncated: false };
+  }
+  const matterId = matterIdFromPath(rel);
+  if (matterId && isMatterRestricted(matterId)) {
+    return { count, truncated: false };
+  }
+  let raw = "";
+  try {
+    raw = fs.readFileSync(path.join(workspaceDir, rel), "utf8");
+  } catch {
+    return { count, truncated: false };
+  }
+  const text = kind === "golden" ? goldenExcerpt(raw) : raw;
+  if (!text.trim()) {
+    return { count, truncated: false };
+  }
+  for (const chunk of chunkMarkdown(text)) {
+    if (count >= maxRows) {
+      return { count, truncated: true };
+    }
+    insert.run(rel, matterId, kind, chunk.section, chunk.body);
+    count++;
+  }
+  return { count, truncated: false };
+}
+
+/**
+ * 只重写改过或删掉的知识文件。未改的文件不读正文。
+ */
+export function syncKnowledgeIncremental(
+  db: DatabaseSync,
+  workspaceDir: string,
+  maxRows = DEFAULT_MAX_KNOWLEDGE,
+): { changed: number; truncated: boolean } {
+  const current = listKnowledgeSourceStamps(workspaceDir);
+  const currentByKey = new Map(current.map((row) => [row.key, row]));
+  const existing = db
+    .prepare(
+      `SELECT source_key AS sourceKey, mtime, size FROM index_source WHERE kind = 'knowledge'`,
+    )
+    .all() as Array<{ sourceKey: string; mtime: number; size: number }>;
+  const upsert = db.prepare(
+    `INSERT INTO index_source(source_key, kind, mtime, size) VALUES (?, 'knowledge', ?, ?)
+     ON CONFLICT(source_key) DO UPDATE SET mtime = excluded.mtime, size = excluded.size`,
+  );
+  const dropSource = db.prepare(`DELETE FROM index_source WHERE source_key = ?`);
+  let changed = 0;
+  for (const row of existing) {
+    const cur = currentByKey.get(row.sourceKey);
+    if (!cur || cur.mtime !== row.mtime || cur.size !== row.size) {
+      deleteKnowledgePath(db, row.sourceKey);
+      dropSource.run(row.sourceKey);
+      changed++;
+    }
+  }
+  const fresh = new Map(
+    (
+      db
+        .prepare(
+          `SELECT source_key AS sourceKey, mtime, size FROM index_source WHERE kind = 'knowledge'`,
+        )
+        .all() as Array<{ sourceKey: string; mtime: number; size: number }>
+    ).map((row) => [row.sourceKey, row]),
+  );
+  const sensitivityCache = new Map<string, "restricted" | "ok">();
+  const isMatterRestricted = (matterId: string): boolean => {
+    let sens = sensitivityCache.get(matterId);
+    if (!sens) {
+      try {
+        const rec = loadMatter(workspaceDir, matterId);
+        sens = rec?.sensitivity === "restricted" ? "restricted" : "ok";
+      } catch {
+        sens = "ok";
+      }
+      sensitivityCache.set(matterId, sens);
+    }
+    return sens === "restricted";
+  };
+  let count = (db.prepare(`SELECT count(*) AS c FROM knowledge_fts`).get() as { c: number }).c;
+  let truncated = false;
+  for (const row of current) {
+    const prev = fresh.get(row.key);
+    if (prev && prev.mtime === row.mtime && prev.size === row.size) {
+      continue;
+    }
+    deleteKnowledgePath(db, row.key);
+    const inserted = insertKnowledgeRel(
+      db,
+      workspaceDir,
+      row.key,
+      isMatterRestricted,
+      maxRows,
+      count,
+    );
+    count = inserted.count;
+    truncated = truncated || inserted.truncated;
+    upsert.run(row.key, row.mtime, row.size);
+    changed++;
+    if (truncated) {
+      break;
+    }
+  }
+  return { changed, truncated };
+}

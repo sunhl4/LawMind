@@ -63,15 +63,7 @@ buildDraft(params: BuildDraftParams): ArtifactDraft
 
 > E6：MODE 未设或为 model 时，有凭据即启用；keyword/off 关闭。
 
-三个**拒绝用模型扩写**的情况（`buildDraftWithModel` 里的三步检查）：
-
-| 情况                                         | 为什么拒               |
-| -------------------------------------------- | ---------------------- |
-| 标题含「大纲待确认」                         | 大纲还没确认，不许扩写 |
-| 某节标题含「待确认 — 确认前不扩写」          | 同上                   |
-| `isOutlineGatedDeliverable(deliverableType)` | 大纲先行的三类交付物   |
-
-第三条对应的三类是 `report.compliance`、`report.learning`、`ppt.training`（第 54.5 节讲）。
+**拒绝用模型扩写**的情况（`buildDraftWithModel`）：标题含「大纲待确认」，或某节标题含「待确认 — 确认前不扩写」。这只发生在律师明确说先看大纲时。`report.compliance`、`report.learning`、`ppt.training` 默认同一轮交给模型扩写（第 54.5 节）。
 
 ## 54.2 规则草稿：一份稿子怎么搭起来
 
@@ -104,7 +96,7 @@ buildDraft(params: BuildDraftParams): ArtifactDraft
 
 ### 三个细节
 
-**第一：`summary` 的长度守卫**。摘要超过 80 字就截——因为它是给律师扫一眼的。
+**第一：`summary` 是计数句，不是截断。** `summarizeBundle` 写成「共检索 N 条来源，整理 N 条结论，风险提示 N 条，待补充事项 N 条。」80 字截断用在部分标题上，不用在这条摘要上。
 
 **第二：负向结论的识别**。有一个正则：
 
@@ -182,15 +174,7 @@ memo.research / memo.internal / labor.calc / period.calc / analysis.table
 （另有 N 条算好的事实未展开——本章只保留最关键的几条。）
 ```
 
-**第二：算不出来时明说。**
-
-一条事实都没有时，提示块里写的不是空白，而是：
-
-```text
-派生事实：本材料上无可证明的计算（不是「没有问题」，是「算不出来就不说」）。
-```
-
-**这句话是全仓最典型的「诚实措辞」之一**：它主动区分了「没算出来」和「没问题」。
+**第二：算不出来时整块不注入。** `formatDerivedFactsPromptBlock` 在没有事实时返回 `undefined`，不往提示词里塞空标题。同一句「无可证明的计算」写在 `describeDerivedFacts`，给体检和命令行看，不进模型提示。
 
 ### 提示块的标题
 
@@ -240,9 +224,9 @@ deliverable_scope → deposit_cap_ratio → payment_sum → unit_price_times_qua
 `buildLegalReasoningGraph` 的做法：
 
 1. **按争点建 issue tree**：每个 claim 变一个争点，`issue = claim.text.slice(0, 80)`。
-2. **填要件**：从来源分类推——`AUTHORITY_SOURCE_KINDS = {statute, regulation}` 进 `authorityIds`，`EVIDENCE_SOURCE_KINDS = {case}` 进 `evidence`，`FACT_SOURCE_KINDS = {contract, memo, workspace}` 进 `facts`。
+2. **填要件**：从来源分类推——`AUTHORITY_SOURCE_KINDS = {statute, regulation}` 进 `authorityIds`，`EVIDENCE_SOURCE_KINDS = {case}` 进 `evidence`，`FACT_SOURCE_KINDS = {contract, memo, workspace}` 进 `facts`。只有结论引用了的来源才进 `facts`。未被引用的案件材料写进交付风险，请起草时自行判断，不计入事实数。
 3. **标交付风险**：`confidence < 0.5` 的结论标「置信度 < 50%」；要素缺失也标一条。
-4. **找权威冲突**：两条 `statute`/`regulation` 的置信度差超过 `AUTHORITY_CONFLICT_CONFIDENCE_GAP = 0.3` 就算冲突，`resolved: false`，`resolutionNote` 是：
+4. **找权威冲突**：三条同时成立才算——同一法律主题、依据的权威集合不相同、置信度差超过 `AUTHORITY_CONFLICT_CONFIDENCE_GAP = 0.3`。两条结论引用同一条法条不算权威冲突。`resolved: false`，`resolutionNote` 是：
 
 ```text
 建议律师人工判断以哪条结论为主
@@ -258,13 +242,13 @@ deliverable_scope → deposit_cap_ratio → payment_sum → unit_price_times_qua
 issueTree.reduce((sum, n) => sum + n.confidence, 0) / issueTree.length
 ```
 
-注释里写的是「各争点置信度的加权均值」，但代码是无权重平均。**这是一个注释与实现不一致的地方**——按代码为准。
+类型注释与代码一致：无权重算术平均；没有争点时为 0。
 
-### 一个「实测为空」的字段
+### 案件事实怎么进图
 
-`buildIssueTree` 的注释说明了一件事：`facts` 在实践中**总是空的**。原因是只有 `createWorkspaceAdapter` 会产出 `memo`/`workspace` 类来源，而它的 `claims: []`（工作区适配器只产出来源，不产出结论）。
+`createWorkspaceAdapter` 仍只产出来源、不产结论（`claims: []`）。`buildIssueTree` 只从 `claim.sourceIds` 反查。未被引用的材料不写入 `facts`，只在交付风险里列出短摘录，由起草判断是否使用。`facts_grounded` 仍是 warning：没有被引用的材料不算事实，升成 blocker 会在模型还没引用时拦住交付。
 
-这解释了第 12 章那条实测结论：`facts_grounded` 检查永远是 0（因为 `factsTotal` 恒为 0）。
+结构往返走 `drafts/<taskId>.reasoning.json`（临时文件再改名，读回校验形状）。Markdown 给人看，`parseLegalReasoningGraphMeta` 只恢复四项元信息。
 
 ### 十个法律主题
 
@@ -272,28 +256,30 @@ issueTree.reduce((sum, n) => sum + n.confidence, 0) / issueTree.length
 
 **它的用途**：给争点打标签，让「同类问题」能被归到一起。
 
-## 54.5 大纲先行：三类的 HITL 门
+## 54.5 大纲：三类交付物默认写正文
 
-`research-draft-gates.ts` 只服务三类交付物：
+`research-draft-gates.ts` 的大纲结构只服务三类交付物：
 
 ```ts
 OUTLINE_GATED_DELIVERABLES = new Set(["report.compliance", "report.learning", "ppt.training"]);
 ```
 
-**为什么是这三类**：它们是「研究型产出」，结构错了整份就废了。所以要求**先出大纲、律师确认、再扩写**。
+大纲仍按类型生成章节，并随正文一起交。`lawyerWantsOutlineHold` 只在律师写出「先出大纲 / 确认后再写 / 只要大纲」时停住，出澄清卡。检索备忘 `memo.research` 不在这三类里，本来就不走这道门。
 
-### 五步判定
+### 判定顺序
 
-`resolveOutlineForDraft` 的顺序：
+`resolveOutlineForDraft`：
 
 ```text
 ① 读已存大纲（没存就现建）
 ② 从指令里抽律师答复（extractOutlineAnswerFromResume）
-     答了 → 落盘 + approve + 返回 approved: true
-③ 明确「不同意大纲」→ 重建 + 状态 pending + 备注
-     备注文案：「律师不同意上一版大纲，已按当前检索结果重建，请再次确认。」
-④ 「不清楚」→ pending + approved: false
-⑤ 指令里像是批准 → 标 approved
+     批准或修订 → 落盘 + approved
+③ 明确「不同意大纲」→ 按当前检索重建
+     律师仍要求先看大纲 → pending
+     否则直接标 approved，同一轮写正文
+④ 答复不清楚：仍要求先看大纲才 pending，否则写正文
+⑤ 本轮写了「先出大纲」且没有结构化批准 → pending（盖过磁盘上已确认的旧大纲）
+⑥ 没有这类话 → approved
 ```
 
 ### 未确认时的骨架长什么样
@@ -422,7 +408,7 @@ CompileFillIR   = { kind, slots, gaps, computed? }
 
 > When set, slot is incomplete; never invent a value.
 
-**「never invent a value」是这套 IR 的全部意义**：能算的算进 `computed`，算不出的留成 `gap`，中间没有「猜一个」。
+**「never invent a value」是这套 IR 的全部意义**：能算的算进 `computed`，算不出的留成 `gap`，中间没有「猜一个」。`legal.elements` 走 `compile/legal-elements-fill.ts`：九类槽里抽不到的留缺口，不把口语评价写成事实。
 
 ### 两个格式化函数
 
@@ -464,11 +450,9 @@ Letter address slots from the instruction. Never invent 收函/委托人.
 
 **为什么不猜**：函件的收件人和委托人写错，是发错对象的低级错误。所以**宁可留占位符，也不猜一个**。
 
-### `legal.elements` 是个「声明了但没实现」的 kind
+### `legal.elements` 的适配器
 
-`CompileFillKind` 里有 `legal.elements`，但 `compile/` 目录里**没有 adapter 产出它**（`reasoning/legal-elements.ts` 返回的是 `ExtractedLegalElements`，不是 `CompileFillIR`）。
-
-**这是一个「类型先行、实现未跟上」的痕迹**。看到它别去找实现——按第 59 章的说法，要素提取的产出走的是另一条路。
+`compile/legal-elements-fill.ts` 的 `extractLegalElementsCompileFill` 把 `reasoning/legal-elements.ts` 的九类槽收成 `CompileFillIR`。抽不到的槽留缺口，不把口语评价写成事实。
 
 ## 54.8 场景骨架：九个 `build*Sections`
 
@@ -608,7 +592,7 @@ Independent of GCL copy. 劳动合同法 is in force and must not match 合同�
 
 **报「没检出」而不是沉默**，这一点值得学：律师看得到「系统查过这一项」。
 
-## 53.11（接续）要素提取：把生活语言变成法律语言
+## 54.11 要素提取：把生活语言变成法律语言
 
 `legal-elements.ts` 做一件很关键的事：**口语 → 九类结构化事实**。
 
@@ -741,16 +725,16 @@ Issue → Rule → Application → Conclusion（口播，勿贴全文）
 
 - **`reasoning/index.ts` 是纯 barrel。** 找实现去各文件。
 - **`index.ts` 不导出全部**：`norm-validity`、`legal-elements`、`scene-draft`、`quick-triage`、`chronology-extract`、`evidence-chain`、三个 draft 文件、`research-draft-gates`、`cn-date` 都不在 barrel 里。
-- **`lawyer-work-draft.test.ts` 没有对应实现文件。** 残留测试。
+- **`lawyer-work-draft.test.ts` 测的是 `keyword-draft.ts` 的律师工作骨架。** 没有同名实现文件。
 - **派生事实「没有拦停权」**，算不出就空数组，永不抛。
 - **派生事实丢整条不截半条。**
-- **`overallConfidence` 注释说「加权平均」，代码是无权重算术平均。** 按代码为准。
-- **`legal-graph` 的 `facts` 实测恒为空**（工作区适配器不产 claims）。
+- **`overallConfidence` 是无权重算术平均，无争点时为 0。** 类型注释与代码一致。它只作排序提示，不否决交件。
+- **争点 `facts` 只收被结论引用的合同、备忘、工作区材料。** 工作区适配器仍常给出空 `claims`，那时事实栏为空。没被引用的材料进交付风险，不进事实数。
 - **模型失败时产出的是「不能外发」的骨架稿**，不是成稿。
 - **大纲未确认的三类交付物不许被模型扩写。**
 - **`buildOutlineOnlySections` 把「怎么批准」写进稿子**，不是弹框。
 - **第二意见只加备注，不改正文。**
-- **`CompileFillIR` 的 `legal.elements` 没有实现。**
+- **`legal.elements` 的适配器在 `compile/legal-elements-fill.ts`。** 抽不到的九类槽留缺口，不补事实。
 - **函件的收件人/委托人宁可留占位符也不猜。**
 - **`contract-redline-craft` 那份技能正文来自代码常量**（第 20 章讲过），因为要和引擎门槛同步。
 - **`norm-validity` 的两处负向断言（`(?<!劳动)` / `(?!编)`）不能删。** 删了会说劳动合同法已废止。

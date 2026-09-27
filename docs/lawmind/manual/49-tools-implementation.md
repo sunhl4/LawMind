@@ -375,6 +375,7 @@ LPR / 牌价 must be supplied by the lawyer — never invented.
 ## 49.13 已知坑（本章相关）
 
 - **常驻工具与工厂工具的区别是「要不要本轮配置」。** 加工具前先想清楚。
+- **`run_analysis` 读脚本前做真实路径围栏。** 符号链接不能把工作区外的文件当脚本执行。`requiresApproval` 仍写在定义上，回合里真正暂停的仍只有外发。
 - **协作工具的初始化是 best-effort。** 读不到助手档案不影响主链路。
 - **`collaboration-tools.ts` 只是兼容 re-export**，实现在 `coordination/`。
 - **`matterRequiredResult` 是结构化软失败**（带 `needsMatter` 与候选列表），不是纯报错。

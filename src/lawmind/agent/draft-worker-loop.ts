@@ -7,7 +7,6 @@
 import {
   buildReadonlyToolRegistry,
   DEFAULT_READONLY_WORKER_MAX_TOOL_ROUNDS,
-  extractWorkerToolCalls,
   runReadonlyWorkerLoop,
   type ReadonlyWorkerLoopResult,
   type WorkerLoopMessage,
@@ -63,13 +62,17 @@ export async function runDraftWorkerReadOnlyLoop(opts: {
   abortSignal?: AbortSignal;
   maxToolRounds?: number;
   onStep?: (step: { tool: string; ok: boolean }) => void;
+  /** 默认是写稿收尾。协作问答传入自己的收尾，避免被要求输出文书 JSON。 */
+  closePrompt?: string;
+  roleLabel?: string;
 }): Promise<ReadonlyWorkerLoopResult> {
   return runReadonlyWorkerLoop({
     ...opts,
     allowlist: DRAFT_WORKER_READONLY_TOOL_NAMES,
     registry: draftWorkerReadonlyRegistry(),
-    roleLabel: "写稿工",
+    roleLabel: opts.roleLabel ?? "写稿工",
     closePrompt:
+      opts.closePrompt ??
       "只读工具轮次已用尽。请立刻按任务输出草稿（JSON 或【正文】【出处】【缺口】）。不要再调用工具。",
   });
 }

@@ -213,15 +213,15 @@ TLS 终止、限流、审计日志留存、备份、密钥托管。**不要**把
 定时器与 `fs.watch` 由 desktop server 在启动时建立（`startMatterReplicaAutoSync`），
 面板只读状态。
 
-| 行为     | 做法                                                                          |
-| -------- | ----------------------------------------------------------------------------- |
-| 总开关   | 门控关闭（Solo 默认）不启动；`matterReplica.autoSync: false` 可显式关         |
-| 轮询     | 默认 30s 一轮，逐案同步                                                       |
-| 即时性   | 配了 `sharedRelayDir` 时 `fs.watch` 递归监听，同事一丢文件就同步（去抖 1.5s） |
-| 节流     | 同一案件两次自动同步最小间隔 15s，避免每轮全量扫描                            |
-| 单飞     | 上一轮未完成则跳过本轮，不堆积                                                |
-| 隔离     | 单案失败只记 `lastError`，不拖累其他案件；只同步**有成员名册**的案件          |
-| 生命周期 | 定时器与监听都 `unref()`，不钉住进程；`stop()` 清定时器 + 监听 + 去抖         |
+| 行为     | 做法                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------ |
+| 总开关   | 门控关闭（`matterReplica.enabled: false`）不启动；`matterReplica.autoSync: false` 可显式关 |
+| 轮询     | 默认 30s 一轮，逐案同步                                                                    |
+| 即时性   | 配了 `sharedRelayDir` 时 `fs.watch` 递归监听，同事一丢文件就同步（去抖 1.5s）              |
+| 节流     | 同一案件两次自动同步最小间隔 15s，避免每轮全量扫描                                         |
+| 单飞     | 上一轮未完成则跳过本轮，不堆积                                                             |
+| 隔离     | 单案失败只记 `lastError`，不拖累其他案件；只同步**有成员名册**的案件                       |
+| 生命周期 | 定时器与监听都 `unref()`，不钉住进程；`stop()` 清定时器 + 监听 + 去抖                      |
 
 API：
 
@@ -291,9 +291,8 @@ API：
 
 | 条件                                                  | 结果                                                                         |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `edition: solo`（默认）                               | 关闭                                                                         |
-| `edition: firm` / `private_deploy`                    | 开启                                                                         |
-| `lawmind.policy.json` → `matterReplica.enabled: true` | Solo 也可强制开                                                              |
+| `edition: solo` / `firm` / `private_deploy`           | 开启（邀请同事不要求律所采购）                                               |
+| `lawmind.policy.json` → `matterReplica.enabled: true` | 功能键关闭时也可强制开                                                       |
 | `matterReplica.enabled: false`                        | Firm 也可强制关                                                              |
 | `matterReplica.sharedRelayDir`                        | 两台机器指向同一文件夹即可交换 ops + materials blobs                         |
 | `matterReplica.endpoint`                              | 托管案件云 HTTP 根（优先于目录中继；配 `cloudToken` = 该账号的 Bearer 令牌） |
@@ -304,7 +303,7 @@ Edition feature key：`matterReplicaCollab`。
 
 ## 律师怎么用
 
-1. 律所协作版：打开案件概览 → **成员协作**。
+1. 打开案件概览 → **成员协作**（独立律师版即可，不必换成律所版）。
 2. 填写姓名（与邮箱）并保存。
 3. **生成邀请码** → 复制分享文案发给同事（微信即可）；可在列表中**撤销**。
 4. 同事在自己的 LawMind 粘贴邀请码 → **加入本案**。

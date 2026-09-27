@@ -39,7 +39,7 @@
 **交付实施 / 律所 IT**
 
 1. 第 2 章（安装）
-2. 第 27 章（部署清单与验收）
+2. 第 27 章（两口钟、金标验收）
 3. 第 30 章（策略文件字段参考）
 4. 第 31 章（运维手册）
 5. 第 36 章（威胁模型）
@@ -70,7 +70,7 @@
 
 | 章  | 文件                            | 内容                                                                                                                       |
 | --- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `01-overview.md`                | 定位、四条铁律、术语、仓库地图、四层架构与五层概念、两个引擎入口、真相源判据、Edition 与 build-channel、一条指令流逐步展开 |
+| 1   | `01-overview.md`                | 定位、五条铁律、术语、仓库地图、四层架构与五层概念、两个引擎入口、真相源判据、Edition 与 build-channel、一条指令流逐步展开 |
 | 2   | `02-getting-started.md`         | 安装、首跑、工作区与配置位置、界面导览、模型配置、第一条交办、命令表、平台差异、初始配置清单                               |
 | 3   | `03-conversation-agent.md`      | 对话即交办、回合生命周期 18 步、模型↔工具循环、工具表单链、上下文预算与压缩、承载分叉、消息组织、四种续跑入口              |
 | 4   | `04-intent-and-capabilities.md` | 意图编译 7 级优先级、专用信号表、金标集、能力目录与渐进披露、软问条件、`$skill` 覆盖、多意图链                             |
@@ -106,12 +106,12 @@
 | 19  | `19-scenarios.md`                     | 端到端场景走查（10 个真实场景，贯穿全书能力）+ 十个场景的共同骨架                   |
 | 20  | `20-skills-reference.md`              | 37 份内置技能逐条详解（说明/工具/主推能力/边界）+ 按能力反查 + 技能生命周期         |
 | 21  | `21-deliverable-specs-reference.md`   | 27 种交付物规格逐条详解（必要章节/验收标准/推理门）+ 必核清单对照 + 扩展步骤        |
-| 22  | `22-capabilities-reference.md`        | 23 个能力逐个详解（界面说明/技能/管线/交付物）+ 绑定全过程 + 能力边界               |
-| 23  | `23-tools-reference.md`               | 工具详解（按 11 组分类）+ 共同约定 + 按场景查工具表                                 |
-| 24  | `24-ui-reference.md`                  | 界面逐屏详解（骨架、五个工作面、设置、记忆库、首跑、审批）+ 状态管理边界 + 文案约束 |
+| 22  | `22-capabilities-reference.md`        | 23 个能力：目录、办事清单、绑定、修订轨并集、主阶段与对照                           |
+| 23  | `23-tools-reference.md`               | 工具详解：四层广告、按组说明、幂等与并行、按场景查工具表                            |
+| 24  | `24-ui-reference.md`                  | 界面逐屏详解（骨架、六个工作面、设置、记忆库、首跑、审批）+ 状态管理边界 + 文案约束 |
 | 25  | `25-hands-on-tutorial.md`             | 从零上手实操（第一天到第一周，含四个练习与常见困惑）                                |
 | 26  | `26-prompt-patterns.md`               | 交办话术与提示模板（按场景分类，含「不好说法」对照）                                |
-| 27  | `27-deployment-guide.md`              | 交付实施与团队部署（部署清单、验收、长期维护、迁移、检查表）                        |
+| 27  | `27-deployment-guide.md`              | 交付实施与团队部署（两口钟、影子门禁、金标验收、维护与迁移）                        |
 | 28  | `28-data-model-reference.md`          | 核心数据结构字段详解 + 状态机速查                                                   |
 | 29  | `29-incident-casebook.md`             | 踩坑案例集（23 个真实故障 × 症状/根因/发现方式/修法/教训）+ 五条通用规律            |
 | 30  | `30-policy-reference.md`              | 策略文件字段参考（全字段 + 律所版完整示例 + 排查顺序）                              |
@@ -143,7 +143,7 @@
 | 43  | `43-agent-implementation.md`                        | `agent/`：入口与工厂、回合六块配套、会话与持久化（12 文件）、停顿中断、上下文管理、提示组装、工具表与披露、工具结果处理                                                                                                                                          |
 | 44  | `44-drafts-implementation.md`                       | `drafts/`：最短改动三件套、落改与收窄、修订计划与提案、三道门禁、跨文书、引用出处受众、三个快照                                                                                                                                                                  |
 | 45  | `45-matter-application-implementation.md`           | `desk/` + `cases/` + `application/`：工作台 20 文件、案件聚合、五个写服务的职责边界、投影与一致性                                                                                                                                                                |
-| 46  | `46-runtime-platform-implementation.md`             | `runtime/` + `platform/` + `audit/` + `policy/`：执行层、两个统一出口、Word 改稿五文件与九族清单、审计四不变量、版本 18 个功能键                                                                                                                                 |
+| 46  | `46-runtime-platform-implementation.md`             | `runtime/` + `platform/` + `audit/` + `policy/`：执行层、两个统一出口、Word 改稿五文件与九族清单、审计四不变量、版本 17 个功能键                                                                                                                                 |
 | 47  | `47-delivery-guardian-implementation.md`            | `deliverables/` + `guardian/` + `delivery/` + `evaluation/` + `metrics/`：27 规格三批来源、审稿四层判定、交付判定四层体系、诚实 null 的落点                                                                                                                      |
 | 48  | `48-retrieval-memory-integration-implementation.md` | `retrieval/` + `research/` + `indexing/` + `memory/` + `learning/` + `stance/` + `mail/` + `matter-replica/` + `integrations/` + `mcp/`                                                                                                                          |
 | 49  | `49-tools-implementation.md`                        | 工具层：组装机制、共同形状、四组共享助手、四道围栏、分析沙箱、确定性计算、worker 模式、先解算后应用                                                                                                                                                              |
@@ -159,15 +159,15 @@
 | 59  | `59-remaining-modules-implementation.md`            | 其余模块与全局契约：`core/` 生命周期十二转移、`tasks/`、`work/`、`insights/` 洞察链、`product/` 黄金旅程、`sources/`、`ops/`、`review-campaign/` 角色权重、`assistants/`、`license/`、`matter-cloud/` 端点能力表、三个全局契约文件                               |
 | 60  | `60-collaboration-orchestrator-implementation.md`   | `agent/collaboration/` + `orchestrator/` + `tools/coordination/`：两个发送模式与十一个参数、不可信包装、委派七态与三条终态守卫、十四份内置工作流逐表、种子升级判据、执行器主循环与三条门、七个协作工具                                                           |
 | 61  | `61-legal-tools-implementation.md`                  | `agent/tools/legal/` 三十八个文件：八类检索判定与四条上限、七个工台写穿工具、邮件唯一硬闸门、本机授权舞步、文件四道围栏、三条材料整理禁区、表格图表六条上限、十二个计算 op 的边界话术、九个审查表动作、五个 worker 工具                                          |
-| 62  | `62-renderer-contracts.md`                          | 渲染层交互契约：五个一级面板的结构与 testid、六个「有判定逻辑」的组件逐条分支、首跑四步五组、33 个 localStorage + 4 个 sessionStorage 键、一处「不算拖放」的误判、测试守着的契约清单                                                                             |
-| 63  | `63-server-skeleton-implementation.md`              | 本地服务端骨架：两个协议族的原因、启动二十四步、请求十三步、令牌桶、两道鉴权门、作业六态与三条守卫、进程崩溃两种态度、守护进程两层结构、SSE 总线、两个路径段校验、Word 取件四条安全线                                                                            |
+| 62  | `62-renderer-contracts.md`                          | 渲染层交互契约：六个工作面的结构与 testid、六个「有判定逻辑」的组件逐条分支、首跑四步五组、33 个 localStorage + 2 个 sessionStorage 键、一处「不算拖放」的误判、测试守着的契约清单                                                                               |
+| 63  | `63-server-skeleton-implementation.md`              | 本地服务端骨架：两个协议族的原因、启动二十二步、请求十三步、令牌桶、两道鉴权门、作业六态与三条守卫、进程崩溃两种态度、守护进程两层结构、SSE 总线、两个路径段校验、Word 取件四条安全线                                                                            |
 | 64  | `64-main-routes-implementation.md`                  | 100 条主路由：对话十九步与十三个错误码、会话控制面十四条、意图预览的类型契约修复、文书台三道门、案件二十四条与聚合、记录列表的注册顺序、后台改稿的重试与点检、验收门那个「`passed` 不是 `ok`」事故、首屏载荷                                                     |
 | 65  | `65-remaining-routes-implementation.md`             | 其余 49 个路由文件：健康与诊断、本机与文件、Word 插件七态、自动办件与邮件、协作与专案组十九端点、案件副本与云、学习与记忆、判定与审计、审批与设置、以及十六个单点文件                                                                                            |
 | 66  | `66-electron-shell-implementation.md`               | Electron 进程与桥面：启动十二步、单实例锁、导航护栏与那道「远程页面会继承 preload」的推理、DevTools 陷阱、CSP 两套、36 个 IPC 通道、文件桥九步围栏、拖放导入五条上限、安全命令四条白名单、密钥保管为何用 safeStorage                                             |
 | 67  | `67-port-credentials-packaging-implementation.md`   | 端口契约与凭据派生：2026-09-21 故障的完整因果链（三个事实相乘）、端口漂移五步与三态占用者、HMAC 派生与「为什么不用 OAuth+PKCE」、四个客户端的最小权限、CLI 凭据文件、崩溃监督两层结构、macOS 签名与公证（adhoc vs Developer ID、两份 entitlements 的唯一差别）   |
 | 68  | `68-platform-contracts-gates-implementation.md`     | 平台层（一）：十二种门禁与三种判定、七个安全硬门、门禁分类的默认方向、「验证器说停了」的识别、执行态七分支、内容信任、出网受众与特权、SSRF 八条网段拒绝、六类待办卡片、参数中文映射、三种工具锁、判断项升级通道、三张命令名单、四条指令生成器全文                |
 | 69  | `69-platform-automation-daemon-implementation.md`   | 平台层（二）：自动办件的六个确认项、五种计划、五个预设、真实事故「反复重派同一份材料」、派单台账指纹、运行历史与升格判据、守护进程四件套（心跳/退出记录/重启计数/放弃）、监督纯函数、单世代日志、在办汇总的优先级表、Word 改稿六文件与九类清单、什么算「发出去」 |
-| 70  | `70-intent-skills-scan-implementation.md`           | 意图编译（书面七级 vs 实际十七分支、20 项专用信号、10 种 source、那个「从不产生」的软问字段、73 个金标用例与那对致命误绑）、技能运行时（三种密钥来源、注入预算、播种规则与那两份「能读但不播种」的技能）、历史扫描（增量游标、走盘边界、习惯挖掘）               |
+| 70  | `70-intent-skills-scan-implementation.md`           | 意图编译（书面七级 vs 实际十七分支、20 项专用信号、10 种 source、那个「从不产生」的软问字段、75 个金标用例与那对致命误绑）、技能运行时（三种密钥来源、注入预算、播种规则与那两份「能读但不播种」的技能）、历史扫描（增量游标、走盘边界、习惯挖掘）               |
 | 71  | `71-docs-site-implementation.md`                    | VitePress 文档站：八个被跟踪文件与七条同步映射、「同步产物被 gitignore」如何强制单一事实来源、「现行 9 篇」口径与「前缀规则」机制的分离、导航五项的归档倾斜、CI 的三条断言、一处可验证的 GitHub 链接不一致                                                       |
 
 ### 附录
@@ -178,7 +178,7 @@
 | B    | `appendix-b-endpoints.md`        | HTTP 端点全表（16 组 + 错误码速查 + 核对方法）                       |
 | C    | `appendix-c-files-and-events.md` | 工作区文件布局、审计事件全表、门禁全表、派生数据、三处独立审计       |
 | D    | `appendix-d-faq.md`              | 排障手册（按症状组织 11 类 + 两件基本功）                            |
-| E    | `appendix-e-test-inventory.md`   | 测试清单与分布（923 个测试文件的分组统计 + 关键测试说明 + 三种用法） |
+| E    | `appendix-e-test-inventory.md`   | 测试清单与分布（940 个测试文件的分组统计 + 关键测试说明 + 三种用法） |
 
 ## 写作约定
 

@@ -18,14 +18,17 @@ export type CarryoverOrigin = {
   digestPreview?: string;
 };
 
-function digestSourceLabel(source: CarryoverOrigin["digestSource"]): string {
-  if (source === "llm") {
-    return "模型摘要";
+function carryoverSummary(origin: CarryoverOrigin): string | undefined {
+  const dropped = origin.droppedMessageCount;
+  if (origin.digestSource === "none") {
+    return typeof dropped === "number" && dropped > 0
+      ? `较早的 ${dropped} 条没有可带走的要点`
+      : "没有可带走的要点";
   }
-  if (source === "none") {
-    return "无可提取要点";
+  if (typeof dropped === "number" && dropped > 0) {
+    return `较早的 ${dropped} 条已收成要点`;
   }
-  return "要点提取";
+  return undefined;
 }
 
 function formatAt(iso: string | undefined): string | undefined {
@@ -53,15 +56,9 @@ export function LawmindMsgCarryoverNotice({
 }: {
   origin: CarryoverOrigin;
 }): ReactNode {
-  const parts: string[] = [];
-  if (typeof origin.droppedMessageCount === "number" && origin.droppedMessageCount > 0) {
-    parts.push(`整理 ${origin.droppedMessageCount} 条`);
-  }
-  if (typeof origin.digestChars === "number" && origin.digestChars > 0) {
-    parts.push(`摘要 ${origin.digestChars.toLocaleString("zh-CN")} 字`);
-  }
-  parts.push(digestSourceLabel(origin.digestSource));
+  const summary = carryoverSummary(origin);
   const at = formatAt(origin.at);
+  const detail = [summary, at].filter(Boolean).join(" · ");
 
   return (
     <div
@@ -74,15 +71,15 @@ export function LawmindMsgCarryoverNotice({
       </span>
       <div className="lm-msg-carryover-body">
         <p className="lm-msg-carryover-head">
-          本对话续接自「{origin.title?.trim() || "上一段对话"}」（{parts.join(" · ")}
-          {at ? ` · ${at}` : ""}）
+          本对话接着「{origin.title?.trim() || "上一段对话"}」办
+          {detail ? `（${detail}）` : ""}
         </p>
         <p className="lm-msg-carryover-meta">
-          源对话仍可回看；草稿、案件档案与待办都在原处，不受影响。
+          上一段对话仍可回看。稿子和案件材料都留在本案。
         </p>
         {origin.digestPreview?.trim() ? (
           <details className="lm-msg-carryover-details">
-            <summary>查看带过来的整理稿</summary>
+            <summary>查看带过来的要点</summary>
             <pre className="lm-msg-carryover-preview">{origin.digestPreview.trim()}</pre>
           </details>
         ) : null}

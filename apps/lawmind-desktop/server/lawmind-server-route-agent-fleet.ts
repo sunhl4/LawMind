@@ -75,8 +75,10 @@ export async function handleAgentFleetRoutes({
       jobId: job.jobId,
       status: job.status,
       matterId: job.matterId,
+      name: job.workflowSnapshot?.name,
       templateId: job.templateId,
       workflowId: job.workflowId,
+      error: job.error,
       createdAt: job.createdAt,
       updatedAt: job.completedAt ?? job.startedAt ?? job.createdAt,
       progress: job.progress
@@ -106,10 +108,21 @@ export async function handleAgentFleetRoutes({
         { ...stats, firstPassRate: firstPassRate(stats) },
       ]),
     );
-    const windowDays = parseWindowDays(url.searchParams.get("windowDays"));
-    const growth = await buildAssistantGrowthReport(workspaceDir, { windowDays });
+    // 成长报告只在显式 windowDays 时附上。在办目录不带这个参数，避免第一屏读指标和待教。
+    const windowDaysRaw = url.searchParams.get("windowDays");
+    const growth =
+      windowDaysRaw != null && windowDaysRaw.trim() !== ""
+        ? await buildAssistantGrowthReport(workspaceDir, {
+            windowDays: parseWindowDays(windowDaysRaw),
+          })
+        : undefined;
 
-    sendJson(res, 200, { ok: true, ...fleet, specialization, growth }, c);
+    sendJson(
+      res,
+      200,
+      { ok: true, ...fleet, specialization, ...(growth ? { growth } : {}) },
+      c,
+    );
     return true;
   }
 

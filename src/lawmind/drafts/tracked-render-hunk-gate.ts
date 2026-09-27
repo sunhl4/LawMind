@@ -13,6 +13,7 @@ export type TrackedRenderHunkGateResult =
       proposalCount: number;
       minHunks: number;
       message: string;
+      lawyerMessage: string;
     };
 
 export function evaluateTrackedRenderHunkGate(params: {
@@ -40,5 +41,7 @@ export function evaluateTrackedRenderHunkGate(params: {
       "确认返回 data.redlinePending≥1 后再调用 render_tracked_draft。",
       "禁止仅写 summary 后空修订导出。",
     ].join(""),
+    lawyerMessage:
+      "合同审阅稿还没有可叠加的修改。请先在改稿里落下至少一处修改，再导出。不要只写摘要就导出。",
   };
 }

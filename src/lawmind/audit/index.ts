@@ -48,7 +48,7 @@ export type EmitParams = {
   /** 操作者显示名（协作报表要人可读的「谁」）。 */
   actorName?: string;
   detail?: string;
-  /** Firm/Private: append SHA-256 hash chain fields for tamper detection. */
+  /** Firm/Private / Solo (when auditIntegrityExport on): append SHA-256 hash chain fields for tamper detection. */
   integrityChain?: boolean;
 };
 
@@ -56,7 +56,7 @@ export type EmitParams = {
  * 生成并持久化一条审计事件。
  * 调用方不需要管 eventId 和 timestamp，由此函数填写。
  */
-/** Default hash-chain when Firm/Private and caller did not set integrityChain explicitly. */
+/** Default hash-chain when auditIntegrityExport is on for the workspace edition (Solo included). */
 export function resolveDefaultAuditIntegrityChain(auditDir: string): boolean {
   const workspaceDir = path.dirname(path.resolve(auditDir));
   const policy = readWorkspacePolicyFile(workspaceDir);
@@ -196,6 +196,57 @@ export async function readRecentAuditLogs(
     return all.slice(-maxEvents);
   }
   return all;
+}
+
+/**
+ * 只收集给定 taskId 的近期审计。
+ * 并行读日期文件并过滤，再取时间最近的 maxEvents 条——避免先吞全库 8k 条再滤。
+ */
+export async function readAuditEventsForTaskIds(
+  auditDir: string,
+  taskIds: ReadonlySet<string>,
+  opts?: { maxDays?: number; maxEvents?: number },
+): Promise<AuditEvent[]> {
+  if (taskIds.size === 0) {
+    return [];
+  }
+  const files = await fs
+    .readdir(auditDir)
+    .then((entries) => entries.filter((name) => name.endsWith(".jsonl")).toSorted())
+    .catch(() => [] as string[]);
+
+  const maxDays = opts?.maxDays;
+  const selected = typeof maxDays === "number" && maxDays > 0 ? files.slice(-maxDays) : files;
+  const maxEvents =
+    typeof opts?.maxEvents === "number" && opts.maxEvents > 0 ? opts.maxEvents : 500;
+
+  const batches = await Promise.all(
+    selected.map(async (name) => {
+      const content = await fs.readFile(path.join(auditDir, name), "utf8").catch(() => "");
+      const out: AuditEvent[] = [];
+      for (const line of content.split("\n")) {
+        if (!line) {
+          continue;
+        }
+        let event: AuditEvent;
+        try {
+          event = JSON.parse(line) as AuditEvent;
+        } catch {
+          continue;
+        }
+        if (taskIds.has(event.taskId)) {
+          out.push(event);
+        }
+      }
+      return out;
+    }),
+  );
+
+  const matched = batches.flat().toSorted((a, b) => a.timestamp.localeCompare(b.timestamp));
+  if (matched.length > maxEvents) {
+    return matched.slice(-maxEvents);
+  }
+  return matched;
 }
 
 // ─────────────────────────────────────────────

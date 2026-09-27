@@ -59,9 +59,9 @@ export function LawmindContextForkSuggestion({
   return (
     <div className="lm-ctx-fork-suggest" role="status" data-testid="lm-ctx-fork-suggest">
       <div className="lm-ctx-fork-suggest-body">
-        <p className="lm-ctx-fork-suggest-head">这段对话已经整理过多次上下文</p>
+        <p className="lm-ctx-fork-suggest-head">这场对话已经比较长</p>
         <p className="lm-msg-carryover-meta">
-          继续加长会让引用与细节更容易漏检。可以另起一段新对话并把整理稿带过去——草稿、案件档案与待办都在原处。
+          继续往下加，引用和细节更容易漏。可以另开一段，把已经理清的内容带过去。稿子和案件材料都留在本案。
         </p>
       </div>
       <div className="lm-ctx-fork-suggest-actions">

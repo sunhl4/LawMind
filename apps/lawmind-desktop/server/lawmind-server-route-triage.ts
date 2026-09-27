@@ -11,8 +11,6 @@ import {
   readTriageSession,
   saveTriageSessionOnly,
 } from "../../../src/lawmind/triage/index.js";
-import { listLocalSkills } from "../../../src/lawmind/skills/skill-runtime.js";
-import { matchSkillsForTriage } from "../../../src/lawmind/skills/skill-match.js";
 import {
   isInvalidRequestBodyError,
   parseJsonBodyZod,
@@ -97,12 +95,7 @@ export async function handleTriageRoutes(args: LawmindRouteContext): Promise<boo
       return true;
     }
 
-    const matchedSkills = matchSkillsForTriage(listLocalSkills(workspaceDir), {
-      recommendedWorkflowId: session.result.recommendedWorkflowId,
-      text: body.text,
-      deliverableTypeHint: body.deliverableTypeHint,
-    }).map((s) => ({ id: s.id, name: s.name, version: s.version }));
-    sendJson(res, 200, { ok: true, session, autoConfirmed: false, matchedSkills }, c);
+    sendJson(res, 200, { ok: true, session, autoConfirmed: false }, c);
     return true;
   }
 

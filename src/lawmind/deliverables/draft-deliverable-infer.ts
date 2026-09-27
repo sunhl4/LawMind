@@ -1,6 +1,6 @@
 /**
- * Heuristic deliverable type for acceptance when router/draft metadata is stale.
- * E.g. ESG reports mis-tagged as contract.rental or document.general.
+ * Acceptance type. A concrete deliverableType on the draft wins.
+ * Title heuristics run only for untyped drafts and document.general.
  */
 
 import type { ArtifactDraft, DeliverableType } from "../types.js";
@@ -12,29 +12,17 @@ const TRAINING_RE = /(培训课件|课件大纲|脱敏声明|红旗清单)/;
 const REPORT_RE = /(年度报告|研究报告|分析报告|白皮书|尽职调查报告|合规报告|专项报告)/;
 const CONTRACTISH_RE = /(租赁合同|律师函|起诉状|答辩状|代理词|保密协议|法律意见|会议纪要|证据目录)/;
 
-function draftHaystack(draft: ArtifactDraft): string {
-  const parts: string[] = [draft.title ?? "", draft.summary ?? ""];
-  for (const s of draft.sections) {
-    parts.push(s.heading, s.body.slice(0, 400));
-  }
-  return parts.join("\n");
-}
-
 /** Resolve the deliverable type used for acceptance (may differ from draft.deliverableType). */
 export function inferDeliverableTypeForAcceptance(
   draft: ArtifactDraft,
 ): DeliverableType | undefined {
   const explicit = draft.deliverableType;
-  // Locked research types: never let ESG/report heuristics rewrite the lawyer's intent.
-  if (
-    explicit === "report.compliance" ||
-    explicit === "report.learning" ||
-    explicit === "ppt.training"
-  ) {
+  // 已经写上的具体文书类型以稿为准。正文里后补的「问题陈述 / 来源附录」不得改判成合规卷宗。
+  if (explicit && explicit !== "document.general") {
     return explicit;
   }
 
-  const haystack = draftHaystack(draft);
+  const haystack = `${draft.title ?? ""}\n${draft.summary ?? ""}`;
 
   const looksEsg = ESG_RE.test(haystack);
   const looksCompliance = COMPLIANCE_RE.test(haystack);

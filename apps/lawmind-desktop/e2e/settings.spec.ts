@@ -23,8 +23,8 @@ test.describe("LawMind settings page", () => {
     await expect(page.getByRole("heading", { name: "外观", level: 2 })).toBeVisible({
       timeout: 15_000,
     });
-    await page.getByLabel("界面字号").selectOption("comfortable");
-    await expect(page.locator("html[data-lm-font-scale='comfortable']")).toHaveCount(1);
+    await page.getByRole("radiogroup", { name: "界面字号" }).getByRole("radio", { name: "大一点" }).click();
+    await expect(page.locator("html[data-lm-font-scale='large']")).toHaveCount(1);
 
     await search.fill("模型");
     await search.press("Enter");
@@ -32,37 +32,28 @@ test.describe("LawMind settings page", () => {
       timeout: 15_000,
     });
 
-    await search.fill("内测");
-    await search.press("Enter");
-    await expect(page.getByRole("heading", { name: "系统健康", level: 2 })).toBeVisible({
-      timeout: 15_000,
-    });
-    const doctorAdmin = page.getByTestId("lm-doctor-admin");
-    if ((await doctorAdmin.getAttribute("open")) === null) {
-      await doctorAdmin.locator("summary").first().click();
-    }
-    const teamGrowth = page.getByTestId("lm-doctor-team-growth");
-    await expect(teamGrowth).toBeVisible({ timeout: 15_000 });
-    await expect(teamGrowth).toContainText("团队成长 · 内测指标");
-    await expect(teamGrowth).toContainText("主力一次过率");
-    await expect(page.getByTestId("lm-doctor-team-growth-baseline")).toBeVisible();
-    await expect(page.getByTestId("lm-doctor-north-star")).toBeVisible();
-    await expect(page.getByTestId("lm-doctor-north-star")).toContainText("交付北极星");
+    await expect(page.getByRole("heading", { name: "系统健康", level: 2 })).toHaveCount(0);
 
     await search.fill("扫描");
     await search.press("Enter");
     await expect(page.getByRole("heading", { name: "工作区", level: 2 })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByTestId("lm-historical-scan")).toBeVisible();
-    await expect(page.getByTestId("lm-historical-scan")).toContainText("扫描历史材料");
+    await expect(page.getByTestId("lm-archive-organize-entry")).toBeVisible();
+    await page.getByTestId("lm-archive-organize-open").click();
+    await expect(page.getByTestId("lm-archive-organize")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "整理电脑上的资料", level: 1 })).toBeVisible();
+    await page.getByTestId("lm-archive-organize-back").click();
+    await expect(page.getByRole("heading", { name: "工作区", level: 2 })).toBeVisible({
+      timeout: 15_000,
+    });
 
     await search.fill("本机");
     await search.press("Enter");
-    await expect(page.getByRole("heading", { name: "本机能力", level: 2 })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "工作区", level: 2 })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByTestId("lm-host-access")).toBeVisible();
+    await expect(page.getByTestId("lm-host-folders")).toBeVisible();
 
     await search.fill("助手编制");
     await search.press("Enter");

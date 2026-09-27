@@ -10,6 +10,7 @@ import { normalizeOutboundRecipient } from "../platform/lawyer-outbound-decision
 export const ARGS_BOUND_APPROVAL_TOOLS = new Set<string>([
   "apply_surgical_edits",
   "prepare_outbound_mail",
+  "send_email",
 ]);
 
 export type ApprovalCacheKey = {
@@ -80,6 +81,7 @@ function normalizeSurgicalEdits(raw: unknown): Array<{ find: string; replace: st
  * Schema fields that bind the approval. Drops `__approved`, commentary, and
  * for apply_surgical_edits keeps task_id + find/replace hunks only.
  * prepare_outbound_mail binds recipient + attachment paths (not subject/body).
+ * send_email binds recipient, subject, body, attachments, and matter id.
  */
 export function canonicalApprovalArgs(
   toolName: string,
@@ -103,6 +105,19 @@ export function canonicalApprovalArgs(
     return {
       ...(to ? { to } : {}),
       attachment_paths: normalizeAttachmentPaths(src.attachment_paths),
+    };
+  }
+  if (toolName === "send_email") {
+    const to = typeof src.to === "string" ? normalizeOutboundRecipient(src.to) : "";
+    const subject = typeof src.subject === "string" ? src.subject.trim() : "";
+    const body = typeof src.body === "string" ? src.body.trim() : "";
+    const matterId = typeof src.matter_id === "string" ? src.matter_id.trim() : "";
+    return {
+      to,
+      subject,
+      body,
+      attachment_paths: normalizeAttachmentPaths(src.attachment_paths),
+      matter_id: matterId,
     };
   }
   const out: Record<string, unknown> = {};

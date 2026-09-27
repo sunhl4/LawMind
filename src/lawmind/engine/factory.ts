@@ -6,8 +6,7 @@
  * 旧入口 `src/lawmind/index.ts` 仍然 re-export 本函数以保持向后兼容。
  */
 
-import { registerExtraDeliverableSpecs } from "../deliverables/index.js";
-import { loadWorkspaceDeliverableSpecs } from "../deliverables/workspace-loader.js";
+import { applyWorkspaceDeliverableSpecs } from "../deliverables/workspace-loader.js";
 import { buildEngineContext } from "./context.js";
 import { draftAsyncImpl, draftSync } from "./drafting.js";
 import { confirmTask, planAsyncImpl, planSync } from "./planning.js";
@@ -28,14 +27,11 @@ import type { LawMindEngine, LawMindEngineConfig } from "./types.js";
 export function createLawMindEngine(config: LawMindEngineConfig): LawMindEngine {
   const ctx = buildEngineContext(config);
 
-  // 加载工作区私有交付物规范（事务所定制）；解析失败的文件以 warning 形式
-  // 写入审计日志，但不阻断 engine 启动 —— 一个坏 JSON 不应让事务所离线。
-  const workspaceSpecs = loadWorkspaceDeliverableSpecs(ctx.workspaceDir);
-  if (workspaceSpecs.specs.length > 0) {
-    registerExtraDeliverableSpecs(workspaceSpecs.specs);
-  }
-  if (workspaceSpecs.warnings.length > 0) {
-    void emitWorkspaceSpecWarnings(ctx.auditDir, workspaceSpecs.warnings);
+  // Same gate as the deliverable-check CLI (`applyWorkspaceDeliverableSpecs`).
+  // Solo default on. Bad JSON → warnings, never abort startup.
+  const workspaceSpecs = applyWorkspaceDeliverableSpecs(ctx.workspaceDir);
+  if (workspaceSpecs.result.warnings.length > 0) {
+    void emitWorkspaceSpecWarnings(ctx.auditDir, workspaceSpecs.result.warnings);
   }
 
   return {

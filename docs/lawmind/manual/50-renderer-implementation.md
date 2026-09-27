@@ -1,6 +1,6 @@
 # 第 50 章 实现精读：渲染层
 
-第 24 章是「界面逐屏」。这一章讲**渲染层是怎么组织起来的**：431 个顶层文件、187 个测试，它是怎么避免变成一团面条的。
+第 24 章是「界面逐屏」。这一章讲**渲染层是怎么组织起来的**：447 个顶层文件、198 个测试，它是怎么避免变成一团面条的。
 
 ## 50.1 渲染层的三件难事
 
@@ -46,7 +46,7 @@
 
 ## 50.3 模式二：pick 收窄
 
-主内容区要按当前视图分支渲染五个工作面。如果直接写：
+主内容区要按当前视图分支渲染六个工作面。如果直接写：
 
 ```tsx
 {
@@ -75,7 +75,7 @@
 
 ## 50.4 模式三：状态的三层分工
 
-第 24.11 节讲过「只有五个 zustand store」。这里讲清**为什么只有五个**。
+第 24.12 节讲过「只有五个 zustand store」。这里讲清**为什么只有五个**。
 
 渲染层的状态分三类：
 
@@ -97,7 +97,7 @@
 
 **注意「持久化」那一列**：只有「记住也没关系」的东西才落 localStorage。审批状态、筛选条件这些**不该被记住**（否则下次打开会看到一个意外的筛选）。
 
-**`stores/README.md` 的四条约定**（第 24.11 节引过）：一个域一个文件、actions 跟 state 一起、临时态与持久态分开、组件用 selector 订阅。
+**`stores/README.md` 的四条约定**（第 24.12 节引过）：一个域一个文件、actions 跟 state 一起、临时态与持久态分开、组件用 selector 订阅。
 
 **为什么这条约定重要**：几百个文件的应用里，「状态放哪」如果没有规则，最后会出现同一个数据在三处有副本。**五个 store 是「克制」的产物**——大部分状态其实不该进全局 store。
 
@@ -180,7 +180,7 @@ export function hasLawmindDesktopBridge(): boolean {
 
 | 目录            | 文件数 | 职责                                                                     |
 | --------------- | ------ | ------------------------------------------------------------------------ |
-| （顶层）        | 431    | 各种组件、hook、纯逻辑模块                                               |
+| （顶层）        | 447    | 各种组件、hook、纯逻辑模块                                               |
 | `app/`          | 44     | 壳：根视图、侧栏、顶栏、主内容分支、对话框、设置面板 + 对应的 props hook |
 | `matter/`       | 58     | 案件驾舱的全部面板与 hook                                                |
 | `review/`       | 11     | 改稿工作面的列组件与数据/动作 hook                                       |
@@ -192,6 +192,18 @@ export function hasLawmindDesktopBridge(): boolean {
 | `vendor/katex/` | —      | 随包的 KaTeX（聊天里的数学公式）                                         |
 
 **`app/` 是唯一有「成对 hook」模式的地方**（因为壳的 props 最多、最需要收窄）。`matter/` 与 `review/` 用的是普通的「组件 + `use*` hook」写法（比如 `useMatterDetail`、`useReviewWorkbenchData`）。
+
+2026-09 这轮新进的顶层组件（都遵循上面的老模式，不另起炉灶）：
+
+| 组件                                                              | 干什么                                                                                  |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `LawmindArchiveOrganizePage.tsx`                                  | 第六个工作面「整理资料」的三步页（指定范围 → 查看分类 → 勾选确认），从设置 → 工作区进入 |
+| `LawmindAssistantDesk.tsx`                                        | 对话消息栏的助手席，读 `GET /api/assistants/:id/desk`                                   |
+| `LawmindDaemonRecap.tsx`                                          | 「你走后发生了什么」回执，读 `GET /api/daemon` 的 `recap`，挂工作台与在办               |
+| `LawmindSettingsAccount.tsx`                                      | 设置 → 账号（身份 / 许可 / 模型来源 / 用量）                                            |
+| `LawmindSettingsWorkspaceCare.tsx`                                | 设置 → 工作区里的查找重建与案件档案整理，只在需要时渲染                                 |
+| `LawmindSettingsConversationLength.tsx`                           | 对话长度三档（200K / 500K / 1M），在对话输入栏工具条，不是设置页                        |
+| `LawmindErrorReportDialog.tsx` + `LawmindUnexpectedErrorHost.tsx` | 全局错误弹窗（未捕获异常与 rejected promise），详情可复制                               |
 
 ## 50.7 `review/` 的数据与动作分工
 
@@ -265,15 +277,14 @@ pnpm lawmind:ui-copy-lint
 
 | 文件                                     | 冻结上限 |
 | ---------------------------------------- | -------- |
-| `LawmindLawyerWorkbench.tsx`             | 2615     |
-| `LawmindSettingsDoctor.tsx`              | 1267     |
+| `LawmindLawyerWorkbench.tsx`             | 2418     |
 | `lawmind-chat-shell.tsx`                 | 1055     |
-| `LawmindAutomationsPanel.tsx`            | 1027     |
+| `LawmindAutomationsPanel.tsx`            | 1069     |
+| `LawmindAgentFleetPanel.tsx`             | 971      |
 | `file/FileWorkbenchImpl.tsx`             | 930      |
-| `LawmindAgentFleetPanel.tsx`             | 928      |
 | `matter/useMatterProductIntelligence.ts` | 802      |
 
-**这七个文件是「已知的大文件」**——它们可以保持现状，但**不许再长**。
+**这六个文件是「已知的大文件」**——它们可以保持现状，但**不许再长**。（`LawmindSettingsDoctor.tsx` 已随系统健康屏拆除删除，条目同步移出基线；条目指向不存在的文件本身就算门禁失败。）
 
 **这解释了渲染层的两个现象**：
 
@@ -302,6 +313,8 @@ pnpm lawmind:ui-copy-lint
 ## 50.13 已知坑（本章相关）
 
 - **实现已迁到 `api-client-proxy.ts`**，`api-client.ts` 只是兼容层 + 401 重试。
+- **案件概览的筛选在切换案件时复位。** `resetTransient` 跟 `matterId` 走，避免上一案的队列筛选留在下一案。
+- **在办必核「一键勾选」在草稿没读到时关闭。** 未知不等于已通过验收。服务端签批仍单独检查清单。
 - **还有直接 `fetch` 的地方**（有 TODO 标着），别当新写法模仿。
 - **SSE 不用 `EventSource` 是因为设不了 `Authorization` 头。**
 - **SSE 连接按 `(apiBase, types)` 聚合**，同一 key 只开一条。

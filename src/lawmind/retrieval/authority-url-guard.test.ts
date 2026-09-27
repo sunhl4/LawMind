@@ -16,6 +16,9 @@ describe("denyReasonForAuthorityHostname", () => {
   it("denies loopback / localhost", () => {
     expect(denyReasonForAuthorityHostname("localhost")).toMatch(/不允许|loopback/);
     expect(denyReasonForAuthorityHostname("127.0.0.1")).toMatch(/loopback/);
+    expect(denyReasonForAuthorityHostname("127.1")).toMatch(/loopback|缩写/);
+    expect(denyReasonForAuthorityHostname("2130706433")).toMatch(/混淆/);
+    expect(denyReasonForAuthorityHostname("0177.0.0.1")).toMatch(/混淆/);
     expect(denyReasonForAuthorityHostname("::1")).toMatch(/loopback/);
     expect(denyReasonForAuthorityHostname("foo.localhost")).toMatch(/本机|不允许/);
   });

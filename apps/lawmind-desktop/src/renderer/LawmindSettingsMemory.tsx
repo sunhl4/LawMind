@@ -1,48 +1,46 @@
 import { useState, type ReactNode } from "react";
 import { LawmindContractReviewLearningPanel } from "./LawmindContractReviewLearningPanel.js";
+import { LawmindMemoryLibrary, type MemoryLibraryView } from "./LawmindMemoryLibrary.js";
 import { LawmindMemoryTruthSources } from "./LawmindMemoryTruthSources.js";
-import MemoryInspector from "./MemoryInspector.js";
 
 type Props = {
   apiBase: string;
 };
 
+const VIEWS: Array<{ id: MemoryLibraryView; label: string }> = [
+  { id: "habits", label: "我的习惯" },
+  { id: "matter", label: "案件认知" },
+  { id: "revoked", label: "已作废" },
+];
+
 /**
- * Settings → 记忆库：首屏只处理「待确认」；档案与合同学习收进折叠。
+ * Settings → 记忆库。待确认写在「我的习惯」里，不单独占一页。
  */
 export function LawmindSettingsMemory({ apiBase }: Props): ReactNode {
-  const [pendingCount, setPendingCount] = useState(0);
+  const [view, setView] = useState<MemoryLibraryView>("habits");
   const [learningCount, setLearningCount] = useState(0);
 
   return (
     <div className="lm-settings-section lm-memory-settings" data-testid="lm-settings-memory">
-      <p className="lm-memory-lead">
-        点「确认」才会写入习惯。日常只需处理下方列表。
-      </p>
-
-      <section
-        className={`lm-memory-block${pendingCount > 0 ? " lm-memory-block--primary" : ""}`}
-        aria-labelledby="lm-memory-pending-title"
-      >
-        <header className="lm-memory-block__head lm-memory-block__head--compact">
-          <div className="lm-memory-block__titles">
-            <h3 id="lm-memory-pending-title" className="lm-memory-block__title">
-              待确认
-            </h3>
-            {pendingCount > 0 ? (
-              <span className="lm-memory-block__badge" data-testid="lm-memory-pending-badge">
-                {pendingCount}
-              </span>
-            ) : null}
-          </div>
-        </header>
-        <MemoryInspector
-          baseUrl={apiBase}
-          showTruthSources={false}
-          simpleMode
-          onPendingCountChange={setPendingCount}
-        />
-      </section>
+      <div className="lm-memory-library-tabs" role="tablist" aria-label="记忆库">
+        {VIEWS.map((row) => (
+          <button
+            key={row.id}
+            type="button"
+            role="tab"
+            id={`lm-memory-tab-${row.id}`}
+            aria-selected={view === row.id}
+            aria-controls={`lm-memory-panel-${row.id}`}
+            className={view === row.id ? "lm-btn lm-btn-sm lm-btn-accent" : "lm-btn lm-btn-ghost lm-btn-sm"}
+            onClick={() => setView(row.id)}
+          >
+            {row.label}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" id={`lm-memory-panel-${view}`} aria-labelledby={`lm-memory-tab-${view}`}>
+        <LawmindMemoryLibrary apiBase={apiBase} view={view} />
+      </div>
 
       <details className="lm-memory-fold lm-memory-fold--secondary">
         <summary>
@@ -54,10 +52,7 @@ export function LawmindSettingsMemory({ apiBase }: Props): ReactNode {
         </div>
       </details>
 
-      <details
-        className="lm-memory-fold lm-memory-fold--secondary"
-        open={learningCount > 0}
-      >
+      <details className="lm-memory-fold lm-memory-fold--secondary" open={learningCount > 0}>
         <summary>
           <span className="lm-memory-fold__label">合同改稿学习</span>
           {learningCount > 0 ? (

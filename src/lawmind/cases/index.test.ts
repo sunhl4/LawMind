@@ -16,6 +16,7 @@ import {
   listMatterIds,
   listMatterOverviews,
 } from "../index.js";
+import { buildMatterOverviewLite } from "./index.js";
 
 describe("LawMind Matter Index", () => {
   let workspaceDir: string;
@@ -117,5 +118,7 @@ describe("LawMind Matter Index", () => {
     const overviews = await listMatterOverviews(workspaceDir);
     expect(overviews.map((item) => item.matterId)).toEqual(["matter-b", "matter-a"]);
     expect(overviews[0]?.openTaskCount).toBeGreaterThanOrEqual(0);
+    const lite = await buildMatterOverviewLite(workspaceDir, "matter-b");
+    expect(overviews[0]).toEqual(lite);
   });
 });

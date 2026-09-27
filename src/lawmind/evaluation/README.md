@@ -29,9 +29,9 @@ This directory contains the benchmark and shadow-replay evaluation system.
 
 The `lawmind-benchmark` script exposes three modes:
 
-- `mock` — fast local smoke test; results are **not** eligible for the release gate.
-- `scripted` — runs `engine-scripted-model` shadow replay; results are eligible for the release gate.
-- `real` — runs the standard benchmark suite with a live model; requires env/flag gate.
+- `mock` — fast local smoke test; results are **not** eligible for the release gate. `--strict` fails this mode. A mock JSON fed to `lawmind:release-readiness` exits 1 (`releaseReadinessBenchmarkExit`).
+- `scripted` — runs `engine-scripted-model` shadow replay; results are eligible. `pnpm lawmind:verify:release` uses this mode.
+- `real` — live model; requires env/flag gate.
 
 ## One-line summary for product / legal readers
 

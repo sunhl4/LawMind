@@ -14,6 +14,17 @@ const MAX_CANDIDATES = 3;
 const MIN_DELTA_CHARS = 6;
 const MAX_CANDIDATE_CHARS = 160;
 
+/**
+ * 个案事实：金额、日期、公司名。这类改动不是律师的通用写法。
+ * 期限从 30 日改成 45 日不含这些标记，仍走律师偏好。
+ */
+const DEAL_SPECIFIC_RE =
+  /(?:\d{4}\s*年|\d{1,3}(?:,\d{3})+(?:\.\d+)?\s*元|\d+(?:\.\d+)?\s*万元?|有限公司|股份公司)/;
+
+export function isDealSpecificLearningText(text: string): boolean {
+  return DEAL_SPECIFIC_RE.test(text);
+}
+
 export type DraftEditDelta = {
   sectionHeading: string;
   removed: string;
@@ -149,14 +160,17 @@ export async function captureDraftEditLearning(params: {
   // 偏好通道（原有行为，未变）
   const candidates = formatEditLearningCandidates(deltas);
   const created: MemoryAdoptionRecord[] = [];
+  const matterId = params.matterId?.trim();
   for (const candidate of candidates) {
+    const dealSpecific = isDealSpecificLearningText(candidate);
     const rec = await suggestMemoryAdoption(params.workspaceDir, params.auditDir, {
-      scope: "lawyer",
-      kind: "lawyer.profile_learning",
+      scope: dealSpecific && matterId ? "matter" : "lawyer",
+      kind: dealSpecific && matterId ? "case.progress" : "lawyer.profile_learning",
       payload: candidate,
+      ...(dealSpecific && matterId ? { targetId: matterId } : {}),
       sourceTaskId: params.taskId,
       origin: "lawyer",
-      note: candidate,
+      note: dealSpecific ? "deal_specific" : candidate,
     });
     created.push(rec);
   }

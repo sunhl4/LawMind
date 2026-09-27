@@ -13,6 +13,7 @@ import type { MemoryAdoptionRecord } from "./adoption-service.js";
 import { appendCaseSectionBullet } from "./case-writes.js";
 import { writeExecutablePreference } from "./executable-preferences.js";
 import { courtAndOpponentProfilePath, ensureClientProfile } from "./index.js";
+import { commitMemory } from "./kernel/gateway.js";
 import { appendLawyerProfileLearning } from "./lawyer-profile-learning.js";
 import { appendClausePlaybookLearning } from "./playbook-learning.js";
 import { appendSessionSummary } from "./session-summary.js";
@@ -53,6 +54,15 @@ export async function applyMemoryAdoptionWrite(
     case "lawyer.profile_learning": {
       await appendLawyerProfileLearning(workspaceDir, payload, "manual", {
         idempotencyKey: rec.id,
+      });
+      commitMemory(workspaceDir, {
+        kind: "habit",
+        scope: "lawyer",
+        key: "habit.note",
+        body: payload,
+        origin: "lawyer",
+        ...(rec.sourceTaskId ? { sourceTaskId: rec.sourceTaskId } : {}),
+        confirmNow: true,
       });
       written.push("LAWYER_PROFILE.md");
       return { written };
@@ -125,6 +135,14 @@ export async function applyMemoryAdoptionWrite(
     }
     case "playbook.clause_learning": {
       await appendClausePlaybookLearning(workspaceDir, payload);
+      commitMemory(workspaceDir, {
+        kind: "playbook_note",
+        scope: "firm",
+        key: "playbook.clause",
+        body: payload,
+        origin: "lawyer",
+        confirmNow: true,
+      });
       written.push("playbooks/CLAUSE_PLAYBOOK.md");
       return { written };
     }
@@ -134,6 +152,14 @@ export async function applyMemoryAdoptionWrite(
         fs.writeFileSync(dest, defaultFirmProfileTemplate(), "utf8");
       }
       fs.appendFileSync(dest, `\n### 所内惯例（已确认）\n\n- ${payload.trim()}\n`, "utf8");
+      commitMemory(workspaceDir, {
+        kind: "playbook_note",
+        scope: "firm",
+        key: "habit.note",
+        body: payload,
+        origin: "lawyer",
+        confirmNow: true,
+      });
       written.push("FIRM_PROFILE.md");
       return { written };
     }
@@ -173,6 +199,15 @@ export async function applyMemoryAdoptionWrite(
       const clientId = requireTarget(rec, "client");
       const dest = await ensureClientProfile(workspaceDir, clientId);
       fs.appendFileSync(dest, `\n### 客户备注（已确认）\n\n- ${payload}\n`, "utf8");
+      commitMemory(workspaceDir, {
+        kind: "client_note",
+        scope: "client",
+        scopeId: clientId,
+        key: "client.note",
+        body: payload,
+        origin: "lawyer",
+        confirmNow: true,
+      });
       written.push(`clients/${clientId}/CLIENT_PROFILE.md`);
       return { written };
     }

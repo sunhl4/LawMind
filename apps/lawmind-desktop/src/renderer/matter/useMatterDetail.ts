@@ -1,5 +1,5 @@
 // TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DraftCitationIntegrityView } from "../../../../../src/lawmind/drafts/citation-integrity.ts";
 import type { ArtifactDraft, MatterOverview, MatterSummary, TaskRecord } from "../../../../../src/lawmind/types.ts";
 import type { ApprovalRequest, WorkQueueItem } from "../../../../../src/lawmind/core/contracts.ts";
@@ -62,6 +62,7 @@ export function useMatterDetail(input: UseMatterDetailInput) {
   const [searchQ, setSearchQ] = useState("");
   const [searchHits, setSearchHits] = useState<MatterSearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
+  const detailMatterRef = useRef<string | null>(null);
 
   const navKey = isAppSidebar ? selectedMatterKey : internalSelectedId;
   const matterId = navKey && navKey !== RECORDS_DESK_UNLINKED ? navKey : null;
@@ -76,6 +77,7 @@ export function useMatterDetail(input: UseMatterDetailInput) {
       setDetailError(null);
       setSearchHits([]);
       setSearchQ("");
+      detailMatterRef.current = targetMatterId;
       try {
         const j = await apiGetJson<{
           ok?: boolean;
@@ -117,7 +119,27 @@ export function useMatterDetail(input: UseMatterDetailInput) {
             ? j.draftCitationIntegrity
             : {},
         );
-        setAuditEvents(j.auditEvents ?? []);
+        setAuditEvents([]);
+
+        const auditMatterId = targetMatterId;
+        void apiGetJson<{
+          ok?: boolean;
+          auditEvents?: AuditEventRow[];
+        }>(
+          apiBase,
+          `/api/matters/${encodeURIComponent(auditMatterId)}/audit-tail?limit=80`,
+        )
+          .then((audit) => {
+            if (detailMatterRef.current !== auditMatterId) {
+              return;
+            }
+            if (audit.ok && Array.isArray(audit.auditEvents)) {
+              setAuditEvents(audit.auditEvents);
+            }
+          })
+          .catch(() => {
+            /* 时间线可空；不挡详情首屏 */
+          });
 
         try {
           const accept = await apiGetJson<{

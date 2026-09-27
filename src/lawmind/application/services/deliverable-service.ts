@@ -8,10 +8,13 @@
  * Markdown / TaskRecord / Deliverable 三处。
  */
 
+import { createHash } from "node:crypto";
 import path from "node:path";
 import {
   loadDeliverable,
+  loadMatterDocument,
   saveDeliverable,
+  saveMatterDocument,
   type DeliverableRecord,
 } from "../../adapters/matter-storage/index.js";
 import { matterDir, withExclusiveFileLock } from "../../adapters/matter-storage/io.js";
@@ -22,6 +25,45 @@ import { attachDeliverableId, createMatterIfMissing } from "./matter-write-servi
 
 function newTimestamp(): string {
   return new Date().toISOString();
+}
+
+function baselineDocumentId(relativePath: string): string {
+  const slug = relativePath.replace(/[^\p{L}\p{N}._-]+/gu, "_").replace(/^_+|_+$/g, "");
+  return `doc_${slug || "file"}`.slice(0, 128);
+}
+
+function draftContentHash(draft: ArtifactDraft): string {
+  const body = [
+    draft.title,
+    draft.summary,
+    ...draft.sections.map((section) => `${section.heading}\n${section.body}`),
+  ].join("\n");
+  return createHash("sha256").update(body).digest("hex");
+}
+
+function bindBaselineDocument(
+  workspaceDir: string,
+  matterId: string,
+  relativePath: string,
+  label: string,
+  contentHash: string,
+): { documentId: string; version: number } {
+  const documentId = baselineDocumentId(relativePath);
+  const prev = loadMatterDocument(workspaceDir, matterId, documentId);
+  if (prev?.contentHash === contentHash) {
+    return { documentId, version: prev.version };
+  }
+  const version = (prev?.version ?? 0) + 1;
+  saveMatterDocument(workspaceDir, {
+    documentId,
+    matterId,
+    relativePath,
+    version,
+    contentHash,
+    label,
+    updatedAt: newTimestamp(),
+  });
+  return { documentId, version };
 }
 
 /**
@@ -180,10 +222,24 @@ export function linkDraftToDeliverable(
         base.status === "approved" ||
         base.status === "rendered" ||
         base.status === "delivered");
+    const contentHash = draftContentHash(draft);
+    const wordBaseline = draft.contractEdit?.baselineRelativePath?.trim() ?? "";
+    const relativePath = wordBaseline || `drafts/${draft.taskId}.json`;
+    const bound = bindBaselineDocument(
+      workspaceDir,
+      derived.matterId,
+      relativePath,
+      draft.title,
+      contentHash,
+    );
+    const documentId = bound.documentId;
+    const currentDraftRevision = bound.version;
     const merged: DeliverableRecord = base
       ? {
           ...base,
           ...derived,
+          ...(documentId ? { documentId } : {}),
+          currentDraftRevision,
           currentReviewStatus: stampLocked
             ? (base.currentReviewStatus ?? derived.currentReviewStatus)
             : (derived.currentReviewStatus ?? base.currentReviewStatus),
@@ -197,7 +253,12 @@ export function linkDraftToDeliverable(
           deliveredBy: base.deliveredBy ?? derived.deliveredBy,
           updatedAt: newTimestamp(),
         }
-      : { ...derived, updatedAt: newTimestamp() };
+      : {
+          ...derived,
+          ...(documentId ? { documentId } : {}),
+          currentDraftRevision,
+          updatedAt: newTimestamp(),
+        };
     saveDeliverable(workspaceDir, merged);
     attachDeliverableId(workspaceDir, merged.matterId, merged.deliverableId);
     return merged;
@@ -269,7 +330,8 @@ export function syncDraftReviewStatusFromDeliverable(
   deliverable: DeliverableRecord,
 ): ArtifactDraft {
   const stamp = deliverable.currentReviewStatus;
-  if (!stamp) {
+  // "redacted" 只是读取侧容忍的历史/外部状态（引擎从不写入），不是草稿的审核结论，不回灌。
+  if (!stamp || stamp === "redacted") {
     return draft;
   }
   draft.reviewStatus = stamp;

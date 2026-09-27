@@ -151,34 +151,3 @@ export function defaultExpandedFleetGroups(
 ): Set<FleetGroupKind> {
   return new Set(groups.filter((g) => g.items.length > 0).map((g) => g.kind));
 }
-
-export const FLEET_COLLAPSED_STORAGE_KEY = "lawmind.fleet.collapsedGroups.v1";
-
-export function readFleetCollapsedGroups(): Set<FleetGroupKind> {
-  try {
-    const raw = localStorage.getItem(FLEET_COLLAPSED_STORAGE_KEY);
-    if (!raw) {
-      return new Set();
-    }
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) {
-      return new Set();
-    }
-    return new Set(
-      parsed.filter((k): k is FleetGroupKind =>
-        FLEET_GROUP_ORDER.includes(k as FleetGroupKind),
-      ),
-    );
-  } catch {
-    return new Set();
-  }
-}
-
-export function persistFleetCollapsedGroups(collapsed: Set<FleetGroupKind>): Set<FleetGroupKind> {
-  try {
-    localStorage.setItem(FLEET_COLLAPSED_STORAGE_KEY, JSON.stringify([...collapsed]));
-  } catch {
-    /* quota/private mode */
-  }
-  return collapsed;
-}

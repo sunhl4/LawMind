@@ -1,8 +1,8 @@
 /**
  * Rewrite-amplitude metrics for contract draft updates.
  * Default product path is soft (metrics + coaching).
- * Hard reject only via `evaluateSurgicalEditGateHard` or env `LAWMIND_SURGICAL_ENFORCE=1`
- * on the update_draft call site.
+ * 改写幅度只记指标和教练。`evaluateSurgicalEditGateHard` 保留给对照测试，
+ * 产品路径不按字数拒稿（铁律 5）。`LAWMIND_SURGICAL_ENFORCE` 不再拦截 update_draft。
  */
 
 import { computeRewriteAmplitude, draftPlainText } from "../learning/rewrite-amplitude.js";

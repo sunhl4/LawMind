@@ -103,6 +103,7 @@ const TOOL_DISPLAY_ZH: Record<string, string> = {
   request_approval: "提请审批",
   request_review: "提请复核",
   record_deadline: "登记期限",
+  record_obligation: "登记义务",
   extract_legal_events: "抽出期限",
   apply_legal_events: "写入期限",
   compile_intake_brief: "整理谈话",

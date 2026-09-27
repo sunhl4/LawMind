@@ -28,4 +28,11 @@ describe("turn-abort", () => {
     expect(signal.aborted).toBe(true);
     expect(isTurnAbortRequested("s-live")).toBe(true);
   });
+
+  it("keeps a Stop that arrived before the signal was bound", () => {
+    requestTurnAbort("s-setup");
+    const signal = bindTurnAbortSignal("s-setup");
+    expect(signal.aborted).toBe(true);
+    expect(isTurnAbortRequested("s-setup")).toBe(true);
+  });
 });

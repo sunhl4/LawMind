@@ -134,9 +134,41 @@ function buildSession(caseFile: FidelityCase, fillerTurns: number): AgentSession
   };
 }
 
-/** 留存历史里能读到的 fact（**原串子串匹配**——被改写了一样算丢）。 */
-function survivedIds(session: AgentSession, caseFile: FidelityCase): string[] {
-  const text = session.conversationHistory.map((m) => m.content ?? "").join("\n");
+const ARCHIVE_PATH_RE = /sessions\/[A-Za-z0-9._-]+\.drops\/[A-Za-z0-9._-]+\.json/g;
+
+/**
+ * 提示正文，加上提示里点名的归档（以及归档里再点到的归档）。
+ * 归档正文不注入提示；模型按路径用工具回读。原串被改写了、文件里也没有，才算丢。
+ */
+function readableText(session: AgentSession, workspaceDir: string): string {
+  const chunks = [session.conversationHistory.map((m) => m.content ?? "").join("\n")];
+  const seen = new Set<string>();
+  let guard = 0;
+  for (let i = 0; i < chunks.length && guard < 8; i += 1) {
+    guard += 1;
+    for (const match of chunks[i]?.matchAll(new RegExp(ARCHIVE_PATH_RE.source, "g")) ?? []) {
+      const rel = match[0];
+      if (!rel || seen.has(rel)) {
+        continue;
+      }
+      seen.add(rel);
+      try {
+        chunks.push(fs.readFileSync(path.join(workspaceDir, rel), "utf8"));
+      } catch {
+        /* 路径写了但文件没落成，这条事实就不算可回读 */
+      }
+    }
+  }
+  return chunks.join("\n");
+}
+
+/** 留存历史或归档里能读到的 fact（**原串子串匹配**——被改写了一样算丢）。 */
+function survivedIds(
+  session: AgentSession,
+  caseFile: FidelityCase,
+  workspaceDir: string,
+): string[] {
+  const text = readableText(session, workspaceDir);
   return caseFile.facts.filter((f) => text.includes(f.text)).map((f) => f.id);
 }
 
@@ -158,7 +190,7 @@ export async function runCompactionFidelity(
   // 金标串必须在初始历史里**真的出现**。否则基准在测空气：那条 fact 永远「丢」，
   // 而 `firstLossRound` 会因为「从未存活过」而留下 null，看起来像「全程存活」。
   // 实测踩过：原文写「第23条与第24条」而金标串是「《劳动合同法》第24条」，不构成子串。
-  const initialSurvived = new Set(survivedIds(session, caseFile));
+  const initialSurvived = new Set(survivedIds(session, caseFile, workspaceDir));
   const missingFromFixture = caseFile.facts.filter((f) => !initialSurvived.has(f.id));
   if (missingFromFixture.length > 0) {
     throw new Error(
@@ -171,7 +203,7 @@ export async function runCompactionFidelity(
   const firstLossRound: Record<string, number | null> = Object.fromEntries(
     caseFile.facts.map((f) => [f.id, null]),
   );
-  let everSurvived = new Set(survivedIds(session, caseFile));
+  let everSurvived = new Set(survivedIds(session, caseFile, workspaceDir));
 
   try {
     for (let round = 1; round <= rounds; round += 1) {
@@ -222,7 +254,7 @@ export async function runCompactionFidelity(
         }
       }
 
-      const nowSurvived = new Set(survivedIds(session, caseFile));
+      const nowSurvived = new Set(survivedIds(session, caseFile, workspaceDir));
       const lostThisRound = [...everSurvived].filter((id) => !nowSurvived.has(id));
       for (const id of lostThisRound) {
         if (firstLossRound[id] === null) {

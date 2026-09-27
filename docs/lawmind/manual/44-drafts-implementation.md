@@ -8,21 +8,21 @@
 
 导出：
 
-| 符号                                                | 作用                                                                        |
-| --------------------------------------------------- | --------------------------------------------------------------------------- |
-| `MINIMAL_ANCHOR_CHARS = 4`                          | 认为「没动」的最短公共片段                                                  |
-| `MINIMAL_EDIT_MAX_UNCHANGED_RUN = 6`                | 一处改动内允许的连续未改文字上限                                            |
-| `computeMinimalEditSpans(before, after)`            | 算最短改动（返回 `MinimalChangeSpan[]`）                                    |
-| `longestUnchangedRunInside(span)`                   | 一处 span 里最长的未改连续文字                                              |
-| `auditMinimalEditSpans(params)`                     | 审计（返回 `MinimalEditViolation[]`）                                       |
-| `INSERT_ANCHOR_CHARS = 6`                           | 纯插入的锚点长度                                                            |
-| `expressInsertAsAnchorReplace(params)`              | 把纯插入改写成「锚点整体替换」                                              |
-| `insertPointInAfterText(span)`                      | 纯插入在改后文本里的插入点                                                  |
-| `MINIMAL_EDIT_RULE_LINE` / `MINIMAL_EDIT_RULE_TEXT` | 两条规则文本的**文本副本**——注释说是给模型看，但**全仓无人 import**（见下） |
+| 符号                                                | 作用                                                                   |
+| --------------------------------------------------- | ---------------------------------------------------------------------- |
+| `MINIMAL_ANCHOR_CHARS = 4`                          | 认为「没动」的最短公共片段                                             |
+| `MINIMAL_EDIT_MAX_UNCHANGED_RUN = 6`                | 一处改动内允许的连续未改文字上限                                       |
+| `computeMinimalEditSpans(before, after)`            | 算最短改动（返回 `MinimalChangeSpan[]`）                               |
+| `longestUnchangedRunInside(span)`                   | 一处 span 里最长的未改连续文字                                         |
+| `auditMinimalEditSpans(params)`                     | 审计（返回 `MinimalEditViolation[]`）                                  |
+| `INSERT_ANCHOR_CHARS = 6`                           | 纯插入的锚点长度                                                       |
+| `expressInsertAsAnchorReplace(params)`              | 把纯插入改写成「锚点整体替换」                                         |
+| `insertPointInAfterText(span)`                      | 纯插入在改后文本里的插入点                                             |
+| `MINIMAL_EDIT_RULE_LINE` / `MINIMAL_EDIT_RULE_TEXT` | 单行规则被 `CONTRACT_REDLINE_CRAFT_SKILL` 原样引用；展开文本给文档对照 |
 
 **内部还有三个常量**（不导出）：`ANCHOR_MAX_CHARS = 120`、`ANCHOR_MAX_OCCURRENCES = 16`、`MAX_SPANS = 400`。
 
-**那两个 `MINIMAL_EDIT_RULE_*` 是「死人」**：它们确实定义了规则文本，注释也写着「进提示词」「技能/文档用」，但全仓没有任何地方 import（`rg MINIMAL_EDIT_RULE_` 只查到定义与自引用）。**真正进模型上下文的是 `drafts/contract-redline-craft.ts` 的 `CONTRACT_REDLINE_CRAFT_SKILL`**（第 8.3 与第 20 章都提过）。改口径要改那一处，别改这里。
+**`MINIMAL_EDIT_RULE_LINE` 进技能正文**：`contract-redline-craft.ts` 原样拼进 `CONTRACT_REDLINE_CRAFT_SKILL`，门槛用 `MINIMAL_EDIT_MAX_UNCHANGED_RUN`，避免技能和引擎各写一个数字。`MINIMAL_EDIT_RULE_TEXT` 是同一口径的展开说明。
 
 **读它的顺序**：先读文件头（算法说明与两条可证明性质），再读 `computeMinimalEditSpans`，最后读测试里的 200 组随机对照。
 
@@ -56,7 +56,7 @@
 
 导出 `resolveSurgicalEditLimits`、`estimateChangedChars`、`surgicalAmplitudeEnforceEnabled`、`evaluateSurgicalEditGate`、`evaluateSurgicalEditGateHard`、`craftSignalsFromAmplitudeGate`、`attachRewriteAmplitudeMeta`、`auditSurgicalEditGateSoft`、`SURGICAL_CONTRACT_EDIT_PROMPT`、类型。
 
-**软硬两条路**：`evaluateSurgicalEditGate` 是软（指标 + 教练），`evaluateSurgicalEditGateHard` 是硬（`LAWMIND_SURGICAL_ENFORCE=1` 时启用）。
+**软硬两条路**：`evaluateSurgicalEditGate` 是软（指标 + 教练），是产品路径唯一走的一条；`evaluateSurgicalEditGateHard` 是硬拒，但只留给对照测试和滥用闸——`LAWMIND_SURGICAL_ENFORCE` 不再拦截 `update_draft`（文件头注释：「产品路径不按字数拒稿（铁律 5）」）。
 
 默认阈值：绝对差 400 字符、相对比例 0.25；实际限制取 `min(max(40, 字符数×比例), 400)`。
 
@@ -72,7 +72,7 @@
 
 **`tryNarrowSurgicalEdit`**：当一处改动落不下去时，尝试收窄锚点。要求前后缀合计 ≥2 字，收窄后长度不能超过含句读的上限。
 
-**跳过原因是五句固定文案**：find 为空、find 与 replace 相同、过于碎片化无法收窄、正文中未找到 find 原文、下标漂移无法定位。
+**跳过原因**：find 为空、find 与 replace 相同、正文中未找到 find 原文、同一锚点多处命中且未声明 `occurrences: "all"`、下标对不上时整条回滚。拆得再碎也落最短改动，不因段数丢掉。多处命中不改第一处，和跨文书、Word 落盘同一条。
 
 ### `resolve-surgical-edits.ts`
 
@@ -221,7 +221,7 @@
 
 ### `terminology-adapt.ts`
 
-`extractDefinedTerms`、`extractDefinedTermsFromText`、`detectTerminologyDrift`、`alignTerminology`、`introducedTerminologyDrift`、`terminologyWarningsPatch`、`CONTRACT_ROLE_WORDS`（31 个角色词）、类型。
+`extractDefinedTerms`、`extractDefinedTermsFromText`、`detectTerminologyDrift`、`alignTerminology`、`introducedTerminologyDrift`、`terminologyWarningsPatch`、`CONTRACT_ROLE_WORDS`（27 个角色词）、类型。
 
 **三种定义来源**：引号定义（`"XX"系指…`）、括号别名（`XX（以下简称YY）`）、角色词表。
 
@@ -235,7 +235,9 @@
 
 ### `index.ts`
 
-只导出四个：`draftPath`、`persistDraft`、`readDraft`、`deleteDraft`、`listDrafts`。
+导出 `draftPath`、`persistDraft`、`readDraft`、`deleteDraft`、`listDrafts`，并 re-export `commitDraft`。
+
+**`deleteDraft` 连侧车一起删**，包括 `.outline.json`、`.redline-plan.json`、`.redline.json.lock` 和 completion。留下修订计划会让下一次空 edits 把已删稿的计划又写回去。
 
 **注意 `index.ts` 还做大量 re-export**（第 8.6 节列过侧车清单与排除规则）。读代码时如果某个函数在 `index.ts` 里找不到定义，是 re-export。
 
@@ -245,6 +247,8 @@
 | ------------------------------------------------------------- | ------------------------------------------------------ |
 | `apply-surgical-edits` 和 `splitSurgicalEditSpans` 都在做拆分 | 前者是**模型输入侧**（B1），后者是**提案生成侧**（B2） |
 | `surgical-span-gate` 还叫「门禁」                             | 它现在只是**模型自查经验值**，不是硬拦                 |
+
+Word 插件只接收重算后不超过 60 字的查找串。更长的整段替换留在桌面修订轨，不在 Word 里做整节删增。这和 Codex 的最小 diff 同一方向：能收短就收短，收不短就不假装就地改完。
 
 ## 44.12 已知坑（本章相关）
 

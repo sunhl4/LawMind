@@ -5,7 +5,6 @@ import { useSettingsPanelStore } from "./stores/settings-panel-store";
 import type { AgentsDeskTab } from "./lawmind-agents-desk";
 import { useActionSummaryQuery } from "./lawmind-query-hooks";
 import { useLawmindRecordsDeskMatters, RECORDS_DESK_UNLINKED } from "./lawmind-records-desk-state";
-import { useEdition } from "./use-edition";
 import {
   LM_PANE_MAX_WIDTH_PX,
   LM_PANE_MIN_WIDTH_PX,
@@ -22,9 +21,11 @@ import { scheduleScrollChatMessagesToLatest } from "./lawmind-chat-scroll";
 import { useLawmindAppRootHandlers } from "./app/useLawmindAppRootHandlers";
 import { useLawmindAppRootLayout } from "./app/useLawmindAppRootLayout";
 import { LawmindAppRootView } from "./app/LawmindAppRootView";
-import { subscribeOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
+import {
+  subscribeOpenAutomationsSettings,
+  subscribeReturnFromArchiveOrganize,
+} from "./lawmind-automations-nav-bus";
 import { subscribeOpenChatSession } from "./lawmind-open-chat-session-bus";
-import { subscribeOpenMeetingView } from "./lawmind-meeting-nav-bus";
 import {
   lawyerFacingDecisionTotal,
   useRequireSignoffReview,
@@ -88,7 +89,11 @@ export function LawmindAppRoot() {
 
   const recordsDeskMatters = useLawmindRecordsDeskMatters({
     enabled:
-      (mainView === "workspace" || mainView === "agents" || mainView === "desk") && Boolean(config),
+      (mainView === "workspace" ||
+        mainView === "agents" ||
+        mainView === "desk" ||
+        mainView === "meeting") &&
+      Boolean(config),
     apiBase: config?.apiBase ?? "",
     matterRefreshVersion,
     tasks,
@@ -149,7 +154,7 @@ export function LawmindAppRoot() {
   const [focusMatterIdFromReview, setFocusMatterIdFromReview] = useState<string | null>(null);
   /** 从案件点「去复核」进入审核时为 true，点顶栏「审核」为 false，用于是否显示「返回案件」 */
   const [reviewLaunchedFromMatter, setReviewLaunchedFromMatter] = useState(false);
-  /** 「在办」内分栏：待拍板 / 交出去的活 / 按流程办 */
+  /** 「在办」默认是交办册；交出去的活 / 按流程办从「更多」进入。 */
   const [agentsDeskTab, setAgentsDeskTab] = useState<AgentsDeskTab>("active");
   /** 「待我拍板」入口：在办列表仅显示 awaiting_* */
   const [agentsNeedsDecisionFocus, setAgentsNeedsDecisionFocus] = useState(false);
@@ -172,15 +177,22 @@ export function LawmindAppRoot() {
   useEffect(() => {
     if (!config?.apiBase || !contextMatterId?.trim()) {
       setChatMatterHeadline(null);
-      return;
+      return undefined;
+    }
+    const mid = contextMatterId.trim();
+    const fromDesk = matterLabelById[mid]?.trim();
+    if (fromDesk) {
+      setChatMatterHeadline(fromDesk);
+      return undefined;
     }
     let cancel = false;
     void (async () => {
       try {
+        // 侧栏尚无标题时再问 pulse（~40ms），勿拉整份 /api/matters/detail（含 audit）。
         const j = await apiGetJson<{
           ok?: boolean;
-          summary?: { headline?: string };
-        }>(config.apiBase, `/api/matters/detail?matterId=${encodeURIComponent(contextMatterId)}`);
+          pulse?: { title?: string };
+        }>(config.apiBase, `/api/matters/${encodeURIComponent(mid)}/pulse`);
         if (cancel) {
           return;
         }
@@ -188,7 +200,7 @@ export function LawmindAppRoot() {
           setChatMatterHeadline(null);
           return;
         }
-        const h = typeof j.summary?.headline === "string" ? j.summary.headline.trim() : "";
+        const h = typeof j.pulse?.title === "string" ? j.pulse.title.trim() : "";
         setChatMatterHeadline(h || null);
       } catch {
         if (!cancel) {
@@ -199,7 +211,7 @@ export function LawmindAppRoot() {
     return () => {
       cancel = true;
     };
-  }, [config?.apiBase, contextMatterId, matterRefreshVersion]);
+  }, [config?.apiBase, contextMatterId, matterRefreshVersion, matterLabelById]);
 
   const {
     setMainView,
@@ -283,7 +295,6 @@ export function LawmindAppRoot() {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const _edition = useEdition(config?.apiBase ?? "");
   const workflowModelLabel =
     modelCatalog.find((m) => m.id === selectedModelId)?.label ?? selectedModelId;
   useEffect(() => {
@@ -292,11 +303,11 @@ export function LawmindAppRoot() {
     });
   }, []);
   useEffect(() => {
-    return subscribeOpenMeetingView(() => {
-      setMatterCockpitOpen(false);
-      setMainView("meeting");
+    return subscribeReturnFromArchiveOrganize(() => {
+      setMainView("workspace");
+      useSettingsPanelStore.getState().setSettingsPanel(true, "workspace");
     });
-  }, [setMainView, setMatterCockpitOpen]);
+  }, [setMainView]);
   useEffect(() => {
     return subscribeOpenChatSession((ref) => {
       if (ref.matterId?.trim()) {
@@ -379,13 +390,13 @@ export function LawmindAppRoot() {
 
   const { width: sidebarWidth, onResizePointerDown: onSidebarResizePointerDown } = usePaneResizePx({
     storageKey: "lawmind.ui.sidebarWidth",
-    defaultWidth: 282,
+    defaultWidth: 348,
     min: LM_PANE_MIN_WIDTH_PX,
     max: LM_PANE_MAX_WIDTH_PX,
     widthRole: "shellSidebar",
   });
 
-  const [wsShowEditor, setWsShowEditor] = useState(() => readStoredBool("lawmind.ui.wsPaneEditor", true));
+  const [wsShowEditor, setWsShowEditor] = useState(() => readStoredBool("lawmind.ui.wsPaneEditor", false));
   const [wsShowChat, setWsShowChat] = useState(() => readStoredBool("lawmind.ui.wsPaneChat", true));
 
   useEffect(() => {
@@ -421,8 +432,8 @@ export function LawmindAppRoot() {
    * 文书台 / 在办：不展示全局侧栏（页内自有目录）。
    * 会议室与对话共用全局左栏（材料树 + 会话列表），便于拖入议题材料。
    */
-  // 在办与对话共用全局左栏（会话 + 材料树）；审核台与律师工作台全宽无侧栏。
-  const showAppSidebar = mainView !== "review" && mainView !== "desk";
+  // 在办与对话共用全局左栏（会话 + 材料树）；审核台、工作台、整理资料全宽无侧栏。
+  const showAppSidebar = mainView !== "review" && mainView !== "desk" && mainView !== "archive";
   const showSidebarWorkbenchFiles =
     canUseFilesystemBridge &&
     showAppSidebar &&

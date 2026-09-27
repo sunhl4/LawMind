@@ -66,6 +66,10 @@ export type HealthPayload = {
     allowWebSearch?: boolean | null;
     /** 出站总模式：`"offline"` 时联网被强制关闭，与 allowWebSearch 偏好无关。 */
     egressMode?: "open" | "allowlisted" | "offline" | null;
+    applied?: string[];
+    effective?: Array<{ key: string; reason: string }>;
+    rejected?: Array<{ key: string; reason: string }>;
+    migrated?: Array<{ key: string; reason: string }>;
   };
   usageSummary?: {
     entries?: number;
@@ -119,7 +123,7 @@ export type HealthPayload = {
       lastRebuildAt?: string;
       truncated?: boolean;
       stale?: boolean;
-      staleReason?: "index_missing" | "last_rebuild_unknown" | "older_than_24h";
+      staleReason?: "index_missing" | "last_rebuild_unknown" | "sources_changed";
     };
     p2?: {
       toolSandbox?: {
@@ -202,6 +206,14 @@ export type HealthPayload = {
       withSnapshotCount?: number;
       ratio?: number | null;
     };
+    corruptSessionCount?: number;
+    danglingToolCallCount?: number;
+    orphanToolResultCount?: number;
+    process?: {
+      degraded?: boolean;
+      uncaughtExceptions?: number;
+      unhandledRejections?: number;
+    };
     /** Skills E4 / E10-lite */
     citationMode?: "grounded" | "assisted" | "off";
     citationModeActive?: boolean;
@@ -245,6 +257,7 @@ export type HealthPayload = {
     cache?: "static" | "session" | "turn";
   }>;
   capabilityEnvelope?: {
+    conversationLength?: "200k" | "500k" | "1m" | null;
     contextTokens?: number | null;
     maxOutputTokens?: number | null;
     temperature?: number | null;

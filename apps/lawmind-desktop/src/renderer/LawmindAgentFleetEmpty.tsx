@@ -1,5 +1,5 @@
 /**
- * 在办空态：全所无待办 / 本案筛选无结果。
+ * 在办空态：没有要跟进的交办 / 本案筛选无结果。
  */
 
 import type { ReactNode } from "react";
@@ -15,7 +15,7 @@ export function LawmindAgentFleetEmpty(props: LawmindAgentFleetEmptyProps): Reac
   if (props.kind === "filter") {
     return (
       <div className="lm-agents-wb-empty" data-testid="lm-fleet-filter-empty">
-        <h2>本案暂无待办</h2>
+        <h2>本案没有要跟进的</h2>
         <button
           type="button"
           className="lm-btn lm-btn-secondary"
@@ -28,8 +28,8 @@ export function LawmindAgentFleetEmpty(props: LawmindAgentFleetEmptyProps): Reac
   }
   return (
     <div className="lm-agents-wb-empty" data-testid="lm-fleet-decision-empty">
-        <h2>暂无待办</h2>
-      <p>去对话交办；有草稿时也可打开改稿核对。</p>
+        <h2>现在没有要跟进的</h2>
+      <p>去对话交办。办完，或需要你看的时候，会回到这里。</p>
       <div className="lm-agents-wb-empty-actions">
         <button
           type="button"

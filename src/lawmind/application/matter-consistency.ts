@@ -9,9 +9,16 @@ import fs from "node:fs/promises";
 import { loadMatter } from "../adapters/matter-storage/index.js";
 import { matterJsonPath } from "../adapters/matter-storage/paths.js";
 import { listMatterIds } from "../cases/index.js";
-import { parseMatterDisplayNameFromCase } from "../cases/matter-label.js";
+import { parseMatterDisplayNameFromCase, substantiveCaseField } from "../cases/matter-label.js";
+import { parseMatterCaseProfileFields } from "../cases/matter-profile.js";
 import { caseFilePath } from "../memory/index.js";
-import { matterStatusLabel, projectMatterToCaseMd } from "./matter-projection.js";
+import {
+  matterSensitivityFromLabel,
+  matterStatusFromLabel,
+  matterStatusLabel,
+  projectMatterToCaseMd,
+} from "./matter-projection.js";
+import { createMatterIfMissing, updateMatterProfile } from "./services/matter-write-service.js";
 
 export type MatterConsistencyIssueCode =
   | "missing_case_md"
@@ -30,34 +37,29 @@ export type MatterConsistencyIssue = {
   message: string;
 };
 
+function parseLabeledField(caseRaw: string, label: RegExp): string | undefined {
+  const m = label.exec(caseRaw);
+  return substantiveCaseField(m?.[1]);
+}
+
 function parseCaseStatusLabel(caseRaw: string): string | undefined {
-  const m = /(?:^|\n)-\s*当前阶段[:：]\s*([^\n]+)/.exec(caseRaw);
-  const v = m?.[1]?.trim();
-  return v || undefined;
+  return parseLabeledField(caseRaw, /(?:^|\n)-\s*当前阶段[:：]\s*([^\n]+)/);
 }
 
 function parseCaseSensitivityLabel(caseRaw: string): string | undefined {
-  const m = /(?:^|\n)-\s*密级[:：]\s*([^\n]+)/.exec(caseRaw);
-  const v = m?.[1]?.trim();
-  return v || undefined;
+  return parseLabeledField(caseRaw, /(?:^|\n)-\s*密级[:：]\s*([^\n]+)/);
 }
 
 function parseCaseClientId(caseRaw: string): string | undefined {
-  const m = /(?:^|\n)-\s*客户\s*\/\s*clientId[:：]\s*([^\n]+)/.exec(caseRaw);
-  const v = m?.[1]?.trim();
-  return v || undefined;
+  return parseLabeledField(caseRaw, /(?:^|\n)-\s*客户\s*\/\s*clientId[:：]\s*([^\n]+)/);
 }
 
 function parseCaseCause(caseRaw: string): string | undefined {
-  const m = /(?:^|\n)-\s*案由[:：]\s*([^\n]+)/.exec(caseRaw);
-  const v = m?.[1]?.trim();
-  return v || undefined;
+  return parseLabeledField(caseRaw, /(?:^|\n)-\s*案由[:：]\s*([^\n]+)/);
 }
 
 function parseCaseCounterparty(caseRaw: string): string | undefined {
-  const m = /(?:^|\n)-\s*对方当事人[:：]\s*([^\n]+)/.exec(caseRaw);
-  const v = m?.[1]?.trim();
-  return v || undefined;
+  return parseLabeledField(caseRaw, /(?:^|\n)-\s*对方当事人[:：]\s*([^\n]+)/);
 }
 
 const SENSITIVITY_LABELS: Record<string, string> = {
@@ -179,9 +181,46 @@ export async function repairMatterProjections(workspaceDir: string): Promise<num
   let repaired = 0;
   const matterIds = await listMatterIds(workspaceDir);
   for (const matterId of matterIds) {
-    const record = loadMatter(workspaceDir, matterId);
+    let record = loadMatter(workspaceDir, matterId);
     if (!record) {
-      continue;
+      const caseRaw = await fs
+        .readFile(caseFilePath(workspaceDir, matterId), "utf8")
+        .catch(() => "");
+      if (!caseRaw.trim()) {
+        continue;
+      }
+      const profile = parseMatterCaseProfileFields(caseRaw);
+      const status = matterStatusFromLabel(parseCaseStatusLabel(caseRaw) ?? "");
+      const sensitivity = matterSensitivityFromLabel(parseCaseSensitivityLabel(caseRaw) ?? "");
+      record = createMatterIfMissing(
+        workspaceDir,
+        {
+          matterId,
+          title: parseMatterDisplayNameFromCase(caseRaw) || matterId,
+          ...(status ? { status } : {}),
+          ...(sensitivity ? { sensitivity } : {}),
+          ...(profile.clientIdFromCase ? { clientId: profile.clientIdFromCase } : {}),
+        },
+        { projectCase: false },
+      );
+      const docket = {
+        ...(profile.caseNo ? { caseNo: profile.caseNo } : {}),
+        ...(profile.court ? { court: profile.court } : {}),
+        ...(profile.instance ? { instance: profile.instance } : {}),
+        ...(profile.standing ? { standing: profile.standing } : {}),
+        ...(profile.hearingAt ? { hearingAt: profile.hearingAt } : {}),
+      };
+      if (profile.causeOfAction || profile.counterparty || Object.keys(docket).length > 0) {
+        const updated = await updateMatterProfile(workspaceDir, {
+          matterId,
+          ...(profile.causeOfAction ? { causeOfAction: profile.causeOfAction } : {}),
+          ...(profile.counterparty ? { counterparty: profile.counterparty } : {}),
+          ...(Object.keys(docket).length > 0 ? { docket } : {}),
+        });
+        if (updated) {
+          record = updated;
+        }
+      }
     }
     await projectMatterToCaseMd(workspaceDir, record);
     repaired += 1;

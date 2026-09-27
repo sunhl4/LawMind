@@ -32,8 +32,6 @@ export type LawMindAgent = {
       projectDir?: string;
       /** 本轮是否允许 web_search（覆盖 AgentConfig） */
       allowWebSearch?: boolean;
-      /** 团队会议室：收紧 system prompt 中的答复与协作约束 */
-      teamMeetingMode?: boolean;
       /** 自动会话标题：输入框原文（不含前缀），用于取提问前几个字命名 */
       sessionTitleHint?: string;
       /** 审核台/工作台关联的草稿 taskId，供引擎工具作隐式默认 */
@@ -127,7 +125,6 @@ export function createLawMindAgent(config: AgentConfig): LawMindAgent {
         matterId: opts?.matterId,
         linkedTaskId: opts?.linkedTaskId,
         projectDir: opts?.projectDir,
-        teamMeetingMode: opts?.teamMeetingMode === true,
         onEvent: opts?.onEvent,
         liveProgressSessionId: opts?.liveProgressSessionId,
         shouldAbort: opts?.shouldAbort,

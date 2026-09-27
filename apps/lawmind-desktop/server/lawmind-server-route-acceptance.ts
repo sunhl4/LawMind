@@ -41,8 +41,9 @@ import {
 } from "../../../src/lawmind/retrieval/providers/pkulaw/citation-validate.js";
 
 /**
- * Bridge the desktop's `LawMindPolicyFile` to the engine's `LawMindWorkspacePolicy`
- * — the two shapes already share keys; we only forward what we know is safe to read.
+ * Bridge the desktop's `LawMindPolicyFile` to the engine's `LawMindWorkspacePolicy`.
+ * Keep the parsed JSON object intact so forward-looking keys (`features`,
+ * `wordAddinAutoRun`, `ethicsWall`, `matterReplica`, …) reach `resolveEdition`.
  */
 function policyForEdition(
   policy: LawmindRouteContext["ctx"]["policy"],
@@ -50,17 +51,7 @@ function policyForEdition(
   if (!policy.loaded) {
     return null;
   }
-  const p = policy.policy as LawMindWorkspacePolicy & {
-    edition?: LawMindWorkspacePolicy["edition"];
-  };
-  return {
-    schemaVersion: p.schemaVersion,
-    ...(p.allowWebSearch !== undefined ? { allowWebSearch: p.allowWebSearch } : {}),
-    ...(p.retrievalMode ? { retrievalMode: p.retrievalMode } : {}),
-    ...(p.enableCollaboration !== undefined ? { enableCollaboration: p.enableCollaboration } : {}),
-    ...(p.edition ? { edition: p.edition } : {}),
-    ...(p.citationMode ? { citationMode: p.citationMode } : {}),
-  };
+  return policy.policy as LawMindWorkspacePolicy;
 }
 
 export async function handleAcceptanceRoutes({

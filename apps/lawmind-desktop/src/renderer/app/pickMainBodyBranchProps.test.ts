@@ -176,7 +176,6 @@ describe("pickMainBodyBranchProps", () => {
     props?.onOpenNeedsDecision?.("m1");
     expect(onOpenNeedsDecisionDesk).toHaveBeenCalledWith({
       matterId: "m1",
-      preferStatus: "awaiting_approval",
     });
     props?.onShowArtifact?.("out/a.docx");
     expect(onShowArtifact).toHaveBeenCalledWith("out/a.docx");

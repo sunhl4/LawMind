@@ -3,11 +3,10 @@
  * Persist under `lawmind/automations/`; results queue under `lawmind/automation-inbox/`.
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { withExclusiveFileLock, writeJsonAtomic } from "../adapters/matter-storage/io.js";
-import { SURGICAL_MAX_FIND_WITH_TERMINATOR } from "../drafts/surgical-span-gate.js";
 import { ensureDocxForAttachment } from "../mail/convert-to-docx.js";
 import { sanitizeMailMessageIdForPath } from "../mail/imap-client.js";
 import {
@@ -16,6 +15,7 @@ import {
   isTrackedWordAttachment,
   type ContractAttachmentKind,
 } from "../mail/mail-contract-formats.js";
+import { eventIntervalOpen, validateEventTrigger } from "./automation-event-trigger.js";
 import {
   assertSafeAutomationId,
   automationInboxDir,
@@ -23,11 +23,15 @@ import {
   automationRunsDir,
 } from "./automation-paths.js";
 import { deleteAutomationRunHistory } from "./automation-run-history.js";
-import type { AutomationPresetId } from "./infer-automation-from-instruction.js";
+import {
+  draftAutomationConfirmations,
+  type AutomationPresetId,
+} from "./infer-automation-from-instruction.js";
 import { buildMailContractShortPathInstruction } from "./mail-contract-short-path-instruction.js";
 
 export { buildMailContractShortPathInstruction } from "./mail-contract-short-path-instruction.js";
 export {
+  draftAutomationConfirmations,
   inferAutomationFromInstruction,
   type AutomationPresetId,
 } from "./infer-automation-from-instruction.js";
@@ -117,6 +121,33 @@ export function buildAutomationJobBriefNote(
   }
   return lines.join("\n");
 }
+
+/**
+ * 下一轮交办带上上次结果。
+ *
+ * Codex 的定时任务回到同一段上下文，Cursor Automations 用记忆避免每次从零开始。
+ * 没有新变化时让模型写「无新变化」，而不是把上周的周报再写一遍。
+ */
+export function buildAutomationRunContinuityNote(
+  automation: Pick<LawyerAutomation, "lastResultSummary" | "lastErrorCode">,
+): string {
+  if (automation.lastErrorCode?.trim()) {
+    return `上次没办成（${automation.lastErrorCode.trim()}）。这次先说明卡在哪，不要假装已经完成。`;
+  }
+  const prev = automation.lastResultSummary?.trim();
+  if (!prev) {
+    return "";
+  }
+  const clipped = prev.length > 400 ? `${prev.slice(0, 400)}…` : prev;
+  return `上次办到这里（只作连续性，不要照抄；没有新变化就写「无新变化」）：\n${clipped}`;
+}
+
+/** 同一批来信再跑时用来识别「没有新东西」。 */
+export function mailDigestQuietKey(messageIds: readonly string[]): string {
+  const ids = [...new Set(messageIds.map((id) => id.trim()).filter(Boolean))].toSorted();
+  const digest = createHash("sha256").update(ids.join("\n")).digest("hex").slice(0, 16);
+  return `digest:${ids.length}:${digest}`;
+}
 /** 旧文件默认「每次都通知」，保证升级不改变既有行为。 */
 export const AUTOMATION_NOTIFY_POLICY_LEGACY_DEFAULT: AutomationNotifyPolicy = "always";
 
@@ -128,6 +159,8 @@ export type LawyerAutomation = {
   /** Collaboration workflow template id when applicable. */
   templateId?: string;
   matterId: string;
+  /** 这条常设工作记在哪位助手名下。旧文件可以没有。 */
+  assistantId?: string;
   /** Custom natural-language instruction (preset custom or extra hint). */
   instruction?: string;
   schedule: AutomationSchedule;
@@ -144,13 +177,22 @@ export type LawyerAutomation = {
   expectedResult?: string;
   /** 哪些动作必须停下来问律师（外发、改原稿等）。 */
   approvalBoundary?: string;
-  /** 源数据缺失时怎么办（缺省 report_failure）。 */
+  /** 源数据缺失时怎么办（缺字段时按 report_partial 读）。 */
   missingDataPolicy?: AutomationMissingDataPolicy;
   /** 什么时候才打扰律师（缺省 always，保持老行为）。 */
   notifyPolicy?: AutomationNotifyPolicy;
   allowSendEmailAfterApproval: boolean;
   /** Client / outbound recipient for approve-send (never a placeholder). */
   notifyEmail?: string;
+  /**
+   * 上次已经告诉过律师的「没有新东西」标记。
+   * 同一批来信、或同一份已被门禁拦住的附件，不再每隔一个周期重推收件箱。
+   */
+  lastQuietKey?: string;
+  /** 本机事件。不填则只按墙钟跑。 */
+  eventTrigger?: import("./automation-event-trigger.js").AutomationEventTrigger;
+  /** 上次因事件开跑的时间，用来卡住最小间隔。 */
+  lastEventFiredAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -496,6 +538,43 @@ export function claimDueAutomation(
   });
 }
 
+/** 事件触发的领取。不改墙钟 nextRunAt，只记下这次已经因事件开跑。 */
+export function claimEventAutomation(
+  workspaceDir: string,
+  id: string,
+  now: Date = new Date(),
+): LawyerAutomation | null {
+  const file = path.join(automationsDir(workspaceDir), `${id}.json`);
+  if (!fs.existsSync(file)) {
+    return null;
+  }
+  return withExclusiveFileLock(`${file}.lock`, () => {
+    let current: LawyerAutomation;
+    try {
+      current = JSON.parse(fs.readFileSync(file, "utf8")) as LawyerAutomation;
+    } catch {
+      return null;
+    }
+    if (!current?.enabled || !current.eventTrigger) {
+      return null;
+    }
+    // 锁内复验最小间隔：桌面与 lawmindd 可能同时扫到同一事件，后拿到锁的
+    // 必须看到先者写下的 lastEventFiredAt 并放弃（对照 claimDueAutomation 锁内重查 nextRunAt）。
+    if (
+      !eventIntervalOpen(current.lastEventFiredAt, current.eventTrigger.minIntervalMinutes, now)
+    ) {
+      return null;
+    }
+    const claimed: LawyerAutomation = {
+      ...current,
+      lastEventFiredAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    writeJsonAtomic(file, claimed);
+    return claimed;
+  });
+}
+
 export function saveAutomation(workspaceDir: string, automation: LawyerAutomation): void {
   const dir = automationsDir(workspaceDir);
   ensureDir(dir);
@@ -525,6 +604,7 @@ export type CreateAutomationInput = {
   title?: string;
   presetId: AutomationPresetId;
   matterId: string;
+  assistantId?: string;
   instruction?: string;
   schedule?: AutomationSchedule;
   enabled?: boolean;
@@ -538,6 +618,7 @@ export type CreateAutomationInput = {
   missingDataPolicy?: AutomationMissingDataPolicy;
   /** 六确认：什么时候才打扰律师。 */
   notifyPolicy?: AutomationNotifyPolicy;
+  eventTrigger?: import("./automation-event-trigger.js").AutomationEventTrigger;
 };
 
 /** First plausible email in free text, or undefined. Rejects example.com placeholders. */
@@ -584,6 +665,15 @@ export function createAutomation(
     schedule.kind === "interval"
       ? new Date(now.getTime() + 1000).toISOString()
       : computeNextRunAt(schedule, now);
+  const drafted = draftAutomationConfirmations(preset.id);
+  let eventTrigger = input.eventTrigger;
+  if (eventTrigger) {
+    const verdict = validateEventTrigger(eventTrigger);
+    if (!verdict.ok) {
+      throw new Error(verdict.message);
+    }
+    eventTrigger = verdict.trigger;
+  }
   const automation: LawyerAutomation = {
     id,
     title: input.title?.trim() || preset.title,
@@ -591,13 +681,15 @@ export function createAutomation(
     presetId: preset.id,
     templateId: preset.templateId,
     matterId: input.matterId.trim(),
+    assistantId: input.assistantId?.trim() || undefined,
     instruction: input.instruction?.trim() || undefined,
     schedule,
     nextRunAt,
-    expectedResult: input.expectedResult?.trim() || undefined,
-    approvalBoundary: input.approvalBoundary?.trim() || undefined,
-    missingDataPolicy: input.missingDataPolicy,
-    notifyPolicy: input.notifyPolicy,
+    expectedResult: input.expectedResult?.trim() || drafted.expectedResult,
+    approvalBoundary: input.approvalBoundary?.trim() || drafted.approvalBoundary,
+    missingDataPolicy: input.missingDataPolicy ?? drafted.missingDataPolicy,
+    notifyPolicy: input.notifyPolicy ?? drafted.notifyPolicy,
+    eventTrigger,
     allowSendEmailAfterApproval: input.allowSendEmailAfterApproval ?? preset.defaultAllowSend,
     notifyEmail,
     createdAt: now.toISOString(),
@@ -894,8 +986,8 @@ function buildTrackedWorkflowInstruction(params: {
     "## 执行约束",
     "- 附件路径已给出：不要翻案卷找同一份附件。核法条可用检索。勿再问审查重点/己方立场。",
     "- 通读附件与批注/对方修订；多份附件可以继续读，不要反复读同一文件。",
-    `- **最小修改（硬约束·条数不限）**：落改用 \`apply_surgical_edits\`（附 \`craft_check\`）。只标真正变动的字，没动的字必须留在修订轨之外；一句话里改几个字就只改那几个字（含句读 find 经验值 ≤${SURGICAL_MAX_FIND_WITH_TERMINATOR} 字）。`,
-    "- 整句/整段删写会被硬门禁跳过；勿整节重写进 `update_draft.sections`。其余争点 deferred。",
+    "- **最小修改（硬约束·条数不限）**：落改用 `apply_surgical_edits`（附 `craft_check`）。只标真正变动的字，没动的字必须留在修订轨之外。引擎会重算最短改动后落槌，不因 find 偏长就整条拒绝。",
+    '- 不要把整节重写进 `update_draft.sections`。同一 find 命中多处又没写 occurrences: "all" 会整条跳过。其余争点 deferred。',
     "- `redlinePending=0` 不得 `render_tracked_draft`。不要 `send_email`。不要用 `render_document` 重建附件。",
     "",
     "## 推荐路径（按任务选用）",
@@ -1035,7 +1127,7 @@ export function buildMailContractReviewSummary(
 ): MailContractReviewBuild {
   const empty: MailContractReviewBuild = {
     summary:
-      "未发现带合同附件的邮件。请确认对方已发来 PDF/Word/图片等文件，或到「交办 → 邮箱配置」重新同步。",
+      "未发现带合同附件的邮件。请确认对方已发来 PDF/Word/图片等文件，或到「设置 → 自动办件」再同步一次。",
     attachmentNames: [],
     attachmentRefs: [],
     reviewMode: "opinion",
@@ -1157,7 +1249,7 @@ import { classifyMailMessage, MAIL_TRIAGE_LABEL_ZH } from "../desk/mail-triage.j
 
 export function buildMailDigestSummary(messages: LocalMailMessage[]): string {
   if (messages.length === 0) {
-    return "本期邮箱匣无新邮件。请在「交办 → 邮箱配置」连接真实邮箱并点「立即同步」。";
+    return "本期邮箱匣无新邮件。请在「设置 → 自动办件」接上邮箱并点「同步」。";
   }
   const lines = messages.slice(0, 12).map((m, i) => {
     const att =

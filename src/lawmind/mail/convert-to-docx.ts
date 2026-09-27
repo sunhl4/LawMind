@@ -11,11 +11,11 @@
  * not require them to convert. This helper is for engine-internal working copies.
  */
 
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { buildMinimalChildEnv, runSafeCommand } from "../platform/safe-command.js";
 import { resolveWorkspaceRelativePath } from "../runtime/workspace-path.js";
 import { classifyContractAttachment } from "./mail-contract-formats.js";
 
@@ -116,31 +116,24 @@ function runCommand(
   opts: { cwd?: string; timeoutMs?: number } = {},
 ): Promise<{ code: number | null; stderr: string }> {
   const timeoutMs = opts.timeoutMs ?? 60_000;
-  return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      cwd: opts.cwd,
-      stdio: ["ignore", "ignore", "pipe"],
-    });
-    let stderr = "";
-    const timer = setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* ignore */
-      }
-    }, timeoutMs);
-    child.stderr?.on("data", (chunk: Buffer | string) => {
-      stderr += String(chunk).slice(0, 4_000);
-    });
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      resolve({ code: 127, stderr: err.message });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code, stderr });
-    });
-  });
+  return runSafeCommand({
+    command,
+    args,
+    cwd: opts.cwd,
+    env: buildMinimalChildEnv(),
+    timeoutMs,
+    killSignal: "SIGKILL",
+    stdio: ["ignore", "ignore", "pipe"],
+    maxStderrBytes: 4_000,
+  })
+    .then((result) => ({
+      code: result.exitCode,
+      stderr: result.stderr,
+    }))
+    .catch((err) => ({
+      code: 127,
+      stderr: err instanceof Error ? err.message : String(err),
+    }));
 }
 
 function looksLikeZipDocx(abs: string): boolean {

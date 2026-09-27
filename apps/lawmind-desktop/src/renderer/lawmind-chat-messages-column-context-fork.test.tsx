@@ -77,8 +77,8 @@ describe("LawmindChatMessagesColumn · 上下文续接接线", () => {
     });
     const notice = host.querySelector('[data-testid="lm-msg-carryover-notice"]');
     expect(notice).toBeTruthy();
-    expect(notice?.textContent).toContain("本对话续接自「竞业限制解除」");
-    expect(notice?.textContent).toContain("整理 18 条");
+    expect(notice?.textContent).toContain("本对话接着「竞业限制解除」办");
+    expect(notice?.textContent).toContain("较早的 18 条已收成要点");
     expect(notice?.textContent).toContain("已写到解除条款");
     // 没有 carriedOverFrom 的普通会话不该平白多一张卡。
     await act(async () => {

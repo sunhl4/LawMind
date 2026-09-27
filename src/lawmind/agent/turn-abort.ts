@@ -12,16 +12,21 @@ function normalizeSessionId(sessionId: string | undefined): string {
 }
 
 /**
- * Bind a fresh AbortSignal for this turn. Call at turn start (after clearTurnAbort).
+ * Bind a fresh AbortSignal for this turn.
+ * A Stop that arrived during setup (MCP / 材料预读 / 提示组装) is kept:
+ * the new signal starts already aborted, and the request flag stays set.
  */
 export function bindTurnAbortSignal(sessionId: string): AbortSignal {
   const id = normalizeSessionId(sessionId);
   if (!id) {
     return new AbortController().signal;
   }
-  abortRequested.delete(id);
+  const pending = abortRequested.has(id);
   const controller = new AbortController();
   abortControllers.set(id, controller);
+  if (pending) {
+    controller.abort();
+  }
   return controller.signal;
 }
 

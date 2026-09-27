@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { attachEnabledMcpServers } from "../mcp/mcp-client-bridge.js";
 import { hiddenPolicyToolNames } from "../policy/analysis-scripts.js";
 import { accumulateFactPin } from "./compact-fact-pin.js";
-import { applyCompactReinjectionToSession } from "./compact-reinjection.js";
+import { applyCompactReinjectionToSession, selectTaskPinText } from "./compact-reinjection.js";
 import { autoCompactSessionHistory } from "./compact.js";
 import { estimateTokenBudget } from "./context-budget.js";
 import { resolveContextTuning } from "./context-tuning.js";
@@ -104,8 +104,6 @@ export async function runTurn(opts: {
   linkedTaskId?: string;
   /** 桌面端项目目录；与会话同轮生效，供工具检索项目内文件 */
   projectDir?: string;
-  /** 案件工作台团队会议室：写入 system prompt 行为约束 */
-  teamMeetingMode?: boolean;
   /** Optional progress observer. Final-round content is streamed via `delta`. */
   onEvent?: (event: RunTurnEvent) => void;
   /** When set, progress is also written for GET /api/sessions/:id/live-turn polling. */
@@ -242,14 +240,14 @@ export async function runTurn(opts: {
   // 换任务时更新：否则长会话里钉着一个早已做完的目标，反而误导。
   // 无任务回合（单字 / 纯确认）不动钉子。
   {
-    const pinText = instruction.trim().replace(/\s+/g, " ");
+    const pinText = selectTaskPinText(instruction, contextTuning.pins.taskCharCap);
     const shouldPin =
-      pinText.length > 0 &&
+      Boolean(pinText) &&
       !noTaskTurn &&
       (!session.taskPin?.text || isTaskSwitchUtterance(instruction));
-    if (shouldPin) {
+    if (shouldPin && pinText) {
       session.taskPin = {
-        text: pinText.slice(0, contextTuning.pins.taskCharCap),
+        text: pinText,
         at: new Date().toISOString(),
       };
     }
@@ -412,7 +410,6 @@ export async function runTurn(opts: {
     resolvedAssistantId,
     linkedTaskIdForCtx,
     projectDirResolved,
-    teamMeetingMode: opts.teamMeetingMode,
     contextPins: opts.contextPins,
     permissionMode: toolTablePermissionMode,
     assistantTooling,
@@ -424,12 +421,17 @@ export async function runTurn(opts: {
   const toolSandboxEnabled =
     config.toolSandboxEnabled === true || resolveToolSandboxEnabled(config.workspaceDir);
 
-  // 4. 添加用户消息（原样入史，不得改写成另一句 prompt）
-  session.conversationHistory.push({
-    role: "user",
-    content: instruction,
-    timestamp: new Date().toISOString(),
-  });
+  // 4. 添加用户消息（原样入史，不得改写成另一句 prompt）。
+  // 组装期间已经点了停止：不落这句，避免停完还在历史里。
+  const stoppedDuringSetup =
+    opts.shouldAbort?.() === true || isTurnAbortRequested(session.sessionId);
+  if (!stoppedDuringSetup) {
+    session.conversationHistory.push({
+      role: "user",
+      content: instruction,
+      timestamp: new Date().toISOString(),
+    });
+  }
 
   ctx.allowedToolNames = allowNamesForExec;
   ctx.toolSandboxEnabled = toolSandboxEnabled;
@@ -467,23 +469,25 @@ export async function runTurn(opts: {
   };
   // Codex 对齐：回合开始就落盘占位轮次。否则中途退出/被杀会留下「有历史、无轮次」
   // 的会话，下一句单字就会被当成新任务顺着旧上下文重跑（真实事故）。
-  try {
-    upsertSessionTurn(session, {
-      turnId: turn.turnId,
-      sessionId: turn.sessionId,
-      instruction: turn.instruction,
-      messages: [],
-      toolCallsExecuted: turn.toolCallsExecuted,
-      status: turn.status,
-      startedAt: turn.startedAt,
-    });
-    saveSession(config.workspaceDir, session);
-  } catch {
-    /* 占位失败不阻塞本轮；中断判定退化为「无轮次」 */
+  if (!stoppedDuringSetup) {
+    try {
+      upsertSessionTurn(session, {
+        turnId: turn.turnId,
+        sessionId: turn.sessionId,
+        instruction: turn.instruction,
+        messages: [],
+        toolCallsExecuted: turn.toolCallsExecuted,
+        status: turn.status,
+        startedAt: turn.startedAt,
+      });
+      saveSession(config.workspaceDir, session);
+    } catch {
+      /* 占位失败不阻塞本轮；中断判定退化为「无轮次」 */
+    }
   }
 
   const liveProgressKey = opts.liveProgressSessionId?.trim() || session.sessionId;
-  clearTurnAbort(session.sessionId);
+  // Do not clear a Stop that arrived during MCP / peek / prompt assembly.
   const turnAbortSignal = bindTurnAbortSignal(session.sessionId);
   ctx.abortSignal = turnAbortSignal;
   // Mirror shouldAbort (e.g. SSE disconnect) onto the AbortSignal so in-flight fetch cancels.
@@ -526,6 +530,35 @@ export async function runTurn(opts: {
   };
 
   try {
+    if (abortRequested()) {
+      clearTurnAbort(session.sessionId);
+      if (turn.messages.length === 0) {
+        const last = session.conversationHistory[session.conversationHistory.length - 1];
+        if (last?.role === "user" && last.content === instruction) {
+          session.conversationHistory.pop();
+        }
+      }
+      turn.status = "error";
+      turn.error = "aborted_by_user";
+      turn.completedAt = new Date().toISOString();
+      upsertSessionTurn(session, { ...turn });
+      const reply = "已停止生成。";
+      emitEvent({ type: "final", status: "error", reply });
+      cleanupFailedTurn({
+        workspaceDir: config.workspaceDir,
+        session,
+        turn,
+        liveProgressKey,
+        ensureLiveProgressFinished,
+      });
+      return {
+        turn,
+        reply,
+        sessionId: session.sessionId,
+        memoryContext: memory,
+      };
+    }
+
     appendSessionEvent(config.workspaceDir, session.sessionId, { type: "turn_begin" }, { turnId });
     emitEvent({
       type: "intent",

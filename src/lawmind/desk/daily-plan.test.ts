@@ -43,8 +43,9 @@ describe("daily-plan", () => {
     });
     await appendDailyPlanItems(workspaceDir, ["今天新写的"], { date: "2026-09-17" });
     const carried = listOpenLawyerPlanItemsBefore(workspaceDir, "2026-09-17");
-    expect(carried.map((item) => item.text)).toEqual(["改代理词"]);
-    expect(carried[0]?.originDate).toBe("2026-09-16");
+    expect(carried.items.map((item) => item.text)).toEqual(["改代理词"]);
+    expect(carried.omitted).toBe(0);
+    expect(carried.items[0]?.originDate).toBe("2026-09-16");
     expect(loadDailyPlan(workspaceDir, "2026-09-17").items.map((item) => item.text)).toEqual([
       "今天新写的",
     ]);
@@ -57,7 +58,10 @@ describe("daily-plan", () => {
     );
     expect(done?.date).toBe("2026-09-16");
     expect(done?.items[0]?.done).toBe(true);
-    expect(listOpenLawyerPlanItemsBefore(workspaceDir, "2026-09-17")).toEqual([]);
+    expect(listOpenLawyerPlanItemsBefore(workspaceDir, "2026-09-17")).toEqual({
+      items: [],
+      omitted: 0,
+    });
   });
 
   it("completes a yesterday item without the caller passing the origin date", async () => {
@@ -77,6 +81,7 @@ describe("daily-plan", () => {
       lookbackDays: 14,
       maxItems: 8,
     });
-    expect(carried.map((item) => item.text)).toEqual(["昨天的"]);
+    expect(carried.items.map((item) => item.text)).toEqual(["昨天的"]);
+    expect(carried.omitted).toBe(0);
   });
 });

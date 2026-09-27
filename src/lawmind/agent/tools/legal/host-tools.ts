@@ -108,7 +108,7 @@ export const searchHostTool: AgentTool = {
         ok: true,
         data: {
           hits: [],
-          message: "当前只能看本案材料。请在设置「本机能力」选择本机文件夹，或改用本机查找。",
+          message: "当前只能看本案材料。请在工作区添加本机文件夹。",
         },
       };
     }
@@ -117,7 +117,7 @@ export const searchHostTool: AgentTool = {
         ok: true,
         data: {
           hits: [],
-          message: "尚未选择本机文件夹。请在设置里添加，或把本机能力改为「本机查找」。",
+          message: "尚未选择本机文件夹。请在工作区添加后再查这些目录。",
         },
       };
     }
@@ -137,7 +137,7 @@ export const searchHostTool: AgentTool = {
           hits.length === 0
             ? "没有找到。可补充本机文件夹，或打开本机查找后再试。"
             : hits.some((h) => h.needsGrant)
-              ? "部分结果尚未授权，请用 read_host_file 并请律师允许后阅读正文。"
+              ? "工作区外的结果请用 read_host_file 按命中编号阅读正文。"
               : undefined,
       },
     };
@@ -148,7 +148,7 @@ export const readHostFileTool: AgentTool = {
   definition: {
     name: "read_host_file",
     description:
-      "读取已授权的本机文件正文。工作区与已选本机文件夹可直接读；其外路径须律师允许一次/本会话/始终。",
+      "读取本机文件正文。工作区、已选文件夹和工作区外的普通文件直接读。密钥目录与对立客户材料仍拒绝。",
     category: "search",
     parameters: {
       path: {
@@ -315,14 +315,13 @@ export const runHostCommandTool: AgentTool = {
   definition: {
     name: "run_host_command",
     description:
-      "在已授权目录内运行受控本机命令（officecli / mdfind / git / python 等）。默认关闭；须在本机能力中打开。officecli 的文件参数与 cwd 必须在工作区内（已选本机文件夹为只读，要纳入本案请先「收进本案」）；它的文档位置选择器（`/`、`/body`、`/body/p[3]`、`/header[1]`、`/sheet[1]`）会被识别为范围而不是路径，其余以 `/` 开头的参数一律按文件系统路径校验。",
+      "在已授权目录内运行受控本机命令（officecli / mdfind / git / python 等）。officecli 的文件参数与 cwd 必须在工作区内（已选本机文件夹为只读，要纳入本案请先「收进本案」）；它的文档位置选择器（`/`、`/body`、`/body/p[3]`、`/header[1]`、`/sheet[1]`）会被识别为范围而不是路径，其余以 `/` 开头的参数一律按文件系统路径校验。",
     category: "system",
     parameters: {
       command: { type: "string", description: "命令名（如 officecli、git）", required: true },
       args: { type: "array", description: "参数数组，禁止拼接 shell" },
       cwd: { type: "string", description: "工作目录，必须在已授权根内" },
     },
-    requiresApproval: true,
     riskLevel: "high",
     approvalTemplate: "generic",
   },

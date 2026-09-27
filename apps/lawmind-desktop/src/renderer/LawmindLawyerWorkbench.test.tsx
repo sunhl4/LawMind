@@ -75,11 +75,11 @@ describe("LawmindLawyerWorkbench", () => {
       /LawMind · 0 个案件/,
     );
     expect(host.querySelector('[data-testid="lm-lawyer-cockpit"]')).toBeTruthy();
-    expect(host.querySelectorAll(".lm-desk-col")).toHaveLength(3);
     expect(host.querySelector(".lm-desk-col--matters")).toBeTruthy();
-    expect(host.querySelector('[aria-label="本案列表"]')).toBeTruthy();
-    expect(host.textContent).toContain("本案动作");
-    expect(host.textContent).toContain("贴传票");
+    expect(host.querySelector('[aria-label="案件"]')).toBeTruthy();
+    expect(host.textContent).toContain("今日");
+    expect(host.textContent).toContain("临近期日");
+    expect(host.textContent).not.toContain("本案动作");
     expect(host.textContent).not.toContain("打开对话");
     expect(host.querySelector(".lm-lawyer-fab")).toBeNull();
     expect(host.querySelector('[data-testid="lm-lawyer-today-plan-input"]')).toBeTruthy();
@@ -364,6 +364,8 @@ describe("LawmindLawyerWorkbench", () => {
     expect(host.textContent).toContain("卷宗");
     expect(host.querySelector(".lm-matter-file")).toBeTruthy();
     expect(host.querySelector(".lm-overview")).toBeTruthy();
+    expect(host.querySelector('[aria-label="案件"]')).toBeTruthy();
+    expect(host.querySelector('[aria-label="案件"]')).toBeTruthy();
     expect(host.querySelector(".lm-status-table")).toBeNull();
     expect(host.querySelector(".lm-matter-hero-badges")).toBeTruthy();
     expect(host.querySelector('[data-testid="lm-lawyer-pulse-bar"]')).toBeTruthy();
@@ -383,14 +385,7 @@ describe("LawmindLawyerWorkbench", () => {
     expect(overview.indexOf("本案进展")).toBeLessThan(overview.indexOf("当事人"));
     expect(overview.indexOf("当事人")).toBeLessThan(overview.indexOf("案件信息"));
 
-    await act(async () => {
-      host.querySelector<HTMLButtonElement>("#lm-lawyer-tab-docket")?.click();
-    });
     expect(host.querySelector('[data-testid="lm-lawyer-matter-parties-editor"]')).toBeTruthy();
-
-    await act(async () => {
-      host.querySelector<HTMLButtonElement>("#lm-lawyer-tab-intake")?.click();
-    });
     expect(host.querySelector('[data-testid="lm-lawyer-talk-input"]')).toBeTruthy();
     expect(host.textContent).toContain("要件事实");
     expect(host.textContent).toContain("已付定金未交货");
@@ -636,7 +631,8 @@ describe("LawmindLawyerWorkbench", () => {
     expect(host.querySelector('[data-testid="lm-lawyer-matter-timeline"]')).toBeTruthy();
     expect(host.textContent).toContain("本案进展");
     expect(host.textContent).toContain("开庭");
-    expect(host.querySelector("#lm-lawyer-tab-materials")).toBeTruthy();
+    expect(host.querySelector("#lm-lawyer-tab-volume")).toBeTruthy();
+    expect(host.textContent).toContain("邀请同事");
     const overview = host.querySelector(".lm-overview")?.textContent ?? "";
     expect(overview.indexOf("本案进展")).toBeLessThan(overview.indexOf("案件信息"));
 
@@ -650,6 +646,10 @@ describe("LawmindLawyerWorkbench", () => {
     expect(host.textContent).toContain("等「开庭」完成");
     expect(host.querySelector(".lm-deadline-depends")).toBeTruthy();
 
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>("#lm-lawyer-tab-volume")?.click();
+    });
+    await flush();
     await act(async () => {
       host.querySelector<HTMLButtonElement>("#lm-lawyer-tab-docs")?.click();
     });
@@ -665,7 +665,7 @@ describe("LawmindLawyerWorkbench", () => {
     expect(materials?.textContent).toContain("合同.docx");
     expect(materials?.textContent).toContain("出稿路径");
     expect(materials?.textContent).toContain("artifacts/起诉状.docx");
-    expect(host.querySelector("#lm-lawyer-tab-docket")).toBeTruthy();
+    expect(host.querySelector("#lm-lawyer-tab-overview")).toBeTruthy();
   });
 
   it("lets mail without a matter still jump to chat", async () => {

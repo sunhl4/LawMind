@@ -9,6 +9,12 @@ import type { MatterDocket } from "../desk/matter-kind.js";
 import { MATTER_KIND_LABELS, parseMatterKind } from "../desk/matter-kind.js";
 import { caseFilePath, ensureCaseWorkspace, upsertMatterDisplayName } from "../memory/index.js";
 
+const SENSITIVITY_LABELS: Record<MatterRecord["sensitivity"], string> = {
+  normal: "普通保密",
+  high: "高度敏感",
+  restricted: "严格隔离",
+};
+
 const MATTER_STATUS_LABELS: Record<MatterRecord["status"], string> = {
   intake: "接案 / intake",
   active: "进行中",
@@ -21,6 +27,32 @@ const MATTER_STATUS_LABELS: Record<MatterRecord["status"], string> = {
 
 export function matterStatusLabel(status: MatterRecord["status"]): string {
   return MATTER_STATUS_LABELS[status] ?? status;
+}
+
+export function matterStatusFromLabel(label: string): MatterRecord["status"] | undefined {
+  const v = label.trim();
+  if (!v) {
+    return undefined;
+  }
+  for (const status of Object.keys(MATTER_STATUS_LABELS) as Array<MatterRecord["status"]>) {
+    if (status === v || MATTER_STATUS_LABELS[status] === v) {
+      return status;
+    }
+  }
+  return undefined;
+}
+
+export function matterSensitivityFromLabel(label: string): MatterRecord["sensitivity"] | undefined {
+  const v = label.trim();
+  if (!v) {
+    return undefined;
+  }
+  for (const sensitivity of Object.keys(SENSITIVITY_LABELS) as Array<MatterRecord["sensitivity"]>) {
+    if (sensitivity === v || SENSITIVITY_LABELS[sensitivity] === v) {
+      return sensitivity;
+    }
+  }
+  return undefined;
 }
 
 async function upsertCaseBasicBullet(
@@ -58,12 +90,6 @@ async function upsertCaseBasicBullet(
     await fs.writeFile(filePath, raw, "utf8");
   });
 }
-
-const SENSITIVITY_LABELS: Record<MatterRecord["sensitivity"], string> = {
-  normal: "普通保密",
-  high: "高度敏感",
-  restricted: "严格隔离",
-};
 
 /** Project structured matter fields into CASE.md §1 (does not touch narrative sections). */
 export async function projectMatterToCaseMd(

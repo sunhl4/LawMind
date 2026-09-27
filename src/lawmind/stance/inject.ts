@@ -123,7 +123,19 @@ export function selectInjectableStances(
     if (it.supersededBy) {
       return false;
     }
-    if (decayedConfidence(it.confidence, it.updatedAt, nowMs) < MIN_HINT_CONFIDENCE) {
+    // 空库种下的法定口径不是律师确认过的立场。当成「你确认的」会让模型改当事人约定。
+    if (it.id.startsWith("firm_default_")) {
+      skipped.push({
+        id: it.id,
+        clauseType: it.clauseType,
+        reason: "unconfirmed_firm_default: 预置口径未经律师确认，不进提示词",
+      });
+      return false;
+    }
+    if (
+      decayedConfidence(it.modelConfidence ?? it.confidence, it.updatedAt, nowMs) <
+      MIN_HINT_CONFIDENCE
+    ) {
       return false;
     }
     if (it.evidence?.length) {
@@ -154,11 +166,30 @@ export function selectInjectableStances(
   const ranked = eligible
     .toSorted(
       (a, b) =>
-        decayedConfidence(b.confidence, b.updatedAt, nowMs) * b.occurrences -
-        decayedConfidence(a.confidence, a.updatedAt, nowMs) * a.occurrences,
+        decayedConfidence(b.modelConfidence ?? b.confidence, b.updatedAt, nowMs) * b.occurrences -
+        decayedConfidence(a.modelConfidence ?? a.confidence, a.updatedAt, nowMs) * a.occurrences,
     )
     .slice(0, limit);
   return { items: ranked, skipped };
+}
+
+function formatStanceLine(
+  it: {
+    clauseType: string;
+    preferredLanguage: string;
+    fallbackLanguage?: string;
+    unacceptableLanguage?: string;
+  },
+  index: number,
+): string {
+  const parts = [`${index + 1}. 【${it.clauseType}】标准：${it.preferredLanguage}`];
+  if (it.fallbackLanguage?.trim()) {
+    parts.push(`可接受回退：${it.fallbackLanguage.trim()}`);
+  }
+  if (it.unacceptableLanguage?.trim()) {
+    parts.push(`绝不接受：${it.unacceptableLanguage.trim()}`);
+  }
+  return parts.join("；");
 }
 
 export function formatStanceHint(
@@ -169,6 +200,6 @@ export function formatStanceHint(
   if (items.length === 0) {
     return "";
   }
-  const lines = items.map((it, i) => `${i + 1}. 【${it.clauseType}】${it.preferredLanguage}`);
+  const lines = items.map((it, i) => formatStanceLine(it, i));
   return ["已按你确认的条款立场：", ...lines].join("\n");
 }

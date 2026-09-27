@@ -92,7 +92,7 @@ export async function handleSupportRoutes({
       {
         ok: true,
         files: files.map((f) => ({ name: f.name, bytes: Buffer.byteLength(f.content, "utf8") })),
-        note: "本包已脱敏：不含 API Key、邮件密钥、许可激活码与案件正文。下载请加 ?download=1。",
+        note: "本包已去掉密钥、邮件密码、许可码和案件正文。",
       },
       c,
     );

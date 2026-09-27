@@ -14,6 +14,7 @@ import { LawmindOutboundSignoffCallout } from "./LawmindOutboundSignoffCallout";
 import { formatAutomationLastResultForLawyer } from "./lawmind-automation-last-result";
 import { formatRelativeTime } from "./lawmind-app-utils";
 import { confirmDialog } from "./lawmind-confirm-dialog";
+import { draftAutomationConfirmations } from "../../../../src/lawmind/platform/infer-automation-from-instruction.ts";
 import { isOutboundAutomationContext } from "../../../../src/lawmind/platform/lawyer-outbound-decision.ts";
 
 type Schedule =
@@ -25,14 +26,30 @@ type Schedule =
 type ScheduleMode = "weekly" | "daily" | "interval";
 
 const INTERVAL_PRESETS = [
-  { minutes: 15, label: "15 分钟" },
-  { minutes: 30, label: "30 分钟" },
-  { minutes: 60, label: "1 小时" },
-  { minutes: 120, label: "2 小时" },
-  { minutes: 360, label: "6 小时" },
-  { minutes: 720, label: "12 小时" },
-  { minutes: 1440, label: "24 小时" },
+  { minutes: 15, label: "每 15 分钟" },
+  { minutes: 30, label: "每 30 分钟" },
+  { minutes: 60, label: "每 1 小时" },
+  { minutes: 120, label: "每 2 小时" },
+  { minutes: 360, label: "每 6 小时" },
+  { minutes: 720, label: "每 12 小时" },
+  { minutes: 1440, label: "每 24 小时" },
 ] as const;
+
+/** 律师只看这一句。接口里的长说明留在服务端，不铺到设置页。 */
+const PRESET_HINT: Record<string, string> = {
+  "renewal-monitor": "到期前提醒你。不发函，也不改合同。",
+  "client-weekly-update": "起草给客户的进展。你批准后才发。",
+  "mail-inbox-digest": "整理新来信，不代回。先在下面接上邮箱。",
+  "mail-contract-review": "对来信里的合同做最小改稿。先在下面接上邮箱。",
+};
+
+function scheduleChoiceValue(mode: ScheduleMode, everyMinutes: number): string {
+  return mode === "interval" ? `m${everyMinutes}` : mode;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
 
 type Preset = {
   id: string;
@@ -67,7 +84,7 @@ type Automation = {
 type MissingDataPolicy = "report_failure" | "report_partial" | "skip_run";
 type NotifyPolicy = "always" | "on_problem" | "never";
 
-/** 缺数据策略的律师侧措辞。默认第一项（如实报失败），与引擎默认一致。 */
+/** 缺数据策略的律师侧措辞。模板默认是「先交能做到的部分」。 */
 const MISSING_DATA_OPTIONS: Array<{ value: MissingDataPolicy; label: string }> = [
   { value: "report_failure", label: "如实报失败，不拿旧数据顶上" },
   { value: "report_partial", label: "先交能做到的部分，并列出缺什么" },
@@ -134,6 +151,8 @@ type Props = {
   onOpenActionHub?: () => void;
   /** Settings page already shows section title — hide duplicate chrome. */
   hideTitleChrome?: boolean;
+  /** 新建时记在这位助手名下。不传则仍只挂在案件上。 */
+  assistantId?: string;
 };
 
 function scheduleLabel(s: Schedule): string {
@@ -226,7 +245,7 @@ function LawmindAutomationRuns({
       {stats.total === 0 ? (
         <p className="lm-meta">第一次到期跑完之后，这里会出现每一次的记录。</p>
       ) : (
-        <ul className="lm-automations-runs-ul">
+        <ul className="lm-automations-runs-ul lm-scroll">
           {runs.slice(0, 8).map((r) => (
             <li key={r.runId} className="lm-meta">
               {formatRelativeTime(r.finishedAt || r.startedAt)} · {RUN_STATUS_LABEL[r.status]}
@@ -260,6 +279,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
     onOpenNeedsDecisionDesk,
     onOpenActionHub,
     hideTitleChrome = false,
+    assistantId,
   } = props;
   const openNeedsDecisionDesk = onOpenNeedsDecisionDesk ?? onOpenActionHub;
   const { selectedAutomationId, setSelectedAutomationId } = useLawmindAutomationsNavContext();
@@ -278,13 +298,16 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
   const [minute, setMinute] = useState(0);
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("weekly");
   const [everyMinutes, setEveryMinutes] = useState(30);
-  // 六确认：律师必须交代清楚才能建常设工作（无人值守的失败代价由他承担）。
-  // 给出安全默认值，但不预填文本——期望结果与审批边界必须是他自己写的。
-  const [expectedResult, setExpectedResult] = useState("");
-  const [approvalBoundary, setApprovalBoundary] = useState("");
-  const [missingDataPolicy, setMissingDataPolicy] =
-    useState<MissingDataPolicy>("report_failure");
-  const [notifyPolicy, setNotifyPolicy] = useState<NotifyPolicy>("on_problem");
+  // 模板自带可改的规矩，选中即填上。律师可以改字；清空两项仍不能创建。
+  const openingDraft = draftAutomationConfirmations("renewal-monitor");
+  const [expectedResult, setExpectedResult] = useState(openingDraft.expectedResult);
+  const [approvalBoundary, setApprovalBoundary] = useState(openingDraft.approvalBoundary);
+  const [eventSource, setEventSource] = useState<"" | "matter_files" | "mail" | "webhook">("");
+  const [eventMatch, setEventMatch] = useState("");
+  const [missingDataPolicy, setMissingDataPolicy] = useState<MissingDataPolicy>(
+    openingDraft.missingDataPolicy,
+  );
+  const [notifyPolicy, setNotifyPolicy] = useState<NotifyPolicy>(openingDraft.notifyPolicy);
   /** 运行历史按需拉取：点开某条才查，不在列表加载时对每条都发一次请求。 */
   const [runsById, setRunsById] = useState<Record<string, RunsPayload>>({});
   const [runsLoadingId, setRunsLoadingId] = useState<string | null>(null);
@@ -480,12 +503,17 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       await apiSendJson(apiBase, "/api/automations", "POST", {
         presetId: selectedPreset,
         matterId: selectedMatter.trim(),
+        assistantId: assistantId?.trim() || undefined,
         schedule,
         notifyEmail: notifyEmail.trim() || undefined,
         expectedResult: expectedResult.trim(),
         approvalBoundary: approvalBoundary.trim(),
         missingDataPolicy,
         notifyPolicy,
+        eventTrigger:
+          eventSource && eventMatch.trim()
+            ? { source: eventSource, match: eventMatch.trim(), minIntervalMinutes: 60 }
+            : undefined,
       });
       setError(null);
       setSuccess("已创建自动办件。");
@@ -504,7 +532,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
 
   const createFromInstruction = async () => {
     if (!selectedMatter.trim()) {
-      setError("请先在上方选择案件，再点「从这句话创建」。");
+      setError("请先选择案件。");
       return;
     }
     if (!customText.trim()) {
@@ -532,9 +560,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
     } catch (e) {
       const msg = errorMessage(e, "创建失败");
       setError(
-        /failed to fetch|networkerror|load failed/i.test(msg)
-          ? "本地服务已断开（常见原因：邮箱连接超时拖垮了后台）。请重启桌面应用后再试「从这句话创建」。"
-          : msg,
+        /failed to fetch|networkerror|load failed/i.test(msg) ? "服务断开，请重启。" : msg,
       );
     } finally {
       setBusy(false);
@@ -565,7 +591,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       });
       await refresh({ quiet: true });
       setError(null);
-      setSuccess("已触发立即运行；外发待发信进「待我拍板」，内部结果看任务上次摘要。");
+      setSuccess("已开始办。要发出去的，到「待我拍板」。");
     } catch (e) {
       setError(errorMessage(e, "触发失败"));
     } finally {
@@ -599,25 +625,58 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
     }
   };
 
-  const seedDemoMail = async () => {
-    if (!selectedMatter.trim()) {
-      setError("请先选择案件再写入演示邮件。");
+  const creatablePresets = presets.filter((p) => p.id !== "custom");
+  const presetHint = PRESET_HINT[selectedPreset] ?? selectedPresetMeta?.description ?? "";
+
+  const applyPreset = (presetId: string) => {
+    setSelectedPreset(presetId);
+    const draft = draftAutomationConfirmations(presetId);
+    setExpectedResult(draft.expectedResult);
+    setApprovalBoundary(draft.approvalBoundary);
+    setMissingDataPolicy(draft.missingDataPolicy);
+    setNotifyPolicy(draft.notifyPolicy);
+    const preset = presets.find((p) => p.id === presetId);
+    if (presetId === "mail-contract-review" || presetId === "mail-inbox-digest") {
+      setScheduleMode("interval");
+      const def =
+        preset?.defaultSchedule?.kind === "interval" ? preset.defaultSchedule.everyMinutes : 30;
+      setEveryMinutes(def);
       return;
     }
-    setBusy(true);
-    try {
-      await apiSendJson(apiBase, "/api/automations/mail/seed", "POST", {
-        matterId: selectedMatter.trim(),
-        subject: "请审阅附件合同修订稿",
-        bodyText: "您好，附件为对方发来的合同修订版，请协助审查。",
-        attachments: [{ name: "合同修订稿.docx", relativePath: "合同修订稿.docx" }],
-      });
-      setSuccess("已写入演示邮件。");
-      await refresh({ quiet: true });
-    } catch (e) {
-      setError(errorMessage(e, "写入演示邮件失败"));
-    } finally {
-      setBusy(false);
+    if (preset?.defaultSchedule?.kind === "daily") {
+      setScheduleMode("daily");
+      setHour(preset.defaultSchedule.hour);
+      setMinute(preset.defaultSchedule.minute);
+      return;
+    }
+    if (preset?.defaultSchedule?.kind === "weekly") {
+      setScheduleMode("weekly");
+      setHour(preset.defaultSchedule.hour);
+      setMinute(preset.defaultSchedule.minute);
+      return;
+    }
+    setScheduleMode("weekly");
+  };
+
+  useEffect(() => {
+    const choices = presets.filter((p) => p.id !== "custom");
+    if (choices.length === 0 || choices.some((p) => p.id === selectedPreset)) {
+      return;
+    }
+    const next = choices[0];
+    if (next) {
+      applyPreset(next.id);
+    }
+  }, [presets, selectedPreset]);
+
+  const onScheduleChoice = (raw: string) => {
+    if (raw === "weekly" || raw === "daily") {
+      setScheduleMode(raw);
+      return;
+    }
+    if (raw.startsWith("m")) {
+      setScheduleMode("interval");
+      setEveryMinutes(Number(raw.slice(1)) || 30);
     }
   };
 
@@ -627,35 +686,25 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       data-testid="lm-automations-panel"
       aria-busy={loading || busy || undefined}
     >
-      <header className="lm-automations-header">
-        {hideTitleChrome ? null : (
+      {hideTitleChrome ? null : (
+        <header className="lm-automations-header">
           <div>
             <h2 className="lm-agent-fleet-title">自动办件</h2>
-            <p className="lm-meta">
-              配置定时与邮箱。外发待发信进「待我拍板」；这里只改任务与邮箱，不处理待办。
-            </p>
+            <p className="lm-meta">选一件事，定多久办一次。要发出去的，到「待我拍板」。</p>
           </div>
-        )}
-        <div className="lm-automations-header-actions">
-          <button
-            type="button"
-            className="lm-btn lm-btn-ghost lm-btn-sm"
-            disabled={busy || loading}
-            onClick={() => void refresh()}
-          >
-            {loading ? "加载中…" : "刷新"}
-          </button>
           {openNeedsDecisionDesk ? (
-            <button
-              type="button"
-              className="lm-btn lm-btn-secondary lm-btn-sm"
-              onClick={() => openNeedsDecisionDesk?.()}
-            >
-              去在办处理
-            </button>
+            <div className="lm-automations-header-actions">
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-sm"
+                onClick={() => openNeedsDecisionDesk()}
+              >
+                去在办处理
+              </button>
+            </div>
           ) : null}
-        </div>
-      </header>
+        </header>
+      )}
 
       {error ? (
         <div className="lm-callout lm-callout-danger" role="alert">
@@ -667,21 +716,15 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
           <p className="lm-callout-body">{success}</p>
         </div>
       ) : null}
-      {busy || loading ? (
-        <p className="lm-meta lm-automations-loading" aria-live="polite">
-          {busy ? "处理中…" : "正在加载自动办件…"}
-        </p>
-      ) : null}
 
-      <section className="lm-automations-list" aria-label="我的自动办件">
-        <div className="lm-automations-section-head">
-          <h3 className="lm-settings-subtitle">我的自动办件</h3>
-          {automations.length > 0 ? (
-            <span className="lm-automations-count">{automations.length}</span>
-          ) : null}
-        </div>
-        {automations.length === 0 ? (
-          <p className="lm-meta">还没有自动办件。从下方模板或一句话创建一个。</p>
+      <section className="lm-settings-group lm-automations-list" aria-label="我的自动办件">
+        <h3 className="lm-settings-subtitle">我的自动办件</h3>
+        {loading && automations.length === 0 ? (
+          <p className="lm-meta" aria-live="polite">
+            正在读取…
+          </p>
+        ) : automations.length === 0 ? (
+          <p className="lm-meta">还没有。在下面选一件事。</p>
         ) : (
           <ul className="lm-automations-ul">
             {automations.map((a) => {
@@ -735,7 +778,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
                           void runNow(a);
                         }}
                       >
-                        立即跑一次
+                        办一次
                       </button>
                       <button
                         type="button"
@@ -768,13 +811,13 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
         )}
       </section>
 
-      <section className="lm-automations-create" aria-label="创建自动办件">
+      <section className="lm-settings-group lm-automations-create" aria-label="创建自动办件">
         <h3 className="lm-settings-subtitle">创建</h3>
-        <label className="lm-compose-bar-field">
-          <span className="lm-compose-bar-label">案件（必选）</span>
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">案件</span>
           {matterOptions.length > 0 ? (
             <select
-              className="lm-compose-select"
+              className="lm-settings-val-select"
               value={selectedMatter}
               onChange={(e) => setSelectedMatter(e.target.value)}
               aria-label="选择案件"
@@ -787,234 +830,233 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
               ))}
             </select>
           ) : (
-            <input
-              className="lm-input"
-              value={selectedMatter}
-              onChange={(e) => setSelectedMatter(e.target.value)}
-              placeholder="案件 ID"
-            />
+            <span className="lm-settings-val">请先新建案件</span>
           )}
-        </label>
-        {matterOptions.length === 0 ? (
-          <p className="lm-meta">请先新建案件。</p>
-        ) : null}
-
-        <div className="lm-automations-preset-grid">
-          {presets.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className={`lm-automations-preset-card${selectedPreset === p.id ? " is-selected" : ""}`}
-              onClick={() => {
-                setSelectedPreset(p.id);
-                // Mail presets default to interval polling.
-                if (p.id === "mail-contract-review" || p.id === "mail-inbox-digest") {
-                  setScheduleMode("interval");
-                  const def =
-                    p.defaultSchedule?.kind === "interval"
-                      ? p.defaultSchedule.everyMinutes
-                      : 30;
-                  setEveryMinutes(def);
-                } else if (p.defaultSchedule?.kind === "daily") {
-                  setScheduleMode("daily");
-                } else {
-                  setScheduleMode("weekly");
+        </div>
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">做什么</span>
+          <select
+            className="lm-settings-val-select"
+            value={selectedPreset}
+            aria-label="做什么"
+            data-testid="lm-auto-preset"
+            onChange={(e) => applyPreset(e.target.value)}
+          >
+            {creatablePresets.length === 0 ? (
+              <option value={selectedPreset}>{loading ? "正在读取…" : "暂无可选"}</option>
+            ) : (
+              creatablePresets.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+        {!outboundCreate && presetHint ? <p className="lm-settings-caption">{presetHint}</p> : null}
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">多久一次</span>
+          <select
+            className="lm-settings-val-select"
+            aria-label="多久一次"
+            data-testid="lm-auto-schedule"
+            value={scheduleChoiceValue(scheduleMode, everyMinutes)}
+            onChange={(e) => onScheduleChoice(e.target.value)}
+          >
+            <option value="weekly">每周一</option>
+            <option value="daily">每天</option>
+            {INTERVAL_PRESETS.map((opt) => (
+              <option key={opt.minutes} value={`m${opt.minutes}`}>
+                {opt.label}
+              </option>
+            ))}
+            {INTERVAL_PRESETS.some((opt) => opt.minutes === everyMinutes) ? null : (
+              <option value={`m${everyMinutes}`}>{`每 ${everyMinutes} 分钟`}</option>
+            )}
+          </select>
+        </div>
+        {scheduleMode === "interval" ? null : (
+          <div className="lm-settings-row">
+            <span className="lm-settings-key">几点</span>
+            <input
+              type="time"
+              className="lm-input lm-automations-time"
+              aria-label="几点"
+              value={`${pad2(hour)}:${pad2(minute)}`}
+              onChange={(e) => {
+                const [h, m] = e.target.value.split(":");
+                if (h === undefined || m === undefined || h === "") {
+                  return;
                 }
+                setHour(Number(h));
+                setMinute(Number(m));
               }}
-            >
-              <strong>{p.title}</strong>
-              <span className="lm-meta">{p.description}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="lm-automations-schedule-row" role="group" aria-label="运行频率">
-          <label className="lm-meta">
-            <input
-              type="radio"
-              name="lm-auto-schedule"
-              checked={scheduleMode === "interval"}
-              onChange={() => setScheduleMode("interval")}
-            />{" "}
-            每隔一段时间
-          </label>
-          <label className="lm-meta">
-            <input
-              type="radio"
-              name="lm-auto-schedule"
-              checked={scheduleMode === "daily"}
-              onChange={() => setScheduleMode("daily")}
-            />{" "}
-            每天
-          </label>
-          <label className="lm-meta">
-            <input
-              type="radio"
-              name="lm-auto-schedule"
-              checked={scheduleMode === "weekly"}
-              onChange={() => setScheduleMode("weekly")}
-            />{" "}
-            每周一
-          </label>
-        </div>
-        {scheduleMode === "interval" ? (
-          <div className="lm-automations-schedule-row">
-            <label className="lm-meta">
-              读取/处理间隔
-              <select
-                className="lm-compose-select lm-automations-interval-select"
-                value={everyMinutes}
-                onChange={(e) => setEveryMinutes(Number(e.target.value))}
-                aria-label="邮件处理间隔"
-              >
-                {INTERVAL_PRESETS.map((opt) => (
-                  <option key={opt.minutes} value={opt.minutes}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <span className="lm-meta">创建后约 1 分钟内先跑一次，之后按间隔重复（最短 5 分钟）。</span>
-          </div>
-        ) : (
-          <div className="lm-automations-schedule-row">
-            <label className="lm-meta">
-              时间
-              <input
-                type="number"
-                min={0}
-                max={23}
-                value={hour}
-                onChange={(e) => setHour(Number(e.target.value))}
-                className="lm-input lm-automations-time"
-              />
-              :
-              <input
-                type="number"
-                min={0}
-                max={59}
-                value={minute}
-                onChange={(e) => setMinute(Number(e.target.value))}
-                className="lm-input lm-automations-time"
-              />
-            </label>
+            />
           </div>
         )}
 
-        {needsNotifyEmail || customText.length > 0 ? (
-          <label className="lm-compose-bar-field">
-            <span className="lm-compose-bar-label">客户收件邮箱（周报批准发信用）</span>
+        {needsNotifyEmail ? (
+          <label className="lm-settings-field">
+            <span className="lm-settings-key">客户邮箱</span>
             <input
               className="lm-input"
               type="email"
               value={notifyEmail}
               onChange={(e) => setNotifyEmail(e.target.value)}
-              placeholder="如 counsel@client-firm.com（禁止 example.com）"
+              placeholder="批准后发到这个地址"
               autoComplete="off"
+              aria-label="客户邮箱"
             />
           </label>
         ) : null}
-
+        {outboundCreate && selectedPresetMeta?.needsMail ? (
+          <p className="lm-settings-caption">先在下面接上邮箱。</p>
+        ) : null}
         {outboundCreate ? <LawmindOutboundSignoffCallout /> : null}
-
-        <fieldset className="lm-automations-confirm" data-testid="lm-auto-confirmations">
-          <legend className="lm-settings-subtitle">办这件事的规矩（必须交代）</legend>
-          <p className="lm-meta">
-            常设工作是在你离开电脑后自己跑的。这四项说清楚，出问题时你才知道它该不该继续跑。
-          </p>
-          <label className="lm-compose-bar-field">
-            <span className="lm-compose-bar-label">办完是什么样</span>
-            <input
-              className="lm-input"
-              value={expectedResult}
-              onChange={(e) => setExpectedResult(e.target.value)}
-              placeholder="例：一份续签提醒清单，列合同名、到期日、对接人"
-              data-testid="lm-auto-expected-result"
-            />
-          </label>
-          <label className="lm-compose-bar-field">
-            <span className="lm-compose-bar-label">哪些事必须先问我</span>
-            <input
-              className="lm-input"
-              value={approvalBoundary}
-              onChange={(e) => setApprovalBoundary(e.target.value)}
-              placeholder="例：外发邮件前必须问我；不要自己改原稿"
-              data-testid="lm-auto-approval-boundary"
-            />
-          </label>
-          <label className="lm-compose-bar-field">
-            <span className="lm-compose-bar-label">资料不全时</span>
-            <select
-              className="lm-compose-select"
-              value={missingDataPolicy}
-              onChange={(e) => setMissingDataPolicy(e.target.value as MissingDataPolicy)}
-              data-testid="lm-auto-missing-data"
-            >
-              {MISSING_DATA_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="lm-compose-bar-field">
-            <span className="lm-compose-bar-label">什么时候告诉我</span>
-            <select
-              className="lm-compose-select"
-              value={notifyPolicy}
-              onChange={(e) => setNotifyPolicy(e.target.value as NotifyPolicy)}
-              data-testid="lm-auto-notify-policy"
-            >
-              {NOTIFY_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="lm-meta">
-            没办成、或停下来等你拍板时，一定会通知你——不受最后一项影响。
-          </p>
-        </fieldset>
-
-        <div className="lm-automations-create-actions">
+        {assistantId ? <p className="lm-settings-caption">记在当前助手名下。</p> : null}
+        <div className="lm-settings-actions">
           <button
             type="button"
             className="lm-btn lm-btn-sm"
-            disabled={busy || selectedPreset === "custom"}
+            data-testid="lm-auto-create"
+            disabled={busy || selectedPreset === "custom" || !selectedMatter.trim()}
             onClick={() => void createFromPreset()}
           >
-            用所选模板创建
-          </button>
-          <button
-            type="button"
-            className="lm-btn lm-btn-ghost lm-btn-sm"
-            disabled={busy}
-            onClick={() => void seedDemoMail()}
-          >
-            写入演示邮件
+            创建
           </button>
         </div>
-
-        <label className="lm-compose-bar-field">
-          <span className="lm-compose-bar-label">或用一句话自定义</span>
-          <textarea
-            className="lm-input"
-            rows={3}
-            value={customText}
-            onChange={(e) => setCustomText(e.target.value)}
-            placeholder="例：每天早上整理本案邮箱来信；有合同附件就做初审，改完稿给我拍板后再发给客户。"
-          />
-        </label>
-        <button
-          type="button"
-          className="lm-btn lm-btn-sm"
-          disabled={busy}
-          onClick={() => void createFromInstruction()}
-        >
-          从这句话创建
-        </button>
       </section>
+
+      <details className="lm-settings-advanced" data-testid="lm-auto-more">
+        <summary>
+          <span className="lm-settings-advanced__label">规矩已经写好</span>
+          <span className="lm-settings-advanced__hint">要改再打开</span>
+        </summary>
+        <div className="lm-settings-advanced-body">
+          <fieldset className="lm-automations-confirm" data-testid="lm-auto-confirmations">
+            <legend className="lm-settings-key">规矩</legend>
+            <p className="lm-settings-caption">
+              改完再创建。清空「办完是什么样」或「哪些事必须先问我」则不能创建。
+            </p>
+            <label className="lm-settings-field">
+              <span className="lm-settings-key">办完是什么样</span>
+              <input
+                className="lm-input"
+                value={expectedResult}
+                onChange={(e) => setExpectedResult(e.target.value)}
+                data-testid="lm-auto-expected-result"
+              />
+            </label>
+            <label className="lm-settings-field">
+              <span className="lm-settings-key">哪些事必须先问我</span>
+              <input
+                className="lm-input"
+                value={approvalBoundary}
+                onChange={(e) => setApprovalBoundary(e.target.value)}
+                data-testid="lm-auto-approval-boundary"
+              />
+            </label>
+            <label className="lm-settings-field">
+              <span className="lm-settings-key">资料不全时</span>
+              <select
+                className="lm-input"
+                value={missingDataPolicy}
+                onChange={(e) => setMissingDataPolicy(e.target.value as MissingDataPolicy)}
+                data-testid="lm-auto-missing-data"
+              >
+                {MISSING_DATA_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="lm-settings-field">
+              <span className="lm-settings-key">什么时候告诉我</span>
+              <select
+                className="lm-input"
+                value={notifyPolicy}
+                onChange={(e) => setNotifyPolicy(e.target.value as NotifyPolicy)}
+                data-testid="lm-auto-notify-policy"
+              >
+                {NOTIFY_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="lm-settings-caption">没办成、或停下来等你拍板时，一定会通知你。</p>
+          </fieldset>
+
+          {!needsNotifyEmail ? (
+            <label className="lm-settings-field">
+              <span className="lm-settings-key">客户邮箱</span>
+              <input
+                className="lm-input"
+                type="email"
+                value={notifyEmail}
+                onChange={(e) => setNotifyEmail(e.target.value)}
+                placeholder="要外发时再填"
+                autoComplete="off"
+                aria-label="客户邮箱"
+              />
+            </label>
+          ) : null}
+
+          <label className="lm-settings-field">
+            <span className="lm-settings-key">或用一句话</span>
+            <textarea
+              className="lm-input"
+              rows={2}
+              value={customText}
+              onChange={(e) => setCustomText(e.target.value)}
+              placeholder="例如：每天早上整理本案新来信"
+            />
+          </label>
+          <div className="lm-settings-actions lm-settings-actions--flush">
+            <button
+              type="button"
+              className="lm-btn lm-btn-secondary lm-btn-sm"
+              disabled={busy}
+              onClick={() => void createFromInstruction()}
+            >
+              按这句话创建
+            </button>
+          </div>
+
+          <div data-testid="lm-auto-event-trigger">
+            <label className="lm-settings-field">
+              <span className="lm-settings-key">有新东西时也办</span>
+              <select
+                className="lm-input"
+                value={eventSource}
+                aria-label="有新东西时也办"
+                onChange={(e) =>
+                  setEventSource(e.target.value as "" | "matter_files" | "mail" | "webhook")
+                }
+              >
+                <option value="">只按上面的时间</option>
+                <option value="matter_files">本案新文件</option>
+                <option value="mail">新来信</option>
+                <option value="webhook">本机通知</option>
+              </select>
+            </label>
+            {eventSource ? (
+              <label className="lm-settings-field">
+                <span className="lm-settings-key">要对上这个词</span>
+                <input
+                  className="lm-input"
+                  value={eventMatch}
+                  onChange={(e) => setEventMatch(e.target.value)}
+                  placeholder="例如：续签"
+                  data-testid="lm-auto-event-match"
+                />
+              </label>
+            ) : null}
+          </div>
+        </div>
+      </details>
 
       <LawmindMailAccountsSection
         apiBase={apiBase}

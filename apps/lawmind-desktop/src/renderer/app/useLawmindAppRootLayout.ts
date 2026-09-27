@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import { useCallback, type RefObject } from "react";
 import { useSettingsPanelStore } from "../stores/settings-panel-store";
 import type { FileWorkbenchCasesNodeActions } from "../FileWorkbench";
 import type { AgentsDeskTab } from "../lawmind-agents-desk";
@@ -120,7 +120,6 @@ export function useLawmindAppRootLayout(
     config,
     health,
     modelCatalog,
-    modelProviders,
     platformProviders,
     platformMode,
     selectedModelId,
@@ -160,6 +159,7 @@ export function useLawmindAppRootLayout(
     selectedAssistantId,
     activeChatSessionId,
     chatSessionList,
+    chatListScope,
     chatSessionsLoading,
     currentMessages,
     copiedMessageIndex,
@@ -213,6 +213,8 @@ export function useLawmindAppRootLayout(
     setReviewFocusStatus,
     setReviewFocusListMode,
     setSelectedAssistantId,
+    openChatListScope,
+    focusAssistantInCurrentScope,
     setAllowWebSearch,
     refreshLists,
     refreshCollaboration,
@@ -240,6 +242,7 @@ export function useLawmindAppRootLayout(
     saveAssistant,
     removeAssistant,
     duplicateAssistant,
+    patchAssistantRoster,
     copyMessage,
     openApiWizard,
     composeModelQuickTest,
@@ -272,11 +275,25 @@ export function useLawmindAppRootLayout(
     setMainView("desk");
   };
 
+  const openNeedsDecisionInbox = useCallback(() => {
+    input.setMatterCockpitOpen(false);
+    input.setAgentsDeskFocusTarget(null);
+    input.setAgentsNeedsDecisionFocus(true);
+    input.setAgentsDeskTab("active");
+    setMainView("agents");
+  }, [
+    input.setAgentsDeskFocusTarget,
+    input.setAgentsDeskTab,
+    input.setAgentsNeedsDecisionFocus,
+    input.setMatterCockpitOpen,
+    setMainView,
+  ]);
+
   const headerProps = useLawmindAppHeaderProps({
     mainView,
     assistants,
     selectedAssistantId,
-    setSelectedAssistantId,
+    setSelectedAssistantId: focusAssistantInCurrentScope,
     matterCockpitOpen: input.matterCockpitOpen,
     setMatterCockpitOpen: input.setMatterCockpitOpen,
     setMainView,
@@ -301,6 +318,8 @@ export function useLawmindAppRootLayout(
     openApiWizard,
     composeModelQuickTest,
     composeModelQuickTestBusy,
+    needsDecisionTotal: input.actionSummaryTotal,
+    onOpenNeedsDecision: openNeedsDecisionInbox,
   });
 
   const mainBodyProps = useLawmindMainBodyContentProps({
@@ -502,6 +521,7 @@ export function useLawmindAppRootLayout(
     openEditAssistant,
     removeAssistant,
     duplicateAssistant,
+    patchAssistantRoster,
     applyRetrievalMode,
     applyDraftWithModelEnabled,
     npcSaving,
@@ -510,7 +530,6 @@ export function useLawmindAppRootLayout(
     localServiceReconnecting,
     openApiWizard,
     onVerifyModel: composeModelQuickTest,
-    modelProviders,
     platformProviders,
     platformMode,
     selectedModelId,
@@ -562,14 +581,17 @@ export function useLawmindAppRootLayout(
     mainView,
     apiBase: config?.apiBase,
     setMainView,
-    setMatterCockpitOpen: input.setMatterCockpitOpen,
-    setAgentsDeskTab: input.setAgentsDeskTab,
-    setAgentsNeedsDecisionFocus: input.setAgentsNeedsDecisionFocus,
+    onOpenNeedsDecisionDesk: openNeedsDecisionInbox,
     chatSessions: chatSessionList,
     activeChatSessionId,
     chatSessionsLoading,
     chatBusy: loading,
     chatAssistantId: selectedAssistantId,
+    chatListScope,
+    onOpenChatScope: (scope) => {
+      void openChatListScope(scope);
+    },
+    assistantDisplayById: input.assistantDisplayById,
     onSelectChatSession: (sessionId: string) => {
       const row = chatSessionList.find((s) => s.sessionId === sessionId);
       if (
@@ -637,6 +659,7 @@ export function useLawmindAppRootLayout(
     fileWorkbenchMattersPickList: input.fileWorkbenchMattersPickList,
     matterRefreshVersion,
     workspaceCasesMenu: input.workspaceCasesMenu,
+    explorerMatterId: chatListScope,
   });
 
   return {

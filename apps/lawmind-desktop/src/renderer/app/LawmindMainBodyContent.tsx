@@ -20,16 +20,15 @@ import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
 import { ReviewView } from "./ReviewView";
 import { AgentFleetView } from "./AgentFleetView";
-import { MeetingView } from "./MeetingView";
 import { LawmindWorkspaceMainPane } from "./LawmindWorkspaceMainPane";
 import { LawmindWorkspaceBootstrapGate } from "./LawmindWorkspaceBootstrapGate";
 import { pickWorkspaceMainPaneProps } from "./pickWorkspaceMainPaneProps";
 import {
   pickAgentFleetViewProps,
   pickLawyerWorkbenchProps,
-  pickMeetingViewProps,
   pickReviewViewProps,
 } from "./pickMainBodyBranchProps";
+import { LawmindArchiveOrganizePage } from "../LawmindArchiveOrganizePage";
 import { LawmindLawyerWorkbench } from "../LawmindLawyerWorkbench";
 import { LawmindErrorBoundary } from "../LawmindErrorBoundary";
 import { useLawmindShellNavigationContext } from "./LawmindShellContexts";
@@ -179,6 +178,8 @@ export type LawmindMainBodyContentProps = {
   onCreateMatter?: () => void;
   /** 工作台选案：只切当前案件，不打开办案台。 */
   onSelectMatterKey?: (matterId: string) => void;
+  /** 在办筛到某一案时，回到工作台这一卷。 */
+  onOpenMatterOnDesk?: (matterId: string) => void;
   showEmptyMatterGuide?: boolean;
   /** Session switcher is in the left rail; hide top chat tabs. */
   chatSessionsInSidebar?: boolean;
@@ -193,15 +194,24 @@ export type LawmindMainBodyContentProps = {
 export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
   const { mainView } = useLawmindShellNavigationContext();
 
-  if (mainView === "meeting") {
-    return <MeetingView {...pickMeetingViewProps(props)} />;
-  }
   if (mainView === "review" && props.config) {
     const reviewProps = pickReviewViewProps(props);
     return reviewProps ? <ReviewView {...reviewProps} /> : null;
   }
   if (mainView === "agents") {
     return <AgentFleetView {...pickAgentFleetViewProps(props)} />;
+  }
+  if (mainView === "archive") {
+    if (!props.config?.apiBase) {
+      return (
+        <LawmindWorkspaceBootstrapGate error={props.error} onOpenApiWizard={props.onOpenApiWizard} />
+      );
+    }
+    return (
+      <LawmindErrorBoundary label="整理资料">
+        <LawmindArchiveOrganizePage apiBase={props.config.apiBase} />
+      </LawmindErrorBoundary>
+    );
   }
   if (mainView === "desk") {
     if (!props.config) {

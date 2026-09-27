@@ -11,7 +11,6 @@
  * (the legacy `docx apply-redlines` subcommand is not available on current CLIs).
  */
 
-import { spawn } from "node:child_process";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -25,6 +24,7 @@ import {
   toTrackedFindReplace,
 } from "../drafts/surgical-diff.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
+import { buildMinimalChildEnv, runSafeCommand } from "../platform/safe-command.js";
 import { resolveWorkspaceRelativePath } from "../runtime/workspace-path.js";
 import type { ArtifactDraft } from "../types.js";
 import { resolveOfficeCliBin } from "./officecli-bin.js";
@@ -59,35 +59,40 @@ export type TrackedDocxRenderResult =
     }
   | { ok: false; error: string; code: string };
 
-function runOfficeCli(
+/** officecli JSON 可能较长；审计仍只记摘要，这里抬高捕获上限以免截断 matched 字段。 */
+const OFFICECLI_MAX_STDOUT = 256_000;
+const OFFICECLI_MAX_STDERR = 8_000;
+
+async function runOfficeCli(
   args: string[],
   timeoutMs = 120_000,
   command?: string,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   const bin = command?.trim() || resolveOfficeCliBin() || "officecli";
-  return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error("officecli_timeout"));
-    }, timeoutMs);
-    child.stdout?.on("data", (chunk) => {
-      stdout += String(chunk);
+  try {
+    const result = await runSafeCommand({
+      command: bin,
+      args,
+      env: buildMinimalChildEnv(),
+      timeoutMs,
+      stdio: ["ignore", "pipe", "pipe"],
+      maxStdoutBytes: OFFICECLI_MAX_STDOUT,
+      maxStderrBytes: OFFICECLI_MAX_STDERR,
     });
-    child.stderr?.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code: code ?? 1, stdout, stderr });
-    });
-  });
+    if (result.exitSignal === "SIGTERM" || result.exitSignal === "SIGKILL") {
+      throw new Error("officecli_timeout");
+    }
+    return {
+      code: result.exitCode ?? 1,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  } catch (err) {
+    if (err instanceof Error && err.message === "officecli_timeout") {
+      throw err;
+    }
+    throw err instanceof Error ? err : new Error(String(err));
+  }
 }
 
 function resolveContractBaselineAbsPath(

@@ -178,12 +178,11 @@ export type JudgmentHardControlsReport = {
 export function buildJudgmentHardControlsReport(
   env: NodeJS.ProcessEnv = process.env,
 ): JudgmentHardControlsReport {
-  const enforceAmplitude =
-    env.LAWMIND_SURGICAL_ENFORCE?.trim() === "1" ||
-    env.LAWMIND_SURGICAL_ENFORCE?.trim()?.toLowerCase() === "true";
+  void env;
   return {
     intakeSoftAsk: true,
-    updateDraftAmplitudeSoft: !enforceAmplitude,
+    // 改写幅度只教练，不按字数拒稿（铁律 5）。LAWMIND_SURGICAL_ENFORCE 不再把这里变成硬拦。
+    updateDraftAmplitudeSoft: true,
     emptyRedlineHard: true,
     sendEmailApprovalHard: true,
   };
@@ -381,7 +380,7 @@ export function buildWorkspaceStandardReport(workspaceDir: string): WorkspaceSta
     state: integrity.ok ? "ok" : "warn",
     hint: integrity.ok
       ? "已就绪"
-      : `${integrity.corruptSessionCount} 个会话的工具调用配对损坏（${integrity.orphanToolResultCount} 条孤立结果 / ${integrity.danglingToolCallCount} 个悬空调用）；下一轮会自动修复，也可运行 pnpm lawmind:doctor --fix。`,
+      : `${integrity.corruptSessionCount} 个会话的工具调用没有配对好。下一轮对话会自动补上。`,
   });
 
   const ok = checks.every((c) => c.state === "ok");
@@ -391,7 +390,7 @@ export function buildWorkspaceStandardReport(workspaceDir: string): WorkspaceSta
 export type P2DoctorReport = {
   toolSandbox: {
     enabled: boolean;
-    source: "env" | "policy" | "off";
+    source: "env" | "off";
     sandboxedToolNames: string[];
   };
   teamMemorySync: {

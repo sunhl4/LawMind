@@ -22,6 +22,7 @@ import { handleMatterRoutes } from "./lawmind-server-route-matters.js";
 import { handleMatterReplicaRoutes } from "./lawmind-server-route-matter-replica.js";
 import { handleMatterCloudRoutes } from "./lawmind-server-route-matter-cloud.js";
 import { handleAcceptanceRoutes } from "./lawmind-server-route-acceptance.js";
+import { handleAcceptanceSheetRoutes } from "./lawmind-server-route-acceptance-sheet.js";
 import { handleOnboardingRoutes } from "./lawmind-server-route-onboarding.js";
 import { handleLearningContractRoutes } from "./lawmind-server-route-learning-contract.js";
 import { handleContractReviewRoutes } from "./lawmind-server-route-contract-review.js";
@@ -48,6 +49,7 @@ import { handleTemplateRoutes } from "./lawmind-server-route-templates.js";
 import { handleMemoryAndTemplateRoutes } from "./lawmind-server-route-memory-templates.js";
 import { handleMemorySourceTextRoute } from "./lawmind-server-route-memory-preview.js";
 import { handleMemoryAdoptionRoutes } from "./lawmind-server-route-memory-adoption.js";
+import { handleMemoryLibraryRoutes } from "./lawmind-server-route-memory-library.js";
 import { handleWordAddinRoutes } from "./lawmind-server-route-word-addin.js";
 import { handleMetricsRoutes } from "./lawmind-server-route-metrics.js";
 import { handleHistoricalScanRoutes } from "./lawmind-server-route-historical-scan.js";
@@ -70,6 +72,7 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleHealthRoute(args),
   (args) => handleBootstrapRoute(args),
   (args) => handleTemplateRoutes(args),
+  (args) => handleAcceptanceSheetRoutes(args),
   (args) => handleAcceptanceRoutes(args),
   (args) => handleTriageRoutes(args),
   (args) => handleReviewCampaignRoutes(args),
@@ -117,6 +120,7 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleMemoryAndTemplateRoutes(args),
   (args) => handleMemorySourceTextRoute(args),
   (args) => handleMemoryAdoptionRoutes(args),
+  (args) => handleMemoryLibraryRoutes(args),
   (args) => handleWordAddinRoutes(args),
   (args) => handleMetricsRoutes(args),
   (args) => handleHistoricalScanRoutes(args),

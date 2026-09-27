@@ -42,7 +42,7 @@ export const LAWMIND_BUILTIN_MODELS: BuiltinModelDefinition[] = [
     baseUrl: DASHSCOPE,
     model: "qwen-plus",
     group: "通义千问",
-    contextTokens: 32_768,
+    contextTokens: 1_000_000,
   },
   {
     id: "builtin:qwen-turbo",
@@ -53,7 +53,7 @@ export const LAWMIND_BUILTIN_MODELS: BuiltinModelDefinition[] = [
     baseUrl: DASHSCOPE,
     model: "qwen-turbo",
     group: "通义千问",
-    contextTokens: 8_192,
+    contextTokens: 1_000_000,
   },
   {
     id: "builtin:qwen-max",
@@ -64,7 +64,7 @@ export const LAWMIND_BUILTIN_MODELS: BuiltinModelDefinition[] = [
     baseUrl: DASHSCOPE,
     model: "qwen-max",
     group: "通义千问",
-    contextTokens: 32_768,
+    contextTokens: 1_000_000,
   },
   {
     id: "builtin:qwen3.5-plus",
@@ -74,7 +74,7 @@ export const LAWMIND_BUILTIN_MODELS: BuiltinModelDefinition[] = [
     baseUrl: DASHSCOPE,
     model: "qwen3.5-plus",
     group: "通义千问",
-    contextTokens: 131_072,
+    contextTokens: 1_000_000,
   },
   // OpenAI
   {
@@ -117,7 +117,7 @@ export const LAWMIND_BUILTIN_MODELS: BuiltinModelDefinition[] = [
     baseUrl: DEEPSEEK,
     model: "deepseek-chat",
     group: "DeepSeek",
-    contextTokens: 64_000,
+    contextTokens: 131_072,
   },
   {
     id: "builtin:deepseek-reasoner",
@@ -127,7 +127,7 @@ export const LAWMIND_BUILTIN_MODELS: BuiltinModelDefinition[] = [
     baseUrl: DEEPSEEK,
     model: "deepseek-reasoner",
     group: "DeepSeek",
-    contextTokens: 64_000,
+    contextTokens: 131_072,
     tags: ["推理"],
   },
   // Moonshot

@@ -89,6 +89,8 @@ describe("LawmindFirstRunDialog 演示案件名", () => {
     };
 
     await clickByText("独立执业");
+    const skipMid = host.querySelector('[data-testid="lm-firstrun-skip-wizard"]');
+    expect(skipMid?.textContent).toContain("不记这些，直接开始");
     await clickByText("用推荐默认，跳过习惯");
     await clickByText("买卖合同审查");
     const box = host.querySelector('[data-testid="lm-firstrun-create-matter"]') as HTMLInputElement | null;
@@ -116,7 +118,7 @@ describe("LawmindFirstRunDialog 演示案件名", () => {
       );
     });
     const skip = host.querySelector('[data-testid="lm-firstrun-skip-wizard"]') as HTMLButtonElement;
-    expect(skip?.textContent).toContain("跳过向导，直接开始");
+    expect(skip?.textContent).toContain("直接开始");
     await act(async () => {
       skip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
@@ -125,7 +127,7 @@ describe("LawmindFirstRunDialog 演示案件名", () => {
     expect(onSeedReady).toHaveBeenCalledWith(
       expect.objectContaining({
         matterId: "演示案件",
-        seedPrompt: expect.stringContaining("拖进来"),
+        seedPrompt: "",
       }),
     );
   });

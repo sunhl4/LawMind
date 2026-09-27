@@ -370,7 +370,13 @@ export const reviewTableUpdate: AgentTool = {
     }
     const draft = readDraft(ctx.workspaceDir, taskId);
     if (!draft) {
-      return { ok: false, error: `找不到草稿 ${taskId}。请先 draft_document 建审查表草稿。` };
+      return {
+        ok: false,
+        error: `找不到草稿 ${taskId}。请先 draft_document 建审查表草稿。`,
+        data: {
+          lawyerMessage: "找不到这份审查表草稿。请先让助手起草审查表，再回来填写。",
+        },
+      };
     }
     const action =
       typeof params.action === "string" ? (params.action.trim() as ReviewTableAction) : "";
@@ -520,7 +526,8 @@ export const reviewTableUpdate: AgentTool = {
       const applied = applyReviewState(table, {
         rowIds,
         review,
-        overwriteLocked: true,
+        // 解锁本身就是要改锁定行；其余动作默认跳过已锁定行。
+        overwriteLocked: raw === "unlocked",
       });
       table = applied.table;
       const reviewLabel = raw === "reviewed" ? "已看" : raw === "locked" ? "锁定" : "解除锁定";

@@ -5,7 +5,7 @@ type Props = {
 };
 
 export function LawmindMsgCompactNotice({
-  label = "较早对话已压缩，仅保留案件摘要与最近轮次。",
+  label = "较早的来回已收成要点，最近的对话还在。",
 }: Props): ReactNode {
   return (
     <div className="lm-msg-compact-notice" role="status" data-testid="lm-msg-compact-notice">

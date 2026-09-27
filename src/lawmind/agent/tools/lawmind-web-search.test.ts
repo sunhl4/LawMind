@@ -10,7 +10,19 @@ import {
   resolvePublicWebSearchBackend,
 } from "./lawmind-web-search.js";
 
+/**
+ * Brave 端点是模块常量（https://api.search.brave.com），无法指向回环；
+ * 出口代理又绕过 global fetch（DNS  pinning）。因此在代理模块这一传输缝上
+ * 注入脚本化 fetch——模块自身的 URL 构造、headers、响应解析保持真实。
+ */
+const { proxyFetchMock } = vi.hoisted(() => ({ proxyFetchMock: vi.fn() }));
+vi.mock("../../platform/outbound-proxy.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../platform/outbound-proxy.js")>();
+  return { ...actual, createOutboundProxy: () => ({ fetch: proxyFetchMock }) };
+});
+
 afterEach(() => {
+  proxyFetchMock.mockReset();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
@@ -48,21 +60,18 @@ describe("lawmind-web-search", () => {
 
   it("lawMindBraveWebSearch parses brave response", async () => {
     vi.stubEnv("LAWMIND_WEB_SEARCH_API_KEY", "test-key");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({
-          web: {
-            results: [{ title: "T", url: "https://example.com", description: "D" }],
-          },
-        }),
-      })) as unknown as typeof fetch,
+    proxyFetchMock.mockResolvedValue(
+      Response.json({
+        web: {
+          results: [{ title: "T", url: "https://example.com", description: "D" }],
+        },
+      }),
     );
 
     const rows = await lawMindBraveWebSearch("q", 3);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.title).toBe("T");
+    expect(proxyFetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

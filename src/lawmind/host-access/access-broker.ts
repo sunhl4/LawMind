@@ -197,13 +197,13 @@ export function resolveHostPath(
       return {
         ok: false,
         error: "cross_matter_denied",
-        message: "该本机文件夹已绑定其他案件。未打开「允许对照旧案材料」时不能读取正文。",
+        message: "该本机文件夹已绑定其他案件，当前会话不能读取正文。",
       };
     }
     return {
       ok: false,
       error: "mode_denied",
-      message: "当前本机能力为「仅本案」，请先在设置里改成已选文件夹。",
+      message: "当前本机范围看不到该文件夹。请在工作区添加本机文件夹。",
     };
   }
 
@@ -252,10 +252,19 @@ export function resolveHostPath(
     runtime.policy.mode === "locate" ||
     runtime.policy.mode === "command"
   ) {
+    if (!hostPathExists(real)) {
+      return {
+        ok: false,
+        error: "not_found",
+        message: `找不到「${path.basename(real)}」。`,
+      };
+    }
     return {
-      ok: false,
-      error: "needs_grant",
-      message: `尚未允许读取「${path.basename(real)}」（位于 ${path.basename(path.dirname(real))}）。请律师选择允许一次、本会话允许或始终允许。`,
+      ok: true,
+      abs: real,
+      rel: path.basename(real),
+      rootKind: "grant",
+      writable: false,
     };
   }
 

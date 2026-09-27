@@ -2,29 +2,53 @@
 
 这一章给要改这个仓库的人看：测试怎么分层、加东西要动哪些地方、有哪些机器守着的规矩。
 
+五条铁律在这里的取舍（改代码时用这张表否决）：
+
+| 铁律           | 加功能时不许做的事                                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 上手简单       | 不把端口、命令、环境变量名放进律师可见句。不在主路径加「要不要继续」。                                                         |
+| 交付质量       | mock 分数、覆盖率、文件行数不是交件质量。质量证据走 scripted / 真稿。                                                          |
+| 稳定           | 改编排器加 cassette，断言下一次请求体。用尽必须 400。不靠「提示词里还有这句话」当回归。                                        |
+| 先复用，后自研 | 新能力先对现有 Skill、MCP、工具。对不上再补，并在消化记录里写差距。                                                            |
+| 发挥模型能力   | 不为「走对流程」冻结工具表。规格里的关键词不得变成「标题没有这几个字就导出失败」。硬拦只留安全、空交付、明确授权、不可逆操作。 |
+
+对照 Cursor、Codex 和 Harvey 的工程门禁，这一章落成下面这条，而不是再叠一套仪表盘：
+
+- **内环要快，外环要和 CI 同一句话。** 日常改动跑相关目录的 Vitest。`pnpm lawmind:verify` 与 PR 的 `verify` 作业是同一条链，测试只跑一遍（带覆盖率）。Cursor 也不会在同一次检查里把全量测试跑两遍。
+- **冒烟分数不是质量证据。** Codex 的 cassette 断言下一次请求体，脚本用尽必须 400。Harvey 不用构造夹具上的满分代替律师任务质量。mock benchmark 仍可本地看管道；把它的 JSON 交给发布就绪会失败。质量证据是 `pnpm lawmind:verify:release`（scripted）。
+- **没做成 git 钩子的一条：** 改编排器必须加 cassette，仍写在 `AGENTS.md`。用尽返回 400 由 `cassette-model-server` 保证。不按「diff 里有没有改 cassette 文件」拦提交——改一句注释也会红，挡不住真正漏测的分支。
+
 ## 18.1 环境与命令
 
 Node 22+（`.nvmrc` 是 `22`），pnpm 10.23.0（`package.json` 的 `packageManager`）。
 
-| 命令                                      | 干什么                             |
-| ----------------------------------------- | ---------------------------------- |
-| `pnpm test`                               | Vitest：`src/lawmind` 与桌面端单测 |
-| `pnpm test:watch`                         | 监视模式                           |
-| `pnpm test:coverage`                      | 带覆盖率                           |
-| `pnpm typecheck`                          | 引擎类型检查                       |
-| `pnpm --filter lawmind-desktop typecheck` | 桌面端类型检查                     |
-| `pnpm typecheck:desktop-node`             | 桌面 Node 侧类型检查               |
-| `pnpm lawmind:bundle:desktop-server`      | 打包本地服务为 CJS                 |
-| `pnpm lawmind:verify`                     | 全量门禁（见下）                   |
+| 命令                                      | 干什么                                             |
+| ----------------------------------------- | -------------------------------------------------- |
+| `pnpm test`                               | Vitest：`src/lawmind` 与桌面端单测。日常改动用这个 |
+| `pnpm test:watch`                         | 监视模式                                           |
+| `pnpm test:coverage`                      | 同一套测试，只跑一遍，并写出覆盖率                 |
+| `pnpm test:coverage:ratchet`              | 覆盖率不得低于已提交的地板                         |
+| `pnpm typecheck`                          | 引擎类型检查                                       |
+| `pnpm --filter lawmind-desktop typecheck` | 桌面端类型检查                                     |
+| `pnpm typecheck:desktop-node`             | 桌面 Node 侧类型检查                               |
+| `pnpm lawmind:bundle:desktop-server`      | 打包本地服务为 CJS                                 |
+| `pnpm lawmind:verify`                     | 与 PR CI 的 `verify` 作业同一条链（见下）          |
+| `pnpm lawmind:verify:release`             | scripted benchmark（`--strict`）+ 严格发布就绪     |
 
 `pnpm lawmind:verify` 串的是：
 
 ```text
-test → typecheck → benchmark → release-readiness → bundle:desktop-server
-→ 桌面端 typecheck → desktop http-smoke
+test:coverage → coverage ratchet → skills golden
+→ typecheck → bundle:desktop-server → 桌面端 typecheck → desktop-node typecheck
+→ renderer CSS → renderer node → UI 文案 lint → 平台契约
+→ desktop http-smoke → release-readiness
 ```
 
-这是提交前想要一条命令过全部门禁时用的。它比较慢，适合 CI 或发版前，不适合每次改动都跑。
+PR 上的 `.github/workflows/lawmind-ci.yml` 的 `verify` 作业跑同一条链（覆盖率报告和发布就绪报告会另存成产物）。文件大小棘轮是旁边的 `file-size-check` 作业，命令是 `pnpm lawmind:check:file-size`，不塞进这条链。它比较慢，适合发版前或要和 CI 对齐时用，不适合每次改动都跑。日常改完跑相关目录的 `pnpm exec vitest run`。
+
+这条链**不跑**默认的 mock benchmark。mock 只证明管道还能动，分数不能当质量证据。要质量证据用 `pnpm lawmind:verify:release`（scripted，阈值不过就非零退出）。真模型仍要显式 `--mode real` 加 `LAWMIND_BENCHMARK_STRICT=1` 或 `--with-real-model`。
+
+`release-readiness` 读到一份已经写好、但 `modelMode` 不是 scripted/real 的 `dist/lawmind-benchmark.json` 时**直接失败**。JSON 解析失败、文件打不开、或没有结果行，同样失败，不当成「没提供」。缺文件（ENOENT）仍是「未提供」，报告里记已知风险，退出码 0；加上 `--strict` 或 `LAWMIND_BENCHMARK_STRICT=1` 才要求文件必须在且过阈值。失败原因打到 stderr（`benchmark gate failed`），不只写在报告里。判定在 `classifyReleaseBenchmarkFile` 与 `releaseReadinessBenchmarkExit`（`src/lawmind/evaluation/benchmark.ts`）。
 
 ## 18.2 测试怎么分层
 
@@ -113,7 +137,7 @@ cassette 的做法（借自 Codex 的 `test_codex`）：
 
 第一层的召回率是「构造性地等于 1」——因为规则和夹具是一起写的，规则必然命中它自己种的标记。这就是为什么文档明说它不是引擎证据。
 
-对应 benchmark 的三种模式：`mock`（不能当门禁证据）、`scripted`（可以）、`real`（要显式开关）。
+对应 benchmark 的三种模式：`mock`（不能当门禁证据；`--strict` 时也不准用它过关）、`scripted`（可以，`lawmind:verify:release` 走这条）、`real`（要显式开关）。默认 `pnpm lawmind:benchmark` 仍是 mock，方便本地看管道；把它的 JSON 交给发布就绪，现在会失败，而不是悄悄丢弃后再报绿。
 
 ## 18.5 加东西要动哪些地方
 
@@ -131,7 +155,7 @@ cassette 的做法（借自 Codex 的 `test_codex`）：
    - 需要绑案件 → 加进 `MATTER_SCOPE_REQUIRED`。
 4. **披露清单**：如果它不该开局就广告给模型，在 `governance.ts` 的 `DISCLOSED_TOOL_HINTS` 里加一条（名字 + 中文说明），这样 `list_more_tools` 能启用它。
 5. **保留名**：如果它是核心工具、外部不许顶替，加进 `tools/reserved-tool-names.ts`。
-6. **沙箱**：如果它会跑重活或写文件，考虑加进 `dangerous-tool-policy.ts` 的 `SUBPROCESS_SANDBOX_TOOL_NAMES`。
+6. **沙箱**：只有会执行脚本或本机命令的工具才考虑加进 `dangerous-tool-policy.ts` 的 `SUBPROCESS_SANDBOX_TOOL_NAMES`。本地记一笔档案不要放进去。
 7. **测试**：同目录放 `<名字>.test.ts`。
 8. **cassette**：如果它参与编排行为（被广告、被门禁拦），加一条 cassette 断言。
 
@@ -158,7 +182,7 @@ cassette 的做法（借自 Codex 的 `test_codex`）：
 
 ### 加一个交付物规格
 
-1. 在 `deliverables/lawyer-work-specs.ts` 或 `registry.ts` 里加 spec（必要章节、关键词、占位符规则、默认输出、风险、模板 id）。
+1. 在 `deliverables/lawyer-work-specs.ts` 或 `registry.ts` 里加 spec（必要章节、占位符、默认输出、风险、模板 id）。章节写的是「这份稿缺了哪一块算没交」，不是「标题里必须出现某几个词」。关键词命中不得单独做成导出失败。
 2. 加进 `BUILT_IN_DELIVERABLE_SPECS`（顺序被 `registry.test.ts` 锁着，加在合适位置）。
 3. 如果它需要推理门，配 `reasoningGate` 并考虑在 `item-judgments.ts` 的判定表里给对应项。
 4. 考虑必核清单（`verification-checklist.ts`）要不要加一档。
@@ -166,9 +190,10 @@ cassette 的做法（借自 Codex 的 `test_codex`）：
 
 ### 加一个版本功能开关
 
-1. 在 `policy/edition.ts` 的 `EDITION_FEATURES` 加一行（三档都要给值）。
-2. 消费侧用 `isFeatureEnabled(key, { policy })`。
-3. 如果它影响界面显隐，渲染层也要读一次。
+1. 在 `policy/edition-features.ts` 的 `EDITION_FEATURES` 加一行（三档都要给值；Solo 能开的优先开）。
+2. 引擎 / 本地 API 用 `isFeatureEnabled(key, { policy })`（或专用解析器）**强制**门禁，不只灰按钮。
+3. 渲染层通过 `GET /api/policy/edition` + `use-edition` 读同一份表（不要再手抄默认值）。
+4. 需要现场覆盖时，用 `policy.features.<key>` 或已有专用键（`wordAddinAutoRun` 等）。
 
 ## 18.6 那些机器守着的规矩
 
@@ -207,7 +232,7 @@ cassette 的做法（借自 Codex 的 `test_codex`）：
 
 ### 覆盖率棘轮
 
-`scripts/pre-commit/check-coverage-ratchet.mjs`，机制和文件大小类似：覆盖率不能降，降低必须在 diff 里显式。
+`scripts/pre-commit/check-coverage-ratchet.mjs`（`pnpm test:coverage:ratchet`）。全局四项低于地板减去 `tolerancePct`（现为 1.5），或高于地板加上 `maxHeadroomPct`（现为 3），都会失败；报告比源文件旧也失败。`--update` 用当前测量重写地板。钩子不跑它，它在 `pnpm lawmind:verify` 里。用法见第 35.6 节。
 
 ### 渲染层不许值导入 node 模块
 
@@ -227,7 +252,7 @@ cassette 的做法（借自 Codex 的 `test_codex`）：
 
 `pnpm lawmind:ui-copy-lint`（`scripts/lawmind/lawmind-ui-copy-lint.mjs`）。
 
-它机械拦截「工程师语言回潮」——路径、英文枚举、门禁术语不许出现在律师可见面。禁词清单的口径来源是 `docs/LAWMIND-TERMINOLOGY.md`，脚本分两档：`BANNED_PATTERNS` 硬拦 **24** 条模式（6 条路径类 + 18 条术语类，含 10 条「存量已归零」的近义词）；`SYNONYM_PATTERNS` 是近义词棘轮档，存量冻结在 `ui-copy-lint-synonym-baseline.json`，只许下降。
+它机械拦截「工程师语言回潮」——路径、门禁术语不许出现在律师可见面。禁词清单的口径来源是 `docs/LAWMIND-TERMINOLOGY.md`，脚本分两档：`BANNED_PATTERNS` 硬拦 **26** 条模式（6 条路径类 + 20 条术语类，含 12 条「存量已归零」的近义词，其中「文书台」「复核」已归零）；`SYNONYM_PATTERNS` 是近义词棘轮档，存量冻结在 `ui-copy-lint-synonym-baseline.json`，只许下降。英文枚举仍写在代码标识符里，脚本按整行扫描，尚未单独拦。
 
 存量合法用例登记在 `scripts/lawmind/ui-copy-lint-allowlist.json`，要写理由。
 
@@ -243,7 +268,7 @@ cassette 的做法（借自 Codex 的 `test_codex`）：
 
 `scripts/lawmind/lawmind-platform-contracts-check.ts` 断言 `src/lawmind/platform/contracts.ts` 和对应文档里必须有那些必需的符号和字段。防的是「契约漂了但没人发现」。
 
-**它没有独立的 `pnpm` 入口**——在 `package.json` 里搜不到 `lawmind:platform-contracts-check`。它是 `pnpm lawmind:multitask:validate` 里的一步（`scripts/lawmind/lawmind-multitask-validate.ts:166-171`，标记 `required: true`）。要单独跑就得直接 `node --import tsx scripts/lawmind/lawmind-platform-contracts-check.ts`。
+单独跑：`pnpm lawmind:check:platform-contracts`。它也在 `pnpm lawmind:verify` 和 PR CI 里。`pnpm lawmind:multitask:validate` 仍会再跑一遍（`scripts/lawmind/lawmind-multitask-validate.ts`，`required: true`），两处看的是同一份脚本。
 
 ### 文档 lint
 
@@ -362,6 +387,8 @@ git worktree add --detach <路径> HEAD
 - **改编排器一定要加 cassette。** 而且 cassette 用完必须失败（400），不许编收尾消息。
 - **影子回放不是编排器改动的入场券。** 它管交付物与 lint 召回。
 - **`fixture-static` 的召回率恒为 1。** 它只能做 lint 规则回归，不是引擎证据。
+- **mock benchmark 的满分不是发布证据。** 文件在但模式不合格、JSON 坏了、或没有结果行，`release-readiness` 失败，原因打到 stderr。只有文件根本不存在才算出「未提供」；`--strict` 时缺文件也失败。
+- **`pnpm lawmind:verify` 与 PR CI 对齐，并且测试只跑一遍（带覆盖率）。** 不要再在 CI 里先 `pnpm test` 再 `pnpm test:coverage`。
 - **渲染层不许值导入 node 模块。** 会白屏，有门禁守着。
 - **手写 `writeHead` 必须带 CORS 头。** 有结构测试守着。
 - **文件大小和覆盖率都是棘轮。** 涨了必须在 diff 里显式处理（拆或抬上限）。

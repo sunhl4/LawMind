@@ -7,6 +7,7 @@ import {
   groupModelCatalog,
   modelPickerDisplayName,
   modelPickerGroupTitle,
+  modelsOfferedInChatPicker,
   nextSelectableIndex,
   providerIconKey,
   resolveComposeModelSelectValue,
@@ -36,6 +37,19 @@ describe("groupModelCatalog", () => {
     ];
     const groups = groupModelCatalog(catalog).map(([g]) => g);
     expect(groups).toEqual(["平台模型", "当前配置", "通义千问", "自定义模型"]);
+  });
+});
+
+describe("modelsOfferedInChatPicker", () => {
+  it("lists only custom models the user configured", () => {
+    const catalog: ModelCatalogEntry[] = [
+      row({ id: "builtin:deepseek-flash", group: "DeepSeek", provider: "deepseek", model: "deepseek-flash", configured: true }),
+      row({ id: "builtin:deepseek-chat", group: "DeepSeek", provider: "deepseek", model: "deepseek-chat", configured: true }),
+      row({ id: "builtin:qwen-plus", group: "通义千问", provider: "dashscope", model: "qwen-plus", configured: false }),
+      row({ id: "custom:1", kind: "custom", group: "自定义模型", provider: "custom", model: "deepseek-flash", configured: true }),
+      row({ id: "custom:2", kind: "custom", group: "自定义模型", provider: "custom", model: "draft", configured: false }),
+    ];
+    expect(modelsOfferedInChatPicker(catalog).map((m) => m.id)).toEqual(["custom:1"]);
   });
 });
 

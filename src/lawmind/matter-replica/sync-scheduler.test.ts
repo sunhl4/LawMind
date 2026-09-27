@@ -91,12 +91,16 @@ async function waitFor(cond: () => boolean, timeoutMs = 5000): Promise<boolean> 
 }
 
 describe("自动同步调度器", () => {
-  it("门控关闭时（Solo）不启动、不碰任何案件", () => {
+  it("显式关掉成员协作时不启动、不碰任何案件", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "lm-auto-solo-"));
     tmpDirs.push(root);
     fs.writeFileSync(
       path.join(root, "lawmind.policy.json"),
-      JSON.stringify({ schemaVersion: 1, edition: "solo" }),
+      JSON.stringify({
+        schemaVersion: 1,
+        edition: "solo",
+        matterReplica: { enabled: false },
+      }),
       "utf8",
     );
     ensureMembershipWithOwner(root, {

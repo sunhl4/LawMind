@@ -10,10 +10,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { loadMatter } from "../adapters/matter-storage/index.js";
 import {
   acceptInviteByToken,
   createInvite,
+  ensureMatterVisible,
   ensureMembershipWithOwner,
+  ingestInviteFromSharedRelay,
   listActiveMembers,
   listRecordOps,
   publishLocalMaterials,
@@ -92,6 +95,48 @@ function relayManifest(relay: string): { files: { relPath: string }[] } {
 }
 
 describe("跨机器接受邀请", () => {
+  it("B 本机还没有这桩案子时，从共享文件夹拉到邀请后能加入并在列表里看见", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lm-invite-fresh-"));
+    tmpDirs.push(root);
+    const relay = path.join(root, "relay");
+    fs.mkdirSync(relay, { recursive: true });
+    const policy = JSON.stringify({
+      schemaVersion: 1,
+      edition: "solo",
+      matterReplica: { enabled: true, sharedRelayDir: relay },
+    });
+    const a = path.join(root, "machineA");
+    const b = path.join(root, "machineB");
+    fs.mkdirSync(a, { recursive: true });
+    fs.mkdirSync(b, { recursive: true });
+    fs.writeFileSync(path.join(a, "lawmind.policy.json"), policy, "utf8");
+    fs.writeFileSync(path.join(b, "lawmind.policy.json"), policy, "utf8");
+    upsertLawyerIdentity(a, {
+      displayName: "张三",
+      email: "zhang@firm.com",
+      lawyerId: "lawyer_zhang",
+    });
+    upsertLawyerIdentity(b, {
+      displayName: "李四",
+      email: "li@firm.com",
+      lawyerId: "lawyer_li",
+    });
+    const invite = createInvite(a, {
+      matterId: MID,
+      matterTitle: "王某买卖合同纠纷",
+      email: "li@firm.com",
+      role: "associate",
+    });
+    await syncMatterRecordPipe(a, MID);
+
+    expect(loadMatter(b, MID)).toBeUndefined();
+    expect(await ingestInviteFromSharedRelay(b, invite.token)).toBe(true);
+    const { membership } = acceptInviteByToken(b, invite.token);
+    expect(membership).not.toBeNull();
+    ensureMatterVisible(b, MID, invite.matterTitle);
+    expect(loadMatter(b, MID)?.title).toBe("王某买卖合同纠纷");
+  });
+
   it("B 只凭中继上的 op 就能用邀请码加入（无需本机 invites.jsonl / inbox）", async () => {
     const p = makePair();
     const invite = createInvite(p.a, {

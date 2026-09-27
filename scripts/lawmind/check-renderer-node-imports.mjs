@@ -64,7 +64,14 @@ function walk(file) {
     return;
   }
   const text = fs.readFileSync(norm, "utf8");
-  if (norm.startsWith(engineRoot) && NODE_BUILTIN_RE.test(text)) {
+  // 两类都是白屏来源，必须都拦：
+  //   ① 引擎模块里出现 `node:` ——经由 import 传递进界面包；
+  //   ② 界面文件**自己**直接 import `node:`。
+  // 此前只判 ①（`norm.startsWith(engineRoot)`），于是界面里写一句
+  // `import { readFileSync } from "node:fs"` 能过门禁——正是本门禁要防的白屏。
+  const isRendererOwn = norm.startsWith(rendererRoot);
+  const isEngine = norm.startsWith(engineRoot);
+  if ((isEngine || isRendererOwn) && NODE_BUILTIN_RE.test(text)) {
     offenders.push(path.relative(repoRoot, norm));
   }
   const specs = [];

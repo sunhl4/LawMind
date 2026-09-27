@@ -191,10 +191,11 @@ export function buildMatterHealthMetrics(input: MatterHealthMetricsInput): Matte
           triggeredRuleIds.add(id.trim());
         }
       }
-      const failCount = typeof ev.meta?.failCount === "number" ? ev.meta.failCount : 0;
       const blockerCount = typeof ev.meta?.blockerCount === "number" ? ev.meta.blockerCount : 0;
       const warningCount = typeof ev.meta?.warningCount === "number" ? ev.meta.warningCount : 0;
-      lintFindingCount += failCount + blockerCount + warningCount;
+      // failCount 已是 blocker+warning。两套一起加会把同一批发现数两遍。
+      const failCount = ev.meta?.failCount;
+      lintFindingCount += typeof failCount === "number" ? failCount : blockerCount + warningCount;
     }
 
     if (ev.kind === "lawyer_edit") {

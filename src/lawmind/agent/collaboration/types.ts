@@ -45,6 +45,8 @@ export type DelegationStatus =
   | "failed"
   | "timeout"
   | "cancelled"
+  /** 子回合停在澄清或批准，等律师处理。不是失败，也还没办完。 */
+  | "awaiting_lawyer"
   /** 已判超时后底层任务仍跑完并交回结果（保留结果，但不翻转「超时」事实）。 */
   | "completed_after_timeout";
 

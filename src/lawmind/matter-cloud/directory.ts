@@ -169,6 +169,72 @@ export class MatterCloudDirectory {
     this.writeJson(this.accountsPath(), { version: 1, accounts });
   }
 
+  /** 没有租户时建一个默认租户，供桌面端自行注册。已有多个租户时不猜。 */
+  ensureSoloTenant(): CloudTenant {
+    const tenants = this.listTenants();
+    if (tenants.length === 1) {
+      return tenants[0];
+    }
+    if (tenants.length > 1) {
+      throw new Error("这台案件云有多个租户，请由管理员发放账号");
+    }
+    return this.createTenant({ name: "LawMind" });
+  }
+
+  /** 律师第一次连接案件云：建成员账号，令牌只返回这一次。 */
+  enroll(input: { displayName: string; email?: string; lawyerId: string }): {
+    token: string;
+    account: CloudAccount;
+  } {
+    const tenant = this.ensureSoloTenant();
+    const created = this.createAccount({
+      tenantId: tenant.tenantId,
+      lawyerId: input.lawyerId,
+      displayName: input.displayName,
+      email: input.email,
+      role: "member",
+    });
+    return created;
+  }
+
+  /** 凭邀请码加入：尚未有账号的同事用邀请码换到自己的令牌。 */
+  joinByInvite(input: { token: string; displayName: string; email?: string; lawyerId: string }): {
+    token: string;
+    membership: CloudMembership;
+    invite: CloudInvite;
+  } {
+    const normalized = input.token.trim().toUpperCase();
+    if (!normalized) {
+      throw new Error("请粘贴邀请码");
+    }
+    for (const tenant of this.listTenants()) {
+      const invite = this.readInvites(tenant.tenantId).find(
+        (item) => item.token.toUpperCase() === normalized && item.status === "pending",
+      );
+      if (!invite) {
+        continue;
+      }
+      const { token } = this.createAccount({
+        tenantId: tenant.tenantId,
+        lawyerId: input.lawyerId,
+        displayName: input.displayName,
+        email: input.email ?? invite.email,
+        role: "member",
+      });
+      const redeemed = this.redeemInvite({
+        tenantId: tenant.tenantId,
+        token: normalized,
+        account: {
+          lawyerId: input.lawyerId,
+          displayName: input.displayName.trim(),
+          email: input.email ?? invite.email,
+        },
+      });
+      return { token, membership: redeemed.membership, invite: redeemed.invite };
+    }
+    throw new Error("邀请码无效或已过期");
+  }
+
   /** 创建账号并返回**一次**明文令牌（之后无法再取回）。 */
   createAccount(input: {
     tenantId: string;

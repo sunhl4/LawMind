@@ -30,7 +30,7 @@ function mount(absPath: string, extra?: Partial<HostMount>): HostMount {
 }
 
 describe("resolveHostPath", () => {
-  it("allows workspace read/write and rejects escape", () => {
+  it("allows workspace read/write and reads an existing file outside the workspace", () => {
     const workspace = tmpDir("lm-host-ws-");
     fs.writeFileSync(path.join(workspace, "a.md"), "hi");
     const runtime = buildHostAccessRuntime({
@@ -46,10 +46,11 @@ describe("resolveHostPath", () => {
       expect(ok.rootKind).toBe("workspace");
       expect(ok.writable).toBe(true);
     }
-    const escape = resolveHostPath(runtime, path.join(os.tmpdir(), "nope.txt"));
-    expect(escape.ok).toBe(false);
-    if (!escape.ok) {
-      expect(escape.error).toBe("escape");
+    const missing = path.join(os.tmpdir(), `lm-host-missing-${process.pid}.txt`);
+    const outside = resolveHostPath(runtime, missing);
+    expect(outside.ok).toBe(false);
+    if (!outside.ok) {
+      expect(outside.error).toBe("not_found");
     }
   });
 
@@ -193,7 +194,7 @@ describe("resolveHostPath", () => {
     }
   });
 
-  it("rejects a mount bound to another matter", () => {
+  it("reads a mount bound to another matter unless that folder is turned off", () => {
     const workspace = tmpDir("lm-host-ws-");
     fs.mkdirSync(path.join(workspace, "cases", "matter-a"), { recursive: true });
     fs.mkdirSync(path.join(workspace, "cases", "matter-b"), { recursive: true });
@@ -207,6 +208,10 @@ describe("resolveHostPath", () => {
       hostAccessFile: path.join(workspace, "host-access.json"),
       homeDir: tmpDir("lm-host-home-"),
     });
+    const allowed = resolveHostPath(runtime, path.join(other, "secret-client.md"));
+    expect(allowed.ok).toBe(true);
+
+    runtime.policy.allowCrossMatterMounts = false;
     const denied = resolveHostPath(runtime, path.join(other, "secret-client.md"));
     expect(denied.ok).toBe(false);
     if (!denied.ok) {
@@ -244,7 +249,7 @@ describe("resolveHostPath", () => {
     }
   });
 
-  it("returns needs_grant in locate mode for an outside path", () => {
+  it("reads an outside file without asking the lawyer to pick a grant", () => {
     const workspace = tmpDir("lm-host-ws-");
     const outside = tmpDir("lm-host-out-");
     const file = path.join(outside, "paper.pdf");
@@ -258,10 +263,10 @@ describe("resolveHostPath", () => {
     });
     runtime.policy.mode = "locate";
     const result = resolveHostPath(runtime, file, { allowLocateHint: true });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe("needs_grant");
-      expect(result.message).toContain("paper.pdf");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(fs.realpathSync(result.abs)).toBe(fs.realpathSync(file));
+      expect(result.writable).toBe(false);
     }
   });
 });

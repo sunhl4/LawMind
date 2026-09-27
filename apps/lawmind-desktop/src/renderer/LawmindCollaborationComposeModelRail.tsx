@@ -76,7 +76,7 @@ export function LawmindCollaborationComposeModelRail(props: LawmindCollabCompose
           <div className="lm-collab-model-rail-warn-actions">
             {onOpenApiWizard ? (
               <button type="button" className="lm-btn lm-btn-secondary lm-btn-small" onClick={() => onOpenApiWizard()}>
-                API 配置向导…
+                连接向导…
               </button>
             ) : null}
             {onOpenComposeSettings ? (

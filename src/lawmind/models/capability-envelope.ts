@@ -3,6 +3,7 @@
  * budgets from the selected model's context window instead of fixed hard caps.
  */
 
+import { clampPromptWindowScale } from "../memory/prompt-windows.js";
 import { parseToolTimeoutMsEnv } from "../runtime/tool-timeout-env.js";
 
 export type CapabilityTaskKind = "chat" | "draft" | "review" | "classify" | "plan";
@@ -14,7 +15,7 @@ export type ModelCapabilityEnvelope = {
   toolCallsPerTurn: number;
   toolTimeoutMs: number;
   modelTimeoutMs: number;
-  /** Multiplier for CASE / memory prompt windows (0.5–2.5). */
+  /** Multiplier for CASE / memory prompt windows (0.5–8). */
   promptWindowScale: number;
   /** Soft history message keep target before compact-by-count. */
   maxHistoryMessages: number;
@@ -60,8 +61,14 @@ function toolCallsForContext(contextTokens: number): number {
 }
 
 function historyForContext(contextTokens: number): number {
+  if (contextTokens >= 1_000_000) {
+    return 400;
+  }
+  if (contextTokens >= 500_000) {
+    return 240;
+  }
   if (contextTokens >= 200_000) {
-    return 120;
+    return 160;
   }
   if (contextTokens >= 100_000) {
     return 100;
@@ -98,7 +105,7 @@ export function resolveCapabilityEnvelope(opts: {
     typeof opts.charsPerToken === "number" && opts.charsPerToken > 0
       ? opts.charsPerToken
       : (parsePositiveIntEnv("LAWMIND_CHARS_PER_TOKEN") ?? 4);
-  const promptWindowScale = Math.min(2.5, Math.max(0.5, contextTokens / 128_000));
+  const promptWindowScale = clampPromptWindowScale(contextTokens / 128_000);
 
   return {
     contextTokens,

@@ -397,8 +397,7 @@ export function renderCampaignReportMarkdown(campaign: ReviewCampaign): string {
           `- 审查口径：立场 ${campaign.reviewBrief.stance ?? "—"} · 重点 ${campaign.reviewBrief.focus ?? "—"} · 深度 ${campaign.reviewBrief.depth ?? "—"}`,
         ]
       : []),
-    `- Safety Score：${score?.score ?? "—"} / 100`,
-    `- 风险计数：高 ${score?.high ?? 0} · 中 ${score?.medium ?? 0} · 低 ${score?.low ?? 0}`,
+    `- 下面是关键词信号，不是法律结论。要下判断，让模型读合同。`,
     ``,
     `## 角色结论`,
     ``,
@@ -406,7 +405,7 @@ export function renderCampaignReportMarkdown(campaign: ReviewCampaign): string {
   for (const r of campaign.roles) {
     const who = r.boundAssistantName ? r.boundAssistantName : "未绑定助手（抽象角色）";
     lines.push(`### ${r.label}（${r.roleId}）· ${who}`);
-    lines.push(`- 状态：${r.status}${typeof r.score === "number" ? ` · 分 ${r.score}` : ""}`);
+    lines.push(`- 状态：${r.status}`);
     if (r.boundAssistantId) {
       lines.push(
         `- 助手：\`${r.boundAssistantId}\`${r.workspaceRoleId ? ` · Role ${r.workspaceRoleId}` : ""}`,
@@ -421,7 +420,7 @@ export function renderCampaignReportMarkdown(campaign: ReviewCampaign): string {
     lines.push("");
   }
   if (score?.negotiatePriority?.length) {
-    lines.push(`## 谈判优先级`);
+    lines.push(`## 关键词信号`);
     lines.push("");
     for (const n of score.negotiatePriority.slice(0, 12)) {
       lines.push(`${n.priority}. [${n.severity}] ${n.title}（${n.roleId}）`);

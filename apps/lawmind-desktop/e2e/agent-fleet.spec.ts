@@ -7,51 +7,30 @@ test.describe("在办工作台", () => {
     await page.request.post(`${e2eMockApiBase()}/__e2e__/reset`);
   });
 
-  test("opens rebuilt workbench", async ({ page }) => {
+  test("opens the docket with the item that needs the lawyer", async ({ page }) => {
     await gotoShell(page);
     await expect(page.getByLabel("功能模块")).toBeVisible({ timeout: 60_000 });
     await page.getByTestId("lm-tab-agents").click();
     await expect(page.getByTestId("lm-agent-fleet-panel")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole("heading", { name: "在办", exact: true })).toBeVisible();
+    await expect(page.getByTestId("lm-fleet-band-needsYou")).toBeVisible();
+    await expect(page.getByTestId("lm-fleet-band-needsYou")).toContainText("停在你这里");
+    await expect(page.getByTestId("lm-fleet-brief")).toContainText("发出前要你看过");
+    await expect(page.getByTestId("lm-ceremony-primary")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("lm-ceremony-primary")).toContainText(/批准发送/);
     await expect(page.getByTestId("lm-fleet-pick-hint")).toHaveCount(0);
   });
 
-  test("outbound send shows approve-send action", async ({ page }) => {
-    await gotoShell(page);
-    await page.getByTestId("lm-tab-agents").click();
-    await expect(page.getByTestId("lm-agent-fleet-panel")).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId("lm-fleet-team-default").click();
-    await expect(page.getByTestId("lm-ceremony-primary")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("lm-ceremony-primary")).toContainText(/批准发送/);
-  });
-
-  test("team mode lists assistants and queue filter still works", async ({ page }) => {
-    await gotoShell(page);
-    await page.getByTestId("lm-tab-agents").click();
-    await expect(page.getByTestId("lm-agent-fleet-panel")).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId("lm-fleet-mode-team")).toBeVisible();
-    await page.getByTestId("lm-fleet-mode-team").click();
-    await expect(page.getByTestId("lm-fleet-team-all")).toBeVisible();
-    await expect(page.getByTestId("lm-fleet-pending-teach")).toContainText("待教");
-    await page.getByTestId("lm-fleet-team-default").click();
-    await expect(page.getByTestId("lm-ceremony-primary")).toBeVisible({ timeout: 15_000 });
-    await page.getByTestId("lm-fleet-mode-queue").click();
-    await expect(page.getByTestId("lm-fleet-group-toggle-approve")).toBeVisible();
-  });
-
-  test("desk sections: 待拍板 / 交出去的活 / 按流程办", async ({ page }) => {
+  test("更多仍可进入交出去的活和按流程办", async ({ page }) => {
     await gotoShell(page);
     await page.getByTestId("lm-tab-agents").click();
     await expect(page.getByTestId("lm-agents-desk-chrome")).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByRole("heading", { name: "在办", exact: true })).toBeVisible();
-    await expect(page.getByTestId("lm-agents-tab-active")).toHaveAttribute("aria-current", "page");
-
+    await page.getByTestId("lm-agents-desk-more").locator("summary").click();
     await page.getByTestId("lm-agents-tab-delegations").click();
-    await expect(page.getByTestId("lm-agents-tab-delegations")).toHaveAttribute("aria-current", "page");
     await expect(page.getByTestId("lm-agents-desk-chrome")).toContainText("交出去的活");
 
+    await page.getByTestId("lm-agents-desk-more").locator("summary").click();
     await page.getByTestId("lm-agents-tab-workflows").click();
-    await expect(page.getByTestId("lm-agents-tab-workflows")).toHaveAttribute("aria-current", "page");
     await expect(page.getByTestId("lm-agents-desk-chrome")).toContainText("按流程办");
 
     await page.getByTestId("lm-agents-tab-active").click();
@@ -60,7 +39,7 @@ test.describe("在办工作台", () => {
     await expect(page.getByTestId("lm-agents-open-automations")).toHaveCount(0);
   });
 
-  test("在办条可进改稿，待拍板不出现内部审稿", async ({ page }) => {
+  test("在办条可进改稿，内部审稿不出现在交办册", async ({ page }) => {
     await gotoShell(page);
     await page.getByTestId("lm-tab-agents").click();
     await expect(page.getByTestId("lm-agent-fleet-panel")).toBeVisible({ timeout: 30_000 });

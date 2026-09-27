@@ -5,6 +5,8 @@ export {
 } from "./workspace-index-path.js";
 export {
   rebuildWorkspaceSearchIndex,
+  syncWorkspaceSearchIndex,
+  workspaceSourcesChanged,
   openSearchIndexDb,
   indexExists,
   type RebuildIndexResult,

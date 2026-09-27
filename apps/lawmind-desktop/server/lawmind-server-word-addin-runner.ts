@@ -151,7 +151,7 @@ export async function reconcileStalledWordAddinRuns(deps: {
         reason = "completed_without_result";
         const detail = job.stepError?.trim();
         note =
-          "桌面端这一轮结束了，但没有可回填的 Word 修订轨。常见原因：模型调用失败（如 API Key 失效）、"
+          "这一轮结束了，但没有可写回 Word 的修订。常见原因：模型密钥失效、"
           + "降级导出、或本轮没有需要落改的锚点。请到桌面端看这次审查的结果。"
           + (detail ? `（任务报错：${detail.slice(0, 160)}）` : "");
       } else if (isTerminalWorkflowJobStatus(job.status)) {

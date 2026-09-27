@@ -5,7 +5,8 @@ import {
   benchmarkPassesThreshold,
   buildQualityDashboardMarkdown,
   buildReleaseReadinessReportMarkdown,
-  selectReleaseGateBenchmarkResults,
+  classifyReleaseBenchmarkFile,
+  releaseReadinessBenchmarkExit,
   type BenchmarkResult,
 } from "../../src/lawmind/evaluation/index.js";
 import {
@@ -49,6 +50,8 @@ function parseArgs(argv: string[]): Options {
     } else if (arg === "--benchmark-in" && argv[i + 1]) {
       benchmarkInPath = path.resolve(process.cwd(), argv[i + 1]);
       i += 1;
+    } else if (arg === "--strict") {
+      strictBenchmark = true;
     }
   }
 
@@ -59,24 +62,34 @@ function parseArgs(argv: string[]): Options {
   return { workspaceDir, outputPath, benchmarkInPath, strictBenchmark, benchmarkThreshold };
 }
 
-async function loadBenchmarkResults(
-  filePath: string,
-): Promise<{ results: BenchmarkResult[]; loaded: boolean; excludedReason?: string }> {
+async function loadBenchmarkResults(filePath: string): Promise<{
+  results: BenchmarkResult[];
+  filePresent: boolean;
+  eligible: boolean;
+  excludedReason?: string;
+}> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(filePath, "utf8");
-    const parsed = JSON.parse(raw) as { modelMode?: string; results?: BenchmarkResult[] };
-    if (Array.isArray(parsed.results) && parsed.results.length > 0) {
-      // 发布 gate 只接受 real-model 结果；mock 满分不得进入发布叙事。
-      const gate = selectReleaseGateBenchmarkResults(parsed);
-      if (!gate.eligible) {
-        return { results: [], loaded: true, excludedReason: gate.reason };
-      }
-      return { results: gate.results, loaded: true };
-    }
-  } catch {
-    // missing or invalid — release report will note benchmark not supplied
+    raw = await fs.readFile(filePath, "utf8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    const classified = classifyReleaseBenchmarkFile({
+      readError: code === "ENOENT" ? "missing" : "unreadable",
+    });
+    return {
+      results: classified.results,
+      filePresent: classified.filePresent,
+      eligible: classified.eligible,
+      excludedReason: classified.reason,
+    };
   }
-  return { results: [], loaded: false };
+  const classified = classifyReleaseBenchmarkFile({ raw });
+  return {
+    results: classified.results,
+    filePresent: classified.filePresent,
+    eligible: classified.eligible,
+    excludedReason: classified.reason,
+  };
 }
 
 async function main(): Promise<void> {
@@ -84,7 +97,8 @@ async function main(): Promise<void> {
   const qualityDashboardMarkdown = await buildQualityDashboardMarkdown(opts.workspaceDir);
   const {
     results: benchmarkResults,
-    loaded: benchmarkLoaded,
+    filePresent,
+    eligible,
     excludedReason: benchmarkExcludedReason,
   } = await loadBenchmarkResults(opts.benchmarkInPath);
 
@@ -95,9 +109,10 @@ async function main(): Promise<void> {
       `Benchmark results not counted toward release gate (${benchmarkExcludedReason}). ` +
         "Re-run `pnpm lawmind:benchmark -- --mode scripted --out dist/lawmind-benchmark.json` (or --mode real) for gate evidence.",
     );
-  } else if (!benchmarkLoaded) {
+  } else if (!filePresent) {
     knownRisks.push(
-      "Benchmark results not found. Run `pnpm lawmind:benchmark -- --out dist/lawmind-benchmark.json` first.",
+      "Benchmark file absent. That is not gate evidence. " +
+        "Run `pnpm lawmind:benchmark -- --mode scripted --out dist/lawmind-benchmark.json` (or --mode real) before release.",
     );
   } else if (!gatePass) {
     knownRisks.push(
@@ -204,7 +219,7 @@ async function main(): Promise<void> {
     northStar: { lines: northStarLines, proven: northStarProven },
     verifyCommands: [
       "pnpm lawmind:verify",
-      "pnpm lawmind:benchmark -- --out dist/lawmind-benchmark.json",
+      "pnpm lawmind:benchmark -- --mode scripted --out dist/lawmind-benchmark.json",
       "LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1 pnpm lawmind:true-manuscript",
       "pnpm lawmind:desktop:dist",
       "pnpm lawmind:desktop:e2e:pr",
@@ -222,8 +237,18 @@ async function main(): Promise<void> {
     console.log(report);
   }
 
-  if (opts.strictBenchmark && (!benchmarkLoaded || !gatePass)) {
-    process.exitCode = 1;
+  const benchmarkExit = releaseReadinessBenchmarkExit({
+    filePresent,
+    eligible,
+    gatePass,
+    strict: opts.strictBenchmark,
+  });
+  if (benchmarkExit !== 0) {
+    const why =
+      benchmarkExcludedReason ??
+      (!filePresent ? "benchmark 文件不在，且当前是严格模式" : "benchmark 均分低于阈值");
+    console.error(`[Release Readiness] benchmark gate failed: ${why}`);
+    process.exitCode = benchmarkExit;
   }
 }
 

@@ -169,14 +169,14 @@ describe("createAutomation persists the six confirmations", () => {
     expect(loaded?.notifyPolicy).toBe("on_problem");
   });
 
-  it("still creates without them (engine stays permissive; the API is the gate)", () => {
+  it("fills the preset draft when the lawyer did not write the four fields", () => {
     const ws = tmpWs();
     const created = createAutomation(ws, { presetId: "custom", matterId: "m1" });
     const loaded = getAutomation(ws, created.id);
-    expect(loaded).not.toBeNull();
-    expect(loaded?.expectedResult).toBeUndefined();
-    // 默认是 report_partial：保留既有「退回本地匣继续办」的行为（见该常量注释）。
-    expect(loaded && automationMissingDataPolicy(loaded)).toBe("report_partial");
+    expect(loaded?.expectedResult).toContain("按你写的那句话");
+    expect(loaded?.approvalBoundary).toContain("必须先问我");
+    expect(loaded?.missingDataPolicy).toBe("report_partial");
+    expect(loaded?.notifyPolicy).toBe("on_problem");
   });
 
   it("trims whitespace and drops empty strings rather than storing blanks", () => {
@@ -189,7 +189,7 @@ describe("createAutomation persists the six confirmations", () => {
     });
     const loaded = getAutomation(ws, created.id);
     expect(loaded?.expectedResult).toBe("清单");
-    expect(loaded?.approvalBoundary).toBeUndefined();
+    expect(loaded?.approvalBoundary).toContain("必须先问我");
   });
 });
 

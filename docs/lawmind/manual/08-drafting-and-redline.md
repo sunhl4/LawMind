@@ -97,7 +97,7 @@ export const MINIMAL_EDIT_MAX_UNCHANGED_RUN = 6; // 一处改动内允许的未�
 一句话里改几个字就只改那几个字。引擎会按此重算，不接受整句删写。
 ```
 
-**注意这里有个坑**：`minimal-edit-script.ts` 里还有两个同名主题的常量 `MINIMAL_EDIT_RULE_LINE` / `MINIMAL_EDIT_RULE_TEXT`，注释写着「进提示词」「技能/文档用」——但**全仓没有任何地方 import 它们**（`rg MINIMAL_EDIT_RULE_` 只会查到定义那一处）。改它们不会影响模型的任何行为。要改改稿口径，改 `CONTRACT_REDLINE_CRAFT_SKILL`、`mail-contract-short-path-instruction.ts` 与 `mail-contract-fast-path.ts` 里那几处内联文案（第 20 章也提过前者）。
+规则文本的单行版 `MINIMAL_EDIT_RULE_LINE` 由 `CONTRACT_REDLINE_CRAFT_SKILL` **原样引用**，门槛数字用同一个 `MINIMAL_EDIT_MAX_UNCHANGED_RUN`。改口径改常量，技能正文会跟着变。`MINIMAL_EDIT_RULE_TEXT` 仍是展开说明，给文档对照，不另写一份进提示词的数字。
 
 ```text
 判定门槛：一处改动内若夹了 ≥6 个连续未改文字，即视为未最小化，会被自动拆分。
@@ -107,13 +107,13 @@ export const MINIMAL_EDIT_MAX_UNCHANGED_RUN = 6; // 一处改动内允许的未�
 
 「落槌」是指改动真正落到某个地方。有五个地方，都用同一套算法：
 
-| 边界             | 位置                                                                                 | 干什么                                                                 |
-| ---------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| **B1 模型输入**  | `drafts/apply-surgical-edits.ts`                                                     | 收到 find/replace 就对，自动拆成最短改动，回执里给 `minimalSplitEdits` |
-| **B2 hunk 生成** | `drafts/redline-proposal.ts` → `drafts/surgical-diff.ts` 的 `splitSurgicalEditSpans` | 生成修订提案时出最短 span                                              |
-| **B3 文件落盘**  | `artifacts/render-docx-tracked.ts` 的 `resolveOfficeCliFindReplaceOps`               | 写进 .docx 的最后一道                                                  |
-| **B4 Word 插件** | `integrations/word-addin/review-requests.ts` 的 `hunksFromRedlineProposal`           | 插件在 Word 里就地落改                                                 |
-| **B5 成品复核**  | `drafts/tracked-xml-qa.ts` 的 `qaTrackedDocxXml`                                     | **唯一看落盘文件**的一道                                               |
+| 边界             | 位置                                                                                 | 干什么                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| **B1 模型输入**  | `drafts/apply-surgical-edits.ts`                                                     | 收到 find/replace 就重算最短改动。同一 find 命中多处且未声明 `occurrences: "all"` 时整条跳过，不改第一处 |
+| **B2 hunk 生成** | `drafts/redline-proposal.ts` → `drafts/surgical-diff.ts` 的 `splitSurgicalEditSpans` | 生成修订提案时出最短 span                                                                                |
+| **B3 文件落盘**  | `artifacts/render-docx-tracked.ts` 的 `resolveOfficeCliFindReplaceOps`               | 写进 .docx 的最后一道                                                                                    |
+| **B4 Word 插件** | `integrations/word-addin/review-requests.ts` 的 `hunksFromRedlineProposal`           | 插件在 Word 里就地落改                                                                                   |
+| **B5 成品复核**  | `drafts/tracked-xml-qa.ts` 的 `qaTrackedDocxXml`                                     | **唯一看落盘文件**的一道                                                                                 |
 
 B1–B4 管的是「要写什么」，B5 管的是「实际写成了什么」。文档里有一句话点明了这个分工：
 
@@ -143,7 +143,7 @@ Surgical 类型的 hunk 会显示上下文——`SURGICAL_CONTEXT_CHARS = 30`，
 
 ## 8.6 草稿存在哪
 
-草稿在 `workspace/drafts/`，主文件是 `drafts/<taskId>.json`（原子写）。
+草稿在 `workspace/drafts/`，主文件是 `drafts/<taskId>.json`（只经 `commitDraft` 原子写）。通用写文件、文件页和脚本沙箱写不进 `drafts/`；改已有稿用 `update_draft`。
 
 另外有一堆**侧车文件**（sidecar），都是同名不同后缀：
 
@@ -157,8 +157,10 @@ Surgical 类型的 hunk 会显示上下文——`SURGICAL_CONTEXT_CHARS = 30`，
 | `drafts/<taskId>.clauses.json`      | 条款快照     |
 | `drafts/<taskId>.guardian.json`     | 独立审稿记录 |
 | `drafts/<taskId>.outline.json`      | 大纲         |
+| `drafts/<taskId>.completion.json`   | 交付完成记录 |
+| `drafts/<taskId>.redline.json.lock` | 修订提案锁   |
 
-`listDrafts` **会排除**这些侧车，只列本体。`deleteDraft` 会删本体加 **5 个**侧车（`research` / `reasoning` / `redline` / `clauses` / `guardian`）——**但不删 `.outline.json` 与 `.redline-plan.json`**。所以更准确的说法是「删草稿会删掉大部分侧车，但大纲和修订计划会留下」，不会「全删」。这一点在 `src/lawmind/drafts/index.ts` 的 `deleteDraft` 候选列表里看得很清楚（那个列表就是 6 项）。
+`listDrafts` **会排除**这些侧车，只列本体。`deleteDraft` 删本体，并删 `listDrafts` 排除的侧车：`research`、`reasoning`、`redline`、`redline-plan`、`clauses`、`guardian`、`outline`、`completion`，外加 `redline.json.lock`。修订计划必须一起删——否则下一次空的 `apply_surgical_edits` 会把已删草稿的计划又落回去。
 
 ## 8.7 修订提案：hunk 是怎么长出来的
 
@@ -180,6 +182,8 @@ type RedlineHunk = {
 ```
 
 `RedlineProposal` 装的是 `baselineSections`（基线正文）和 `hunks` 两部分。基线很重要：hunk 的 `before` 是相对基线说的，不是相对当前正文。所以手动改了正文之后要重置基线。
+
+单份正文和跨文书用同一条歧义规则：同一 `find` 命中多处、又没写 `occurrences: "all"`，**整条跳过，不改第一处**。Cursor / Codex 的补丁也是这样——上下文不唯一就失败，不猜第一处。当事人名统一替换显式传 `all`，引擎从右往左落，避免下标被左边的替换挤歪。某一处对不上原文时，这一条整处回滚，不做「其余处已落」。
 
 提案文件有排他锁（`<redline.json>.lock`），注释说明锁的范围：
 
@@ -232,7 +236,7 @@ export const MIN_TRACKED_RENDER_HUNKS = 1;
 请对该条显式传 occurrences: "all" 后整批重来（本次未写入任何文书）。
 ```
 
-也就是说，模型可以自己加 `occurrences: "all"` 重试，**不需要律师仲裁**。
+也就是说，模型可以自己加 `occurrences: "all"` 重试，**不需要律师仲裁**。单份草稿（第 8.7 节）现在是同一句报错、同一种补救，不再只在跨文书上拦。
 
 另一条规则：**找不到锚点不算错**。某份文书里根本没有那段原文，就如实记进变更清单，不报错。注释原话：「本模块不碰文件系统：规划与落笔都是纯函数，持久化与 Redline 由调用方负责。」
 
@@ -423,7 +427,7 @@ officecli 超时设的是 120 秒。修订作者默认写 `"LawMind"`，可以�
 
 > 硬不变量（最短改动）：**不**照抄 hunk 的粒度——历史 section hunk 的 before/after 可能是整节，直接塞给插件就会变成整节删+整节增。
 
-处理方式：锚点超过 60 字（`WORD_ADDIN_MAX_ANCHOR_CHARS`）的整节重写会被记进 `skippedSectionHunks`，然后提示律师「回桌面端看」。文末插入直接跳过——「插件不猜位置」。
+处理方式：最短改动重算之后，真替换都交给 Word，不按字数丢进 `skippedSectionHunks`。文末插入直接跳过——「插件不猜位置」。
 
 ### 请求状态机
 
@@ -439,7 +443,7 @@ officecli 超时设的是 120 秒。修订作者默认写 `"LawMind"`，可以�
 | `superseded`   | 同文件重复点击，被更新的那条取代 |
 | `needs_matter` | 旧状态，见下                     |
 
-`stale` 的判定值得说：取件时会**重算文件指纹**（前 256 KiB 加字节数，`WORD_ADDIN_FINGERPRINT_BYTES = 256 * 1024`），和点击时记录的不一致就转 `stale`，提示：
+`stale` 的判定值得说：取件时会**重算文件指纹**。2 MiB 以内哈希整文件；更大则取头 128 KiB 加尾 64 KiB，再加总字节数。Word 保存会改包尾的 `core.xml`，只哈希文件头会把文末条款的改动当成没变过，然后用旧基线出稿。和点击时记录的不一致就转 `stale`，提示：
 
 ```text
 这份 Word 在你点「审这份」之后已被改动。为免用旧基线出稿，请重新点一次「审这份」。
@@ -585,7 +589,7 @@ if (draft.contractEdit) return false; // 修订稿不跑
 
 也就是说，给审稿人的证据里**不包含写稿模型自己给自己打的分**。这防的是「自己给自己打分说自己过了」。
 
-证据包有各种上限（截断）：hunk 最多 32 个、章节 12 个、争点 8 个、检查单 16 项、引用 16 条，每个片段截 400 字。
+证据包不再按条数丢掉修订、章节、争点、核对项或引用。单条文字仍截断（改动前后各 400 字、章节 800 字），避免一条超长段落撑爆窗口；条数本身不是拒绝线。
 
 ### 判定由代码聚合
 
@@ -637,9 +641,7 @@ if (draft.contractEdit) return false; // 修订稿不跑
 
 有一个隐患也写在注释里：
 
-> （`stripRaw` 是白名单式的——新增字段忘了加到这里就会**静默丢失**。）
-
-存档时会剥掉原始响应，用的是白名单。加新字段忘了改这里，字段就没了。
+存档时律师可见面仍按 `slimGuardianView` 收成结论和缺口，审稿原文截到 4000 字。其余字段（证据哈希、待定夺项，以及以后加在 `GuardianRecord` 上的字段）随记录一起落盘。以前这里是手写白名单，漏加一列就会静默丢掉待定夺项。
 
 ## 8.15 术语自适应：一份文书不许两套称谓
 
@@ -798,5 +800,5 @@ revision_not_persisted: 助手未将修订写入 drafts 文件，请查看对话
 - **插件折叠绝不折 `running`。** 折了会重复扣模型钱。
 - **policy 文件缺 `schemaVersion: 1` 会被整份忽略。** 配了 `wordAddinAutoRun` 没生效，先看这一条。
 - **审稿记录不进写手会话。** 想「让写手看看审稿意见再改」是反设计的，别这么做。
-- **`stripRaw` 是白名单。** 给审稿存档加字段，记得同步改白名单，否则静默丢失。
+- **审稿存档不再用字段白名单。** 律师可见面仍瘦身；`GuardianRecord` 上的其余字段原样留下。审稿原文仍然截断。
 - **导出永远不开 Word。** `openWord: false` 是刻意的，别改成自动打开。

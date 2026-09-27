@@ -17,16 +17,15 @@ import {
   type VerificationChecklistView,
 } from "../../../../src/lawmind/deliverables/verification-checklist.ts";
 import type { ApprovalDocumentPreview } from "../../../../src/lawmind/platform/tool-approval-diff.ts";
-import {
-  fleetStatusKind as statusKind,
-  fleetStatusLabel as statusLabel,
-} from "./lawmind-fleet-queue";
+import { docketRowStatusLabel, docketRowTone } from "./lawmind-fleet-docket";
 import type { PostApproveExportState } from "./lawmind-post-approve-export";
 import { LawmindFleetPostApproveBar } from "./LawmindFleetPostApproveBar";
 
 export type LawmindAgentFleetDetailProps = {
-  listMode: "team" | "queue";
   current: AgentRunSummary | null;
+  /** 未选中时，右栏用这三行说明交办册里还有什么。 */
+  overview?: { needsYou: number; inFlight: number; settled: number } | null;
+  brief?: { instruction: string; stopLine: string } | null;
   displayTitle: string;
   matterLabelById?: Record<string, string>;
   assistantDisplayById?: Record<string, string>;
@@ -92,8 +91,9 @@ export type LawmindAgentFleetDetailProps = {
 
 export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): ReactNode {
   const {
-    listMode,
     current,
+    overview = null,
+    brief = null,
     displayTitle,
     matterLabelById = {},
     assistantDisplayById = {},
@@ -109,7 +109,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
     deskChecklistChecked,
     deskChecklistLoading,
     deskChecklistComplete,
-    deskAcceptanceReady = true,
+    deskAcceptanceReady = false,
     onDeskChecklistCheckedChange,
     onClearError,
     busy,
@@ -151,6 +151,15 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
     saveAsAutomationHint,
   } = props;
 
+  const followOnly =
+    current != null &&
+    !isDraftReview &&
+    !showForm &&
+    current.status !== "awaiting_review" &&
+    current.status !== "awaiting_approval" &&
+    current.status !== "awaiting_clarification" &&
+    current.status !== "interrupted";
+
   return (
     <section
       className={`lm-agents-wb-detail${readingMode ? " lm-agents-wb-detail--reading" : ""}`}
@@ -158,15 +167,20 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
     >
       {!current ? (
         <div className="lm-agents-wb-detail-empty" data-testid="lm-fleet-pick-hint">
-          <h2>{listMode === "team" ? "从左侧打开待办" : "选择事项"}</h2>
-          <p className="lm-meta">点一位同事或切到「队列」，办理区会打开对应待拍板。</p>
+          <h2>点开一件</h2>
+          <p className="lm-meta">左侧是还没了结的交办。停在你这里的会先打开。</p>
+          {overview ? (
+            <p className="lm-agents-wb-overview" data-testid="lm-fleet-overview">
+              停在你这里 {overview.needsYou} · 正在办 {overview.inFlight} · 今天办完 {overview.settled}
+            </p>
+          ) : null}
         </div>
       ) : (
         <>
           <header className="lm-agents-wb-detail-head">
             <div className="lm-agents-wb-detail-head-row">
-              <span className="lm-agents-wb-kicker" data-kind={statusKind(current.status)}>
-                {statusLabel(current.status)}
+              <span className="lm-agents-wb-kicker" data-kind={docketRowTone(current)}>
+                {docketRowStatusLabel(current)}
               </span>
               {!readingMode && current.matterId && !current.matterId.startsWith("临时") ? (
                 <span
@@ -181,6 +195,17 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
               ) : null}
             </div>
             <h2>{displayTitle.replace(/^待审定：\s*/, "")}</h2>
+            {brief?.instruction || brief?.stopLine ? (
+              <div className="lm-agents-wb-brief" data-testid="lm-fleet-brief">
+                {brief.instruction ? (
+                  <>
+                    <div className="lm-agents-wb-brief-kicker">你交办的</div>
+                    <p className="lm-agents-wb-brief-instruction">{brief.instruction}</p>
+                  </>
+                ) : null}
+                {brief.stopLine ? <p className="lm-agents-wb-brief-stop">{brief.stopLine}</p> : null}
+              </div>
+            ) : null}
           </header>
 
           {current.status === "interrupted" ? (
@@ -294,7 +319,40 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
           )}
 
           <footer className="lm-agents-wb-dock">
-            {current.status === "awaiting_approval" &&
+            {followOnly && current ? (
+              <>
+                {current.sessionId ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-accent"
+                    data-testid="lm-fleet-open-chat"
+                    onClick={() =>
+                      onOpenChatSession(current.sessionId!, current.matterId, current.assistantId)
+                    }
+                  >
+                    回到这场对话
+                  </button>
+                ) : null}
+                {current.taskId && onOpenReview ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-secondary"
+                    data-testid="lm-fleet-follow-review"
+                    onClick={() => onOpenReview(current.taskId, current.matterId)}
+                  >
+                    去改稿
+                  </button>
+                ) : null}
+                {current.status === "running" ||
+                current.status === "queued" ||
+                current.status === "scheduled" ||
+                current.status === "failed" ? (
+                  <button type="button" className="lm-btn lm-btn-ghost" onClick={() => onSnooze()}>
+                    稍后
+                  </button>
+                ) : null}
+              </>
+            ) : current.status === "awaiting_approval" &&
             approvalAction?.kind === "tool_approval" &&
             isHostGrantToolName(approvalAction.toolName) ? (
               <>
@@ -383,7 +441,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                   data-testid="lm-fleet-primary-review"
                   disabled={busy}
                   onClick={() => onOpenReview?.(current.taskId, current.matterId)}
-                  title="改稿、批注与交付预览；签批在本页或文书台高级区均可，同一记录"
+                  title="改稿、批注与交付预览；签批在本页或改稿页高级区均可，同一记录"
                 >
                   改稿
                 </button>
@@ -426,7 +484,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
               >
                 {rejectLabel}
               </button>
-            ) : (
+            ) : followOnly ? null : (
               <button type="button" className="lm-btn lm-btn-ghost" onClick={() => onSnooze()}>
                 稍后
               </button>
@@ -464,7 +522,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                 {approvalIsDocWrite ? "改参数…" : "改拟稿…"}
               </button>
             ) : null}
-            {current.sessionId && current.status !== "awaiting_clarification" ? (
+            {!followOnly && current.sessionId && current.status !== "awaiting_clarification" ? (
               <button
                 type="button"
                 className="lm-btn lm-btn-ghost"

@@ -71,7 +71,21 @@ export type Matter = {
   deliverableIds: string[];
   queueItemIds: string[];
   matterKind?: MatterKind;
+  /** 模型给出的事项名称。matterKind 只做粗筛。 */
+  matterLabel?: string;
   practiceTags?: string[];
+  schemaVersion?: 1;
+  revision?: number;
+  causeOfAction?: string;
+  counterparty?: string;
+  parties?: Array<{
+    partyId: string;
+    name: string;
+    role: "client" | "counterparty" | "agent" | "counsel" | "other";
+    standing?: string;
+    serviceAddress?: string;
+    serviceMethod?: "mail" | "electronic" | "in_person" | "unknown";
+  }>;
   docket?: MatterDocket;
   createdAt?: string;
   updatedAt?: string;
@@ -86,7 +100,12 @@ export type Deliverable = {
   status: DeliverableLifecycleStatus;
   templateId?: string;
   currentDraftTaskId?: string;
-  currentReviewStatus?: ReviewStatus;
+  currentDraftRevision?: number;
+  citedSourceIds?: string[];
+  documentId?: string;
+  schemaVersion?: 1;
+  revision?: number;
+  currentReviewStatus?: ReviewStatus | "redacted";
   /** Human responsibility chain; optional for legacy records. */
   ownerLawyerId?: string;
   reviewerId?: string;
@@ -155,6 +174,8 @@ export type WorkQueueItem = {
   blockedReason?: string;
   /** Ralph-style phase label (plan / research / draft / review / render). */
   phase?: "plan" | "research" | "draft" | "review" | "render";
+  /** 模型命名的待办。kind 中的流程阶段只保留给旧数据。 */
+  label?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -194,6 +215,9 @@ export function buildDeliverableFromDraft(
   }
   const createdAt = draft.createdAt ?? task?.createdAt ?? new Date(0).toISOString();
   const updatedAt = draft.reviewedAt ?? task?.updatedAt ?? createdAt;
+  const citedSourceIds = [
+    ...new Set(draft.sections.flatMap((section) => section.citations ?? []).filter(Boolean)),
+  ].slice(0, 64);
   const blockingReasons: string[] = [];
   if (draft.reviewStatus === "pending") {
     blockingReasons.push("awaiting_review");
@@ -213,6 +237,7 @@ export function buildDeliverableFromDraft(
     status: deriveDeliverableStatus(draft),
     templateId: draft.templateId,
     currentDraftTaskId: draft.taskId,
+    ...(citedSourceIds.length > 0 ? { citedSourceIds } : {}),
     currentReviewStatus: draft.reviewStatus,
     reviewerId: draft.reviewedBy,
     approvedBy: draft.reviewStatus === "approved" ? draft.reviewedBy : undefined,

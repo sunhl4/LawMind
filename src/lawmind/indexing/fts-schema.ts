@@ -32,6 +32,17 @@ export function initSearchIndexSchema(db: DatabaseSync): void {
       body,
       tokenize='trigram'
     );
+    CREATE TABLE IF NOT EXISTS index_source (
+      source_key TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      mtime INTEGER NOT NULL,
+      size INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS index_source_member (
+      source_key TEXT NOT NULL,
+      member_id TEXT NOT NULL,
+      PRIMARY KEY (source_key, member_id)
+    );
     CREATE VIRTUAL TABLE IF NOT EXISTS materials_fts USING fts5(
       matter_id UNINDEXED,
       rel_path UNINDEXED,

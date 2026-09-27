@@ -83,6 +83,7 @@ describe("resumeTurn editedArgs", () => {
       expect.objectContaining({
         preApproveToolName: "execute_workflow",
         preApproveToolArgs: { workflowId: "new", __approved: true },
+        instruction: expect.stringContaining("原指令：\nrun"),
       }),
     );
   });

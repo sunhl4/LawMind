@@ -54,22 +54,38 @@ export function isPidAlive(pid: number): boolean {
   }
 }
 
+/** Local pid checks are meaningless for a lease written on another machine. */
+export function isForeignTurnGateHost(
+  lease: TurnGateLease,
+  localHostname = os.hostname(),
+): boolean {
+  const host = lease.hostname.trim();
+  return host.length > 0 && host !== localHostname;
+}
+
+function leaseIsStale(lease: TurnGateLease, nowMs: number): boolean {
+  const started = Date.parse(lease.startedAt);
+  if (!Number.isFinite(started)) {
+    return true;
+  }
+  return nowMs - started > TURN_GATE_STALE_MS;
+}
+
 export function shouldStealTurnGateLease(
   lease: TurnGateLease,
   nowMs: number,
   pidAlive: (pid: number) => boolean = isPidAlive,
 ): boolean {
+  if (isForeignTurnGateHost(lease)) {
+    return leaseIsStale(lease, nowMs);
+  }
   if (lease.pid === process.pid) {
     return true;
   }
   if (!pidAlive(lease.pid)) {
     return true;
   }
-  const started = Date.parse(lease.startedAt);
-  if (!Number.isFinite(started)) {
-    return true;
-  }
-  return nowMs - started > TURN_GATE_STALE_MS;
+  return leaseIsStale(lease, nowMs);
 }
 
 function readLease(filePath: string): TurnGateLease | null {
@@ -91,9 +107,9 @@ function readLease(filePath: string): TurnGateLease | null {
 /**
  * 是否存在**活着的**回合租约（跨进程的真相源）。
  *
- * `shouldStealTurnGateLease` 是「本进程可否抢租约」的判据（同 pid 即允许），
- * 不能用来判断「有没有别的回合在跑」。这里只看：租约在、持有者进程还活着、
- * 且没有超过陈旧上限。
+ * `shouldStealTurnGateLease` 是「本进程可否抢租约」的判据（同机同 pid 即允许），
+ * 不能用来判断「有没有别的回合在跑」。本机看进程是否还活着；另一台机器的租约
+ * 只看是否超过陈旧上限——本机进程表对不上对方的 pid。
  *
  * `ignoreOwnPid`：同进程**不算**活。恢复入口自己会先拿租约（`withSessionTurnGate`），
  * 若不忽略，刚拿到的租约会把「上一轮被中断」误判成「正在跑」。
@@ -110,17 +126,13 @@ export function isSessionTurnLeaseLive(
   if (!lease) {
     return false;
   }
-  if (opts?.ignoreOwnPid === true && lease.pid === process.pid) {
+  if (opts?.ignoreOwnPid === true && lease.pid === process.pid && !isForeignTurnGateHost(lease)) {
     return false;
   }
-  if (!isPidAlive(lease.pid)) {
+  if (!isForeignTurnGateHost(lease) && !isPidAlive(lease.pid)) {
     return false;
   }
-  const started = Date.parse(lease.startedAt);
-  if (!Number.isFinite(started)) {
-    return true;
-  }
-  return nowMs - started <= TURN_GATE_STALE_MS;
+  return !leaseIsStale(lease, nowMs);
 }
 
 /** Test helper: plant a lease without going through the gate. */

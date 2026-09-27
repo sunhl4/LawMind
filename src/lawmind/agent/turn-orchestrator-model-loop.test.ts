@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  advanceIdenticalToolStreak,
+  formatIdenticalToolRepeatNudge,
+  formatIdenticalToolRepeatStop,
+  identicalToolRepeatDecision,
   resolveStrictUpstreamToolStreaming,
   shouldWarnToolBudget,
+  toolCallBatchSignature,
 } from "./turn-orchestrator-model-loop.js";
 
 describe("shouldWarnToolBudget", () => {
@@ -10,6 +15,42 @@ describe("shouldWarnToolBudget", () => {
     expect(shouldWarnToolBudget(32, 40)).toBe(true);
     expect(shouldWarnToolBudget(0, 40)).toBe(false);
     expect(shouldWarnToolBudget(10, 0)).toBe(false);
+  });
+});
+
+describe("identical tool-call streak", () => {
+  const batch = [{ name: "search_matter", arguments: { q: "定金", limit: 5 } }];
+
+  it("ignores argument key order", () => {
+    const flipped = [{ name: "search_matter", arguments: { limit: 5, q: "定金" } }];
+    expect(toolCallBatchSignature(batch)).toBe(toolCallBatchSignature(flipped));
+  });
+
+  it("nudges on the third identical batch and stops only after that nudge", () => {
+    let streak = advanceIdenticalToolStreak(null, toolCallBatchSignature(batch));
+    expect(identicalToolRepeatDecision(streak)).toBe("ok");
+    streak = advanceIdenticalToolStreak(streak, toolCallBatchSignature(batch));
+    expect(identicalToolRepeatDecision(streak)).toBe("ok");
+    streak = advanceIdenticalToolStreak(streak, toolCallBatchSignature(batch));
+    expect(identicalToolRepeatDecision(streak)).toBe("nudge");
+    streak = { ...streak, nudged: true };
+    streak = advanceIdenticalToolStreak(streak, toolCallBatchSignature(batch));
+    expect(identicalToolRepeatDecision(streak)).toBe("stop");
+    expect(formatIdenticalToolRepeatNudge().startsWith("【重复调用】")).toBe(true);
+    expect(formatIdenticalToolRepeatStop()).toContain("接着办");
+  });
+
+  it("resets when the batch changes", () => {
+    let streak = advanceIdenticalToolStreak(null, toolCallBatchSignature(batch));
+    streak = advanceIdenticalToolStreak(streak, toolCallBatchSignature(batch));
+    streak = { ...streak, nudged: true };
+    streak = advanceIdenticalToolStreak(
+      streak,
+      toolCallBatchSignature([{ name: "read_host_file", arguments: { path: "a.docx" } }]),
+    );
+    expect(streak.streak).toBe(1);
+    expect(streak.nudged).toBe(false);
+    expect(identicalToolRepeatDecision(streak)).toBe("ok");
   });
 });
 

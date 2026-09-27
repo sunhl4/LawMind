@@ -82,17 +82,28 @@ describe("resolvePlaybookToolLock", () => {
     expect(resolvePlaybookToolLock("不是合同审核，请写起诉状")).toBeUndefined();
   });
 
-  it("folder mention on a contract review only denies mutate tools", () => {
-    const lock = resolvePlaybookToolLock("根据文件夹审查这份采购合同");
-    expect(lock?.id).toBe("read-first");
-    expect(lock?.denyNames).toContain("apply_surgical_edits");
-    expect(lock?.denyNames).not.toContain("draft_document");
+  it("folder mention on a contract review does not freeze edit tools", () => {
+    expect(resolvePlaybookToolLock("根据文件夹审查这份采购合同")).toBeUndefined();
   });
 
-  it("look-only denies redline without locking draft_document", () => {
+  it("a directory pin does not freeze edit tools", () => {
+    expect(
+      resolvePlaybookToolLock("根据这个文件夹把采购合同改到对我们有利", [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "materials",
+          kind: "directory",
+        },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("look-only denies outbound mail and keeps edit tools", () => {
     const lock = resolvePlaybookToolLock("帮我看看");
     expect(lock?.id).toBe("read-first");
-    expect(lock?.denyNames).toContain("apply_surgical_edits");
+    expect(lock?.denyNames).toEqual(["prepare_outbound_mail"]);
+    expect(lock?.denyNames).not.toContain("apply_surgical_edits");
     expect(lock?.denyNames).not.toContain("draft_document");
   });
 

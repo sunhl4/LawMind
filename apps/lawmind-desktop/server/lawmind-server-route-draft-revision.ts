@@ -84,9 +84,8 @@ ${extraBlock}
 **推荐步骤（缺一不可）：**
 1. 用 \`analyze_document\` 或 \`search_workspace\` 读取当前 \`drafts/${draft.taskId}.json\`，弄清现有结构（尤其 \`sections\`、\`summary\`）。
 2. 根据「审核备注 + 补充说明」扩展/修订各章节正文，**保持同一 taskId**。
-3. **优先**调用 \`update_draft\`：\`task_id\` 填 \`${draft.taskId}\`，传入更新后的 \`sections\`（每项含 heading、body，保留原有 citations 若仍适用）及必要的 \`summary\` / \`title\`。本条为文书台后台修订通道，**无需** \`__approved\`。
-4. 若你更熟悉整文件写回，也可用 \`write_document\`，**必须**同时提供 \`file_path\` = \`drafts/${draft.taskId}.json\` 与完整合法 JSON \`content\`（不可省略 file_path）。
-5. **禁止**调用 \`draft_document\` / \`execute_workflow\` 重新生成新草稿——会生成新 taskId，文书台仍打开旧稿，律师会看到「没变化」。
+3. 调用 \`update_draft\`：\`task_id\` 填 \`${draft.taskId}\`，传入更新后的 \`sections\`（每项含 heading、body，保留原有 citations 若仍适用）及必要的 \`summary\` / \`title\`。本条为文书台后台修订通道，**无需** \`__approved\`。不要用 \`write_document\` 写 \`drafts/\`。
+4. **禁止**调用 \`draft_document\` / \`execute_workflow\` 重新生成新草稿——会生成新 taskId，文书台仍打开旧稿，律师会看到「没变化」。
 
 完成后用简短条目列出你改了哪些章节/字段。系统会在你成功写回 \`drafts/${draft.taskId}.json\` 后**自动**将草稿恢复为「待审核」，律师无需再手动点「恢复待审核」。`;
   return core.slice(0, REVISION_INSTRUCTION_MAX);
@@ -189,7 +188,7 @@ export async function handleDraftRevisionJobRoute({
     enableCollaboration: built.config.enableCollaboration !== false,
     /**
      * 文书台「提交改稿」为律师显式授权的后台修订：关闭 strict 即可让
-     * update_draft / write_document 顺畅执行（二者本就无需工具批准）。
+     * update_draft 顺畅执行（它本就无需工具批准）。write_document 仍可写笔记，但写不进 drafts/。
      * 不再放开 allowDangerousToolsWithoutApproval——send_email / render_document 等
      * 交付/外发类危险工具在后台修订中必须仍走批准，避免静默出稿/外发。
      */

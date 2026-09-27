@@ -34,12 +34,18 @@
 
 导出：
 
-| 符号                                                  | 作用                                                                              |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `resolveStrictUpstreamToolStreaming(hasOnEvent, env)` | 是否开启严格工具流式（`LAWMIND_STRICT_TOOL_STREAM=1`）                            |
-| `shouldWarnToolBudget(used, max)`                     | 是否该提示工具预算（≥80%）                                                        |
-| `ModelToolLoopResult`                                 | 循环结果（`finalReply`、`pendingClarificationQuestions`、`turnUsage`、`aborted`） |
-| `runModelToolLoop(opts)`                              | 主循环                                                                            |
+| 符号                                                                                    | 作用                                                                              |
+| --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `resolveStrictUpstreamToolStreaming(hasOnEvent, env)`                                   | 是否开启严格工具流式（`LAWMIND_STRICT_TOOL_STREAM=1`）                            |
+| `shouldWarnToolBudget(used, max)`                                                       | 是否该提示工具预算（≥80%）                                                        |
+| `toolCallBatchSignature` / `advanceIdenticalToolStreak` / `identicalToolRepeatDecision` | 同一工具批次连着重复：第三次提醒，提醒后再重复则停                                |
+| `ModelToolLoopResult`                                                                   | 循环结果（`finalReply`、`pendingClarificationQuestions`、`turnUsage`、`aborted`） |
+| `runModelToolLoop(opts)`                                                                | 主循环                                                                            |
+
+循环内部两条行为不在导出表里，但撞排查时会遇到：
+
+- **空 `choices` 重试一次**：`response.choices[0]` 为空时用 `emptyChoiceRetryUsed` 标记再要一轮；仍为空才按「Empty response from model」收口，不静默编一条收尾消息。
+- **`workerModel` 不接管工具轮**：它只用于两处侧任务——回合内压缩的模型摘要（`enhanceCompactDigestWithLlm`，`attempts=1` 且限时）和独立审稿（`reviewModel: config.workerModel ?? config.model`，`turn-orchestrator.ts`）。对话循环里选工具、改稿仍走主模型。
 
 ### `turn-orchestrator-tool-round.ts`
 
@@ -108,7 +114,7 @@
 
 `sessionHistoryToSimpleMessages`、`appendSyntheticAssistantReply`、`deriveModelMessages`、`toModelMessages`、`deriveModelMessagesForSampling`、`ModelChatMessage`。
 
-**`deriveModelMessagesForSampling(session, budget)`** 是「按预算裁剪后发给模型的消息」——历史裁剪、工具结果压缩、配对保护的入口。
+**`deriveModelMessagesForSampling(session, budget)`** 是送出投影，不裁历史。配对修复写回会话；一条 tool 消息里的多个结果展开成每个 `tool_call_id` 一条 wire 消息；预算只决定要不要在末尾附一条不落盘的剩余 token 注记。裁历史在 `compact.ts`。
 
 ### `session-persist.ts`
 
@@ -118,15 +124,15 @@
 
 ### `session-event-log.ts`
 
-`appendSessionEvent`、`readSessionEvents`、`sessionEventsPath`、`shouldPersistSessionEvent`、`replayLiveTurnFromEventRecords`、`getLiveTurnProgressOrReplay`。
+`appendSessionEvent`、`readSessionEvents`、`readSessionEventsForReplay`、`repairTornJsonlTail`、`sessionEventsPath`、`shouldPersistSessionEvent`、`replayLiveTurnFromEventRecords`、`getLiveTurnProgressOrReplay`。
 
-**事件日志是「实时进度的持久化底座」**：`replayLiveTurnFromEventRecords` 能从事件记录重建实时进度——这样进程重启后进度不丢。
+**事件日志是「实时进度的持久化底座」**：`replayLiveTurnFromEventRecords` 能从事件记录重建实时进度——这样进程重启后进度不丢。追加前会截掉崩溃留下的半行（`repairTornJsonlTail`）。回放走 `readSessionEventsForReplay`，大文件只读尾部。
 
 ### `session-turn-gate.ts`（回合门）
 
 导出 `withSessionTurnGate`、`sessionTurnGateKey`、`turnGateLeasePath`、`TURN_GATE_STALE_MS`、`SessionTurnInProgressError`、`isSessionTurnInProgressError`、`isPidAlive`、`shouldStealTurnGateLease`、`isSessionTurnLeaseLive`、`writeTurnGateLeaseForTest`。
 
-**两层锁**：进程内队列 + 跨进程租约文件（`sessions/<id>.turn-gate.json`）。`shouldStealTurnGateLease` 处理「上一个持有者已经死了」的情况。
+**两层锁**：进程内队列 + 跨进程租约文件（`sessions/<id>.turn-gate.json`）。`shouldStealTurnGateLease` 处理「上一个持有者已经死了」的情况。另一台机器的租约（`hostname` 不同）只在超过 `TURN_GATE_STALE_MS` 后才抢，不用本机进程表。
 
 ### `session-tool-call-pairing.ts`（最多导出的一个）
 
@@ -146,15 +152,15 @@
 
 三个「侧车注入通道」，结构几乎一样：
 
-| 文件                          | 排什么队     | 侧车文件                         |
-| ----------------------------- | ------------ | -------------------------------- |
-| `session-context-steer.ts`    | 律师中途指示 | `<id>.pending-steer.json`        |
-| `session-context-inject.ts`   | 中途钉选     | `<id>.pending-context-pins.json` |
-| `session-context-followup.ts` | 跟进备注     | `<id>.pending-followup.json`     |
+| 文件                          | 排什么队     | 侧车文件                     |
+| ----------------------------- | ------------ | ---------------------------- |
+| `session-context-steer.ts`    | 律师中途指示 | `<id>.pending-steer.json`    |
+| `session-context-inject.ts`   | 中途钉选     | `<id>.pending-pins.json`     |
+| `session-context-followup.ts` | 跟进备注     | `<id>.pending-followup.json` |
 
 每个都导出四个函数：`queue*`（入队）、`claim*`（取走）、`peek*`（只看）、`applyClaimed*ToHistory`（并入历史）。
 
-**为什么要侧车文件**：因为它必须在 `saveSession` 之后仍然存在（第 3.9 节）。
+**为什么要侧车文件**：因为它必须在 `saveSession` 之后仍然存在（第 3.9 节）。中途指示和中途钉选的 claim 会先改名为 `.inflight`，历史里已经有这条内容才删除；没落盘就退出时下一轮重新交进历史。
 
 ### `session-message-mutate.ts`
 
@@ -186,7 +192,7 @@
 
 `bindTurnAbortSignal`、`getTurnAbortSignal`、`requestTurnAbort`、`clearTurnAbort`、`isTurnAbortRequested`、`resetTurnAbortStore`。
 
-**它是「中断信号」的注册表**——按回合 id 存 abort 控制器。
+**它是「中断信号」的注册表**——按会话 id 存 abort 控制器。`bindTurnAbortSignal` 若发现停止已经记下，新信号直接是已中止，不把这次停止清掉。这样律师在材料预读或提示组装时点停止，回合不会再进模型。
 
 ### `turn-interrupt.ts`
 
@@ -212,9 +218,11 @@
 
 ### `compact.ts`（压缩的主力）
 
-导出：`autoCompactSessionHistory`（主入口）、`buildDroppedSpanDigest`、`writeCompactDigestFile`、`compactDigestPath`、`collectDroppedCitationAnchors`、`resolveCompactDigestCharCap`、`adjustIndexToPreserveToolPairs`、`readSessionSummary`、`sessionSummaryPath`、`buildPostCompactSystemNote`、`collectCompactAttachmentNotes`、`CompactResult`。
+导出：`autoCompactSessionHistory`（主入口）、`buildDroppedSpanDigest`、`writeCompactDigestFile`、`compactDigestPath`、`collectDroppedCitationAnchors`、`resolveCompactDigestCharCap`、`cutIndexForTokenTail`、`readSessionSummary`、`sessionSummaryPath`、`buildPostCompactSystemNote`、`collectCompactAttachmentNotes`、`CompactResult`。
 
-**`collectDroppedCitationAnchors` 值得单独看**：它保证被压缩掉的段落里的**引用锚点**不会丢。这是「压缩后引用还在不在」那条 cassette 断言针对的能力。
+切点按剩余 token 从尾部往前装（`cutIndexForTokenTail`），不按固定条数。工具调用整组保留；`elideKeepTail` 是最少留下的条数，`maxHistoryMessages` 是条数上限。
+
+**`collectDroppedCitationAnchors` 值得单独看**：它保证被压缩掉的段落里的**引用锚点**不会丢。这是「压缩后引用还在不在」那条 cassette 断言针对的能力。`estimatedDroppedTokens` 与预算共用 `estimateTextTokens`（中日韩 1 字 ≈ 1 token）。日历截止日（没有「期限」二字的「2026年9月30日前提起仲裁」）由 `compact-fact-pin.ts` 整句钉进重注块，不进摘要衰减。
 
 ### `compact-llm-digest.ts`
 
@@ -236,7 +244,7 @@ LLM 增强是可选的（抽取式摘要打底，LLM 只做升级）。
 
 `shouldCompactMidTurn`、`applyMidTurnCompact`、`midTurnBudgetOverTrigger`、`MID_TURN_COMPACT_MAX`、类型 `MidTurnCompactPrune` / `MidTurnCompactOutcome`。
 
-**回合内压缩**：先试便宜的工具结果裁剪，不够再全压，不减少就拒绝。
+**回合内压缩**：先试便宜的工具结果裁剪，不够再全压，不减少就拒绝。次数到顶记 `cap`，与「没越线」（`below_trigger`）分开。
 
 ### `context-deferral.ts`
 
@@ -252,7 +260,7 @@ LLM 增强是可选的（抽取式摘要打底，LLM 只做升级）。
 
 **`SYSTEM_PROMPT_SECTION_CATALOG` 是章节的单一真相源**（第 3.17 节那张表的来源）。每个章节带 `always` 与 `cache` 两个元数据。
 
-**`applySystemPromptToHistory`** 把组装好的系统提示应用到历史（而不是每次都拼在消息里）。
+**`applySystemPromptToHistory`** 保留已经发出的静态前缀，只替换边界之后的会话段。可用工具清单在边界之后，本轮工具表变了会写进后缀，不会冻在首轮目录里。
 
 ### `prompt-fragments.ts`
 

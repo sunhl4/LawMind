@@ -33,10 +33,10 @@ test.describe("LawMind golden path", () => {
     await expect(page.getByTestId("lm-lawyer-today-plan-input")).toBeVisible();
     await expect(page.getByTestId("lm-lawyer-today-item-plan-carried")).toBeVisible();
     await expect(page.getByText("未结 · 自 1月1日")).toBeVisible();
-    // Cockpit must stay visible at default-ish window sizes (not crushed to 0 by 快捷入口).
+    // Cockpit must stay visible at default-ish window sizes (rail + stage, not crushed to 0).
     const cockpit = page.getByTestId("lm-lawyer-cockpit");
     await expect(cockpit).toBeVisible();
-    await expect(page.getByLabel("本案列表")).toBeVisible();
+    await expect(page.getByLabel("案件")).toBeVisible();
     const box = await cockpit.boundingBox();
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(280);
   });

@@ -2,7 +2,13 @@
  * Action summary + approval resolve routes.
  */
 
-import { displayChatSessionTitle, listSessions, saveSession } from "../../../src/lawmind/agent/session.js";
+import {
+  displayChatSessionTitle,
+  listSessionsForDesk,
+  loadSession,
+  saveSession,
+} from "../../../src/lawmind/agent/session.js";
+import type { AgentSession } from "../../../src/lawmind/agent/types.js";
 import {
   applyDerivedInterruptedAction,
   isSessionTurnLive,
@@ -12,7 +18,7 @@ import { listPendingToolApprovals } from "../../../src/lawmind/platform/pending-
 import type { LawMindRequiresAction } from "../../../src/lawmind/platform/requires-action.js";
 import { resolveApproval } from "../../../src/lawmind/application/services/approval-service.js";
 import { listApprovalRequests, listWorkQueueItems } from "../../../src/lawmind/application/services/queue-service.js";
-import { listDrafts } from "../../../src/lawmind/drafts/index.js";
+import { listDraftReviewHeads } from "../../../src/lawmind/drafts/index.js";
 import { listOpenAutomationInbox } from "../../../src/lawmind/platform/lawyer-automations.js";
 import { readTaskRecord } from "../../../src/lawmind/tasks/index.js";
 import { listWorkflowJobs } from "./lawmind-server-jobs.js";
@@ -40,9 +46,26 @@ export type ChatRequiresActionRow = {
  * Prefer session.pendingRequiresAction. If empty but the last turn still has
  * requiresAction (stale clear), rehydrate so /api/chat/resume can find action ids.
  */
+function saveFullSession(
+  workspaceDir: string,
+  sessionId: string,
+  mutate: (full: AgentSession) => void,
+): void {
+  const full = loadSession(workspaceDir, sessionId);
+  if (!full) {
+    return;
+  }
+  mutate(full);
+  try {
+    saveSession(workspaceDir, full);
+  } catch {
+    /* best-effort：目录扫描用的是不含对话历史的副本，写回必须用完整会话 */
+  }
+}
+
 function resolveSessionChatActions(
   workspaceDir: string,
-  session: ReturnType<typeof listSessions>[number],
+  session: AgentSession,
 ): LawMindRequiresAction[] {
   const pending = session.pendingRequiresAction ?? [];
   if (pending.length > 0) {
@@ -63,19 +86,15 @@ function resolveSessionChatActions(
     if (derivedActions.length === 0) {
       return [];
     }
-    try {
-      saveSession(workspaceDir, session);
-    } catch {
-      /* best-effort：id 稳定（interrupted:<turnId>），下次仍能派生同一张卡片 */
-    }
+    saveFullSession(workspaceDir, session.sessionId, (full) => {
+      applyDerivedInterruptedAction(full, isSessionTurnLive(workspaceDir, full.sessionId));
+    });
     return derivedActions.map((a) => ({ ...a, sessionId: a.sessionId ?? session.sessionId }));
   }
-  session.pendingRequiresAction = fromTurn;
-  try {
-    saveSession(workspaceDir, session);
-  } catch {
-    /* best-effort rehydrate */
-  }
+  const rehydrated = fromTurn;
+  saveFullSession(workspaceDir, session.sessionId, (full) => {
+    full.pendingRequiresAction = rehydrated;
+  });
   return fromTurn.map((a) => ({
     ...a,
     sessionId: a.sessionId ?? session.sessionId,
@@ -87,7 +106,7 @@ function listChatRequiresActions(
   matterFilter?: string,
 ): ChatRequiresActionRow[] {
   const rows: ChatRequiresActionRow[] = [];
-  for (const s of listSessions(workspaceDir)) {
+  for (const s of listSessionsForDesk(workspaceDir)) {
     if (matterFilter && s.matterId !== matterFilter) {
       continue;
     }
@@ -147,7 +166,7 @@ export async function handleActionSummaryRoutes({
     });
     const chatRequiresActions = listChatRequiresActions(workspaceDir, matterFilter);
     const chatRequiresActionCount = countChatRequiresActions(chatRequiresActions);
-    const pendingReviewDrafts = listDrafts(workspaceDir).filter(
+    const pendingReviewDrafts = listDraftReviewHeads(workspaceDir).filter(
       (draft) =>
         (!matterFilter || draft.matterId === matterFilter) &&
         (draft.reviewStatus === "pending" || draft.reviewStatus === "modified"),

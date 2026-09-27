@@ -25,6 +25,7 @@ describe("LawmindChatMessagesColumn empty guide", () => {
   });
 
   it("keeps empty chat clean without a task-type picker", async () => {
+    const onApplyPrompt = vi.fn();
     await act(async () => {
       root.render(
         <LawmindChatMessagesColumn
@@ -34,7 +35,7 @@ describe("LawmindChatMessagesColumn empty guide", () => {
           loading={false}
           messagesEndRef={{ current: null }}
           onCopyMessage={vi.fn()}
-          onApplyPrompt={vi.fn()}
+          onApplyPrompt={onApplyPrompt}
           onSendClarificationMessage={vi.fn()}
           fileChatPills={[]}
           contextTaskId={null}
@@ -56,6 +57,15 @@ describe("LawmindChatMessagesColumn empty guide", () => {
     expect(host.querySelector('[data-testid="lm-contract-fast-lane"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-empty-desk-verbs"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-empty-more"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-chat-empty-examples"]')).toBeTruthy();
+    expect(host.textContent).toContain("写一份备忘");
+    expect(host.textContent).toContain("审合同和记传票要先把文件拖进来");
+    const memo = host.querySelector('[data-testid="lm-chat-empty-example-memo"]') as HTMLButtonElement;
+    expect(memo).toBeTruthy();
+    await act(async () => {
+      memo.click();
+    });
+    expect(onApplyPrompt).toHaveBeenCalledWith("查一下民法典关于违约金过高的规定，写个备忘。");
     expect(host.querySelector(".lm-scenario-card")).toBeNull();
   });
 

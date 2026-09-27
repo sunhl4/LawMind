@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { UNTRUSTED_DOCUMENT_PREAMBLE } from "../../../platform/content-trust.js";
+import { unwrapUntrustedDocumentContent } from "../../../platform/content-trust.js";
 import {
   resolveDocumentPageChars,
   resolveDocumentReadBudgetChars,
@@ -41,10 +41,7 @@ function modelCtx(workspaceDir: string, contextTokens: number): AgentContext {
 
 /** Body chars, i.e. what the model reads after stripping the anti-injection banner. */
 function stripBanner(content: string): string {
-  const body = content.startsWith(UNTRUSTED_DOCUMENT_PREAMBLE)
-    ? content.slice(UNTRUSTED_DOCUMENT_PREAMBLE.length)
-    : content;
-  return body.replace(/\n---\s*$/, "");
+  return unwrapUntrustedDocumentContent(content);
 }
 
 describe("analyze_document default page", () => {

@@ -58,6 +58,8 @@ function toSources(
     kind: role === "legal" ? "statute" : "web",
     citation: s.citation,
     url: s.url,
+    // 模型口述的出处。不是开放样本库，不能标 demo，否则中高风险起草会被当成「仅命中演示语料」拒掉。
+    provider: role === "legal" ? "model-legal" : "model-general",
   }));
 }
 

@@ -1,6 +1,14 @@
 import type { ModelCatalogEntry } from "./lawmind-models-api";
 
 /**
+ * Models the user can pick under the conversation.
+ * Only models they added themselves. Built-in catalog rows stay out of this list.
+ */
+export function modelsOfferedInChatPicker(catalog: ModelCatalogEntry[]): ModelCatalogEntry[] {
+  return catalog.filter((row) => row.kind === "custom" && row.configured);
+}
+
+/**
  * Group model catalog rows by `group` field, keeping a stable display order.
  *
  * Mirrors the legacy `<select>` grouping used by `lawmind-chat-shell.tsx`.
@@ -146,6 +154,10 @@ export function providerIconLabel(key: ProviderIconKey): string {
       return "Platform";
     case "custom":
       return "Custom";
+    default: {
+      const unreachable: never = key;
+      return unreachable;
+    }
   }
 }
 

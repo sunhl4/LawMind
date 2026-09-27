@@ -208,7 +208,7 @@ async function main(): Promise<void> {
     `[LawMind Benchmark] avg=${(avgScore * 100).toFixed(1)}% gate=${gatePass ? "pass" : "fail"} threshold=${(opts.threshold * 100).toFixed(0)}% releaseGate=${gate.eligible ? "eligible" : "not-eligible"}${gate.reason ? ` (${gate.reason})` : ""}`,
   );
 
-  if (opts.strict && !gatePass) {
+  if (opts.strict && (!gate.eligible || !benchmarkPassesThreshold(gate.results, opts.threshold))) {
     process.exitCode = 1;
   }
 }

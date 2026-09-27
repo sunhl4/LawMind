@@ -38,6 +38,8 @@ export type GuardianHunkEvidence = {
 export type GuardianSectionEvidence = {
   heading: string;
   body: string;
+  /** 全文指纹。正文截断后仍能让证据包哈希跟着改稿变，避免沿用过期的 fail。 */
+  bodyFingerprint: string;
   citations: string[];
 };
 

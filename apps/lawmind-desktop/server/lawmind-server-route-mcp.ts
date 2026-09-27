@@ -1,6 +1,7 @@
 /**
- * MCP client config — LawMind consumes external servers.
- * GET/PUT /api/mcp/servers · POST /api/mcp/servers/:id/test
+ * MCP 配置接口。律师设置里没有这一页。
+ * 以后要内置接外部工具，走这里：GET/PUT /api/mcp/servers，试通 POST /api/mcp/servers/:id/test。
+ * 配置落在 workspace/lawmind/mcp-servers.json，密钥只留引用。
  */
 
 import path from "node:path";

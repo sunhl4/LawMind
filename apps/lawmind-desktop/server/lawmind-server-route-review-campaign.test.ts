@@ -185,6 +185,7 @@ describe("lawmind-server-route-review-campaign", () => {
       c: {},
     });
     expect(reportCap.status).toBe(200);
-    expect((reportCap.json() as { markdown: string }).markdown).toContain("Safety Score");
+    expect((reportCap.json() as { markdown: string }).markdown).not.toContain("Safety Score");
+    expect((reportCap.json() as { markdown: string }).markdown).toContain("关键词信号");
   });
 });

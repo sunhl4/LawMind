@@ -155,14 +155,6 @@ export function LawmindResearchFastLaneCard(props: LawmindResearchFastLaneCardPr
               >
                 去模型与检索
               </button>
-              <button
-                type="button"
-                className="lm-btn lm-btn-sm"
-                data-testid="lm-research-lane-open-doctor"
-                onClick={() => onOpenSettings("doctor")}
-              >
-                系统健康
-              </button>
             </div>
           ) : null}
         </div>

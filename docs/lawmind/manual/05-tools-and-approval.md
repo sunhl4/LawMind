@@ -12,7 +12,9 @@
 - `description` + `parameters`：写给模型看的使用说明和参数 schema。
 - `execute`：真正执行的函数，吃参数、拿上下文、返回结果。
 
-此外还有几个治理字段：`requiresApproval`（要不要律师点头）、`riskLevel`（风险级别）、`isConcurrencySafe`（能不能并发跑）。
+此外还有几个治理字段：`requiresApproval`（会不会真的停下等律师点头；运行期只有 `send_email` 为真）、`riskLevel`（风险级别）、`isConcurrencySafe`（能不能并发跑）。
+
+工具定义上如果写了 `requiresApproval: true`，但运行期判定不是外发，治理元数据仍记 `false`。设置页「需批准」读的是同一条判定，不会把本地改稿标成待拍板。
 
 关键的一点：**模型看得到的工具表，和它能不能调用某个工具，是两件事，但都归引擎管。** 模型只能在引擎给它的表里挑；挑了一个表外的名字，第一道中间件直接回一句「未知工具」。
 
@@ -64,21 +66,27 @@ type ApprovalCacheKey = { tool: string; matterId: string; argsHash: string };
 注意第三个字段。有两个工具是**按参数绑定的**：
 
 ```ts
-export const ARGS_BOUND_APPROVAL_TOOLS = new Set(["apply_surgical_edits", "prepare_outbound_mail"]);
+export const ARGS_BOUND_APPROVAL_TOOLS = new Set([
+  "apply_surgical_edits",
+  "prepare_outbound_mail",
+  "send_email",
+]);
 ```
 
 意思是：
 
 - `apply_surgical_edits` 的 `find`/`replace` 对、`task_id`、合同基线路径，参与了哈希；换了内容，哈希就变，原来的批准**作废**。
-- `prepare_outbound_mail` 只把**收件人**和**附件列表**算进哈希（`to` 和 `attachment_paths`），正文和主题不算。这么设计是因为「发给谁、带什么附件」才是真正需要律师看的东西；改几句话不该逼你重新点一遍。
+- `prepare_outbound_mail` 只把**收件人**和**附件列表**算进哈希（`to` 和 `attachment_paths`），正文和主题不算。它还不发送，改几句话不该逼律师重看一遍。
+- `send_email` 把**收件人、主题、正文、附件、案件 id** 都算进哈希。名单里只写了工具名，或这几项对不上（包括换了一个案件），这条名单放行不了。
+- 律师在「待我拍板」里点批准是另一条路：下一次同名调用会**整包换成卡片上的参数**再发。模型临时改的收件人或正文不会混进去，这次替换也不会再弹一张卡片。
 
-其余工具按工具名匹配——批准过一次 `render_document`，同一会话同一案件里就不用反复点。
+其余工具按工具名匹配。本地写（改稿、导出、记档案）本来就不会弹卡片。
 
 还有一条安全细节：`__approved` 这个标记是**服务端专用**的。模型就算在参数里自己塞一个 `__approved: true`，也会在处理之前被剥掉（`stableJson` 里显式丢弃这个键）。模型没法自己给自己开权限。
 
 ## 5.4 工具清单
 
-工具分四层：核心常驻、按需披露、MCP 外部、协作。下面这张表是**按需披露清单**（`DISCLOSED_TOOL_HINTS`）的完整内容，也就是模型一开始看不到、但可以用 `list_more_tools` 打开的能力。
+工具分四层：核心常驻、本轮自动广告、仍要 `list_more_tools` 或原话条件的能力、MCP 外部。下面这张表是 `DISCLOSED_TOOL_HINTS` 的说明文案。其中一批（工作区检索、列目录、技能正文、档案写穿等）由 `mergeTurnDisclosedToolNames` **每轮直接广告**，不必先点名。真正仍要 `list_more_tools` 或原话条件的，是外发、深度检索、联网、MCP 和多数协作工具。哪一层在什么时候出现，见第 23.0 节。
 
 | 工具名                      | 引擎给的说明                                                      |
 | --------------------------- | ----------------------------------------------------------------- |
@@ -120,7 +128,7 @@ export const ARGS_BOUND_APPROVAL_TOOLS = new Set(["apply_surgical_edits", "prepa
 | `explore_folder`            | 只读探查文件夹：看清树、找出相关文件并摘录                        |
 | `draft_worker`              | 并行写稿：按自包含任务书起草一节，父会话再汇总                    |
 | `import_host_file`          | 把本机文件收进本案                                                |
-| `run_host_command`          | 运行受控本机命令（须打开本机能力）                                |
+| `run_host_command`          | 运行受控本机命令（默认可用；非办公命令当次确认）                  |
 | `compare_documents`         | 只读对比两份文件的文本差异                                        |
 | `web_search`                | 联网检索公开网页                                                  |
 | `search_statute_web`        | 官方法规站点优先的联网检索                                        |
@@ -133,7 +141,7 @@ export const ARGS_BOUND_APPROVAL_TOOLS = new Set(["apply_surgical_edits", "prepa
 | `read_skill`                | 按需读取索引里的技能正文                                          |
 | `search_company_registry`   | 查企业登记；未接工商源时诚实标【待核实】                          |
 
-**核心常驻的 12 个**（`CORE_MODEL_TOOL_NAMES`）是：`analyze_document`、`apply_surgical_edits`、`calculate`、`draft_document`、`prepare_outbound_mail`、`read_project_file`、`render_document`、`request_approval`、`research_task`、`search_case_law`、`search_statute`、`update_draft`。再加两个控制工具 `list_more_tools` 和 `update_plan`，构成模型开局就能看到的全部。
+**核心常驻的 12 个**（`CORE_MODEL_TOOL_NAMES`）是：`analyze_document`、`apply_surgical_edits`、`calculate`、`draft_document`、`prepare_outbound_mail`、`read_project_file`、`render_document`、`request_approval`、`research_task`、`search_case_law`、`search_statute`、`update_draft`。再加 `list_more_tools` 和 `update_plan`。这 14 个是目录层，不是模型这一轮的全部：本轮自动广告的名字见第 23.0 节。
 
 ## 5.5 实现：注册表
 
@@ -169,7 +177,7 @@ RESERVED_TOOL_NAME: <name> is implemented only by LawMind execute()
 | `WRITE_TOOLS`           | 36   | 会改工作区状态或产出交付物的工具；驱动审批和运行模式判定   |
 | `MATTER_SCOPE_REQUIRED` | 15   | 没绑定案件就不许用；触发「请先选案件」的报错               |
 | `BACKGROUND_JOB_TOOLS`  | 1    | 只有 `execute_workflow`，必须暴露 job 状态、可取消、有审计 |
-| `IDEMPOTENT_READ_TOOLS` | 36   | 只读且可重放；决定重试策略                                 |
+| `IDEMPOTENT_READ_TOOLS` | 36   | 只读且可重放；决定重试。没标并发时，也决定能否并行         |
 | `DESK_WRITE_TOOL_NAMES` | 11   | 写工作台的档案类工具；也是「对话补档案」那一波的核心       |
 
 `MATTER_SCOPE_REQUIRED` 的 15 个是：`search_matter`、`read_case_file`、`add_case_note`、`get_matter_summary`、`list_mail_inbox`、`list_mail_attachments`、`apply_legal_events`、`compile_intake_brief`、`apply_intake_brief`、`update_matter_profile`、`revert_desk_write`、`propose_organize_plan`、`execute_organize_plan`、`relocate_matter_materials`、`apply_file_ops`。
@@ -197,11 +205,11 @@ RESERVED_TOOL_NAME: <name> is implemented only by LawMind execute()
 | 7   | `roleAllowlistMiddleware`     | 岗位白名单 + 办件否决清单                            | `当前办件不能使用「xxx」。`                                                  |
 | 8   | `matterScopeMiddleware`       | 需绑定案件却没绑                                     | 见上节那句                                                                   |
 | 9   | `clarificationGateMiddleware` | 还有待澄清就不许起草/改稿/外发                       | 「仍有待澄清事项…」那整段                                                    |
-| 10  | `folderExploreGateMiddleware` | 丢了文件夹但没先探查                                 | `请先探查文件夹（explore_folder…）`                                          |
-| 11  | `approvalMiddleware`          | 审批闸门与风险上限                                   | `操作「xxx」需要律师在「待我拍板」中确认。`                                  |
-| 12  | `argNormalizeMiddleware`      | 参数归一化                                           | —                                                                            |
-| 13  | `argSchemaMiddleware`         | schema 校验，剥掉多余参数                            | `Invalid arguments for xxx: …` / 附带「已忽略未知参数」备注                  |
-| 14  | `legalVerifyMiddleware`       | 外发预检 + 引用完整性后处理                          | 收件人不一致、引用对不上来源等                                               |
+| 10  | `folderExploreGateMiddleware` | 保留在链上，不再因文件夹拒写。先读再改由模型排       | —                                                                            |
+| 11  | `argNormalizeMiddleware`      | 参数归一化                                           | —                                                                            |
+| 12  | `argSchemaMiddleware`         | schema 校验，剥掉多余参数                            | `Invalid arguments for xxx: …` / 附带「已忽略未知参数」备注                  |
+| 13  | `legalVerifyMiddleware`       | 外发预检在进审批前；引用核对在执行返回后             | 收件人不一致、引用对不上来源等                                               |
+| 14  | `approvalMiddleware`          | 审批闸门与风险上限                                   | `操作「xxx」需要律师在「待我拍板」中确认。`                                  |
 | 15  | `auditMiddleware`             | 记 `tool_call` 审计                                  | —                                                                            |
 | 16  | `timeoutMiddleware`           | 超时与中断                                           | `Tool xxx timed out after Nms`                                               |
 | 17  | `subprocessSandboxMiddleware` | 高风险工具丢子进程跑                                 | 沙箱不可用就直接拒绝执行                                                     |
@@ -209,8 +217,8 @@ RESERVED_TOOL_NAME: <name> is implemented only by LawMind execute()
 
 顺序上的几点：
 
-- **审批放在 schema 校验之前**（11 在 13 前面）。也就是说，一个参数还没校验的调用也能进审批队列。这样设计是为了让律师先看到「它想干什么」，而不是等校验完才排队。
-- **审计包在执行外面**（15 在 18 前面）。但注意它的**写入时机是 `await next()` 之后**——`auditMiddleware` 会拿到工具结果，把 `ok` 与 `error` 一起写进 `tool_call` 事件（`tool-pipeline.ts:757-777`）。所以它记的是**这次调用的结果**，不是「发起过」。工具抛异常时它也会兜住并记 `ok: false`。
+- **参数先校验，再做外发预检，再进审批**（11–13 在 14 前面）。缺字段退回模型；收件人域名或特权信息不过关，也不进「待我拍板」。律师只看能发出去的那一次。
+- **审计包在执行外面**（15 在 18 前面）。但注意它的**写入时机是 `await next()` 之后**——`auditMiddleware` 会拿到工具结果，把 `ok` 与 `error` 一起写进 `tool_call` 事件。所以它记的是**这次调用的结果**，不是「发起过」。工具抛异常时它也会兜住并记 `ok: false`。
 - **沙箱是最后一道**（17）。前面所有检查都在主进程做，只有真正执行才可能进子进程。
 
 ### 防空转的两条预算
@@ -238,11 +246,13 @@ RESERVED_TOOL_NAME: <name> is implemented only by LawMind execute()
 
 `src/lawmind/agent/tools/governance.ts` 给每个工具算一份治理元数据，`GET /api/tools/registry` 会把它吐出来。
 
-风险级别（`resolveToolRiskLevel`）的算法很直白：
+风险级别（`resolveToolRiskLevel`）的算法：
 
-1. 工具自己声明了 `riskLevel` 就用它。
-2. 否则，如果 `requiresApproval` 或者在 `WRITE_TOOLS` 里，算 `medium`。
+1. 工具自己声明了 `riskLevel` 就用它。`send_email` 声明的是 `high`。
+2. 否则，如果定义写了 `requiresApproval` 或者在 `WRITE_TOOLS` 里，算 `medium`。
 3. 其余算 `low`。
+
+治理元数据里的 `requiresApproval` **不等于**定义上的同名字段，也 **不等于** `lawyer_approved_write`。它只回答「这次调用会不会进待我拍板」，实现是 `toolRequiresLawyerPause`。本地写仍是 `lawyer_approved_write`，但 `requiresApproval` 为 `false`。
 
 运行模式（`runtimeMode`）三档：
 
@@ -260,12 +270,12 @@ RESERVED_TOOL_NAME: <name> is implemented only by LawMind execute()
 
 `src/lawmind/agent/permission-mode.ts` 定义了四档：
 
-| 模式       | 含义                                               |
-| ---------- | -------------------------------------------------- |
-| `standard` | 默认。正常干活                                     |
-| `strict`   | 严格。危险工具一律要审批                           |
-| `readonly` | 只读。只能看不能写                                 |
-| `research` | 研究。只读工具加 `research_task` / `deep_research` |
+| 模式       | 含义                                                                                                        |
+| ---------- | ----------------------------------------------------------------------------------------------------------- |
+| `standard` | 默认。正常干活。`send_email` 仍要律师点头，除非开发开关明确允许跳过                                         |
+| `strict`   | 工具表与 `standard` 相同，不额外冻结写工具。差别只有一条：即使开了「危险工具免审批」，`send_email` 仍然要停 |
+| `readonly` | 只读。只能看不能写                                                                                          |
+| `research` | 研究。只读工具加 `research_task` / `deep_research`                                                          |
 
 只读模式允许的 32 个工具是一个白名单，包含各种 `search_*`、`read_*`、`list_*`、`analyze_document`、`compare_documents`、`calculate`、`update_plan` 等。研究模式就是在这个白名单上再加两个检索工具。
 
@@ -282,15 +292,15 @@ RESERVED_TOOL_NAME: <name> is implemented only by LawMind execute()
 
 ## 5.10 实现：沙箱子进程
 
-`src/lawmind/runtime/tool-sandbox.ts` 负责把高风险工具丢进子进程跑。哪些算高风险由 `SUBPROCESS_SANDBOX_TOOL_NAMES` 决定（定义在 `src/lawmind/agent/dangerous-tool-policy.ts:18`，**七个**）：
+`src/lawmind/runtime/tool-sandbox.ts` 负责把高风险工具丢进子进程跑。哪些算高风险由 `SUBPROCESS_SANDBOX_TOOL_NAMES` 决定（定义在 `src/lawmind/agent/dangerous-tool-policy.ts`，**七个**）：
 
 ```text
 render_document          render_tracked_draft    execute_workflow
-draft_document           add_case_note           run_analysis
-run_compute
+draft_document           run_analysis            run_compute
+run_host_command
 ```
 
-`read_project_file` 与 `analyze_document` **刻意留在主进程**——它们是只读、且延迟敏感，进子进程只会更慢（代码注释原话：`readonly, latency-sensitive`）。
+`read_project_file`、`analyze_document`、`add_case_note` **留在主进程**。前两个只读且怕延迟；`add_case_note` 只是往 CASE.md 追加一小节，不是在跑不受信代码。真正要隔开的是会执行脚本或本机命令的工具，所以 `run_host_command` 在沙箱开启时进子进程，档案补记不进。Codex / Claude Code 的沙箱也是罩命令执行，不罩一次本地记笔记。
 
 开关有三态（`describeToolSandboxStatus`）：环境变量 `LAWMIND_TOOL_SANDBOX=1` → `{enabled:true, source:"env"}`；或者 `lawmind.policy.json` 里 `toolSandbox: true` → `{source:"policy"}`；都不是就是 `{enabled:false, source:"off"}`。
 
@@ -314,7 +324,7 @@ sandboxUnavailableResult("runner missing (<path>). Refusing in-process fallback.
 - `precheckOutboundMail`：查收件人白名单（`outbound_recipient_gate`）和特权信息（`outbound_privilege_gate`）。收件人和短路径指定的不一致、或者域名不在本案允许范围，都会在**发之前**拦下来。
 - `precheckOutboundSameTurnVerify`：同一回合内的验证结果检查。
 
-只有 `prepare_outbound_mail` 会走外发预检（`OUTBOUND_PRECHECK_TOOLS`）。需要引用的交付物类型是 `memo.research`、`memo.opinion`、`memo.internal`、`contract.review` 四种（`STATUTE_TRIAL_DELIVERABLES`）。
+`prepare_outbound_mail` 和 `send_email` 都会走外发预检（`OUTBOUND_PRECHECK_TOOLS`）。预检在审批之前：域名不在允许范围，或正文带特权信息，卡片出不来。待发信拦一次，真正发送再拦一次，不能靠换工具名绕开。需要引用的交付物类型起算是 `memo.research`、`memo.opinion`、`memo.internal`、`contract.review`，另外 `letter.*`、`litigation.*`、`contract.*` 前缀同样要过引用核对。引用核对发生在工具返回之后，不挡审批卡片。
 
 被拦时的文案都是给律师看的，不是给模型看的，比如：
 
@@ -395,7 +405,8 @@ readyToUse: false
 
 - **别把 `lawyer_approved_write` 当成会弹窗。** 它只是分类。真正弹窗的只有 `send_email`。
 - `MATTER_SCOPE_REQUIRED` 和 `MATTER_SCOPED_TOOL_NAMES` 是同一个集合的两个名字（后者是 `tool-pipeline.ts` 里的别名）。改一个记得看另一个。
-- 中间件顺序不要动。尤其是「审批在 schema 之前」「审计在执行之前」这两条，换位置会改变行为。
+- 中间件顺序不要动。尤其是「先校验参数，再进审批」「审计在执行之前、写入在 `next()` 之后」这两条。
+- `requiresApproval` 在治理元数据里只表示会不会进待我拍板。`lawyer_approved_write` 仍只是分类。
 - `shouldCheckpointToolBudget` 现在恒返回 `false`。看到 `continue_tools` 相关代码，先确认是不是在为旧会话做兼容。
 - 沙箱缺失时的行为是**拒绝**，不是降级。如果你在排查「某个工具报 SANDBOX_UNAVAILABLE」，去看 runner 路径和 `LAWMIND_TOOL_SANDBOX`，别去改工具本身。
 - `send_email` 机械暂停这条线在 Word 插件回合里也生效：插件的预批准名单只含 `apply_surgical_edits` 和 `render_tracked_draft`，**刻意不含** `prepare_outbound_mail`，且 Word 回合里 `render_document` 被工具自身拒绝。

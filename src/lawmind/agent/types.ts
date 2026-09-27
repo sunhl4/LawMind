@@ -375,6 +375,8 @@ export type AgentSession = {
   alreadySurfacedMemoryPaths?: string[];
   /** 协作委派子会话：写入独立 transcript（`delegations/<id>.transcript.jsonl`） */
   collaborationDelegationId?: string;
+  /** 协作子回合。结果回到主对话或在办，不出现在侧栏会话列表。 */
+  omitFromChatSwitcher?: boolean;
   /** 上次自动写入 session-summary 时的 turn 数（用于节流） */
   lastSessionSummaryTurnCount?: number;
   /**
@@ -549,7 +551,7 @@ export type AgentConfig = {
    */
   autoApproveSandboxWorkflowSteps?: boolean;
   /**
-   * E7：可选「快模型」——工具轮优先使用；缺省回退 `model`。
+   * 可选更快模型：审稿（reviewModel）与回合内摘要。对话循环始终用 `model`。
    */
   workerModel?: AgentModelConfig;
   actorId?: string;

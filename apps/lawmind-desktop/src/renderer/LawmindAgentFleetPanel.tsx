@@ -1,7 +1,6 @@
 /**
- * 在办 — 与对话工作台同构：左侧待办目录 · 右侧办理区。
- * 职责：集中处理签批 / 补充 / 批准（含待审文书的通过·驳回·需修改，无需全文预览）；
- * 改稿与交付预览经「改稿」场景页（从本页 CTA 进入；Solo 不占顶栏一级 Tab）。
+ * 在办 — 交办册：左侧停在你这里 / 正在办 / 今天办完，右侧办理这一件。
+ * 签批、补充、发出仍在这一件上完成；改稿从这一件进入。
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -19,11 +18,13 @@ import {
 } from "../../../../src/lawmind/platform/clarification-fields.ts";
 import { registerClarifyBringInHandlers } from "./lawmind-clarify-bring-in-bus";
 import {
+  firstNeedsYouIdForMatter,
+  isMatterOnlyDeskTarget,
   loadAgentFleet,
+  loadAssistantGrowth,
   loadFleetTranscript,
   matchNeedsDecisionFocusId,
   type AgentFleetSummary,
-  type AgentRunSummary,
 } from "./lawmind-agent-fleet-api";
 import type { NeedsDecisionDeskTarget } from "./lawmind-agents-desk";
 import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
@@ -47,22 +48,71 @@ import {
   toolArgsHaveLawyerEditableShortFields,
   toolArgsLinkedTaskId,
 } from "../../../../src/lawmind/platform/tool-approval-diff.ts";
+import { fleetApprovalDockLabels } from "./lawmind-fleet-queue";
 import {
-  buildFleetTeamRows,
-  filterRunsByAssistant,
-} from "./lawmind-fleet-team";
-import {
-  fleetApprovalDockLabels,
-  fleetStatusKind as statusKind,
-  groupFleetQueue,
-  resolveFleetSelectedId,
-} from "./lawmind-fleet-queue";
-import { mergeFleetQueueRows } from "./lawmind-fleet-queue-merge";
+  buildFleetDocket,
+  docketInstruction,
+  docketRowTitle,
+  docketStopLine,
+  filterDocketByMatter,
+  initialDocketOpen,
+} from "./lawmind-fleet-docket";
 import { useRequireSignoffReview } from "./lawmind-review-prefs";
+
+/** 离开在办再进来时先画出上次的目录，再在后台刷新。按 apiBase 区分工作区。 */
+type FleetDeskCache = {
+  apiBase: string;
+  fleet: AgentFleetSummary;
+  summary: ActionSummaryPayload;
+  matterLabelById: Record<string, string>;
+};
+
+let fleetDeskCache: FleetDeskCache | null = null;
+let fleetLoadGeneration = 0;
+
+function readFleetDeskCache(apiBase: string): FleetDeskCache | null {
+  return fleetDeskCache?.apiBase === apiBase ? fleetDeskCache : null;
+}
+
+function matterLabelsFromOverviews(
+  overviews: Array<{ matterId: string; displayName?: string; title?: string }> | undefined,
+): Record<string, string> {
+  const labels: Record<string, string> = {};
+  for (const row of overviews ?? []) {
+    const id = row.matterId?.trim();
+    if (!id) {
+      continue;
+    }
+    const title = row.displayName?.trim() || row.title?.trim();
+    if (title) {
+      labels[id] = title;
+    }
+  }
+  return labels;
+}
+
+/** 案件名和「待教」不挡目录。失败就留着上一次的名字。 */
+async function fetchFleetDeskExtras(apiBase: string): Promise<{
+  labels: Record<string, string>;
+  growth: AgentFleetSummary["growth"] | null;
+}> {
+  const [overviews, growth] = await Promise.all([
+    apiGetJson<{
+      ok?: boolean;
+      overviews?: Array<{ matterId: string; displayName?: string; title?: string }>;
+    }>(apiBase, "/api/matters/overviews").catch(() => null),
+    loadAssistantGrowth(apiBase, 30).catch(() => null),
+  ]);
+  return {
+    labels: matterLabelsFromOverviews(overviews?.overviews),
+    growth,
+  };
+}
 import { collectFleetActions, pickFleetActionForRun } from "./lawmind-fleet-actions";
 import { LawmindAgentFleetListAside } from "./LawmindAgentFleetListAside";
 import { LawmindAgentFleetDetail } from "./LawmindAgentFleetDetail";
 import { LawmindAgentFleetEmpty } from "./LawmindAgentFleetEmpty";
+import { LawmindDaemonRecap } from "./LawmindDaemonRecap";
 import { createFleetCeremonyActions } from "./useLawmindFleetCeremonyActions";
 import { useFleetDeskViewStore } from "./stores/fleet-desk-view-store";
 
@@ -88,6 +138,8 @@ export type LawmindAgentFleetPanelProps = {
   onOpenMemoryInspector?: () => void;
   /** 打开设置→系统健康（签批写戳失败次链） */
   onOpenHealth?: () => void;
+  /** 筛选停在某一案时，回到工作台这一卷。 */
+  onOpenMatterOnDesk?: (matterId: string) => void;
 };
 
 export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): ReactNode {
@@ -108,41 +160,43 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     onShowArtifact,
     onOpenMemoryInspector,
     onOpenHealth,
+    onOpenMatterOnDesk,
   } = props;
 
-  const [fleet, setFleet] = useState<AgentFleetSummary | null>(null);
-  const [summary, setSummary] = useState<ActionSummaryPayload | null>(null);
-  const [matterLabelById, setMatterLabelById] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(false);
+  const cachedDesk = readFleetDeskCache(apiBase);
+  const [fleet, setFleet] = useState<AgentFleetSummary | null>(cachedDesk?.fleet ?? null);
+  const [summary, setSummary] = useState<ActionSummaryPayload | null>(cachedDesk?.summary ?? null);
+  const [matterLabelById, setMatterLabelById] = useState<Record<string, string>>(
+    cachedDesk?.matterLabelById ?? {},
+  );
+  const [loading, setLoading] = useState(!cachedDesk);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const requireSignoffReview = useRequireSignoffReview();
-  // 左栏视图状态（团队/队列、筛选、分组展开、稍后看）在 zustand 域 store；见 stores/README.md。
-  const listMode = useFleetDeskViewStore((s) => s.listMode);
+  // 左栏视图状态（按事项/按助手、筛选、分组展开、稍后看）在 zustand 域 store；见 stores/README.md。
   const matterFilter = useFleetDeskViewStore((s) => s.matterFilter);
-  const assistantFilter = useFleetDeskViewStore((s) => s.assistantFilter);
   const snoozed = useFleetDeskViewStore((s) => s.snoozed);
-  const setListMode = useFleetDeskViewStore((s) => s.setListMode);
   const setMatterFilter = useFleetDeskViewStore((s) => s.setMatterFilter);
-  const selectAssistant = useFleetDeskViewStore((s) => s.selectAssistant);
   const resetFiltersForDeepLink = useFleetDeskViewStore((s) => s.resetFiltersForDeepLink);
   const snoozeRun = useFleetDeskViewStore((s) => s.snooze);
-  const expandGroup = useFleetDeskViewStore((s) => s.expandGroup);
-  const expandOnlyGroup = useFleetDeskViewStore((s) => s.expandOnlyGroup);
-  const syncExpandedGroups = useFleetDeskViewStore((s) => s.syncExpandedGroups);
   const resetFleetViewTransient = useFleetDeskViewStore((s) => s.resetTransient);
+  const [onlyMine, setOnlyMine] = useState(false);
+  const [inFlightOpen, setInFlightOpen] = useState(true);
+  const [settledOpen, setSettledOpen] = useState(false);
+  const [bandsReady, setBandsReady] = useState(false);
+  const [instructionLine, setInstructionLine] = useState("");
   const [clarificationDraft, setClarificationDraft] = useState<Record<string, string>>({});
   const [runActions, setRunActions] = useState<LawMindRequiresAction[]>([]);
   const [argsEditOpen, setArgsEditOpen] = useState(false);
   const [argsEditError, setArgsEditError] = useState<string | null>(null);
-  const [hasLoaded, setHasLoaded] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(Boolean(cachedDesk));
   const [deskChecklistView, setDeskChecklistView] = useState<VerificationChecklistView | null>(
     null,
   );
   const [deskChecklistChecked, setDeskChecklistChecked] = useState<Record<string, boolean>>({});
   const [deskChecklistLoading, setDeskChecklistLoading] = useState(false);
-  const [deskAcceptanceReady, setDeskAcceptanceReady] = useState(true);
+  const [deskAcceptanceReady, setDeskAcceptanceReady] = useState(false);
   const [deskDraftReviewStatus, setDeskDraftReviewStatus] = useState<
     "pending" | "approved" | "rejected" | "modified" | undefined
   >(undefined);
@@ -161,45 +215,75 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
    * 否则切换/回填案件上下文后，其它案件的签批会在数秒轮询后「突然消失」。
    */
   const refresh = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (opts?: { silent?: boolean; extras?: boolean }) => {
       if (!apiBase) {
         return;
       }
+      const gen = ++fleetLoadGeneration;
       if (!opts?.silent) {
         setLoading(true);
       }
       setError(null);
       try {
-        const [f, s, ov] = await Promise.all([
-          loadAgentFleet(apiBase, null, { windowDays: 30 }),
-          loadActionSummary(apiBase),
-          apiGetJson<{
-            ok?: boolean;
-            overviews?: Array<{ matterId: string; displayName?: string; title?: string }>;
-          }>(apiBase, "/api/matters/overviews").catch(() => null),
-        ]);
-        setFleet(f);
-        setSummary(s);
-        if (ov?.overviews?.length) {
-          const labels: Record<string, string> = {};
-          for (const row of ov.overviews) {
-            const id = row.matterId?.trim();
-            if (!id) {
-              continue;
-            }
-            const title = row.displayName?.trim() || row.title?.trim();
-            if (title) {
-              labels[id] = title;
-            }
-          }
-          setMatterLabelById(labels);
+        const f = await loadAgentFleet(apiBase, null);
+        if (gen !== fleetLoadGeneration) {
+          return;
         }
+        setFleet((prev) => (prev?.growth ? { ...f, growth: prev.growth } : f));
+        setHasLoaded(true);
+        setLoading(false);
+        const s = await loadActionSummary(apiBase);
+        if (gen !== fleetLoadGeneration) {
+          return;
+        }
+        setSummary(s);
+        fleetDeskCache = {
+          apiBase,
+          fleet: fleetDeskCache?.apiBase === apiBase && fleetDeskCache.fleet.growth
+            ? { ...f, growth: fleetDeskCache.fleet.growth }
+            : f,
+          summary: s,
+          matterLabelById:
+            fleetDeskCache?.apiBase === apiBase ? fleetDeskCache.matterLabelById : {},
+        };
+        setHasLoaded(true);
+        setLoading(false);
         if (!opts?.silent) {
           onRefreshSummary?.();
         }
+        if (opts?.extras) {
+          void fetchFleetDeskExtras(apiBase).then((extras) => {
+            if (gen !== fleetLoadGeneration) {
+              return;
+            }
+            const latest = readFleetDeskCache(apiBase);
+            const nextLabels =
+              Object.keys(extras.labels).length > 0
+                ? extras.labels
+                : (latest?.matterLabelById ?? {});
+            if (Object.keys(nextLabels).length > 0) {
+              setMatterLabelById(nextLabels);
+            }
+            const growth = extras.growth ?? undefined;
+            if (growth) {
+              setFleet((prev) => (prev ? { ...prev, growth } : prev));
+            }
+            if (gen !== fleetLoadGeneration || !latest) {
+              return;
+            }
+            const current = readFleetDeskCache(apiBase) ?? latest;
+            fleetDeskCache = {
+              ...current,
+              matterLabelById: nextLabels,
+              fleet: growth ? { ...current.fleet, growth } : current.fleet,
+            };
+          });
+        }
       } catch (e) {
+        if (gen !== fleetLoadGeneration) {
+          return;
+        }
         setError(errorMessage(e, "无法加载在办事项"));
-      } finally {
         setLoading(false);
         setHasLoaded(true);
       }
@@ -208,93 +292,90 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
   );
 
   useEffect(() => {
-    void refresh();
+    const hadCache = Boolean(readFleetDeskCache(apiBase));
+    void refresh({ silent: hadCache, extras: true });
     const id = window.setInterval(() => {
       if (document.visibilityState !== "hidden") {
         void refresh({ silent: true });
       }
     }, 5_000);
-    return () => window.clearInterval(id);
-  }, [refresh]);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [apiBase, refresh]);
 
-  const allQueue = useMemo(
+  const docketAll = useMemo(
     () =>
-      mergeFleetQueueRows({
+      buildFleetDocket({
         fleetRuns: fleet?.runs,
-        pendingReviewDrafts: summary?.pendingReviewDrafts,
-        automationInbox: summary?.automationInbox,
+        pendingReviewDrafts: undefined,
+        automationInbox: undefined,
         snoozed,
         includePendingReview: requireSignoffReview,
       }),
-    [fleet?.runs, summary?.pendingReviewDrafts, summary?.automationInbox, snoozed, requireSignoffReview],
+    [fleet?.runs, snoozed, requireSignoffReview],
+  );
+
+  const docketScoped = useMemo(
+    () => filterDocketByMatter(docketAll, matterFilter),
+    [docketAll, matterFilter],
+  );
+
+  const onlyNeedsYou = needsDecisionFocus || onlyMine;
+  const docketVisible = useMemo(() => {
+    if (!onlyNeedsYou) {
+      return docketScoped;
+    }
+    return {
+      needsYou: docketScoped.needsYou,
+      inFlight: [],
+      settled: [],
+    };
+  }, [docketScoped, onlyNeedsYou]);
+
+  const docketRows = useMemo(
+    () => [...docketAll.needsYou, ...docketAll.inFlight, ...docketAll.settled],
+    [docketAll],
+  );
+
+  const visibleRows = useMemo(
+    () => [...docketVisible.needsYou, ...docketVisible.inFlight, ...docketVisible.settled],
+    [docketVisible],
   );
 
   const matterChoices = useMemo(() => {
     const ids = new Set<string>();
-    for (const run of allQueue) {
+    for (const run of docketRows) {
       const mid = run.matterId?.trim();
       if (mid) {
         ids.add(mid);
       }
     }
     return [...ids].toSorted((a, b) => a.localeCompare(b, "zh"));
-  }, [allQueue]);
+  }, [docketRows]);
 
-  const matterScopedQueue = useMemo(() => {
-    if (matterFilter === "all") {
-      return allQueue;
-    }
-    return allQueue.filter((r) => (r.matterId?.trim() || "") === matterFilter);
-  }, [allQueue, matterFilter]);
-
-  const queue = useMemo(
-    () => filterRunsByAssistant(matterScopedQueue, assistantFilter),
-    [matterScopedQueue, assistantFilter],
-  );
-
-  const queueGroups = useMemo(() => groupFleetQueue(queue), [queue]);
-
-  useEffect(() => {
-    syncExpandedGroups(queueGroups);
-  }, [queueGroups, syncExpandedGroups]);
-
-  const teamSourceRuns = useMemo(() => {
-    const byId = new Map<string, AgentRunSummary>();
-    for (const r of matterScopedQueue) {
-      byId.set(r.id, r);
-    }
-    for (const r of fleet?.runs ?? []) {
-      if (
-        r.status === "running" ||
-        r.status === "queued" ||
-        r.status === "scheduled"
-      ) {
-        if (!byId.has(r.id)) {
-          byId.set(r.id, r);
-        }
-      }
-    }
-    return [...byId.values()];
-  }, [matterScopedQueue, fleet?.runs]);
-
-  const teamRows = useMemo(
+  const bandOpen = useMemo(
     () =>
-      buildFleetTeamRows({
-        runs: teamSourceRuns,
-        growth: fleet?.growth,
-        displayById: assistantDisplayById,
+      initialDocketOpen({
+        needsYou: docketScoped.needsYou.length,
+        inFlight: docketScoped.inFlight.length,
+        settled: docketScoped.settled.length,
       }),
-    [teamSourceRuns, fleet?.growth, assistantDisplayById],
+    [docketScoped],
   );
+  const scopedCount =
+    docketScoped.needsYou.length + docketScoped.inFlight.length + docketScoped.settled.length;
 
   useEffect(() => {
-    const next = resolveFleetSelectedId(queue, selectedId);
-    if (next !== selectedId) {
-      setSelectedId(next);
+    if (!hasLoaded || bandsReady || scopedCount === 0) {
+      return;
     }
-  }, [queue, selectedId]);
+    setInFlightOpen(bandOpen.inFlight);
+    setSettledOpen(bandOpen.settled);
+    setBandsReady(true);
+  }, [hasLoaded, bandsReady, scopedCount, bandOpen]);
 
-  /** 深链到达时先放开案件/助手筛选，避免在错误滤镜下匹配失败。 */
+  /** 深链到达时先放开案件筛选，避免在错误滤镜下匹配失败。 */
   useEffect(() => {
     if (!focusTarget) {
       return;
@@ -304,16 +385,36 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
   }, [focusTarget, resetFiltersForDeepLink]);
 
   useEffect(() => {
-    if (!focusTarget || allQueue.length === 0) {
+    if (!focusTarget || docketRows.length === 0) {
       return;
     }
-    const focused = matchNeedsDecisionFocusId(allQueue, focusTarget);
+    if (isMatterOnlyDeskTarget(focusTarget)) {
+      const firstId = firstNeedsYouIdForMatter(
+        docketAll.needsYou,
+        focusTarget.matterId?.trim() ?? "",
+      );
+      if (firstId) {
+        setSelectedId(firstId);
+      }
+      onFocusTargetConsumed?.();
+      return;
+    }
+    const focused = matchNeedsDecisionFocusId(docketRows, focusTarget);
     if (!focused) {
       return;
     }
-    const focusedRun = allQueue.find((r) => r.id === focused);
-    if (focusedRun) {
-      expandGroup(statusKind(focusedRun.status));
+    const focusedRun = docketRows.find((r) => r.id === focused);
+    if (focusedRun && !docketScoped.needsYou.some((r) => r.id === focused)) {
+      setOnlyMine(false);
+      onClearNeedsDecisionFocus?.();
+      if (docketAll.inFlight.some((r) => r.id === focused)) {
+        setInFlightOpen(true);
+        setBandsReady(true);
+      }
+      if (docketAll.settled.some((r) => r.id === focused)) {
+        setSettledOpen(true);
+        setBandsReady(true);
+      }
     }
     setSelectedId(focused);
     onFocusTargetConsumed?.();
@@ -326,25 +427,23 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
         behavior: "smooth",
       });
     });
-  }, [allQueue, focusTarget, onFocusTargetConsumed, expandGroup]);
+  }, [docketRows, docketAll, docketScoped.needsYou, focusTarget, onFocusTargetConsumed, onClearNeedsDecisionFocus]);
 
-  /** 侧栏「待我拍板」：有票时默认选中首项并切到队列，避免办理区空白。 */
+  /** 有要律师处理的件时先打开它。正在办和今天办完不抢这个位置。 */
   useEffect(() => {
-    if (!needsDecisionFocus || focusTarget) {
+    if (focusTarget) {
       return;
     }
-    if (matterScopedQueue.length === 0) {
+    if (selectedId && visibleRows.some((r) => r.id === selectedId)) {
       return;
     }
-    if (selectedId && matterScopedQueue.some((r) => r.id === selectedId)) {
-      return;
+    const next = docketScoped.needsYou[0]?.id ?? null;
+    if (next !== selectedId) {
+      setSelectedId(next);
     }
-    setListMode("queue");
-    setSelectedId(matterScopedQueue[0].id);
-    expandGroup(statusKind(matterScopedQueue[0].status));
-  }, [needsDecisionFocus, focusTarget, matterScopedQueue, selectedId, setListMode, expandGroup]);
+  }, [focusTarget, visibleRows, docketScoped.needsYou, selectedId]);
 
-  const current = queue.find((r) => r.id === selectedId) ?? null;
+  const current = visibleRows.find((r) => r.id === selectedId) ?? null;
 
   useEffect(() => {
     const taskId = current?.taskId?.trim();
@@ -373,7 +472,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
       setDeskChecklistView(null);
       setDeskChecklistChecked({});
       setDeskChecklistLoading(false);
-      setDeskAcceptanceReady(true);
+      setDeskAcceptanceReady(false);
       setDeskDraftReviewStatus(undefined);
       // 与后面的 cleanup 保持同形返回，避免 consistent-return。
       return undefined;
@@ -399,7 +498,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
         );
         setDeskChecklistView(view);
         setDeskChecklistChecked({ ...view.state.checked });
-        setDeskAcceptanceReady(draft ? validateDraftAgainstSpec(draft).ready : true);
+        setDeskAcceptanceReady(draft ? validateDraftAgainstSpec(draft).ready : false);
         const rs = draft?.reviewStatus;
         setDeskDraftReviewStatus(
           rs === "pending" || rs === "approved" || rs === "rejected" || rs === "modified"
@@ -411,7 +510,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
           const view = buildChecklistView(undefined, null);
           setDeskChecklistView(view);
           setDeskChecklistChecked({ ...view.state.checked });
-          setDeskAcceptanceReady(true);
+          setDeskAcceptanceReady(false);
           setDeskDraftReviewStatus("pending");
         }
       } finally {
@@ -453,18 +552,26 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     const sid = current?.sessionId?.trim();
     if (!apiBase || !sid) {
       setRunActions([]);
+      setInstructionLine("");
       return undefined;
     }
     let cancelled = false;
+    setInstructionLine("");
     void loadFleetTranscript(apiBase, sid)
       .then((payload) => {
-        if (!cancelled) {
-          setRunActions(payload?.pendingRequiresAction ?? []);
+        if (cancelled) {
+          return;
         }
+        setRunActions(payload?.pendingRequiresAction ?? []);
+        const userLine = [...(payload?.messages ?? [])]
+          .toReversed()
+          .find((message) => message.role === "user")?.content;
+        setInstructionLine(userLine?.trim() ?? "");
       })
       .catch(() => {
         if (!cancelled) {
           setRunActions([]);
+          setInstructionLine("");
         }
       });
     return () => {
@@ -486,20 +593,10 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
 
   const advanceAfter = useCallback(
     (doneId?: string) => {
-      const rest = queue.filter((r) => r.id !== doneId);
-      // 与待拍板直觉一致：优先小 priority 值（0=最高），同优先级按更新时间新到旧。
-      const next =
-        [...rest].toSorted(
-          (a, b) =>
-            (a.priority ?? 9) - (b.priority ?? 9) ||
-            (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""),
-        )[0] ?? null;
-      setSelectedId(next?.id ?? null);
-      if (next) {
-        expandGroup(statusKind(next.status));
-      }
+      const rest = docketVisible.needsYou.filter((r) => r.id !== doneId);
+      setSelectedId(rest[0]?.id ?? null);
     },
-    [queue, expandGroup],
+    [docketVisible.needsYou],
   );
 
   const isDraftReview = current?.status === "awaiting_review";
@@ -590,7 +687,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
       : null;
   const approvalDock = fleetApprovalDockLabels(approvalAction?.kind, approvalAction?.trigger);
   const primaryLabel = isDraftReview
-    ? "通过"
+    ? "签批"
     : current?.status === "awaiting_clarification"
       ? "提交补充并继续"
       : isAutomationSend
@@ -744,9 +841,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
   const displayTitle = current
     ? readingMode && approvalDoc
       ? approvalDoc.title
-      : current.kind === "automation_send" && current.subtitle
-        ? `${sanitizeLawyerFacingText(current.title, current.toolName)} · ${current.subtitle}`
-        : sanitizeLawyerFacingText(current.title, current.toolName)
+      : docketRowTitle(current, sanitizeLawyerFacingText(current.title, current.toolName))
     : "";
 
   const pendingTeachCount = useMemo(
@@ -755,10 +850,13 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     [fleet?.growth],
   );
 
-  const showTeamWorkbench =
-    hasLoaded &&
-    !(allQueue.length === 0 && teamRows.length === 0) &&
-    !(allQueue.length > 0 && matterScopedQueue.length === 0);
+  const showDocket = hasLoaded && scopedCount > 0;
+  const brief = current
+    ? {
+        instruction: docketInstruction(current, instructionLine),
+        stopLine: docketStopLine(current),
+      }
+    : null;
 
   return (
     <div
@@ -772,12 +870,13 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
           <p className="lm-callout-body">{error}</p>
         </div>
       ) : null}
+      <LawmindDaemonRecap apiBase={apiBase} />
 
       {loading && !hasLoaded ? (
         <p className="lm-meta lm-agents-wb-loading">加载中…</p>
       ) : null}
 
-      {hasLoaded && allQueue.length === 0 && teamRows.length === 0 ? (
+      {hasLoaded && docketRows.length === 0 ? (
         <LawmindAgentFleetEmpty
           kind="decision"
           onOpenChat={() => onOpenChatSession(sessionId?.trim() || "")}
@@ -785,43 +884,65 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
         />
       ) : null}
 
-      {hasLoaded && allQueue.length > 0 && matterScopedQueue.length === 0 ? (
+      {hasLoaded && docketRows.length > 0 && scopedCount === 0 ? (
         <LawmindAgentFleetEmpty
           kind="filter"
           onClearMatterFilter={() => setMatterFilter("all")}
         />
       ) : null}
 
-      {showTeamWorkbench ? (
+      {showDocket ? (
         <div className="lm-agents-wb-split">
           <LawmindAgentFleetListAside
-            matterScopedQueue={matterScopedQueue}
-            allQueue={allQueue}
-            queue={queue}
-            queueGroups={queueGroups}
-            teamRows={teamRows}
+            docket={docketVisible}
+            hiddenInFlight={onlyNeedsYou ? docketScoped.inFlight.length : 0}
+            hiddenSettled={onlyNeedsYou ? docketScoped.settled.length : 0}
             matterChoices={matterChoices}
             matterLabelById={matterLabelById}
-            onSelectAssistant={(assistantId) => {
-              selectAssistant(assistantId);
-              const theirs = filterRunsByAssistant(matterScopedQueue, assistantId);
-              if (theirs[0]) {
-                expandOnlyGroup(statusKind(theirs[0].status));
-                setSelectedId(theirs[0].id);
-              } else {
-                setSelectedId(null);
+            matterFilter={matterFilter}
+            onMatterFilter={setMatterFilter}
+            onlyNeedsYou={onlyNeedsYou}
+            onOnlyNeedsYou={(next) => {
+              setOnlyMine(next);
+              if (!next) {
+                onClearNeedsDecisionFocus?.();
               }
             }}
             selectedId={current?.id ?? null}
             onSelectRun={setSelectedId}
+            inFlightOpen={bandsReady ? inFlightOpen : bandOpen.inFlight}
+            settledOpen={bandsReady ? settledOpen : bandOpen.settled}
+            onToggleBand={(band) => {
+              setBandsReady(true);
+              if (band === "inFlight") {
+                setInFlightOpen(!(bandsReady ? inFlightOpen : bandOpen.inFlight));
+                return;
+              }
+              setSettledOpen(!(bandsReady ? settledOpen : bandOpen.settled));
+            }}
             pendingTeachCount={pendingTeachCount}
             onOpenMemoryInspector={onOpenMemoryInspector}
-            needsDecisionFocus={needsDecisionFocus}
-            onClearNeedsDecisionFocus={onClearNeedsDecisionFocus}
+            onShowAll={() => {
+              setOnlyMine(false);
+              onClearNeedsDecisionFocus?.();
+            }}
+            onReturnToMatter={
+              matterFilter !== "all" && onOpenMatterOnDesk
+                ? () => onOpenMatterOnDesk(matterFilter)
+                : undefined
+            }
+            returnMatterLabel={
+              matterFilter !== "all" ? matterLabelById[matterFilter]?.trim() || matterFilter : undefined
+            }
           />
           <LawmindAgentFleetDetail
-            listMode={listMode}
             current={current}
+            overview={{
+              needsYou: docketScoped.needsYou.length,
+              inFlight: docketScoped.inFlight.length,
+              settled: docketScoped.settled.length,
+            }}
+            brief={brief}
             displayTitle={displayTitle}
             matterLabelById={matterLabelById}
             assistantDisplayById={assistantDisplayById}

@@ -30,13 +30,14 @@ const FULL_RENTAL_SECTIONS = [
 ];
 
 describe("deliverables/validator", () => {
-  it("flags missing blocker sections as not ready", () => {
+  it("missing keyword sections warn and stay export-ready", () => {
     const draft = makeDraft({
       sections: [{ heading: "一、合同主体", body: "甲方/乙方…" }],
     });
     const report = validateDraftAgainstSpec(draft);
-    expect(report.ready).toBe(false);
-    expect(report.blockerCount).toBeGreaterThan(0);
+    expect(report.ready).toBe(true);
+    expect(report.blockerCount).toBe(0);
+    expect(report.warningCount).toBeGreaterThan(0);
   });
 
   it("passes a structurally complete rental contract", () => {
@@ -121,9 +122,30 @@ describe("deliverables/validator", () => {
     expect(report.ready).toBe(true);
   });
 
-  it("ESG report mis-tagged as rental stays export-ready (advisory sections only)", () => {
+  it("explicit on-draft type wins over title heuristics (mis-tagged rental stays rental)", () => {
+    // 新口径（draft-deliverable-infer.ts）：稿上已写的具体类型优先，
+    // 标题启发式只对未定型 / document.general 的稿生效。
     const draft = makeDraft({
       deliverableType: "contract.rental",
+      title: "2025 ESG 可持续发展报告",
+      sections: [
+        { heading: "执行摘要", body: "本年度 ESG 工作概述…" },
+        { heading: "环境维度", body: "碳排放与能源…" },
+        { heading: "社会维度", body: "员工与社区…" },
+        { heading: "治理维度", body: "董事会与合规…" },
+      ],
+    });
+    const report = validateDraftAgainstSpec(draft);
+    expect(report.deliverableType).toBe("contract.rental");
+    // 缺章节只是警告，不挡导出。
+    expect(report.ready).toBe(true);
+    expect(report.blockerCount).toBe(0);
+    expect(report.warningCount).toBeGreaterThan(0);
+  });
+
+  it("title heuristics still infer report.esg for an untyped draft", () => {
+    const draft = makeDraft({
+      deliverableType: undefined,
       title: "2025 ESG 可持续发展报告",
       sections: [
         { heading: "执行摘要", body: "本年度 ESG 工作概述…" },
@@ -170,7 +192,7 @@ describe("deliverables/validator", () => {
     expect(c?.severity).toBe("warning");
   });
 
-  it("blocks contract.review risk chapters without a clause anchor", () => {
+  it("warns on contract.review risk chapters without a clause anchor but still exports", () => {
     const draft = makeDraft({
       deliverableType: "contract.review",
       templateId: "review-contract-default",
@@ -184,7 +206,8 @@ describe("deliverables/validator", () => {
     const report = validateDraftAgainstSpec(draft);
     const clause = report.checks.find((c) => c.key === "contract.review.clause_anchor");
     expect(clause?.passed).toBe(false);
-    expect(report.ready).toBe(false);
+    expect(clause?.severity).toBe("warning");
+    expect(report.ready).toBe(true);
   });
 
   it("accepts contract.review risk anchors via 第×条 or 〔待核实〕", () => {
@@ -249,5 +272,111 @@ describe("deliverables/validator", () => {
     const report = validateDraftAgainstSpec(draft);
     expect(report.checks.find((c) => c.key === "draft.scaffold_density")).toBeUndefined();
     expect(report.ready).toBe(true);
+  });
+
+  it("does not let one section's opening satisfy a different required heading", () => {
+    const draft = makeDraft({
+      sections: [
+        {
+          heading: "四、租金与押金",
+          body: "房屋坐落于上海市某路。月租金1元，按月支付。租期自2026年起。",
+        },
+      ],
+    });
+    const report = validateDraftAgainstSpec(draft);
+    const coverage = report.checks.find((c) => c.key === "criteria.coverage");
+    expect(coverage?.passed).toBe(false);
+    expect(coverage?.severity).toBe("warning");
+    expect(coverage?.hint).toContain("租赁标的描述");
+    expect(report.ready).toBe(true);
+  });
+
+  it("matches a numbered heading from the first 80 characters of the body", () => {
+    const draft = makeDraft({
+      sections: [{ heading: "一、", body: "合同主体：出租人甲方与承租人乙方。" }],
+    });
+    const report = validateDraftAgainstSpec(draft);
+    const party = report.checks.find((c) => c.label.startsWith("合同双方信息"));
+    expect(party?.passed).toBe(true);
+  });
+
+  it("reads the parties section when the heading says 当事人 and the names are in the opening", () => {
+    const draft = makeDraft({
+      sections: [{ heading: "合同当事人", body: "出租人（甲方）：张三。承租人（乙方）：李四。" }],
+    });
+    const party = validateDraftAgainstSpec(draft).checks.find((c) =>
+      c.label.startsWith("合同双方信息"),
+    );
+    expect(party?.passed).toBe(true);
+  });
+
+  it("does not treat a latin ESG title as all three dimensions", () => {
+    const draft = makeDraft({
+      deliverableType: "report.esg",
+      sections: [{ heading: "ESG Overview", body: "This note covers the year." }],
+    });
+    const report = validateDraftAgainstSpec(draft);
+    const env = report.checks.find((c) => c.label.startsWith("环境"));
+    const social = report.checks.find((c) => c.label.startsWith("社会"));
+    const gov = report.checks.find((c) => c.label.startsWith("治理"));
+    expect(env?.passed).toBe(false);
+    expect(social?.passed).toBe(false);
+    expect(gov?.passed).toBe(false);
+  });
+
+  it("warns when a calculated amount has no formula", () => {
+    const draft = makeDraft({
+      deliverableType: "labor.calc",
+      sections: [
+        { heading: "定性", body: "违法解除。" },
+        { heading: "计算", body: "补偿 60000 元。" },
+        { heading: "结论", body: "应付 60000 元。" },
+      ],
+    });
+    const report = validateDraftAgainstSpec(draft);
+    const calc = report.checks.find((c) => c.key === "calc.formula_source");
+    expect(calc?.passed).toBe(false);
+    expect(calc?.severity).toBe("warning");
+    expect(report.ready).toBe(true);
+  });
+
+  it("accepts a calculated amount that cites a formula", () => {
+    const draft = makeDraft({
+      deliverableType: "labor.calc",
+      sections: [
+        { heading: "定性", body: "违法解除。" },
+        { heading: "计算", body: "公式：3 × 10000 × 2 = 60000 元。" },
+        { heading: "结论", body: "应付 60000 元。" },
+      ],
+    });
+    expect(
+      validateDraftAgainstSpec(draft).checks.find((c) => c.key === "calc.formula_source"),
+    ).toBeUndefined();
+  });
+
+  it("warns on an exhibit list without a proof purpose", () => {
+    const draft = makeDraft({
+      deliverableType: "matter.exhibit_list",
+      sections: [{ heading: "证据目录", body: "1. 租赁合同" }],
+    });
+    expect(
+      validateDraftAgainstSpec(draft).checks.find((c) => c.key === "exhibit.purpose")?.passed,
+    ).toBe(false);
+  });
+
+  it("warns when a complaint uses a markdown table", () => {
+    const draft = makeDraft({
+      deliverableType: "litigation.complaint",
+      sections: [
+        { heading: "当事人", body: "原告甲，被告乙。" },
+        { heading: "诉讼请求", body: "判令支付租金。" },
+        { heading: "事实与理由", body: "| 要件 | 事实 |\n| --- | --- |\n| 合同 | 已签 |" },
+        { heading: "证据", body: "合同原件。" },
+      ],
+    });
+    expect(
+      validateDraftAgainstSpec(draft).checks.find((c) => c.key === "complaint.linear_columns")
+        ?.passed,
+    ).toBe(false);
   });
 });

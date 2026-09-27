@@ -8,10 +8,9 @@
  * dangerous-tool-policy.ts; importing WRITE_TOOLS back from governance.ts would
  * close the cycle).
  *
- * Runtime enforcement MUST consult `WRITE_TOOLS` so that governance-classified
- * write tools require explicit `__approved: true` even when the individual tool
- * definition omits `requiresApproval: true` — keeping the two layers aligned by
- * construction instead of by convention.
+ * WRITE_TOOLS drives the lawyer_approved_write classification (audit / runtime
+ * mode). It does not pause the lawyer. The only mechanical pause is send_email
+ * (`toolRequiresLawyerPause`).
  */
 
 export const MATTER_SCOPE_REQUIRED = new Set<string>([
@@ -85,6 +84,7 @@ export const DESK_WRITE_TOOL_NAMES = new Set<string>([
   "apply_intake_brief",
   "revert_desk_write",
   "record_deadline",
+  "record_obligation",
   "add_case_note",
   "import_host_file",
   "relocate_matter_materials",
@@ -109,6 +109,7 @@ export const WRITE_TOOLS = new Set<string>([
   "open_work_queue_item",
   "request_approval",
   "record_deadline",
+  "record_obligation",
   "append_session_summary",
   "register_template",
   "set_template_enabled",

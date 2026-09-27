@@ -79,7 +79,7 @@ describe("support bundle route", () => {
     const names = (body.files as Array<{ name: string }>).map((f) => f.name);
     expect(names).toContain("doctor.json");
     expect(names).toContain("scorecard.json");
-    expect(String(body.note)).toContain("已脱敏");
+    expect(String(body.note)).toContain("本包已去掉密钥");
   });
 
   it("downloads a zip whose entries are the redacted bundle files", async () => {

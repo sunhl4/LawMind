@@ -1,18 +1,18 @@
 # 第 53 章 实现精读：经典五阶段流水线
 
-第 1 章讲过引擎有**两个入口**：经典流水线（`engine/`）和 Agent 循环（`agent/`）。第 43 章讲了后者。这一章讲前者——它是 CLI、评测和引擎级测试用的那条路。
+第 1 章讲过引擎有**两个入口**：经典流水线（`engine/`）和 Agent 循环（`agent/`）。第 43 章讲了后者。这一章讲前者。CLI、评测、引擎级测试走它；桌面审核、导出、打回重审直接调它的方法；Agent 的一批工具也会整段再跑它。
 
 **为什么要读它**：它是「不用模型也能出一份稿」的那条路（`plan → research → draft → review → render`）。理解了它，你会更清楚 Agent 循环里哪些能力是「本来就有的」，哪些是 Agent 加的。
 
 ## 53.1 它和 Agent 循环的分工
 
-|              | 经典流水线                                  | Agent 循环                       |
-| ------------ | ------------------------------------------- | -------------------------------- |
-| 入口函数     | `createLawMindEngine`                       | `createLawMindAgent` + `runTurn` |
-| 谁决定下一步 | **代码**（五段固定顺序）                    | **模型**（回合内自己选工具）     |
-| 每段之间     | 可以停下来等律师（确认、审核）              | 回合内不停                       |
-| 主要用户     | CLI、评测、门禁脚本、引擎级测试             | 桌面产品主路径                   |
-| 模型参与度   | `planAsync` / `draftAsync` 可选；默认纯规则 | 每轮都调模型                     |
+|              | 经典流水线                                                          | Agent 循环                       |
+| ------------ | ------------------------------------------------------------------- | -------------------------------- |
+| 入口函数     | `createLawMindEngine`                                               | `createLawMindAgent` + `runTurn` |
+| 谁决定下一步 | **代码**（五段固定顺序）                                            | **模型**（回合内自己选工具）     |
+| 每段之间     | 可以停下来等律师（确认、审核）                                      | 回合内不停                       |
+| 主要用户     | CLI、评测、门禁；桌面审核 / 导出 / 打回重审；Agent 工具内部整段复用 | 桌面对话回合的主路径             |
+| 模型参与度   | `planAsync` / `draftAsync` 可选；默认纯规则                         | 每轮都调模型                     |
 
 **关键差异**：经典流水线的每一段都是**可以被单独调用、单独断言**的。所以它更适合测试与回归。而 Agent 循环的行为要靠 cassette 才测得清（第 18.3 节）。
 
@@ -22,7 +22,7 @@
 
 ```text
 ① buildEngineContext(config)              ← 算路径（workspaceDir / outputDir / auditDir）
-② loadWorkspaceDeliverableSpecs(workspace) ← 注册工作区自定义交付物规格
+② applyWorkspaceDeliverableSpecs(workspace) ← 与 CLI 同一门（customDeliverableSpec，Solo 默认开）
    有 warnings → emitWorkspaceSpecWarnings（best-effort）
 ③ 挂五段：plan/planAsync/confirm → research → draft/draftAsync
         → review/reopenDraftReview/recordQuality → render
@@ -99,7 +99,7 @@
 
 ### 与 Agent 路径的关系
 
-Agent 路径**没有**这个显式的 `confirm` 步骤。原因：对话里律师说完就相当于确认了。所以「确认门」是经典流水线（尤其是 CLI）特有的——它防的是「模型猜到了任务类型就一路跑到底」。
+对话回合本身没有单独的确认界面：律师说完，这一轮就开始。Agent 把流水线当工具调用时仍会打到 `engine.confirm`（`engine-pipeline-tools.ts`、`engine-workflow-tool.ts`），确认会在档案里留痕。它防的是「模型猜到了任务类型就一路跑到底」。
 
 ## 53.4 阶段二：research
 
@@ -159,9 +159,9 @@ roleAllowsDeliverable(role, classifyDeliverableKindFromIntent(intent))
 
 **但有一个例外**（注释写明）：
 
-> W7：若 EngineContext 关联到一个 Role 且 Role.allowedDeliverableTypes 不允许当前 deliverable kind，则拒绝（throw DraftCreationError）。**Solo edition 仅 warn。**
+> 若 EngineContext 关联到一个 Role，且该 Role 不允许当前交付物种类，则抛 `DraftCreationError`。没有 Role 就放行。代码里没有按 Solo 降成警告。
 
-也就是说：**律所版硬拦，单人版只警告**。理由是单人版没有「岗位分工」这个约束的现实基础——律师自己就是所有岗位。
+文件头注释仍写着「Solo edition 仅 warn」，那句已经过时。行为以 `ensureRoleAllowsDraft` 为准：有岗位且不允许，就拒绝。
 
 ### 角色是怎么找到的
 
@@ -273,14 +273,9 @@ blocked = !acceptanceReport.ready || (reasoningReport.required && !reasoningRepo
 | 情况                | 判据                                                        |
 | ------------------- | ----------------------------------------------------------- |
 | 显式 `citationMode` | `citationModeBlocksRender(citationMode, integrity)`         |
-| 否则看版本功能      | `citationGateStrict && citationGateBlocksRender(integrity)` |
+| 否则看版本功能      | `citationGateStrict && citationViewBlocksExport(integrity)` |
 
-而 `citationGateBlocksRender` 的实现只有三行：
-
-```text
-!view.checked → false（没检查过就不拦）
-否则 !view.ok || view.unanchoredSections.length > 0 → 拦
-```
+`citationViewBlocksExport`（`drafts/mechanical-verdict.ts`）在 `checked` 为假时不拦。显式 `citationMode === "grounded"` 走另一条：`citationModeBlocksRender` 在还没检查时就会拦。
 
 **「没检查过就不拦」这条很关键**：没有检索快照时不存在「引用对不上」这回事，所以不该拦。
 
@@ -322,7 +317,7 @@ matterTheoryBlocksStrictExport(..., { requireAnchor: true })
 ⑧ 跑 lint + 记 lint 运行事件
 ⑨ 建决策头（buildDecisionHeader）
 ⑩ 自动交付判定（evaluateAutoDeliver）→ 满足就标 approved + 记 unattended
-⑪ 落盘草稿 + 同步任务 + 工作记录状态
+⑪ `commitDraft`（`channel: "pipeline"`，缺检索快照则不写稿）+ 同步任务 + 工作记录状态；旁路写 `drafts/<taskId>.completion.json`
 ⑫ 案件进展 + 关联交付物 + 强制互审 + 开队列项
 ```
 
@@ -420,13 +415,13 @@ shouldAutoDeliver && decisionHeader?.ready === "usable"
 - **`adapters` 是必填的。** 引擎不自己决定检索来源。
 - **`outputDirExplicit` 是单独的字段。** 别用 `outputDir` 的值去猜是不是显式的。
 - **读坏的交付物规格只警告不抛错。** 「一个坏 JSON 不应让事务所离线」。
-- **`confirm` 只在经典流水线存在。** Agent 路径没有这一步。
-- **角色门禁在 Solo 版只警告。** 不是漏了。
+- **对话回合没有单独的确认界面。** Agent 把流水线当工具调用时仍会打到 `engine.confirm`。
+- **有岗位且不允许该交付物种类就抛错。** 没有「Solo 只警告」这条分支。文件头那句注释过时。
 - **`deliverableId = taskId`**（经典流水线里一比一）。
 - **自动交付需要两个条件同时成立**（`shouldAutoDeliver` + 决策头 `usable`）。
 - **自动交付的审计里必须保留「外发仍须签批」。**
 - **交付物写失败会挡住学习写入**（`learningGateOk`）。
-- **`citationGateBlocksRender` 对「没检查过」返回不拦。**
+- **`citationViewBlocksExport` 对「没检查过」不拦。** `citationMode === "grounded"` 在没检查时会拦。
 - **推理门只在 `reasoningReport.required` 时拦。**
 - **`queries.ts` 是直通，还没走 `application/` 服务。**
 - **`role-helpers.ts` 的交付物分类和 `core/derive.ts` 是两套。** 改的时候别只改一边。

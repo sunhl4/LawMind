@@ -10,8 +10,8 @@
  * - 只落本机：请求存 `workspace/lawmind/word-addin/reviews.json`，sourcePath 是律师本机路径，
  *   不涉任何远程控制面。
  * - 无插件零影响：桌面端不读这个文件也不会变行为（纯旁路）。
- * - 只有**最短锚点**能变成 Word 就地修改：整节重写（section 粒度）不上插件，
- *   如实计成 `skippedSectionHunks`，让律师回桌面看。
+ * - 只有**最短锚点**能变成 Word 就地修改。整节 hunk 先重算；重算后查找串仍超过
+ *   60 字的整段替换不上插件，计入 `skippedSectionHunks`，让律师回桌面看。
  *
  * 自动取件不是「绕过审批」：本仓库真正会打断律师的只有 `send_email`
  * （`toolRequiresLawyerPause`），改稿链本就无需二次点击。Word 里那次点击**就是**授权动作，
@@ -111,7 +111,7 @@ export type WordAddinReviewRequest = {
   matterId?: string;
   instruction: string;
   origin: "word-addin";
-  /** 登记时的内容指纹（前 256 KiB + 字节数）。取件时比对，不一致就转 stale。 */
+  /** 登记时的内容指纹（≤2 MiB 整文件，更大则头+尾）。取件时比对，不一致就转 stale。 */
   sourceHash?: string;
   sourceSize?: number;
   sourceMtimeMs?: number;
@@ -187,8 +187,14 @@ export function normalizeWordSourcePath(
   return { ok: true, abs: path.normalize(value) };
 }
 
-/** 内容指纹取样上限：只读前 256 KiB，避免大文件在登记请求时同步卡住。 */
-const WORD_ADDIN_FINGERPRINT_BYTES = 256 * 1024;
+/**
+ * 内容指纹：≤2 MiB 整文件哈希（合同通常落在这档）。
+ * 更大的文件只取头 128 KiB + 尾 64 KiB——Word 保存会改包尾的 core.xml，
+ * 只哈希文件头会把文末条款改动当成「没变过」。
+ */
+const WORD_ADDIN_FINGERPRINT_FULL_MAX = 2 * 1024 * 1024;
+const WORD_ADDIN_FINGERPRINT_HEAD_BYTES = 128 * 1024;
+const WORD_ADDIN_FINGERPRINT_TAIL_BYTES = 64 * 1024;
 
 export type WordFileFingerprint = {
   hash: string;
@@ -197,8 +203,8 @@ export type WordFileFingerprint = {
 };
 
 /**
- * 轻量指纹：文件头 (≤256 KiB) + 总字节数 → sha256。
- * 只用来回答「取件时这份文件还是律师点击时那一版吗」，不是内容寻址。
+ * 指纹回答「取件时这份文件还是律师点击时那一版吗」，不是内容寻址。
+ * 整文件（≤2 MiB）或头+尾取样，避免文末修订被文件头哈希漏掉。
  */
 export function fingerprintWordFile(abs: string): WordFileFingerprint | undefined {
   try {
@@ -207,12 +213,28 @@ export function fingerprintWordFile(abs: string): WordFileFingerprint | undefine
       return undefined;
     }
     const fd = fs.openSync(abs, "r");
-    let head: Buffer;
+    let sample: Buffer;
     try {
-      const len = Math.min(stat.size, WORD_ADDIN_FINGERPRINT_BYTES);
-      head = Buffer.alloc(len);
-      if (len > 0) {
-        fs.readSync(fd, head, 0, len, 0);
+      if (stat.size <= WORD_ADDIN_FINGERPRINT_FULL_MAX) {
+        sample = Buffer.alloc(stat.size);
+        if (stat.size > 0) {
+          fs.readSync(fd, sample, 0, stat.size, 0);
+        }
+      } else {
+        const headLen = Math.min(stat.size, WORD_ADDIN_FINGERPRINT_HEAD_BYTES);
+        const tailLen = Math.min(
+          WORD_ADDIN_FINGERPRINT_TAIL_BYTES,
+          Math.max(0, stat.size - headLen),
+        );
+        const head = Buffer.alloc(headLen);
+        const tail = Buffer.alloc(tailLen);
+        if (headLen > 0) {
+          fs.readSync(fd, head, 0, headLen, 0);
+        }
+        if (tailLen > 0) {
+          fs.readSync(fd, tail, 0, tailLen, stat.size - tailLen);
+        }
+        sample = Buffer.concat([head, Buffer.from("\0"), tail]);
       }
     } finally {
       fs.closeSync(fd);
@@ -220,7 +242,7 @@ export function fingerprintWordFile(abs: string): WordFileFingerprint | undefine
     const hash = createHash("sha256")
       .update(String(stat.size))
       .update("\0")
-      .update(head)
+      .update(sample)
       .digest("hex");
     return { hash, size: stat.size, mtimeMs: stat.mtimeMs };
   } catch {
@@ -553,14 +575,10 @@ export async function updateWordAddinReview(
   return { ok: true, request: next };
 }
 
-/**
- * 插件只落「短片段的替换」：超过这个长度的改动不适合在任务窗格里就地做
- * （律师应回桌面端看上下文），如实计入 skippedSectionHunks。
- */
-export const WORD_ADDIN_MAX_ANCHOR_CHARS = 60;
-
 /** 纯插入时取插入点之后多少字作为锚点（与 officecli lookbehind 同一思路）。 */
 const WORD_ADDIN_INSERT_ANCHOR_CHARS = 6;
+/** 重算后查找串仍长过这个数，视为整段替换，不交给 Word 就地查找。 */
+const WORD_ADDIN_MAX_FIND_CHARS = 60;
 
 /**
  * 从 Redline 提案取「能变成 Word 原生修订轨」的最短锚点。
@@ -594,11 +612,11 @@ export function hunksFromRedlineProposal(proposal: { hunks: RedlineHunk[] }): {
     }
     for (const span of computeMinimalEditSpans(before, after)) {
       const note = hunk.rationale ? { note: hunk.rationale } : {};
+      if (span.before.length > WORD_ADDIN_MAX_FIND_CHARS) {
+        skipped += 1;
+        continue;
+      }
       if (span.before.length > 0) {
-        if (span.before.length > WORD_ADDIN_MAX_ANCHOR_CHARS) {
-          skipped += 1;
-          continue;
-        }
         hunks.push({ find: span.before, replace: span.after, ...note });
         continue;
       }

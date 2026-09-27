@@ -154,14 +154,14 @@ describe("lawmind-server-route-platform", () => {
     await patchPolicy(ws, { egressMode: "offline" });
     const after = readPolicy(ws);
     expect(after.egressMode).toBe("offline");
-    expect(after.allowWebSearch).toBe(true);
-    expect(after.productInsightsCollection).toBe("local-only");
+    expect(after.networkAllowlist).toEqual(["npc.gov.cn"]);
+    expect(after.allowWebSearch).toBeUndefined();
+    expect(after.productInsightsCollection).toBeUndefined();
 
-    // 关闭离线：egressMode 消失，之前的联网偏好仍在（历史 bug：曾被写成 false 后无法恢复）。
     await patchPolicy(ws, { egressMode: "open" });
     const restored = readPolicy(ws);
     expect(restored.egressMode).toBe("open");
-    expect(restored.allowWebSearch).toBe(true);
+    expect(restored.allowWebSearch).toBeUndefined();
   });
 
   it("PATCH legacy highSecurityMode:false clears the pinned legacy key", async () => {

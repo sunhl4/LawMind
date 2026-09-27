@@ -1,8 +1,8 @@
 /**
- * <MatterQualityCockpit /> — W11 视图组件 5/6（仅 Firm / Private 显示）。
+ * <MatterQualityCockpit /> — cross-matter acceptance / quality strip.
  *
- * 当前 props 接 EditionFeatures.crossMatterAcceptanceDashboard 与 quality dashboard 数据。
- * Solo edition 不渲染。
+ * Gated by `crossMatterAcceptanceDashboard` (Solo-first: default on).
+ * Parent passes `enabled` from the resolved edition features.
  */
 
 import type { ReactNode } from "react";

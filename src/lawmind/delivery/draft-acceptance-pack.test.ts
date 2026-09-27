@@ -57,12 +57,25 @@ describe("buildDraftAcceptancePackMarkdown", () => {
     expect(md).toContain("2026-04-17T00:00:00.000Z");
   });
 
-  it("flags unready drafts with blocker icon when required sections are missing", async () => {
+  it("flags missing sections as warnings, not blockers (缺节只警告，不挡交付)", async () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), "lawmind-draft-pack-"));
     const draft = rentalDraft({ sections: [{ heading: "一、备注", body: "随便写写" }] });
     const md = await buildDraftAcceptancePackMarkdown(tmp, draft);
-    expect(md).toContain("⛔ 未通过");
-    expect(md).toContain("阻断项:");
+    // 铁律 5：缺章节降级为提示项——总体结论仍是通过，阻断项为 0。
+    expect(md).toContain("✅ 已通过（可交付）");
+    expect(md).toContain("阻断项: 0");
+    expect(md).toMatch(/提示项: [1-9]/);
+    expect(md).toContain("⚠️");
+  });
+
+  it("flags unready drafts with blocker icon when placeholders remain unresolved", async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "lawmind-draft-pack-"));
+    // rentalDraft() 默认带【待补充：出租方姓名/承租方姓名】——contract.rental 的
+    // placeholderRule.mustResolveBeforeRender=true，未填项仍是硬阻断。
+    const md = await buildDraftAcceptancePackMarkdown(tmp, rentalDraft());
+    expect(md).toContain("⛔ 未通过（仍有阻断项）");
+    expect(md).toMatch(/阻断项: [1-9]/);
+    expect(md).toContain("⛔");
   });
 
   it("notes when research snapshot is missing in citation section", async () => {

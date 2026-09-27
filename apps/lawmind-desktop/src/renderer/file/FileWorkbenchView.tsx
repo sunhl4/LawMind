@@ -72,6 +72,7 @@ export type FileWorkbenchViewModel = {
   setWorkSectionOpen: React.Dispatch<React.SetStateAction<boolean>>;
   casesSectionOpen: boolean;
   setCasesSectionOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  explorerMatterId?: string | null;
   filesExplorerWidth: number;
   onFilesExplorerResize: (e: React.PointerEvent) => void;
   explorerUsesRailLayout: boolean;
@@ -149,6 +150,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
     setWorkSectionOpen,
     casesSectionOpen,
     setCasesSectionOpen,
+    explorerMatterId = null,
     filesExplorerWidth,
     onFilesExplorerResize,
     explorerUsesRailLayout,
@@ -254,6 +256,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
           {workspaceExplorerToolbar}
         </div>
       ) : null}
+      {workSectionOpen || casesSectionOpen ? (
       <button
         type="button"
         className="lm-quickopen-trigger"
@@ -263,6 +266,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
         <span>在材料中搜索…</span>
         <kbd>⌘P</kbd>
       </button>
+      ) : null}
 
       <div className="lm-files-explorer-scroll" data-testid="lm-files-explorer-scroll">
         <div className="lm-fs-section lm-fs-section-dual" data-testid="lm-fs-local-folder-section">
@@ -304,16 +308,18 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
 
         <div className="lm-fs-section lm-fs-section-dual">
           {renderExplorerSectionHeader({
-            label: "案件材料",
+            label: explorerMatterId ? "本案材料" : "案件材料",
             root: "workspace",
-            menuPath: "cases",
+            menuPath: explorerMatterId ? `cases/${explorerMatterId}` : "cases",
             sectionOpen: casesSectionOpen,
             setSectionOpen: setCasesSectionOpen,
-            onAddFile: () => startCreate("workspace", "cases", "file"),
-            addTitle: "在案件材料区新建文件",
+            onAddFile: () =>
+              startCreate("workspace", explorerMatterId ? `cases/${explorerMatterId}` : "cases", "file"),
+            addTitle: explorerMatterId ? "在本案材料中新建文件" : "在案件材料区新建文件",
           })}
           {casesSectionOpen ? (
             casesDirProbe === "missing" &&
+            !explorerMatterId &&
             !(
               inlineInput?.root === "workspace" &&
               inlineInput.parentDir === "cases" &&
@@ -323,7 +329,11 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
                 右键新建案件。
               </p>
             ) : (
-              <FileWorkbenchTree root="workspace" dirPath="cases" {...treeProps} />
+              <FileWorkbenchTree
+                root="workspace"
+                dirPath={explorerMatterId ? `cases/${explorerMatterId}` : "cases"}
+                {...treeProps}
+              />
             )
           ) : null}
         </div>

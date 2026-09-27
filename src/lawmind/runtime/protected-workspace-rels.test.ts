@@ -8,6 +8,18 @@ describe("isProtectedWorkspaceRel", () => {
     expect(isProtectedWorkspaceRel(".env.lawmind")).toBe(true);
   });
 
+  it("blocks the whole .env family at any depth", () => {
+    expect(isProtectedWorkspaceRel(".env.local")).toBe(true);
+    expect(isProtectedWorkspaceRel(".env.production")).toBe(true);
+    expect(isProtectedWorkspaceRel(".env.example")).toBe(true);
+    expect(isProtectedWorkspaceRel("config/.env.local")).toBe(true);
+    expect(isProtectedWorkspaceRel(".ENV.LOCAL")).toBe(true);
+    // 近似名不是密钥文件，别过度匹配
+    expect(isProtectedWorkspaceRel("env.lawmind")).toBe(false);
+    expect(isProtectedWorkspaceRel(".envrc")).toBe(false);
+    expect(isProtectedWorkspaceRel(".environment")).toBe(false);
+  });
+
   it("blocks governance/evidence prefixes", () => {
     expect(isProtectedWorkspaceRel("lawmind/mcp-servers.json")).toBe(true);
     expect(isProtectedWorkspaceRel("lawmind/jobs/job-1.json")).toBe(true);
@@ -17,6 +29,9 @@ describe("isProtectedWorkspaceRel", () => {
     expect(isProtectedWorkspaceRel("tasks/t1.json")).toBe(true);
     expect(isProtectedWorkspaceRel("matters/m1/RULES.md")).toBe(true);
     expect(isProtectedWorkspaceRel("matters/m1/matter.json")).toBe(true);
+    expect(isProtectedWorkspaceRel("drafts/t1.json")).toBe(true);
+    expect(isProtectedWorkspaceRel("drafts/t1.completion.json")).toBe(true);
+    expect(isProtectedWorkspaceRel("drafts/t1.redline.json")).toBe(true);
   });
 
   it("blocks DMS connection config, case RULES, and ethics wall at any depth", () => {
@@ -43,7 +58,7 @@ describe("isProtectedWorkspaceRel", () => {
 
   it("allows the data plane (notes/drafts/cases/artifacts/memory)", () => {
     expect(isProtectedWorkspaceRel("notes/分析.md")).toBe(false);
-    expect(isProtectedWorkspaceRel("drafts/t1.json")).toBe(false);
+    expect(isProtectedWorkspaceRel("notes/drafts-note.md")).toBe(false);
     expect(isProtectedWorkspaceRel("cases/m1/证据清单.md")).toBe(false);
     expect(isProtectedWorkspaceRel("artifacts/r1/report.md")).toBe(false);
     expect(isProtectedWorkspaceRel("MEMORY.md")).toBe(false);
@@ -55,5 +70,9 @@ describe("isProtectedWorkspaceRel", () => {
     expect(isProtectedWorkspaceRel("audits/x.json")).toBe(false);
     expect(isProtectedWorkspaceRel("my-tasks/t1.json")).toBe(false);
     expect(isProtectedWorkspaceRel("cases/m1/dms.json")).toBe(false);
+    expect(isProtectedWorkspaceRel(".git/hooks/pre-commit")).toBe(true);
+    expect(isProtectedWorkspaceRel(".git/config")).toBe(true);
+    expect(isProtectedWorkspaceRel("lawmind/skills/.signing-secret")).toBe(true);
+    expect(isProtectedWorkspaceRel("notes/readme.md")).toBe(false);
   });
 });

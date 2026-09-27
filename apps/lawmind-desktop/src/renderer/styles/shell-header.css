@@ -292,6 +292,31 @@ html.lm-theme-dark .lm-main-header {
   flex-shrink: 0;
 }
 
+.lm-presence-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--muted);
+}
+
+.lm-presence-dot--working,
+.lm-presence-dot--thinking {
+  background: var(--info);
+}
+
+.lm-presence-dot--waiting {
+  background: var(--warn);
+}
+
+.lm-presence-dot--blocked {
+  background: var(--error);
+}
+
+.lm-presence-dot--done {
+  background: var(--ok);
+}
+
 .lm-main-asst-select {
   flex: 1;
   min-width: 140px;

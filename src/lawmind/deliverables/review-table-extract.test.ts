@@ -3,6 +3,8 @@ import {
   buildCellSource,
   extractReviewTable,
   guessDocKind,
+  preserveLockedReviewRows,
+  stableReviewRowId,
   summarizeReviewExtract,
   type ReviewExtractCellResult,
   type ReviewExtractDoc,
@@ -255,6 +257,58 @@ describe("extractReviewTable", () => {
     expect(line).toContain("300 份材料");
     expect(line).toContain("1400 格有出处");
     expect(line).toContain("100 格弃答");
+  });
+
+  it("uses a stable row id and does not blame another document for OCR failure", async () => {
+    const first = await extractReviewTable({
+      table: table(),
+      docs: [
+        { relPath: "cases/m/materials/empty.txt" },
+        {
+          relPath: "cases/m/materials/scan.png",
+          absolutePath: "/tmp/scan.png",
+          kind: "image",
+        },
+      ],
+      extractCell: async () => ({ ok: true, value: "x" }),
+      ocr: async () => ({ ok: false, error: "missing" }),
+    });
+    expect(first.table.rows[0]?.id).toBe(stableReviewRowId(0, "cases/m/materials/empty.txt"));
+    expect(first.table.rows[0]?.cellMeta?.[firstValueKey(first.table)]?.note).toBe(
+      "该材料无可用正文",
+    );
+    expect(first.table.rows[1]?.cellMeta?.[firstValueKey(first.table)]?.note).toBe(
+      "扫描件未能识别出正文",
+    );
+    const second = await extractReviewTable({
+      table: table(),
+      docs: [{ relPath: "cases/m/materials/empty.txt" }],
+      extractCell: async () => ({ ok: false, reason: "无" }),
+    });
+    expect(second.table.rows[0]?.id).toBe(first.table.rows[0]?.id);
+  });
+
+  it("keeps a locked row when the same material is extracted again", () => {
+    const previous = table();
+    previous.rows = [
+      {
+        id: "kept",
+        cells: { finding: "律师核过" },
+        source: "a.docx",
+        review: { locked: true },
+      },
+    ];
+    const next = [
+      {
+        id: "new",
+        cells: { finding: "重抽" },
+        source: "a.docx",
+      },
+    ];
+    const merged = preserveLockedReviewRows(previous.rows, next);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.cells.finding).toBe("律师核过");
+    expect(merged[0]?.id).toBe("kept");
   });
 });
 

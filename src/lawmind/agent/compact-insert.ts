@@ -15,6 +15,7 @@ export const COMPACT_SYNTHETIC_USER_MARKERS = [
   "【压缩后上下文锚点】",
   "【案件会话摘要】",
   "【案件记忆摘录】",
+  "【案件材料路径】",
   COMPACT_REINJECTION_MARKER,
   // 退让反弹只服务下一轮采样，不是律师的真实提问：压缩整条丢弃、也不当锚点。
   CONTEXT_DEFERRAL_BOUNCE_MARKER,

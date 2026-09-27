@@ -897,7 +897,7 @@ describe("lawmind-server-route-review", () => {
     }
   });
 
-  it("POST /api/drafts/:id/render returns 422 when strict acceptance gate blocks", async () => {
+  it("POST /api/drafts/:id/render 缺章节只降级为警告，未勾选清单时 422 checklist_incomplete", async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-review-strict-"));
     tempDirs.push(workspaceDir);
     fs.writeFileSync(path.join(workspaceDir, "MEMORY.md"), "# Memory\n", "utf8");
@@ -950,11 +950,82 @@ describe("lawmind-server-route-review", () => {
       }),
     ).resolves.toBe(true);
 
+    // 缺章节已是警告（铁律 5），不再触发 acceptance_gate_blocked；
+    // 出稿检查未勾选仍硬拦截，错误码为 checklist_incomplete。
     expect(cap.status).toBe(422);
     expect(cap.json()).toMatchObject({
       ok: false,
-      error: "acceptance_gate_blocked",
+      error: "checklist_incomplete",
     });
+  });
+
+  it("POST /api/drafts/:id/render 仍有硬阻塞（未填占位符）时 422 acceptance_gate_blocked", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-review-strict-blocker-"));
+    tempDirs.push(workspaceDir);
+    fs.writeFileSync(path.join(workspaceDir, "MEMORY.md"), "# Memory\n", "utf8");
+    fs.writeFileSync(path.join(workspaceDir, "LAWYER_PROFILE.md"), "# Lawyer Profile\n", "utf8");
+
+    const taskId = "strict-blocker-task";
+    const now = new Date().toISOString();
+    ensureTaskRecord(workspaceDir, {
+      taskId,
+      kind: "analyze.contract",
+      output: "docx",
+      summary: "合同",
+      riskLevel: "medium",
+      models: ["general"],
+      requiresConfirmation: false,
+      createdAt: now,
+      matterId: "m-strict",
+    } as TaskIntent);
+
+    // contract.rental 的 placeholderRule.mustResolveBeforeRender=true：
+    // 文中仍有【…】未填项 → blocker → acceptance.ready=false。
+    persistDraft(workspaceDir, {
+      taskId,
+      matterId: "m-strict",
+      title: "含未填项草稿",
+      output: "docx",
+      templateId: "contract-rental-default",
+      deliverableType: "contract.rental",
+      summary: "摘要",
+      sections: [
+        { heading: "一、合同主体", body: "出租方：【待填写】，承租方：【待填写】。", citations: [] },
+      ],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: now,
+    } as ArtifactDraft);
+
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+
+    const cap = createResponseCapture();
+    await expect(
+      handleReviewRoute({
+        ctx,
+        req: createJsonRequest("POST", {}),
+        res: cap.res,
+        url: new URL(`http://127.0.0.1/api/drafts/${taskId}/render`),
+        pathname: `/api/drafts/${taskId}/render`,
+        c: {},
+      }),
+    ).resolves.toBe(true);
+
+    expect(cap.status).toBe(422);
+    const body = cap.json() as {
+      ok: boolean;
+      error: string;
+      acceptance?: { ready: boolean; blockerCount: number };
+    };
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("acceptance_gate_blocked");
+    expect(body.acceptance?.ready).toBe(false);
+    expect(body.acceptance?.blockerCount).toBeGreaterThan(0);
   });
 
   function seedStrictBlockedDraft(workspaceDir: string, taskId: string): void {
@@ -1014,8 +1085,9 @@ describe("lawmind-server-route-review", () => {
           c: {},
         }),
       ).resolves.toBe(true);
+      // 缺章节已降级为警告；现在拦截来自未勾选的出稿检查（checklist_incomplete）
       expect(cap.status).toBe(422);
-      expect(cap.json()).toMatchObject({ ok: false, error: "acceptance_gate_blocked" });
+      expect(cap.json()).toMatchObject({ ok: false, error: "checklist_incomplete" });
       const history = await listPlatformGateHistory(workspaceDir);
       expect(history.some((h) => h.source === "render_bypass")).toBe(false);
     } finally {

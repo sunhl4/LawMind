@@ -47,7 +47,6 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
           baseUrl: baseUrl.trim(),
           model: trimmedModel,
           apiKey: trimmedKey,
-          setAsDefault: true as const,
           ...(stopList.length > 0 ? { stop: stopList } : {}),
         };
         const desktop = window.lawmindDesktop;
@@ -141,7 +140,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
       <header className="lm-custom-model-panel__head">
         <div className="lm-custom-model-panel__titles">
           <h3 className="lm-custom-model-panel__title">自定义模型</h3>
-          <p className="lm-custom-model-panel__caption">添加 OpenAI 兼容端点，并设为当前默认</p>
+          <p className="lm-custom-model-panel__caption">添加 OpenAI 兼容端点。添加后可在对话里选用。</p>
         </div>
       </header>
 
@@ -208,14 +207,14 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
 
         <div className="lm-custom-model-field">
           <label className="lm-custom-model-field__label" htmlFor={idBaseUrl}>
-            Base URL
+            服务地址
           </label>
           <input
             id={idBaseUrl}
             className="lm-custom-model-input lm-custom-model-input--mono"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="https://api.openai.com/v1"
+            placeholder="服务商提供的地址"
             spellCheck={false}
             autoComplete="off"
           />
@@ -223,7 +222,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
 
         <div className="lm-custom-model-field">
           <label className="lm-custom-model-field__label" htmlFor={idModel}>
-            模型 ID
+            模型名
           </label>
           <input
             id={idModel}
@@ -238,7 +237,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
 
         <div className="lm-custom-model-field">
           <label className="lm-custom-model-field__label" htmlFor={idKey}>
-            API Key
+            密钥
           </label>
           <input
             id={idKey}
@@ -280,7 +279,7 @@ export function LawmindSettingsCustomModels(props: Props): ReactNode {
             className="lm-btn lm-btn-accent lm-custom-model-submit"
             disabled={!canSubmit}
           >
-            {busy ? "保存中…" : "添加并设为默认"}
+            {busy ? "保存中…" : "添加"}
           </button>
         </div>
       </form>

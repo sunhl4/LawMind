@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LawmindReviewDeliveryBar } from "./LawmindReviewDeliveryBar";
 
 describe("LawmindReviewDeliveryBar", () => {
-  it("writing variant exports locally and hides 通过/驳回/需修改", async () => {
+  it("writing variant exports locally and hides 签批/驳回/需修改", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
@@ -30,7 +30,7 @@ describe("LawmindReviewDeliveryBar", () => {
     expect(host.textContent).not.toContain("回到在办签批");
     expect(host.textContent).not.toContain("改稿、批注并预览");
     const labels = Array.from(host.querySelectorAll("button")).map((b) => b.textContent?.trim());
-    expect(labels).not.toContain("通过");
+    expect(labels).not.toContain("签批");
     expect(labels).not.toContain("驳回");
     expect(labels).not.toContain("需修改");
     expect(labels).not.toContain("恢复待审核");
@@ -47,7 +47,7 @@ describe("LawmindReviewDeliveryBar", () => {
     host.remove();
   });
 
-  it("signoff variant keeps 通过/驳回/需修改", async () => {
+  it("signoff variant keeps 签批/驳回/需修改", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
@@ -67,7 +67,7 @@ describe("LawmindReviewDeliveryBar", () => {
       );
     });
     const labels = Array.from(host.querySelectorAll("button")).map((b) => b.textContent?.trim());
-    expect(labels).toContain("通过");
+    expect(labels).toContain("签批");
     expect(labels).toContain("驳回");
     expect(labels).toContain("需修改");
     root.unmount();

@@ -95,8 +95,8 @@ Claude Code 的渐进披露——提示词里摆**能力菜单**（名称 + 一�
   `list_more_tools` 与提示词共用。谁分叉谁就会造出「列了却打不开」的假菜单。
 - 准入：`turn-orchestrator-cassettes.test.ts` 的 `capability-index*` 断言菜单进了
   `request(0)` 且未广告、联网关闭时不含联网能力。单测见 `list-more-tools.test.ts`。
-- 副作用（正面）：`run_host_command` 也在菜单里，其 hint 写明「须打开本机能力」——
-  模型因此知道「操作电脑」存在、也知道要哪个开关，不必等律师自己翻设置。
+- 副作用（正面）：`run_host_command` 也在菜单里，hint 是「运行受控本机命令」。
+  命令默认可用，模型不必让律师去设置里开开关。
 
 ### 5.2 开口或丢材料：第一轮就出现（不要等模型先 list_more_tools）
 

@@ -8,12 +8,14 @@
 
 import { loadMatter } from "../adapters/matter-storage/index.js";
 import { listDeadlinesForMatter } from "../application/services/deadline-service.js";
+import { listObligationsForMatter } from "../application/services/obligation-service.js";
 import { listMatterMaterialFiles } from "../desk/matter-materials.js";
 import { hydrateMatterParties, MATTER_PARTY_ROLE_ZH } from "../desk/matter-parties.js";
 import { buildMatterPulse } from "../desk/matter-pulse.js";
 
 const MAX_PARTIES = 8;
 const MAX_OPEN_DEADLINES = 5;
+const MAX_OPEN_OBLIGATIONS = 5;
 const MAX_MATERIALS = 8;
 const MAX_TIMELINE = 5;
 
@@ -60,6 +62,19 @@ export function buildMatterContextFragmentBody(opts: {
       return `- ${formatDay(d.dueAt)} ${d.title}${sev}${kind ? `（${kind}）` : ""}`;
     });
     sections.push(["未决期限：", ...lines].join("\n"));
+  }
+
+  const openObligations = listObligationsForMatter(opts.workspaceDir, matterId)
+    .filter((row) => row.status === "open")
+    .slice(0, MAX_OPEN_OBLIGATIONS);
+  if (openObligations.length > 0) {
+    const lines = openObligations.map((row) => {
+      const who = row.obligor ? `${row.obligor}：` : "";
+      const amount = row.amountText ? ` ${row.amountText}` : "";
+      const quote = row.sourceQuote ? `（${row.sourceQuote}）` : "";
+      return `- ${who}${row.title}${amount}${quote}`;
+    });
+    sections.push(["未了义务：", ...lines].join("\n"));
   }
 
   const materials = listMatterMaterialFiles(opts.workspaceDir, matterId, {

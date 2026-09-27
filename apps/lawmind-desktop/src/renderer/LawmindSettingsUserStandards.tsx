@@ -1,5 +1,6 @@
 /**
- * 律师自建审查标准与案由词表。改完只影响之后的办件；学习来的条目默认关闭，需确认才启用。
+ * 律师自建审查标准。改完只影响之后的办件；学习来的条目默认关闭，需确认才启用。
+ * 案由用内置词表，在谈话里点选，不在这里维护全文。
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
@@ -30,7 +31,6 @@ type Props = {
 export function LawmindSettingsUserStandards(props: Props): ReactNode {
   const { apiBase } = props;
   const [standards, setStandards] = useState<UserStandardRow[]>([]);
-  const [causes, setCauses] = useState("");
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<StandardKind>("contract_review");
   const [items, setItems] = useState("");
@@ -39,15 +39,12 @@ export function LawmindSettingsUserStandards(props: Props): ReactNode {
   const [hint, setHint] = useState<string | null>(null);
 
   const loadAll = async () => {
-    const [std, lex] = await Promise.all([
-      apiGetJson<{ ok?: boolean; standards?: UserStandardRow[] }>(apiBase, "/api/workspace/standards"),
-      apiGetJson<{ ok?: boolean; lexicon?: { causes?: string[] } }>(apiBase, "/api/workspace/cause-lexicon"),
-    ]);
+    const std = await apiGetJson<{ ok?: boolean; standards?: UserStandardRow[] }>(
+      apiBase,
+      "/api/workspace/standards",
+    );
     if (std.ok && std.standards) {
       setStandards(std.standards);
-    }
-    if (lex.ok) {
-      setCauses((lex.lexicon?.causes ?? []).join("\n"));
     }
   };
 
@@ -136,27 +133,8 @@ export function LawmindSettingsUserStandards(props: Props): ReactNode {
     }
   }
 
-  async function saveLexicon(): Promise<void> {
-    setBusy(true);
-    setHint(null);
-    try {
-      await apiSendJson(apiBase, "/api/workspace/cause-lexicon", "POST", {
-        causes: causes
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean),
-      });
-      setHint("已保存案由词表。谈话整理只从这份词表里给候选，不是国家案由规定。");
-    } catch (e) {
-      setHint(errorMessage(e, "保存案由词表失败"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <>
-      <details className="lm-settings-advanced" data-testid="lm-user-standards">
+    <details className="lm-settings-advanced" data-testid="lm-user-standards">
         <summary>
           <span className="lm-settings-advanced__label">审查标准</span>
           <span className="lm-settings-advanced__hint">按合同类型或客户自动套用</span>
@@ -262,39 +240,6 @@ export function LawmindSettingsUserStandards(props: Props): ReactNode {
             </p>
           ) : null}
         </div>
-      </details>
-      <details className="lm-settings-advanced" data-testid="lm-cause-lexicon">
-        <summary>
-          <span className="lm-settings-advanced__label">案由词表</span>
-          <span className="lm-settings-advanced__hint">谈话整理的候选来源</span>
-        </summary>
-        <div className="lm-settings-advanced-body">
-          <p className="lm-settings-caption">
-            这是你自己维护的词表，不是《民事案由规定》全文。谈话整理只会建议表里有的案由，点采用才写入档案。
-          </p>
-          <label className="lm-settings-field">
-            <span className="lm-settings-key">案由（一行一条）</span>
-            <textarea
-              className="lm-input"
-              rows={6}
-              value={causes}
-              data-testid="lm-cause-lexicon-input"
-              onChange={(e) => setCauses(e.target.value)}
-            />
-          </label>
-          <div className="lm-settings-actions">
-            <button
-              type="button"
-              className="lm-btn lm-btn-secondary lm-btn-sm"
-              disabled={busy}
-              data-testid="lm-cause-lexicon-save"
-              onClick={() => void saveLexicon()}
-            >
-              保存词表
-            </button>
-          </div>
-        </div>
-      </details>
-    </>
+    </details>
   );
 }

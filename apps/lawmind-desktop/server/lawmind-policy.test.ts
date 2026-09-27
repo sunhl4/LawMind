@@ -40,7 +40,8 @@ describe("lawmind-policy", () => {
     expect(r.loaded).toBe(true);
     if (r.loaded) {
       expect(r.policy.allowWebSearch).toBe(false);
-      expect(r.policy.retrievalMode).toBe("dual");
+      expect(r.policy.retrievalMode).toBeUndefined();
+      expect(r.rejected.some((row) => row.key === "retrievalMode")).toBe(true);
     }
   });
 
@@ -51,11 +52,11 @@ describe("lawmind-policy", () => {
       retrievalMode: "single",
       enableCollaboration: false,
     });
-    expect(applied).toContain("forceNoWebSearch");
-    expect(applied).toContain("retrievalMode");
+    expect(applied).toContain("allowWebSearch");
+    expect(applied).not.toContain("retrievalMode");
     expect(applied).toContain("enableCollaboration");
     expect(process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH).toBe("1");
-    expect(process.env.LAWMIND_RETRIEVAL_MODE).toBe("single");
+    expect(process.env.LAWMIND_RETRIEVAL_MODE).toBeUndefined();
     expect(process.env.LAWMIND_ENABLE_COLLABORATION).toBe("false");
   });
 
@@ -77,7 +78,7 @@ describe("lawmind-policy", () => {
     const st = loadAndApplyLawMindPolicy(tmp);
     expect(st.loaded).toBe(true);
     if (st.loaded) {
-      expect(st.applied).toContain("forceNoWebSearch");
+      expect(st.applied).toContain("allowWebSearch");
     }
     expect(process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH).toBe("1");
   });
@@ -91,7 +92,7 @@ describe("lawmind-policy", () => {
 
   it("treats egressMode offline as forcing web search off", () => {
     const applied = applyLawMindPolicyToEnv({ schemaVersion: 1, egressMode: "offline" });
-    expect(applied).toContain("egressOffline");
+    expect(applied).toContain("network.mode");
     expect(process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH).toBe("1");
     expect(resolveChatAllowWebSearch(true)).toBe(false);
   });
@@ -104,15 +105,24 @@ describe("lawmind-policy", () => {
       allowWebSearch: true,
       networkAllowlist: ["npc.gov.cn"],
     });
-    expect(applied).not.toContain("forceNoWebSearch");
-    expect(applied).not.toContain("egressOffline");
+    expect(applied).not.toContain("allowWebSearch");
+    expect(applied).toContain("network.mode");
     expect(process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH).toBeUndefined();
     expect(resolveChatAllowWebSearch(true)).toBe(true);
   });
 
   it("keeps the legacy highSecurityMode key working as offline", () => {
-    const applied = applyLawMindPolicyToEnv({ schemaVersion: 1, highSecurityMode: true });
-    expect(applied).toContain("egressOffline");
+    fs.writeFileSync(
+      path.join(tmp, "lawmind.policy.json"),
+      JSON.stringify({ schemaVersion: 1, highSecurityMode: true }),
+      "utf8",
+    );
+    const st = loadAndApplyLawMindPolicy(tmp);
+    expect(st.loaded).toBe(true);
+    if (st.loaded) {
+      expect(st.applied).toContain("network.mode");
+      expect(st.migrated.some((row) => row.key === "highSecurityMode")).toBe(true);
+    }
     expect(process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH).toBe("1");
   });
 });

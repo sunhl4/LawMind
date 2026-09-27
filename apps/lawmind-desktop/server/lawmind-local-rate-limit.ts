@@ -24,6 +24,25 @@ export function getRateLimitStats(): RateLimitStats | null {
   return activeBucket?.getStats() ?? null;
 }
 
+/**
+ * 只豁免打开窗口时那两条轻请求，以及浏览器预检。
+ * `/api/health`、任务列表、历史、案件概览会扫盘，必须留在桶里，否则失控客户端能把事件循环打满。
+ */
+const SHELL_LANE_PATHS = new Set([
+  "/.well-known/lawmind-local",
+  "/api/bootstrap",
+]);
+
+export function isShellLaneRequest(method: string | undefined, pathname: string): boolean {
+  if (method === "OPTIONS") {
+    return true;
+  }
+  if (method !== "GET" && method !== "HEAD") {
+    return false;
+  }
+  return SHELL_LANE_PATHS.has(pathname);
+}
+
 export class TokenBucket {
   private tokens: number;
   private lastRefillMs: number;

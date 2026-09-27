@@ -209,7 +209,7 @@ export function createFleetCeremonyActions(deps: FleetCeremonyActionsDeps) {
     if (
       !(await confirmDialog({
         title: `丢弃待签批草稿「${current.title?.trim() || taskId}」？`,
-        body: "将从文书台与在办移除，且不可恢复。已签批或已导出的草稿不会出现在此列表。",
+        body: "将从改稿与在办移除，且不可恢复。已签批或已导出的草稿不会出现在此列表。",
         confirmLabel: "丢弃",
         tone: "danger",
       }))
@@ -385,7 +385,7 @@ export function createFleetCeremonyActions(deps: FleetCeremonyActionsDeps) {
         if (j.code === "baseline_missing") {
           return {
             ok: false,
-            message: "暂无原合同基线，无法出审阅稿；可先在文书台核对基线后再导出。",
+            message: "暂无原合同基线，无法出审阅稿；可先在改稿页核对基线后再导出。",
           };
         }
         return { ok: false, message: messageFromOkFalseBody(j, j.message || "导出审阅稿失败") };

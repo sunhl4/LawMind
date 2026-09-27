@@ -11,7 +11,7 @@ function fetchInputUrl(input: unknown): string {
     return input.href;
   }
   if (typeof input === "object" && input !== null && "url" in input) {
-    return String((input as { url: string }).url);
+    return (input as { url: string }).url;
   }
   return JSON.stringify(input);
 }
@@ -32,12 +32,12 @@ describe("api-client", () => {
       message: "Model API key not configured",
       error: "Model API key not configured",
     });
-    expect(t).toContain("API 配置向导");
+    expect(t).toContain("连接向导");
   });
 
   it("handles 401 with key wording", () => {
     const t = userMessageFromApiError(401, { message: "Unauthorized" });
-    expect(t).toContain("API Key");
+    expect(t).toContain("密钥");
   });
 
   it("maps invalid_api_token without blaming model API Key", () => {

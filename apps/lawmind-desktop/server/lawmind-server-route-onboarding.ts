@@ -5,7 +5,12 @@
 import path from "node:path";
 import fs from "node:fs";
 import { isValidMatterId } from "../../../src/lawmind/cases/index.js";
-import { recordFirstrunWizardCompleted } from "../../../src/lawmind/onboarding/firstrun-state.js";
+import {
+  readFirstrunAcceptancePending,
+  readFirstrunDismissed,
+  recordFirstrunWizardCompleted,
+  setFirstrunDismissed,
+} from "../../../src/lawmind/onboarding/firstrun-state.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import { firstrunWizardPostSchema } from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
@@ -19,6 +24,36 @@ export async function handleOnboardingRoutes({
   c,
 }: LawmindRouteContext): Promise<boolean> {
   const { workspaceDir } = ctx;
+
+  if (pathname === "/api/onboarding/firstrun" && req.method === "GET") {
+    const [dismissed, pending] = await Promise.all([
+      readFirstrunDismissed(workspaceDir),
+      readFirstrunAcceptancePending(workspaceDir),
+    ]);
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        dismissed: dismissed !== null,
+        dismissedAt: dismissed?.dismissedAt ?? null,
+        pendingMatterId: pending?.matterId ?? null,
+      },
+      c,
+    );
+    return true;
+  }
+
+  if (pathname === "/api/onboarding/firstrun-dismiss" && req.method === "POST") {
+    try {
+      await setFirstrunDismissed(workspaceDir);
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: e instanceof Error ? e.message : String(e) }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true }, c);
+    return true;
+  }
 
   if (pathname !== "/api/onboarding/firstrun-wizard" || req.method !== "POST") {
     return false;

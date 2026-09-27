@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   displayNameFromImportBasename,
+  isMatterDisplayPlaceholder,
+  substantiveCaseField,
   formatTaskLineForNextActions,
   parseMatterDisplayNameFromCase,
   resolveMatterHeadline,
@@ -22,6 +24,14 @@ ${extra}
 `;
 
 describe("matter-label", () => {
+  it("treats the client-field template sentence as unfilled", () => {
+    const hint =
+      "_（与目录 clients/该id/ 下 CLIENT_PROFILE 对应；可与 matterId 同或单独指向常年客户主档案）_";
+    expect(isMatterDisplayPlaceholder(hint)).toBe(true);
+    expect(substantiveCaseField(hint)).toBeUndefined();
+    expect(substantiveCaseField("星辉精密设备有限公司")).toBe("星辉精密设备有限公司");
+  });
+
   it("ignores template placeholder for 案件名称（展示用）", () => {
     const raw = caseStub("- 案件名称（展示用）: _（侧栏显示；未填）_");
     expect(parseMatterDisplayNameFromCase(raw)).toBeUndefined();

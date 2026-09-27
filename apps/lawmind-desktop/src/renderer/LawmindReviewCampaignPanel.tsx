@@ -55,7 +55,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
 
   useEffect(() => {
     if (!apiBase) {
-      return;
+      return undefined;
     }
     let cancelled = false;
     void apiListFleetPlaybooks(apiBase)
@@ -78,7 +78,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
 
   useEffect(() => {
     if (!apiBase || !taskId) {
-      return;
+      return undefined;
     }
     let cancelled = false;
     void apiGetReviewCampaignByTask(apiBase, taskId, matterId)
@@ -303,24 +303,21 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
         >
           <div className="lm-review-campaign-metrics">
             <span className="lm-meta" data-testid="lm-review-campaign-coverage">
-              覆盖 <strong>{healthMetrics?.lintTriggerCount ?? score.high + score.medium + score.low}</strong> 条规则
+              覆盖 <strong>{healthMetrics?.lintTriggerCount ?? "—"}</strong> 条规则
             </span>
             <span className="lm-meta" data-testid="lm-review-campaign-issues">
-              发现 <strong>{healthMetrics?.lintFindingCount ?? score.high + score.medium + score.low}</strong> 处问题
+              发现 <strong>{healthMetrics?.lintFindingCount ?? "—"}</strong> 处问题
             </span>
             <span className="lm-meta" data-testid="lm-review-campaign-processed">
-              已处理 <strong>{healthMetrics?.lawyerEditModifiedCount ?? 0}</strong> 处
+              已处理 <strong>{healthMetrics?.lawyerEditModifiedCount ?? "—"}</strong> 处
             </span>
           </div>
           <div className="lm-review-campaign-counts">
-            <span className="lm-sev-high">高 {score.high}</span>
-            <span className="lm-sev-medium">中 {score.medium}</span>
-            <span className="lm-sev-low">低 {score.low}</span>
             {campaign?.playbookLabel ? (
               <span className="lm-meta">{campaign.playbookLabel}</span>
             ) : null}
           </div>
-          <p className="lm-meta">真实指标，基于 runtime-events 与 lint 结果，非启发式安全评分。</p>
+          <p className="lm-meta">这三项来自运行记录和机械核对。没有记录时显示「—」，不用关键词计数充数。</p>
         </div>
       ) : (
         <p className="lm-meta">选 Playbook 开跑。</p>
@@ -401,9 +398,6 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
                 {r.boundAssistantName ? (
                   <span className="lm-meta lm-review-campaign-bound"> · {r.boundAssistantName}</span>
                 ) : null}
-                {typeof r.score === "number" ? (
-                  <span className="lm-meta"> {r.score}</span>
-                ) : null}
               </button>
               );
             })}
@@ -452,7 +446,7 @@ export function LawmindReviewCampaignPanel(props: Props): ReactNode {
       ) : null}
       {score && score.negotiatePriority.length > 0 ? (
         <div className="lm-review-campaign-negotiate">
-          <strong className="lm-meta">谈判优先级</strong>
+          <strong className="lm-meta">关键词信号</strong>
           <ol>
             {score.negotiatePriority.slice(0, 5).map((n) => (
               <li key={`${n.priority}-${n.title}`}>

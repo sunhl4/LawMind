@@ -21,6 +21,7 @@ export default defineConfig({
       "apps/lawmind-desktop/src/**/*.test.ts",
       "apps/lawmind-desktop/src/**/*.test.tsx",
       "apps/lawmind-desktop/electron/**/*.test.ts",
+      "scripts/pre-commit/**/*.test.ts",
     ],
     exclude: ["**/node_modules/**", "**/dist/**", "**/release/**"],
     coverage: {

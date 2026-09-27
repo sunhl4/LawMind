@@ -637,7 +637,7 @@ function checklistForDocument(draft: ArtifactDraft): {
   keys: string[];
 } {
   const spec = resolveVerificationChecklistSpec(draft.deliverableType);
-  const selected = spec.items.filter((it) => it.required).slice(0, 16);
+  const selected = spec.items.filter((it) => it.required);
   return {
     family: spec.id,
     items: selected.map((it) =>
@@ -657,10 +657,8 @@ function checklistForDocument(draft: ArtifactDraft): {
 /**
  * G0：跑 machine 段并把「给模型的检查单」收敛到 judge 项。
  *
- * **两阶段构建证据包**（而不是"先建包再裁项"），原因是 `buildGuardianEvidencePack`
- * 会把检查单截到 16 项（`CHECKLIST_CAP`）。若先建包再裁 machine 项，截断会**先把名额
- * 浪费在不会进入提示词的 machine 项上**，导致 judge 项被无谓挤掉——那是覆盖率漏洞。
- * 因此：① 用全量项建包跑验证器 → ② `on` 时用 judge 项**重建**包。
+ * **两阶段构建证据包**：① 用全量项建包跑验证器 → ② `on` 时用 judge 项重建包，
+ * 机械项不占提示词。核对项不再按条数截断，避免没看见的项被当成已通过。
  */
 function buildMachineStage(input: {
   buildPack: (items: GuardianChecklistItem[]) => ReturnType<typeof buildGuardianEvidencePack>;

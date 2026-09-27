@@ -4,15 +4,14 @@
   "renderer": {
     "apps/lawmind-desktop/src/renderer/file/FileWorkbenchImpl.tsx": 930,
     "apps/lawmind-desktop/src/renderer/lawmind-chat-shell.tsx": 1055,
-    "apps/lawmind-desktop/src/renderer/LawmindAgentFleetPanel.tsx": 928,
-    "apps/lawmind-desktop/src/renderer/LawmindLawyerWorkbench.tsx": 2615,
-    "apps/lawmind-desktop/src/renderer/LawmindSettingsDoctor.tsx": 1267,
-    "apps/lawmind-desktop/src/renderer/LawmindAutomationsPanel.tsx": 1027,
+    "apps/lawmind-desktop/src/renderer/LawmindAgentFleetPanel.tsx": 971,
+    "apps/lawmind-desktop/src/renderer/LawmindAutomationsPanel.tsx": 1069,
+    "apps/lawmind-desktop/src/renderer/LawmindLawyerWorkbench.tsx": 2418,
     "apps/lawmind-desktop/src/renderer/matter/useMatterProductIntelligence.ts": 802
   },
   "tools": {
-    "src/lawmind/agent/tools/engine/engine-pipeline-tools.ts": 1570,
-    "src/lawmind/agent/tools/engine/engine-workflow-tool.ts": 631,
-    "src/lawmind/agent/tools/legal/search-tools.ts": 960
+    "src/lawmind/agent/tools/engine/engine-pipeline-tools.ts": 1547,
+    "src/lawmind/agent/tools/engine/engine-workflow-tool.ts": 633,
+    "src/lawmind/agent/tools/legal/search-tools.ts": 1001
   }
 }

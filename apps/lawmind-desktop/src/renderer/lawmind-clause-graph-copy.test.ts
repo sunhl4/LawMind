@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ClauseGraph } from "../../../../src/lawmind/reasoning/clause-graph.ts";
 import {
+  criticNoteForLawyer,
   criticNotesFromReview,
   shouldDefaultCollapseClause,
   shouldShowClauseGraph,
@@ -42,8 +43,13 @@ describe("lawmind-clause-graph-copy", () => {
     expect(shouldDefaultCollapseClause(graph.clauses[1])).toBe(false);
   });
 
-  it("only keeps critic notes that start with 复核：", () => {
+  it("only keeps critic notes that start with the stored prefix", () => {
     expect(criticNotesFromReview(["复核：缺管辖", "骨架稿：模型未成稿"])).toEqual(["复核：缺管辖"]);
+  });
+
+  it("shows stored critic notes to the lawyer as 审核", () => {
+    expect(criticNoteForLawyer("复核：缺管辖")).toBe("审核：缺管辖");
+    expect(criticNoteForLawyer("缺管辖")).toBe("审核：缺管辖");
   });
 
   it("shows clause graph for contracts, or only when flagged", () => {

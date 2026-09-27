@@ -3,7 +3,8 @@ export type LawmindMainView =
   | "desk"
   | "agents"
   | "meeting"
-  | "review";
+  | "review"
+  | "archive";
 
 export const LAWMIND_MAIN_VIEWS: LawmindMainView[] = [
   "workspace",
@@ -11,6 +12,7 @@ export const LAWMIND_MAIN_VIEWS: LawmindMainView[] = [
   "agents",
   "meeting",
   "review",
+  "archive",
 ];
 
 export function lawmindMainViewLabel(view: LawmindMainView): string {
@@ -25,5 +27,11 @@ export function lawmindMainViewLabel(view: LawmindMainView): string {
       return "会议室";
     case "review":
       return "改稿";
+    case "archive":
+      return "整理资料";
+    default: {
+      const unreachable: never = view;
+      return unreachable;
+    }
   }
 }

@@ -28,9 +28,25 @@ function taskRecordLockPath(workspaceDir: string, taskId: string): string {
   return path.join(tasksDir(workspaceDir), `${taskId}.json.lock`);
 }
 
+/** 列表缓存：写任务后 bump，避免在办/详情反复扫数百个 JSON。 */
+const taskListGenByWorkspace = new Map<string, number>();
+const taskListCacheByWorkspace = new Map<string, { gen: number; records: TaskRecord[] }>();
+
+export function invalidateTaskRecordsCache(workspaceDir?: string): void {
+  if (!workspaceDir) {
+    taskListGenByWorkspace.clear();
+    taskListCacheByWorkspace.clear();
+    return;
+  }
+  const key = path.resolve(workspaceDir);
+  taskListGenByWorkspace.set(key, (taskListGenByWorkspace.get(key) ?? 0) + 1);
+  taskListCacheByWorkspace.delete(key);
+}
+
 /** 原子写（temp+rename），避免崩溃留下半写 JSON。 */
 function persistTaskRecord(workspaceDir: string, record: TaskRecord): TaskRecord {
   writeJsonAtomic(taskRecordPath(workspaceDir, record.taskId), record);
+  invalidateTaskRecordsCache(workspaceDir);
   return record;
 }
 
@@ -53,6 +69,7 @@ export function deleteTaskRecord(workspaceDir: string, taskId: string): boolean 
   try {
     if (fs.existsSync(p)) {
       fs.unlinkSync(p);
+      invalidateTaskRecordsCache(workspaceDir);
       return true;
     }
   } catch {
@@ -62,13 +79,19 @@ export function deleteTaskRecord(workspaceDir: string, taskId: string): boolean 
 }
 
 export function listTaskRecords(workspaceDir: string): TaskRecord[] {
+  const key = path.resolve(workspaceDir);
+  const gen = taskListGenByWorkspace.get(key) ?? 0;
+  const hit = taskListCacheByWorkspace.get(key);
+  if (hit && hit.gen === gen) {
+    return hit.records;
+  }
   try {
     const dir = tasksDir(workspaceDir);
     const files = fs
       .readdirSync(dir)
       .filter((name) => name.endsWith(".json"))
       .toSorted();
-    return files
+    const records = files
       .map((name) => {
         try {
           const content = fs.readFileSync(path.join(dir, name), "utf8");
@@ -79,6 +102,8 @@ export function listTaskRecords(workspaceDir: string): TaskRecord[] {
       })
       .filter((record): record is TaskRecord => Boolean(record))
       .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    taskListCacheByWorkspace.set(key, { gen, records });
+    return records;
   } catch {
     return [];
   }

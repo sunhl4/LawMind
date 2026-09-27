@@ -9,7 +9,7 @@ import { formatDeepResearchPlanMarkdown } from "../../research/deep-research-pla
 import { executeDeepResearchPlan } from "../../research/execute-deep-research.js";
 import { persistResearchOutline } from "../../research/outline-store.js";
 import { evaluateResearchEvidenceGate } from "../../research/research-evidence-gate.js";
-import { formatOutlineMarkdown } from "../../research/research-outline.js";
+import { formatOutlineMarkdown, lawyerWantsOutlineHold } from "../../research/research-outline.js";
 import { route } from "../../router/keyword-route.js";
 import { publicWebFactToolRefusal } from "../../skills/capability-patterns.js";
 import { ensureTaskRecord, updateTaskRecord } from "../../tasks/index.js";
@@ -83,15 +83,16 @@ export const lawMindDeepResearchTool: AgentTool = {
         bundle: result.bundle,
         allowWebSearch: ctx.allowWebSearch === true,
       });
-      const outlinePending = result.outline.status === "pending";
+      const outlinePending =
+        lawyerWantsOutlineHold(intent.instruction) && result.outline.status === "pending";
       let nextStep: string;
       if (evidenceGate.block) {
         nextStep = evidenceGate.nextStep;
       } else if (outlinePending) {
         nextStep =
-          "请律师在澄清卡片确认大纲后，再调用 draft_document（task_id 使用本返回的 taskId）。勿用 write_document 旁路。";
+          "律师要求先看大纲。确认后再调用 draft_document（task_id 使用本返回的 taskId）。勿用 write_document 旁路。";
       } else {
-        nextStep = "大纲已确认，可 draft_document（传入本 taskId）。";
+        nextStep = "可 draft_document（传入本 taskId）。大纲随正文一起交，不必先停下来确认。";
       }
       return {
         ok: true,

@@ -56,6 +56,9 @@ describe("LawMind Router", () => {
     expect(route({ instruction: "写答辩状" }).deliverableType).toBe("litigation.answer");
     expect(route({ instruction: "写代理词" }).deliverableType).toBe("litigation.brief");
     expect(route({ instruction: "写一份法律意见书" }).deliverableType).toBe("memo.opinion");
+    expect(route({ instruction: "查一下并写一份项目执行计划书" }).deliverableType).toBe(
+      "document.general",
+    );
     expect(route({ instruction: "出具法律意见" }).kind).toBe("draft.word");
     expect(route({ instruction: "出具法律意见" }).deliverableType).toBe("memo.opinion");
     expect(route({ instruction: "写一份内部备忘录" }).deliverableType).toBe("memo.internal");

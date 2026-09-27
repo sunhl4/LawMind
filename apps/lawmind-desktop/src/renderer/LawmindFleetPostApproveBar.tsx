@@ -108,7 +108,7 @@ export function LawmindFleetPostApproveBar(props: LawmindFleetPostApproveBarProp
             data-testid="lm-fleet-post-approve-health"
             onClick={() => onOpenHealth()}
           >
-            打开系统健康
+            打开工作区
           </button>
         ) : null}
         {state.status === "ok" && state.outputPath ? (

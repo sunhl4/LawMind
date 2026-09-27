@@ -5,15 +5,11 @@
 
 ## 1. 它保护什么
 
-`workspace/lawmind/skills/<id>/SKILL.md` 的正文会**作为指令**进入模型上下文（`skill-match`、
-`read_skill`、`disclosed-turn-tools` 都只读 `enabled && signatureOk` 的 Skill）。
-`SKILL.sig` = `HMAC-SHA256(SKILL.md 正文, 签名密钥)`，唯一校验点是
-`src/lawmind/skills/skill-runtime.ts` 的 `verifySkillSignature`。
+产品路径**不读**工作区里的 `SKILL.md`。作业标准正文来自安装包内的 `src/lawmind/skills/builtin/*.md`（`readSkillPromptBodies` / `read_skill` / 工具披露都走这份）。往工作区丢一份签过名的技能，不会改模型行为，也不会多出一个工具。
 
-签名不通过的 Skill **不会报错**，只会被静默置为 `enabled: false`。所以：
+本地服务启动不再把内置正文抄到工作区。`<工作区>/lawmind/skills/<id>/` 里若还有旧副本，`listLocalSkills` 和 `enabled.json` 只描述它们；回合不读。
 
-- 密钥轮换后**必须重签**，否则等于无声地丢掉全部 Skill 能力；
-- 反过来，谁能伪造一对 `SKILL.md` + `SKILL.sig`，谁就能往上下文里塞指令。
+`SKILL.sig` = `HMAC-SHA256(SKILL.md 正文, 签名密钥)`，校验点仍是 `verifySkillSignature`。签名失败只会让 `listLocalSkills` 把该副本标成未启用，**不会**关掉对应的内置作业标准。
 
 ## 2. 三种密钥来源（`resolveSkillSigningSecretSource`）
 
@@ -62,13 +58,9 @@ resolveSkillSigningSecretSource(...) ← 此刻解析出的才是真密钥
 ensureBuiltinSkillSeeds(dir, { secret })  ← 显式传入，别让它自己猜
 ```
 
-反例（2026-09-20 轮换时实际发生过）：`ensureBuiltinSkillSeeds` 原先跑在 `bootstrap…` **之前**，
-于是 seed 用 `derived` 兜底值签名，随后 `listLocalSkills` 用 env 密钥验签 ⇒ 签名全不通过 ⇒
-**Skill 静默失效**。轮换前两侧都是 `derived`，恰好一致，所以这个顺序依赖一直没暴露。
+反例（2026-09-20）：播种跑在环境变量加载之前，副本用 `derived` 签名，`listLocalSkills` 用 env 密钥验签，副本全部显示签名失败。当时回合还读工作区副本，所以作业标准会静默消失。现在回合只读 builtin，同样的顺序错误只让副本列表签不上，不再关掉交办。
 
-现在密钥由调用方显式传入（`opts.secret`），结构上不再依赖「函数自己读到的环境恰好对」；
-另外缺密钥时会打一行启动警告，让「静默失效」至少变得可见。
-`ensure-builtin-skill-seeds.test.ts` 有一条回归测试盯着这件事。
+密钥仍由调用方显式传入。`ensure-builtin-skill-seeds.test.ts` 盯住「签下去的就是传进来的那个」。
 
 ## 5. 已知历史
 

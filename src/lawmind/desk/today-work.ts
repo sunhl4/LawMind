@@ -38,22 +38,24 @@ export type TodayWorkSnapshot = {
   date: string;
   items: TodayWorkItem[];
   progress: { done: number; total: number };
+  /** Undone lawyer plan rows inside the lookback that did not fit on today's screen. */
+  carryOmitted: number;
 };
 
 function startOfLocalDay(now: Date): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
-function endOfLocalDay(now: Date): Date {
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-}
+/** 案头「临近」：已过、今天、以及七日内。再远的期日留在案件页。 */
+const DESK_HORIZON_DAYS = 7;
 
-function isDueTodayOrOverdue(dueAt: string, now: Date): boolean {
+function isDueWithinHorizon(dueAt: string, now: Date): boolean {
   const due = new Date(dueAt);
   if (Number.isNaN(due.getTime())) {
     return false;
   }
-  return due.getTime() <= endOfLocalDay(now).getTime();
+  const horizon = startOfLocalDay(now).getTime() + DESK_HORIZON_DAYS * 24 * 3600 * 1000;
+  return due.getTime() <= horizon;
 }
 
 export function buildTodayWorkSnapshot(workspaceDir: string, now = new Date()): TodayWorkSnapshot {
@@ -61,7 +63,7 @@ export function buildTodayWorkSnapshot(workspaceDir: string, now = new Date()): 
   const plan = loadDailyPlan(workspaceDir, date);
   const carried = listOpenLawyerPlanItemsBefore(workspaceDir, date);
   const items: TodayWorkItem[] = [
-    ...carried.map((item) => ({
+    ...carried.items.map((item) => ({
       id: item.id,
       kind: "plan" as const,
       title: item.text,
@@ -127,15 +129,7 @@ export function buildTodayWorkSnapshot(workspaceDir: string, now = new Date()): 
       if (!isDeadlineReleased(dl, matterDeadlines) && dl.eventKind !== "hearing") {
         continue;
       }
-      if (!isDueTodayOrOverdue(dl.dueAt, now) && dl.eventKind !== "hearing") {
-        continue;
-      }
-      const due = new Date(dl.dueAt);
-      const soonHearing =
-        dl.eventKind === "hearing" &&
-        !Number.isNaN(due.getTime()) &&
-        due.getTime() <= startOfLocalDay(now).getTime() + 3 * 24 * 3600 * 1000;
-      if (!isDueTodayOrOverdue(dl.dueAt, now) && !soonHearing) {
+      if (!isDueWithinHorizon(dl.dueAt, now)) {
         continue;
       }
       items.push({
@@ -169,5 +163,6 @@ export function buildTodayWorkSnapshot(workspaceDir: string, now = new Date()): 
     date,
     items,
     progress: { done, total: items.length },
+    carryOmitted: carried.omitted,
   };
 }

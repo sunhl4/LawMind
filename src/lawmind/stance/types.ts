@@ -2,6 +2,7 @@
 
 export const STANCE_SCHEMA_VERSION = 1 as const;
 
+/** 常见条款名，供筛选。写入时条款名可以是别的说法，不靠这张表拒绝。 */
 export const STANCE_CLAUSE_TYPE_IDS = [
   "管辖",
   "违约金",
@@ -34,9 +35,20 @@ export type StanceItem = {
   family?: string;
   position: string;
   preferredLanguage: string;
+  /** 可接受的回退措辞。没有则不编造。 */
+  fallbackLanguage?: string;
+  /** 绝不接受的措辞。没有则不编造。 */
+  unacceptableLanguage?: string;
   rationale?: string;
   statuteBasis?: string;
   source: StanceSource;
+  /**
+   * 排序用的证据分（1 − Π(1 − w)）。
+   * 模型或律师另给判断时放在 modelConfidence，注入时优先用那个。
+   */
+  evidenceScore?: number;
+  /** 模型或律师给出的置信度。缺省时才退回 evidenceScore / 旧 confidence。 */
+  modelConfidence?: number;
   /** 由 evidence 按来源权重派生；无账本的存量条目保留写入时的值。 */
   confidence: number;
   occurrences: number;

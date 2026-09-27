@@ -5,13 +5,25 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomicAsync } from "../adapters/matter-storage/io.js";
 import { emit } from "../audit/index.js";
 import type { ArtifactDraft } from "../types.js";
 
 export type FirstrunAcceptancePending = { matterId: string };
 
+export type FirstrunDismissed = { dismissedAt: string };
+
+function lawmindDir(workspaceDir: string): string {
+  return path.join(workspaceDir, ".lawmind");
+}
+
 export function firstrunAcceptancePendingPath(workspaceDir: string): string {
-  return path.join(workspaceDir, ".lawmind", "firstrun-acceptance-pending.json");
+  return path.join(lawmindDir(workspaceDir), "firstrun-acceptance-pending.json");
+}
+
+/** 首跑「不再自动打开」记在工作区，不记在浏览器。换工作区不会把上一份的关闭带过来。 */
+export function firstrunDismissedPath(workspaceDir: string): string {
+  return path.join(lawmindDir(workspaceDir), "firstrun-dismissed.json");
 }
 
 export async function readFirstrunAcceptancePending(
@@ -33,12 +45,34 @@ export async function setFirstrunAcceptancePending(
   workspaceDir: string,
   matterId: string,
 ): Promise<void> {
-  const dir = path.join(workspaceDir, ".lawmind");
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(
+  await writeFileAtomicAsync(
     firstrunAcceptancePendingPath(workspaceDir),
     `${JSON.stringify({ matterId }, null, 2)}\n`,
-    "utf8",
+  );
+}
+
+export async function readFirstrunDismissed(
+  workspaceDir: string,
+): Promise<FirstrunDismissed | null> {
+  try {
+    const raw = await fs.readFile(firstrunDismissedPath(workspaceDir), "utf8");
+    const j = JSON.parse(raw) as FirstrunDismissed;
+    if (typeof j.dismissedAt === "string" && j.dismissedAt.trim()) {
+      return { dismissedAt: j.dismissedAt.trim() };
+    }
+  } catch {
+    // missing or invalid
+  }
+  return null;
+}
+
+export async function setFirstrunDismissed(
+  workspaceDir: string,
+  dismissedAt = new Date().toISOString(),
+): Promise<void> {
+  await writeFileAtomicAsync(
+    firstrunDismissedPath(workspaceDir),
+    `${JSON.stringify({ dismissedAt }, null, 2)}\n`,
   );
 }
 
@@ -56,6 +90,8 @@ export async function recordFirstrunWizardCompleted(
   auditDir: string,
   actorId: string,
 ): Promise<void> {
+  // 漏斗标记先落盘。审计写失败时待验收案件仍在，重试不会把首跑状态丢掉。
+  await setFirstrunAcceptancePending(workspaceDir, matterId);
   await emit(auditDir, {
     taskId: matterId,
     kind: "ui.firstrun_wizard_completed",
@@ -63,7 +99,6 @@ export async function recordFirstrunWizardCompleted(
     actorId,
     detail: JSON.stringify({ matterId }),
   });
-  await setFirstrunAcceptancePending(workspaceDir, matterId);
 }
 
 /**

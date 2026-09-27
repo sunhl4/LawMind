@@ -28,12 +28,25 @@ export type { PkulawSearchKind };
 
 export type PkulawMode = "rest_compat" | "search_post" | "mcp_tools_call";
 
-export function resolvePkulawMode(opts?: { mode?: string }): PkulawMode {
+export function endpointWantsPkulawMcp(endpoint: string): boolean {
+  try {
+    const url = new URL(endpoint);
+    return url.hostname === "apim-gateway.pkulaw.com" || url.pathname.includes("/mcp-");
+  } catch {
+    return false;
+  }
+}
+
+export function resolvePkulawMode(opts?: { mode?: string; endpoint?: string }): PkulawMode {
   const raw = (opts?.mode ?? process.env.LAWMIND_PKULAW_MODE ?? "rest_compat").trim().toLowerCase();
   if (raw === "search_post" || raw === "post") {
     return "search_post";
   }
   if (raw === "mcp_tools_call" || raw === "mcp") {
+    return "mcp_tools_call";
+  }
+  // Official MCP gateway rejects GET ?q= with HTTP 401 "MCP Failure".
+  if (opts?.endpoint && endpointWantsPkulawMcp(opts.endpoint)) {
     return "mcp_tools_call";
   }
   return "rest_compat";
@@ -120,7 +133,7 @@ export async function pkulawRetrieve(opts: {
     requestTag: "pkulaw",
   });
   const fetchImpl = pkulawProxy.fetch.bind(pkulawProxy);
-  const mode = opts.mode ?? resolvePkulawMode();
+  const mode = opts.mode ?? resolvePkulawMode({ endpoint: opts.endpointNormalized });
   const searchType = opts.searchKind ?? inferPkulawSearchKind(opts.query);
   const requestedEndpoint =
     mode === "mcp_tools_call" && searchType === "case"

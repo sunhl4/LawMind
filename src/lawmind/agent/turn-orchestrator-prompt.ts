@@ -24,20 +24,19 @@ import {
   formatEditExamplesPromptBlock,
   loadEditExamplesForDrafting,
 } from "../learning/edit-examples.js";
+import { formatRejectionCoach } from "../learning/rejection-ratchet.js";
 import { resolveMailAccountForMatter } from "../mail/mail-accounts.js";
 import { buildMailSendFormatPrompt } from "../mail/mail-send-format.js";
-import { listPendingMemorySuggestions } from "../memory/adoption-service.js";
 import {
   formatExecutablePreferencesHint,
   loadExecutablePreferences,
 } from "../memory/executable-preferences.js";
 import { loadMemoryContext, type MemoryContext } from "../memory/index.js";
-import { lawyerProfileForPrompt } from "../memory/lawyer-profile-for-prompt.js";
-import { findRelevantMemoriesForTurn } from "../memory/relevant-recall.js";
 import {
-  findSimilarCaseMemories,
-  formatSimilarCaseRecallBlock,
-} from "../memory/similar-case-recall.js";
+  lawyerProfileForPrompt,
+  profileWithoutAccumulation,
+  windowLawyerProfileForPrompt,
+} from "../memory/lawyer-profile-for-prompt.js";
 import { resolveCapabilityEnvelope } from "../models/capability-envelope.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import {
@@ -88,7 +87,6 @@ import { applySystemPromptToHistory, buildSystemPrompt } from "./system-prompt.j
 import { promptCatalogToolNames } from "./tools/governance.js";
 import { enableableToolCatalog } from "./tools/legal/list-more-tools.js";
 import type { ToolRegistry } from "./tools/registry.js";
-import { collectRecentToolNamesFromSession } from "./turn-orchestrator-events.js";
 import { formatTurnPlanWorldState } from "./turn-plan.js";
 import type { AgentConfig, AgentContext, AgentSession } from "./types.js";
 import {
@@ -177,7 +175,6 @@ export async function prepareTurnPromptContext(opts: {
   resolvedAssistantId: string | undefined;
   linkedTaskIdForCtx: string | undefined;
   projectDirResolved: string | undefined;
-  teamMeetingMode?: boolean;
   contextPins?: ComposeContextPin[];
   permissionMode?: AgentPermissionMode;
   /**
@@ -209,7 +206,6 @@ export async function prepareTurnPromptContext(opts: {
     resolvedAssistantId,
     linkedTaskIdForCtx,
     projectDirResolved,
-    teamMeetingMode,
   } = opts;
 
   const pinnedContextSummary = resolvePinnedContextSummary({
@@ -284,17 +280,54 @@ export async function prepareTurnPromptContext(opts: {
       ? buildDeliverablePipelineSystemNote(instruction)
       : undefined;
   const lawyerProfileForSystem = lawyerProfileForPrompt(memory.profile ?? "");
-  const executablePrefs = loadExecutablePreferences(
-    config.workspaceDir,
-    lawyerProfileForSystem ?? "",
-    6,
+  let kernelMemory = "";
+  let kernelReady = false;
+  let inactiveBodies: string[] = [];
+  let caseInactiveBodies: string[] = [];
+  let clientInactiveBodies: string[] = [];
+  let omitInactiveLines = (text: string, _bodies: readonly string[]): string => text;
+  try {
+    const kernel = await import("../memory/kernel/query.js");
+    kernelMemory = kernel.formatKernelMemoryForPrompt(config.workspaceDir, {
+      matterId: session.matterId,
+      query: instruction,
+    });
+    kernelReady = true;
+    inactiveBodies = kernel.terminalMemoryBodies(config.workspaceDir);
+    caseInactiveBodies = session.matterId
+      ? kernel.terminalMemoryBodies(config.workspaceDir, {
+          scope: "matter",
+          scopeId: session.matterId,
+        })
+      : [];
+    clientInactiveBodies = memory.clientProfileClientId
+      ? kernel.terminalMemoryBodies(config.workspaceDir, {
+          scope: "client",
+          scopeId: memory.clientProfileClientId,
+        })
+      : [];
+    omitInactiveLines = kernel.omitLinesCarryingBodies;
+  } catch (err) {
+    console.error("[lawmind] memory kernel prompt failed:", err);
+  }
+  const profileForPrefs = kernelReady
+    ? profileWithoutAccumulation(lawyerProfileForSystem ?? "")
+    : (lawyerProfileForSystem ?? "");
+  const executablePrefs = loadExecutablePreferences(config.workspaceDir, profileForPrefs, 6).filter(
+    (pref) => !inactiveBodies.some((body) => pref.text.includes(body)),
   );
   let appliedPreferencesHint = formatExecutablePreferencesHint(executablePrefs);
-  const stanceHint = formatStanceHint(config.workspaceDir, { matterId: session.matterId });
-  if (stanceHint) {
+  if (kernelMemory) {
     appliedPreferencesHint = appliedPreferencesHint
-      ? `${appliedPreferencesHint}\n\n${stanceHint}`
-      : stanceHint;
+      ? `${appliedPreferencesHint}\n\n${kernelMemory}`
+      : kernelMemory;
+  } else if (!kernelReady) {
+    const stanceHint = formatStanceHint(config.workspaceDir, { matterId: session.matterId });
+    if (stanceHint) {
+      appliedPreferencesHint = appliedPreferencesHint
+        ? `${appliedPreferencesHint}\n\n${stanceHint}`
+        : stanceHint;
+    }
   }
   const envelope = resolveCapabilityEnvelope({
     contextTokens: config.model.contextTokens ?? workspacePolicy?.context?.contextTokens,
@@ -356,25 +389,37 @@ export async function prepareTurnPromptContext(opts: {
   const clientRel = memory.clientProfileClientId
     ? `clients/${memory.clientProfileClientId}/CLIENT_PROFILE.md`
     : "CLIENT_PROFILE.md";
+  const caseForPrompt = kernelReady
+    ? omitInactiveLines(memory.caseMemory ?? "", caseInactiveBodies)
+    : (memory.caseMemory ?? "");
   const windowedCase = windowCaseMarkdownForPrompt(
-    memory.caseMemory,
+    caseForPrompt,
     promptWindow.matterContextChars,
     matterRel ? { tool: "read_case_file", path: matterRel } : undefined,
   );
-  const lawyerFingerprint = truncateForPrompt(
-    lawyerProfileForSystem ?? "",
-    promptWindow.lawyerFingerprintChars,
-    { overflow: { tool: "read_workspace_file", path: "LAWYER_PROFILE.md" } },
-  );
+  const lawyerFingerprint = kernelMemory
+    ? ""
+    : windowLawyerProfileForPrompt(
+        kernelReady
+          ? profileWithoutAccumulation(lawyerProfileForSystem ?? "")
+          : (lawyerProfileForSystem ?? ""),
+        promptWindow.lawyerFingerprintChars,
+        instruction,
+      );
   const assistantFingerprint = assistantProfileMarkdown
     ? truncateForPrompt(assistantProfileMarkdown, promptWindow.assistantFingerprintChars, {
         overflow: { tool: "read_workspace_file", path: "assistants" },
       })
     : "";
+  const clientForPrompt = kernelReady
+    ? omitInactiveLines(memory.clientProfile ?? "", clientInactiveBodies)
+    : (memory.clientProfile ?? "");
   const clientFingerprint = truncateForPrompt(
-    memory.clientProfile,
+    clientForPrompt,
     promptWindow.clientFingerprintChars,
-    { overflow: { tool: "read_workspace_file", path: clientRel } },
+    {
+      overflow: { tool: "read_workspace_file", path: clientRel },
+    },
   );
   const matterIndex = truncateForPrompt(windowedCase, promptWindow.matterIndexChars, {
     overflow: matterRel ? { tool: "read_case_file", path: matterRel } : undefined,
@@ -393,7 +438,6 @@ export async function prepareTurnPromptContext(opts: {
     roleIntroduction: config.roleIntroduction,
     roleDirective: config.roleDirective,
     roleRiskCeiling: presetForTools?.riskCeiling,
-    roleAcceptanceChecklist: presetForTools?.acceptanceChecklist,
     allowWebSearch: config.allowWebSearch === true,
     authorityLive: isAuthorityLive(),
     authorityOfficialPublic: !isAuthorityLive() && isAuthorityOfficialPublic(),
@@ -413,9 +457,9 @@ export async function prepareTurnPromptContext(opts: {
     requireAppliedPreferencesFooter,
     assistantOrgLine,
     teamOrgOverview,
-    teamMeetingMode: teamMeetingMode === true,
     runtimeModel: config.runtimeModel,
     appliedPreferencesHint,
+    rejectionCoach: formatRejectionCoach(config.workspaceDir, linkedTaskIdForCtx),
     mailSendFormatHint,
   });
 
@@ -569,73 +613,6 @@ export async function prepareTurnPromptContext(opts: {
         { worldStateId: "policy" },
       );
     }
-  }
-
-  try {
-    const pending = await listPendingMemorySuggestions(config.workspaceDir);
-    const previewItems = pending
-      .filter((r) => {
-        if (r.scope === "lawyer") {
-          return true;
-        }
-        if (r.scope === "matter" && session.matterId?.trim()) {
-          return r.targetId === session.matterId.trim();
-        }
-        return false;
-      })
-      .slice(0, 6);
-    if (previewItems.length > 0) {
-      const lines = previewItems.map(
-        (r, i) =>
-          `${i + 1}. [${r.scope}/${r.kind}] ${(r.payload ?? "")
-            .replace(/\s+/g, " ")
-            .slice(0, 220)}`,
-      );
-      queue(
-        "memory_hit",
-        [
-          "## 待律师采纳的偏好/案件要点（预览，只读）",
-          "",
-          "以下来自整理上下文/沉淀学习等，**尚未写入** MEMORY / CASE；不得当作已生效指令执行。律师可在记忆检查中采纳或驳回。",
-          "",
-          ...lines,
-        ].join("\n"),
-      );
-    }
-  } catch {
-    /* optional */
-  }
-
-  const surfaced = new Set(session.alreadySurfacedMemoryPaths ?? []);
-  if (session.matterId?.trim()) {
-    surfaced.add(`cases/${session.matterId.trim()}/CASE.md`);
-  }
-  const recentToolNames = collectRecentToolNamesFromSession(session);
-  const recalled = await findRelevantMemoriesForTurn({
-    workspaceDir: config.workspaceDir,
-    matterId: session.matterId,
-    query: instruction,
-    alreadySurfaced: surfaced,
-    recentToolNames,
-    policy: workspacePolicy,
-  });
-  if (recalled.length > 0) {
-    const lines = ["## 相关记忆（本轮召回）", ""];
-    for (const hit of recalled) {
-      lines.push(`### ${hit.relativePath}`);
-      if (hit.gist) {
-        lines.push(hit.gist);
-      }
-      lines.push(`完整内容请用 read_workspace_file 读取 ${hit.relativePath}`);
-      surfaced.add(hit.relativePath);
-    }
-    session.alreadySurfacedMemoryPaths = [...surfaced];
-    queue("memory_hit", lines.join("\n"), {
-      overflow: {
-        tool: "read_workspace_file",
-        path: recalled[0]?.relativePath ?? "MEMORY.md",
-      },
-    });
   }
 
   try {
@@ -939,17 +916,7 @@ export async function prepareTurnPromptContext(opts: {
     queue("craft", LEGACY_UPDATE_DRAFT_BODY_WARNING, { worldStateId: "craft" });
   }
 
-  try {
-    const similar = await findSimilarCaseMemories({
-      workspaceDir: config.workspaceDir,
-      instruction,
-      currentMatterId: session.matterId,
-      limit: 2,
-    });
-    queue("memory_hit", formatSimilarCaseRecallBlock(similar));
-  } catch {
-    /* optional */
-  }
+  // 相似旧案不再自动进提示词。对照走 search_precedents，或 formatExplicitPrecedentRecall。
 
   // ── 素材块（D10）：三个通道合并进**一个**受预算约束的片段 ──────────────
   //

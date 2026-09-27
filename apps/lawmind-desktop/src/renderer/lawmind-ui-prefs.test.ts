@@ -1,6 +1,9 @@
 /**
  * @vitest-environment jsdom
  */
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyReducedMotionForced,
@@ -45,12 +48,30 @@ describe("lawmind-ui-prefs", () => {
   });
 
   it("persists font scale and density", () => {
-    writeUiFontScale("comfortable");
+    writeUiFontScale("large");
     writeUiDensity("compact");
-    expect(readUiFontScale()).toBe("comfortable");
+    expect(readUiFontScale()).toBe("large");
     expect(readUiDensity()).toBe("compact");
     applyUiDensity("compact");
     expect(document.documentElement.classList.contains("lm-density-compact")).toBe(true);
+  });
+
+  it("scales the whole window, not only tokenized text", () => {
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "styles/utilities.css"), "utf8");
+    expect(css).toContain('html[data-lm-font-scale="small"] body');
+    expect(css).toContain('html[data-lm-font-scale="large"] body');
+    expect(css).toContain("zoom: calc(12 / 14)");
+    expect(css).toContain("zoom: calc(16 / 14)");
+    expect(css).not.toMatch(/html\[data-lm-font-scale="small"\]\s*\{[^}]*--fs-md/);
+  });
+
+  it("maps the old comfortable font scale to large", () => {
+    localStorage.setItem("lm.ui.fontScale.v1", "comfortable");
+    expect(readUiFontScale()).toBe("large");
+    writeUiFontScale("small");
+    expect(readUiFontScale()).toBe("small");
+    writeUiFontScale("default");
+    expect(readUiFontScale()).toBe("default");
   });
 
   it("defaults to light theme and toggles dark class", () => {

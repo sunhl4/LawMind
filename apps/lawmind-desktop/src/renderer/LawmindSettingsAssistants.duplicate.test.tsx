@@ -28,6 +28,7 @@ function makeProps(over: Partial<PanelProps> = {}): PanelProps {
     onOpenEdit: vi.fn(),
     onRemove: vi.fn(),
     onDuplicate: vi.fn(),
+    onPatchRoster: vi.fn(),
     ...over,
   };
 }
@@ -107,5 +108,19 @@ describe("LawmindSettingsAssistants 名册复制入口", () => {
     );
     // 空态下根本不该出现这个按钮（空态只有「新建助手」）。
     expect(host.querySelector('[data-testid="lm-assistants-duplicate"]')).toBeNull();
+  });
+
+  it("pins and hides from the roster without opening edit", async () => {
+    const props = makeProps();
+    await render(props);
+    expect(host.textContent).toContain("还没写禁止项");
+    const pin = host.querySelector<HTMLButtonElement>('[data-testid="lm-assistants-pin-a-1"]');
+    const hide = host.querySelector<HTMLButtonElement>('[data-testid="lm-assistants-hide-a-1"]');
+    await act(async () => {
+      pin?.click();
+      hide?.click();
+    });
+    expect(props.onPatchRoster).toHaveBeenNthCalledWith(1, "a-1", { pinned: true });
+    expect(props.onPatchRoster).toHaveBeenNthCalledWith(2, "a-1", { hidden: true });
   });
 });

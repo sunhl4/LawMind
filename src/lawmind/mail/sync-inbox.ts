@@ -166,7 +166,7 @@ export async function sendMailViaAccount(
     return {
       ok: false,
       error: "no_mail_account",
-      hint: "未配置邮箱。请在「交办 → 邮箱配置」中添加账号。",
+      hint: "未配置邮箱。请在「设置 → 自动办件」里添加。",
     };
   }
   const { resolveOutboundAttachmentPaths } = await import("./mail-attachments.js");

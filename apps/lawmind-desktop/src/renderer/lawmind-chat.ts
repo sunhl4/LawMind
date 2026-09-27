@@ -19,6 +19,45 @@ import { readIncludeTurnDiagnostics } from "./lawmind-chat-diagnostics-pref";
 import type { ChatLiveTrace } from "./lawmind-chat-trace-types.js";
 import type { ChatActivityBlock } from "./lawmind-chat-activity.js";
 import { sanitizeChatSessionRefs } from "./lawmind-session-link";
+import {
+  EMBED_TURN_EVENT_TYPES,
+  LEGACY_FINAL_SSE_ALIAS,
+  type EmbedTurnEventType,
+} from "../../../../src/lawmind/agent/embed-turn-events.ts";
+
+/**
+ * `/api/chat` 流上会出现的事件名 = 引擎契约（`EMBED_TURN_EVENT_TYPES`）+ 三个传输帧：
+ * `payload`（末端快照）、`done`（结束标记）、`error`（服务端 catch 分支用裸 `res.write`
+ * 写的失败帧，刻意不走 sseWriteEvent / switch，见 lawmind-server-route-chat.ts 的
+ * writeStreamError）+ 一个历史别名（`final_reply`）。
+ *
+ * 为什么从契约里取而不是写字面量：事件名以前是手抄的，引擎加了事件、渲染层不知道，
+ * `approval_request` / `requires_action` 就是这么被静默漏掉的。现在引擎改/加事件名，
+ * 这里的 `case` 标签和下面这个窄化函数会一起给出编译期信号。
+ *
+ * 注意 `model_error`（模型调用失败）**故意不在这里处理**：它是致命错误，回合会以
+ * `status="error"` 收口，失败文案已由 `final` / `payload` 以助手气泡送达；
+ * 再单独弹一个错误反而是双重报错。
+ */
+type ChatStreamEventName =
+  | EmbedTurnEventType
+  | "payload"
+  | "done"
+  | "error"
+  | typeof LEGACY_FINAL_SSE_ALIAS;
+
+const CHAT_STREAM_FRAME_NAMES: ReadonlySet<string> = new Set<string>([
+  ...EMBED_TURN_EVENT_TYPES,
+  "payload",
+  "done",
+  "error",
+  LEGACY_FINAL_SSE_ALIAS,
+]);
+
+/** 只放行契约内的事件名与传输帧名；其余（如无名帧、将来新增的未知事件）显式跳过。 */
+function asChatStreamEventName(raw: string): ChatStreamEventName | null {
+  return CHAT_STREAM_FRAME_NAMES.has(raw) ? (raw as ChatStreamEventName) : null;
+}
 
 /** Mirrors `GET /api/chat` `runtimeHints` when Firm/Private or `includeTurnDiagnostics`. */
 export type ChatRuntimeHints = {
@@ -49,6 +88,32 @@ export function handleEnterSendShiftNewline(
   }
   e.preventDefault();
   void onSend();
+}
+
+/** Lawyer-facing line after a mid-turn steer or pin lands in the sidecar. */
+export function turnInboxAck(input: {
+  kind: "steer" | "pins";
+  dropped?: number;
+  truncated?: boolean;
+  failed?: boolean;
+}): string {
+  if (input.failed) {
+    return input.kind === "pins"
+      ? "材料没送进本轮，停下来后可以再钉一次"
+      : "这条补充没送进本轮，停下来后可以再发一次";
+  }
+  if (input.kind === "pins") {
+    return (input.dropped ?? 0) > 0
+      ? "材料已带入本轮。较早钉选的已被后面的取代"
+      : "材料已带入本轮";
+  }
+  if (input.truncated) {
+    return "已带入本轮。这句话过长，后文已截断";
+  }
+  if ((input.dropped ?? 0) > 0) {
+    return "已带入本轮。较早的补充已被后面的取代";
+  }
+  return "已带入本轮，下一步会按这条调整";
 }
 
 export type ChatCompiledIntent = {
@@ -346,7 +411,7 @@ export async function sendChatTurnStream(
   const streamErrorCell: { current: { status: number; body: ApiErrorJson } | null } = { current: null };
   let finishedDone = false;
 
-  const handleEvent = (name: string, data: string): void => {
+  const handleEvent = (name: ChatStreamEventName, data: string): void => {
     try {
       const parsed = JSON.parse(data) as Record<string, unknown>;
       switch (name) {
@@ -545,16 +610,18 @@ export async function sendChatTurnStream(
       const blocks = buffer.split(/\r?\n\r?\n/);
       buffer = blocks.pop() ?? "";
       for (const block of blocks) {
-        let eventName = "message";
+        let rawEventName = "message";
         const dataLines: string[] = [];
         for (const line of block.split(/\r?\n/)) {
           if (line.startsWith("event:")) {
-            eventName = line.slice(6).trim();
+            rawEventName = line.slice(6).trim();
           } else if (line.startsWith("data:")) {
             dataLines.push(line.slice(5).replace(/^ /, ""));
           }
         }
-        if (dataLines.length > 0) {
+        const eventName = asChatStreamEventName(rawEventName);
+        // 契约外的帧（无名帧、将来新增的未知事件）显式跳过，不静默当成已知事件处理。
+        if (dataLines.length > 0 && eventName) {
           handleEvent(eventName, dataLines.join("\n"));
         }
       }

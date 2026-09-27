@@ -31,7 +31,7 @@ export function acceptanceGateShouldExpand(
   report: AcceptanceReport,
   reasoning?: ReasoningReport | null,
 ): boolean {
-  if (!report.deliverableType) {
+  if (!report.deliverableType && report.ready) {
     return false;
   }
   if (!report.ready) {
@@ -66,10 +66,10 @@ export function LawmindAcceptanceGate(props: Props): ReactNode {
   if (!report) {
     return null;
   }
-  if (!report.deliverableType) {
+  if (!report.deliverableType && report.ready) {
     return (
       <div id="lm-review-acceptance-gate" className="lm-meta lm-acceptance-skip">
-        本草稿未声明交付物类型，按通用文书放行。
+        未标明文书类型。导出前会再按已登记的文书规范核一次。
       </div>
     );
   }

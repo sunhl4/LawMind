@@ -28,7 +28,8 @@ import {
 import { applySameTurnVerifyFail, precheckOutboundSameTurnVerify } from "./same-turn-verify.js";
 import type { ToolMiddleware } from "./tool-pipeline.js";
 
-const OUTBOUND_PRECHECK_TOOLS = new Set(["prepare_outbound_mail"]);
+/** Draft and the actual send. A name-only approval must not skip recipient or privilege checks. */
+const OUTBOUND_PRECHECK_TOOLS = new Set(["prepare_outbound_mail", "send_email"]);
 
 const STATUTE_TRIAL_DELIVERABLES = new Set([
   "memo.research",

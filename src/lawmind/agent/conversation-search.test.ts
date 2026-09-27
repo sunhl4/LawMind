@@ -226,6 +226,21 @@ describe("searchConversations", () => {
     expect(result.hits.map((h) => h.sessionId)).toContain(session.sessionId);
   });
 
+  it("omits collaboration sessions from search hits", () => {
+    const ws = tmpWs();
+    dirs.push(ws);
+    const visible = createSession({ workspaceDir: ws, actorId: "a", title: "采购合同审查" });
+    addVisible(visible, "user", "保密期限三年", "2026-09-14T01:00:00.000Z");
+    writeSession(ws, visible);
+    const hidden = createSession({ workspaceDir: ws, actorId: "a", title: "协作·交办" });
+    hidden.omitFromChatSwitcher = true;
+    addVisible(hidden, "user", "保密期限三年", "2026-09-14T01:00:00.000Z");
+    writeSession(ws, hidden);
+
+    const result = searchConversations(ws, { query: "保密期限" });
+    expect(result.hits.map((hit) => hit.sessionId)).toEqual([visible.sessionId]);
+  });
+
   it("does not dump recent chats when only stop words remain", () => {
     const ws = tmpWs();
     dirs.push(ws);

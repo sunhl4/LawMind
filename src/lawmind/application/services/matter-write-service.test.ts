@@ -21,6 +21,7 @@ import {
   loadDeliverable,
 } from "../../adapters/matter-storage/index.js";
 import { parseMatterDisplayNameFromCase } from "../../cases/matter-label.js";
+import { MATTER_PARTIES_CAP, type MatterParty } from "../../desk/matter-parties.js";
 import { caseFilePath } from "../../memory/index.js";
 import type { ArtifactDraft } from "../../types.js";
 import { listPendingApprovals, requestApproval, resolveApproval } from "./approval-service.js";
@@ -100,6 +101,19 @@ describe("Matter write services (W3)", () => {
     expect(saved?.parties).toHaveLength(3);
     const loaded = loadMatter(workspaceDir, "m-parties");
     expect(loaded?.parties?.map((row) => row.role)).toEqual(["client", "counterparty", "agent"]);
+  });
+
+  it("refuses a party list past the cap instead of dropping the tail", async () => {
+    createMatterIfMissing(workspaceDir, { matterId: "m-cap", title: "超员" });
+    const parties: MatterParty[] = Array.from({ length: MATTER_PARTIES_CAP + 1 }, (_, i) => ({
+      partyId: `p-${i}`,
+      name: `当事人${i}`,
+      role: "other" as const,
+    }));
+    await expect(updateMatterProfile(workspaceDir, { matterId: "m-cap", parties })).rejects.toThrow(
+      /matter_parties_cap:32/,
+    );
+    expect(loadMatter(workspaceDir, "m-cap")?.parties ?? []).toHaveLength(0);
   });
 
   it("updateMatterStatus and setMatterStrategy mutate the truth source", () => {

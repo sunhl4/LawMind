@@ -440,18 +440,6 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
         </article>
         );
       })}
-      {onOpenNeedsDecisionDesk ? (
-        <p className="lm-meta lm-requires-action-desk-hint">
-          <button
-            type="button"
-            className="lm-link-btn"
-            data-testid="lm-decision-card-open-desk"
-            onClick={() => onOpenNeedsDecisionDesk?.()}
-          >
-            待我拍板
-          </button>
-        </p>
-      ) : null}
     </div>
   );
 }

@@ -8,6 +8,7 @@
 @import "./styles/animations.css";
 @import "./styles/controls.css";
 @import "./styles/lawyer-workbench.css";
+@import "./styles/acceptance-sheet.css";
 
 .lm-skip-nav {
   position: absolute;
@@ -2673,6 +2674,31 @@ html.lm-theme-dark .lm-main-header {
   flex-shrink: 0;
 }
 
+.lm-presence-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--muted);
+}
+
+.lm-presence-dot--working,
+.lm-presence-dot--thinking {
+  background: var(--info);
+}
+
+.lm-presence-dot--waiting {
+  background: var(--warn);
+}
+
+.lm-presence-dot--blocked {
+  background: var(--error);
+}
+
+.lm-presence-dot--done {
+  background: var(--ok);
+}
+
 .lm-main-asst-select {
   flex: 1;
   min-width: 140px;
@@ -3472,6 +3498,33 @@ html.lm-theme-dark .lm-main-header {
   padding-bottom: 8px;
 }
 
+.lm-assistant-desk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 10px;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.lm-assistant-desk__line,
+.lm-assistant-desk__away {
+  margin: 0;
+}
+
+.lm-assistant-desk__away {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .lm-chat-revision-banner {
   display: flex;
   align-items: center;
@@ -4168,33 +4221,6 @@ html.lm-theme-dark .lm-main-header {
   line-height: 1.4;
 }
 
-.lm-compose-ctx-usage-hint {
-  margin-top: 6px !important;
-  color: var(--text-2, var(--text));
-}
-
-.lm-compose-ctx-usage-meter {
-  margin: 10px 0 12px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--surface-2, var(--border));
-  overflow: hidden;
-}
-
-.lm-compose-ctx-usage-meter-fill {
-  height: 100%;
-  border-radius: inherit;
-  background: var(--accent);
-}
-
-.lm-compose-ctx-usage-meter-fill--warn {
-  background: var(--warn);
-}
-
-.lm-compose-ctx-usage-meter-fill--danger {
-  background: var(--error);
-}
-
 /* ── end imported: shell-header+chat-main ── */
 /* ── imported: modal-forms ── */
 .lm-check-row {
@@ -4598,6 +4624,96 @@ fieldset.lm-field-reset > legend.lm-meta {
   opacity: 0.55;
 }
 
+/* Unexpected-error report. Same brass paper as the workbench, not a one-off beige card. */
+.lm-error-report-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 33000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(16px, 4vw, 28px);
+  background: rgba(28, 25, 21, 0.38);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  backdrop-filter: blur(8px) saturate(120%);
+  animation: lm-fade-in 200ms var(--ease-out);
+}
+
+html.lm-theme-dark .lm-error-report-backdrop {
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.lm-error-report {
+  position: relative;
+  width: min(520px, 100%);
+  max-height: min(80vh, 640px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-lg), 0 0 0 1px color-mix(in srgb, var(--danger) 18%, transparent);
+  animation: lm-pop-in 240ms var(--ease-out);
+}
+
+.lm-error-report::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(199, 171, 121, 0.55), transparent);
+  pointer-events: none;
+}
+
+.lm-error-report-head {
+  padding: 18px 20px 0;
+}
+
+.lm-error-report h2 {
+  margin: 0 0 6px;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.02em;
+  color: var(--danger-text);
+}
+
+.lm-error-report-lead {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.lm-error-report-body {
+  margin: 14px 20px 0;
+  padding: 12px 14px;
+  max-height: 16rem;
+  overflow: auto;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.lm-error-report-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--border);
+}
+
 /* ── end imported: modal-forms ── */
 
 /* ── imported: utilities ── */
@@ -4658,12 +4774,21 @@ html {
   font-size: var(--fs-md);
 }
 
-html[data-lm-font-scale="comfortable"] {
-  font-size: var(--fs-xl);
+/*
+ * 字号是整个软件的设置，不是设置页自己的字。
+ * 对话、在办、文书大量写死了 px，只改 --fs-* 盖不住。
+ * 以正文 14px 为标准，小一点 12/14、大一点 16/14，整页 zoom，再把 body 缩回视口。
+ */
+html[data-lm-font-scale="small"] body {
+  zoom: calc(12 / 14);
+  width: calc(100vw * 14 / 12);
+  height: calc(100vh * 14 / 12);
 }
 
-html.lm-density-compact[data-lm-font-scale="comfortable"] {
-  font-size: var(--fs-xl);
+html[data-lm-font-scale="large"] body {
+  zoom: calc(16 / 14);
+  width: calc(100vw * 14 / 16);
+  height: calc(100vh * 14 / 16);
 }
 
 /* Shared text field — canonical rules live in styles/controls.css; keep token-aligned copy for cascade. */
@@ -5621,6 +5746,33 @@ select option {
   border-color: rgba(108, 182, 177, 0.35);
   color: var(--accent-cool);
 }
+.lm-compose-ctx-usage-hint {
+  margin-top: 6px !important;
+  color: var(--text-2, var(--text));
+}
+
+.lm-compose-ctx-usage-meter {
+  margin: 10px 0 12px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-2, var(--border));
+  overflow: hidden;
+}
+
+.lm-compose-ctx-usage-meter-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.lm-compose-ctx-usage-meter-fill--warn {
+  background: var(--warn);
+}
+
+.lm-compose-ctx-usage-meter-fill--danger {
+  background: var(--error);
+}
+
 .lm-compose-ctx-usage-confirm {
   display: flex;
   flex-direction: column;
@@ -8190,6 +8342,44 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   align-items: center;
 }
 
+.lm-compose-context-length-select {
+  appearance: none;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 5px 22px 5px 8px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 11px) 55%,
+    calc(100% - 7px) 55%;
+  background-size:
+    4px 4px,
+    4px 4px;
+  background-repeat: no-repeat;
+}
+
+.lm-compose-context-length-select:hover:not(:disabled) {
+  border-color: var(--border-md);
+  background-color: var(--surface-3);
+}
+
+.lm-compose-context-length-select:focus-visible:not(:disabled) {
+  outline: none;
+  border-color: var(--accent-border);
+  box-shadow: var(--focus-ring);
+}
+
+.lm-compose-context-length-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .lm-model-picker-trigger {
   display: inline-flex;
   align-items: center;
@@ -8240,6 +8430,8 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 }
 
 .lm-model-picker-popover {
+  /* position/size come from fixed inline style (portaled to body) */
+  box-sizing: border-box;
   background: var(--surface-2);
   border: 1px solid var(--border-md);
   border-radius: var(--r);
@@ -8247,7 +8439,7 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  max-height: 420px;
+  max-height: min(420px, 70vh);
   animation: lm-pop-in var(--t-md) var(--ease-out);
 }
 
@@ -13170,15 +13362,29 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 }
 
 /* ── Matter Replica（成员协作） ── */
+.lm-matter-replica-entry {
+  margin: 16px 0 4px;
+}
+
+.lm-matter-replica-entry > summary {
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.lm-matter-replica-entry > .lm-matter-replica {
+  margin-top: 12px;
+}
+
 .lm-matter-replica {
   margin: 0;
-  padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--accent-border) 40%, var(--border));
-  border-radius: var(--r-lg);
-  background: var(--surface);
+  padding: 0;
+  border: none;
+  background: transparent;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .lm-matter-replica-head {
@@ -13201,14 +13407,13 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-top: 4px;
-  border-top: 1px solid var(--border);
 }
 
 .lm-matter-replica-h {
-  margin: 0;
-  font-size: 0.85rem;
-  font-weight: 600;
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .lm-matter-replica-row {
@@ -13232,16 +13437,6 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 .lm-matter-replica-row .lm-field span {
   font-size: 0.75rem;
   color: var(--text-muted);
-}
-
-.lm-matter-replica-row input,
-.lm-matter-replica-row select {
-  min-height: 32px;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--bg);
-  color: var(--text);
 }
 
 .lm-matter-replica-list {
@@ -13279,13 +13474,7 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 
 .lm-matter-replica-share {
   margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--r-md);
-  border: 1px dashed var(--border);
-  background: var(--bg);
   white-space: pre-wrap;
-  font-size: 0.8rem;
-  line-height: 1.45;
 }
 
 .lm-ok {
@@ -13333,25 +13522,6 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 .lm-review-table-grid td .lm-input {
   width: 100%;
   min-width: 96px;
-}
-
-/* 交办成绩单（Doctor 律师可见区） */
-.lm-settings-scorecard {
-  display: grid;
-  gap: 6px;
-  margin: 8px 0;
-}
-
-.lm-settings-scorecard-row {
-  display: grid;
-  grid-template-columns: minmax(96px, 160px) minmax(80px, auto) 1fr;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.lm-settings-scorecard-value {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
 }
 /* 会议室 — 全局左栏（与对话同构）+ 页内场次栏 + 右栏讨论办理 */
 
@@ -15714,12 +15884,6 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   font-size: 11px;
   word-break: break-all;
 }
-.lm-provider-key-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 8px 0 12px;
-}
 .lm-settings-subsection {
   margin-top: 16px;
   padding-top: 12px;
@@ -16250,26 +16414,61 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 
 .lm-settings-nav-search {
   flex-shrink: 0;
-  padding: 12px 12px 8px;
-  border-bottom: 1px solid var(--border);
+  padding: 12px 10px 6px;
+  border-bottom: none;
 }
 
-.lm-settings-nav-search-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 7px 10px;
-  border-radius: var(--r-sm);
+.lm-settings-nav-search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: var(--r);
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--surface-2);
+}
+
+.lm-settings-nav-search-field:focus-within {
+  border-color: var(--accent-border);
+  box-shadow: var(--focus-ring);
+}
+
+.lm-settings-nav-search-icon {
+  position: static;
+  flex-shrink: 0;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.lm-settings-page .lm-settings-nav-search-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   color: var(--text);
   font-family: var(--font);
   font-size: 13px;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
-.lm-settings-nav-search-input:focus {
+.lm-settings-page .lm-settings-nav-search-input:focus {
   outline: none;
-  border-color: var(--accent-border);
-  box-shadow: var(--focus-ring);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.lm-settings-page .lm-settings-nav-search-input::-webkit-search-decoration,
+.lm-settings-page .lm-settings-nav-search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
 }
 
 .lm-settings-page .lm-settings-nav {
@@ -16277,62 +16476,8 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   min-height: 0;
   width: auto;
   border-right: none;
-  padding: 8px 10px 16px;
-  gap: 12px;
-}
-
-.lm-settings-nav-group--collapsible {
-  border: none;
-  margin: 0;
-  padding: 0;
-}
-
-.lm-settings-nav-group--collapsible > summary.lm-settings-nav-group-label {
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-}
-
-.lm-settings-nav-group--collapsible > summary.lm-settings-nav-group-label::-webkit-details-marker {
-  display: none;
-}
-
-.lm-settings-nav-group--collapsible > summary.lm-settings-nav-group-label::after {
-  content: " ▾";
-  opacity: 0.55;
-  font-size: 11px;
-}
-
-.lm-settings-nav-group--collapsible:not([open]) > summary.lm-settings-nav-group-label::after {
-  content: " ▸";
-}
-
-.lm-settings-nav-group {
-  display: flex;
-  flex-direction: column;
+  padding: 4px 8px 12px;
   gap: 2px;
-}
-
-.lm-settings-nav-group-label {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 10px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.lm-settings-nav-group-cap {
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--muted);
-  opacity: 0.85;
 }
 
 .lm-settings-nav-empty {
@@ -16598,13 +16743,13 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 
 .lm-settings-nav-item {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
-  padding: 8px 12px;
-  border-radius: var(--r-sm);
+  padding: 6px 8px;
+  border-radius: var(--r);
   border: none;
   background: transparent;
   color: var(--text-2);
@@ -16614,6 +16759,22 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   transition:
     background var(--t) var(--ease),
     color var(--t) var(--ease);
+}
+
+.lm-settings-nav-item-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+
+.lm-settings-nav-item-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
 }
 
 .lm-settings-nav-item-label {
@@ -16633,15 +16794,20 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 }
 
 .lm-settings-nav-item:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
   color: var(--text);
 }
 
 .lm-settings-nav-item.is-active {
-  background: rgba(183, 154, 103, 0.12);
+  background: color-mix(in srgb, var(--text) 9%, transparent);
   color: var(--text);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: none;
+}
+
+.lm-settings-nav-item.is-active .lm-settings-nav-item-icon,
+.lm-settings-nav-item:hover .lm-settings-nav-item-icon {
+  color: var(--text);
 }
 
 .lm-settings-nav-item:focus {
@@ -16696,7 +16862,8 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
     width: auto;
     flex: 1 1 calc(50% - 4px);
     min-width: 7.5rem;
-    text-align: center;
+    text-align: left;
+    justify-content: flex-start;
     padding: 7px 10px;
     font-size: 12px;
   }
@@ -16794,7 +16961,8 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
 }
 
-.lm-settings-row-check {
+.lm-settings-row-check,
+label.lm-settings-row {
   cursor: pointer;
 }
 
@@ -16917,6 +17085,79 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   background: var(--bg);
   padding: 5px 10px;
   max-width: min(260px, 55vw);
+}
+
+.lm-settings-key-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lm-settings-key-stack .lm-settings-caption {
+  margin: 0;
+}
+
+.lm-settings-row:has(.lm-settings-key-stack) {
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 0;
+}
+
+.lm-settings-segment {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  flex-shrink: 0;
+  min-width: 9.5rem;
+  padding: 2px;
+  border-radius: var(--control-radius);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  box-shadow: var(--control-shadow);
+}
+
+.lm-settings-segment--3 {
+  min-width: 16.5rem;
+}
+
+.lm-settings-segment-btn {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  border: 0;
+  border-radius: calc(var(--control-radius) - 2px);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--ls-ui);
+  line-height: 1.3;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--t) var(--ease),
+    color var(--t) var(--ease),
+    box-shadow var(--t) var(--ease);
+}
+
+.lm-settings-segment-btn:hover:not(.is-on) {
+  background: var(--control-bg-hover);
+  color: var(--text);
+}
+
+.lm-settings-segment-btn.is-on {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: var(--fw-semibold);
+  box-shadow: var(--shadow-xs);
+}
+
+.lm-settings-segment-btn:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .lm-settings-caption {
@@ -17061,6 +17302,71 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.lm-account-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+
+.lm-account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.lm-account-copy {
+  min-width: 0;
+}
+
+.lm-account-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.lm-account-detail {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.lm-account-activate {
+  padding: 2px 0 4px;
+}
+
+.lm-account-activate-label {
+  display: block;
+  margin: 8px 0 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.lm-account-activate-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lm-account-activate-row .lm-input {
+  flex: 1;
+  min-width: 0;
 }
 
 .lm-settings-page .lm-settings-subtitle {
@@ -17850,6 +18156,26 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   color: var(--text-2);
 }
 
+.lm-memory-placement {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.lm-memory-placement label {
+  display: grid;
+  gap: 4px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.lm-memory-library-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .lm-memory-settings .memory-inspector__header {
   display: flex;
   align-items: center;
@@ -18520,6 +18846,110 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.lm-assistants-search {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lm-assistants-roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lm-assistants-roster__item {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.lm-assistants-roster__pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.lm-assistants-roster__pick.is-selected {
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--accent-dim) 55%, var(--surface));
+}
+
+.lm-assistants-roster__pick.is-hidden {
+  opacity: 0.72;
+}
+
+.lm-assistants-roster__name {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.lm-assistants-roster__meta {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.lm-assistants-roster__flags {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lm-assistants-roster__flag {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.lm-assistants-roster__flag[aria-pressed="true"] {
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
+.lm-assistants-search-hits {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lm-assistants-search-hits li {
+  padding: 8px 10px;
+  border-radius: var(--r);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.lm-assistants-search-hits strong {
+  font-size: 13px;
+}
+
+.lm-assistants-search-hits p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .lm-assistants-field {
@@ -19909,6 +20339,22 @@ button.lm-agents-wb-pill:hover {
   border-left-color: color-mix(in srgb, var(--ok) 70%, transparent);
 }
 
+.lm-agents-wb-group-toggle[data-kind="needsYou"] {
+  border-left-color: color-mix(in srgb, var(--warn) 78%, transparent);
+}
+
+.lm-agents-wb-group-toggle[data-kind="inFlight"] {
+  border-left-color: color-mix(in srgb, var(--accent) 72%, transparent);
+}
+
+.lm-agents-wb-group-toggle[data-kind="settled"] {
+  border-left-color: color-mix(in srgb, var(--ok) 55%, transparent);
+}
+
+.lm-agents-wb-group-toggle:not(button) {
+  cursor: default;
+}
+
 .lm-agents-wb-group-toggle:hover {
   background: color-mix(in srgb, var(--accent-dim) 45%, var(--surface));
 }
@@ -20088,6 +20534,78 @@ button.lm-agents-wb-pill:hover {
 
 .lm-agents-wb-row-kind[data-kind="approve"] {
   color: var(--ok);
+}
+
+.lm-agents-wb-row[data-kind="running"] {
+  border-left-color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.lm-agents-wb-row[data-kind="failed"] {
+  border-left-color: color-mix(in srgb, var(--warn) 70%, transparent);
+}
+
+.lm-agents-wb-row[data-kind="done"] {
+  border-left-color: color-mix(in srgb, var(--muted) 45%, transparent);
+}
+
+.lm-agents-wb-row-kind[data-kind="running"] {
+  color: var(--accent);
+}
+
+.lm-agents-wb-row-kind[data-kind="failed"] {
+  color: var(--warn);
+}
+
+.lm-agents-wb-row-kind[data-kind="done"] {
+  color: var(--muted);
+}
+
+.lm-agents-wb-brief {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.lm-agents-wb-brief-kicker {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.lm-agents-wb-brief-instruction,
+.lm-agents-wb-brief-stop,
+.lm-agents-wb-overview {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.lm-agents-wb-brief-instruction {
+  color: var(--text);
+}
+
+.lm-agents-wb-brief-stop,
+.lm-agents-wb-overview {
+  color: var(--text-2);
+}
+
+.lm-agents-wb-band-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 2px 8px;
+}
+
+.lm-agents-wb-band-note p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .lm-agents-wb-row-title {
@@ -20304,8 +20822,22 @@ button.lm-agents-wb-pill:hover {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--muted);
+}
+
+.lm-agents-wb-kicker[data-kind="approve"],
+.lm-agents-wb-kicker[data-kind="clarify"],
+.lm-agents-wb-kicker[data-kind="failed"] {
+  color: var(--warn);
+}
+
+.lm-agents-wb-kicker[data-kind="running"],
+.lm-agents-wb-kicker[data-kind="review"] {
+  color: var(--accent);
+}
+
+.lm-agents-wb-kicker[data-kind="done"] {
+  color: var(--ok);
 }
 
 .lm-agents-wb-detail-head h2,
@@ -20895,24 +21427,30 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
   flex-shrink: 0;
 }
 
+.lm-automations-panel.lm-settings-advanced-page {
+  padding: 0;
+  max-width: none;
+  gap: 0;
+}
+
+.lm-automations-panel > .lm-callout {
+  margin: 0 0 10px;
+}
+
 .lm-automations-create,
 .lm-automations-list,
 .lm-automations-inbox,
 .lm-automations-mail {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  background: var(--surface);
+  gap: 2px;
 }
 
 .lm-automations-mail-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-width: 560px;
+  gap: 4px;
+  max-width: none;
 }
 
 .lm-mail-watch-block {
@@ -21015,9 +21553,9 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
 }
 
 .lm-automations-time {
-  width: 52px;
+  width: 8.5rem;
   display: inline-block;
-  margin: 0 4px;
+  margin: 0;
 }
 
 .lm-automations-interval-select {
@@ -21042,11 +21580,16 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
 
 .lm-automations-row {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   padding: 10px 0;
   border-top: 1px solid var(--border);
-  border-radius: 6px;
+  cursor: default;
+}
+
+.lm-automations-row[data-automation-id] {
   cursor: pointer;
 }
 
@@ -21056,10 +21599,7 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
 }
 
 .lm-automations-row.is-focused {
-  background: var(--accent-dim);
   box-shadow: inset 2px 0 0 var(--accent);
-  padding-left: 8px;
-  padding-right: 8px;
 }
 
 .lm-automations-sidebar-list.lm-matter-sidebar-list--fill {
@@ -21070,7 +21610,9 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
 
 .lm-automations-row-actions {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   flex-shrink: 0;
 }
@@ -21094,6 +21636,13 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
 }
 /* 常设工作的「办这件事的规矩」（六确认）与运行记录 */
 
+.lm-settings-advanced .lm-automations-confirm {
+  border: none;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
 .lm-automations-confirm {
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
@@ -21111,10 +21660,8 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
 /* 运行记录单独成行，不挤进上面的 flex row（否则按钮会被压变形） */
 .lm-automations-runs-row {
   list-style: none;
-  padding: 0 8px var(--space-3);
-  border-top: 1px dashed var(--border);
-  background: var(--accent-dim);
-  margin-bottom: var(--space-2);
+  padding: 0 0 var(--space-2);
+  margin: 0;
 }
 
 .lm-automations-runs {

@@ -18,13 +18,10 @@ export function LawmindMailSendFormatFields(props: Props): ReactNode {
 
   return (
     <div className="lm-mail-send-format" data-testid="lm-mail-send-format">
-      <h4 className="lm-settings-subtitle">发送格式 / 落款</h4>
-      <p className="lm-meta">
-        批准发送时自动带上。助手起草外发邮件时也会按这里写。正文里已经有同样落款则不会再加一遍。
-      </p>
+      <p className="lm-settings-caption">批准发送时带上。</p>
 
-      <label className="lm-compose-bar-field">
-        <span className="lm-compose-bar-label">发件显示名</span>
+      <label className="lm-settings-field">
+        <span className="lm-settings-key">发件显示名</span>
         <input
           className="lm-input"
           value={value.fromName ?? ""}
@@ -35,10 +32,10 @@ export function LawmindMailSendFormatFields(props: Props): ReactNode {
         />
       </label>
 
-      <label className="lm-compose-bar-field">
-        <span className="lm-compose-bar-label">结束语</span>
+      <label className="lm-settings-field">
+        <span className="lm-settings-key">结束语</span>
         <select
-          className="lm-compose-select"
+          className="lm-input"
           value={closingStyle}
           onChange={(e) =>
             onChange({
@@ -58,8 +55,8 @@ export function LawmindMailSendFormatFields(props: Props): ReactNode {
       </label>
 
       {closingStyle === "custom" ? (
-        <label className="lm-compose-bar-field">
-          <span className="lm-compose-bar-label">自定义结束语</span>
+        <label className="lm-settings-field">
+          <span className="lm-settings-key">自定义结束语</span>
           <input
             className="lm-input"
             value={value.customClosing ?? ""}
@@ -71,11 +68,11 @@ export function LawmindMailSendFormatFields(props: Props): ReactNode {
         </label>
       ) : null}
 
-      <label className="lm-compose-bar-field">
-        <span className="lm-compose-bar-label">落款</span>
+      <label className="lm-settings-field">
+        <span className="lm-settings-key">落款</span>
         <textarea
           className="lm-input lm-mail-send-signature"
-          rows={5}
+          rows={3}
           value={value.signature ?? ""}
           onChange={(e) => onChange({ ...value, signature: e.target.value })}
           placeholder={"某某律师事务所\n张三 律师\n电话：138xxxx"}
@@ -98,7 +95,7 @@ export function LawmindMailSendFormatFields(props: Props): ReactNode {
       </label>
 
       <div className="lm-mail-send-preview-wrap">
-        <span className="lm-compose-bar-label">预览</span>
+        <span className="lm-settings-key">预览</span>
         <pre className="lm-mail-send-preview" data-testid="lm-mail-send-preview">
           {preview}
         </pre>

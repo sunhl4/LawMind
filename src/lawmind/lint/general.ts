@@ -1,4 +1,5 @@
 import { lintFinding as finding } from "./finding.js";
+import { lookupOneYearLpr, ymdFromParts } from "./lpr-quotes.js";
 import {
   DEFAULT_LIMITATION,
   GUARANTEE_DEFAULT_GENERAL,
@@ -105,6 +106,23 @@ const partyPairRule: LegalLintRule = {
   },
 };
 
+function contractFormationYmd(text: string): string | undefined {
+  const window = /(?:合同成立|成立日|签订|签署|订立)[^。\n]{0,32}/;
+  const slice = window.exec(text)?.[0];
+  if (!slice) {
+    return undefined;
+  }
+  const iso = /(\d{4})-(\d{2})-(\d{2})/.exec(slice);
+  if (iso) {
+    return ymdFromParts(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+  }
+  const cn = /(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/.exec(slice);
+  if (!cn) {
+    return undefined;
+  }
+  return ymdFromParts(Number(cn[1]), Number(cn[2]), Number(cn[3]));
+}
+
 const lprMultipleRule: LegalLintRule = {
   id: "statutory.lpr_multiple",
   family: "statutory_cap",
@@ -117,14 +135,42 @@ const lprMultipleRule: LegalLintRule = {
     if (rates.length === 0) {
       return [];
     }
-    return [
-      finding(
-        lprMultipleRule,
-        "info",
-        `文中同时出现利率数字与 LPR。参数库仅锁定 ${PRIVATE_LENDING_LPR_MULTIPLE.value} 倍上限，无 LPR 历史序列，需人工核 LPR。`,
-        { statuteRef: PRIVATE_LENDING_LPR_MULTIPLE.source, anchor: rates[0]?.[0] },
-      ),
-    ];
+    const ymd = contractFormationYmd(text);
+    if (!ymd) {
+      return [
+        finding(
+          lprMultipleRule,
+          "info",
+          `文中同时出现利率数字与 LPR，但没有写在「合同成立 / 签订」旁边的日期，未按一年期报价序列核算 ${PRIVATE_LENDING_LPR_MULTIPLE.value} 倍上限。`,
+          { statuteRef: PRIVATE_LENDING_LPR_MULTIPLE.source, anchor: rates[0]?.[0] },
+        ),
+      ];
+    }
+    const looked = lookupOneYearLpr(ymd);
+    if (!looked.ok) {
+      return [
+        finding(lprMultipleRule, "info", looked.gap, {
+          statuteRef: PRIVATE_LENDING_LPR_MULTIPLE.source,
+          anchor: rates[0]?.[0],
+        }),
+      ];
+    }
+    const findings: LegalLintFinding[] = [];
+    for (const rate of rates) {
+      const stated = Number(rate[1]);
+      if (!Number.isFinite(stated) || stated <= looked.capPercent + 0.005) {
+        continue;
+      }
+      findings.push(
+        finding(
+          lprMultipleRule,
+          "warning",
+          `年利率 ${stated}% 高于合同成立日 ${ymd} 的一年期 LPR ${looked.quote.oneYearPercent}% 的四倍（${looked.capPercent}%）。报价生效日 ${looked.quote.effectiveFrom}。`,
+          { statuteRef: PRIVATE_LENDING_LPR_MULTIPLE.source, anchor: rate[0] },
+        ),
+      );
+    }
+    return findings;
   },
 };
 
@@ -191,7 +237,7 @@ function chineseYear(token: string): number {
 
 /**
  * 民间借贷利率旧「两线三区」口径（24%/36%）：2020-08-20 起司法保护上限改为合同成立时
- * 一年期 LPR 四倍。LPR 历史序列不在库——只提示口径变更，不核算具体数值（保持诚实）。
+ * 一年期 LPR 四倍。报价序列在 lpr-quotes.ts；本条只提示旧口径，不在这里代算（保持诚实）。
  * 已提及 LPR 的文本说明起草者已知新口径，不再提示。
  */
 const legacyRateCapRule: LegalLintRule = {
@@ -210,7 +256,7 @@ const legacyRateCapRule: LegalLintRule = {
       finding(
         legacyRateCapRule,
         "info",
-        `文中 ${m[1]}% 利率与已调整的「两线三区」旧口径（24%/36%）相同；现行民间借贷司法保护上限为合同成立时一年期 LPR 四倍（LPR 序列不在库，未核算具体数值）。`,
+        `文中 ${m[1]}% 利率与已调整的「两线三区」旧口径（24%/36%）相同；现行上限是合同成立时一年期 LPR 四倍。报价序列已入库，但本文未同时写明 LPR 与成立日，故未核算具体数值。`,
         { statuteRef: PRIVATE_LENDING_LPR_MULTIPLE.source, anchor: m[0] },
       ),
     ];

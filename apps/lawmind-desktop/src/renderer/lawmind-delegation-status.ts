@@ -16,6 +16,8 @@ export function delegationStatusLabel(status: string): string {
       return "超时后交回";
     case "cancelled":
       return "已取消";
+    case "awaiting_lawyer":
+      return "待确认";
     default:
       return status;
   }
@@ -31,7 +33,7 @@ export function delegationStatusBadgeClass(status: string): string {
   if (status === "failed" || status === "timeout") {
     return "lm-badge lm-badge-error";
   }
-  if (status === "pending") {
+  if (status === "pending" || status === "awaiting_lawyer") {
     return "lm-badge lm-badge-running";
   }
   return "lm-badge";
@@ -48,6 +50,8 @@ export function delegationSummaryLine(
       return `等待「${toName}」接单 · ${task}`;
     case "running":
       return `「${toName}」处理中 · ${task}`;
+    case "awaiting_lawyer":
+      return `「${toName}」等你确认 · ${task}`;
     case "completed":
       return `「${toName}」已完成 · ${task}`;
     case "completed_after_timeout":
@@ -61,7 +65,7 @@ export function delegationSummaryLine(
 }
 
 export function isActiveDelegation(row: DelegationRow): boolean {
-  return row.status === "pending" || row.status === "running";
+  return row.status === "pending" || row.status === "running" || row.status === "awaiting_lawyer";
 }
 
 export function assistantIdsBusyFromDelegations(delegations: DelegationRow[]): Set<string> {

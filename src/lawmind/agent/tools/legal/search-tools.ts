@@ -2,8 +2,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { loadMatter } from "../../../adapters/matter-storage/index.js";
+import { searchAssistantRoster } from "../../../assistants/roster-search.js";
 import { buildMatterIndex, listMatterIds, searchMatterIndex } from "../../../cases/index.js";
-import { matterPartyIdentityNames } from "../../../desk/matter-parties.js";
+import { matterPartyIdentityNames, samePartyName } from "../../../desk/matter-parties.js";
+import { indexExists } from "../../../indexing/fts-ingest.js";
 import { searchPersonalKnowledge } from "../../../indexing/knowledge-search.js";
 import { loadMemoryContext } from "../../../memory/index.js";
 import type { IngestSourceType, IngestStage } from "../../../platform/contracts.js";
@@ -183,6 +185,7 @@ export const searchConversationsTool: AgentTool = {
         timeMode: result.timeMode,
         hits: result.hits,
         total: result.hits.length,
+        roster: searchAssistantRoster(ctx.workspaceDir, query),
         note:
           result.hits.length === 0
             ? "没有命中。可改成 1–2 个更短的词再搜，或放宽时间（例如 days=30）。不要编造未检索到的对话内容。"
@@ -234,7 +237,7 @@ export const searchWorkspace: AgentTool = {
   definition: {
     name: "search_workspace",
     description:
-      "搜索个人知识库与工作区材料（FTS hybrid：CASE/记忆/playbook/golden 等）。默认压低日记假命中；跨受限案件仍受策略限制。若用户关联了桌面「项目目录」，会额外扫描有限数量的纯文本文件。",
+      "搜索个人知识库与工作区材料（FTS hybrid：CASE/记忆/playbook/golden 等）。默认压低日记假命中；跨受限案件仍受策略限制。若用户关联了桌面「项目目录」，会额外扫描有限数量的纯文本文件。默认不扫其他案件。结果里若有 crossMatterNote，且律师要看本所以前的案子或先例，必须原样说明，不要说成所里没有类似案子；只查本案时不必提这句。",
     category: "search",
     parameters: {
       query: { type: "string", description: "搜索关键词", required: true },
@@ -251,12 +254,14 @@ export const searchWorkspace: AgentTool = {
       score?: number;
     }> = [];
 
+    let indexMissing = false;
     try {
       const knowledge = await searchPersonalKnowledge(ctx.workspaceDir, {
         q: queryRaw,
         matterId: ctx.matterId,
         limit: 24,
       });
+      indexMissing = knowledge.indexMissing === true;
       for (const hit of knowledge.hits) {
         results.push({
           source: hit.path,
@@ -267,7 +272,15 @@ export const searchWorkspace: AgentTool = {
         });
       }
     } catch {
-      // fall through to lexical memory scan
+      // 索引读失败时仍做记忆文件的字面补充，并告诉模型这不是全库结果。
+      indexMissing = true;
+    }
+    if (!indexMissing) {
+      try {
+        indexMissing = !indexExists(ctx.workspaceDir);
+      } catch {
+        indexMissing = true;
+      }
     }
 
     // Lexical fallback / supplement for hot memory surfaces (small-file bias).
@@ -354,7 +367,20 @@ export const searchWorkspace: AgentTool = {
         total: merged.length,
         projectScanned: Boolean(ctx.projectDir?.trim()),
         crossMatterScanned: crossMatterAllowed,
+        ...(!crossMatterAllowed
+          ? {
+              crossMatterNote:
+                "未检索其他案件。这不是所里没有类似案子，而是这台电脑还没允许跨案对照。",
+            }
+          : {}),
         knowledgeHybrid: true,
+        ...(indexMissing
+          ? {
+              indexMissing: true,
+              indexNote:
+                "工作区检索索引还没建好。请到设置 · 体检里重建索引。下面只有记忆文件的字面补充，不是全库扫描。",
+            }
+          : {}),
       },
     };
   },
@@ -853,9 +879,9 @@ export const checkConflictOfInterest: AgentTool = {
       for (const matterId of ids) {
         const index = await buildMatterIndex(ctx.workspaceDir, matterId);
         const rec = loadMatter(ctx.workspaceDir, matterId);
-        const identity = rec ? matterPartyIdentityNames(rec).join("\n") : "";
+        const identityNames = rec ? matterPartyIdentityNames(rec) : [];
         const blob = [
-          identity,
+          identityNames.join("\n"),
           index.caseMemory,
           ...index.coreIssues,
           ...index.taskGoals,
@@ -864,7 +890,7 @@ export const checkConflictOfInterest: AgentTool = {
         ]
           .join("\n")
           .toLowerCase();
-        if (blob.includes(pl)) {
+        if (blob.includes(pl) || identityNames.some((name) => samePartyName(name, party))) {
           hits.push(matterId);
         }
       }
@@ -903,10 +929,15 @@ export const checkConflictOfInterest: AgentTool = {
         continue;
       }
       const mountParties = readMatterParties(ctx.workspaceDir, bound);
-      const blob =
-        `${mountParties.clientId ?? ""} ${mountParties.counterparty ?? ""}`.toLowerCase();
+      const mountNames = [mountParties.clientId, mountParties.counterparty].filter(
+        (name): name is string => Boolean(name?.trim()),
+      );
+      const blob = mountNames.join(" ").toLowerCase();
       for (const party of parties) {
-        if (blob.includes(party.toLowerCase())) {
+        const named =
+          blob.includes(party.toLowerCase()) ||
+          mountNames.some((name) => samePartyName(name, party));
+        if (named) {
           flags.push(
             `本机文件夹「${mount.label || path.basename(mount.absPath)}」绑定案件 ${bound}，出现「${party}」— 请核对是否构成利益冲突。`,
           );

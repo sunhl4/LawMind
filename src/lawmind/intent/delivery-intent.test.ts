@@ -64,6 +64,21 @@ describe("extractDeliveryIntent", () => {
     expect(extractDeliveryIntent("审查意见保存到下载文件夹").outputPlace).toBe("downloads");
     expect(extractDeliveryIntent("把意见书输出到文稿").outputPlace).toBe("documents");
   });
+
+  it("maps 放我桌面 the way the prompt chapter says it", () => {
+    expect(extractDeliveryIntent("出一个带修订痕迹的 Word，放我桌面").outputPlace).toBe("desktop");
+    expect(extractDeliveryIntent("放到我桌面").outputPlace).toBe("desktop");
+  });
+
+  it("does not treat 别发邮件 as a must-send completion", () => {
+    const d = extractDeliveryIntent("先写意见，别发邮件");
+    expect(d.holdOutbound).toBe(true);
+    const block = formatDeliveryConstraintPromptBlock(d);
+    expect(block).toContain("不要把发邮件当成必须完成");
+    expect(block).not.toContain("工具表不收窄");
+    expect(extractDeliveryIntent("先不要发表意见").holdOutbound).toBe(false);
+    expect(extractDeliveryIntent("先不要发，给我看").holdOutbound).toBe(true);
+  });
 });
 
 describe("formatDeliveryConstraintPromptBlock", () => {

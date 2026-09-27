@@ -87,7 +87,6 @@ function minimalProps(overrides: Partial<LawmindAppRootViewProps> = {}): Lawmind
       onReconnectLocalService: noop,
       localServiceReconnecting: false,
       onOpenApiWizard: noop,
-      modelProviders: [],
       platformProviders: [],
       platformMode: "none" as const,
       selectedModelId: "m1",

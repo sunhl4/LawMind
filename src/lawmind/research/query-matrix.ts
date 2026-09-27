@@ -10,6 +10,22 @@ export type QueryMatrix = {
   queryTerms: string;
 };
 
+/** Search words taken from the instruction. Hints below only add a known issue pair. */
+export function instructionQueryTerms(instruction: string): string {
+  const cleaned = instruction
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = cleaned.split(" ").filter((part) => part.length >= 2);
+  const cjk = cleaned.replace(/[^\u4e00-\u9fff]/g, "");
+  const grams: string[] = [];
+  for (let i = 0; i + 2 <= cjk.length && grams.length < 6; i += 2) {
+    grams.push(cjk.slice(i, i + 2));
+  }
+  const terms = [...new Set([...words, ...grams])].slice(0, 8);
+  return terms.join(" ") || cleaned.slice(0, 24);
+}
+
 const ISSUE_HINTS: Array<{ re: RegExp; forward: string; reverse: string; terms: string }> = [
   {
     re: /违约责任|违约金/,
@@ -45,7 +61,7 @@ export function buildQueryMatrix(instruction: string): QueryMatrix {
         issue: trimmed || "法律争点",
         forward: row.forward,
         reverse: row.reverse,
-        queryTerms: row.terms,
+        queryTerms: [row.terms, instructionQueryTerms(instruction)].filter(Boolean).join(" "),
       };
     }
   }
@@ -53,7 +69,7 @@ export function buildQueryMatrix(instruction: string): QueryMatrix {
     issue: trimmed || "法律争点",
     forward: `支持「${trimmed || "交办问题"}」的构成与请求权`,
     reverse: "需排除的近邻案型或相反构成",
-    queryTerms: "名称+可能条号 结构事实 现行有效",
+    queryTerms: instructionQueryTerms(instruction),
   };
 }
 

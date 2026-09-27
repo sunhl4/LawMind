@@ -26,6 +26,10 @@ export type WorkspaceWorkflowTemplateStep = {
   reviewBy?: string;
   /** Default true when omitted */
   autoApprove?: boolean;
+  /** isolated：只读互审。 */
+  execution?: "isolated" | "deliver";
+  /** 这一步的正文要等律师确认后，才允许后续步骤起草。 */
+  holdForLawyer?: boolean;
 };
 
 export type WorkspaceWorkflowTemplateFile = {
@@ -201,6 +205,8 @@ export function instantiateCollaborationWorkflowFromTemplate(
     reviewBy: t.reviewBy,
     autoApprove: t.autoApprove !== false,
     status: "pending",
+    ...(t.execution ? { execution: t.execution } : {}),
+    ...(t.holdForLawyer ? { holdForLawyer: true } : {}),
   }));
 
   return {

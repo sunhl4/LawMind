@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { LawmindSettingsAppUpdate } from "./LawmindSettingsAppUpdate";
+import { LawmindSettingsAccount } from "./LawmindSettingsAccount";
+import { checkDesktopUpdates, openDesktopDownloadPage } from "./LawmindSettingsAppUpdate";
 import { LawmindSettingsAssistants } from "./LawmindSettingsAssistants";
 import type { CollabSummaryState } from "./LawmindSettingsCollaboration";
 import { LawmindSettingsCollaborationBrief } from "./LawmindSettingsCollaboration";
@@ -7,29 +8,25 @@ import { LawmindSettingsDisclaimer } from "./LawmindSettingsDisclaimer";
 import { LawmindSettingsEdition } from "./LawmindSettingsEdition";
 import { LawmindSettingsModelRetrieval } from "./LawmindSettingsModelRetrieval";
 import { LawmindSettingsRoles } from "./LawmindSettingsRoles";
-import { LawmindSettingsTemplates } from "./LawmindSettingsTemplates";
 import { LawmindSettingsAppearance } from "./LawmindSettingsAppearance";
 import { LawmindSettingsWorkspace } from "./LawmindSettingsWorkspace";
-import { LawmindSettingsHostAccess } from "./LawmindSettingsHostAccess";
-import { LawmindSettingsDoctor } from "./LawmindSettingsDoctor";
 import { LawmindSettingsMemory } from "./LawmindSettingsMemory";
-import { LawmindSettingsTools } from "./LawmindSettingsTools";
 import { LawmindSettingsSkills } from "./LawmindSettingsSkills";
-import { LawmindSettingsUsageStats } from "./LawmindSettingsUsageStats";
 import { LawmindAutomationsPanel } from "./LawmindAutomationsPanel";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { HealthPayload } from "./lawmind-app-data";
-import type { ModelCatalogEntry, ProviderKeyStatus } from "./lawmind-models-api";
+import type { ModelCatalogEntry } from "./lawmind-models-api";
 import type { AssistantRow } from "./lawmind-settings-models.ts";
 import {
   LAWMIND_SETTINGS_DEFAULT_SECTION,
   type LawmindSettingsScrollAnchorId,
   type LawmindSettingsSectionId,
   firstSettingsNavMatch,
-  settingsNavGroupsForEdition,
   settingsNavItem,
+  settingsNavItemsForEdition,
   writeStoredSettingsSection,
 } from "./lawmind-settings-nav";
+import { LAWMIND_DOWNLOAD_PAGE_URL } from "./lawmind-public-urls.js";
 import { useEdition } from "./use-edition";
 
 export type {
@@ -87,6 +84,10 @@ type Props = {
   onOpenEditAssistant: () => void;
   onRemoveAssistant: () => void | Promise<void>;
   onDuplicateAssistant: () => void | Promise<void>;
+  onPatchAssistantRoster: (
+    assistantId: string,
+    patch: { pinned?: boolean; hidden?: boolean },
+  ) => void | Promise<void>;
   onApplyRetrievalMode: (mode: "single" | "dual") => void | Promise<void>;
   onApplyDraftWithModelEnabled?: (enabled: boolean) => void | Promise<void>;
   npcSaving?: boolean;
@@ -95,7 +96,6 @@ type Props = {
   localServiceReconnecting?: boolean;
   onOpenApiWizard: () => void;
   onVerifyModel?: () => void | Promise<void>;
-  modelProviders?: ProviderKeyStatus[];
   platformProviders?: import("./lawmind-models-api").PlatformProviderKeyStatus[];
   platformMode?: "proxy" | "platform_key" | "none";
   selectedModelId?: string;
@@ -104,6 +104,7 @@ type Props = {
   onModelsChanged?: () => void | Promise<void>;
   onPickProject: () => void | Promise<void>;
   onClearProject: () => void | Promise<void>;
+  onOpenArchiveOrganize?: () => void;
   onOpenCollaborationPage: () => void;
   onPrefsChange?: () => void;
   /** Automations (settings section) */
@@ -116,6 +117,148 @@ type Props = {
   onOpenAutomationsCollaboration?: (matterId?: string, jobId?: string) => void;
   onOpenAutomationsWorkspaceFile?: (relPath: string, matterId?: string) => void;
 };
+
+function normalizeSettingsSection(sectionId: LawmindSettingsSectionId): LawmindSettingsSectionId {
+  if (sectionId === "doctor") {
+    return "workspace";
+  }
+  if (sectionId === "app-update") {
+    return "account";
+  }
+  return sectionId;
+}
+
+function SettingsNavIcon(props: { id: LawmindSettingsSectionId }): ReactNode {
+  const common = {
+    width: 16,
+    height: 16,
+    viewBox: "0 0 16 16",
+    fill: "none",
+    "aria-hidden": true as const,
+  };
+  switch (props.id) {
+    case "account":
+      return (
+        <svg {...common}>
+          <circle cx="8" cy="8" r="5.15" stroke="currentColor" strokeWidth="1.3" />
+          <circle cx="8" cy="6.55" r="1.35" stroke="currentColor" strokeWidth="1.2" />
+          <path
+            d="M4.85 11.35c.4-1.35 1.55-2.05 3.15-2.05s2.75.7 3.15 2.05"
+            stroke="currentColor"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+    case "models":
+      return (
+        <svg {...common}>
+          <path
+            d="M8 2.15 13.15 5.05v5.9L8 13.85 2.85 10.95v-5.9L8 2.15Z"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M8 8.05 13.15 5.05M8 8.05 2.85 5.05M8 8.05v5.8"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    case "workspace":
+      return (
+        <svg {...common}>
+          <path
+            d="M2.2 4.15h4.05l1.25 1.35h6.3v6.55H2.2V4.15Z"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    case "appearance":
+      return (
+        <svg {...common}>
+          <circle cx="8" cy="8" r="5.15" stroke="currentColor" strokeWidth="1.3" />
+          <path d="M8 2.85a5.15 5.15 0 0 0 0 10.3V2.85Z" fill="currentColor" />
+        </svg>
+      );
+    case "automations":
+      return (
+        <svg {...common}>
+          <circle cx="8" cy="8" r="5.15" stroke="currentColor" strokeWidth="1.3" />
+          <path
+            d="M8 5.05V8.1l2.05 1.35"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    case "memory":
+      return (
+        <svg {...common}>
+          <path
+            d="M4.15 2.7h7.7v10.6L8 10.55 4.15 13.3V2.7Z"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    case "assistants":
+      return (
+        <svg {...common}>
+          <circle cx="8" cy="5.35" r="2.05" stroke="currentColor" strokeWidth="1.3" />
+          <path
+            d="M3.25 12.85c.55-2.15 2.25-3.2 4.75-3.2s4.2 1.05 4.75 3.2"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+    case "disclaimer":
+      return (
+        <svg {...common}>
+          <path
+            d="M4.15 2.55h5.05L12.1 5.4v8.05H4.15V2.55Z"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M9.05 2.7v2.85h2.85M6.05 8.15h4.1M6.05 10.35h2.9"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    case "app-update":
+      return (
+        <svg {...common}>
+          <path
+            d="M8 2.7v6.2M5.55 6.55 8 9l2.45-2.45M3.2 12.45h9.6"
+            stroke="currentColor"
+            strokeWidth="1.3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...common}>
+          <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.3" />
+        </svg>
+      );
+  }
+}
 
 function LawmindSettingsContentHeader(props: { title: string; description: string }): ReactNode {
   const { title, description } = props;
@@ -151,6 +294,7 @@ export function LawmindSettingsPage({
   onOpenEditAssistant,
   onRemoveAssistant,
   onDuplicateAssistant,
+  onPatchAssistantRoster,
   onApplyRetrievalMode,
   onApplyDraftWithModelEnabled,
   npcSaving = false,
@@ -159,7 +303,6 @@ export function LawmindSettingsPage({
   localServiceReconnecting = false,
   onOpenApiWizard,
   onVerifyModel,
-  modelProviders,
   platformProviders,
   platformMode,
   selectedModelId,
@@ -168,6 +311,7 @@ export function LawmindSettingsPage({
   onModelsChanged,
   onPickProject,
   onClearProject,
+  onOpenArchiveOrganize,
   onOpenCollaborationPage,
   onPrefsChange,
   automationMatterId = null,
@@ -177,15 +321,16 @@ export function LawmindSettingsPage({
   onOpenAutomationsCollaboration,
   onOpenAutomationsWorkspaceFile,
 }: Props) {
-  const [activeSectionId, setActiveSectionId] = useState<LawmindSettingsSectionId>(initialSectionId);
+  const openedSection = normalizeSettingsSection(initialSectionId);
+  const [activeSectionId, setActiveSectionId] = useState<LawmindSettingsSectionId>(openedSection);
   const [navQuery, setNavQuery] = useState("");
+  const [updateBusy, setUpdateBusy] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const { edition } = useEdition(config?.apiBase ?? "");
-  const collapseAdvancedByDefault = true;
 
   useEffect(() => {
     if (open) {
-      setActiveSectionId(initialSectionId);
+      setActiveSectionId(normalizeSettingsSection(initialSectionId));
       setNavQuery("");
       requestAnimationFrame(() => {
         const active = document.querySelector<HTMLElement>(".lm-settings-nav-item.is-active");
@@ -219,8 +364,8 @@ export function LawmindSettingsPage({
     return () => window.clearTimeout(timer);
   }, [open, scrollAnchorId, activeSectionId]);
 
-  const filteredGroups = useMemo(
-    () => settingsNavGroupsForEdition(edition, navQuery),
+  const filteredItems = useMemo(
+    () => settingsNavItemsForEdition(edition, navQuery),
     [edition, navQuery],
   );
   const activeMeta =
@@ -258,6 +403,7 @@ export function LawmindSettingsPage({
     onOpenEditAssistant,
     onRemoveAssistant,
     onDuplicateAssistant,
+    onPatchAssistantRoster,
     onApplyRetrievalMode,
     onApplyDraftWithModelEnabled,
     npcSaving,
@@ -266,7 +412,6 @@ export function LawmindSettingsPage({
     localServiceReconnecting,
     onOpenApiWizard,
     onVerifyModel,
-    modelProviders,
     platformProviders,
     platformMode,
     selectedModelId,
@@ -275,6 +420,7 @@ export function LawmindSettingsPage({
     onModelsChanged,
     onPickProject,
     onClearProject,
+    onOpenArchiveOrganize,
     onOpenCollaborationPage,
     onPrefsChange,
     automationMatterId,
@@ -291,106 +437,92 @@ export function LawmindSettingsPage({
       <div className="lm-settings-layout">
         <aside className="lm-settings-sidebar" aria-label="设置分类">
           <div className="lm-settings-nav-search">
-            <input
-              ref={searchRef}
-              type="search"
-              className="lm-settings-nav-search-input"
-              placeholder="搜索设置…（Enter 跳转）"
-              value={navQuery}
-              onChange={(e) => setNavQuery(e.target.value)}
-              aria-label="搜索设置项"
-              onKeyDown={(e) => {
-                if (e.key !== "Enter") {
-                  return;
-                }
-                e.preventDefault();
-                const match = firstSettingsNavMatch(navQuery, edition);
-                if (match) {
-                  navigateToSection(match);
-                  setNavQuery("");
-                }
-              }}
-            />
+            <div className="lm-settings-nav-search-field">
+              <svg
+                className="lm-settings-nav-search-icon"
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="none"
+                aria-hidden
+              >
+                <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.4" />
+                <path d="M10.2 10.2 13.2 13.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              </svg>
+              <input
+                ref={searchRef}
+                type="search"
+                className="lm-settings-nav-search-input"
+                placeholder="搜索设置"
+                value={navQuery}
+                onChange={(e) => setNavQuery(e.target.value)}
+                aria-label="搜索设置项"
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") {
+                    return;
+                  }
+                  e.preventDefault();
+                  const query = navQuery.trim();
+                  if (!query) {
+                    return;
+                  }
+                  const match = firstSettingsNavMatch(query, edition);
+                  if (match) {
+                    navigateToSection(match);
+                    setNavQuery("");
+                  }
+                }}
+              />
+            </div>
           </div>
           <nav className="lm-settings-nav" aria-label="设置分类列表">
-            {filteredGroups.length === 0 ? (
+            {filteredItems.length === 0 ? (
               <p className="lm-meta lm-settings-nav-empty">无匹配项</p>
             ) : (
-              filteredGroups.map((group) => {
-                const items = group.items.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`lm-settings-nav-item${activeSectionId === item.id ? " is-active" : ""}`}
-                    aria-current={activeSectionId === item.id ? "page" : undefined}
-                    data-testid={`lm-settings-nav-${item.id}`}
-                    onClick={() => navigateToSection(item.id)}
-                  >
+              filteredItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`lm-settings-nav-item${activeSectionId === item.id ? " is-active" : ""}`}
+                  aria-current={activeSectionId === item.id ? "page" : undefined}
+                  data-testid={`lm-settings-nav-${item.id}`}
+                  onClick={() => navigateToSection(item.id)}
+                >
+                  <span className="lm-settings-nav-item-icon">
+                    <SettingsNavIcon id={item.id} />
+                  </span>
+                  <span className="lm-settings-nav-item-copy">
                     <span className="lm-settings-nav-item-label">{item.label}</span>
                     {navSearching ? (
                       <span className="lm-settings-nav-item-hint">{item.description}</span>
                     ) : null}
-                  </button>
-                ));
-                const collapseAdvanced =
-                  (group.id === "advanced" || group.id === "more") &&
-                  collapseAdvancedByDefault &&
-                  !navSearching;
-                if (collapseAdvanced) {
-                  const forceOpen = group.items.some((item) => item.id === activeSectionId);
-                  return (
-                    <details
-                      key={group.id}
-                      className="lm-settings-nav-group lm-settings-nav-group--collapsible"
-                      data-testid={
-                        group.id === "more" ? "lm-settings-nav-more" : "lm-settings-nav-advanced"
-                      }
-                      {...(forceOpen ? { open: true } : {})}
-                    >
-                      <summary className="lm-settings-nav-group-label">
-                        {group.label}
-                        <span className="lm-settings-nav-group-cap">按需展开</span>
-                      </summary>
-                      {items}
-                    </details>
-                  );
-                }
-                return (
-                  <div key={group.id} className="lm-settings-nav-group" data-testid={`lm-settings-nav-group-${group.id}`}>
-                    <div className="lm-settings-nav-group-label">{group.label}</div>
-                    {items}
-                  </div>
-                );
-              })
+                  </span>
+                </button>
+              ))
             )}
           </nav>
           <footer className="lm-settings-sidebar-footer">
-            <button
-              type="button"
-              className="lm-settings-sidebar-btn lm-settings-sidebar-btn--back"
-              onClick={onClose}
-              aria-label="关闭设置"
-              data-testid="lm-settings-sidebar-back"
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
-                <path
-                  d="M9.75 3.5 5.25 8l4.5 4.5"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              关闭设置
-            </button>
             <span className="lm-settings-sidebar-version" title="LawMind 桌面版">
               v{config?.appVersion?.trim() || "dev"}
             </span>
             <button
               type="button"
               className="lm-settings-sidebar-btn lm-settings-sidebar-btn--update"
-              onClick={() => navigateToSection("app-update")}
-              aria-label="检查应用更新"
+              disabled={updateBusy}
+              title={
+                config?.packaged
+                  ? "检查桌面版更新"
+                  : "当前不是正式安装包，打开下载页"
+              }
+              onClick={() => {
+                if (config?.packaged) {
+                  setUpdateBusy(true);
+                  void checkDesktopUpdates().finally(() => setUpdateBusy(false));
+                  return;
+                }
+                openDesktopDownloadPage(config?.downloadPageUrl?.trim() || LAWMIND_DOWNLOAD_PAGE_URL);
+              }}
+              aria-label={config?.packaged ? "检查应用更新" : "打开下载页"}
               data-testid="lm-settings-sidebar-update"
             >
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -402,7 +534,7 @@ export function LawmindSettingsPage({
                   strokeLinejoin="round"
                 />
               </svg>
-              更新
+              {updateBusy ? "检查中…" : "更新"}
             </button>
           </footer>
         </aside>
@@ -439,7 +571,6 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     projectDir,
     workspaceLabel,
     health,
-    healthPayload = null,
     collabSummarySettings,
     assistants,
     selectedAssistantId,
@@ -454,6 +585,7 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     onOpenEditAssistant,
     onRemoveAssistant,
     onDuplicateAssistant,
+    onPatchAssistantRoster,
     onApplyRetrievalMode,
     onApplyDraftWithModelEnabled,
     npcSaving,
@@ -461,8 +593,6 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     onReconnectLocalService,
     localServiceReconnecting,
     onOpenApiWizard,
-    onVerifyModel,
-    modelProviders,
     platformProviders,
     platformMode,
     selectedModelId,
@@ -471,6 +601,7 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     onModelsChanged,
     onPickProject,
     onClearProject,
+    onOpenArchiveOrganize,
     onOpenCollaborationPage,
     onPrefsChange,
     automationMatterId,
@@ -483,33 +614,20 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     <p className="lm-meta lm-settings-empty">本地服务尚未就绪，请稍候或重启应用后再试。</p>
   );
 
-  switch (activeSectionId) {
-    case "doctor":
+  switch (normalizeSettingsSection(activeSectionId === "tools" ? "models" : activeSectionId)) {
+    case "account":
       return (
-        <>
-          {config ? (
-            <>
-              <LawmindSettingsUsageStats apiBase={config.apiBase} />
-              <LawmindSettingsDoctor
-                health={healthPayload}
-                apiBase={config.apiBase}
-                onOpenApiWizard={onOpenApiWizard}
-                onVerifyModel={onVerifyModel}
-                modelCatalog={modelCatalog}
-                selectedModelId={selectedModelId}
-                onOpenCollaborationPage={() => {
-                  onClose();
-                  onOpenCollaborationPage();
-                }}
-                onScrollToWorkspace={() => navigateToSection("workspace")}
-                onOpenMemorySection={() => navigateToSection("memory")}
-              />
-            </>
-          ) : (
-            notReady
-          )}
-        </>
+        <LawmindSettingsAccount
+          apiBase={config?.apiBase}
+          license={args.healthPayload?.doctor?.license}
+          platformMode={platformMode}
+          modelConfigured={health?.modelConfigured}
+          modelName={health?.modelName}
+          onOpenModels={() => navigateToSection("models")}
+        />
       );
+    case "doctor":
+      return null;
     case "appearance":
     case "review-prefs":
       return <LawmindSettingsAppearance onPrefsChange={onPrefsChange} />;
@@ -531,18 +649,14 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
       );
     case "automations":
       return config?.apiBase ? (
-        <>
-          <p className="lm-settings-lead">
-            配置定时任务与邮箱。待办请到「待我拍板」处理。
-          </p>
-          <LawmindAutomationsPanel
-            apiBase={config.apiBase}
-            matterId={automationMatterId}
-            matterOptions={automationMatterOptions}
-            hideTitleChrome
-            onOpenNeedsDecisionDesk={onOpenAutomationsNeedsDecision}
-          />
-        </>
+        <LawmindAutomationsPanel
+          apiBase={config.apiBase}
+          matterId={automationMatterId}
+          matterOptions={automationMatterOptions}
+          assistantId={selectedAssistantId}
+          hideTitleChrome
+          onOpenNeedsDecisionDesk={onOpenAutomationsNeedsDecision}
+        />
       ) : (
         notReady
       );
@@ -559,6 +673,7 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
           onOpenEdit={onOpenEditAssistant}
           onRemove={() => void onRemoveAssistant()}
           onDuplicate={() => void onDuplicateAssistant()}
+          onPatchRoster={(assistantId, patch) => void onPatchAssistantRoster(assistantId, patch)}
         />
       );
     case "models":
@@ -579,7 +694,6 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
           npcSaving={npcSaving}
           applyOpenLawNpc={onApplyOpenLawNpc}
           apiBase={config.apiBase}
-          modelProviders={modelProviders}
           platformProviders={platformProviders}
           platformMode={platformMode}
           selectedModelId={selectedModelId}
@@ -591,8 +705,6 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
       ) : (
         notReady
       );
-    case "host":
-      return config ? <LawmindSettingsHostAccess apiBase={config.apiBase} /> : notReady;
     case "workspace":
       return config ? (
         <LawmindSettingsWorkspace
@@ -606,26 +718,25 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
           projectDir={projectDir}
           onPickProject={() => void onPickProject()}
           onClearProject={() => void onClearProject()}
+          onOpenArchiveOrganize={onOpenArchiveOrganize}
         />
       ) : (
         notReady
       );
-    case "tools":
-      return config ? <LawmindSettingsTools apiBase={config.apiBase} /> : notReady;
     case "skills":
       return config ? <LawmindSettingsSkills apiBase={config.apiBase} /> : notReady;
     case "roles":
       return config ? <LawmindSettingsRoles apiBase={config.apiBase} /> : notReady;
     case "templates":
-      return config ? (
-        <LawmindSettingsTemplates apiBase={config.apiBase} projectDir={projectDir} />
-      ) : (
-        notReady
+      return (
+        <div className="lm-settings-section" data-testid="lm-settings-templates-retired">
+          <p className="lm-settings-caption">
+            出稿用软件里的内置模板。不能在这里上传，以免解析失败。我们会继续在后台增加模板。
+          </p>
+        </div>
       );
     case "edition":
       return config ? <LawmindSettingsEdition apiBase={config.apiBase} /> : notReady;
-    case "app-update":
-      return <LawmindSettingsAppUpdate config={config} />;
     case "disclaimer":
       return <LawmindSettingsDisclaimer />;
     default:

@@ -56,12 +56,21 @@ html {
   font-size: var(--fs-md);
 }
 
-html[data-lm-font-scale="comfortable"] {
-  font-size: var(--fs-xl);
+/*
+ * 字号是整个软件的设置，不是设置页自己的字。
+ * 对话、在办、文书大量写死了 px，只改 --fs-* 盖不住。
+ * 以正文 14px 为标准，小一点 12/14、大一点 16/14，整页 zoom，再把 body 缩回视口。
+ */
+html[data-lm-font-scale="small"] body {
+  zoom: calc(12 / 14);
+  width: calc(100vw * 14 / 12);
+  height: calc(100vh * 14 / 12);
 }
 
-html.lm-density-compact[data-lm-font-scale="comfortable"] {
-  font-size: var(--fs-xl);
+html[data-lm-font-scale="large"] body {
+  zoom: calc(16 / 14);
+  width: calc(100vw * 14 / 16);
+  height: calc(100vh * 14 / 16);
 }
 
 /* Shared text field — canonical rules live in styles/controls.css; keep token-aligned copy for cascade. */

@@ -15,6 +15,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { isValidMatterId } from "../cases/matter-id.js";
 import { caseFilePath, ensureCaseWorkspace, matterStrategyPath } from "./case-workspace.js";
 import { writeMarkdownBulletToSection } from "./case-writes.js";
 import { migrateWorkspaceMemoryMarkdown } from "./memory-md-migrate.js";
@@ -86,7 +87,11 @@ export function courtAndOpponentProfilePath(workspaceDir: string): string {
 }
 
 export function clientProfileFilePath(workspaceDir: string, clientId: string): string {
-  return path.join(workspaceDir, "clients", clientId, "CLIENT_PROFILE.md");
+  const id = clientId.trim();
+  if (!isValidMatterId(id)) {
+    throw new Error("unsafe client id");
+  }
+  return path.join(workspaceDir, "clients", id, "CLIENT_PROFILE.md");
 }
 
 /**
@@ -118,6 +123,9 @@ export function extractClientIdFromCaseMarkdown(md: string): string | null {
     if (/^(可选|待填|tbd|n\/?a|_|同上|同左)$/i.test(cleaned)) {
       continue;
     }
+    if (!isValidMatterId(cleaned)) {
+      continue;
+    }
     return cleaned;
   }
   return null;
@@ -142,13 +150,16 @@ export async function loadMemoryContext(
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
   const matterId = opts.matterId?.trim();
-  const caseMemoryPromise = matterId ? readSafe(caseFilePath(root, matterId)) : Promise.resolve("");
-  const matterStrategyPromise = matterId
-    ? readSafe(matterStrategyPath(root, matterId))
+  const safeMatterId = matterId && isValidMatterId(matterId) ? matterId : undefined;
+  const caseMemoryPromise = safeMatterId
+    ? readSafe(caseFilePath(root, safeMatterId))
+    : Promise.resolve("");
+  const matterStrategyPromise = safeMatterId
+    ? readSafe(matterStrategyPath(root, safeMatterId))
     : Promise.resolve("");
 
-  const clientByMatterPromise = matterId
-    ? readSafe(clientProfileFilePath(root, matterId))
+  const clientByMatterPromise = safeMatterId
+    ? readSafe(clientProfileFilePath(root, safeMatterId))
     : Promise.resolve("");
 
   const migratedMemory = migrateWorkspaceMemoryMarkdown(root).text;

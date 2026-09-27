@@ -23,18 +23,16 @@ export function guardianSidecarPath(workspaceDir: string, taskId: string): strin
 
 function stripRaw(record: GuardianRecord): GuardianRecord {
   const slim = slimGuardianView(record);
-  return {
+  const next: GuardianRecord = {
+    ...record,
     ...slim,
-    taskId: record.taskId,
-    at: record.at,
-    ...(record.reviewerRaw ? { reviewerRaw: record.reviewerRaw.slice(0, MAX_REVIEWER_RAW) } : {}),
-    ...(record.evidencePackHash ? { evidencePackHash: record.evidencePackHash } : {}),
-    // G3：待定夺项必须一起落盘，否则升级卡永远读不到东西。
-    // （`stripRaw` 是白名单式的——新增字段忘了加到这里就会**静默丢失**。）
-    ...(record.escalationItems && record.escalationItems.length > 0
-      ? { escalationItems: record.escalationItems }
-      : {}),
   };
+  if (record.reviewerRaw) {
+    next.reviewerRaw = record.reviewerRaw.slice(0, MAX_REVIEWER_RAW);
+  } else {
+    delete next.reviewerRaw;
+  }
+  return next;
 }
 
 export function readGuardianSidecar(

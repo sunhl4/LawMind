@@ -3,8 +3,8 @@
  */
 
 const CAUSE_RE = /^案由[:：]\s*(.+)$/;
-const COUNTERPARTY_RE = /^对方当事人[:：]\s*(.+)$/;
-const CLIENT_LINE_RE = /^客户\s*\/\s*clientId[:：]\s*(.+)$/i;
+const COUNTERPARTY_RE = /^(?:对方当事人|对方)[:：]\s*(.+)$/;
+const CLIENT_LINE_RE = /^(?:客户(?:\s*\/\s*clientId)?|委托人|我方)[:：]\s*(.+)$/i;
 const CASE_NO_RE = /^案号[:：]\s*(.+)$/;
 const COURT_RE = /^法院[:：]\s*(.+)$/;
 const INSTANCE_RE = /^审级[:：]\s*(.+)$/;
@@ -47,6 +47,64 @@ export type MatterCaseProfileFields = {
   hearingAt?: string;
   matterKindLabel?: string;
 };
+
+function partySectionLines(caseMemory: string): string[] {
+  const match = /##\s*2\.\s*当事人\n+([\s\S]*?)(?:\n##\s+\d+\.|$)/.exec(caseMemory);
+  if (!match?.[1]) {
+    return [];
+  }
+  return match[1]
+    .split("\n")
+    .map((line) => line.trim().replace(/^-\s*/, "").trim())
+    .filter((line) => line.length > 0);
+}
+
+/**
+ * 没有客户编号时，用档案里的姓名。委托人/我方对对方；只有甲乙方时，诉讼地位写明甲方或乙方才定我方。
+ */
+export function partySidesFromCase(caseMemory: string): {
+  clients: string[];
+  counterparties: string[];
+} {
+  const basic = parseMatterCaseProfileFields(caseMemory);
+  const clients = basic.clientIdFromCase ? [basic.clientIdFromCase] : [];
+  const counterparties = basic.counterparty ? [basic.counterparty] : [];
+  if (clients.length > 0 && counterparties.length > 0) {
+    return { clients, counterparties };
+  }
+  const named = new Map<string, string>();
+  for (const body of partySectionLines(caseMemory)) {
+    const match = /^(甲方|乙方|委托人|我方|对方当事人|对方)[:：]\s*(.+)$/.exec(body);
+    if (!match) {
+      continue;
+    }
+    const value = stripPlaceholder(match[2] ?? "");
+    if (value) {
+      named.set(match[1] ?? "", value);
+    }
+  }
+  const namedClient = named.get("委托人") || named.get("我方");
+  const namedCounter = named.get("对方当事人") || named.get("对方");
+  if (namedClient && !clients.includes(namedClient)) {
+    clients.push(namedClient);
+  }
+  if (namedCounter && !counterparties.includes(namedCounter)) {
+    counterparties.push(namedCounter);
+  }
+  if (clients.length > 0 && counterparties.length > 0) {
+    return { clients, counterparties };
+  }
+  const jia = named.get("甲方");
+  const yi = named.get("乙方");
+  const roles = new Set(basic.standing?.match(/甲方|乙方/g) ?? []);
+  if (jia && yi && roles.size === 1 && roles.has("乙方")) {
+    return { clients: [yi], counterparties: [jia] };
+  }
+  if (jia && yi && roles.size === 1 && roles.has("甲方")) {
+    return { clients: [jia], counterparties: [yi] };
+  }
+  return { clients, counterparties };
+}
 
 export function parseMatterCaseProfileFields(caseMemory: string): MatterCaseProfileFields {
   const out: MatterCaseProfileFields = {};

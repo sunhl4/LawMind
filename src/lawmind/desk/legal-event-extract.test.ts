@@ -32,6 +32,31 @@ describe("extractLegalEvents", () => {
     expect(defaultRemindBeforeHours("preservation")).toBe(168);
   });
 
+  it("binds each event to the date beside its own keyword", () => {
+    const events = extractLegalEvents(
+      "立案日期：2026年1月5日。请于2026年9月15日9时到庭开庭。举证期限至2026年8月20日。",
+    );
+    expect(events.find((e) => e.eventKind === "hearing")?.dueAt).toMatch(/^2026-09-15/);
+    expect(events.find((e) => e.title === "举证期限")?.dueAt).toMatch(/^2026-08-20/);
+  });
+
+  it("does not borrow a date across a Chinese semicolon", () => {
+    const events = extractLegalEvents("开庭时间另行通知；举证期限至2026年8月20日。");
+    expect(events.find((e) => e.eventKind === "hearing")?.dueAt).toBeUndefined();
+    expect(events.find((e) => e.title === "举证期限")?.dueAt).toMatch(/^2026-08-20/);
+  });
+
+  it("does not borrow the next sentence's date when this sentence has none", () => {
+    const events = extractLegalEvents("开庭时间另行通知。举证期限至2026年8月20日。");
+    expect(events.find((e) => e.eventKind === "hearing")?.dueAt).toBeUndefined();
+    expect(events.find((e) => e.title === "举证期限")?.dueAt).toMatch(/^2026-08-20/);
+  });
+
+  it("does not roll an impossible calendar day into the next month", () => {
+    const events = extractLegalEvents("传票：定于2026年2月31日9时开庭。");
+    expect(events.find((e) => e.eventKind === "hearing")?.dueAt).toBeUndefined();
+  });
+
   it("labels 续封 separately from the original 保全", () => {
     const events = extractLegalEvents("关于续冻银行存款的申请：2026年12月1日前提交。");
     expect(events.some((e) => e.eventKind === "preservation" && e.title.includes("续封"))).toBe(

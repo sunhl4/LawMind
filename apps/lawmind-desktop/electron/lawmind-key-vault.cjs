@@ -25,6 +25,8 @@ let storePath = null;
 let store = {};
 let initialized = false;
 let initError = null;
+/** 磁盘上的密钥文件坏了时拒绝再写，避免用空库覆盖把已存密钥冲掉。 */
+let storeCorrupt = false;
 
 function getStorePath() {
   if (storePath) {return storePath;}
@@ -40,22 +42,42 @@ function loadStore() {
     const filePath = getStorePath();
     if (fs.existsSync(filePath)) {
       const data = fs.readFileSync(filePath, "utf8");
-      store = JSON.parse(data);
+      const parsed = JSON.parse(data);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("secrets store is not an object");
+      }
+      store = parsed;
     }
   } catch (err) {
     initError = err instanceof Error ? err.message : String(err);
     store = {};
+    storeCorrupt = true;
   }
   return store;
 }
 
 function saveStore() {
+  if (storeCorrupt) {
+    return false;
+  }
+  const filePath = getStorePath();
+  const tmp = `${filePath}.${process.pid}.tmp`;
   try {
-    const filePath = getStorePath();
-    fs.writeFileSync(filePath, JSON.stringify(store, null, 2), "utf8");
+    fs.writeFileSync(tmp, JSON.stringify(store, null, 2), { encoding: "utf8", mode: 0o600 });
+    fs.renameSync(tmp, filePath);
+    try {
+      fs.chmodSync(filePath, 0o600);
+    } catch {
+      /* 某些文件系统不支持 chmod；内容已经换名落盘 */
+    }
     return true;
   } catch (err) {
     initError = err instanceof Error ? err.message : String(err);
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* 临时文件可能还没写出来 */
+    }
     return false;
   }
 }
@@ -80,8 +102,20 @@ async function saveSecret(account, value) {
   try {
     const encrypted = safeStorage.encryptString(v);
     loadStore();
+    if (storeCorrupt) {
+      return false;
+    }
+    const previous = Object.prototype.hasOwnProperty.call(store, account) ? store[account] : undefined;
     store[account] = encrypted.toString("base64");
-    return saveStore();
+    if (!saveStore()) {
+      if (previous === undefined) {
+        delete store[account];
+      } else {
+        store[account] = previous;
+      }
+      return false;
+    }
+    return true;
   } catch (err) {
     initError = err instanceof Error ? err.message : String(err);
     return false;
@@ -107,9 +141,15 @@ async function deleteSecret(account) {
   if (!account || typeof account !== "string") {return false;}
   try {
     loadStore();
+    if (storeCorrupt) {return false;}
     if (!store[account]) {return false;}
+    const previous = store[account];
     delete store[account];
-    return saveStore();
+    if (!saveStore()) {
+      store[account] = previous;
+      return false;
+    }
+    return true;
   } catch (err) {
     initError = err instanceof Error ? err.message : String(err);
     return false;

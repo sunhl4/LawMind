@@ -16,6 +16,7 @@ const DEFAULTS: Omit<StanceItem, "id" | "createdAt" | "updatedAt">[] = [
     family: "sale",
     position: "定金不超过法定上限",
     preferredLanguage: "定金不超过主合同标的额的百分之二十。",
+    unacceptableLanguage: "定金超过主合同标的额的百分之二十。",
     statuteBasis: "民法典第586条",
     source: "manual",
     confidence: 0.45,

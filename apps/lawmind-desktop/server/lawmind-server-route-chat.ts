@@ -1,5 +1,6 @@
 import { createLawMindAgent } from "../../../src/lawmind/agent/index.js";
 import { resumeTurn } from "../../../src/lawmind/agent/runtime-resume.js";
+import { continueWorkflowJobsHeldOnSession } from "./lawmind-server-jobs.js";
 import { createLegalToolRegistry } from "../../../src/lawmind/agent/tools/index.js";
 import type { ResumeRequiresActionInput } from "../../../src/lawmind/platform/requires-action.js";
 import type { RunTurnEvent } from "../../../src/lawmind/agent/index.js";
@@ -23,16 +24,8 @@ import {
   toEngineClientMemorySnapshot,
 } from "../../../src/lawmind/memory/index.js";
 import {
-  appendTeamMeetingLinesSync,
-  createTeamMeetingAssistantLine,
-  createTeamMeetingSystemLine,
-  createTeamMeetingUserLine,
-  formatTeamMeetingTranscriptPrefix,
   isAdhocMeetingMatterId,
   parseOptionalMatterId,
-  readMeetingSummaryExcerpt,
-  readTeamMeetingTail,
-  TEAM_MEETING_TAIL_LIMIT_DEFAULT,
 } from "../../../src/lawmind/cases/index.js";
 import { effectiveRouterMode } from "../../../src/lawmind/models/index.js";
 import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
@@ -191,6 +184,9 @@ async function handleChatResumeRoute({
 
   try {
     const result = await resumeTurn(built.config, registry, input, { registry });
+    if (result.turn.status === "completed") {
+      continueWorkflowJobsHeldOnSession(result.sessionId, built.config, { reply: result.reply });
+    }
     const payload: Record<string, unknown> = {
       ok: true,
       reply: result.reply,
@@ -298,10 +294,10 @@ export async function handleChatRoute({
   ) {
     const message =
       built.error === "missing_platform_api_key"
-        ? "平台模型尚未开通或运维未注入平台 Key。请改用「我的模型 / API 向导」自备 Key，或联系管理员配置 LAWMIND_PLATFORM_*。"
+        ? "组织提供的模型还没开通。请用连接向导填写自己的密钥，或联系管理员。"
         : built.error === "missing_provider_api_key"
-          ? "当前模型所属服务商尚未配置 API Key。请在设置 → 模型与 API 中填写对应服务商密钥，或改用已配置的模型。"
-          : "未配置模型 API Key。请在设置 → API 配置向导中填写，或添加带 Key 的自定义模型。";
+          ? "当前模型的服务商还没填写密钥。请在设置 → 模型与连接里填写，或改用已经配好的模型。"
+          : "还没填写模型密钥。请在设置里打开连接向导，或添加自定义模型。";
     sendJsonError(res, 503, built.error, message, c);
     return true;
   }
@@ -370,65 +366,22 @@ export async function handleChatRoute({
   const contextPinsForAgent = parsedContextPins.length > 0 ? parsedContextPins : undefined;
 
   const meetingMode = body.meetingMode === true;
-  if (meetingMode && !matterIdForChat) {
+  if (meetingMode) {
     sendJsonError(
       res,
       400,
-      "meeting_matter_required",
-      "团队会议室须关联本案（matterId）。请先选中案件再发言。",
+      "meeting_retired",
+      "会议室讨论已停用。请在当前对话里交办；交卷时由独立审稿对照材料，不再轮流发言。",
       c,
     );
     return true;
   }
 
-  const meetingTurnKindRaw = body.meetingTurnKind;
-  const meetingTurnKind =
-    meetingTurnKindRaw === "chair" || meetingTurnKindRaw === "conclude"
-      ? meetingTurnKindRaw
-      : "lawyer";
-
   const agent = createLawMindAgent(config);
   const hadSession = Boolean(body.sessionId?.trim());
   const projectDirForAgent = safeOptionalProjectDir(body.projectDir);
 
-  let instructionForAgent = message;
-  if (meetingMode && matterIdForChat) {
-    const tail = readTeamMeetingTail(workspaceDir, matterIdForChat, TEAM_MEETING_TAIL_LIMIT_DEFAULT);
-    const summaryExcerpt = readMeetingSummaryExcerpt(workspaceDir, matterIdForChat);
-    const transcriptPrefix = formatTeamMeetingTranscriptPrefix(tail);
-    const prefix = [summaryExcerpt, transcriptPrefix].filter(Boolean).join("\n\n");
-    const meetingAgenda = typeof body.meetingAgenda === "string" ? body.meetingAgenda.trim() : "";
-    let topicBlock: string;
-    if (meetingTurnKind === "conclude") {
-      topicBlock = [
-        "【会议主持 · 请综合结论】",
-        "请阅读本案讨论记录，代表会议输出结构化纪要（不要寒暄）：",
-        "1. 共识要点",
-        "2. 分歧与待决事项",
-        "3. 建议工作计划（步骤、建议负责人角色、时限或优先级）",
-        "4. 风险与需律师拍板事项",
-        message ? `\n补充要求：\n${message}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-    } else if (meetingTurnKind === "chair") {
-      topicBlock = [
-        "【会议主持 · 请你发言】",
-        "你是本案讨论会中的一位助手。请针对议题发表意见，可赞同、补充或反驳前人；",
-        "勿重复寒暄；发言应具体、可执行。",
-        message ? `\n本轮提示：\n${message}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-    } else {
-      topicBlock = `【本会发言主题】\n${message}`;
-    }
-    let core = prefix ? `${prefix}\n\n---\n\n${topicBlock}` : topicBlock;
-    if (meetingAgenda) {
-      core = `【会议议程（律师备忘）】\n${meetingAgenda}\n\n---\n\n${core}`;
-    }
-    instructionForAgent = core;
-  }
+  const instructionForAgent = message;
 
   const wantsStream =
     typeof req.headers.accept === "string" && req.headers.accept.includes("text/event-stream");
@@ -597,6 +550,20 @@ export async function handleChatRoute({
                 bounceCount: event.bounceCount,
               });
               break;
+            // 这两个是「中途需要律师拍板」的事件，必须在回合结束前就流出去；
+            // 以前它们掉进 default 被静默丢弃，第二个窗口 / live-turn 只能等回合收口
+            // 才从末端 payload 看到暂停。契约见 src/lawmind/agent/embed-turn-events.ts。
+            case "requires_action":
+              sseWriteEvent("requires_action", { payload: event.payload });
+              break;
+            case "approval_request":
+              sseWriteEvent("approval_request", {
+                roundIndex: event.roundIndex,
+                toolCallId: event.toolCallId,
+                toolName: event.toolName,
+                gateDecision: event.gateDecision,
+              });
+              break;
             case "plan_update":
               sseWriteEvent("plan_update", { plan: event.plan });
               break;
@@ -632,7 +599,6 @@ export async function handleChatRoute({
         assistantId: profile.assistantId,
         allowWebSearch,
         projectDir: projectDirForAgent,
-        teamMeetingMode: meetingMode,
         sessionTitleHint,
         linkedTaskId: linkedTaskIdForChat,
         onEvent,
@@ -704,30 +670,6 @@ export async function handleChatRoute({
         toolCallsExecuted: result.turn.toolCallsExecuted,
         platformContractsV1: PLATFORM_CONTRACTS_V1,
       };
-    }
-    if (meetingMode && matterIdForChat) {
-      const assistantLine = createTeamMeetingAssistantLine({
-        text: result.reply,
-        assistantId: profile.assistantId,
-        displayName: profile.displayName,
-        taskId: result.turn.turnId,
-        sessionId: result.sessionId,
-      });
-      if (meetingTurnKind === "lawyer") {
-        appendTeamMeetingLinesSync(workspaceDir, matterIdForChat, [
-          createTeamMeetingUserLine(message),
-          assistantLine,
-        ]);
-      } else {
-        const chairLabel =
-          meetingTurnKind === "conclude" ? "主持人（请综合结论）" : "主持人（请下一位发言）";
-        appendTeamMeetingLinesSync(workspaceDir, matterIdForChat, [
-          createTeamMeetingSystemLine({
-            text: `${chairLabel}\n${message.trim() || "请基于讨论记录继续。"}`,
-          }),
-          assistantLine,
-        ]);
-      }
     }
     if (wantsStream) {
       sseWriteEvent("payload", payload);

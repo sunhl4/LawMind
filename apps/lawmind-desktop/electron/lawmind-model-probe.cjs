@@ -3,6 +3,14 @@
 /**
  * Minimal model reachability probe for the Electron main process.
  * Keep in sync with `src/lawmind/models/probe.ts`.
+ *
+ * 为什么这份镜像**不能**删掉、也不能改成「统一走 /api/models/test」：
+ * 它是 `saveSetup` 的**写入前**预检——此时新 Key 还没写进 `.env.lawmind`、后端也还没
+ * 带着新配置重启，`/api/models/test` 探到的只会是**旧**配置（或首次运行时根本没有服务）。
+ * 写入后再探（`postLocalModelTest`）是第二阶段，两者不是重复，是两个检查点。
+ *
+ * `parseProbeErrorBody` 是两份实现里**语义必须一致**的那部分（HTTP 200 却带 error
+ * 载荷的 OpenAI 兼容返回），漂移守卫见 `lawmind-model-probe.test.ts`。
  */
 
 /**
@@ -10,12 +18,12 @@
  * @returns {Promise<{ ok: true; latencyMs: number } | { ok: false; code: string; error: string }>}
  */
 async function probeModelInline(config) {
-  const apiKey = String(config.apiKey ?? "").trim();
+  const apiKey = (config.apiKey ?? "").trim();
   if (!apiKey) {
-    return { ok: false, code: "missing_api_key", error: "未配置 API Key" };
+    return { ok: false, code: "missing_api_key", error: "还没填写模型密钥" };
   }
-  const baseUrl = String(config.baseUrl ?? "").trim().replace(/\/$/, "");
-  const model = String(config.model ?? "").trim();
+  const baseUrl = (config.baseUrl ?? "").trim().replace(/\/$/, "");
+  const model = (config.model ?? "").trim();
   if (!baseUrl || !model) {
     return { ok: false, code: "invalid_config", error: "Base URL 与模型名不能为空" };
   }
@@ -42,15 +50,25 @@ async function probeModelInline(config) {
     const latencyMs = Date.now() - started;
     const text = await response.text();
     if (!response.ok) {
+      const auth = isModelAuthFailureStatus(response.status, text);
       return {
         ok: false,
-        code: "model_api_error",
-        error: `HTTP ${response.status}: ${text.slice(0, 280)}`,
+        code: auth ? "invalid_api_key" : "model_api_error",
+        error: auth
+          ? "密钥无效或已过期。本机存过密钥不等于服务商接受。请到服务商重新生成，再用「连接向导」粘贴。"
+          : `HTTP ${response.status}: ${text.slice(0, 280)}`,
       };
     }
     const bodyErr = parseProbeErrorBody(text);
     if (bodyErr) {
-      return { ok: false, code: "model_api_error", error: bodyErr };
+      const auth = isModelAuthFailureStatus(200, bodyErr);
+      return {
+        ok: false,
+        code: auth ? "invalid_api_key" : "model_api_error",
+        error: auth
+          ? "密钥无效或已过期。本机存过密钥不等于服务商接受。请到服务商重新生成，再用「连接向导」粘贴。"
+          : bodyErr,
+      };
     }
     return { ok: true, latencyMs };
   } catch (err) {
@@ -68,6 +86,13 @@ async function probeModelInline(config) {
  * @param {string} raw
  * @returns {string | null}
  */
+function isModelAuthFailureStatus(status, body) {
+  if (status === 401 || status === 403) {
+    return true;
+  }
+  return /authentication fails|invalid.*api.?key|incorrect api key|unauthorized/i.test(body);
+}
+
 function parseProbeErrorBody(raw) {
   const trimmed = raw.trim();
   if (!trimmed.startsWith("{")) {
@@ -120,4 +145,4 @@ function formatProbeFetchError(err, baseUrl, timeoutMs) {
   return combined || "模型探测失败";
 }
 
-module.exports = { probeModelInline };
+module.exports = { probeModelInline, parseProbeErrorBody };

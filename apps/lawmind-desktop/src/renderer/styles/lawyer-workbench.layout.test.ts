@@ -40,7 +40,7 @@ describe("lawyer-workbench layout iron-laws", () => {
     expect(rules).toMatch(/flex:\s*1\s+0\s+auto/);
     expect(rules).toMatch(/min-height:\s*320px/);
     expect(rules).not.toMatch(/(?:^|[^-])min-height:\s*0\s*;/m);
-    expect(rules).toMatch(/grid-template-columns:\s*repeat\(3/);
+    expect(rules).toMatch(/grid-template-columns:\s*280px minmax\(0, 1fr\)/);
   });
 
   it("matter pulse stays a compact row, never a 2×2 card wall", () => {
@@ -51,19 +51,15 @@ describe("lawyer-workbench layout iron-laws", () => {
     expect(body).not.toMatch(/\.lm-pulse-bar\s*\{[^}]*grid-template-columns:\s*1fr\s+1fr/);
   });
 
-  it("≤1200px does not stack 快捷入口 into a single column that eats the cockpit", () => {
+  it("≤1200px keeps the case rail beside the stage", () => {
     const body = mediaBody(css, "max-width:\\s*1200px");
-    expect(body).not.toMatch(/\.lm-desk-quick\s*,/);
-    expect(body).not.toMatch(/\.lm-desk-quick\s*\{\s*[^}]*grid-template-columns:\s*1fr/);
-    expect(body).toMatch(/\.lm-desk-quick\s*\{[^}]*grid-template-columns:\s*repeat\(3/);
-    expect(body).not.toMatch(/\.lm-desk-quick-btn\s*\{[^}]*min-height:\s*88px/);
     expect(body).not.toMatch(/\.lm-lawyer-cockpit\s*,/);
     expect(body).not.toMatch(/\.lm-lawyer-cockpit\s*\{[^}]*grid-template-columns:\s*1fr/);
   });
 
-  it("phone-narrow stacks cockpit with 本案列表 first", () => {
+  it("phone-narrow stacks cockpit with the case rail first", () => {
     const body = mediaBody(css, "max-width:\\s*860px");
     expect(body).toMatch(/\.lm-lawyer-cockpit\s*\{[^}]*grid-template-columns:\s*1fr/);
-    expect(body).toMatch(/\.lm-desk-col--matters\s*\{\s*order:\s*-3/);
+    expect(body).toMatch(/\.lm-desk-col--matters\s*\{\s*order:\s*-1/);
   });
 });

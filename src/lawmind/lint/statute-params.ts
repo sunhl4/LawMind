@@ -44,7 +44,7 @@ export const DEFAULT_LIMITATION: StatuteParamRow = {
 
 /**
  * 民间借贷利率司法保护上限：合同成立时一年期 LPR × 4。
- * LPR 历史序列尚未入库——本行只锁倍数与出处，不算已实现利率核对。
+ * 报价阶梯在 lpr-quotes.ts；超出有效期只写缺口，不在这里填当期数字。
  */
 export const PRIVATE_LENDING_LPR_MULTIPLE: StatuteParamRow = {
   id: "private_lending.lpr_multiple",
@@ -52,7 +52,7 @@ export const PRIVATE_LENDING_LPR_MULTIPLE: StatuteParamRow = {
   unit: "rate",
   effectiveFrom: "2020-08-20",
   source: "最高人民法院关于审理民间借贷案件适用法律若干问题的规定第25条",
-  noteZh: "利率上限为合同成立时一年期贷款市场报价利率的四倍（LPR 序列待补）",
+  noteZh: "利率上限为合同成立时一年期贷款市场报价利率的四倍（报价见 lpr-quotes，过期不外推）",
 };
 
 /**

@@ -17,7 +17,6 @@ import {
 import type { CompiledIntent, CompileIntentInput } from "../intent/types.js";
 import type { DeliverableType } from "../types.js";
 import { deskItemById, type LawyerCapabilityId } from "./lawyer-capability-lock.js";
-import { listLocalSkills } from "./skill-runtime.js";
 
 export type { LawyerCapabilityId } from "./lawyer-capability-lock.js";
 
@@ -63,7 +62,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
       "delivery-language",
     ],
     pipeline: "execute_workflow",
-    pipelineHint: `${OPEN_TOOLS_HINT}意见须含宏观/中观/微观与推荐措辞，并按 Playbook 给出标准/可接受回退/永不接受档位与具体改法。钉选 Word 时默认意见+修订稿都交，律师指定只要一种则按指定。空修订不得导出。开放 \`search_statute\` 时写条号前先试检 1–2 条。`,
+    pipelineHint: `${OPEN_TOOLS_HINT}意见须含宏观/中观/微观与推荐措辞，并按 Playbook 给出标准/可接受回退/永不接受档位与具体改法。纸别和底线扫描在 \`contract-playbook-review\`；档位边界拿不准时再 \`read_skill\`，不要为了读技能停掉已能写的意见。钉选 Word 时默认意见+修订稿都交，律师指定只要一种则按指定。空修订不得导出。开放 \`search_statute\` 时写条号前先试检 1–2 条。`,
   },
   {
     id: "letter.draft",
@@ -110,7 +109,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
       "delivery-language",
     ],
     pipeline: "execute_workflow",
-    pipelineHint: `${OPEN_TOOLS_HINT}主体/诉请缺口标【待补充】或硬澄清，不得空跑外发。起诉状走要素母版（线性栏目，不要 markdown 表）；工作区有 templates/word/complaint-master.docx 则克隆。期限用 \`calculate\`（legal_period）。`,
+    pipelineHint: `${OPEN_TOOLS_HINT}主体/诉请缺口标【待补充】或硬澄清，不得空跑外发。只有起诉状走要素母版（线性栏目，不要 markdown 表）；答辩、代理词、质证、保全、管辖异议、再审不要套起诉状栏目。工作区有 templates/word/complaint-master.docx 且本轮是起诉状则克隆。期限用 \`calculate\`（legal_period）。`,
   },
   {
     id: "litigation.talk",
@@ -163,7 +162,8 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
       "delivery-language",
     ],
     pipeline: "research_then_draft",
-    pipelineHint: "直接给出结论、依据和缺口；不要改成表单或空回复。能检索则检索。",
+    pipelineHint:
+      "直接给出结论、依据和缺口；不要改成表单或空回复。能检索则先试检，不要凭记忆编造法条原文。",
   },
   {
     id: "contract.draft",
@@ -202,7 +202,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
     ],
     pipeline: "execute_workflow",
     pipelineHint:
-      "两阶段：先在对话里出逐条可改的时间轴预览（日期/事实/来源，冲突并列），律师确认后才出正式件。读不到的日期标缺口，不要编。",
+      "同一轮交出可改的正式时间轴（日期/事实/来源，冲突并列）。读不到的日期标缺口，不要编，也不要先停下来等确认。",
   },
   {
     id: "matter.intake",
@@ -227,7 +227,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
   {
     id: "ops.invoice",
     label: "整理发票",
-    skillIds: ["invoice-organizer", "delivery-language"],
+    skillIds: ["invoice-organizer", "spreadsheet-analysis", "delivery-language"],
     pipeline: "execute_workflow",
     pipelineHint: "归类列表入卷；合计用 `calculate`。缺号码仍列出已有项。",
   },
@@ -310,6 +310,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
     skillIds: [
       "family-matter-route",
       "legal-element-extraction",
+      "evidence-argument-chain",
       "complaint-elements-fill",
       "legal-period-calc",
       "delivery-language",
@@ -348,6 +349,19 @@ export function listLawyerCapabilities(): readonly LawyerCapability[] {
   return LAWYER_CAPABILITIES;
 }
 
+function unionSkillIds(base: readonly string[], pinned: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of [...pinned, ...base]) {
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
 function boundFromId(
   id: LawyerCapabilityId,
   deliverableType?: DeliverableType,
@@ -373,14 +387,15 @@ export function hydrateCompiledIntent(compiled: CompiledIntent): BoundLawyerCapa
   }
   if (compiled.pipelineOverride === "tracked_redline") {
     const contractRevision = compiled.capabilityId === "contract.review";
+    const pinned =
+      compiled.skillIdsOverride !== undefined
+        ? [...compiled.skillIdsOverride]
+        : contractRevision
+          ? [...WORD_REVISION_SKILL_IDS]
+          : [];
     return {
       ...bound,
-      skillIds:
-        compiled.skillIdsOverride !== undefined
-          ? [...compiled.skillIdsOverride]
-          : contractRevision
-            ? [...WORD_REVISION_SKILL_IDS]
-            : bound.skillIds,
+      skillIds: pinned.length > 0 ? unionSkillIds(bound.skillIds, pinned) : [...bound.skillIds],
       pipeline: "tracked_redline",
       pipelineHint:
         compiled.pipelineHintOverride ??
@@ -425,21 +440,13 @@ export function readSkillPromptBodies(
   opts?: { skip?: readonly string[] },
 ): string[] {
   const skip = new Set(opts?.skip ?? []);
-  const listed = workspaceDir ? listLocalSkills(workspaceDir) : [];
+  void workspaceDir;
   const bodies: string[] = [];
   for (const id of skillIds) {
     if (skip.has(id)) {
       continue;
     }
-    const hit = listed.find((s) => s.id === id && s.enabled && s.signatureOk);
     let body: string | null = null;
-    if (hit) {
-      try {
-        body = fs.readFileSync(path.join(hit.dir, "SKILL.md"), "utf8");
-      } catch {
-        body = null;
-      }
-    }
     if (id === "contract-redline-craft") {
       body = CONTRACT_REDLINE_CRAFT_SKILL;
     }
@@ -481,11 +488,11 @@ export function formatBoundCapabilityBlock(
       : "";
   const chain =
     opts?.compiled && opts.compiled.chain.length > 1
-      ? `组合：${opts.compiled.chain.join(" → ")}。`
+      ? `组合（可调整顺序）：${opts.compiled.chain.map((id) => deskItemById(id)?.label ?? id).join(" → ")}。`
       : "";
   const inferred = opts?.compiled?.lawyerSummary
-    ? `${opts.compiled.lawyerSummary}。律师不必挑选办件类型。以本轮原话为准；下面是质量用 Skill，不是必须走完的流水线。`
-    : "律师不必挑选办件类型。以本轮原话为准；下面是质量用 Skill，不是必须走完的流水线。";
+    ? `${opts.compiled.lawyerSummary}。律师不必挑选办件类型。以本轮原话为准；下面是写进软件的作业标准，不是必须走完的流水线，也不能由律师安装或关闭。`
+    : "律师不必挑选办件类型。以本轮原话为准；下面是写进软件的作业标准，不是必须走完的流水线，也不能由律师安装或关闭。";
   return [
     `## 本轮 LawMind 能力：${bound.label}`,
     `能力 ID：\`${bound.id}\`。这是产品化办件（Skill + 验收），不是自由聊天交差。工具按任务选用，不是只能走一条管线。${typeLine}`,

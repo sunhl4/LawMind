@@ -1,20 +1,28 @@
+import fs from "node:fs";
+import path from "node:path";
 import { listDelegations } from "../agent/collaboration/delegation-registry.js";
 import type { DelegationStatus } from "../agent/collaboration/types.js";
-import { listSessions, displayChatSessionTitle } from "../agent/session.js";
+import {
+  DEFAULT_CHAT_SESSION_TITLE,
+  displayChatSessionTitle,
+  listSessionsForDesk,
+} from "../agent/session.js";
 import {
   applyDerivedInterruptedAction,
   isInterruptedTurnView,
   isSessionTurnLive,
 } from "../agent/turn-interrupt.js";
 import { listApprovalRequests, listWorkQueueItems } from "../application/services/queue-service.js";
-import { listDrafts } from "../drafts/index.js";
+import { listDraftReviewHeads } from "../drafts/index.js";
 import { listLawyerWorks } from "../work/store.js";
-import type {
-  AgentFleetSummary,
-  AgentRunKind,
-  AgentRunStatus,
-  AgentRunSummary,
+import {
+  isFleetSettledVisible,
+  type AgentFleetSummary,
+  type AgentRunKind,
+  type AgentRunStatus,
+  type AgentRunSummary,
 } from "./agent-fleet.js";
+import { listOpenAutomationInbox } from "./lawyer-automations.js";
 import { isOutboundToolName } from "./lawyer-outbound-decision.js";
 import { listPendingToolApprovals } from "./pending-tool-approvals.js";
 import { sanitizeLawyerFacingText, toolDisplayNameZh } from "./requires-action.js";
@@ -24,8 +32,12 @@ export type WorkflowJobFleetInput = {
   jobId: string;
   status: string;
   matterId?: string;
+  /** 律师看见的流程名。没有时才退回模板 id。 */
+  name?: string;
   templateId?: string;
   workflowId?: string;
+  /** 没办完时的一句原因。堆栈不要传进来。 */
+  error?: string;
   createdAt: string;
   updatedAt?: string;
   progress?: {
@@ -43,8 +55,11 @@ export type BuildAgentFleetOpts = {
   limit?: number;
 };
 
-const ACTIVE_JOB_STATUSES = new Set(["scheduled", "queued", "running"]);
-const ACTIVE_DELEGATION_STATUSES = new Set<DelegationStatus>(["pending", "running"]);
+const ACTIVE_DELEGATION_STATUSES = new Set<DelegationStatus>([
+  "pending",
+  "running",
+  "awaiting_lawyer",
+]);
 const AWAITING_ACTION_STATUSES = new Set<AgentRunStatus>([
   "awaiting_approval",
   "awaiting_clarification",
@@ -64,6 +79,9 @@ function mapJobStatus(status: string): AgentRunStatus {
   if (status === "running") {
     return "running";
   }
+  if (status === "awaiting_lawyer") {
+    return "awaiting_clarification";
+  }
   if (status === "completed") {
     return "completed";
   }
@@ -80,13 +98,73 @@ function mapDelegationStatus(status: DelegationStatus): AgentRunStatus {
   if (status === "running") {
     return "running";
   }
-  if (status === "completed") {
+  if (status === "awaiting_lawyer") {
+    return "awaiting_clarification";
+  }
+  if (status === "completed" || status === "completed_after_timeout") {
     return "completed";
   }
   if (status === "cancelled") {
     return "cancelled";
   }
   return "failed";
+}
+
+function delegationFileInWorkspace(workspaceDir: string, delegationId: string): boolean {
+  return fs.existsSync(path.join(workspaceDir, "delegations", `${delegationId}.json`));
+}
+
+function lawyerNote(raw: string | undefined): string | undefined {
+  const line = raw
+    ?.split(/\r?\n/)
+    .find((part) => part.trim())
+    ?.trim();
+  if (!line) {
+    return undefined;
+  }
+  if (/^Error:|^\s*at\s+\S|\/Users\/|node_modules|stack/i.test(line)) {
+    return undefined;
+  }
+  return line.slice(0, 180);
+}
+
+function lawyerFleetChatTitle(session: ReturnType<typeof listSessions>[number]): string {
+  const titled = displayChatSessionTitle(session);
+  if (titled !== DEFAULT_CHAT_SESSION_TITLE) {
+    return titled;
+  }
+  const instruction = [...session.turns]
+    .toReversed()
+    .find((turn) => turn.instruction?.trim())?.instruction;
+  const line = instruction
+    ?.split(/\r?\n/)
+    .map((part) => part.trim())
+    .find((part) => part && !part.startsWith("【") && !part.startsWith("<<<"));
+  return line?.slice(0, 72) || "这场对话";
+}
+
+function settledChat(
+  session: ReturnType<typeof listSessions>[number],
+  live: boolean,
+): { status: AgentRunStatus; instruction: string; note?: string } | null {
+  if (live) {
+    return null;
+  }
+  const last = session.turns[session.turns.length - 1];
+  if (!last?.instruction?.trim()) {
+    return null;
+  }
+  if (last.status === "completed") {
+    return { status: "completed", instruction: last.instruction.trim() };
+  }
+  if (last.status === "error") {
+    return {
+      status: "failed",
+      instruction: last.instruction.trim(),
+      note: lawyerNote(last.error),
+    };
+  }
+  return null;
 }
 
 function assistantLabel(
@@ -169,8 +247,9 @@ export async function buildAgentFleetSummary(
 ): Promise<AgentFleetSummary> {
   const { workspaceDir, matterId, jobs = [], assistantLabels, limit = 80 } = opts;
   const runs: AgentRunSummary[] = [];
+  const sessions = listSessionsForDesk(workspaceDir);
 
-  for (const session of listSessions(workspaceDir)) {
+  for (const session of sessions) {
     if (matterId && session.matterId !== matterId) {
       continue;
     }
@@ -186,6 +265,24 @@ export async function buildAgentFleetSummary(
       hasPendingClarification ||
       Boolean(session.collaborationDelegationId);
     if (!showSession) {
+      const settled = settledChat(session, live);
+      if (settled && isFleetSettledVisible(settled.status, session.updatedAt)) {
+        runs.push({
+          id: `chat:${session.sessionId}`,
+          kind: "chat",
+          status: settled.status,
+          title: lawyerFleetChatTitle(session),
+          subtitle: settled.instruction.slice(0, 180),
+          note: settled.note,
+          matterId: session.matterId,
+          assistantId: session.assistantId,
+          assigneeLabel: assistantLabel(assistantLabels, session.assistantId),
+          sessionId: session.sessionId,
+          updatedAt: session.updatedAt,
+          createdAt: session.createdAt,
+          priority: settled.status === "failed" ? 6 : 8,
+        });
+      }
       continue;
     }
     const outboundTool = pending.find(
@@ -210,7 +307,7 @@ export async function buildAgentFleetSummary(
       id: `chat:${session.sessionId}`,
       kind: "chat",
       status,
-      title: displayChatSessionTitle(session),
+      title: lawyerFleetChatTitle(session),
       subtitle: session.collaborationDelegationId ? "委派子会话" : "对话 Agent",
       matterId: session.matterId,
       assistantId: session.assistantId,
@@ -224,41 +321,62 @@ export async function buildAgentFleetSummary(
   }
 
   for (const d of listDelegations({ matterId, status: undefined })) {
-    if (!ACTIVE_DELEGATION_STATUSES.has(d.status)) {
+    if (!delegationFileInWorkspace(workspaceDir, d.delegationId)) {
       continue;
     }
     const status = mapDelegationStatus(d.status);
+    const active = ACTIVE_DELEGATION_STATUSES.has(d.status);
+    const stamp = d.completedAt ?? d.startedAt;
+    if (!active && !isFleetSettledVisible(status, stamp)) {
+      continue;
+    }
+    const note =
+      d.status === "completed_after_timeout"
+        ? "超时后仍交回了结果"
+        : d.status === "timeout"
+          ? "超时，没有交回"
+          : d.status === "awaiting_lawyer"
+            ? d.error?.trim() || "等你确认后再继续"
+            : undefined;
     runs.push({
       id: `delegation:${d.delegationId}`,
       kind: "delegation",
       status,
       title: d.task.slice(0, 120),
-      subtitle: "委派",
+      subtitle: "交给另一位助手",
+      note,
       matterId: d.matterId,
       assistantId: d.toAssistantId,
       assigneeLabel: assistantLabel(assistantLabels, d.toAssistantId),
       sessionId: d.targetSessionId,
       delegationId: d.delegationId,
-      updatedAt: d.completedAt ?? d.startedAt,
+      updatedAt: stamp,
       createdAt: d.startedAt,
-      priority: status === "running" ? 1 : 2,
+      priority: active ? (status === "running" ? 1 : 2) : status === "failed" ? 6 : 8,
     });
   }
 
   for (const job of jobs) {
-    if (!ACTIVE_JOB_STATUSES.has(job.status)) {
-      continue;
-    }
     if (matterId && job.matterId !== matterId) {
       continue;
     }
     const status = mapJobStatus(job.status);
+    const stamp = job.updatedAt ?? job.createdAt;
+    const active =
+      status === "running" ||
+      status === "queued" ||
+      status === "scheduled" ||
+      job.status === "awaiting_lawyer";
+    if (!active && !isFleetSettledVisible(status, stamp)) {
+      continue;
+    }
     runs.push({
       id: `job:${job.jobId}`,
       kind: "workflow_job",
       status,
-      title: job.templateId ?? job.workflowId ?? "工作流",
-      subtitle: "团队工作流",
+      title: job.name?.trim() || job.templateId || job.workflowId || "按流程办的一件",
+      subtitle: "按流程",
+      note: lawyerNote(job.error),
       matterId: job.matterId,
       jobId: job.jobId,
       progress: job.progress
@@ -268,9 +386,9 @@ export async function buildAgentFleetSummary(
             running: job.progress.runningStepIds,
           }
         : undefined,
-      updatedAt: job.updatedAt ?? job.createdAt,
+      updatedAt: stamp,
       createdAt: job.createdAt,
-      priority: status === "running" ? 1 : 3,
+      priority: active ? (status === "running" ? 1 : 3) : status === "failed" ? 6 : 8,
     });
   }
 
@@ -315,7 +433,7 @@ export async function buildAgentFleetSummary(
     });
   }
 
-  for (const tool of listPendingToolApprovals(workspaceDir, { matterId })) {
+  for (const tool of listPendingToolApprovals(workspaceDir, { matterId, sessions })) {
     if (!isOutboundToolName(tool.toolName)) {
       continue;
     }
@@ -342,7 +460,31 @@ export async function buildAgentFleetSummary(
     });
   }
 
-  for (const draft of listDrafts(workspaceDir)) {
+  for (const item of listOpenAutomationInbox(workspaceDir, matterId)) {
+    if (item.status !== "open" || !item.pendingSend?.to) {
+      continue;
+    }
+    const att = item.pendingSend.attachmentRelativePaths ?? [];
+    const attNote = att.length
+      ? `附件 ${att.map((p) => p.split("/").pop() || p).join("、")}`
+      : "无附件";
+    runs.push({
+      id: `automation-send:${item.id}`,
+      kind: "automation_send",
+      status: "awaiting_approval",
+      title: item.title?.trim() || "交办待发信",
+      subtitle: `${item.pendingSend.to} · ${item.pendingSend.subject} · ${attNote}`,
+      matterId: item.matterId,
+      taskId: item.draftTaskId,
+      queueItemId: item.id,
+      jobId: item.jobId,
+      updatedAt: item.createdAt,
+      createdAt: item.createdAt,
+      priority: 1,
+    });
+  }
+
+  for (const draft of listDraftReviewHeads(workspaceDir)) {
     if (matterId && draft.matterId !== matterId) {
       continue;
     }
@@ -354,7 +496,7 @@ export async function buildAgentFleetSummary(
       kind: "pending_review",
       status: "awaiting_review",
       title: draft.title?.trim() || "待审核草稿",
-      subtitle: draft.reviewStatus === "modified" ? "修改后待复核" : "交付物待审核",
+      subtitle: draft.reviewStatus === "modified" ? "修改后待审核" : "交付物待审核",
       matterId: draft.matterId,
       taskId: draft.taskId,
       updatedAt: draft.reviewedAt ?? draft.createdAt,
@@ -364,8 +506,15 @@ export async function buildAgentFleetSummary(
   }
 
   attachLawyerWorkOverlay(workspaceDir, runs);
-  runs.sort((a, b) => a.priority - b.priority || b.updatedAt.localeCompare(a.updatedAt));
-  const sliced = runs.slice(0, limit);
+  // 助手自己的队列项不占在办名额，否则今天办完的会被挤出上限。
+  // 待发出单独留在名额外面，和以前从待拍板汇总结进来时一样，不会被挤掉。
+  const sends = runs.filter((run) => run.kind === "automation_send");
+  const listed = runs.filter(
+    (run) =>
+      run.kind !== "automation_send" && !(run.kind === "queue_item" && run.status === "queued"),
+  );
+  listed.sort((a, b) => a.priority - b.priority || b.updatedAt.localeCompare(a.updatedAt));
+  const sliced = [...listed.slice(0, limit), ...sends];
 
   const byKind = {} as Record<AgentRunKind, number>;
   for (const kind of [
@@ -379,6 +528,7 @@ export async function buildAgentFleetSummary(
   ] as const) {
     byKind[kind] = sliced.filter((r) => r.kind === kind).length;
   }
+  byKind.automation_send = sends.length;
 
   return {
     runs: sliced,

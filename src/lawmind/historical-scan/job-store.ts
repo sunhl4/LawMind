@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { HISTORICAL_SCAN_SCHEMA, MAX_SCAN_ROOTS, type HistoricalScanRoot } from "./types.js";
@@ -70,6 +71,33 @@ export function removeScanRoot(workspaceDir: string, rootId: string): boolean {
   }
   writeJsonAtomic(rootsPath(workspaceDir), { schemaVersion: HISTORICAL_SCAN_SCHEMA, roots: next });
   return true;
+}
+
+const COMMON_PLACES = [
+  ["Desktop", "桌面"],
+  ["Documents", "文稿"],
+  ["Downloads", "下载"],
+] as const;
+
+/** 律师电脑上真正放文件的位置。不扫系统盘，也不进入密钥目录。 */
+export function replaceWithCommonPlaces(
+  workspaceDir: string,
+  homeDir = os.homedir(),
+): HistoricalScanRoot[] {
+  for (const root of listScanRoots(workspaceDir)) {
+    removeScanRoot(workspaceDir, root.id);
+  }
+  for (const [dir, label] of COMMON_PLACES) {
+    const abs = path.join(homeDir, dir);
+    try {
+      if (fs.statSync(abs).isDirectory()) {
+        addScanRoot(workspaceDir, abs, label);
+      }
+    } catch {
+      /* 这台电脑没有这个目录 */
+    }
+  }
+  return listScanRoots(workspaceDir);
 }
 
 export function jobPath(workspaceDir: string, scanId: string): string {

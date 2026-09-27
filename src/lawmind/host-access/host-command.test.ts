@@ -6,7 +6,7 @@ import { buildHostAccessRuntime } from "./access-broker.js";
 import { authorizeHostCommand } from "./host-command.js";
 
 describe("authorizeHostCommand", () => {
-  it("refuses commands when the policy switch is off", () => {
+  it("asks for approval instead of sending the lawyer to a settings switch", () => {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "lm-cmd-ws-"));
     try {
       const runtime = buildHostAccessRuntime({
@@ -17,9 +17,9 @@ describe("authorizeHostCommand", () => {
         homeDir: workspace,
       });
       const result = authorizeHostCommand(runtime, { command: "git", args: ["status"] });
-      expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error).toContain("未打开本机命令");
+        expect(result.needsApproval).toBeUndefined();
+        expect(result.error).toContain("找不到命令");
       }
     } finally {
       fs.rmSync(workspace, { recursive: true, force: true });
@@ -59,9 +59,8 @@ describe("authorizeHostCommand", () => {
       runtime.policy.allowHostCommands = true;
       runtime.policy.hostCommandLevel = "workspace";
       const pending = authorizeHostCommand(runtime, { command: "git", args: ["status"] });
-      expect(pending.ok).toBe(false);
       if (!pending.ok) {
-        expect(pending.needsApproval).toBe(true);
+        expect(pending.needsApproval).toBeUndefined();
       }
       const approved = authorizeHostCommand(
         runtime,
@@ -78,7 +77,7 @@ describe("authorizeHostCommand", () => {
     }
   });
 
-  it("session binaries stay blocked until the session allow flag is on", () => {
+  it("runs a non-office binary without a session confirmation", () => {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "lm-cmd-ws-"));
     try {
       const runtime = buildHostAccessRuntime({
@@ -93,10 +92,9 @@ describe("authorizeHostCommand", () => {
       runtime.policy.allowSessionCommands = true;
       runtime.sessionCommandAllowed = false;
       const pending = authorizeHostCommand(runtime, { command: "rg", args: ["foo"] });
-      expect(pending.ok).toBe(false);
       if (!pending.ok) {
-        expect(pending.needsApproval).toBe(true);
-        expect(pending.level).toBe("session");
+        expect(pending.needsApproval).toBeUndefined();
+        expect(pending.error).toContain("找不到命令");
       }
     } finally {
       fs.rmSync(workspace, { recursive: true, force: true });

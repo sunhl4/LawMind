@@ -955,9 +955,8 @@ export async function handleReviewRoute({
         sendJson(res, 400, { ok: false, error: "invalid task id" }, c);
         return true;
       }
-      const { readReviewTable, reviewTableToXlsxRows } = await import(
-        "../../../src/lawmind/deliverables/review-table.js"
-      );
+      const { readReviewTable, reviewTableProvenanceXlsxRows, reviewTableToXlsxRows } =
+        await import("../../../src/lawmind/deliverables/review-table.js");
       const table = readReviewTable(workspaceDir, raw);
       if (!table) {
         sendJson(res, 404, { ok: false, error: "table_not_found" }, c);
@@ -969,7 +968,10 @@ export async function handleReviewRoute({
       const os = await import("node:os");
       const fsTmp = await import("node:fs/promises");
       const tmpFile = path.join(os.tmpdir(), `lawmind-review-table-${raw}.xlsx`);
-      await writeXlsxWorkbook(tmpFile, [{ name: table.title.slice(0, 31) || "审查表", rows: reviewTableToXlsxRows(table) }]);
+      await writeXlsxWorkbook(tmpFile, [
+        { name: table.title.slice(0, 31) || "审查表", rows: reviewTableToXlsxRows(table) },
+        { name: "逐格出处", rows: reviewTableProvenanceXlsxRows(table) },
+      ]);
       const buf = await fsTmp.readFile(tmpFile);
       await fsTmp.rm(tmpFile, { force: true });
         res.writeHead(200, {
@@ -1028,6 +1030,7 @@ export async function handleReviewRoute({
         return true;
       }
       const {
+        mergeLawyerReviewRows,
         readReviewTable: readTable,
         writeReviewTable,
         reviewTableToMarkdown,
@@ -1044,8 +1047,27 @@ export async function handleReviewRoute({
             .map((col) => ({ key: String(col.key).trim(), label: String(col.label ?? col.key).trim() }))
         : table.columns;
       const rows = Array.isArray(patchBody.rows)
-        ? (patchBody.rows as Array<{ id?: unknown; cells?: unknown; group?: unknown; source?: unknown }>).map(
-            (row) => ({
+        ? (patchBody.rows as Array<{
+            id?: unknown;
+            cells?: unknown;
+            group?: unknown;
+            source?: unknown;
+            review?: unknown;
+          }>).map((row) => {
+            const reviewRaw =
+              row.review && typeof row.review === "object" && !Array.isArray(row.review)
+                ? (row.review as { locked?: unknown; reviewed?: unknown })
+                : undefined;
+            const review =
+              reviewRaw && (reviewRaw.locked === true || reviewRaw.locked === false || reviewRaw.reviewed === true)
+                ? {
+                    ...(reviewRaw.reviewed === true ? { reviewed: true } : {}),
+                    ...(reviewRaw.locked === true || reviewRaw.locked === false
+                      ? { locked:  reviewRaw.locked }
+                      : {}),
+                  }
+                : undefined;
+            return {
               id: typeof row.id === "string" && row.id.trim() ? row.id.trim() : `row-${Math.random().toString(36).slice(2, 10)}`,
               cells:
                 row.cells && typeof row.cells === "object" && !Array.isArray(row.cells)
@@ -1058,10 +1080,12 @@ export async function handleReviewRoute({
                   : {},
               ...(typeof row.group === "string" && row.group.trim() ? { group: row.group.trim() } : {}),
               ...(typeof row.source === "string" && row.source.trim() ? { source: row.source.trim() } : {}),
-            }),
-          )
+              ...(review ? { review } : {}),
+            };
+          })
         : table.rows;
-      const next = { ...table, columns, rows };
+      const mergedRows = Array.isArray(patchBody.rows) ? mergeLawyerReviewRows(table.rows, rows) : rows;
+      const next = { ...table, columns, rows: mergedRows };
       writeReviewTable(workspaceDir, next);
       // 同步草稿「审查表」栏目预览，与 agent 工具同一真相源。
       const markdown = reviewTableToMarkdown(next);

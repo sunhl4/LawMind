@@ -64,6 +64,10 @@ export function readCollaborationEvents(workspaceDir: string): CollaborationEven
   return out.toSorted((a, b) => a.timestamp.localeCompare(b.timestamp));
 }
 
+function dayStamp(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 export function readCollaborationEventsSince(
   workspaceDir: string,
   since: string,
@@ -72,5 +76,35 @@ export function readCollaborationEventsSince(
   if (!Number.isFinite(sinceMs)) {
     return readCollaborationEvents(workspaceDir);
   }
-  return readCollaborationEvents(workspaceDir).filter((e) => Date.parse(e.timestamp) >= sinceMs);
+  const out: CollaborationEvent[] = [];
+  const legacy = path.join(workspaceDir, AUDIT_FILE_LEGACY);
+  try {
+    if (fs.statSync(legacy).mtimeMs >= sinceMs) {
+      out.push(...readJsonlFile(legacy).filter((event) => Date.parse(event.timestamp) >= sinceMs));
+    }
+  } catch {
+    /* 没有旧的单文件日志 */
+  }
+  const startDay = dayStamp(sinceMs);
+  const endDay = dayStamp(Date.now());
+  const dir = path.join(workspaceDir, AUDIT_DIR);
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith(".jsonl")) {
+        continue;
+      }
+      const day = name.slice(0, 10);
+      if (day < startDay || day > endDay) {
+        continue;
+      }
+      out.push(
+        ...readJsonlFile(path.join(dir, name)).filter(
+          (event) => Date.parse(event.timestamp) >= sinceMs,
+        ),
+      );
+    }
+  } catch {
+    /* 还没有按天拆开的目录 */
+  }
+  return out.toSorted((a, b) => a.timestamp.localeCompare(b.timestamp));
 }

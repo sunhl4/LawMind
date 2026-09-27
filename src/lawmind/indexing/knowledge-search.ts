@@ -6,7 +6,7 @@
 import { loadMatter } from "../adapters/matter-storage/index.js";
 import { tokenizeForRecall, scoreCaseWeighted } from "../memory/similar-case-recall.js";
 import { isDailyLogKnowledgePath } from "./fts-ingest-knowledge.js";
-import { indexExists, openSearchIndexDb, rebuildWorkspaceSearchIndex } from "./fts-ingest.js";
+import { indexExists, openSearchIndexDb, syncWorkspaceSearchIndex } from "./fts-ingest.js";
 import { escapeKnowledgeFtsQuery } from "./fts-search.js";
 
 export type KnowledgeDocKindFilter =
@@ -38,12 +38,21 @@ export type SearchPersonalKnowledgeOpts = {
   autoRebuild?: boolean;
 };
 
-function snippet(body: string, max = 200): string {
+function snippet(body: string, query: string, max = 200): string {
   const t = body.replace(/\s+/g, " ").trim();
   if (t.length <= max) {
     return t;
   }
-  return `${t.slice(0, max)}…`;
+  const needle = query.trim().slice(0, 16);
+  const at = needle ? t.toLowerCase().indexOf(needle.toLowerCase()) : -1;
+  if (at <= 0) {
+    return `${t.slice(0, max)}…`;
+  }
+  const start = Math.max(0, at - 48);
+  const slice = t.slice(start, start + max);
+  const prefix = start > 0 ? "…" : "";
+  const suffix = start + max < t.length ? "…" : "";
+  return `${prefix}${slice}${suffix}`;
 }
 
 function kindBoost(docKind: string): number {
@@ -101,11 +110,12 @@ export async function searchPersonalKnowledge(
     return { ok: true, query: q, hits: [] };
   }
 
-  if (!indexExists(workspaceDir)) {
-    if (opts.autoRebuild === false) {
+  if (opts.autoRebuild === false) {
+    if (!indexExists(workspaceDir)) {
       return { ok: true, query: q, hits: [], indexMissing: true };
     }
-    await rebuildWorkspaceSearchIndex(workspaceDir);
+  } else {
+    await syncWorkspaceSearchIndex(workspaceDir);
   }
 
   const ftsQ = escapeKnowledgeFtsQuery(q);
@@ -187,7 +197,7 @@ export async function searchPersonalKnowledge(
         docKind: r.doc_kind,
         section: r.section || undefined,
         matterId: mid,
-        snippet: snippet(r.body),
+        snippet: snippet(r.body, q),
         score,
       });
     }

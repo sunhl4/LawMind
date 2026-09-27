@@ -31,6 +31,8 @@ function statusHint(d: DelegationRow): string | null {
       return "对方尚未开始处理。若久等无回应，可撤销后改派他人。";
     case "running":
       return "对方正在处理中。可打开会话查看进展或补充说明。";
+    case "awaiting_lawyer":
+      return "对方已停下，等你在「在办」里确认。确认前不会当成已经办完。";
     case "completed":
       return "对方已交回结果，可打开会话查看完整内容。";
     case "completed_after_timeout":

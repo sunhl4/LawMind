@@ -20,7 +20,7 @@ import {
   type MatterDocket,
   type MatterKind,
 } from "./matter-kind.js";
-import { listMatterMaterialFiles, type MatterMaterialListing } from "./matter-materials.js";
+import { inspectMatterMaterialFiles, type MatterMaterialListing } from "./matter-materials.js";
 import { hydrateMatterParties, type MatterParty } from "./matter-parties.js";
 
 export const MATTER_STATUS_LABELS: Record<string, string> = {
@@ -134,6 +134,10 @@ export type MatterPulse = {
     mail: number;
     approvals: number;
     materials: number;
+    /** Materials past the desk page. A lower bound when the walk saturated. */
+    materialsOmitted: number;
+    /** True when the materials walk stopped at the ceiling. `materialsOmitted` is then a lower bound. */
+    materialsSaturated: boolean;
   };
   daysUntilHearing: number | null;
   documents: MatterPulseDoc[];
@@ -376,7 +380,8 @@ export function buildMatterPulse(
       };
     });
   const mailSlice = liveMail.slice(0, 8);
-  const materials = listMatterMaterialFiles(workspaceDir, matterId);
+  const materialList = inspectMatterMaterialFiles(workspaceDir, matterId);
+  const materials = materialList.files;
   const timeline = assembleMatterTimeline({
     deadlines: pulseDeadlines,
     mail: mailSlice,
@@ -412,6 +417,8 @@ export function buildMatterPulse(
       mail: liveMail.length,
       approvals: approvals.length,
       materials: materials.length,
+      materialsOmitted: materialList.omitted,
+      materialsSaturated: materialList.saturated,
     },
     daysUntilHearing: daysUntilIso(hearingAt, now),
     documents,

@@ -2,7 +2,10 @@
  * Read-only two-file compare. Reuses analyze_document ingest; does not write or redline.
  */
 
-import { UNTRUSTED_DOCUMENT_PREAMBLE } from "../../../platform/content-trust.js";
+import {
+  UNTRUSTED_DOCUMENT_PREAMBLE,
+  unwrapUntrustedDocumentContent,
+} from "../../../platform/content-trust.js";
 import { diffLines } from "../../../text/line-diff.js";
 import type { AgentTool } from "../../types.js";
 import { analyzeDocument } from "./file-tools.js";
@@ -20,10 +23,10 @@ function rawAnalyzeText(data: unknown): { text: string; hasMore: boolean } {
     return { text: "", hasMore: false };
   }
   const rec = data as { content?: unknown; hasMore?: unknown };
-  let text = typeof rec.content === "string" ? rec.content : "";
-  if (text.startsWith(UNTRUSTED_DOCUMENT_PREAMBLE)) {
-    text = text.slice(UNTRUSTED_DOCUMENT_PREAMBLE.length).replace(/\n---\s*$/, "");
-  }
+  const raw = typeof rec.content === "string" ? rec.content : "";
+  const text = raw.startsWith(UNTRUSTED_DOCUMENT_PREAMBLE)
+    ? unwrapUntrustedDocumentContent(raw)
+    : raw;
   return { text, hasMore: rec.hasMore === true };
 }
 

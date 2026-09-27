@@ -1,7 +1,9 @@
 /**
- * Matter Replica HTTP routes — Firm-gated multi-lawyer matter collaboration.
+ * Matter Replica HTTP routes — multi-lawyer matter collaboration (on for solo unless policy turns it off).
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 import { loadMatter } from "../../../src/lawmind/adapters/matter-storage/index.js";
 import {
@@ -12,7 +14,10 @@ import {
   createInvite,
   ensureMembershipWithOwner,
   evaluateMatterReplicaGate,
+  ensureMatterVisible,
   exportInvitePack,
+  ingestInviteFromSharedRelay,
+  isCrossMachineRelayReady,
   listActiveMembers,
   listCheckoutLocks,
   listInvites,
@@ -45,6 +50,12 @@ import {
   shareMatterKeyIfNeeded,
   syncMatterWithCloud,
 } from "../../../src/lawmind/matter-cloud/index.js";
+import { writeCloudLink } from "../../../src/lawmind/matter-cloud/cloud-link.js";
+import { syncMatterRecordPipe } from "../../../src/lawmind/matter-replica/relay.js";
+import {
+  mergeWorkspacePolicyFile,
+  readWorkspacePolicyFile,
+} from "../../../src/lawmind/policy/workspace-policy.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   assertMemberCapability,
@@ -132,6 +143,7 @@ export async function handleMatterReplicaRoutes({
           inviteAuthority: connection.configured ? "cloud" : "local",
         },
         sharedRelayDir: gate.sharedRelayDir ?? null,
+        relayReady: isCrossMachineRelayReady(workspaceDir),
         cloudDataDir:
           gate.cloudDataDir ??
           (gate.enabled ? `${workspaceDir.replace(/\\/g, "/")}/lawmind/replica-cloud` : null),
@@ -236,6 +248,119 @@ export async function handleMatterReplicaRoutes({
     return true;
   }
 
+  if (pathname === "/api/matter-replica/cloud" && req.method === "PUT") {
+    if (!gate.enabled) {
+      sendJson(res, 403, { ok: false, error: "案件成员协作未开启", reason: gate.reason }, c);
+      return true;
+    }
+    let body;
+    try {
+      body = await parseJsonBodyZod(
+        req,
+        z.object({ endpoint: z.string().trim().min(8).max(300) }),
+      );
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    let endpoint: URL;
+    try {
+      endpoint = new URL(body.endpoint);
+    } catch {
+      sendJson(res, 400, { ok: false, error: "请填写案件云地址，例如 https://cloud.example" }, c);
+      return true;
+    }
+    if (endpoint.protocol !== "https:" && endpoint.protocol !== "http:") {
+      sendJson(res, 400, { ok: false, error: "案件云地址需要以 http 或 https 开头" }, c);
+      return true;
+    }
+    const identity = readLawyerIdentity(workspaceDir);
+    if (!identity) {
+      sendJson(res, 400, { ok: false, error: "请先保存姓名，再连接案件云" }, c);
+      return true;
+    }
+    const root = endpoint.origin;
+    try {
+      const enrolled = await fetch(`${root}/v1/enroll`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: identity.displayName,
+          email: identity.email,
+          lawyerId: identity.lawyerId,
+        }),
+      });
+      const payload = (await enrolled.json().catch(() => null)) as {
+        ok?: boolean;
+        token?: string;
+        error?: string;
+      } | null;
+      if (!enrolled.ok || !payload?.token) {
+        sendJson(
+          res,
+          400,
+          { ok: false, error: payload?.error || "连接案件云失败" },
+          c,
+        );
+        return true;
+      }
+      writeCloudLink(workspaceDir, { endpoint: root, token: payload.token });
+      getMatterReplicaScheduler()?.rearm();
+      sendJson(res, 200, { ok: true, endpoint: root, configured: true }, c);
+    } catch (e) {
+      sendJson(res, 400, { ok: false, error: e instanceof Error ? e.message : "连接案件云失败" }, c);
+    }
+    return true;
+  }
+
+  if (pathname === "/api/matter-replica/relay" && req.method === "PUT") {
+    if (!gate.enabled) {
+      sendJson(res, 403, { ok: false, error: "案件成员协作未开启", reason: gate.reason }, c);
+      return true;
+    }
+    let body;
+    try {
+      body = await parseJsonBodyZod(
+        req,
+        z.object({ sharedRelayDir: z.string().min(1).max(1024) }),
+      );
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const dir = path.resolve(body.sharedRelayDir);
+    let isDir = false;
+    try {
+      isDir = fs.statSync(dir).isDirectory();
+    } catch {
+      isDir = false;
+    }
+    if (!isDir) {
+      sendJson(res, 400, { ok: false, error: "请选择一个已经存在的文件夹" }, c);
+      return true;
+    }
+    const existing = readWorkspacePolicyFile(workspaceDir) ?? { schemaVersion: 1 };
+    const saved = mergeWorkspacePolicyFile(workspaceDir, {
+      matterReplica: {
+        ...existing.matterReplica,
+        sharedRelayDir: dir,
+      },
+    });
+    if (!saved.ok) {
+      sendJson(res, 500, { ok: false, error: saved.error }, c);
+      return true;
+    }
+    getMatterReplicaScheduler()?.rearm();
+    sendJson(res, 200, { ok: true, sharedRelayDir: dir, relayReady: true }, c);
+    return true;
+  }
+
   // Remaining routes require feature enabled
   if (!gate.enabled) {
     sendJson(
@@ -243,7 +368,7 @@ export async function handleMatterReplicaRoutes({
       403,
       {
         ok: false,
-        error: "案件成员协作未开启（独立律师版默认关闭；律所协作版可用）",
+        error: "案件成员协作未开启（可在 lawmind.policy.json 里把 matterReplica.enabled 设为 true）",
         reason: gate.reason,
       },
       c,
@@ -364,6 +489,15 @@ export async function handleMatterReplicaRoutes({
       }
       return true;
     }
+    if (!gate.sharedRelayDir) {
+      sendJson(
+        res,
+        400,
+        { ok: false, error: "请先选择双方都能打开的共享文件夹，同事才能看见这份邀请" },
+        c,
+      );
+      return true;
+    }
     try {
       const invite = createInvite(workspaceDir, {
         matterId: body.matterId,
@@ -371,6 +505,8 @@ export async function handleMatterReplicaRoutes({
         email: body.email,
         role: body.role,
       });
+      await syncMatterRecordPipe(workspaceDir, invite.matterId);
+      const folderName = path.basename(gate.sharedRelayDir);
       sendJson(
         res,
         200,
@@ -379,7 +515,7 @@ export async function handleMatterReplicaRoutes({
           via: "local",
           invite,
           pack: exportInvitePack(workspaceDir, invite),
-          shareText: `邀请你加入 LawMind 案件「${invite.matterTitle}」。打开 LawMind → 案件 → 成员协作，粘贴邀请码：${invite.token}`,
+          shareText: `邀请你加入 LawMind 案件「${invite.matterTitle}」。请打开 LawMind，进入任一案件的「协作」，选择同一个共享文件夹（${folderName}），保存姓名后粘贴邀请码：${invite.token}`,
         },
         c,
       );
@@ -403,6 +539,10 @@ export async function handleMatterReplicaRoutes({
     const cloud = cloudConnectionInfo(workspaceDir);
     // 云邀请码（LMC- 前缀）走云；其余按本地邀请码处理，兼容旧部署
     const looksCloud = body.token.trim().toUpperCase().startsWith("LMC-");
+    if (looksCloud && !cloud.configured) {
+      sendJson(res, 400, { ok: false, error: "请先连接案件云，再粘贴邀请码" }, c);
+      return true;
+    }
     if (cloud.configured && looksCloud) {
       try {
         const joined = await acceptCloudInvite(workspaceDir, body.token);
@@ -414,8 +554,35 @@ export async function handleMatterReplicaRoutes({
       }
       return true;
     }
+    if (!gate.sharedRelayDir) {
+      sendJson(
+        res,
+        400,
+        { ok: false, error: "请先选择对方使用的同一个共享文件夹，再粘贴邀请码" },
+        c,
+      );
+      return true;
+    }
     try {
-      const result = acceptInviteByToken(workspaceDir, body.token);
+      const ingested = await ingestInviteFromSharedRelay(workspaceDir, body.token);
+      let result;
+      try {
+        result = acceptInviteByToken(workspaceDir, body.token);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!ingested && message.includes("无效")) {
+          throw new Error(
+            "这个共享文件夹里还没有这份邀请。请确认双方选的是同一个文件夹，并且对方已经生成邀请码。", { cause: err },
+          );
+        }
+        throw err;
+      }
+      ensureMatterVisible(
+        workspaceDir,
+        result.invite.matterId,
+        result.invite.matterTitle,
+      );
+      await syncMatterRecordPipe(workspaceDir, result.invite.matterId);
       sendJson(res, 200, { ok: true, via: "local", ...result }, c);
     } catch (e) {
       sendJson(res, 400, { ok: false, error: e instanceof Error ? e.message : String(e) }, c);

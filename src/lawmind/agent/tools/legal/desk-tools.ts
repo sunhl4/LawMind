@@ -202,9 +202,15 @@ export const applyIntakeBriefTool: AgentTool = {
     }
     const promoted = result.promotion.promoted;
     const standingOnly = result.promotion.standingOnly;
+    const omittedParties = result.promotion.omittedParties;
     const parts = ["谈话档案已写入。工作台谈话页可见同一份。"];
     if (promoted.length > 0) {
       parts.push(`并已把 ${promoted.join("、")} 提升进卷宗（工作台案件信息同步可见）。`);
+    }
+    if (omittedParties.length > 0) {
+      parts.push(
+        `还有 ${omittedParties.length} 人已读到但未写入（当事人上限已满）：${omittedParties.join("；")}。`,
+      );
     }
     if (standingOnly.length > 0) {
       parts.push(
@@ -219,6 +225,7 @@ export const applyIntakeBriefTool: AgentTool = {
         brief: result.brief,
         promoted,
         standingOnly,
+        omittedParties,
         message: parts.join(""),
       },
     };

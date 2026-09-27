@@ -1,25 +1,50 @@
 # 第 23 章 工具详解
 
-第 5 章讲了工具的机制（注册、工具表、18 道中间件、审批）。这一章把工具本身讲清楚：**每个工具干什么、什么时候用、参数大概长什么样。**
+第 5 章讲注册、审批和中间件。这一章讲每个工具干什么，以及**这一轮模型实际看得到哪一批**。
+
+对照 Cursor、Codex、Harvey 之后，工具面保持现在这条，不另造一套「律师自己点工具」：
+
+- **Cursor / Codex**：读类调用同一条消息里并行；写和要批准的调用单独排队。计划工具（`update_plan`）不和别的写抢同一批。
+- **Harvey**：审查表、卷宗、外发是不同动作，不把外发塞进每一次提问。
+- **LawMind**：核心 12 个名字不动（`CORE_MODEL_TOOL_NAMES`）。本轮还会自动广告一批常用读和可撤销的档案写，免得律师先说「打开某某工具」。联网、深度检索、外发、MCP 仍要条件满足或 `list_more_tools`。只读且可重放的工具共用 `IDEMPOTENT_READ_TOOLS` 决定能不能并行，不再维护第二份名单。
+
+五条铁律在这里的取舍：少打断（档案写默认在场，不先问要不要继续）；交件质量（正式稿走 `draft_document`，研究稿不能用 `write_document` 绕门）；稳定（连续的只读调用可以并行，计划和要批准的调用不能）；先复用（MCP 加能力，不许顶替保留名）；判断交给模型（意图只多广告工具，不把整张表冻成一条流程）。
+
+## 23.0 这一轮模型看得到什么
+
+广告分四层。合并之后，流程锁的否决名单仍会拿掉名字（第 3.7 节）。后一层不能把已经被否决的工具加回来。高安全模式会拿掉 `run_compute`，即使它在「每轮都广告」里。
+
+| 层                                          | 何时出现                                     | 代码                                               |
+| ------------------------------------------- | -------------------------------------------- | -------------------------------------------------- |
+| 核心 12 + `list_more_tools` + `update_plan` | 已注册且权限模式允许                         | `promptCatalogToolNames`                           |
+| 每轮都广告                                  | 任何有会话的回合                             | `mergeTurnDisclosedToolNames` 里无条件推进去的那些 |
+| 按案件 / 钉选 / 原话追加                    | 绑了案件、钉了表或文件夹、原话对得上能力     | 同函数后半段、`extraToolsForInstruction`           |
+| 仍要点名                                    | MCP、`send_email`、`deep_research`、多数协作 | `list_more_tools`，或原话里的深度检索 / 公开网页   |
+
+**每轮都广告、不必先 `list_more_tools` 的**有：`run_compute`（高安全模式除外）、`list_dir`、`explore_folder`、`search_workspace`、`search_conversations`、`read_conversation`、`read_skill`、`search_company_registry`，以及档案写穿一整组（`DESK_WRITE_ALWAYS_TOOLS`：收材料、整理、建案、记期限、撤销上一次档案写入）。绑了案件再加 `get_matter_summary`、`read_case_file`、`search_matter`、`list_matters`、`list_mail_inbox`、`list_mail_attachments`。邮件匣必须有案件，没绑案件时不广告，避免模型调用后只得到「请先选案件」。
+
+闲聊回合把权限收成只读，写类即使在披露名单里也不会进模型工具表（第 3.7 节）。无任务不靠关键词把工具冻掉。
+
+`deep_research`、`web_search`、`search_statute_web`、`url_dossier` **不是**每轮都广告。公开网页事实只给 `web_search`；律师写明联网或深度检索才打开对应工具。工具在注册表里存在，和这一轮广告给模型，是两件事。
 
 ## 23.1 核心常驻的 12 个
 
-这 12 个是模型开局就能看到的（`CORE_MODEL_TOOL_NAMES`），不需要 `list_more_tools` 打开。
+这 12 个在 `CORE_MODEL_TOOL_NAMES` 里。它们不依赖 `list_more_tools`。上面 23.0 的「每轮都广告」是另外一批，两批会一起出现。
 
-| 工具                    | 干什么                            | 关键参数                                                                 |
-| ----------------------- | --------------------------------- | ------------------------------------------------------------------------ |
-| `analyze_document`      | 读并分析一份文档（工作区/项目内） | 路径                                                                     |
-| `read_project_file`     | 读项目目录里的文件                | 路径                                                                     |
-| `draft_document`        | 起草文书（产出草稿对象）          | 指令、交付物类型                                                         |
-| `update_draft`          | 改已有草稿的内容                  | `task_id`、内容                                                          |
-| `apply_surgical_edits`  | 落最短锚点的改稿                  | `task_id`、`edits[{find,replace,note?}]`、`contract_edit_baseline_path?` |
-| `render_document`       | 渲染交付物（docx/pptx）           | `task_id`、输出位置                                                      |
-| `prepare_outbound_mail` | 写一封待发邮件（不发送）          | `to`、主题、正文、附件                                                   |
-| `request_approval`      | 主动请求律师批准                  | 理由、动作                                                               |
-| `research_task`         | 跑一次检索任务                    | 查询、法源范围                                                           |
-| `search_statute`        | 查法条                            | `query`、`matter_id?`                                                    |
-| `search_case_law`       | 查类案                            | `query`、`matter_id?`                                                    |
-| `calculate`             | 计算（劳动补偿、期限、金额折算）  | 计算类型、参数                                                           |
+| 工具                    | 干什么                           | 关键参数                                                                 |
+| ----------------------- | -------------------------------- | ------------------------------------------------------------------------ |
+| `analyze_document`      | 读并分析工作区里的一份文档       | 路径                                                                     |
+| `read_project_file`     | 读工作区里的文件                 | 路径                                                                     |
+| `draft_document`        | 起草文书（产出草稿对象）         | 指令、交付物类型                                                         |
+| `update_draft`          | 改已有草稿的内容                 | `task_id`、内容                                                          |
+| `apply_surgical_edits`  | 落最短锚点的改稿                 | `task_id`、`edits[{find,replace,note?}]`、`contract_edit_baseline_path?` |
+| `render_document`       | 渲染交付物（docx/pptx）          | `task_id`、输出位置                                                      |
+| `prepare_outbound_mail` | 写一封待发邮件（不发送）         | `to`、主题、正文、附件                                                   |
+| `request_approval`      | 主动请求律师批准                 | 理由、动作                                                               |
+| `research_task`         | 跑一次检索任务                   | 查询、法源范围                                                           |
+| `search_statute`        | 查法条                           | `query`、`matter_id?`                                                    |
+| `search_case_law`       | 查类案                           | `query`、`matter_id?`                                                    |
+| `calculate`             | 计算（劳动补偿、期限、金额折算） | 计算类型、参数                                                           |
 
 再加两个控制工具：
 
@@ -46,32 +71,32 @@
 
 **几个边界**：
 
-- `web_search` 和 `search_statute_web` 需要配置联网密钥，且要过网络白名单。
+- `web_search` 和 `search_statute_web` 需要配置联网密钥，且要过网络白名单。没开「联网」时，`list_more_tools` 也不能代替那个开关。
 - `search_precedents` 默认关闭（伦理墙），返回 `ok: true` 但命中为空。
-- `deep_research` 每轮都注册（不像前两个需要联网开关）。
+- `deep_research` 在注册表里始终有实现，但只有原话是深度检索 / 全面检索 / 长时调研时才广告。娱乐向的公开网页事实只走 `web_search`，不打开它。
 
 细节都在第 10 章。
 
 ## 23.3 文件与本机访问类（8 个）
 
-| 工具                    | 干什么                                         | 备注                 |
-| ----------------------- | ---------------------------------------------- | -------------------- |
-| `list_dir`              | 列举工作区或本机文件夹下的目录与文件（可递归） | —                    |
-| `read_project_file`     | 读项目目录文件                                 | 核心工具             |
-| `explore_folder`        | 只读探查文件夹：看清树、找出相关文件并摘录     | 丢文件夹时的第一步   |
-| `read_folder_documents` | 批量读取文件夹内正文                           | 配合 explore_folder  |
-| `search_host`           | 在本机文件夹或本机查找中定位材料               | 需本机能力授权       |
-| `read_host_file`        | 阅读已授权的本机文件                           | 需授权               |
-| `import_host_file`      | 把本机文件收进本案（复制到案件材料目录）       | 需授权               |
-| `run_host_command`      | 运行受控本机命令                               | 需显式开本机命令能力 |
+| 工具                    | 干什么                                         | 备注                           |
+| ----------------------- | ---------------------------------------------- | ------------------------------ |
+| `list_dir`              | 列举工作区或本机文件夹下的目录与文件（可递归） | —                              |
+| `read_project_file`     | 读工作区文件                                   | 核心工具                       |
+| `explore_folder`        | 只读探查文件夹：看清树、找出相关文件并摘录     | 丢文件夹时的第一步             |
+| `read_folder_documents` | 批量读取文件夹内正文                           | 配合 explore_folder            |
+| `search_host`           | 在本机文件夹或本机查找中定位材料               | 默认可用；工作区外先回文件名   |
+| `read_host_file`        | 阅读已授权的本机文件                           | 已选文件夹直接读；区外当次允许 |
+| `import_host_file`      | 把本机文件收进本案（复制到案件材料目录）       | 写入的是工作区                 |
+| `run_host_command`      | 运行受控本机命令                               | 默认可用；非办公命令当次确认   |
 
-**「本机」和「工作区」是两套边界**：工作区永远可读写（除治理路径），本机文件夹默认只读、且要经授权网关。被拒时那句文案是「本机文件夹默认不能改写。请使用「收进本案」复制到案件目录。」
+**「本机」和「工作区」是两套边界**：工作区里的办案文件可以读写，治理路径和写保护清单除外。本机文件夹默认只读，且要经授权。被拒时那句文案是「本机文件夹默认不能改写。请使用「收进本案」复制到案件目录。」
 
 第 15 章讲了这套网关。
 
 ## 23.4 案件与工作台类（13 个）
 
-这些都是「对话补档案」那一波的核心（第 18 期的成果），写的是工作台的真实数据。
+这些工具从对话写入工作台的真实数据，写错可以撤。
 
 | 工具                         | 干什么                      | 需绑案件 |
 | ---------------------------- | --------------------------- | -------- |
@@ -125,15 +150,15 @@ import_materials_metadata / extract_batch / set_review / to_draft
 
 `extract_batch` 的两个关键参数：`max_docs`（默认 120，上限 500）、`cell_keys`（只抽这些列）。
 
-## 23.7 草稿与交付类（5 个）
+## 23.7 草稿与交付类（6 个）
 
 | 工具                                         | 干什么                                                  |
 | -------------------------------------------- | ------------------------------------------------------- |
 | `write_document`                             | 写入工作区普通文件（**正式交件请用 `draft_document`**） |
 | `render_tracked_draft`                       | 导出带审阅痕迹的 Word                                   |
 | `draft_worker`                               | 并行写稿：按自包含任务书起草一节，父会话再汇总          |
-| `register_template` / `set_template_enabled` | 模板注册与开关                                          |
-| `list_templates`                             | 查看可用文书模板                                        |
+| `register_template` / `set_template_enabled` | **已退役**：保留工具名，调用一律拒绝（出稿用内置模板）  |
+| `list_templates`                             | 查看内置文书模板（不再列上传模板）                      |
 
 **`write_document` 和 `draft_document` 的区别很重要**：
 
@@ -153,7 +178,7 @@ import_materials_metadata / extract_batch / set_review / to_draft
 | `prepare_outbound_mail` | 写待发邮件（不发送）                   |
 | `send_email`            | 发送已准备的外发邮件（**须律师签批**） |
 
-**`send_email` 是唯一会机械暂停的工具**（第 5 章）。`prepare_outbound_mail` 只是准备，审批发生在你看邮件的时候。
+**`send_email` 是唯一会机械暂停的工具**（第 5 章）。`prepare_outbound_mail` 只是准备，审批发生在你看邮件的时候。`list_mail_inbox` 和 `list_mail_attachments` 要先绑案件才进入这一轮的工具表。
 
 审批是**参数绑定**的：`prepare_outbound_mail` 的哈希只算收件人和附件列表，改正文不用重新批准。
 
@@ -179,7 +204,7 @@ import_materials_metadata / extract_batch / set_review / to_draft
 | `plan_task`              | 先拆步骤再执行                           |
 | `research_task`          | 跑一次检索任务                           |
 | `append_session_summary` | 追加会话摘要                             |
-| `open_work_queue_item`   | 打开一条待办                             |
+| `open_work_queue_item`   | 打开一条在办事项                         |
 | `get_audit_trail`        | 看审计轨迹                               |
 
 `execute_workflow` 是唯一的 `background_job` 模式工具——因为它跑得久，必须暴露 job 状态、支持取消、有审计（第 5 章讲的运行模式）。
@@ -209,7 +234,7 @@ solo 版没有内置工商数据源。接法：`LAWMIND_COMPANY_REGISTRY_URL` + 
 
 三条约束：
 
-1. **不许占用保留名。** 25 个核心工具名不许被外部实现顶替（`reserved-tool-names.ts`）。
+1. **不许占用保留名。** `RESERVED_AGENT_TOOL_NAMES` 有 25 个，外部实现不许顶替。这和常驻的 12 个不是同一份名单。
 2. **写类 MCP 工具默认剥离，除非显式 `allowWrites`，而且仍要审批。**
 3. **MCP 故障不许拖垮核心工具表。** 挂载 MCP 的调用被 try/catch 包着，失败只影响它自己。
 
@@ -237,9 +262,11 @@ MCP 密钥存在密钥链（`mcp.<服务器id>.secret`），MCP 服务器配置�
 - `runtimeMode`：`background_job`（只有 `execute_workflow`）/ `lawyer_approved_write` / `readonly`。
 - `matterScope`：`required` / `optional` / `not_applicable`。
 
-### 幂等
+### 幂等与并行
 
-`IDEMPOTENT_READ_TOOLS` 里的 36 个是只读且可重放的。这决定了两件事：可以安全重试，以及**不会触发写类审批**。
+`IDEMPOTENT_READ_TOOLS` 里的 36 个是只读且可重放的。可以安全重试，也不会触发写类审批。能不能并行看 `isToolConcurrencySafe`，顺序是：要批准的单独排队；工具自己标了 `isConcurrencySafe: true` 的可以并行（`draft_worker` 不在这 36 个里，仍然并行）；标了 `false` 的单独排队（`update_plan`）；没标的，才用这 36 个做兜底。所以连续的 `read_case_file` 与 `search_precedents` 会同一批执行。
+
+默认并行上限是 4，环境变量 `LAWMIND_MAX_TOOL_CONCURRENCY` 可调，最高 16。
 
 ### 超时
 
@@ -295,10 +322,10 @@ MCP 密钥存在密钥链（`mcp.<服务器id>.secret`），MCP 服务器配置�
 
 - **`write_document` 不过验收门。** 正式交件一律用 `draft_document`。
 - **`send_email` 是唯一机械暂停的工具。** 别的写工具只是被审计，不会弹卡片。
-- **MCP 工具不许占用 25 个保留名。**
+- **MCP 工具不许占用那 25 个保留名。** 不要把它说成「核心 12 个」。
 - **MCP 写类工具默认被剥离。** 要开 `allowWrites`，而且仍要审批。
 - **`search_precedents` 关闭时返回成功而非报错。** 别把「没开」当「没找到」。
 - **`draft_worker` 和委派的任务书必须自包含。** 子任务执行者看不到父会话。
-- **`calculate` 是必须走的**（劳动和期限类交付物的验收标准里写明了「不得口算」）。
+- **金额和届满日要带来源公式。** 缺公式是提醒，不挡导出。口算假数不是质量；模型应调 `calculate`，这不是关键词硬拒。
 - **`matter_id` 省略时会用本轮上下文里的案件。** 两个都没有才报错。
 - **工具超时默认不限。** 生产环境如果担心卡死，设 `LAWMIND_TOOL_TIMEOUT_MS`。

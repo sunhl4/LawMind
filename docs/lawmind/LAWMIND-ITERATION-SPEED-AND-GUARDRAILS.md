@@ -150,7 +150,7 @@ npx vitest related src/lawmind/runtime/tool-pipeline.ts --run
 
 次级放大器（未实测，但结构性可疑）：
 
-- `pnpm lawmind:verify` 串行串联 test → typecheck → benchmark → release-readiness → bundle → desktop typecheck → http-smoke。
+- `pnpm lawmind:verify` 当时串的是 test → typecheck → benchmark → release-readiness → bundle → desktop typecheck → http-smoke。2026-09 起这条链已改成与 PR `verify` 作业一致（覆盖率只跑一遍，不含 mock benchmark），见第 18 章。
 - `pnpm lawmind:desktop:e2e:pr` 为 19 个 Playwright spec 且 `--workers=1` 串行。
 
 ---

@@ -5,21 +5,21 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
 import {
   filterModelCatalog,
-  flattenGroupedCatalog,
-  groupModelCatalog,
+  modelsOfferedInChatPicker,
   nextSelectableIndex,
   providerIconKey,
   providerIconLabel,
   resolveComposeModelSelectValue,
   modelPickerDisplayName,
-  modelPickerGroupTitle,
   type ProviderIconKey,
 } from "./lawmind-model-picker-utils";
 
@@ -112,11 +112,6 @@ function ProviderIcon({ kind }: { kind: ProviderIconKey }): ReactNode {
   }
 }
 
-function defaultGroupOpen(group: string): boolean {
-  // Cursor-like: show defaults open; collapse long Platform lists.
-  return group !== "平台模型";
-}
-
 export function LawmindModelPicker(props: Props): ReactNode {
   const {
     catalog,
@@ -132,37 +127,23 @@ export function LawmindModelPicker(props: Props): ReactNode {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [focusIndex, setFocusIndex] = useState(0);
-  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const [position, setPosition] = useState<CSSProperties>({});
+  const [position, setPosition] = useState<CSSProperties | null>(null);
   const listboxId = useId().replace(/:/g, "");
 
-  const effectiveSelectedId = resolveComposeModelSelectValue(catalog, selectedModelId);
-  const selectedEntry = catalog.find((m) => m.id === effectiveSelectedId);
+  const offered = useMemo(() => modelsOfferedInChatPicker(catalog), [catalog]);
+  const effectiveSelectedId = resolveComposeModelSelectValue(offered, selectedModelId);
+  const selectedEntry = offered.find((m) => m.id === effectiveSelectedId);
 
-  const groups = useMemo(() => groupModelCatalog(filterModelCatalog(catalog, query)), [
-    catalog,
-    query,
-  ]);
-
-  const flat = useMemo(() => {
-    if (query.trim()) {
-      return flattenGroupedCatalog(groups);
-    }
-    return groups.flatMap(([group, rows]) => {
-      const isOpen = groupOpen[group] ?? defaultGroupOpen(group);
-      if (!isOpen) {
-        return [] as Array<{ group: string; row: ModelCatalogEntry }>;
-      }
-      return rows.map((row) => ({ group, row }));
-    });
-  }, [groups, groupOpen, query]);
+  const visible = useMemo(() => filterModelCatalog(offered, query), [offered, query]);
+  const flat = useMemo(() => visible.map((row) => ({ group: "", row })), [visible]);
 
   useEffect(() => {
     if (!open) {
-      return;
+      setPosition(null);
+      return undefined;
     }
     const onDocPointer = (event: MouseEvent): void => {
       const target = event.target as Node | null;
@@ -191,26 +172,66 @@ export function LawmindModelPicker(props: Props): ReactNode {
     };
   }, [open]);
 
-  useEffect(() => {
-    if (!open) {
+  const updatePosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) {
       return;
     }
-    const rect = triggerRef.current?.getBoundingClientRect();
-    if (!rect) {
-      return;
-    }
-    const width = Math.max(280, Math.min(340, rect.width + 80));
+    const rect = trigger.getBoundingClientRect();
     const margin = 8;
-    const viewportH = window.innerHeight;
-    const estimatedHeight = 380;
-    const top =
-      rect.bottom + estimatedHeight + margin > viewportH
-        ? Math.max(margin, rect.top - estimatedHeight - margin)
-        : rect.bottom + margin;
+    const gap = 6;
+    const width = Math.max(280, Math.min(340, Math.max(rect.width + 80, 280)));
     const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
-    setPosition({ position: "fixed", top, left, width, zIndex: 9000 });
-    setTimeout(() => searchRef.current?.focus(), 0);
-  }, [open, query, flat.length]);
+    const spaceAbove = rect.top - margin - gap;
+    const spaceBelow = window.innerHeight - rect.bottom - margin - gap;
+    // Compose sits at the bottom of the window — pin to the trigger and grow upward.
+    const openAbove = spaceAbove >= 120 || spaceAbove >= spaceBelow;
+    if (openAbove) {
+      setPosition({
+        position: "fixed",
+        left,
+        width,
+        bottom: Math.max(margin, window.innerHeight - rect.top + gap),
+        maxHeight: Math.max(120, spaceAbove),
+        top: "auto",
+        zIndex: 9000,
+      });
+    } else {
+      setPosition({
+        position: "fixed",
+        left,
+        width,
+        top: rect.bottom + gap,
+        maxHeight: Math.max(120, spaceBelow),
+        bottom: "auto",
+        zIndex: 9000,
+      });
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    updatePosition();
+    const onReposition = (): void => {
+      updatePosition();
+    };
+    window.addEventListener("resize", onReposition);
+    // Capture scroll from nested overflow containers (chat column).
+    window.addEventListener("scroll", onReposition, true);
+    return () => {
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
+    };
+  }, [open, query, flat.length, updatePosition]);
+
+  useEffect(() => {
+    if (!open || !position) {
+      return;
+    }
+    searchRef.current?.focus();
+  }, [open, position]);
 
   useEffect(() => {
     if (!open) {
@@ -239,13 +260,6 @@ export function LawmindModelPicker(props: Props): ReactNode {
     },
     [close, onOpenApiWizard, onOpenSettings, onSelect],
   );
-
-  const toggleGroup = useCallback((group: string) => {
-    setGroupOpen((prev) => {
-      const current = prev[group] ?? defaultGroupOpen(group);
-      return { ...prev, [group]: !current };
-    });
-  }, []);
 
   const onKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement | HTMLInputElement>) => {
@@ -299,7 +313,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
         }`}
         onMouseEnter={() => setFocusIndex(index)}
         onClick={() => selectRow(row)}
-        title={row.configured ? (row.verifiedAt ? name : `${name}（待验证）`) : "未填 API Key，将打开配置向导"}
+        title={row.configured ? (row.verifiedAt ? name : `${name}（待验证）`) : "还没填密钥，将打开连接向导"}
       >
         <span
           className={`lm-model-picker-icon lm-model-picker-icon-${iconKey}`}
@@ -320,8 +334,6 @@ export function LawmindModelPicker(props: Props): ReactNode {
     open && focusIndex >= 0 && flat[focusIndex]
       ? `${listboxId}-opt-${flat[focusIndex].row.id}`
       : undefined;
-  const searching = Boolean(query.trim());
-
   return (
     <div className="lm-model-picker">
       <button
@@ -335,8 +347,8 @@ export function LawmindModelPicker(props: Props): ReactNode {
         className="lm-model-picker-trigger"
         disabled={disabled}
         title={
-          disabled
-            ? (disabledTitle ?? (catalog.length === 0 ? "Loading models…" : "Model switching unavailable"))
+            disabled
+            ? (disabledTitle ?? (offered.length === 0 ? "Loading models…" : "Model switching unavailable"))
             : undefined
         }
         onClick={() => setOpen((v) => !v)}
@@ -354,93 +366,77 @@ export function LawmindModelPicker(props: Props): ReactNode {
           ▾
         </span>
       </button>
-      {open ? (
-        <div
-          ref={popoverRef}
-          className="lm-model-picker-popover"
-          style={position}
-          role="listbox"
-          id={listboxId}
-          aria-label="模型列表"
-          onKeyDown={onKeyDown}
-        >
-          <div className="lm-model-picker-search-row">
-            <input
-              ref={searchRef}
-              className="lm-model-picker-search"
-              type="search"
-              placeholder="搜索模型…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+      {open && position
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              className="lm-model-picker-popover"
+              style={position}
+              role="listbox"
+              id={listboxId}
+              aria-label="模型列表"
               onKeyDown={onKeyDown}
-            />
-          </div>
-          <div className="lm-model-picker-body">
-            {groups.length === 0 ? (
-              <div className="lm-model-picker-empty">暂无可用模型</div>
-            ) : (
-              groups.map(([group, rows]) => {
-                const isOpen = searching || (groupOpen[group] ?? defaultGroupOpen(group));
-                return (
-                  <div key={group} className="lm-model-picker-group">
-                    <button
-                      type="button"
-                      className="lm-model-picker-group-toggle"
-                      aria-expanded={isOpen}
-                      onClick={() => toggleGroup(group)}
-                    >
-                      <span className={`lm-fs-arrow ${isOpen ? "open" : ""}`} aria-hidden>
-                        ▸
-                      </span>
-                      <span className="lm-model-picker-group-title">{modelPickerGroupTitle(group)}</span>
-                      <span className="lm-model-picker-group-count">{rows.length}</span>
-                    </button>
-                    {isOpen ? rows.map((row) => renderRow(row)) : null}
-                  </div>
-                );
-              })
-            )}
-          </div>
-          <div className="lm-model-picker-footer">
-            {onOpenApiWizard || onOpenSettings ? (
-              <button
-                type="button"
-                className="lm-model-picker-footer-link"
-                onClick={() => {
-                  (onOpenApiWizard ?? onOpenSettings)?.();
-                  close();
-                }}
-              >
-                添加模型
-              </button>
-            ) : null}
-            {onOpenSettings ? (
-              <button
-                type="button"
-                className="lm-model-picker-footer-link"
-                onClick={() => {
-                  onOpenSettings();
-                  close();
-                }}
-              >
-                打开设置
-              </button>
-            ) : null}
-            {onTestCurrent ? (
-              <button
-                type="button"
-                className="lm-model-picker-footer-link lm-model-picker-footer-link-muted"
-                disabled={Boolean(quickTestBusy)}
-                onClick={() => {
-                  void onTestCurrent();
-                }}
-              >
-                {quickTestBusy ? "测试中…" : "测试连接"}
-              </button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+            >
+              <div className="lm-model-picker-search-row">
+                <input
+                  ref={searchRef}
+                  className="lm-model-picker-search"
+                  type="search"
+                  placeholder="搜索模型…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={onKeyDown}
+                />
+              </div>
+              <div className="lm-model-picker-body">
+                {visible.length === 0 ? (
+                  <div className="lm-model-picker-empty">暂无可用模型</div>
+                ) : (
+                  visible.map((row) => renderRow(row))
+                )}
+              </div>
+              <div className="lm-model-picker-footer">
+                {onOpenApiWizard || onOpenSettings ? (
+                  <button
+                    type="button"
+                    className="lm-model-picker-footer-link"
+                    onClick={() => {
+                      (onOpenApiWizard ?? onOpenSettings)?.();
+                      close();
+                    }}
+                  >
+                    添加模型
+                  </button>
+                ) : null}
+                {onOpenSettings ? (
+                  <button
+                    type="button"
+                    className="lm-model-picker-footer-link"
+                    onClick={() => {
+                      onOpenSettings();
+                      close();
+                    }}
+                  >
+                    打开设置
+                  </button>
+                ) : null}
+                {onTestCurrent ? (
+                  <button
+                    type="button"
+                    className="lm-model-picker-footer-link lm-model-picker-footer-link-muted"
+                    disabled={Boolean(quickTestBusy)}
+                    onClick={() => {
+                      void onTestCurrent();
+                    }}
+                  >
+                    {quickTestBusy ? "测试中…" : "测试连接"}
+                  </button>
+                ) : null}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

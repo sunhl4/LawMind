@@ -308,4 +308,33 @@ describe("lawmind-server-route-assistants", () => {
     });
     expect(capture.status).toBe(400);
   });
+
+  it("PATCH pins an assistant without rewriting the job brief", async () => {
+    const { workspaceDir: ws, lawMindRoot, envFile } = tmpAssistantTree();
+    const ctx: LawmindDispatchContext = {
+      workspaceDir: ws,
+      envFile,
+      userEnvPath: envFile,
+      policy: { loaded: false },
+    };
+    const created = upsertAssistant(lawMindRoot, {
+      displayName: "续签助手",
+      introduction: "盯到期",
+      jobBrief: { prohibitions: "外发前必须问我" },
+    });
+    const capture = createResponseCapture();
+    await handleAssistantRoutes({
+      ctx,
+      req: jsonReq("PATCH", { pinned: true, hidden: true }),
+      res: capture.res,
+      url: new URL(`http://127.0.0.1/api/assistants/${created.assistantId}`),
+      pathname: `/api/assistants/${created.assistantId}`,
+      c: {},
+    });
+    expect(capture.status).toBe(200);
+    const saved = getAssistantById(lawMindRoot, created.assistantId);
+    expect(saved?.pinned).toBe(true);
+    expect(saved?.hidden).toBe(true);
+    expect(saved?.jobBrief?.prohibitions).toBe("外发前必须问我");
+  });
 });

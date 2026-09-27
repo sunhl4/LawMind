@@ -28,26 +28,32 @@ function isSafeRel(rel: string): boolean {
   return n.startsWith("materials/") && !n.includes("..") && !n.includes("\0");
 }
 
-function walk(absDir: string, baseAbs: string, out: MatterMaterialListing[], cap: number): void {
-  if (out.length >= cap || !fs.existsSync(absDir)) {
-    return;
+/** @returns true when the walk stopped because `cap` was hit and more entries may remain. */
+function walk(absDir: string, baseAbs: string, out: MatterMaterialListing[], cap: number): boolean {
+  if (!fs.existsSync(absDir)) {
+    return false;
+  }
+  if (out.length >= cap) {
+    return true;
   }
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(absDir, { withFileTypes: true });
   } catch {
-    return;
+    return false;
   }
   for (const ent of entries) {
     if (out.length >= cap) {
-      return;
+      return true;
     }
     if (ent.name.startsWith(".")) {
       continue;
     }
     const abs = path.join(absDir, ent.name);
     if (ent.isDirectory()) {
-      walk(abs, baseAbs, out, cap);
+      if (walk(abs, baseAbs, out, cap)) {
+        return true;
+      }
       continue;
     }
     if (!ent.isFile()) {
@@ -73,6 +79,47 @@ function walk(absDir: string, baseAbs: string, out: MatterMaterialListing[], cap
       updatedAt: stat.mtime.toISOString(),
     });
   }
+  return false;
+}
+
+export type MatterMaterialList = {
+  files: MatterMaterialListing[];
+  /** Files seen past the returned page. Under-counts when `saturated` is true. */
+  omitted: number;
+  /** Walk hit the ceiling, so more files may exist on disk. */
+  saturated: boolean;
+};
+
+/**
+ * Stat-only listing. Walks up to the ceiling, then sorts, then pages.
+ * Recent order used to stop at the first 80 directory entries, so a newer file
+ * later in readdir never appeared.
+ */
+export function inspectMatterMaterialFiles(
+  workspaceDir: string,
+  matterId: string,
+  opts?: { maxFiles?: number; order?: "recent" | "path" },
+): MatterMaterialList {
+  try {
+    const dir = matterMaterialsDir(workspaceDir, matterId);
+    const cap = opts?.maxFiles ?? MATTER_MATERIALS_LIST_CAP;
+    const byPath = opts?.order === "path";
+    const walkCap = Math.max(cap, MATTER_MATERIALS_WALK_CEILING);
+    const out: MatterMaterialListing[] = [];
+    const saturated = walk(dir, dir, out, walkCap);
+    const sorted = byPath
+      ? out.toSorted((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0))
+      : out.toSorted(
+          (a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.relPath.localeCompare(b.relPath),
+        );
+    return {
+      files: sorted.slice(0, cap),
+      omitted: Math.max(0, sorted.length - cap),
+      saturated,
+    };
+  } catch {
+    return { files: [], omitted: 0, saturated: false };
+  }
 }
 
 /** Stat-only listing for the dossier 材料 tab. Does not hash file bytes. */
@@ -81,22 +128,5 @@ export function listMatterMaterialFiles(
   matterId: string,
   opts?: { maxFiles?: number; order?: "recent" | "path" },
 ): MatterMaterialListing[] {
-  try {
-    const dir = matterMaterialsDir(workspaceDir, matterId);
-    const cap = opts?.maxFiles ?? MATTER_MATERIALS_LIST_CAP;
-    const byPath = opts?.order === "path";
-    // 路径序时先按路径取前 N 份：走查上限放宽，排序后再截断，
-    // 这样「同一批材料跑两次」拿到的是同一批文件（不受 readdir/mtime 影响）。
-    const walkCap = byPath ? Math.max(cap, MATTER_MATERIALS_WALK_CEILING) : cap;
-    const out: MatterMaterialListing[] = [];
-    walk(dir, dir, out, walkCap);
-    const sorted = byPath
-      ? out.toSorted((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0))
-      : out.toSorted(
-          (a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.relPath.localeCompare(b.relPath),
-        );
-    return sorted.slice(0, cap);
-  } catch {
-    return [];
-  }
+  return inspectMatterMaterialFiles(workspaceDir, matterId, opts).files;
 }

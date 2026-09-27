@@ -151,5 +151,45 @@ describe("MatterOverviewBody daily surface", () => {
     expect(host.textContent).toContain("关键风险");
     expect(host.textContent).toContain("付款期限争议");
     expect(host.textContent).toContain("近期进展");
+    expect(host.querySelector("[data-testid='lm-matter-quality-cockpit']")).toBeNull();
+  });
+
+  it("shows the quality cockpit inside 更多洞察 when the dashboard flag is on", async () => {
+    await act(async () => {
+      root.render(
+        <MatterOverviewBody
+          apiBase=""
+          matterId="xinghui-sale-876"
+          summary={summary}
+          profile={null}
+          selectedOverview={null}
+          showWorkspaceAcceptanceDashboard
+          workspaceAcceptance={null}
+          workspaceAcceptanceErr={null}
+          reviewSummaryCards={[]}
+          openReviewFromMatter={() => {}}
+          blockingExplanations={[]}
+          handleBlockingAction={() => {}}
+          queueItems={[]}
+          approvalRequests={[]}
+          matterInteractionSummary={emptyInteraction()}
+          showCrossMatterRoadmap={false}
+          convergenceSuggestions={[]}
+          handleConvergenceSuggestion={() => {}}
+          recentMatterInteractions={[]}
+          filteredQueueItems={[]}
+          filteredApprovalRequests={[]}
+          filteredDrafts={[]}
+          draftCitationByTask={{}}
+          acceptanceByTask={{}}
+        />,
+      );
+    });
+    expect(host.querySelector("[data-testid='lm-matter-quality-cockpit']")).toBeNull();
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>("[data-testid='lm-matter-overview-more']")?.click();
+    });
+    expect(host.querySelector("[data-testid='lm-matter-quality-cockpit']")).not.toBeNull();
+    expect(host.textContent).toContain("质量驾驶舱");
   });
 });

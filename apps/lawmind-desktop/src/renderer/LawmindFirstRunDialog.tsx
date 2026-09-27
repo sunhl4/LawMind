@@ -11,9 +11,26 @@ import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
 import { LAWMIND_ATTORNEY_DISCLAIMER_SHORT } from "./lawmind-attorney-disclaimer";
 import { applyPostFirstrunPermissionDefaults } from "./lawmind-compose-prefs";
+import { FIRST_RUN_DEMO_MATTER_ID } from "./lawmind-day-one";
 import { buildContractFastLanePrompt } from "./lawmind-contract-fast-lane";
 
 const DISMISS_KEY = "lm.firstRun.dismissed";
+
+function rememberBrowserDismiss(stamp: string): void {
+  try {
+    window.localStorage.setItem(DISMISS_KEY, stamp);
+  } catch {
+    /* 受限环境没有可用的 localStorage */
+  }
+}
+
+function forgetBrowserDismiss(): void {
+  try {
+    window.localStorage.removeItem(DISMISS_KEY);
+  } catch {
+    /* 同上 */
+  }
+}
 /** Set by API wizard after successful save to open first-run once suppress lifts. */
 const REQUEST_OPEN_KEY = "lm.firstRun.requestOpen";
 
@@ -63,7 +80,7 @@ const STARTER_PROMPT_BY_ROLE: Record<Role["id"], (specName: string) => string> =
   associate: (name) =>
     `请按所内通用范式起草《${name}》初稿，并标出须合伙人确认的留白与关键风险摘要。`,
   partner: (name) =>
-    `请对《${name}》做全要素复核样本；结论注明依据，占位用【待补充】。`,
+    `请对《${name}》做全要素审核样本；结论注明依据，占位用【待补充】。`,
 };
 
 function isContractReviewSpec(spec: SpecSummary): boolean {
@@ -72,7 +89,7 @@ function isContractReviewSpec(spec: SpecSummary): boolean {
 
 function buildFirstrunSeedPrompt(role: Role["id"], spec: SpecSummary | null): string {
   if (!spec) {
-    return "把材料拖进来，或直接说要办的事。不必先选文书类型。";
+    return "";
   }
   if (isContractReviewSpec(spec)) {
     return buildContractFastLanePrompt({
@@ -103,7 +120,7 @@ type Step = "role" | "prefs" | "spec" | "confirm";
  */
 function autoMatterIdFromSpec(spec: SpecSummary | null): string {
   if (!spec) {
-    return "演示案件";
+    return FIRST_RUN_DEMO_MATTER_ID;
   }
   const safe = spec.displayName.replace(/[^\p{L}\p{N}._\- ]/gu, "").trim();
   return `演示案件-${safe || "示例"}`;
@@ -148,9 +165,6 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
     if (typeof window === "undefined" || !apiBase) {
       return undefined;
     }
-    if (window.localStorage.getItem(DISMISS_KEY)) {
-      return undefined;
-    }
     let cancelled = false;
     void (async () => {
       try {
@@ -163,6 +177,19 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
           if (!cancelled) {
             setAutoOpen(true);
           }
+          return;
+        }
+        let dismissedHere = false;
+        try {
+          const state = await apiGetJson<{ ok?: boolean; dismissed?: boolean }>(
+            apiBase,
+            "/api/onboarding/firstrun",
+          );
+          dismissedHere = state.ok !== false && state.dismissed === true;
+        } catch {
+          dismissedHere = window.localStorage.getItem(DISMISS_KEY) != null;
+        }
+        if (cancelled || dismissedHere) {
           return;
         }
         const j = await apiGetJson<{ ok?: boolean; overviews?: unknown[] }>(
@@ -233,12 +260,30 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
   }, [specs]);
 
   const dismissForever = useCallback(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(DISMISS_KEY, new Date().toISOString());
+    const stamp = new Date().toISOString();
+    if (apiBase) {
+      void apiSendJson<{ ok?: boolean }, Record<string, never>>(
+        apiBase,
+        "/api/onboarding/firstrun-dismiss",
+        "POST",
+        {},
+      )
+        .then((body) => {
+          if (body.ok !== true) {
+            throw new Error("dismiss failed");
+          }
+          // 工作区标记已写下。清掉浏览器副本，换工作区时不会把引导一起吞掉。
+          forgetBrowserDismiss();
+        })
+        .catch(() => {
+          rememberBrowserDismiss(stamp);
+        });
+    } else if (typeof window !== "undefined") {
+      rememberBrowserDismiss(stamp);
     }
     setAutoOpen(false);
     onClose();
-  }, [onClose]);
+  }, [apiBase, onClose]);
 
   const dismissForNow = useCallback(() => {
     setAutoOpen(false);
@@ -250,7 +295,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
     setSubmitBusy(true);
     setSubmitError(null);
     try {
-      const matterId = "演示案件";
+      const matterId = FIRST_RUN_DEMO_MATTER_ID;
       const created = await apiSendJson<{ ok?: boolean; error?: string }, { matterId: string }>(
         apiBase,
         "/api/matters/create",
@@ -273,7 +318,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
       applyPostFirstrunPermissionDefaults({ executable: true });
       onSeedReady({
         matterId,
-        seedPrompt: "把材料拖进来，或直接说要办的事。不必先选文书类型。",
+        seedPrompt: "",
       });
       dismissForever();
     } catch (e) {
@@ -373,8 +418,8 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
     <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="LawMind 新手引导">
       <div className="lm-wizard lm-firstrun">
         <div className="lm-firstrun-head">
-          <h2>几步开始用</h2>
-            <p className="lm-meta">选身份与习惯即可上手；文书可跳过。</p>
+          <h2>可以开始了</h2>
+            <p className="lm-meta">直接开工。身份和习惯可以现在记，也可以以后在记忆库里补。</p>
           <ol className="lm-firstrun-steps" aria-label="进度">
             <li className={step === "role" ? "active" : "done"}>1. 身份</li>
             <li
@@ -501,7 +546,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
                 setStep("confirm");
               }}
             >
-              先不选文书，直接开始
+              先不选文书
             </button>
           </p>
         ) : null}
@@ -557,10 +602,14 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
               <span className="lm-meta">文书</span>
               <span>{chosenSpec?.displayName ?? "由对话判断"}</span>
             </div>
-            <div className="lm-firstrun-confirm-row">
-              <span className="lm-meta">将放进对话的第一句交办（可改）</span>
-              <pre className="lm-firstrun-seed">{buildFirstrunSeedPrompt(role, chosenSpec)}</pre>
-            </div>
+            {buildFirstrunSeedPrompt(role, chosenSpec).trim() ? (
+              <div className="lm-firstrun-confirm-row">
+                <span className="lm-meta">将放进对话的第一句交办（可改）</span>
+                <pre className="lm-firstrun-seed">{buildFirstrunSeedPrompt(role, chosenSpec)}</pre>
+              </div>
+            ) : (
+              <p className="lm-settings-caption">不预填输入框。进对话后点一句示例，或自己说要办的事。</p>
+            )}
             <label className="lm-firstrun-confirm-row">
               <input
                 type="checkbox"
@@ -571,7 +620,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
               <span>同时创建演示案件</span>
             </label>
             <p className="lm-settings-caption">
-              默认先进对话。开始后可随时在设置 → 工作区扫描历史材料（整理夹与杂烩目录均可，最多 3 个根）。
+              默认先进对话。要收进已有卷宗，之后在设置 → 工作区打开「整理电脑上的资料」。
             </p>
             {submitError ? (
               <div className="lm-callout lm-callout-danger" role="alert">
@@ -602,12 +651,12 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
           </button>
           <button
             type="button"
-            className="lm-btn lm-btn-secondary"
+            className={step === "role" ? "lm-btn" : "lm-btn lm-btn-secondary"}
             data-testid="lm-firstrun-skip-wizard"
             disabled={submitBusy}
             onClick={() => void skipWizardAndStart()}
           >
-            {submitBusy ? "正在开始…" : "跳过向导，直接开始"}
+            {submitBusy ? "正在开始…" : step === "role" ? "直接开始" : "不记这些，直接开始"}
           </button>
           {onOpenAdvancedSettings ? (
             <button

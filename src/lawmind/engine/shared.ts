@@ -24,7 +24,7 @@ import {
 } from "../delivery/index.js";
 import {
   persistClauseSnapshot,
-  persistDraft,
+  commitDraft,
   persistReasoningSnapshot,
   persistResearchSnapshot,
   readClauseSnapshot,
@@ -244,7 +244,12 @@ export function persistDraftPipeline(
     recordDeliveryAutonomy(workspaceDir, draft, "attended");
   }
 
-  const storedDraftPath = persistDraft(workspaceDir, draft);
+  const storedDraftPath = commitDraft(workspaceDir, draft, {
+    channel: "pipeline",
+    researchSnapshot: true,
+    audit: true,
+    reasoningGraph: "when-spec-requires",
+  });
   syncDraftToTaskRecord(workspaceDir, draft, shouldAutoDeliver ? "reviewed" : "drafted");
   updateTaskRecord(workspaceDir, draft.taskId, {
     title: draft.title,

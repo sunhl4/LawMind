@@ -13,7 +13,7 @@ function stripItalicsPlaceholder(raw: string): string {
     .trim();
 }
 
-/** 下划线占位提示（未填写） */
+/** 下划线占位提示（未填写）。整段斜体或整段括号说明都不是律师填的值。 */
 export function isMatterDisplayPlaceholder(value: string): boolean {
   const v = value.trim();
   if (!v) {
@@ -22,11 +22,30 @@ export function isMatterDisplayPlaceholder(value: string): boolean {
   if (v.startsWith("_（") || v.startsWith("_(")) {
     return true;
   }
+  if (/^（[^）]*）$/.test(v) || /^\([^)]*\)$/.test(v)) {
+    return true;
+  }
   const hintPrefixes = ["（可选", "（可填写", "（留空", "（导入", "（侧栏"] as const;
   if (hintPrefixes.some((p) => v.startsWith(p))) {
     return true;
   }
   return false;
+}
+
+/** 去掉模板斜体后，占位说明视为未填。 */
+export function substantiveCaseField(raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed || isMatterDisplayPlaceholder(trimmed)) {
+    return undefined;
+  }
+  const stripped = trimmed
+    .replace(/^\s*_\s*/, "")
+    .replace(/\s*_\s*$/, "")
+    .trim();
+  if (!stripped || isMatterDisplayPlaceholder(stripped)) {
+    return undefined;
+  }
+  return stripped;
 }
 
 /** 由导入路径生成合法 matterId（ASCII 段 + 时间戳，避免与中文展示名混淆）。 */

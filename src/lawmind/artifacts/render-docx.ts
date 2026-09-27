@@ -165,7 +165,7 @@ export async function renderDocxWithOptions(
     } catch {
       return {
         ok: false,
-        error: "上传的 Word 模板文件不存在或不可读。请在设置中重新登记或恢复模板文件。",
+        error: "上传的 Word 模板已不再支持。请改用内置模板出稿。",
       };
     }
     const values = buildPlaceholderValueMap(draft, up.placeholderMap);

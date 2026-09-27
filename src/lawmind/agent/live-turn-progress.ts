@@ -159,16 +159,16 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
       next.steps.push({
         id: `overflow-prune-${next.steps.length}`,
         kind: "round",
-        label: "上下文较满，已精简后继续",
+        label: "较早的检索结果已收短，继续办",
         status: "done",
-        detail: event.prunedCount > 0 ? `精简 ${event.prunedCount} 条工具结果` : undefined,
+        detail: event.prunedCount > 0 ? `收短了 ${event.prunedCount} 条较早的结果` : undefined,
       });
       break;
     case "context_deferral_bounce":
       next.steps.push({
         id: `context-deferral-${next.steps.length}`,
         kind: "round",
-        label: "上下文已整理，继续办理中",
+        label: "这场对话已整理，继续办",
         status: "done",
       });
       break;
@@ -178,7 +178,7 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
         next.steps.push({
           id: `compact-${next.steps.length}`,
           kind: "round",
-          label: "已整理上下文，继续本回合",
+          label: "这场对话已整理，继续办",
           status: "done",
         });
       }

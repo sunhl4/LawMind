@@ -23,7 +23,10 @@
 | `deadlineIds`             | string[]       | 关联期限                                            |
 | `deliverableIds`          | string[]       | 关联交付物                                          |
 | `queueItemIds`            | string[]       | 关联待办                                            |
-| `matterKind`              | enum?          | `contract` / `litigation` / `general`               |
+| `matterKind`              | enum?          | 粗筛：`contract` / `litigation` / `general`         |
+| `matterLabel`             | string?        | 模型给出的事项名称（≤80）。粗筛不代替这个名字       |
+| `schemaVersion`           | 1?             | 落盘契约版本。旧文件可以没有，下次保存会写上        |
+| `revision`                | number?        | 每次保存加一                                        |
 | `practiceTags`            | string[]?      | 业务标签（**≤12 由 API 层限**，见下）               |
 | `causeOfAction`           | string?        | 案由（≤200）                                        |
 | `counterparty`            | string?        | 对方当事人（≤200）                                  |
@@ -33,9 +36,11 @@
 
 **`status` 七态**：`intake`（收案）、`active`（进行中）、`waiting_on_client`（等客户）、`waiting_on_firm`（等所内）、`under_review`（审核中）、`delivered`（已交付）、`closed`（已结案）。
 
-**重要**：`core/contracts.ts` 里的 `Matter` 类型**没有** `causeOfAction` / `counterparty` / `parties` 三个字段，而 `MatterRecord` 有。也就是说这三个字段是后来加的，只在 storage 那一层。读代码时注意别以为它们不存在。
+`causeOfAction` / `counterparty` / `parties` 在 `Matter` 和 `MatterRecord` 上都有。字段只定义在 `schema.ts`，`schemas.ts` 只重新导出旧名字。
 
-**还有一处分层要看清**：`practiceTags` 的「≤12」**不在 storage schema 里**——`schemas.ts` 与 `schema.ts` 都只写了 `z.array(z.string()).optional()`，没设上限。真正的 12 来自 API 边界（`platform/local-api-schemas.ts`：每条 `max(40)`、数组 `max(12)`）。所以**绕过 API 直接写 `matter.json` 可以塞进去超过 12 个标签**，storage 层不拦。这类「约束在哪个层」的差别，正是本章开头说的两套 schema 不一致的延伸。
+`deadlineIds` / `deliverableIds` / `queueItemIds` 在读 `matter.json` 时按子文件重算。磁盘上的那三份数组是缓存，不是真相。`openQuestionIds` 和 `nextActions` 仍由策略写入直接保存。
+
+**还有一处分层要看清**：`practiceTags` 的「≤12」**不在 storage schema 里**——schema 只写了 `z.array(z.string()).optional()`。真正的 12 来自 API 边界（`platform/local-api-schemas.ts`：每条 `max(40)`、数组 `max(12)`）。绕过 API 直接写 `matter.json` 可以塞进超过 12 个标签。
 
 ## 28.2 当事人与案号
 
@@ -50,7 +55,9 @@
 | `serviceAddress` | 送达地址（≤200）                                          |
 | `serviceMethod`  | `mail` / `electronic` / `in_person` / `unknown`           |
 
-上限 32 人（第 7 章讲过为什么从 8 改到 32）。
+上限 32 人（第 7 章讲过为什么从 8 改到 32）。保存档案时超过会拒绝，不再静默截掉后面的人。
+
+利益冲突检索按名字对上跨案当事人：去掉空白，并把「公司 / 有限公司 / 有限责任公司 / 股份有限公司 / 集团公司」这几种末尾组织形式看成同一个名字。短名包含在长名里不算同一个人。命中只提示律师核对，不自动隔离，也不另建联系人档案。
 
 ### `MatterDocket`
 
@@ -79,15 +86,21 @@
 | `status`                                                      | 八态生命周期                                                                                                                          |
 | `templateId`                                                  | 模板                                                                                                                                  |
 | `currentDraftTaskId`                                          | 当前草稿                                                                                                                              |
+| `currentDraftRevision`                                        | 这条稿被重新挂上交付物的次数                                                                                                          |
+| `citedSourceIds`                                              | 章节引用过的来源 id                                                                                                                   |
+| `documentId`                                                  | 对应 `documents/<id>.json` 的稳定文书号                                                                                               |
+| `schemaVersion` / `revision`                                  | 与案件相同的契约版本和保存次数                                                                                                        |
 | `currentReviewStatus`                                         | `pending` / `approved` / `rejected` / `modified` / `redacted`                                                                         |
 | `ownerLawyerId` / `reviewerId` / `approvedBy` / `deliveredBy` | 各环节责任人                                                                                                                          |
 | `deliveredAt`                                                 | 交付时间                                                                                                                              |
 | `blockingReasons`                                             | 阻塞原因数组                                                                                                                          |
 | `createdAt` / `updatedAt`                                     | —                                                                                                                                     |
 
-**两个 schema 有细微差异**：`schema.ts` 的 `currentReviewStatus` 允许 `redacted`，而 `schemas.ts` 的不允许。这是历史遗留的不一致，读代码时以用了哪个 schema 为准。
-
 `blockingReasons` 的三种取值（`buildDeliverableFromDraft` 里给）：`awaiting_review`（等审核）、`rejected_by_reviewer`（被驳回）、`changes_requested`（要求修改）。
+
+挂上草稿时写入 `documents/<documentId>.json`。有 Word 基线就用那条路径做文书号；没有就用 `drafts/<taskId>.json`。`contentHash` 是标题、摘要和正文章节的 SHA-256。正文没变时版本不增加。正文仍在草稿和原文件里。
+
+结论上的定位在 `ResearchClaim.pin`：`article` / `clause` / `page` / `quote` 至少一项。没有 pin 的结论仍然只有 `sourceIds`。
 
 ## 28.4 审批（`ApprovalRecord`）
 
@@ -115,19 +128,20 @@
 
 存 `queue.jsonl`。
 
-| 字段                                     | 说明                                                |
-| ---------------------------------------- | --------------------------------------------------- |
-| `queueItemId` / `matterId`               | id                                                  |
-| `kind`                                   | 九种（见下）                                        |
-| `status`                                 | `open` / `in_progress` / `resolved` / `dismissed`   |
-| `priority`                               | `low` / `normal` / `high` / `critical`              |
-| `title` / `detail`                       | 内容                                                |
-| `relatedTaskId` / `relatedDeliverableId` | 关联                                                |
-| `dependsOn`                              | 前置待办 id 数组                                    |
-| `blockedBy`                              | **schema 里有，但没有写入者**                       |
-| `blockedReason`                          | 被挡原因（`dependsOn` 未完成时自动算）              |
-| `phase`                                  | `plan` / `research` / `draft` / `review` / `render` |
-| `createdAt` / `updatedAt`                | —                                                   |
+| 字段                                     | 说明                                                          |
+| ---------------------------------------- | ------------------------------------------------------------- |
+| `queueItemId` / `matterId`               | id                                                            |
+| `kind`                                   | 九种（见下）                                                  |
+| `status`                                 | `open` / `in_progress` / `resolved` / `dismissed`             |
+| `priority`                               | `low` / `normal` / `high` / `critical`                        |
+| `title` / `detail`                       | 内容                                                          |
+| `relatedTaskId` / `relatedDeliverableId` | 关联                                                          |
+| `dependsOn`                              | 前置待办 id 数组                                              |
+| `blockedBy`                              | `dependsOn` 未完成时由 `queue-write-service` 写入，完成后清掉 |
+| `blockedReason`                          | 被挡原因（`dependsOn` 未完成时自动算）                        |
+| `phase`                                  | `plan` / `research` / `draft` / `review` / `render`           |
+| `label`                                  | 模型命名的待办（≤80）。`ready_to_draft` 等 kind 只兼容旧行    |
+| `createdAt` / `updatedAt`                | —                                                             |
 
 **九种 `kind`**：`need_client_input`、`need_evidence`、`need_conflict_check`、`need_lawyer_review`、`need_partner_approval`、`ready_to_draft`、`ready_to_render`、`blocked_by_deadline`、`blocked_by_missing_strategy`。
 
@@ -152,7 +166,33 @@
 
 **注意 `source` 是五态**，而界面上的标签是另外一套（律师手记 / 本案档案 / 卷宗文件 / 日历导入 / 传票抽取）。
 
-## 28.7 会话（`AgentSession`）
+### 义务（`ObligationRecord`）
+
+存 `obligations.jsonl`。付款、通知、履约。没有义务就不写。不因为缺金额或读不出数字而拒绝。
+
+| 字段                        | 说明                                     |
+| --------------------------- | ---------------------------------------- |
+| `obligationId` / `matterId` | id                                       |
+| `title`                     | 义务是什么                               |
+| `obligor`                   | 由谁履行。不知道就空着                   |
+| `amountText`                | 金额原文                                 |
+| `amountMinor`               | 能从原文读出的分。约数、万元不写这个字段 |
+| `dueAt`                     | 履行时间。没有就空着                     |
+| `deadlineId`                | 对应的期限。没有就不挂                   |
+| `sourceQuote`               | 材料原句。没有就不编                     |
+| `status`                    | `open` / `done` / `waived`               |
+
+律师打开案件时，未了义务出现在本案速览里。自检不拿缺义务拦住交件。
+
+### 审查矩阵批注（`review-matrix-notes.json`）
+
+存 `matters/<id>/review-matrix-notes.json`（`src/lawmind/matter/review-matrix-notes-store.ts`）。案件审查矩阵的批注与「已核对」标记：`notes`（单元格键 → 批注文本）与 `verified`（单元格键 → true）两个字典。存在案件目录里，换机器仍在——不再只放浏览器 localStorage。
+
+## 28.7 会话（`AgentSession`，引擎字段）
+
+这一节起是回合运行时，不是律师打开案件时要维护的档案。排查「为什么这一轮重放不对」再用。
+
+## 28.7.1 会话字段
 
 存 `sessions/<id>.json`。
 
@@ -252,21 +292,21 @@
 
 ## 28.11 检索（`ResearchBundle`）
 
-| 字段               | 说明                           |
-| ------------------ | ------------------------------ |
-| `taskId` / `query` | —                              |
-| `sources`          | 来源数组                       |
-| `claims`           | 结论数组（每条带 `sourceIds`） |
-| `riskFlags`        | 风险标记（不得省略）           |
-| `missingItems`     | 缺失项                         |
-| `requiresReview`   | 是否需要审核                   |
-| `completedAt`      | —                              |
+| 字段               | 说明                                             |
+| ------------------ | ------------------------------------------------ |
+| `taskId` / `query` | —                                                |
+| `sources`          | 来源数组                                         |
+| `claims`           | 结论数组（每条带 `sourceIds`，能对上时带条或页） |
+| `riskFlags`        | 风险标记（不得省略）                             |
+| `missingItems`     | 缺失项                                           |
+| `requiresReview`   | 是否需要审核                                     |
+| `completedAt`      | —                                                |
 
 来源（`ResearchSource`）：`{id, title, kind, citation?, url?, date?, court?, caseNumber?, demo?, provider?, corpusId?, licenseNote?}`。
 
 `kind` 八种：`statute`、`regulation`、`case`、`memo`、`contract`、`web`、`workspace`、`unknown`。
 
-结论（`ResearchClaim`）：`{text, sourceIds, confidence, model, demo?}`，`model` 是 `general` / `legal`。
+结论（`ResearchClaim`）：`{text, sourceIds, confidence, pin?, model, demo?}`。`pin` 只记引用里已经写明的条、款、页或原文片段；对不上所引来源的条号会降级，不靠关键词把整条结论拒掉。`confidence` 是模型判断。`model` 是 `general` / `legal`。
 
 ## 28.12 记忆采纳（`MemoryAdoptionRecord`）
 
@@ -298,19 +338,23 @@
 | 字段                         | 说明                                                   |
 | ---------------------------- | ------------------------------------------------------ |
 | `id`                         | `st_<uuid>`                                            |
-| `clauseType`                 | 七种条款类型之一                                       |
+| `clauseType`                 | 条款名。常见七种只用于筛选，不是白名单                 |
 | `family`                     | `sale` / `loan` / `general`                            |
 | `position`                   | 一句话立场（`preferredLanguage` 前 80 字）             |
-| `preferredLanguage`          | 偏好措辞（≤240）                                       |
+| `preferredLanguage`          | 标准措辞（≤240）                                       |
+| `fallbackLanguage`           | 可接受回退。没有就不编                                 |
+| `unacceptableLanguage`       | 绝不接受。没有就不编                                   |
 | `rationale` / `statuteBasis` | 理由与法条依据                                         |
 | `source`                     | `redline` / `habit_adopt` / `manual` / `revision_pack` |
-| `confidence`                 | 置信度                                                 |
+| `evidenceScore`              | 证据公式分，只用于排序                                 |
+| `modelConfidence`            | 模型或律师给出的置信度，有则优先于公式                 |
+| `confidence`                 | 当前用于注入的值                                       |
 | `occurrences`                | 出现次数                                               |
 | `evidence`                   | 证据账本（≤50 条）                                     |
 | `createdAt` / `updatedAt`    | —                                                      |
 | `supersededBy`               | 被谁取代                                               |
 
-**七种条款类型**：`管辖`、`违约金`、`保密`、`赔偿`、`定金`、`知识产权`、`其他`。
+常见条款名是 `管辖`、`违约金`、`保密`、`赔偿`、`定金`、`知识产权`、`其他`。这是筛选用的提示，不是写入白名单。条款可以叫别的名字。注入给模型的是标准、可接受回退、绝不接受；后两档没有就不写。自检只提示，不改稿，也不拦住导出。
 
 **证据条目**（`StanceEvidenceEntry`）：`{source, at, matterId?}`。
 
@@ -396,12 +440,11 @@
 
 ## 28.19 已知坑（本章相关）
 
-- **两套 schema 有细微不一致**（`schema.ts` vs `schemas.ts`），`currentReviewStatus` 的 `redacted` 就是一例。
-- **`MatterRecord` 比 `Matter` 类型多了三个字段**（`causeOfAction` / `counterparty` / `parties`）。
-- **`QueueItemRecord.blockedBy` 没有写入者。** 读取时会看它，但没人写。
+- **`deadlineIds` / `deliverableIds` / `queueItemIds` 以子文件为准。** 只改 `matter.json` 里的数组，下次读取会被盖掉。
+- **`practiceTags` 的 12 条上限只在 API。** 直接写 `matter.json` 可以超过。
 - **`AgentTurn.status` 的 `interrupted` 是读取时的视图。**
 - **`hiddenFromLawyer` 的消息是内部用的**，回合结束会清理。
 - **`PublicWorkflowJob` 刻意去掉了三个字段。** 写导出功能时注意。
 - **委派结果太大会溢出到文件。** 读的是 `result` + `resultPath` 两处。
-- **`stance.confidence` 不是直接存的**——它是从证据按 `1 − Π(1−w)` 算出来的。
+- **`stance.evidenceScore` 由证据公式算出，只用于排序。** 有 `modelConfidence` 时，注入用后者。
 - **`matter.json` 的 `claimAmount` 是文本不是数字。**

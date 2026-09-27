@@ -4,7 +4,7 @@ LawMind is the **lawyer-facing integration and delivery layer for the agent ecos
 
 LawMind does not assume that the best legal capability must be invented inside this repository. Its advantage comes from finding broadly, evaluating honestly, adapting quickly, and combining proven capabilities around lawyers' real daily work.
 
-**Four non-negotiables**: (1) **easy to start**, (2) **high deliverable quality**, (3) **stable, predictable delivery**, and (4) **reuse before reinvention**. The Chinese source of truth is `GOALS.md` §二.
+**Five non-negotiables**: (1) **easy to start**, (2) **high deliverable quality**, (3) **stable, predictable delivery**, (4) **reuse before reinvention**, and (5) **use the model's capability**. Default models keep getting stronger; spend that capability. Hard stops stay limited to safety, empty delivery, explicit authorization, and irreversible external actions. Do not add unnecessary hard controls that cap judgment and make LawMind less intelligent. The Chinese source of truth is `GOALS.md` §二.
 
 Auditability is not a product goal or a proxy for legal quality. Logs, provenance, approvals, and security controls may exist where they solve a concrete operational, diagnostic, safety, or regulatory problem, but LawMind must not market their existence as proof that work is correct, trustworthy, or useful.
 

@@ -7,7 +7,7 @@
 - 所有端点都只监听回环，且必须过**回环 Host 门**。
 - 除下面标注「免 bearer」的，都要 `Authorization: Bearer <派生凭据>`。
 - 客户端有范围限制：`word-addin` 只能碰 `/word-addin/` 和 `/api/word-addin/`；`cli` 只能 `GET`/`HEAD`/`OPTIONS`。
-- 错误信封统一是 `{ ok:false, code, message, error }`。
+- 走 `sendJsonError` 的错误信封是 `{ ok:false, code, message, error }`。不少 handler 只回 `{ ok:false, error }`，没有 `code`。
 
 ## B.1 健康、引导与版本
 
@@ -15,12 +15,12 @@
 | --------------------------------------------- | ----------- | ------------------------------------------------------------------------ |
 | `/.well-known/lawmind-local`                  | GET         | **免 bearer**。发现端点，返回 base、instanceId、epoch、clients，不含密钥 |
 | `/api/health`                                 | GET         | 体检大包（含 `doctor`、法源、索引、策略、进程信号等）                    |
-| `/api/bootstrap`                              | GET         | 启动引导数据                                                             |
+| `/api/bootstrap`                              | GET         | 启动引导数据（两拍加载；任务与体检计数另走 `/api/health` 等）            |
 | `/api/daemon`                                 | GET         | 守护状态                                                                 |
 | `/api/daemon/log`                             | GET         | 守护日志尾部                                                             |
 | `/api/policy/edition`                         | GET         | 当前版本与功能开关                                                       |
 | `/api/policy/workspace`                       | GET / PATCH | 工作区策略文件                                                           |
-| `/api/policy/workspace/recommended-allowlist` | GET         | 推荐网络白名单                                                           |
+| `/api/policy/workspace/recommended-allowlist` | POST        | 写入推荐网络白名单                                                       |
 | `/api/platform/gate-history`                  | GET         | 门禁历史                                                                 |
 | `/api/support/bundle`                         | GET         | 诊断包（`?download=1` 出 zip）                                           |
 | `/api/license`                                | GET         | 许可状态                                                                 |
@@ -33,78 +33,80 @@
 
 ## B.2 对话与会话
 
-| 端点                                        | 方法               | 说明                                              |
-| ------------------------------------------- | ------------------ | ------------------------------------------------- |
-| `/api/chat`                                 | POST               | 跑一个回合，SSE 流式返回事件                      |
-| `/api/chat/resume`                          | POST               | 恢复（审批后、澄清答复后）                        |
-| `/api/sessions`                             | GET / POST         | 列表 / 新建                                       |
-| `/api/sessions/delete`                      | POST               | 删会话（级联清侧车）                              |
-| `/api/sessions/search`                      | GET                | 会话搜索                                          |
-| `/api/sessions/:id`                         | GET / PATCH        | 读 / 改标题等                                     |
-| `/api/sessions/:id/live-turn`               | GET                | 当前回合实时进度                                  |
-| `/api/sessions/:id/context-budget`          | GET                | 上下文预算                                        |
-| `/api/sessions/:id/fork-with-carryover`     | POST               | 承前分叉                                          |
-| `/api/sessions/:id/inject`                  | POST               | 中途注入                                          |
-| `/api/sessions/:id/steer`                   | POST               | 中途指示                                          |
-| `/api/sessions/:id/followup`                | POST /（`/claim`） | 跟进队列                                          |
-| `/api/sessions/:id/abort`                   | POST               | 中断                                              |
-| `/api/sessions/:id/messages/mutate`         | POST               | 改消息                                            |
-| `/api/sessions/:id/compact`                 | POST               | 手动压缩                                          |
-| `/api/sessions/:id/resume`                  | POST               | 恢复                                              |
-| `/api/sessions/:id/resume-paused`           | POST               | 恢复暂停态                                        |
-| `/api/sessions/:id/plan-handoff`            | GET / PUT / DELETE | 计划交接                                          |
-| `/api/sessions/:sessionId/fleet-transcript` | GET                | 在办用的会话转录                                  |
-| `/api/events`                               | GET                | **全局 SSE**（15 秒心跳，支持 `task:*` 通配订阅） |
+| 端点                                        | 方法                      | 说明                                                          |
+| ------------------------------------------- | ------------------------- | ------------------------------------------------------------- |
+| `/api/chat`                                 | POST                      | 跑一个回合，SSE 流式返回事件                                  |
+| `/api/chat/resume`                          | POST                      | 待办后续跑（拍板、澄清、继续本件、记下缺口）                  |
+| `/api/sessions`                             | GET / POST                | 列表 / 新建                                                   |
+| `/api/sessions/delete`                      | POST                      | 删会话（级联清侧车）。等价路径还有 `DELETE /api/sessions/:id` |
+| `/api/sessions/search`                      | GET                       | 会话搜索                                                      |
+| `/api/sessions/:id`                         | GET / PATCH               | 读 / 改标题等                                                 |
+| `/api/sessions/:id/live-turn`               | GET                       | 当前回合实时进度                                              |
+| `/api/sessions/:id/context-budget`          | GET                       | 上下文预算                                                    |
+| `/api/sessions/:id/fork-with-carryover`     | POST                      | 承前分叉                                                      |
+| `/api/sessions/:id/inject`                  | POST                      | 中途注入                                                      |
+| `/api/sessions/:id/steer`                   | POST                      | 中途指示                                                      |
+| `/api/sessions/:id/followup`                | POST /（`/claim`）        | 跟进队列                                                      |
+| `/api/sessions/:id/abort`                   | POST                      | 中断                                                          |
+| `/api/sessions/:id/messages/mutate`         | POST                      | 改消息                                                        |
+| `/api/sessions/:id/compact`                 | POST                      | 手动压缩                                                      |
+| `/api/sessions/:id/resume`                  | POST                      | 用转录链重载历史，不开新回合                                  |
+| `/api/sessions/:id/resume-paused`           | POST                      | 从暂停检查点续跑                                              |
+| `/api/sessions/:id/plan-handoff`            | GET / PUT / POST / DELETE | 计划交接。POST 与 PUT 同处理                                  |
+| `/api/sessions/:sessionId/fleet-transcript` | GET                       | 在办用的会话转录                                              |
+| `/api/events`                               | GET                       | **全局 SSE**（15 秒心跳，支持 `task:*` 通配订阅）             |
 
 ## B.3 意图、技能与工具
 
-| 端点                        | 方法 | 说明                               |
-| --------------------------- | ---- | ---------------------------------- |
-| `/api/intent/compile`       | POST | 编译意图（与回合内同源）           |
-| `/api/skills`               | GET  | 列工作区技能（会幂等跑一次种子）   |
-| `/api/skills/enabled`       | POST | 开关技能（`{ skillId, enabled }`） |
-| `/api/tools/registry`       | GET  | 工具注册表 + 治理元数据            |
-| `/api/mcp/servers`          | GET  | MCP 服务器列表                     |
-| `/api/mcp/servers/:id/test` | POST | 测 MCP 连接                        |
-| `/api/triage`               | POST | 分诊                               |
-| `/api/triage/confirm`       | POST | 确认分诊                           |
-| `/api/triage/rules`         | GET  | 分诊规则                           |
+| 端点                        | 方法      | 说明                                                      |
+| --------------------------- | --------- | --------------------------------------------------------- |
+| `/api/intent/compile`       | POST      | 编译意图（与回合内同源）                                  |
+| `/api/skills`               | GET       | 只读列出内置作业标准（`configurable: false`）             |
+| `/api/skills/enabled`       | POST      | 拒绝（405）。不能安装或开关作业标准                       |
+| `/api/tools/registry`       | GET       | 工具注册表 + 治理元数据                                   |
+| `/api/mcp/servers`          | GET / PUT | MCP 服务器列表 / 写入（高安全模式 403；stdio 要确认执行） |
+| `/api/mcp/servers/:id/test` | POST      | 测 MCP 连接                                               |
+| `/api/triage`               | POST      | 分诊                                                      |
+| `/api/triage/confirm`       | POST      | 确认分诊                                                  |
+| `/api/triage/:id`           | GET       | 读一条分诊                                                |
+| `/api/triage/rules`         | GET       | 分诊规则                                                  |
 
 ## B.4 案件
 
-| 端点                                          | 方法        | 说明                                 |
-| --------------------------------------------- | ----------- | ------------------------------------ |
-| `/api/matters`                                | GET         | 列案件 id                            |
-| `/api/matters/create`                         | POST        | 建案件（可带冲突检查与委托确认）     |
-| `/api/matters/detail`                         | GET         | 案件详情大包                         |
-| `/api/matters/overviews`                      | GET         | 全部案件总览                         |
-| `/api/matters/search`                         | GET         | 案件内搜索                           |
-| `/api/matters/profile`                        | POST        | 改卷宗字段                           |
-| `/api/matters/display-name`                   | POST        | 改展示名                             |
-| `/api/matters/role`                           | GET / POST  | 案件/文件夹角色                      |
-| `/api/matters/delete`                         | POST        | 删案件目录                           |
-| `/api/matters/case-note`                      | POST        | 写给 CASE.md 某节                    |
-| `/api/matters/interaction`                    | POST        | 记律师动作（进审计）                 |
-| `/api/matters/interaction-rollup`             | GET         | 跨案件动作汇总                       |
-| `/api/matters/repair-projections`             | POST        | 修 JSON↔CASE.md 漂移                 |
-| `/api/matters/review-matrix`                  | GET         | 案件审查矩阵                         |
-| `/api/matters/review-matrix/export`           | GET         | 导出矩阵 CSV                         |
-| `/api/matters/session-timeline`               | GET         | 会话时间线（`limit` 5–100）          |
-| `/api/matters/team-roster`                    | GET / PUT   | 团队名单                             |
-| `/api/matters/team-meeting`                   | GET         | 会议记录（`limit` / `skipFromEnd`）  |
-| `/api/matters/:matterId/ops`                  | GET / PATCH | Matter Ops（范围/计划/RAID）         |
-| `/api/matters/:matterId/theory`               | GET / PUT   | 案件理论                             |
-| `/api/matters/:matterId/pulse`                | GET         | 案件快照                             |
-| `/api/matters/:matterId/materials/search`     | GET         | 材料全文检索（带页码）               |
-| `/api/matters/:matterId/precedents`           | GET         | 先例库（未开启返回 `enabled:false`） |
-| `/api/matters/:matterId/similar-cases`        | GET         | 相似案件                             |
-| `/api/matters/:matterId/cause`                | POST        | 写案由                               |
-| `/api/matters/:matterId/intake-brief`         | GET / POST  | 读 / 整理谈话摘要                    |
-| `/api/matters/:matterId/intake-brief/confirm` | POST        | 确认摘要并写穿                       |
-| `/api/queues`                                 | GET         | 工作队列                             |
-| `/api/approvals`                              | GET         | 审批（可按 `status` / `targetRole`） |
-| `/api/approvals/resolve`                      | POST        | 处理审批                             |
-| `/api/action-summary`                         | GET         | 待我拍板计数                         |
+| 端点                                          | 方法        | 说明                                      |
+| --------------------------------------------- | ----------- | ----------------------------------------- |
+| `/api/matters`                                | GET         | 列案件 id                                 |
+| `/api/matters/create`                         | POST        | 建案件（可带冲突检查与委托确认）          |
+| `/api/matters/detail`                         | GET         | 案件详情大包                              |
+| `/api/matters/overviews`                      | GET         | 全部案件总览                              |
+| `/api/matters/search`                         | GET         | 案件内搜索                                |
+| `/api/matters/profile`                        | POST        | 改卷宗字段                                |
+| `/api/matters/display-name`                   | POST        | 改展示名                                  |
+| `/api/matters/role`                           | GET / POST  | 案件/文件夹角色                           |
+| `/api/matters/delete`                         | POST        | 删案件目录                                |
+| `/api/matters/case-note`                      | POST        | 写给 CASE.md 某节                         |
+| `/api/matters/interaction`                    | POST        | 记律师动作（进审计）                      |
+| `/api/matters/interaction-rollup`             | GET         | 跨案件动作汇总                            |
+| `/api/matters/repair-projections`             | POST        | 修 JSON↔CASE.md 漂移                      |
+| `/api/matters/review-matrix`                  | GET         | 案件审查矩阵                              |
+| `/api/matters/review-matrix/export`           | GET         | 导出矩阵 CSV                              |
+| `/api/matters/review-matrix/notes`            | GET / PUT   | 矩阵批注与已核对（案件目录）              |
+| `/api/matters/session-timeline`               | GET         | 会话时间线（`limit` 5–100）               |
+| `/api/matters/team-roster`                    | GET / PUT   | 团队名单                                  |
+| `/api/matters/team-meeting`                   | GET         | 会议记录（`limit` / `skipFromEnd`）       |
+| `/api/matters/:matterId/ops`                  | GET / PATCH | Matter Ops（范围/计划/RAID）              |
+| `/api/matters/:matterId/theory`               | GET / PUT   | 案件理论                                  |
+| `/api/matters/:matterId/pulse`                | GET         | 案件快照                                  |
+| `/api/matters/:matterId/materials/search`     | GET         | 材料全文检索（带页码）                    |
+| `/api/matters/:matterId/precedents`           | GET         | 先例库（未开启返回 `enabled:false`）      |
+| `/api/matters/:matterId/similar-cases`        | GET         | 相似案件                                  |
+| `/api/matters/:matterId/cause`                | POST        | 写案由                                    |
+| `/api/matters/:matterId/intake-brief`         | GET / POST  | 读 / 整理谈话摘要                         |
+| `/api/matters/:matterId/intake-brief/confirm` | POST        | 确认摘要并写穿                            |
+| `/api/queues`                                 | GET         | 工作队列                                  |
+| `/api/approvals`                              | GET         | 见 B.12。现网不认 `status` / `targetRole` |
+| `/api/approvals/resolve`                      | POST        | 处理审批                                  |
+| `/api/action-summary`                         | GET         | 待我拍板计数                              |
 
 ## B.5 工作台
 
@@ -200,37 +202,42 @@
 | `/api/historical-scan/roots`                  | POST       | 加扫描根                                             |
 | `/api/historical-scan/roots/remove`           | POST       | 移除扫描根                                           |
 | `/api/historical-scan/run`                    | POST       | 跑扫描                                               |
+| `/api/historical-scan/common-places`          | POST       | 把范围换成常见位置                                   |
+| `/api/historical-scan/apply`                  | POST       | 套用整理计划（未先查看则 400）                       |
+| `/api/historical-scan/file`                   | POST       | 勾选确认后收进案件（未先整理则 400）                 |
 
 ## B.8 检索与来源
 
-| 端点                                       | 方法       | 说明                                                     |
-| ------------------------------------------ | ---------- | -------------------------------------------------------- |
-| `/api/search/workspace`                    | GET        | 工作区检索（`source=all\|audit\|session\|knowledge`）    |
-| `/api/search/workspace/rebuild`            | POST       | 重建索引（需 `LAWMIND_ALLOW_INDEX_REBUILD=1`，否则 403） |
-| `/api/sources/:id/preview`                 | GET        | 来源预览（含支撑了哪些结论、被哪些章节引用）             |
-| `/api/sources/:id/annotations`             | GET / POST | 来源批注                                                 |
-| `/api/integrations`                        | GET        | 集成连接器状态                                           |
-| `/api/integrations/:connectorId/documents` | GET        | 连接器文档列表                                           |
+| 端点 | 方法 | 说明 | | | |
+| ------------------------------------------ | ---------- | -------------------------------------------------------- | | | |
+| `/api/search/workspace` | GET | 工作区检索（`source=all\                                 | audit\ | session\ | knowledge`） |
+| `/api/search/workspace/rebuild` | POST | 重建索引（需 `LAWMIND_ALLOW_INDEX_REBUILD=1`，否则 403） | | | |
+| `/api/sources/:id/preview` | GET | 来源预览（含支撑了哪些结论、被哪些章节引用） | | | |
+| `/api/sources/:id/annotations` | GET / POST | 来源批注 | | | |
+| `/api/integrations` | GET | 集成连接器状态 | | | |
+| `/api/integrations/:connectorId/documents` | GET | 连接器文档列表 | | | |
 
 ## B.9 模型与配置
 
-| 端点                              | 方法        | 说明           |
-| --------------------------------- | ----------- | -------------- |
-| `/api/models`                     | GET         | 模型列表       |
-| `/api/models/custom`              | GET / POST  | 自定义模型     |
-| `/api/models/default`             | GET / PATCH | 默认模型       |
-| `/api/models/worker`              | GET / PATCH | worker 模型    |
-| `/api/models/retrieval`           | GET / PATCH | 检索通道       |
-| `/api/models/draft-with-model`    | PATCH       | 起草用模型     |
-| `/api/models/test`                | POST        | 连通性测试     |
-| `/api/templates`                  | GET         | 模板列表       |
-| `/api/templates/built-in`         | GET         | 内置模板       |
-| `/api/templates/uploaded`         | GET         | 上传的模板     |
-| `/api/templates/enabled`          | POST        | 开关模板       |
-| `/api/templates/register`         | POST        | 注册模板       |
-| `/api/templates/scan`             | POST        | 扫描模板目录   |
-| `/api/onboarding/firstrun-wizard` | POST        | 首跑向导       |
-| `/api/bootstrap`                  | GET         | 同上（见 B.1） |
+| 端点                               | 方法         | 说明                                                             |
+| ---------------------------------- | ------------ | ---------------------------------------------------------------- |
+| `/api/models`                      | GET          | 模型列表（含默认、worker、检索通道的当前值）                     |
+| `/api/models/custom`               | POST         | 创建自定义模型。没有 GET；删除是 `DELETE /api/models/custom/:id` |
+| `/api/models/default`              | PATCH        | 默认模型                                                         |
+| `/api/models/worker`               | PATCH        | worker 模型                                                      |
+| `/api/models/retrieval`            | PATCH        | 检索通道                                                         |
+| `/api/models/draft-with-model`     | PATCH        | 起草用模型                                                       |
+| `/api/models/test`                 | POST         | 连通性测试                                                       |
+| `/api/templates`                   | GET          | 模板列表（只读内置清单；`uploaded` 恒为空）                      |
+| `/api/templates/built-in`          | GET          | 内置模板                                                         |
+| `/api/templates/uploaded`          | GET / DELETE | GET 恒为空数组；DELETE 拒绝（405）——上传已退役                   |
+| `/api/templates/enabled`           | POST         | 拒绝（405）。上传 / 启停已退役                                   |
+| `/api/templates/register`          | POST         | 拒绝（405）。同上                                                |
+| `/api/templates/scan`              | POST         | 拒绝（405）。同上                                                |
+| `/api/onboarding/firstrun`         | GET          | 当前工作区首跑是否已关闭、待验收案件                             |
+| `/api/onboarding/firstrun-dismiss` | POST         | 把「不再自动打开首跑」写入当前工作区                             |
+| `/api/onboarding/firstrun-wizard`  | POST         | 首跑向导                                                         |
+| `/api/bootstrap`                   | GET          | 同上（见 B.1）                                                   |
 
 ## B.10 协作与在办
 
@@ -248,6 +255,9 @@
 | `/api/assistants/:id`                   | PATCH / DELETE | 改 / 删                                   |
 | `/api/assistants/:id/duplicate`         | POST           | 复制（**不含记忆与统计**）                |
 | `/api/assistants/:id/profile-sections`  | GET            | 档案小节                                  |
+| `/api/assistants/roster-search`         | GET            | 跨助手检索（`q` 参数）                    |
+| `/api/assistants/:id/desk`              | GET            | 助手席：在场状态、职责禁令、常设工作近况  |
+| `/api/assistants/:id/share-template`    | POST           | 导出岗位模板（密钥硬拦；电话证件需确认）  |
 | `/api/assistant-presets`                | GET            | 岗位预设                                  |
 | `/api/agent-presets`                    | GET            | 同上的别名                                |
 | `/api/agent-fleet`                      | GET            | 在办数据                                  |
@@ -259,29 +269,32 @@
 
 ## B.11 自动办件与任务队列
 
-| 端点                                | 方法                        | 说明                                                             |
-| ----------------------------------- | --------------------------- | ---------------------------------------------------------------- |
-| `/api/automations`                  | GET / POST / PATCH / DELETE | 自动办件 CRUD                                                    |
-| `/api/automations/presets`          | GET                         | 预设                                                             |
-| `/api/automations/from-instruction` | POST                        | 从指令推断                                                       |
-| `/api/automations/mail/seed`        | POST                        | **仅开发**（`LAWMIND_MAIL_SEED=1`）                              |
-| `/api/automations/inbox/:id/action` | POST                        | 收件箱处置（`inbox` 数据本身在 `GET /api/automations` 的响应里） |
-| `/api/automations/:id/runs`         | GET                         | 运行历史                                                         |
-| `/api/jobs`                         | GET                         | 任务队列（`limit` / `status` / `since` / `matterId`）            |
-| `/api/jobs/:id`                     | GET                         | 任务详情                                                         |
-| `/api/jobs/:id/stream`              | GET                         | 任务进度 SSE（25 秒心跳）                                        |
-| `/api/jobs/:id/cancel`              | POST                        | 取消                                                             |
+| 端点                                | 方法                 | 说明                                                             |
+| ----------------------------------- | -------------------- | ---------------------------------------------------------------- |
+| `/api/automations`                  | GET / POST           | 列表 / 新建                                                      |
+| `/api/automations/:id`              | GET / PATCH / DELETE | 读 / 改 / 删一条                                                 |
+| `/api/automations/presets`          | GET                  | 预设                                                             |
+| `/api/automations/from-instruction` | POST                 | 从指令推断                                                       |
+| `/api/automations/mail/seed`        | POST                 | **仅开发**（`LAWMIND_MAIL_SEED=1`）                              |
+| `/api/automations/inbox/:id/action` | POST                 | 收件箱处置（`inbox` 数据本身在 `GET /api/automations` 的响应里） |
+| `/api/automations/:id/runs`         | GET                  | 运行历史                                                         |
+| `/api/jobs`                         | GET                  | 任务队列（`limit` / `status` / `since` / `matterId`）            |
+| `/api/jobs/:id`                     | GET                  | 任务详情                                                         |
+| `/api/jobs/:id/stream`              | GET                  | 任务进度 SSE（25 秒心跳）                                        |
+| `/api/jobs/:id/cancel`              | POST                 | 取消                                                             |
 
 ## B.12 审批与判断项
 
-| 端点                        | 方法 | 说明                         |
-| --------------------------- | ---- | ---------------------------- |
-| `/api/approvals`            | GET  | 待办（含工具审批与案件审批） |
-| `/api/approvals/resolve`    | POST | 处理                         |
-| `/api/judgment/summary`     | GET  | 判断项摘要                   |
-| `/api/judgment/tiering`     | GET  | 分级模式                     |
-| `/api/judgment/task`        | GET  | 某任务的判断项               |
-| `/api/judgment/escalations` | GET  | 待定夺项                     |
+| 端点                         | 方法 | 说明                                                    |
+| ---------------------------- | ---- | ------------------------------------------------------- |
+| `/api/approvals`             | GET  | 待办（含工具审批与案件审批）。查询参数主要是 `matterId` |
+| `/api/approvals/resolve`     | POST | 「待我拍板」那条链仍用它                                |
+| `/api/approvals/:id/approve` | POST | 拍板通过                                                |
+| `/api/approvals/:id/reject`  | POST | 拍板退回                                                |
+| `/api/judgment/summary`      | GET  | 判断项摘要                                              |
+| `/api/judgment/tiering`      | GET  | 分级模式                                                |
+| `/api/judgment/task`         | GET  | 某任务的判断项                                          |
+| `/api/judgment/escalations`  | GET  | 待定夺项                                                |
 
 ## B.13 指标与审计
 
@@ -312,34 +325,31 @@
 
 ## B.15 案件副本与案件云
 
-| 端点                                            | 方法      | 说明             |
-| ----------------------------------------------- | --------- | ---------------- |
-| `/api/matter-replica`                           | GET       | 总状态           |
-| `/api/matter-replica/status`                    | GET       | 状态             |
-| `/api/matter-replica/identity`                  | GET / PUT | 律师身份         |
-| `/api/matter-replica/membership`                | GET       | 成员名册         |
-| `/api/matter-replica/invites`                   | POST      | 建邀请           |
-| `/api/matter-replica/invites/accept`            | POST      | 接受邀请         |
-| `/api/matter-replica/invites/revoke`            | POST      | 撤销邀请         |
-| `/api/matter-replica/members/revoke`            | POST      | 移除成员         |
-| `/api/matter-replica/locks`                     | GET       | 签出锁列表       |
-| `/api/matter-replica/locks/acquire` / `release` | POST      | 签出 / 归还      |
-| `/api/matter-replica/ops`                       | GET       | 操作日志         |
-| `/api/matter-replica/feed`                      | GET       | 信息流           |
-| `/api/matter-replica/materials`                 | GET       | 材料索引         |
-| `/api/matter-replica/materials/publish`         | POST      | 发布材料         |
-| `/api/matter-replica/sync`                      | POST      | 立刻同步         |
-| `/api/matter-replica/scheduler`                 | GET       | 调度器状态       |
-| `/api/matter-replica/scheduler/tick`            | POST      | 手动 tick        |
-| `/api/matter-replica/audit-report`              | GET       | 审计报告         |
-| `/v1/matters/:id/ops`                           | GET / PUT | 案件云：操作同步 |
-| `/v1/matters/:id/materials/manifest`            | GET / PUT | 案件云：材料清单 |
-| `/v1/matters/:id/blobs/:sha256`                 | GET / PUT | 案件云：内容块   |
-| `/v1/matters/:id/membership`                    | GET / PUT | 案件云：名册     |
-| `/v1/matters/:id/invites` / `invites/revoke`    | POST      | 案件云：邀请     |
-| `/v1/invites/redeem`                            | POST      | 案件云：兑换邀请 |
-| `/v1/me`                                        | GET       | 案件云：当前账号 |
-| `/v1/health`                                    | GET       | 案件云：健康     |
+| 端点                                            | 方法      | 说明                                    |
+| ----------------------------------------------- | --------- | --------------------------------------- |
+| `/api/matter-replica/status`                    | GET       | 状态（没有不带 `/status` 的总状态 GET） |
+| `/api/matter-replica/identity`                  | GET / PUT | 律师身份                                |
+| `/api/matter-replica/membership`                | GET       | 成员名册                                |
+| `/api/matter-replica/invites`                   | POST      | 建邀请                                  |
+| `/api/matter-replica/invites/accept`            | POST      | 接受邀请                                |
+| `/api/matter-replica/invites/revoke`            | POST      | 撤销邀请                                |
+| `/api/matter-replica/members/revoke`            | POST      | 移除成员                                |
+| `/api/matter-replica/locks`                     | GET       | 签出锁列表                              |
+| `/api/matter-replica/locks/acquire` / `release` | POST      | 签出 / 归还                             |
+| `/api/matter-replica/ops`                       | GET       | 操作日志                                |
+| `/api/matter-replica/feed`                      | GET       | 信息流                                  |
+| `/api/matter-replica/materials`                 | GET       | 材料索引                                |
+| `/api/matter-replica/materials/publish`         | POST      | 发布材料                                |
+| `/api/matter-replica/sync`                      | POST      | 立刻同步                                |
+| `/api/matter-replica/scheduler`                 | GET       | 调度器状态                              |
+| `/api/matter-replica/scheduler/tick`            | POST      | 手动 tick                               |
+| `/api/matter-replica/audit-report`              | GET       | 审计报告                                |
+| `/v1/matters/:id`                               | GET       | 桌面本机：根路径探测                    |
+| `/v1/matters/:id/ops`                           | GET / PUT | 桌面本机：操作同步                      |
+| `/v1/matters/:id/materials/manifest`            | GET / PUT | 桌面本机：材料清单                      |
+| `/v1/matters/:id/blobs/:sha256`                 | GET / PUT | 桌面本机：内容块                        |
+
+名册、邀请、`/v1/me`、`/v1/health`、`/v1/invites/redeem` 不在桌面 localhost 上。它们属于独立案件云进程（`src/lawmind/matter-cloud/server.ts`）。
 
 ## B.16 Word 插件
 
@@ -369,38 +379,37 @@
 
 ## B.17 常见错误码速查
 
-| 错误码                                | 状态 | 含义                                       |
-| ------------------------------------- | ---- | ------------------------------------------ |
-| `loopback_host_required`              | 400  | Host 不是回环                              |
-| `invalid_api_token`                   | 401  | 凭据认不出来                               |
-| `client_scope_forbidden`              | 403  | 客户端越权                                 |
-| `mutation_requires_json_content_type` | 415  | 开发态跳鉴权时变更请求缺 JSON Content-Type |
-| `rate_limited`                        | 429  | 令牌桶空了                                 |
-| `no_route`                            | 404  | 路由不匹配（提示重新打包本地服务）         |
-| `body_too_large`                      | 413  | 请求体过大                                 |
-| `invalid_json`                        | 400  | 请求体不是合法 JSON                        |
-| `invalid_request_body`                | 400  | zod 校验失败                               |
-| `invalid_job_id`                      | 400  | job id 不安全                              |
-| `job_not_found`                       | 404  | 任务不存在                                 |
-| `job_already_terminal`                | 409  | 任务已终态，不能取消                       |
-| `index_rebuild_disabled`              | 403  | 未开 `LAWMIND_ALLOW_INDEX_REBUILD`         |
-| `audit_integrity_export_disabled`     | 403  | 版本没开完整性导出                         |
-| `feature_disabled`                    | 403  | 版本功能关闭（如验收包导出）               |
-| `collaboration_disabled`              | 503  | `LAWMIND_ENABLE_COLLABORATION=false`       |
-| `root_not_writable`                   | —    | 不可写的根（如本机文件夹）                 |
-| `protected_workspace_path`            | —    | 治理路径禁止改写                           |
-| `outside_allowed_roots`               | —    | 路径在允许根之外                           |
-| `invalid_matter_id`                   | 400  | 案件 id 不合法                             |
-| `draft_not_found`                     | 404  | 草稿不存在                                 |
-| `draft_not_editable`                  | 409  | 草稿状态不许编辑                           |
-| `table_not_found`                     | 404  | 审查表不存在                               |
-| `redline_not_found`                   | 404  | 修订提案不存在                             |
-| `hunk_not_found`                      | 404  | hunk 不存在                                |
-| `revision_job_requires_modified`      | 400  | 后台修订要求状态为「需修改」               |
-| `missing_api_key`                     | 503  | 没配模型                                   |
-| `keychain_unavailable`                | —    | 系统密钥链不可用                           |
-| `checklist_incomplete`                | —    | 必核清单没勾完                             |
-| `keychain_write_failed`               | —    | 密钥链写入失败                             |
+| 错误码                                           | 状态 | 含义                                                                |
+| ------------------------------------------------ | ---- | ------------------------------------------------------------------- |
+| `loopback_host_required`                         | 400  | Host 不是回环                                                       |
+| `invalid_api_token`                              | 401  | 凭据认不出来                                                        |
+| `client_scope_forbidden`                         | 403  | 客户端越权                                                          |
+| `mutation_requires_json_content_type`            | 415  | 开发态跳鉴权时变更请求缺 JSON Content-Type                          |
+| `rate_limited`                                   | 429  | 令牌桶空了                                                          |
+| `no_route`                                       | 404  | 路由不匹配。JSON `hint` 是退出后重新打开；bundle 命令在服务端日志里 |
+| `body_too_large`                                 | 413  | 请求体过大                                                          |
+| `invalid_json`                                   | 400  | 请求体不是合法 JSON                                                 |
+| `invalid_request_body`                           | 400  | zod 校验失败                                                        |
+| `invalid_job_id`                                 | 400  | job id 不安全                                                       |
+| `job_not_found`                                  | 404  | 任务不存在                                                          |
+| `job_already_terminal`                           | 409  | 任务已终态，不能取消                                                |
+| `index_rebuild_disabled`                         | 403  | 未开 `LAWMIND_ALLOW_INDEX_REBUILD`                                  |
+| `audit_integrity_export_disabled`                | 403  | 版本没开完整性导出                                                  |
+| `feature_disabled`                               | 403  | 版本功能关闭（如验收包导出）                                        |
+| `collaboration_disabled`                         | 503  | `LAWMIND_ENABLE_COLLABORATION=false`                                |
+| `root_not_writable`                              | 403  | 不可写的根（如本机文件夹）                                          |
+| `protected_workspace_path`                       | 403  | 治理路径禁止改写                                                    |
+| `outside_allowed_roots`                          | —    | 不是 HTTP。Electron 文件桥 IPC                                      |
+| `invalid_matter_id`                              | 400  | 案件 id 不合法                                                      |
+| `draft_not_found`                                | 404  | 草稿不存在                                                          |
+| `draft_not_editable`                             | 409  | 草稿状态不许编辑                                                    |
+| `table_not_found`                                | 404  | 审查表不存在                                                        |
+| `redline_not_found`                              | 404  | 修订提案不存在                                                      |
+| `hunk_not_found`                                 | 404  | hunk 不存在                                                         |
+| `revision_job_requires_modified`                 | 400  | 后台修订要求状态为「需修改」                                        |
+| `missing_api_key`                                | 503  | 没配模型                                                            |
+| `checklist_incomplete`                           | 422  | 必核清单没勾完                                                      |
+| `keychain_unavailable` / `keychain_write_failed` | —    | 不是 HTTP。密钥保管走 IPC                                           |
 
 ## B.18 怎么核对这份清单
 
@@ -410,4 +419,4 @@ rg -o '"/api/[a-zA-Z0-9_/:.-]*"|"/word-addin/[a-zA-Z0-9_/.-]*"' \
    apps/lawmind-desktop/server --no-filename | tr -d '"' | sort -u
 ```
 
-输出里会混进测试用的假路径（比如 `/api/other`、`/api/test`、`/api/drafts/strict-bypass-task/render`），那些不是真实端点。判断方法是看它出现在 `handleXxxRoutes` 的分支里，还是只出现在 `.test.ts` 里。
+输出里会混进测试用的假路径（比如 `/api/other`、`/api/test`、`/api/drafts/strict-bypass-task/render`），那些不是真实端点。这条命令也抓不到 `/.well-known/lawmind-local`、`/v1/…`，以及用正则写的路由。要核对必须扫 `pathname ===` / `.exec(pathname)`，并排除 `*.test.ts`。

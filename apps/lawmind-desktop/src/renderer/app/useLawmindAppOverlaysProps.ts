@@ -136,7 +136,9 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
     if (params.matterId) {
       setContextMatterId(params.matterId);
     }
-    setInput(params.seedPrompt);
+    if (params.seedPrompt.trim()) {
+      setInput(params.seedPrompt);
+    }
   };
 
   return useMemo(
@@ -200,7 +202,7 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
           }
         : undefined,
       onOpenAdvancedSettings: () => {
-        useSettingsPanelStore.getState().setSettingsPanel(true, "doctor");
+        useSettingsPanelStore.getState().setSettingsPanel(true, "models");
       },
       onFirstRunSeedReady: ({ matterId, seedPrompt }) => seedIntoCompose({ matterId, seedPrompt }),
       suppressFirstRunAutoOpen,

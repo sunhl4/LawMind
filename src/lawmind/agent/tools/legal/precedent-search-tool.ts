@@ -16,8 +16,10 @@ import {
   extractDefinedTerms,
   type DefinedTerm,
 } from "../../../drafts/terminology-adapt.js";
+import { mattersConflict } from "../../../host-access/matter-fence.js";
 import { isPrecedentIngestEnabled } from "../../../indexing/fts-ingest-knowledge.js";
 import { searchPersonalKnowledge } from "../../../indexing/knowledge-search.js";
+import { formatExplicitPrecedentRecall } from "../../../memory/kernel/query.js";
 import type { AgentTool } from "../../types.js";
 
 /** 术语表只回标签与出处形态，不回定义全文，避免把本案事实铺进检索结果。 */
@@ -38,12 +40,25 @@ function readTermMap(raw: unknown): Record<string, string> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+function conflictsWithCurrentMatter(
+  workspaceDir: string,
+  currentMatterId: string | undefined,
+  otherMatterId: string | undefined,
+): boolean {
+  const currentId = currentMatterId?.trim();
+  const otherId = otherMatterId?.trim();
+  if (!currentId || !otherId) {
+    return false;
+  }
+  return mattersConflict(workspaceDir, currentId, otherId);
+}
+
 export const searchPrecedents: AgentTool = {
   definition: {
     name: "search_precedents",
     description:
       "检索本所旧案已签批交付物（意见书/合同审查/诉讼文书/函件）的可参照段落，返回旧案 ID 与章节出处。" +
-      "用于写法与口径参照；旧案事实不得写入本案。需在环境开启跨案检索（LAWMIND_ALLOW_CROSS_MATTER_SEARCH=1）。" +
+      "用于写法与口径参照；旧案事实不得写入本案。若尚未允许对照其他案件，只说明还没打开，不要把配置步骤讲给律师。" +
       '传 target_task_id 时做术语自适应：抽本文已定义术语表，并按 term_map（如 {"买方":"甲方"}）把旧案条款改写成本文叫法；改写不了的以 unmappedForeignTerms 报出，不得自带另一套称谓。',
     category: "search",
     parameters: {
@@ -72,7 +87,7 @@ export const searchPrecedents: AgentTool = {
           query,
           hits: [],
           precedentSearchEnabled: false,
-          note: "先例检索未开启：跨案读取需律师显式授权（LAWMIND_ALLOW_CROSS_MATTER_SEARCH=1）。开启并重建索引后可用。",
+          note: "先例检索还没打开。这台电脑尚未允许对照其他案件的已签批文书。",
         },
       };
     }
@@ -99,28 +114,34 @@ export const searchPrecedents: AgentTool = {
       limit,
       kinds: ["precedent"],
     });
-    const hits = result.hits.map((h) => {
-      const base = {
-        matterId: h.matterId ?? "",
-        section: h.section ?? "",
-        snippet: h.snippet,
-        citeAs: `旧案 ${h.matterId ?? "?"} · ${h.section || h.path}`,
-        path: h.path,
-      };
-      if (!targetTaskId) {
-        return base;
-      }
-      const aligned = alignTerminology({ text: h.snippet, terms, ...(termMap ? { termMap } : {}) });
-      return {
-        ...base,
-        alignedSnippet: aligned.text,
-        terminologySubstitutions: aligned.substitutions,
-        ...(aligned.unmappedForeignTerms.length > 0
-          ? { unmappedForeignTerms: aligned.unmappedForeignTerms }
-          : {}),
-        ...(aligned.warnings.length > 0 ? { terminologyWarnings: aligned.warnings } : {}),
-      };
-    });
+    const hits = result.hits
+      .filter((h) => !conflictsWithCurrentMatter(ctx.workspaceDir, ctx.matterId, h.matterId))
+      .map((h) => {
+        const base = {
+          matterId: h.matterId ?? "",
+          section: h.section ?? "",
+          snippet: h.snippet,
+          citeAs: `旧案 ${h.matterId ?? "?"} · ${h.section || h.path}`,
+          path: h.path,
+        };
+        if (!targetTaskId) {
+          return base;
+        }
+        const aligned = alignTerminology({
+          text: h.snippet,
+          terms,
+          ...(termMap ? { termMap } : {}),
+        });
+        return {
+          ...base,
+          alignedSnippet: aligned.text,
+          terminologySubstitutions: aligned.substitutions,
+          ...(aligned.unmappedForeignTerms.length > 0
+            ? { unmappedForeignTerms: aligned.unmappedForeignTerms }
+            : {}),
+          ...(aligned.warnings.length > 0 ? { terminologyWarnings: aligned.warnings } : {}),
+        };
+      });
 
     const unmapped = [
       ...new Set(
@@ -130,12 +151,25 @@ export const searchPrecedents: AgentTool = {
       ),
     ];
 
+    const precedentMatterIds = [
+      ...new Set(hits.map((hit) => hit.matterId).filter((id) => id.length > 0)),
+    ];
+    const caseNotes =
+      precedentMatterIds.length > 0
+        ? formatExplicitPrecedentRecall(ctx.workspaceDir, {
+            matterId: ctx.matterId,
+            precedentMatterIds,
+            query,
+          })
+        : "";
+
     return {
       ok: true,
       data: {
         query,
         hits,
         precedentSearchEnabled: true,
+        ...(caseNotes ? { caseNotes } : {}),
         note: targetTaskId
           ? "先例只作案由与写法参照；旧案事实不得写入本案。hits[].alignedSnippet 已按本文术语表对齐，插入请用它。"
           : "先例只作案由与写法参照；旧案事实不得写入本案。未做术语对齐：插入前请传 target_task_id（必要时附 term_map）。",

@@ -15,6 +15,8 @@
 
 **规矩**：测试与实现同目录，文件名等于实现名加 `.test`。所以找某个模块的测试很容易——同目录看后缀。
 
+`pnpm test` 的收录范围在 `vitest.config.ts`：`src/lawmind/**/*.test.ts`（含 `integration/`）、桌面 `server/`、`src/**/*.test.ts(x)`、`electron/**/*.test.ts`。Playwright 的 `e2e/*.spec.ts` **不在**这条命令里，另走 `pnpm lawmind:desktop:e2e:pr`（分层与八个真机规格见第 18 章）。
+
 ## 35.2 一条命令跑什么
 
 ```bash
@@ -29,13 +31,14 @@ pnpm test:coverage        # 带覆盖率
 pnpm exec vitest run src/lawmind/drafts/minimal-edit-script.test.ts
 ```
 
-跑一组（按路径模式）：
+跑一组（按路径模式），或只跑标题里带某句的用例：
 
 ```bash
 pnpm exec vitest run src/lawmind/drafts src/lawmind/memory
+pnpm exec vitest run src/lawmind/agent/turn-orchestrator-cassettes.test.ts -t "review-table"
 ```
 
-**性能提示**：全量 `pnpm test` 很慢（几千个测试）。日常改动用单文件或单目录。
+**性能提示**：全量 `pnpm test` 很慢（几千个测试）。日常改动用单文件或单目录。要对齐 CI 时再跑 `pnpm test:coverage`（只跑一遍，并写出棘轮要读的报告）。`test:watch` 是 `vitest` 不带 `run`，会停在监视模式。
 
 ## 35.3 关键测试文件索引
 
@@ -80,16 +83,16 @@ pnpm exec vitest run src/lawmind/drafts src/lawmind/memory
 
 ### 交付与验收
 
-| 测试                                          | 覆盖什么                   |
-| --------------------------------------------- | -------------------------- |
-| `deliverables/registry.test.ts`               | **规格表顺序被它锁住**     |
-| `deliverables/validator.test.ts`              | 验收检查                   |
-| `deliverables/reasoning-validator.test.ts`    | 推理门                     |
-| `deliverables/reasoning-structure.test.ts`    | 五条结构检查               |
-| `deliverables/verification-checklist.test.ts` | 必核清单                   |
-| `delivery/resolve-delivery-tier.test.ts`      | 交付档位                   |
-| `delivery/progressive-autonomy.test.ts`       | 自主解锁                   |
-| `delivery/judgement-ratchet.test.ts`          | 判断项棘轮（含三条不变量） |
+| 测试                                          | 覆盖什么                               |
+| --------------------------------------------- | -------------------------------------- |
+| `deliverables/registry.test.ts`               | **规格 type 的显式顺序**（现为 27 个） |
+| `deliverables/validator.test.ts`              | 验收检查                               |
+| `deliverables/reasoning-validator.test.ts`    | 推理门                                 |
+| `deliverables/reasoning-structure.test.ts`    | 五条结构检查                           |
+| `deliverables/verification-checklist.test.ts` | 必核清单                               |
+| `delivery/resolve-delivery-tier.test.ts`      | 交付档位                               |
+| `delivery/progressive-autonomy.test.ts`       | 自主解锁                               |
+| `delivery/judgement-ratchet.test.ts`          | 判断项棘轮（含三条不变量）             |
 
 ### 指标与评测
 
@@ -122,7 +125,7 @@ pnpm exec vitest run src/lawmind/drafts src/lawmind/memory
 | `retrieval/authority-url-guard.test.ts`    | SSRF 黑名单                    |
 | `retrieval/authority-pinned-fetch.test.ts` | DNS 钉扎                       |
 | `platform/safe-command.test.ts`            | 命令网关                       |
-| `runtime/tool-pipeline` 相关               | 中间件                         |
+| `runtime/tool-pipeline.test.ts`            | 中间件组合                     |
 | `memory/team-memory-sync.test.ts`          | 团队记忆同步的密钥扫描         |
 | `lawmind-server-cors-structure.test.ts`    | **手写 writeHead 必须带 CORS** |
 
@@ -139,17 +142,26 @@ pnpm exec vitest run src/lawmind/drafts src/lawmind/memory
 
 ## 35.4 环境对测试的影响
 
-有几件事会影响测试行为：
+`test/lawmind-setup.ts` 在每个 Vitest 进程里先做这几件事（`vitest.config.ts` 的 `setupFiles`）：
 
-| 变量/环境                          | 影响                                                                         |
-| ---------------------------------- | ---------------------------------------------------------------------------- |
-| `VITEST=true`                      | 沙箱走 inline 模式；DNS 查询被 stub 成固定地址；`LAWMIND_SKIP_API_AUTH` 相关 |
-| `LAWMIND_TOOL_SANDBOX_INLINE=1`    | 强制 inline 沙箱                                                             |
-| `LAWMIND_SKIP_API_AUTH=1`          | 路由测试常设它                                                               |
-| `LAWMIND_ENABLE_E2E_TEST_ROUTES=1` | 打开 E2E 专用路由（`/api/e2e/*`）                                            |
-| `LAWMIND_E2E=1`                    | 渲染层走打包路径                                                             |
+| 它实际做的                             | 影响                                                                                  |
+| -------------------------------------- | ------------------------------------------------------------------------------------- |
+| `VITEST=true`                          | 工具沙箱走 inline（`resolveSandboxExecutionMode`）；DNS 查询被 stub 成 `203.0.113.10` |
+| 未设置时写入 `LAWMIND_KEY_DIR`         | 审计 HMAC / 邮件凭证密钥进临时目录，不碰开发者的 `~/.lawmind/keys`                    |
+| 未设置时 `LAWMIND_ROUTER_MODE=keyword` | 壳里有 API key 也不会在单测里打真实分类器                                             |
+| 每个用例结束后                         | 排空案件投影，并 `unstubAllGlobals` / `restoreAllMocks`                               |
 
-**注意 `VITEST=true` 会让 DNS 走 stub**（固定返回 `203.0.113.10`）——所以测 DNS 相关逻辑时要知道这一点。
+它**不会**设置 `LAWMIND_SKIP_API_AUTH`。路由单测是直接调 `handleXxxRoutes`，不经过本地 API 鉴权。
+
+| 变量                               | 谁在用、影响什么                                                                         |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- |
+| `LAWMIND_TOOL_SANDBOX_INLINE=1`    | 即使不在 Vitest 里，也强制 inline 沙箱                                                   |
+| `LAWMIND_TOOL_SANDBOX=1`           | 打开沙箱策略。Vitest 下执行模式仍是 inline；子进程 runner 缺失才会 `SANDBOX_UNAVAILABLE` |
+| `LAWMIND_SKIP_API_AUTH=1`          | 开发态 HTTP 跳过 bearer。打包态（`LAWMIND_PACKAGED=1`）忽略它。路由单测不靠它            |
+| `LAWMIND_ENABLE_E2E_TEST_ROUTES=1` | 打开 `/api/e2e/*`。Playwright / Electron 夹具会设；平时单测默认关着                      |
+| `LAWMIND_E2E=1`                    | 且 `dist/index.html` 存在时，壳加载打包后的渲染层                                        |
+
+测 DNS 钉扎或 SSRF 时，记住 lookup 已被 stub 成 `203.0.113.10`。要测真实解析，在该用例里自己注入 `lookup`，不要依赖进程去打网。
 
 ## 35.5 cassette：编排器改动的准入证
 
@@ -217,14 +229,20 @@ it("review-table: 抽查表 intent advertises review_table_update and the table 
 
 ## 35.6 覆盖率棘轮
 
-`scripts/pre-commit/check-coverage-ratchet.mjs` 的机制和文件大小棘轮一样：
+`pnpm test:coverage:ratchet` → `scripts/pre-commit/check-coverage-ratchet.mjs`。它读 `coverage/coverage-summary.json` 的**全局**四项（statements / branches / functions / lines），对照 `scripts/pre-commit/coverage-baseline.json` 里的地板。
 
-- 覆盖率**不能降**。
-- 降了必须在 diff 里显式抬基线（带理由）。
+实际规则：
 
-基线在 `scripts/pre-commit/coverage-baseline.json`。
+- 低于 `地板 − tolerancePct` 才算下跌失败。当前容差是 **1.5** 个百分点，用来吸收测量抖动和 macOS 地板 / Ubuntu CI 的差异。掉在容差里不会红。
+- 高于 `地板 + maxHeadroomPct` 也失败（现为 **3** 个百分点）。这是「地板远低于实测」的闸：覆盖率涨了却不收紧，之后可以无声跌回旧地板。3 大于 1.5，避免合法的跨环境上浮被当成地板过低。
+- 报告比任一被统计源文件旧，直接失败（陈旧绿等于没查）。确要在旧报告上比对才加 `--allow-stale` 或 `LAWMIND_ALLOW_STALE_COVERAGE=1`。这两条只跳过新鲜度，不跳过地板比较。
+- 接受一次新测量：`node scripts/pre-commit/check-coverage-ratchet.mjs --update`。它把**当前百分比写成新地板**，升高或降低都会写进去，并保留 `tolerancePct` / `maxHeadroomPct`。JSON 里没有「理由」字段；理由写在提交说明里。
+- Vitest 自己不再设 `coverage.thresholds`。门槛只有这一处，避免两个数字。
+- 统计范围是 `src/lawmind/**/*.ts`、桌面 `server/**/*.ts`、渲染层 `*.ts(x)`。不含 `electron/`、测试文件、`index.ts`、`types.ts`。
 
-**为什么不直接要求覆盖率 X%**：因为百分比对「已经很高的模块」没有约束力（90% 到 89% 不算问题吗？算），对「一开始就很低的模块」又太苛刻。棘轮的思路是「不许变坏」。
+这和文件大小棘轮不是同一套（大小棘轮有 NEW / STALE / GROWN，见第 18.6 节）。覆盖率的第二道闸是抬头：实测高出地板超过 `maxHeadroomPct` 就红，逼你在 diff 里 `--update`。判断本身在 `evaluateCoverageRatchet`，由 `scripts/pre-commit/check-coverage-ratchet.test.ts` 锁住。
+
+脚本放在 `scripts/pre-commit/`，但 **git pre-commit 钩子不跑它**。它在 `pnpm lawmind:verify` 和 PR 的 `verify` 作业里，且必须紧跟刚生成的 `pnpm test:coverage`。
 
 ## 35.7 测试失败时怎么办
 
@@ -232,12 +250,14 @@ it("review-table: 抽查表 intent advertises review_table_update and the table 
 
 ### 先看是不是环境问题
 
-| 症状              | 可能原因                                        |
-| ----------------- | ----------------------------------------------- |
-| 一堆 DNS 相关失败 | 有测试在真跑网络（不该有）                      |
-| 沙箱相关失败      | `LAWMIND_TOOL_SANDBOX` 设了 1                   |
-| 路由测试 401/403  | 没设 `LAWMIND_SKIP_API_AUTH=1`                  |
-| 时间相关失败      | 时区或日期边界（用注入的 `now` 的测试不会这样） |
+| 症状                         | 可能原因                                                                         |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| DNS / 钉扎断言对不上固定地址 | 用例在打真网，或忘了 `VITEST=true` 会把 lookup stub 成 `203.0.113.10`            |
+| `SANDBOX_UNAVAILABLE`        | 走了子进程沙箱且 runner 不在。Vitest 默认 inline；查是不是绕开了 `VITEST`        |
+| HTTP 401/403                 | 打的是真本地服务，不是路由单测。开发态才认 `LAWMIND_SKIP_API_AUTH=1`；打包态忽略 |
+| 路由单测 401                 | 多半不是鉴权：这些测试直接调 handler。先看状态码是 handler 自己返回的            |
+| 时间相关失败                 | 时区或日期边界（注入 `now` 的测试不会这样）                                      |
+| 覆盖率棘轮报「报告已陈旧」   | 源文件比 `coverage/coverage-summary.json` 新。先重跑 `pnpm test:coverage`        |
 
 ### 再看是不是你的改动
 
@@ -251,14 +271,14 @@ pnpm exec vitest run <你改的目录>
 
 这些测试失败往往意味着你动了不该动的东西：
 
-| 测试                                    | 锁什么                   |
-| --------------------------------------- | ------------------------ |
-| `deliverables/registry.test.ts`         | 27 个 spec 的顺序        |
-| `guardian/item-judgments.test.ts`       | 150 项判定表「一处不漏」 |
-| `turn-orchestrator-cassettes.test.ts`   | 编排行为                 |
-| `lawmind-server-cors-structure.test.ts` | 手写 writeHead 的 CORS   |
-| `check-file-size.mjs`                   | 文件大小棘轮             |
-| `check-coverage-ratchet.mjs`            | 覆盖率棘轮               |
+| 测试                                    | 锁什么                                             |
+| --------------------------------------- | -------------------------------------------------- |
+| `deliverables/registry.test.ts`         | 内置 spec 的 type 序列（现为 27 个，写死在断言里） |
+| `guardian/item-judgments.test.ts`       | 150 项判定表「一处不漏」                           |
+| `turn-orchestrator-cassettes.test.ts`   | 编排行为                                           |
+| `lawmind-server-cors-structure.test.ts` | 手写 writeHead 的 CORS                             |
+| `check-file-size.mjs`                   | 文件大小棘轮                                       |
+| `check-coverage-ratchet.mjs`            | 覆盖率棘轮                                         |
 
 **这些测试红了通常不是测试的问题，是你的改动碰到了约束。** 想清楚是「该改测试」还是「该改代码」。
 
@@ -266,22 +286,31 @@ pnpm exec vitest run <你改的目录>
 
 第 12、18 章列过命令。这里按「什么时候跑」归类：
 
-| 时机           | 跑什么                                                           |
-| -------------- | ---------------------------------------------------------------- |
-| 改完代码       | `pnpm exec vitest run <相关目录>`                                |
-| 提交前         | `pnpm test`（或至少引擎 + 相关桌面测试）                         |
-| 提交前（严格） | 加 `pnpm typecheck` 和 `pnpm --filter lawmind-desktop typecheck` |
-| 发版前         | `pnpm lawmind:verify`                                            |
-| 交付验收       | `pnpm lawmind:acceptance`                                        |
-| 只想看交付质量 | `pnpm lawmind:gate --all --strict`                               |
-| 想看发布就绪   | `pnpm lawmind:release-readiness`                                 |
+| 时机                       | 跑什么                                                                |
+| -------------------------- | --------------------------------------------------------------------- |
+| 改完一块                   | `pnpm exec vitest run <相关目录>`                                     |
+| 每次 `git commit`          | 钩子只跑暂存文件的 oxlint + oxfmt。不跑测试、不跑覆盖率、不跑文件大小 |
+| 要对齐 PR 的 `verify` 作业 | `pnpm lawmind:verify`（慢；与 CI 同一条链，测试只跑一遍）             |
+| 发版质量证据               | `pnpm lawmind:verify:release`（scripted benchmark，不过阈值就失败）   |
+| 交付验收                   | `pnpm lawmind:acceptance`                                             |
+| 只看交付质量               | `pnpm lawmind:gate --all --strict`                                    |
+| 只看发布就绪报告           | `pnpm lawmind:release-readiness`                                      |
+| 桌面点击路径               | `pnpm lawmind:desktop:e2e:pr`（不在 `pnpm test` 里）                  |
 
-`pnpm lawmind:verify` 的内容：
+类型检查不在钩子里。改了跨文件类型时另跑 `pnpm typecheck`、`pnpm --filter lawmind-desktop typecheck`（只覆盖渲染进程）和 `pnpm typecheck:desktop-node`（`server/` 与 `electron/*.ts`）。
+
+`pnpm lawmind:verify` 与 `.github/workflows/lawmind-ci.yml` 的 `verify` 作业是同一条链：
 
 ```text
-test → typecheck → benchmark → release-readiness → bundle:desktop-server
-→ 桌面端 typecheck → desktop http-smoke
+test:coverage → coverage ratchet → skills golden --compare
+→ typecheck → bundle:desktop-server → 桌面 typecheck → desktop-node typecheck
+→ renderer CSS → renderer CSS sync → renderer 禁止 node 导入 → UI 文案
+→ 平台契约 → desktop http-smoke → release-readiness
 ```
+
+文件大小棘轮是旁边的 `file-size-check` 作业（`node scripts/pre-commit/check-file-size.mjs`），不在这条链里，钩子也不跑。
+
+mock benchmark 不在 `verify` 里。`release-readiness` 若读到一份 `modelMode` 不是 scripted/real 的 benchmark JSON，退出码是 1。缺文件（ENOENT）在非 `--strict` 时记已知风险、退出码 0。
 
 ## 35.9 写测试的几条建议
 
@@ -351,11 +380,13 @@ describe("P3 冷启动必须诚实拒绝（不得产出看起来能用的校准�
 
 ## 35.11 已知坑（本章相关）
 
-- **`VITEST=true` 会 stub DNS。** 测网络逻辑要注意。
-- **全量 `pnpm test` 很慢。** 日常用单目录。
+- **`VITEST=true` 会 stub DNS，并强制 inline 沙箱。** 它不跳过 API 鉴权，也不替你设 `LAWMIND_SKIP_API_AUTH`。
+- **全量 `pnpm test` 很慢。** 日常用单目录。对齐 CI 用 `pnpm lawmind:verify`，不要在同一次检查里把全量测试跑两遍。
+- **提交钩子不跑测试。** 红的测试不会被钩子拦住。
+- **引擎测试不许 `vi.stubGlobal("fetch")`。** 出口代理在没有 `fetchImpl` 时走 `node:http`（DNS 钉扎），全局 mock 会被绕过，假端点变成真网络。改用 `127.0.0.1` cassette，或给工厂传入 `fetchImpl`。`pnpm lawmind:check:no-global-fetch-stub` 守着，已接进 `lawmind:verify` 和 CI。
 - **锁顺序的测试红了通常是你的改动碰到了约束。**
-- **cassette 用完必须 400。** 不许编收尾消息。
+- **cassette 用完必须 400。** 不许编收尾消息。这条没有 git 钩子，漏加不会在提交时红。
 - **装配器单测只断言三样**（章节 id、缓存边界哈希、动态值）。
-- **覆盖率是棘轮，不是目标值。**
+- **覆盖率地板有 1.5 个百分点下跌容差，抬头超过 3 个百分点会失败。** 只在 CI / `lawmind:verify` 里查。涨了用 `--update` 收紧。
 - **诚实性测试要保留。** 它们守的是产品不撒谎那条线。
-- **mock 模式的 benchmark 不再必然满分。** 别按「mock 一定过」写断言。
+- **mock 模式的 benchmark 不再必然满分，也不能交给发布就绪。**

@@ -9,7 +9,7 @@ import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
 import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
-import type { ModelCatalogEntry, ProviderKeyStatus } from "../lawmind-models-api";
+import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { LawmindMainView } from "../lawmind-main-view";
 import type { LawmindAppSettingsPanelProps } from "./LawmindAppSettingsPanel";
 import { requestOpenWorkspaceFile } from "../lawmind-workspace-file-open";
@@ -31,6 +31,10 @@ export type UseLawmindAppSettingsPanelPropsInput = {
   openEditAssistant: () => void;
   removeAssistant: () => void | Promise<void>;
   duplicateAssistant: () => void | Promise<void>;
+  patchAssistantRoster: (
+    assistantId: string,
+    patch: { pinned?: boolean; hidden?: boolean },
+  ) => void | Promise<void>;
   applyRetrievalMode: (mode: "single" | "dual") => void | Promise<void>;
   applyDraftWithModelEnabled: (enabled: boolean) => void | Promise<void>;
   npcSaving?: boolean;
@@ -39,7 +43,6 @@ export type UseLawmindAppSettingsPanelPropsInput = {
   localServiceReconnecting: boolean;
   openApiWizard: () => void;
   onVerifyModel?: () => void | Promise<void>;
-  modelProviders: ProviderKeyStatus[];
   platformProviders: import("../lawmind-models-api").PlatformProviderKeyStatus[];
   platformMode: "proxy" | "platform_key" | "none";
   selectedModelId: string;
@@ -86,6 +89,7 @@ export function useLawmindAppSettingsPanelProps(
     openEditAssistant,
     removeAssistant,
     duplicateAssistant,
+    patchAssistantRoster,
     applyRetrievalMode,
     applyDraftWithModelEnabled,
     npcSaving,
@@ -94,7 +98,6 @@ export function useLawmindAppSettingsPanelProps(
     localServiceReconnecting,
     openApiWizard,
     onVerifyModel,
-    modelProviders,
     platformProviders,
     platformMode,
     selectedModelId,
@@ -158,6 +161,7 @@ export function useLawmindAppSettingsPanelProps(
       onOpenEditAssistant: openEditAssistant,
       onRemoveAssistant: () => void removeAssistant(),
       onDuplicateAssistant: () => void duplicateAssistant(),
+      onPatchAssistantRoster: (assistantId, patch) => void patchAssistantRoster(assistantId, patch),
       onApplyRetrievalMode: applyRetrievalMode,
       onApplyDraftWithModelEnabled: applyDraftWithModelEnabled,
       npcSaving: npcSaving ?? false,
@@ -166,7 +170,6 @@ export function useLawmindAppSettingsPanelProps(
       localServiceReconnecting,
       onOpenApiWizard: openApiWizard,
       onVerifyModel,
-      modelProviders,
       platformProviders,
       platformMode,
       selectedModelId,
@@ -179,6 +182,10 @@ export function useLawmindAppSettingsPanelProps(
       },
       onPickProject: () => void pickProject(),
       onClearProject: () => void clearProject(),
+      onOpenArchiveOrganize: () => {
+        setShowSettings(false);
+        setMainView("archive");
+      },
       onOpenCollaborationPage: () => {
         // 「去在办处理」→ 待拍板（领导主入口）；按流程仍可从在办分区进入。
         setAgentsDeskTab("active");
@@ -263,14 +270,14 @@ export function useLawmindAppSettingsPanelProps(
       openNewAssistant,
       openEditAssistant,
       removeAssistant,
-    duplicateAssistant,
+      duplicateAssistant,
+      patchAssistantRoster,
       applyRetrievalMode,
       applyDraftWithModelEnabled,
       reconnectLocalService,
       localServiceReconnecting,
       openApiWizard,
       onVerifyModel,
-      modelProviders,
       platformProviders,
       platformMode,
       selectedModelId,

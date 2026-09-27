@@ -5,6 +5,7 @@ import {
   evaluateCraftCheck,
   CONTRACT_REDLINE_CRAFT_SKILL,
 } from "./contract-redline-craft.js";
+import { MINIMAL_EDIT_MAX_UNCHANGED_RUN } from "./minimal-edit-script.js";
 
 describe("contract-redline-craft", () => {
   it("skill teaches the minimal-edit invariant with unlimited edit count", () => {
@@ -16,6 +17,8 @@ describe("contract-redline-craft", () => {
     expect(CONTRACT_REDLINE_CRAFT_SKILL).toContain("实际损失。");
     expect(CONTRACT_REDLINE_CRAFT_SKILL).not.toContain("最多 24");
     expect(CONTRACT_REDLINE_CRAFT_SKILL).not.toContain("2–3 处");
+    expect(CONTRACT_REDLINE_CRAFT_SKILL).toContain(`≥${MINIMAL_EDIT_MAX_UNCHANGED_RUN}`);
+    expect(CONTRACT_REDLINE_CRAFT_SKILL).toContain('occurrences: "all"');
   });
 
   it("applies phrase-level edits", () => {

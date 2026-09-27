@@ -19,6 +19,7 @@ import {
   markDelegationRunning,
   markDelegationCompleted,
   markDelegationFailed,
+  markDelegationAwaitingLawyer,
   markDelegationTimeout,
   validateDelegation,
   listDelegations,
@@ -139,24 +140,56 @@ export function createDelegateTaskTool(opts: {
   };
 }
 
+/** 回传进主办会话的摘录。长检索留在子会话和委派记录里。 */
+export const DELEGATION_PARENT_EXCERPT_CHARS = 1_200;
+
+export function formatDelegationParentFollowUp(
+  rec: DelegationRecord,
+  body: string,
+  ok: boolean | "waiting",
+): string {
+  const label =
+    ok === "waiting"
+      ? "【委派结果 · 等你确认】"
+      : ok
+        ? "【委派结果 · 已自动回传】"
+        : "【委派结果 · 未成功】";
+  const main = body.trim() || (ok ? "（子助手未返回正文）" : "（无错误详情）");
+  const excerpt =
+    main.length > DELEGATION_PARENT_EXCERPT_CHARS
+      ? `${main.slice(0, DELEGATION_PARENT_EXCERPT_CHARS)}…`
+      : main;
+  const lines = [
+    label,
+    `- 目标助手：**${rec.toAssistantId}**`,
+    `- 委派 ID：\`${rec.delegationId}\``,
+    `- 状态：**${rec.status === "awaiting_lawyer" ? "待确认" : rec.status}**`,
+  ];
+  const child = rec.targetSessionId?.trim();
+  if (child && ok !== "waiting") {
+    lines.push(`- 子会话：\`sessions/${child}.json\`（检索过程在子会话里，不带进本对话）`);
+  }
+  const truncated = main.length > DELEGATION_PARENT_EXCERPT_CHARS;
+  if (rec.resultPath?.trim()) {
+    lines.push(`- 全文：\`${rec.resultPath.trim()}\`，用 get_delegation_result 读取`);
+  } else if (truncated) {
+    lines.push("- 全文用 get_delegation_result 读取，不要把下面的摘录当成全部");
+  }
+  lines.push("", excerpt);
+  return lines.join("\n");
+}
+
 function injectDelegationParentFollowUp(
   workspaceDir: string,
   rec: DelegationRecord,
   body: string,
-  ok: boolean,
+  ok: boolean | "waiting",
 ): void {
   const sid = rec.parentSessionId?.trim();
   if (!sid) {
     return;
   }
-  const label = ok ? "【委派结果 · 已自动回传】" : "【委派结果 · 未成功】";
-  const main = body.trim() || (ok ? "（子助手未返回正文）" : "（无错误详情）");
-  const pack =
-    `${label}\n- 目标助手：**${rec.toAssistantId}**\n- 委派 ID：\`${rec.delegationId}\`\n- 状态：**${rec.status}**\n\n---\n\n${main}`.slice(
-      0,
-      48_000,
-    );
-  appendSyntheticAssistantReply(workspaceDir, sid, pack);
+  appendSyntheticAssistantReply(workspaceDir, sid, formatDelegationParentFollowUp(rec, body, ok));
 }
 
 /**
@@ -342,6 +375,27 @@ export function startDelegation(args: {
 
   completion
     .then((result) => {
+      if (result.hold) {
+        const note = "对方已停下，等你在「在办」里确认。确认前不会把这次交办当成已经办完。";
+        const waiting = markDelegationAwaitingLawyer(args.workspaceDir, record.delegationId, note);
+        if (waiting) {
+          injectDelegationParentFollowUp(args.workspaceDir, waiting, note, "waiting");
+        }
+        emitCollaborationEvent(
+          args.workspaceDir,
+          buildDelegationEvent(record, "delegation.started", "awaiting_lawyer"),
+        );
+        return;
+      }
+      const already = getDelegation(record.delegationId);
+      if (
+        already?.status === "completed" ||
+        already?.status === "completed_after_timeout" ||
+        already?.status === "failed" ||
+        already?.status === "cancelled"
+      ) {
+        return;
+      }
       markDelegationCompleted(
         args.workspaceDir,
         record.delegationId,
@@ -377,7 +431,11 @@ export function startDelegation(args: {
     })
     .catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);
-      markDelegationFailed(args.workspaceDir, record.delegationId, msg);
+      if (/已超过 .+ 秒/.test(msg)) {
+        markDelegationTimeout(args.workspaceDir, record.delegationId);
+      } else {
+        markDelegationFailed(args.workspaceDir, record.delegationId, msg);
+      }
       const latest = getDelegation(record.delegationId);
       if (latest) {
         injectDelegationParentFollowUp(args.workspaceDir, latest, msg, false);
@@ -422,7 +480,15 @@ export const listDelegationsTool: AgentTool = {
       status: {
         type: "string",
         description: "按状态筛选",
-        enum: ["pending", "running", "completed", "failed", "timeout", "cancelled"],
+        enum: [
+          "pending",
+          "running",
+          "completed",
+          "failed",
+          "timeout",
+          "cancelled",
+          "awaiting_lawyer",
+        ],
       },
     },
   },

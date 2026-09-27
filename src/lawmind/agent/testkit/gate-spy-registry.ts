@@ -77,6 +77,7 @@ const SPY_SPECS: SpySpec[] = [
   { name: "list_matters", category: "matter", riskLevel: "low" },
   { name: "add_case_note", category: "matter", riskLevel: "medium" },
   { name: "record_deadline", category: "system", riskLevel: "medium" },
+  { name: "record_obligation", category: "system", riskLevel: "medium" },
   { name: "import_host_file", category: "search", riskLevel: "medium" },
   { name: "search_host", category: "search", riskLevel: "low" },
   { name: "read_host_file", category: "search", riskLevel: "low" },

@@ -40,10 +40,11 @@ describe("normalizeToolCallArguments", () => {
     expect(call.args.path).toBeUndefined();
   });
 
-  it("defaults write_document file_path from linkedTaskId when only content given", () => {
+  it("defaults write_document to notes even when a draft is linked", () => {
     const call = makeCall("write_document", { content: '{"taskId":"t1"}' }, "t1");
     normalizeToolCallArguments(call);
-    expect(call.args.file_path).toBe("drafts/t1.json");
+    expect(String(call.args.file_path)).toMatch(/^notes\/工作笔记_\d{8}_01\.md$/);
+    expect(String(call.args.file_path)).not.toMatch(/^drafts\//);
   });
 
   it("defaults write_document to workspace notes/ when no path and no linked draft", () => {

@@ -4,8 +4,8 @@
 
 ```text
 intent/            13 个文件、3434 行   把律师的话编译成一个能力绑定
-skills/            9 个 .ts + 37 份 md  能力注册表与技能运行时
-historical-scan/    8 个文件、1177 行   扫历史材料、挖习惯
+skills/            11 个 .ts + 37 份 md 能力注册表与技能运行时
+historical-scan/   10 个文件、1250 行   扫历史材料、挖习惯、整理进案件
 ```
 
 第 4 章从产品角度讲了意图，第 11 章讲了技能机制，第 20 章列了 37 份技能。这一章讲**实现**。
@@ -77,11 +77,11 @@ File pleading headers beat "合同" tokens in the body.
 
 ```text
 pipelineOverride: "tracked_redline"
-skillIdsOverride: 该能力对应的两个技能
-pipelineHintOverride: WORD_REVISION_HINT
+skillIdsOverride: 本回合主阶段（合同两份、函件两份、诉讼按文件名或原话）
+pipelineHintOverride: WORD_REVISION_HINT（合同审查再加一句去读 Playbook）
 ```
 
-**三个覆盖一起给**——所以这条绑定不只换能力，还换流水线和注入的技能。
+**三个覆盖一起给**——管线改成修订轨，主阶段钉在技能列表前面。`hydrateCompiledIntent` 把钉住的主阶段**并上**该能力原有的 `skillIds`，其余仍可 `read_skill`。不要把目录整表换成那两份。诉讼文书上，「帮我改一下」跟文件名（起诉状 / 答辩状 / 辩护词）；原话在「改 / 写」之后点了文书种类，以原话为准。
 
 那句话是：
 
@@ -91,7 +91,7 @@ pipelineHintOverride: WORD_REVISION_HINT
 核法条可用检索。空修订不得导出。
 ```
 
-**五句**：怎么做、能说什么、不许做什么、可以做什么、什么情况不能导出。
+**五句**：怎么做、能说什么、不许做什么、可以做什么、什么情况不能导出。合同审查在这五句后面再加一句：出档位前 `read_skill` 读取 `contract-playbook-review`，纸别没写就标【待定】。
 
 ### 两张表：专用信号与类型默认
 
@@ -251,16 +251,19 @@ export type IntentSoftAsk = {
 
 ### 多意图链
 
-`chainFor` 只加两种后续：
+`chainFor` 加三种后续：
 
 ```text
 绑 contract.review 且（要函件 或 动词含 letter）→ 追加 letter.draft
 绑 litigation.draft 且 专用信号是 talk        → 追加 litigation.talk
+绑 labor.calc / period.calc 且要诉状          → 追加 litigation.draft
 ```
 
 而 `finish` 会去重（`[...new Set(chain)]`），**没有链就用 `[自己]`**。
 
-**链的顺序有意义**：**主能力在前**。
+**链的顺序有意义**：**主能力在前**。计算信号仍压过「写起诉状」，诉状只作后续，不把主绑定翻成 `litigation.draft`。
+
+`compiledIntentPlanItems` 只在 `confidence === "high"` 且 source 属于 `lock` / `short_path` / `word_revision` / `specialized` / `joint`、并且 `chain` 至少两项时，把能力标签写成清单步骤。关键词回落即使 `chain` 有两项也返回 `[]`——编排层因此不会把猜测写进 `session.turnPlan`。
 
 ## 70.2 能力目录：23 条与它的 8000 字上限
 
@@ -361,7 +364,7 @@ analysis.quick：…正式文书不要走这里。
 
 **长度 < 4 直接假**——把「嗯」「好的」这类先挡掉。
 
-## 70.3 金标集：73 行剧本与那一对致命组合
+## 70.3 金标集：75 行剧本与那一对致命组合
 
 `gold-set.ts` 375 行。头注释两句：
 
@@ -373,10 +376,10 @@ contract.review ↔ litigation.draft must not invert.
 
 **「P0 measurement」**——它是最优先级的度量。
 
-### 73 个用例与那一对
+### 75 个用例与那一对
 
 ```text
-73 个用例
+75 个用例
 致命组合一对：["contract.review", "litigation.draft"]
 ```
 
@@ -649,6 +652,8 @@ Accuracy rules (do not invert):
 | ①②④  | **诉状压过合同**（文件名或正文） |
 | ③    | **粘性类型压过一堆未知附件**     |
 
+`.xlsx` / `.csv` 只在文件名已经是发票、诉状、函件或传票时沿用该类型。`进项发票.xlsx` 是发票，`费用.xlsx`、`服务合同.xlsx`、`证据清单.csv` 仍是表格。无名表格在命中扩展名后直接返回 `spreadsheet`，peek 不会因正文里的「甲方」把它升成合同。
+
 **第 1 条那个括注最有说服力**：`起诉状 quotes 合同 all the time`——**起诉状里引用合同引用得太多，所以正文里出现「合同」完全不能说明这是合同文件。**
 
 ### 十三个类型
@@ -679,13 +684,14 @@ identity  unknown
 
 **而发票（①）排最前**——因为「发票」这个词在文件名里出现，几乎不可能是别的东西。
 
-### 正文规则只在「文件名判不出来」时才用
+### 正文规则：诉状抬头除外
 
 ```text
-peek 只在 fromName === "unknown" 时才升级类型
+诉状抬头（诉讼请求 / 原告 / 被告）无论文件名是什么，都判成诉状。
+其余正文升级只在 fromName === "unknown" 时发生。
 ```
 
-**「文件名优先于正文」**——因为文件名是律师起的，通常更准。
+**诉状抬头始终压过文件名。** 其余类型仍是文件名优先：文件名已经像合同，正文里的发票号不会把它改成发票。
 
 **而正文截取 8000 字**（`peek.slice(0, 8000)`）——与目录的 8000 字上限是同一个数。
 
@@ -810,19 +816,7 @@ in the negation. Keep this list phrase-level; do not strip every 不是.
 
 ### `shouldRequireFolderExplore`
 
-五种情况返回假：
-
-```text
-Word 改稿回合
-邮件合同回合
-续作
-无任务
-律师说要「收进/导入到/放进/归档到」
-```
-
-否则看：**提到文件夹** 或 **钉了目录** → 真。
-
-**最后那条那个例外很实际**：「帮我把这个文件夹收进案件」**不需要先看清树**——直接导入就行。这与第 70.8 节那句提示词是一致的。
+恒为假。提到文件夹或钉了目录，不再因此关掉写工具。先看目录再起草由模型自己排。
 
 ## 70.8 任务书与「理解优先」
 
@@ -948,30 +942,30 @@ SKILL_DOLLAR_RE  /\$skill\s+([^\s】]+)/i
 
 ### 那张 23 行的办事清单（节选最有说法的几条）
 
-| 标签         | 提示（原文）                             |
-| ------------ | ---------------------------------------- |
-| 合同审查     | 按已附合同走审查流水线                   |
-| 函件起草     | 按已附事实起草函件                       |
-| 检索研究     | 按已附问题检索并出备忘                   |
-| 诉讼文书     | 按已附案情起草诉讼材料                   |
-| 谈话整理     | 谈话记录整理成需求、案由和证据缺口       |
-| 写材料       | 意见书 / 备忘等，可填表锁结构            |
-| 邮件合同审阅 | 邮箱来件走同一套审查门禁                 |
-| 法律快问     | 一句话问题直接给结论和依据               |
-| 劳动计算     | 经济补偿、加班、双倍工资按公式算         |
-| 时间轴       | 从材料抽出日期事件并去重                 |
-| 整理案卷     | 把已附材料归位并抽出当事人案由           |
-| 期限计算     | 上诉、答辩、仲裁、执行期间按规则算届满日 |
-| 整理发票     | 发票归类、合计入卷                       |
-| 法院短信     | 抽出案号、开庭时间和待办                 |
-| 知产争议     | 权利基础、被控侵权和程序路径             |
-| 并购尽调     | 股权/资产尽调提纲和交割清单              |
-| 数据合规     | 个保法/数安法栏目，缺的标待核实          |
-| 广告产品合规 | 广告用语和标签核对，给出可替换措辞       |
-| 办案周报     | 阶段、期限、范围；本地顾问和人力也走这里 |
-| 家事继承     | 离婚、抚养、继承按家事程序写             |
-| 资本市场     | 发行和信息披露核对，不编未披露数字       |
-| 公司治理     | 决议和治理备忘，不走章程 Word 改稿       |
+| 标签         | 提示（原文）                               |
+| ------------ | ------------------------------------------ |
+| 合同审查     | 按已附合同出审查意见；要改原文时再出修订稿 |
+| 函件起草     | 按已附事实起草函件                         |
+| 检索研究     | 按已附问题检索并出备忘                     |
+| 诉讼文书     | 按已附案情起草诉讼材料                     |
+| 谈话整理     | 谈话记录整理成需求、案由和证据缺口         |
+| 写材料       | 意见书 / 备忘等，可填表锁结构              |
+| 邮件合同审阅 | 邮箱来件走同一套审查门禁                   |
+| 法律快问     | 一句话问题直接给结论和依据                 |
+| 劳动计算     | 经济补偿、加班、双倍工资按公式算           |
+| 时间轴       | 从材料抽出日期事件并去重                   |
+| 整理案卷     | 把已附材料归位并抽出当事人案由             |
+| 期限计算     | 上诉、答辩、仲裁、执行期间按规则算届满日   |
+| 整理发票     | 发票归类、合计入卷                         |
+| 法院短信     | 抽出案号、开庭时间和待办                   |
+| 知产争议     | 权利基础、被控侵权和程序路径               |
+| 并购尽调     | 股权/资产尽调提纲和交割清单                |
+| 数据合规     | 个保法/数安法栏目，缺的标待核实            |
+| 广告产品合规 | 广告用语和标签核对，给出可替换措辞         |
+| 办案周报     | 阶段、期限、范围；本地顾问和人力也走这里   |
+| 家事继承     | 离婚、抚养、继承按家事程序写               |
+| 资本市场     | 发行和信息披露核对，不编未披露数字         |
+| 公司治理     | 决议和治理备忘，不走章程 Word 改稿         |
 
 **二十三条提示里有四条带「不做什么」**：
 
@@ -1011,7 +1005,7 @@ tracked_redline       改稿落痕
 | `litigation.draft` | **13 个** |
 | `matter.status`    | 5         |
 | 多数               | 4–6       |
-| `ops.invoice`      | 2         |
+| `ops.invoice`      | 3         |
 | `period.calc`      | 3         |
 
 **诉讼文书要 13 个技能**——因为它覆盖的程序类型最多（普通民事 / 刑事 / 破产 / 知产 / 家事各有一套）。
@@ -1146,7 +1140,7 @@ enabledDefault = enabledSet 不存在 ? 验签通过 : 名单里有它
 enabled        = enabledDefault && 验签通过
 ```
 
-**「验签不过就一律不启用」**——即使名单里写了它。**所以名单不能绕过签名。**
+**「验签不过就一律不启用」**——这只作用于 `listLocalSkills` 看到的工作区副本。回合注入、`read_skill` 和工具披露不读这份名单。
 
 ## 70.11 注入预算：最多两份正文
 
@@ -1162,35 +1156,35 @@ Lean skill injection: dump up to 2 primary stage bodies, index the rest.
 
 每个能力最多两个「主技能」：
 
-| 能力              | 主技能                                              |
-| ----------------- | --------------------------------------------------- |
-| `contract.review` | `contract-review-layers` + `contract-redline-craft` |
-| `contract.draft`  | `contract-drafting-route` + `practice-defaults`     |
-| `mail.contract`   | `contract-review-layers` + `citation-grounding`     |
-| `research.memo`   | `research-query-matrix` + `citation-grounding`      |
-| `letter.draft`    | `delivery-language` + `legal-element-extraction`    |
-| `labor.calc`      | `labor-compensation-calc`（**只有一个**）           |
-| `period.calc`     | `legal-period-calc`（只有一个）                     |
-| `ops.invoice`     | `invoice-organizer`（只有一个）                     |
-| `matter.status`   | `matter-status-report`（只有一个）                  |
+| 能力              | 主技能                                                |
+| ----------------- | ----------------------------------------------------- |
+| `contract.review` | `contract-review-layers` + `contract-redline-craft`   |
+| `contract.draft`  | `contract-drafting-route` + `practice-defaults`       |
+| `mail.contract`   | `contract-review-layers` + `citation-grounding`       |
+| `research.memo`   | `research-query-matrix` + `citation-grounding`        |
+| `letter.draft`    | `delivery-language` + `legal-element-extraction`      |
+| `labor.calc`      | `labor-compensation-calc`（**只有一个**）             |
+| `period.calc`     | `legal-period-calc`（只有一个）                       |
+| `ops.invoice`     | `invoice-organizer`（只有一个）                       |
+| `matter.status`   | `matter-status-report` + `matter-status-scope-budget` |
 
-**四个「只有一个」的能力都是「算」或「整理」类**——它们的技能足够专，不需要第二份。
+**三个「只有一个」的能力**是劳动计算、期限计算、整理发票。办案周报要两份：进度和范围预算对着干时，第二份必须进正文。
 
 ### `litigation.draft` 的六路选择
 
 诉讼文书是唯一需要按子类型选的：
 
-| 命中                                     | 主技能                                               |
-| ---------------------------------------- | ---------------------------------------------------- |
-| 家事类词                                 | `family-matter-route` + `legal-element-extraction`   |
-| 刑事类词                                 | （刑事那条）                                         |
-| 破产类词                                 | （破产那条）                                         |
-| 知产类词                                 | `ip-dispute-route` + `evidence-argument-chain`       |
-| 交付物是起诉状 或 含「起诉状」           | （起诉状那条）                                       |
-| 含「上诉状」「执行异议」「立案材料清单」 | （阶段那条）                                         |
-| 都不中                                   | `litigation-stage-route` + `complaint-elements-fill` |
+| 命中                                                 | 主技能                                                |
+| ---------------------------------------------------- | ----------------------------------------------------- |
+| 家事类词                                             | `family-matter-route` + `legal-element-extraction`    |
+| 刑事类词                                             | （刑事那条）                                          |
+| 破产类词                                             | （破产那条）                                          |
+| 知产类词                                             | `ip-dispute-route` + `evidence-argument-chain`        |
+| 答辩状、质证、保全、管辖异议、再审（先于「起诉状」） | `litigation-stage-route` + `evidence-argument-chain`  |
+| 交付物是起诉状，或同一段里先出现「起诉状」           | `complaint-elements-fill` + `evidence-argument-chain` |
+| 都不中                                               | `litigation-stage-route` + `evidence-argument-chain`  |
 
-**六路匹配有严格顺序**——家事 → 刑事 → 破产 → 知产 → 起诉状 → 阶段。**越具体的先判。**
+**按这个顺序匹配**——家事 → 刑事 → 破产 → 知产 → 答辩等非起诉状 → 起诉状 → 阶段路由。越具体的先判。答辩和默认都是阶段路由加证据链，差别在于答辩是命中，默认是没点中文书种类。
 
 ### 那个「必须在允许集合内」的约束
 
@@ -1203,7 +1197,7 @@ Lean skill injection: dump up to 2 primary stage bodies, index the rest.
 
 **这个约束防的是「主技能表与能力表漂移」**——如果表里写了一个能力没有的技能，它会被过滤掉，而不是被注入。
 
-## 70.12 播种：35 个 id 与那两份没进名单的
+## 70.12 播种：37 个 id，与 builtin 目录对齐
 
 `ensure-builtin-skill-seeds.ts` 133 行。
 
@@ -1234,57 +1228,32 @@ Lean skill injection: dump up to 2 primary stage bodies, index the rest.
 
 **解法是「调用方显式传密钥」**——所以顺序问题变成类型问题（漏传参就编译/运行不过）。
 
-### 那两份「能读但不播种」的技能
+### 名单与目录等长
 
-这是一个**读代码才能发现的事实**。
-
-```text
-src/lawmind/skills/builtin/ 里有 37 份 .md
-BUILTIN_SKILL_SEED_IDS 只有 35 个 id
-```
-
-差的两份是：
-
-```text
-client-talk-intake.md
-legal-event-extract.md
-```
-
-而**它们被能力表引用了**：
-
-```text
-litigation.talk 的 skillIds 里含 client-talk-intake
-ops.court_sms   的 skillIds 里含 legal-event-extract
-```
-
-**所以它们不是废弃文件。**
+`skills/builtin/` 有 37 份 `.md`，`BUILTIN_SKILL_SEED_IDS` 也是 37 个 id，含 `client-talk-intake` 与 `legal-event-extract`。测试要求两边相等。早先「35 个 id、两份不播种」已经不成立。
 
 ### 两条路径的差别
 
-| 函数                       | 读哪里                                  | 用途                 |
-| -------------------------- | --------------------------------------- | -------------------- |
-| `readBuiltinSkillMarkdown` | **仓库源目录** `skills/builtin/<id>.md` | 注入提示词（兜底）   |
-| `ensureBuiltinSkillSeeds`  | 同样从仓库读，但只播 35 个              | 播到工作区供律师编辑 |
+| 函数                       | 读哪里                                  | 用途                           |
+| -------------------------- | --------------------------------------- | ------------------------------ |
+| `readBuiltinSkillMarkdown` | **仓库源目录** `skills/builtin/<id>.md` | 回合注入与 `read_skill` 的正文 |
+| `listProductPlaybooks`     | 同一目录，37 份全部算产品作业标准       | 工具披露、分诊匹配、只读目录   |
+| `ensureBuiltinSkillSeeds`  | 从该目录抄到工作区并签名                | 启动不再调用；旧副本不参与回合 |
 
-而 `readSkillPromptBodies` 的顺序是：
+`readSkillPromptBodies` 不读工作区：
 
 ```text
-① 优先工作区本地技能（enabled && signatureOk）
-② 用内置正文覆盖 contract-redline-craft（特殊）
-③ 回落到仓库内置 md
+① contract-redline-craft 用代码常量 CONTRACT_REDLINE_CRAFT_SKILL
+② 其余 id 只读 builtin/*.md
 ```
 
-**结论：这两份技能永远走第 ③ 步（回落）。**
+工作区里同名 `SKILL.md`（包括篡改过的）不会进入提示词。`client-talk-intake` 与 `legal-event-extract` 已在播种名单里，和另外 35 份一样只是副本。
 
-**三个可观察的后果**：
+### 内置注册表与诉状路由
 
-1. **它们不会出现在工作区**，所以律师**改不了**。
-2. **它们不会出现在 `listLocalSkills` 里**（因为那里读的是工作区）。
-3. **它们不出现在「技能」设置页**（同理）。
+`product-playbooks.ts` 是产品作业标准的注册表：**`builtin/` 目录本身就是注册表**（目录里每份 `.md` 都算一份），工作区 `SKILL.md` 投放不能新增、覆盖或停用它们（文件头注释原话）。`/api/skills` 只读列出这份注册表（`configurable: false`），`POST /api/skills/enabled` 一律 405。`run_analysis` 也不执行工作区技能目录里的脚本（`run-analysis-tool.ts`：「Workspace skill folders are not an install surface」），只跑律师确认过的 `artifacts/analysis-scripts/*.js`。
 
-**所以「37 份技能」这个说法要分两层**：**35 份是「可编辑的技能」，2 份是「只读内置正文」。** 第 20 章那份 37 份清单没有区分这件事。
-
-**这是不是 bug**，从代码上看不出来（没有任何注释提到）。但它是一个**值得知道的事实**：如果你要改 `client-talk-intake` 的行为，改仓库文件即可生效，但**它在设置页里看不见**。
+`litigation-primary.ts` 决定诉讼文书注入哪两份技能正文，六路子类型：家事（`family-matter-route`）、刑事（`criminal-stage-route`）、破产（`bankruptcy-stage-route`）、知产（`ip-dispute-route`）、答辩类（`litigation-stage-route`）、起诉状（`complaint-elements-fill`）。**路由看「最后一个起草动词之后的文本」**（`pleadingScope`）——所以「参考这份起诉状写一份答辩状」不会被提到的原诉状带偏；`litigationRevisionSkillIds` 给 Word 改稿用，话里点名的文书仍然压过文件名。
 
 ## 70.13 包清单：只有 SHA-256，没有远程
 
@@ -1417,9 +1386,9 @@ deep_research / research_task / list_more_tools 都不能代替该开关。不�
 
 排序是 `分降序 → id 升序`（同分按 id 稳定排序）。
 
-## 70.16 历史扫描：八个文件
+## 70.16 历史扫描：十个文件
 
-`historical-scan/` 1177 行。**八个文件全部没有头注释**——这在引擎里是少见的。
+`historical-scan/` 1250 行。老的八个文件**全部没有头注释**——这在引擎里是少见的；新加的两个（`file-into-matters.ts`、`plan-placement.ts`，「整理资料」工作面的服务端）都带头注释。
 
 ### 五个常量（在 `types.ts` 里）
 
@@ -1589,6 +1558,15 @@ kind: lawyer.habit_pattern     来源标记 habit_min_5
 
 **这防的是「每次扫描都挂一批一模一样的建议」**——那会让待确认记忆里堆满重复项。
 
+### 整理进案件：两个新文件
+
+「整理资料」工作面（第 2.4 节）的服务端就是这两个文件，都带头注释：
+
+- `plan-placement.ts`：把一次查看分成三件事——新建案件、收进已有案件、一般资料按类型收好。**只看文件夹名和文件名，不读正文，也不调用模型。**
+- `file-into-matters.ts`：把律师点名的「已按案件分好」的材料复制进案件目录。**源文件不改、不删；杂目录不在这里收。**
+
+两条都落在「确认后才复制」这条产品承诺上（`POST /api/historical-scan/apply` 与 `/file`，第 65 章）。
+
 ## 70.17 已知坑（本章相关）
 
 - **意图编译的书面七级与实际十七分支顺序不同**（类型默认在案件门类之前）。
@@ -1605,7 +1583,7 @@ kind: lawyer.habit_pattern     来源标记 habit_min_5
 - **快速合同审查 + Word pin 会强制交件形态为 unspecified**（不与成套交件打架）。
 - **`wantsContract` 测的是剥掉否定短语后的文本，`wantsPleading` 测原文。**
 - **「模糊」的最终判定要求同时不含 review 与 draft 动词。**
-- **文件名优先于正文类型**；正文只在文件名判不出来时用。
+- **诉状抬头始终压过文件名。** 其余正文升级只在文件名判不出来时用。
 - **`合同` / `表格` 不是粘性类型**（排名 40 / 30，低于 45 的线）。
 - **起诉状正文里到处引用合同**，所以正文里出现「合同」不能说明是合同文件。
 - **纯确认（好的 / 嗯 / k / ok）是「无任务」，不是「续作」**——否则一句 `k` 会重跑整条流水线。
@@ -1615,13 +1593,11 @@ kind: lawyer.habit_pattern     来源标记 habit_min_5
 - **「把文件夹收进案件」不需要先 explore_folder。**
 - **任务书四个字段各上限 80 字**（是四条一句话，不是四段话）。
 - **技能正文只在前五个硬来源下注入**（lock / short_path / word_revision / 高置信 specialized / 高置信 joint）。
-- **`readSkillPromptBodies` 会优先用工作区本地技能**（enabled + 验签通过）。
-- **签名三种来源里 `derived` 不是秘密**（算法公开、路径可知），打包版应 fail-closed。
-- **`enabled.json` 不能绕过签名**（启用是「名单里有」与「验签通过」两条与）。
-- **播种永不覆盖非内置技能文件**（看 `source: lawmind-builtin`）。
-- **播种的密钥必须显式传入**，否则可能签下 `derived` 值导致技能**静默失效**。
-- **`builtin/` 有 37 份 md，播种名单只有 35 个**——`client-talk-intake` 与 `legal-event-extract` 能被读取但不会进工作区。
-- **所以那两份技能改不了、在「技能」设置页也看不见**（但被能力表引用着，功能是正常的）。
+- **`readSkillPromptBodies` 只读安装包内的 builtin 正文**；工作区副本和 `enabled.json` 不改变回合。
+- **签名三种来源里 `derived` 不是秘密**（算法公开、路径可知）。它只影响工作区副本的 `listLocalSkills`，不影响作业标准是否生效。
+- **播种永不覆盖非 `source: lawmind-builtin` 的同名文件**。
+- **播种的密钥必须显式传入**，否则副本签名对不上 `listLocalSkills`。这不再等于作业标准失效。
+- **`builtin/` 37 份 md 都在播种名单里**（含 `client-talk-intake` 与 `legal-event-extract`）。名单与目录由测试对齐。
 - **主技能表只能在能力声明的技能集合里挑**（防两张表漂移）。
 - **诉讼文书的主技能要按六路子类型选**（家事 → 刑事 → 破产 → 知产 → 起诉状 → 阶段）。
 - **包清单只做 SHA-256 校验，不做远程下载**（没有插件市场）。

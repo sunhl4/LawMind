@@ -286,7 +286,7 @@ export function auditMinimalEditSpans(params: {
   return { ok: violations.length === 0, violations, canonical };
 }
 
-/** 最短改动的单行规则（进提示词；尽量短，工具描述有 token 预算）。 */
+/** 最短改动的单行规则。`CONTRACT_REDLINE_CRAFT_SKILL` 原样引用，避免和引擎门槛各写一份。 */
 export const MINIMAL_EDIT_RULE_LINE =
   "最短改动（硬约束）：只把真正变动的字标成删除/新增，中间没动的字不得包进改动里；一句话里改几个字就只改那几个字。引擎会按此重算，不接受整句删写。";
 

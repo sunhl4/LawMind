@@ -32,7 +32,7 @@ function LawmindWorkspaceBootstrapGateImpl({ error, onOpenApiWizard }: LawmindWo
           </button>
           {!preloadHint ? (
             <button type="button" className="lm-btn lm-btn-secondary" onClick={onOpenApiWizard}>
-              API 配置向导
+              连接向导
             </button>
           ) : null}
         </div>

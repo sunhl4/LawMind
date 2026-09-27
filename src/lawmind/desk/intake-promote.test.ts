@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { IntakeBrief } from "./intake-brief.js";
-import { extractPartyCandidates, planIntakePromotion } from "./intake-promote.js";
+import {
+  extractPartyCandidates,
+  planIntakePromotion,
+  scanPartyCandidates,
+} from "./intake-promote.js";
+import { MATTER_PARTIES_CAP } from "./matter-parties.js";
 
 function brief(over: Partial<IntakeBrief> = {}): IntakeBrief {
   return {
@@ -31,6 +36,17 @@ describe("extractPartyCandidates", () => {
 
   it("ignores unlabelled names and prose", () => {
     expect(extractPartyCandidates("客户上周来过，说要起诉。")).toEqual([]);
+  });
+
+  it("keeps a joint-litigation list through the matter cap and names who did not fit", () => {
+    const lines = Array.from(
+      { length: MATTER_PARTIES_CAP + 2 },
+      (_, i) => `被告：被告${i + 1}`,
+    ).join("。");
+    const scanned = scanPartyCandidates(lines);
+    expect(scanned.kept).toHaveLength(MATTER_PARTIES_CAP);
+    expect(scanned.kept[15]?.name).toBe("被告16");
+    expect(scanned.omitted.map((row) => row.name)).toEqual(["被告33", "被告34"]);
   });
 });
 
@@ -71,6 +87,22 @@ describe("planIntakePromotion", () => {
     expect(byName.get("李四")?.standing).toBe("被告");
     expect(plan.standingOnly).toEqual(["原告：张三", "被告：李四"]);
     expect(plan.promoted).toContain("当事人");
+  });
+
+  it("names parties that do not fit the docket cap instead of dropping them", () => {
+    const existing = Array.from({ length: MATTER_PARTIES_CAP }, (_, i) => ({
+      partyId: `p-${i}`,
+      name: `已有${i + 1}`,
+      role: "other" as const,
+    }));
+    const plan = planIntakePromotion({
+      current: { parties: existing },
+      brief: brief(),
+      partyCandidates: [{ name: "新被告", label: "被告" }],
+    });
+    expect(plan.parties).toBeUndefined();
+    expect(plan.omittedParties).toEqual(["被告：新被告"]);
+    expect(plan.promoted).not.toContain("当事人");
   });
 
   it("never clobbers parties the lawyer already entered", () => {

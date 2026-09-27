@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { persistDraft, readDraft } from "../../drafts/index.js";
 import { writeRedlinePlan } from "../../drafts/redline-plan.js";
 import { writeRedlineProposal } from "../../drafts/redline-proposal.js";
@@ -30,6 +30,13 @@ function makeCtx(ws: string, matterId?: string, extras?: Partial<AgentContext>):
     ...extras,
   };
 }
+
+beforeEach(() => {
+  // 慢路径根因：法规自动试检走 open-law hybrid，NPC 直播车道默认开；测试环境 DNS 被
+  // 钉到不可达地址（203.0.113.10），每条触发试检的用例都白等 10s 超时，全套并发下
+  // 曾把本文件用例顶到 flake。直播失败本就回退本地样本语料，关掉车道行为不变。
+  vi.stubEnv("LAWMIND_OPEN_LAW_NPC", "0");
+});
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -135,6 +142,7 @@ describe("Engine-Bridge Tools", () => {
     expect(names).toContain("open_work_queue_item");
     expect(names).toContain("request_approval");
     expect(names).toContain("record_deadline");
+    expect(names).toContain("record_obligation");
     expect(names).toContain("deep_research");
     expect(names).toContain("update_plan");
     expect(names).toContain("search_conversations");
@@ -152,9 +160,9 @@ describe("Engine-Bridge Tools", () => {
     expect(names).toContain("apply_file_ops");
   });
 
-  it("total tool count is 69 (54 legal + 15 engine) without web/collaboration extras", () => {
+  it("total tool count is 70 (54 legal + 16 engine) without web/collaboration extras", () => {
     const registry = createLegalToolRegistry();
-    expect(registry.size()).toBe(69);
+    expect(registry.size()).toBe(70);
   });
 
   /**
@@ -221,6 +229,22 @@ describe("record_deadline", () => {
     expect(result.ok).toBe(true);
     const deadlines = listDeadlinesForMatter(ws, "m-deadline-kind");
     expect(deadlines.some((d) => d.eventKind === "hearing" && d.title === "开庭")).toBe(true);
+  });
+
+  it("records an obligation and keeps approximate amounts as text", async () => {
+    const ws = tmpWorkspace();
+    const { recordObligationTool } = await import("./engine/engine-governance-tools.js");
+    const result = await recordObligationTool.execute(
+      {
+        matter_id: "m-pay",
+        title: "支付第二期价款",
+        amount_text: "约 30 万元",
+        source_quote: "买方应于验收后十日内支付第二期价款约 30 万元。",
+      },
+      makeCtx(ws),
+    );
+    expect(result.ok).toBe(true);
+    expect((result.data as { amountMinor?: number }).amountMinor).toBeUndefined();
   });
 
   it("rejects an unknown event_kind", async () => {
@@ -489,6 +513,45 @@ describe("execute_workflow", () => {
     }
   });
 
+  it("exempts force_render from the demo-corpus refusal (explicit demo/test bypass)", async () => {
+    vi.stubEnv("LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER", "1");
+    const ws = tmpWorkspace();
+    const prevProvider = process.env.LAWMIND_AUTHORITY_PROVIDER;
+    const prevMode = process.env.LAWMIND_OPEN_LAW_MODE;
+    process.env.LAWMIND_AUTHORITY_PROVIDER = "open";
+    process.env.LAWMIND_OPEN_LAW_MODE = "local";
+    try {
+      const registry = createLegalToolRegistry();
+      const tool = registry.get("execute_workflow")!;
+      // 与上一条相同的演示语料指令：真实回合照拒，但 force_render 是显式 demo/测试
+      // 旁路（语义即「跳过律师审批与出稿检查」），demo 门不挡这条路。
+      const result = await tool.execute(
+        {
+          instruction: "依据民法典第563条写一封催款律师函",
+          matter_id: "m-demo-force-render",
+          force_render: true,
+        },
+        makeCtx(ws, "m-demo-force-render"),
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.status).toBe("delivered");
+      expect(String(data.outputPath)).toMatch(/\.docx$/);
+      expect((data as { demoCorpus?: boolean }).demoCorpus).not.toBe(true);
+    } finally {
+      if (prevProvider === undefined) {
+        delete process.env.LAWMIND_AUTHORITY_PROVIDER;
+      } else {
+        process.env.LAWMIND_AUTHORITY_PROVIDER = prevProvider;
+      }
+      if (prevMode === undefined) {
+        delete process.env.LAWMIND_OPEN_LAW_MODE;
+      } else {
+        process.env.LAWMIND_OPEN_LAW_MODE = prevMode;
+      }
+    }
+  });
+
   it("creates audit trail during workflow", async () => {
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
@@ -664,7 +727,7 @@ describe("render_document", () => {
     expect((result.data as { taskId: string }).taskId).toBe(tid2);
   });
 
-  it("blocks render when acceptance gate is unmet even after local-export stamp", async () => {
+  it("citation gate hard-blocks render when acceptance gaps are warnings only (iron-law-5)", async () => {
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
     const draftTool = registry.get("draft_document")!;
@@ -679,15 +742,17 @@ describe("render_document", () => {
     );
     expect(draftResult.ok).toBe(true);
 
+    // 铁律 5 后缺章节/占位符降级为警告，验收门放行；真正拦渲染的是引用完整性门
+    // （长段未锚定）。分类必须是 citation_gate，归 render_engine 会误导为引擎故障。
     const blocked = await renderTool.execute({}, makeCtx(ws, "m-render-gated"));
 
     expect(blocked.ok).toBe(false);
     expect((blocked.data as { renderFailureCategory?: string })?.renderFailureCategory).toBe(
-      "acceptance_gate",
+      "citation_gate",
     );
   });
 
-  it("approve=true alone does NOT bypass acceptance gate; bypass_acceptance_gate=true is required", async () => {
+  it("approve=true alone does NOT bypass render gates; bypass_acceptance_gate=true is required", async () => {
     const ws = tmpWorkspace();
     const registry = createLegalToolRegistry();
     const draftTool = registry.get("draft_document")!;
@@ -703,7 +768,8 @@ describe("render_document", () => {
     expect(draftResult.ok).toBe(true);
 
     // approve=true sets review status to approved but must NOT silently bypass the
-    // Deliverable-First acceptance gate when blockers/placeholders remain.
+    // render gates. 铁律 5 后验收缺口是警告，实际拦下导出的引用完整性门：分类归
+    // citation_gate 而非 render_engine。
     const gated = await renderTool.execute(
       { approve: true, approval_note: "律师已同意导出 Word" },
       makeCtx(ws, "m-render-gated-approve"),
@@ -711,7 +777,7 @@ describe("render_document", () => {
     expect(gated.ok).toBe(false);
     expect((gated as { approvalRequest?: boolean }).approvalRequest).toBeFalsy();
     const gatedData = gated.data as { renderFailureCategory?: string };
-    expect(gatedData.renderFailureCategory).toBe("acceptance_gate");
+    expect(gatedData.renderFailureCategory).toBe("citation_gate");
 
     // Lawyer must explicitly accept placeholders via bypass_acceptance_gate=true.
     const rendered = await renderTool.execute(
@@ -946,7 +1012,7 @@ describe("update_draft", () => {
     expect(data.demoCorpusWarning).toBeUndefined();
   });
 
-  it("hard-rejects oversized rewrite when LAWMIND_SURGICAL_ENFORCE=1", async () => {
+  it("keeps an oversized rewrite when LAWMIND_SURGICAL_ENFORCE=1", async () => {
     vi.stubEnv("LAWMIND_SURGICAL_ENFORCE", "1");
     const ws = tmpWorkspace();
     const taskId = "update-draft-enforce";
@@ -974,11 +1040,8 @@ describe("update_draft", () => {
       },
       makeCtx(ws, undefined, { linkedTaskId: taskId }),
     );
-    expect(result.ok).toBe(false);
-    const data = result.data as { gateDecision?: { decision?: string; category?: string } };
-    expect(data.gateDecision?.decision).toBe("block");
-    expect(data.gateDecision?.category).toBe("safety_hard");
-    expect(readDraft(ws, taskId)?.sections[0]?.body).toBe(before);
+    expect(result.ok).toBe(true);
+    expect(readDraft(ws, taskId)?.sections[0]?.body).toBe(after);
   });
 
   it("rejects sections on the Word short path without writing body", async () => {
@@ -1397,7 +1460,7 @@ describe("render_tracked_draft legal Guardian", () => {
 });
 
 describe("template tools", () => {
-  it("registers and lists uploaded templates", async () => {
+  it("lists built-in templates and refuses upload registration", async () => {
     const ws = tmpWorkspace();
     const sourcePath = path.join(ws, "firm-template.docx");
     fs.writeFileSync(sourcePath, "fake-docx", "utf8");
@@ -1415,12 +1478,13 @@ describe("template tools", () => {
       },
       makeCtx(ws),
     );
-    expect(registerResult.ok).toBe(true);
+    expect(registerResult.ok).toBe(false);
+    expect(registerResult.error).toContain("不再支持上传");
 
     const listResult = await listTool.execute({}, makeCtx(ws));
     expect(listResult.ok).toBe(true);
     const data = listResult.data as Record<string, unknown>;
     expect((data.builtIn as unknown[]).length).toBeGreaterThanOrEqual(3);
-    expect((data.uploaded as Array<{ id: string }>)[0]?.id).toBe("upload/firm-template");
+    expect(data.uploaded).toEqual([]);
   });
 });

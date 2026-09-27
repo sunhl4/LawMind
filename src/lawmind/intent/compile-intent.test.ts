@@ -102,7 +102,10 @@ describe("compileIntent", () => {
     expect(compiled.capabilityId).toBe("litigation.draft");
     expect(compiled.source).toBe("word_revision");
     expect(compiled.pipelineOverride).toBe("tracked_redline");
-    expect(compiled.skillIdsOverride).toEqual(["complaint-elements-fill"]);
+    expect(compiled.skillIdsOverride).toEqual([
+      "complaint-elements-fill",
+      "evidence-argument-chain",
+    ]);
   });
 
   it("keeps contract.review but does not lock tracked redline for an opinion sidecar", () => {
@@ -232,6 +235,33 @@ describe("compileIntent", () => {
     });
     expect(compiled.capabilityId).toBe("contract.review");
     expect(compiled.chain).toContain("letter.draft");
+    expect(compiledIntentPlanItems(compiled)).toEqual(["合同审查", "函件起草"]);
+  });
+
+  it("keeps a labor figure as the primary step and still lists the complaint", () => {
+    const compiled = compileIntent({
+      instruction: "计算违法解除的经济补偿，并写起诉状",
+    });
+    expect(compiled.capabilityId).toBe("labor.calc");
+    expect(compiled.source).toBe("specialized");
+    expect(compiled.confidence).toBe("high");
+    expect(compiled.chain).toEqual(["labor.calc", "litigation.draft"]);
+    expect(compiledIntentPlanItems(compiled)).toEqual(["劳动计算", "诉讼文书"]);
+  });
+
+  it("routes a named invoice spreadsheet to invoice ops, not a generic table", () => {
+    const compiled = compileIntent({
+      instruction: "整理一下",
+      pins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "进项发票.xlsx",
+          kind: "file",
+        },
+      ],
+    });
+    expect(compiled.capabilityId).toBe("ops.invoice");
   });
 
   it("extracts mixed signals for a pinned word plus vague text", () => {

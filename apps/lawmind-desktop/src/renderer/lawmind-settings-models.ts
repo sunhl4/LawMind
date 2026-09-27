@@ -28,6 +28,12 @@ export type AssistantRow = {
   orgRole?: AssistantOrgRole;
   reportsToAssistantId?: string;
   peerReviewDefaultAssistantId?: string;
+  pinned?: boolean;
+  hidden?: boolean;
+  /** 从办件推导的六态。没有办件时是空闲。 */
+  presence?: "idle" | "working" | "waiting" | "blocked" | "thinking" | "done";
+  /** 这一态对应的办件标题。 */
+  presenceDetail?: string;
   createdAt: string;
   updatedAt: string;
   stats?: AssistantStats;
@@ -163,6 +169,8 @@ export type LawmindSettingsHealth = {
   webSearchNativeAvailable?: boolean;
   webSearchReady?: boolean;
   webSearchPolicyBlocked?: boolean;
+  /** 出网总闸。律师界面不提供开关；策略文件或日后的律所总控可以把它设成离线。 */
+  egressMode?: "open" | "allowlisted" | "offline";
   modelName?: string | null;
   modelEnvFileExists?: boolean;
   draftWithModelEnabled?: boolean;
@@ -189,7 +197,7 @@ export function webSearchStatusLabel(health: {
   webSearchPolicyBlocked?: boolean;
 }): { ready: boolean; label: string } {
   if (health.webSearchPolicyBlocked) {
-    return { ready: false, label: "策略已禁止" };
+    return { ready: false, label: "已关闭" };
   }
   if (health.webSearchNativeAvailable) {
     return { ready: true, label: "随当前模型" };

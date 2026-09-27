@@ -99,6 +99,8 @@ describe("stance library", () => {
         clauseType: "管辖",
         position: "北京仲裁",
         preferredLanguage: "提交北京仲裁委员会仲裁",
+        fallbackLanguage: "提交合同签订地有管辖权的人民法院诉讼",
+        unacceptableLanguage: "或裁或诉",
         source: "redline",
         confidence: 0.4,
         occurrences: 1,
@@ -109,6 +111,9 @@ describe("stance library", () => {
     const hint = formatStanceHint(ws);
     expect(hint).toContain("已按你确认的条款立场");
     expect(hint).toContain("【管辖】");
+    expect(hint).toContain("标准：提交北京仲裁委员会仲裁");
+    expect(hint).toContain("可接受回退：提交合同签订地有管辖权的人民法院诉讼");
+    expect(hint).toContain("绝不接受：或裁或诉");
     expect(hint).toContain("北京仲裁委员会");
     expect(hint).not.toContain("保密");
     expect(hint).not.toContain("st_low");
@@ -135,6 +140,17 @@ describe("stance library", () => {
     expect(ensureFirmStanceDefaults(ws)).toBeGreaterThan(0);
     expect(ensureFirmStanceDefaults(ws)).toBe(0);
     expect(readStanceItems(ws).some((it) => it.id.startsWith("firm_default_"))).toBe(true);
+  });
+
+  it("does not inject unconfirmed firm defaults as the lawyer's stance", () => {
+    const ws = tmpWs();
+    ensureFirmStanceDefaults(ws);
+    const hint = formatStanceHint(ws);
+    expect(hint).not.toContain("已按你确认的条款立场");
+    expect(hint).not.toContain("百分之二十");
+    expect(hint).not.toContain("或裁或诉");
+    const { skipped } = selectInjectableStances(ws);
+    expect(skipped.some((row) => row.reason.includes("unconfirmed_firm_default"))).toBe(true);
   });
 
   it("parses an adopted habit payload into stance", () => {
@@ -176,6 +192,31 @@ describe("stance library", () => {
     expect(hits.some((f) => f.ruleId === "stance.unapplied")).toBe(true);
     expect(text).toContain("甲方所在地人民法院");
     expect(stanceSelfCheck(ws, "短")).toEqual([]);
+  });
+
+  it("notes unacceptable wording without rewriting the draft", () => {
+    const ws = tmpWs();
+    const now = new Date().toISOString();
+    writeStanceItems(ws, [
+      {
+        id: "st_deposit",
+        clauseType: "定金",
+        position: "定金不超过法定上限",
+        preferredLanguage: "定金不超过主合同标的额的百分之二十。",
+        unacceptableLanguage: "定金超过主合同标的额的百分之二十。",
+        source: "manual",
+        confidence: 0.8,
+        occurrences: 2,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    const text = "双方约定定金超过主合同标的额的百分之二十。其余条款按约定履行。";
+    const hits = stanceSelfCheck(ws, text);
+    expect(hits.some((f) => f.ruleId === "stance.unacceptable" && f.severity === "info")).toBe(
+      true,
+    );
+    expect(text).toContain("定金超过主合同标的额的百分之二十");
   });
 });
 

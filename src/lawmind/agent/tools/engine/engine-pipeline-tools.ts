@@ -25,6 +25,7 @@ import {
   evaluateResearchEvidenceGate,
   RESEARCH_EVIDENCE_GATE_REFUSAL,
 } from "../../../research/research-evidence-gate.js";
+import { lawyerWantsOutlineHold } from "../../../research/research-outline.js";
 import { isDemoCorpusResult } from "../../../retrieval/authority-gap.js";
 import { route } from "../../../router/keyword-route.js";
 import { publicWebFactToolRefusal } from "../../../skills/capability-patterns.js";
@@ -467,32 +468,10 @@ export const updateDraft: AgentTool = {
       if (sections !== undefined) {
         const {
           evaluateSurgicalEditGate,
-          evaluateSurgicalEditGateHard,
           attachRewriteAmplitudeMeta,
           auditSurgicalEditGateSoft,
           craftSignalsFromAmplitudeGate,
-          surgicalAmplitudeEnforceEnabled,
         } = await import("../../../drafts/surgical-edit-gate.js");
-        if (surgicalAmplitudeEnforceEnabled()) {
-          const hard = evaluateSurgicalEditGateHard({ beforeDraft: draft, afterDraft: next });
-          if (!hard.ok) {
-            return {
-              ok: false,
-              error: hard.message,
-              data: {
-                code: hard.code,
-                absCharDelta: hard.absCharDelta,
-                ratio: hard.ratio,
-                gateDecision: {
-                  gate: "reasoning_gate",
-                  decision: "block",
-                  reason: hard.message,
-                  category: "safety_hard",
-                },
-              },
-            };
-          }
-        }
         const gate = evaluateSurgicalEditGate({ beforeDraft: draft, afterDraft: next });
         auditSurgicalEditGateSoft({
           workspaceDir: ctx.workspaceDir,
@@ -742,13 +721,11 @@ export const draftDocument: AgentTool = {
         bundle = await engine.research(intent, { signal: ctx.abortSignal });
       }
       // Outline-only drafts may proceed with weak evidence; body expansion must not.
-      const persistedOutline = isOutlineGatedDeliverable(intent.deliverableType)
-        ? readResearchOutline(ctx.workspaceDir, intent.taskId)
-        : undefined;
+      const holdOutline = lawyerWantsOutlineHold(instruction);
       const willExpandResearchBody =
         !isOutlineGatedDeliverable(intent.deliverableType) ||
-        persistedOutline?.status === "approved" ||
-        outlineLooksApproved(instruction);
+        outlineLooksApproved(instruction) ||
+        !holdOutline;
       if (willExpandResearchBody) {
         const evidenceGate = evaluateResearchEvidenceGate({
           deliverableType: intent.deliverableType,
@@ -1137,9 +1114,13 @@ export const renderDocument: AgentTool = {
         error: formatRenderToolError(result.error ?? "渲染失败"),
         data: {
           taskId: approvedDraft.taskId,
+          // 分类与 formatRenderToolError 的话术保持一致：引用门禁拦截不是渲染引擎故障，
+          // 归 render_engine 会误导模型/律师以为「导出管线坏了」（勿声称模型 API 故障）。
           renderFailureCategory: result.lintBlockerRuleIds?.length
             ? "lint_mechanical"
-            : "render_engine",
+            : result.citationGateBlock
+              ? "citation_gate"
+              : "render_engine",
           ...(result.lintBlockerRuleIds?.length
             ? { code: "lint_mechanical", lintBlockerRuleIds: result.lintBlockerRuleIds }
             : {}),
@@ -1241,7 +1222,7 @@ export const renderTrackedDraft: AgentTool = {
               gateDecision: {
                 gate: "redline_hunks_gate",
                 decision: "block",
-                reason: "contractEdit requires applied surgical redline hunks；空修订不得导出",
+                reason: hunkGate.lawyerMessage,
                 category: "safety_hard",
               },
             },

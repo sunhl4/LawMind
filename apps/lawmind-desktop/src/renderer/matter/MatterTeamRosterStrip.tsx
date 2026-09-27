@@ -20,7 +20,6 @@ type DelegationRow = {
 type Props = {
   apiBase: string;
   matterId: string;
-  onOpenMeeting?: () => void;
   onOpenNeedsDecisionDesk?: () => void;
 };
 
@@ -31,7 +30,6 @@ function label(id: string, map: Record<string, string>): string {
 export function MatterTeamRosterStrip({
   apiBase,
   matterId,
-  onOpenMeeting,
   onOpenNeedsDecisionDesk,
 }: Props): ReactNode {
   const [roster, setRoster] = useState<Roster | null>(null);
@@ -41,7 +39,7 @@ export function MatterTeamRosterStrip({
 
   useEffect(() => {
     if (!apiBase?.trim() || !matterId?.trim()) {
-      return;
+      return undefined;
     }
     let cancelled = false;
     setRoster(null);
@@ -68,7 +66,8 @@ export function MatterTeamRosterStrip({
         }
         setRoster(r.roster ?? null);
         const open = (d.delegations ?? []).filter(
-          (x) => x.status === "pending" || x.status === "running",
+          (x) =>
+            x.status === "pending" || x.status === "running" || x.status === "awaiting_lawyer",
         );
         setOpenDelegations(open.slice(0, 8));
         const map: Record<string, string> = {};
@@ -90,9 +89,6 @@ export function MatterTeamRosterStrip({
   }, [apiBase, matterId]);
 
   const names = (roster?.participantAssistantIds ?? []).map((id) => label(id, nameById));
-  const synth = roster?.synthesizerAssistantId
-    ? label(roster.synthesizerAssistantId, nameById)
-    : null;
 
   return (
     <section
@@ -103,9 +99,7 @@ export function MatterTeamRosterStrip({
       <div className="lm-matter-team-strip-copy">
         <strong>本案团队</strong>
         <span className="lm-meta">
-          {names.length > 0
-            ? `编制 ${names.join("、")}${synth ? ` · 结论：${synth}` : ""}`
-            : "未设编制"}
+          {names.length > 0 ? `编制 ${names.join("、")}` : "未设编制"}
           {openDelegations.length > 0
             ? ` · ${openDelegations.length} 项未闭环委派`
             : ""}
@@ -124,16 +118,6 @@ export function MatterTeamRosterStrip({
         ) : null}
       </div>
       <div className="lm-matter-team-strip-actions">
-        {onOpenMeeting ? (
-          <button
-            type="button"
-            className="lm-btn lm-btn-sm"
-            data-testid="lm-matter-team-open-meeting"
-            onClick={() => onOpenMeeting()}
-          >
-            开会议室
-          </button>
-        ) : null}
         {onOpenNeedsDecisionDesk ? (
           <button
             type="button"

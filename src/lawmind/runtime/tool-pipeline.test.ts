@@ -16,7 +16,6 @@ import {
   buildDefaultToolPipeline,
   clarificationGateMiddleware,
   folderExploreGateMiddleware,
-  FOLDER_EXPLORE_GATE_ERROR,
   composeToolPipeline,
   discoveryLoopMiddleware,
   dropSaturatedDiscoveryTools,
@@ -540,49 +539,22 @@ describe("tool-pipeline middlewares", () => {
     expect(normal.ok).toBe(true);
   });
 
-  it("folderExploreGateMiddleware rejects WRITE_HEAVY until explore_folder ran", async () => {
-    const blocked = await folderExploreGateMiddleware(
-      buildCall(workspaceDir, {
-        toolName: "draft_document",
-        ctxOverride: { folderExploreRequired: true },
-      }),
-      async () => ({ ok: true }),
-    );
-    expect(blocked.ok).toBe(false);
-    expect(blocked.error).toBe(FOLDER_EXPLORE_GATE_ERROR);
-    const explore = await folderExploreGateMiddleware(
-      buildCall(workspaceDir, {
-        toolName: "explore_folder",
-        ctxOverride: { folderExploreRequired: true },
-      }),
-      async () => ({ ok: true }),
-    );
-    expect(explore.ok).toBe(true);
-    const after = await folderExploreGateMiddleware(
-      buildCall(workspaceDir, {
-        toolName: "draft_document",
-        ctxOverride: { folderExploreRequired: true },
-        policyOverride: { toolNameCallCounts: { explore_folder: 1 } },
-      }),
-      async () => ({ ok: true }),
-    );
-    expect(after.ok).toBe(true);
-    const worker = await folderExploreGateMiddleware(
-      buildCall(workspaceDir, {
-        toolName: "draft_worker",
-        ctxOverride: { folderExploreRequired: true },
-      }),
-      async () => ({ ok: true }),
-    );
-    expect(worker.ok).toBe(false);
-    const read = await folderExploreGateMiddleware(
-      buildCall(workspaceDir, {
-        toolName: "analyze_document",
-        ctxOverride: { folderExploreRequired: true },
-      }),
-      async () => ({ ok: true }),
-    );
-    expect(read.ok).toBe(true);
+  it("folderExploreGateMiddleware does not freeze writes when a folder is in play", async () => {
+    for (const toolName of [
+      "draft_document",
+      "draft_worker",
+      "explore_folder",
+      "analyze_document",
+    ]) {
+      const result = await folderExploreGateMiddleware(
+        buildCall(workspaceDir, {
+          toolName,
+          ctxOverride: { folderExploreRequired: true },
+        }),
+        async () => ({ ok: true }),
+      );
+      expect(result.ok).toBe(true);
+    }
   });
 
   it("approvalMiddleware demands __approved for send_email", async () => {
@@ -868,15 +840,15 @@ describe("tool-pipeline middlewares", () => {
   it("subprocessSandboxMiddleware runs inline sandbox for high-risk tools when enabled", async () => {
     const tool: AgentTool = {
       definition: {
-        name: "add_case_note",
-        description: "note",
+        name: "run_compute",
+        description: "compute",
         parameters: { note: { type: "string", required: true, description: "n" } },
       },
       execute: async () => ({ ok: false, error: "should not run in parent" }),
     };
     const call = buildCall(workspaceDir, {
       tool,
-      toolName: "add_case_note",
+      toolName: "run_compute",
       args: { note: "test", matterId: "m1" },
       policyOverride: { toolSandboxEnabled: true },
     });
@@ -942,6 +914,79 @@ describe("tool-pipeline middlewares", () => {
     });
     const result = await matterScopeMiddleware(call, async () => ({ ok: true, data: "hit" }));
     expect(result.ok).toBe(true);
+  });
+
+  it("rejects a malformed send before asking the lawyer", async () => {
+    const tool: AgentTool = {
+      definition: {
+        name: "send_email",
+        description: "send",
+        category: "system",
+        parameters: {
+          to: { type: "string", description: "to", required: true },
+          subject: { type: "string", description: "subject", required: true },
+          body: { type: "string", description: "body", required: true },
+        },
+        requiresApproval: true,
+        riskLevel: "high",
+      },
+      execute: async () => ({ ok: true }),
+    };
+    const run = composeToolPipeline(buildDefaultToolPipeline());
+    const malformed = await run(
+      buildCall(workspaceDir, {
+        tool,
+        toolName: "send_email",
+        args: { to: "opp@firm.cn" },
+      }),
+    );
+    expect(malformed.approvalRequest).toBeUndefined();
+    expect(malformed.ok).toBe(false);
+    expect(malformed.error).toMatch(/Invalid arguments/);
+
+    const paused = await run(
+      buildCall(workspaceDir, {
+        tool,
+        toolName: "send_email",
+        args: { to: "opp@firm.cn", subject: "催告", body: "请回复" },
+      }),
+    );
+    expect(paused.approvalRequest).toBe(true);
+    expect(paused.ok).toBe(false);
+  });
+
+  it("does not ask the lawyer to approve a send the recipient gate will reject", async () => {
+    await fs.writeFile(
+      path.join(workspaceDir, "lawmind.policy.json"),
+      JSON.stringify({ schemaVersion: 1, outboundAllowedDomains: ["client.com"] }),
+      "utf8",
+    );
+    const tool: AgentTool = {
+      definition: {
+        name: "send_email",
+        description: "send",
+        category: "system",
+        parameters: {
+          to: { type: "string", description: "to", required: true },
+          subject: { type: "string", description: "subject", required: true },
+          body: { type: "string", description: "body", required: true },
+        },
+        requiresApproval: true,
+        riskLevel: "high",
+      },
+      execute: async () => ({ ok: true }),
+    };
+    const run = composeToolPipeline(buildDefaultToolPipeline());
+    const blocked = await run(
+      buildCall(workspaceDir, {
+        tool,
+        toolName: "send_email",
+        args: { to: "x@gmail.com", subject: "催告", body: "请回复" },
+      }),
+    );
+    expect(blocked.approvalRequest).toBeUndefined();
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error).toContain("gmail.com");
   });
 
   it("buildDefaultToolPipeline runs end-to-end happy path", async () => {

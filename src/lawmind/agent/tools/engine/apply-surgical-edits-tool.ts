@@ -45,7 +45,7 @@ export const applySurgicalEdits: AgentTool = {
       edits: {
         type: "array",
         description:
-          "[{ find, replace, note? }]；每处 find=最短锚定。非锁定路径可省略并用 redline-plan sidecar。",
+          '[{ find, replace, note?, occurrences? }]；每处 find=最短锚定。同一 find 命中多处时缺省整条跳过，不改第一处；统一替换传 occurrences:"all"。非锁定路径可省略并用 redline-plan sidecar。',
         required: false,
       },
       craft_check: {

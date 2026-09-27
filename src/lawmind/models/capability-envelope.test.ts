@@ -51,6 +51,16 @@ describe("resolveCapabilityEnvelope", () => {
     const large = resolveCapabilityEnvelope({ contextTokens: 128_000 });
     expect(large.toolCallsPerTurn).toBe(80);
     expect(large.maxHistoryMessages).toBeGreaterThanOrEqual(100);
+    expect(large.promptWindowScale).toBeCloseTo(1, 5);
+  });
+
+  it("lets a 1M window grow injection and history past the old 2.5× / 120-message caps", () => {
+    clearEnv();
+    const million = resolveCapabilityEnvelope({ contextTokens: 1_000_000 });
+    expect(million.promptWindowScale).toBeCloseTo(1_000_000 / 128_000, 5);
+    expect(million.promptWindowScale).toBeGreaterThan(2.5);
+    expect(million.promptWindowScale).toBeLessThanOrEqual(8);
+    expect(million.maxHistoryMessages).toBe(400);
   });
 
   it("honors LAWMIND_AGENT_MAX_TOKENS override", () => {

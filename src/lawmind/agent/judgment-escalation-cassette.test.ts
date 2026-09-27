@@ -108,16 +108,21 @@ function writePolicy(workspaceDir: string, policy: Record<string, unknown>): voi
 }
 
 /**
- * 走**策略文件**而不是 env 跑一轮。
+ * 走**策略文件 + 可选 env** 跑一轮。
  *
- * 这一档（解析顺序的第一档：`policy` 显式）此前在两个调用方都是死的——
- * `isLawyerEscalationAvailable()` 与 `resolveEscalationPosture()` 都无参调用，
- * 于是 `lawmind.policy.json` 里写的键全部不生效，只剩 env 说话。这里的断言就是那根接线。
+ * 新策略合同（`policy/commercial-policy.ts`）只留 IT 硬边界：`judgmentEscalation` /
+ * `judgmentEscalationPosture` 这类引擎调参键会被拒绝、不再生效。策略文件仍然
+ * 生效的一档是 `edition`——它决定升级卡姿态的缺省（solo→advisory，firm→block）。
+ * 通道开关的存活面是 env `LAWMIND_JUDGMENT_ESCALATION`（缺省 off）。
  */
 async function runTurnWithPolicy(input: {
   policy: Record<string, unknown> | null;
+  env?: Partial<Record<keyof typeof ENV, string>>;
   withItems?: boolean;
 }): Promise<EscalationRow[]> {
+  for (const [k, v] of Object.entries(input.env ?? {})) {
+    process.env[ENV[k as keyof typeof ENV]] = v;
+  }
   let rows: EscalationRow[] = [];
   await withTestLawMind(
     (b) => b,
@@ -193,10 +198,11 @@ describe("G3 cassette：升级卡在真实回合里被并进 requiresAction", ()
   });
 });
 
-describe("G3 cassette：策略文件那一档真的接上了（不是只认 env）", () => {
-  it("`lawmind.policy.json` 写 edition=firm + 通道 on → 卡片进待办（**没有设任何 env**）", async () => {
+describe("G3 cassette：策略文件的 edition 那一档真的接上了（不是只认 env）", () => {
+  it("通道由 env 开 + 策略文件写 edition=firm → 姿态取 edition 缺省 block → 卡片进待办", async () => {
     const cards = await runTurnWithPolicy({
-      policy: { edition: "firm", judgmentEscalation: "on" },
+      policy: { edition: "firm" },
+      env: { tiering: "on", escalation: "on" },
     });
     expect(cards).toHaveLength(1);
     expect(cards[0].summary).toContain("责任上限的水平");
@@ -204,26 +210,47 @@ describe("G3 cassette：策略文件那一档真的接上了（不是只认 env�
     expect(cards[0].summary).toContain("不会替您选一条路继续");
   });
 
-  it("同一份策略写到 solo → 姿态回落 advisory：不打断，卡片不进待办", async () => {
+  it("同一通道开到 solo → 姿态回落 advisory：不打断，卡片不进待办", async () => {
     const cards = await runTurnWithPolicy({
-      policy: { edition: "solo", judgmentEscalation: "on" },
+      policy: { edition: "solo" },
+      env: { tiering: "on", escalation: "on" },
     });
     expect(cards).toHaveLength(0);
   });
 
-  it("策略里的显式姿态优先于 edition（firm 也能被写成 advisory）", async () => {
+  it("env 显式姿态优先于 edition 缺省（firm 也能被压成 advisory）", async () => {
     const cards = await runTurnWithPolicy({
-      policy: {
-        edition: "firm",
-        judgmentEscalation: "on",
-        judgmentEscalationPosture: "advisory",
-      },
+      policy: { edition: "firm" },
+      env: { tiering: "on", escalation: "on", posture: "advisory" },
     });
     expect(cards).toHaveLength(0);
   });
 
-  it("策略文件的通道没开 → 不产出卡片（不因为写了 edition 就默认开通道）", async () => {
+  it("通道没开 → 不产出卡片（不因为写了 edition 就默认开通道）", async () => {
     const cards = await runTurnWithPolicy({ policy: { edition: "firm" } });
+    expect(cards).toHaveLength(0);
+  });
+
+  it("策略文件写 judgmentEscalation 被判为「不是律所策略键」并拒绝，通道不会因此打开", async () => {
+    let rejected: Array<{ key: string; reason: string }> = [];
+    const cards = await (async () => {
+      let rows: EscalationRow[] = [];
+      await withTestLawMind(
+        (b) => b,
+        async (h) => {
+          seedEscalation(h.workspaceDir);
+          writePolicy(h.workspaceDir, { edition: "firm", judgmentEscalation: "on" });
+          const { inspectWorkspacePolicyFile } = await import("../policy/workspace-policy.js");
+          rejected = inspectWorkspacePolicyFile(h.workspaceDir).rejected;
+          h.enqueue(cassetteAssistant("记下了。"));
+          await h.runTurn("继续", { linkedTaskId: TASK_ID });
+          rows = escalationsOf(h.session());
+        },
+      );
+      return rows;
+    })();
+    // 引擎调参键不进策略合同：拒绝并说明原因，且不静默生效。
+    expect(rejected.some((r) => r.key === "judgmentEscalation")).toBe(true);
     expect(cards).toHaveLength(0);
   });
 });

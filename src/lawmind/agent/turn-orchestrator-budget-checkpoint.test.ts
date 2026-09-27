@@ -5,9 +5,16 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { runTurn } from "./runtime.js";
 import { loadSession } from "./session.js";
+import {
+  cassetteAssistant,
+  cassetteToolCall,
+  startCassetteModelServer,
+  type CassetteModelServer,
+  type CassetteRound,
+} from "./testkit/index.js";
 import { ToolRegistry } from "./tools/registry.js";
 import type { AgentConfig } from "./types.js";
 
@@ -18,55 +25,26 @@ function tmpWorkspace(): string {
   return dir;
 }
 
-function baseConfig(workspaceDir: string): AgentConfig {
+function baseConfig(workspaceDir: string, baseUrl: string): AgentConfig {
   return {
     workspaceDir,
     // 分片 cap 2：两轮后硬停并完成，不询问律师。
     maxToolCalls: 2,
     model: {
       provider: "openai-compatible",
-      baseUrl: "https://example.com/v1",
+      baseUrl,
       apiKey: "sk-test",
       model: "demo",
     },
   };
 }
 
-function toolCallRound(id: string) {
-  return {
-    choices: [
-      {
-        message: {
-          role: "assistant",
-          content: "",
-          tool_calls: [{ id, type: "function", function: { name: "peek_state", arguments: "{}" } }],
-        },
-        finish_reason: "tool_calls",
-      },
-    ],
-  };
+function toolCallRound(): CassetteRound {
+  return cassetteToolCall("peek_state");
 }
 
-function finalRound(text: string) {
-  return {
-    choices: [{ message: { role: "assistant", content: text }, finish_reason: "stop" }],
-  };
-}
-
-function stubModelRounds(responses: unknown[]) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => ({
-      ok: true,
-      json: async () => {
-        const next = responses.shift();
-        if (next === undefined) {
-          throw new Error("unexpected extra model call");
-        }
-        return next;
-      },
-    })),
-  );
+function finalRound(text: string): CassetteRound {
+  return cassetteAssistant(text);
 }
 
 function registryWithPeek(calls: string[]): ToolRegistry {
@@ -87,18 +65,21 @@ function registryWithPeek(calls: string[]): ToolRegistry {
 }
 
 describe("silent tool-budget ceiling", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
+  const servers: CassetteModelServer[] = [];
+
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => s.close()));
   });
 
   it("completes at a tiny cap without continue_tools", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const calls: string[] = [];
-    stubModelRounds([toolCallRound("c1"), toolCallRound("c2")]);
+    server.enqueue(toolCallRound(), toolCallRound());
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry: registryWithPeek(calls),
       instruction: "逐步排查这个问题",
     });
@@ -112,16 +93,18 @@ describe("silent tool-budget ceiling", () => {
 
   it("default-scale turns keep sampling until the model delivers, past the old ask point", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const calls: string[] = [];
-    stubModelRounds([
-      toolCallRound("c1"),
-      toolCallRound("c2"),
-      toolCallRound("c3"),
+    server.enqueue(
+      toolCallRound(),
+      toolCallRound(),
+      toolCallRound(),
       finalRound("审查意见已写好。"),
-    ]);
+    );
 
     const result = await runTurn({
-      config: { ...baseConfig(workspaceDir), maxToolCalls: 25 },
+      config: { ...baseConfig(workspaceDir, server.url), maxToolCalls: 25 },
       registry: registryWithPeek(calls),
       instruction: "逐步排查这个问题",
     });
@@ -136,11 +119,13 @@ describe("silent tool-budget ceiling", () => {
     // 委派预算分片的子侧：父剩余见底时 resolveChildToolCallBudget 下限为 1，
     // 子助手硬停并完成，向父助手如实收束，不进律师「待我拍板」。
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const calls: string[] = [];
-    stubModelRounds([toolCallRound("c1"), toolCallRound("c2")]);
+    server.enqueue(toolCallRound(), toolCallRound());
 
     const result = await runTurn({
-      config: { ...baseConfig(workspaceDir), maxToolCalls: 1 },
+      config: { ...baseConfig(workspaceDir, server.url), maxToolCalls: 1 },
       registry: registryWithPeek(calls),
       instruction: "逐步排查这个问题",
     });

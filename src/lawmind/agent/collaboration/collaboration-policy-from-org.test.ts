@@ -63,7 +63,7 @@ describe("buildCollaborationPolicyFromAssistants", () => {
         depth: 0,
         policy,
       }),
-    ).toMatch(/not allowed/i);
+    ).toContain("当前协作策略不允许这样派活");
   });
 
   it("preserves base depth/timeout defaults", () => {

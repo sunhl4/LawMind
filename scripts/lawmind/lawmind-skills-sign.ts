@@ -3,10 +3,8 @@
  * Sign every Skill in a workspace with the current signing secret
  * (`pnpm lawmind:skills:sign`).
  *
- * 为什么需要它：`listLocalSkills` 会把签名不通过的 Skill 置为 `enabled: false`，
- * 所有消费方（`skill-match`、`read_skill`、`disclosed-turn-tools`…）都按
- * `signatureOk` 过滤。所以**换密钥而不重签 = 静默丢掉全部 Skill 能力**——
- * 这也是本仓库此前能把「密钥公开」拖很久没被发现的原因之一：没人有工具去签。
+ * 只签工作区副本。回合、read_skill 和工具披露不读这些副本，
+ * 重签与否不改变律师交办时看到的作业标准。
  *
  * 用法：
  *   pnpm lawmind:skills:sign                      # 签 <repo>/workspace

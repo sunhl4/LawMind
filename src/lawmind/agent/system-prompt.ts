@@ -228,7 +228,8 @@ export const SYSTEM_PROMPT_SECTION_CATALOG: Array<{
     title: "可用工具",
     always: true,
     headingMatch: "可用工具",
-    cache: "static",
+    // 工具表每轮会变（披露、权限、联网）。放在缓存边界之后，避免首轮目录被静态前缀冻住。
+    cache: "session",
   },
   {
     id: "capability_index",
@@ -363,8 +364,6 @@ export type SystemPromptContext = {
   authorityProviderLabel?: string;
   /** 是否已开启助手间协作 */
   collaborationEnabled?: boolean;
-  /** 案件团队会议室对话（共享时间线讨论） */
-  teamMeetingMode?: boolean;
   /** 可委派的其他助手（已排除当前助手与正忙者） */
   peerAssistants?: Array<{ id: string; displayName: string; roleTitle: string }>;
   /** 正作为委派目标执行任务的助手（暂勿再委派） */
@@ -378,8 +377,6 @@ export type SystemPromptContext = {
   linkedTaskId?: string;
   /** Phase B：岗位风险上限（高于任务风险时须强调律师确认） */
   roleRiskCeiling?: RiskLevel;
-  /** Phase B：岗位交付自检清单 */
-  roleAcceptanceChecklist?: string[];
   /**
    * 工作区策略注入的强制规则（`lawmind.policy.json` → resolveAgentMandatoryRulesForPrompt）。
    */
@@ -408,6 +405,11 @@ export type SystemPromptContext = {
    * 用于在全文 profile 之外显式要求「按习惯写」。
    */
   appliedPreferencesHint?: string;
+  /**
+   * 同一任务最近一次带标签驳回的软提示。
+   * 不锁工具；与律师本条指令冲突时以指令为准。
+   */
+  rejectionCoach?: string;
   /** 本案发信账号的落款 / 结束语（写入待发信时也会再附加一次）。 */
   mailSendFormatHint?: string;
 };
@@ -607,13 +609,7 @@ ${matterMandatory}${truncNote}`);
 ${contextPlan}`);
   }
 
-  if (
-    ctx.roleTitle ||
-    ctx.roleIntroduction ||
-    ctx.roleDirective ||
-    ctx.roleRiskCeiling ||
-    (ctx.roleAcceptanceChecklist && ctx.roleAcceptanceChecklist.length > 0)
-  ) {
+  if (ctx.roleTitle || ctx.roleIntroduction || ctx.roleDirective || ctx.roleRiskCeiling) {
     const introBlock = ctx.roleIntroduction?.trim()
       ? `\n\n**助手简介**：\n${ctx.roleIntroduction.trim()}`
       : "";
@@ -621,13 +617,9 @@ ${contextPlan}`);
     const riskBlock = ctx.roleRiskCeiling
       ? `\n\n**岗位风险上限**：${ctx.roleRiskCeiling}。当任务或工作流路由为高于该等级的风险时，必须在答复中明确提示律师确认后再对外交付或渲染。`
       : "";
-    const checklistBlock =
-      ctx.roleAcceptanceChecklist && ctx.roleAcceptanceChecklist.length > 0
-        ? `\n\n**交付前自检清单**（逐项核对并在最终答复中体现已覆盖项）：\n${ctx.roleAcceptanceChecklist.map((line, i) => `${i + 1}. ${line}`).join("\n")}`
-        : "";
     sessionSections.push(`## 当前岗位与职责
 
-**岗位**：${ctx.roleTitle?.trim() || "法律助理"}${introBlock}${directiveBlock}${riskBlock}${checklistBlock}
+**岗位**：${ctx.roleTitle?.trim() || "法律助理"}${introBlock}${directiveBlock}${riskBlock}
 
 请在本对话中始终按上述岗位定位行事；与全局 LawMind 原则冲突时，仍以准确性与合规为先。`);
     const orgLine = ctx.assistantOrgLine?.trim();
@@ -755,16 +747,6 @@ ${busyList ? `\n### 正忙（暂勿委派）\n${busyList}` : ""}
 8. **单向通知**：\`notify_assistant\` **不等待、也不产生可读的回执**；若需要对方正式答复，请用 \`consult_assistant\`（同步）或 \`delegate_task\`（异步有结果）。`);
   }
 
-  if (ctx.teamMeetingMode) {
-    sessionSections.push(`## 团队会议室模式
-
-当前对话处于**案件团队会议室**：律师可能与多位助手在同一共享时间线（用户消息中可含纪要前缀）上讨论与分工。请：
-1. **紧扣本会发言主题**作答，并结合纪要前缀中的既有发言把握上下文。
-2. **简洁可执行**：优先给出结论、分工建议或可跟进清单；避免冗长寒暄。
-3. **协作克制**：仅在确实需要交叉验证或拆分时再使用 \`delegate_task\` / \`consult_assistant\` 等工具，并写清任务边界与交付物。
-4. **对外责任**：会议室产出仍为助理草稿；对外交付须由律师审核后再定稿。`);
-  }
-
   if (ctx.lawyerName || ctx.lawyerProfile) {
     sessionSections.push(`## 当前律师
 
@@ -787,7 +769,14 @@ ${ctx.lawyerProfile ? `\n${ctx.lawyerProfile}` : ""}`);
 
 ${prefsHint}
 
-起草与审查时必须体现上述习惯；若与本条律师明示指令冲突，以本条指令为准。${footerLine}`);
+起草与审查时优先沿用上述已确认习惯。与本条律师明示指令或当事人已写明的约定冲突时，以指令和约定为准，不要为了贴合习惯改写个案的数字、当事人或期限。${footerLine}`);
+  }
+
+  const rejectionCoach = ctx.rejectionCoach?.trim();
+  if (rejectionCoach) {
+    sessionSections.push(`## 本任务上次审核
+
+${rejectionCoach}`);
   }
 
   const ap = ctx.assistantProfileMarkdown?.trim();
@@ -925,8 +914,8 @@ ${ctx.todayLog}`);
     sessionSections.push(`## 可按需启用\n\n${capabilityIndex}`);
   }
 
-  // ── 工具列表 ──
-  staticTail.push(`## 可用工具
+  // 工具清单跟在会话段后面：身份 / 流程 / 安全边界保持字节稳定，本轮工具表每次重写。
+  sessionSections.push(`## 可用工具
 
 ${toolList}`);
 

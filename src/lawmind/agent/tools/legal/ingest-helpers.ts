@@ -307,7 +307,8 @@ export async function readPdfTextByOcr(filePath: string): Promise<string> {
         chunks.push(text);
       }
     }
-    return normalizeExtractedText(chunks.join("\n\n"));
+    const body = normalizeExtractedText(chunks.join("\n\n"));
+    return `${body}${ocrUnreadNote(screenshot.pages?.length ?? 0, screenshot.total)}`;
   } finally {
     await worker.terminate().catch(() => undefined);
     await parser.destroy().catch(() => undefined);
@@ -336,7 +337,8 @@ export async function readPdfTextByVision(filePath: string): Promise<string> {
         chunks.push(text);
       }
     }
-    return normalizeExtractedText(chunks.join("\n\n"));
+    const body = normalizeExtractedText(chunks.join("\n\n"));
+    return `${body}${ocrUnreadNote(screenshot.pages?.length ?? 0, screenshot.total)}`;
   } finally {
     await parser.destroy().catch(() => undefined);
   }
@@ -370,7 +372,17 @@ const MAX_PROJECT_PDF_READ_BYTES = 20_000_000;
 const MAX_WORKSPACE_PDF_READ_BYTES = 20_000_000;
 const MAX_DOCX_READ_BYTES = 20_000_000;
 const MAX_IMAGE_OCR_READ_BYTES = 20_000_000;
-const MAX_PDF_OCR_PAGES = 5;
+const MAX_PDF_OCR_PAGES = 12;
+
+function ocrUnreadNote(readPages: number, total: number | undefined): string {
+  if (readPages <= 0) {
+    return "";
+  }
+  if (total !== undefined && total > readPages) {
+    return `\n\n【未读完】扫描件只识别了前 ${readPages} 页，共 ${total} 页。后面页面未进入本文，不得当成已读完全文。`;
+  }
+  return "";
+}
 
 /** Bounded scan of user project dir (desktop "project" root). */
 function listProjectTextFiles(projectRoot: string): string[] {

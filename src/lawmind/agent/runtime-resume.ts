@@ -10,6 +10,7 @@ import {
   type LawMindRequiresAction,
   type ResumeRequiresActionInput,
 } from "../platform/requires-action.js";
+import { settleCollaborationChildTurn } from "./collaboration/settle-child-turn.js";
 import { mergeConfirmedAnswers } from "./confirmed-answers.js";
 import { runTurn } from "./runtime.js";
 import { withSessionTurnGate } from "./session-turn-gate.js";
@@ -52,6 +53,25 @@ export type ResumeTurnOpts = {
  * 与主流产品同一口径：审批针对的是**那一次调用**，恢复执行必须回到调用成立时的作用域，
  * 不能被之后切换的上下文改写。卡片没带案件（历史卡片）才回落到会话，再回落到调用方。
  */
+/**
+ * 续跑必须带回原交办。只说「继续完成某个工具」会让模型忘掉合同、邮件或检索目标，
+ * 批准变成另起一件事。卡片没写指令时用当时那一轮的 instruction。
+ */
+function originalInstructionForResume(
+  session: AgentSession,
+  action: Pick<LawMindRequiresAction, "instruction" | "taskId">,
+): string | undefined {
+  const fromAction = action.instruction?.trim();
+  if (fromAction) {
+    return fromAction;
+  }
+  const turn =
+    (action.taskId ? session.turns.find((item) => item.turnId === action.taskId) : undefined) ??
+    session.turns[session.turns.length - 1];
+  const fromTurn = turn?.instruction?.trim();
+  return fromTurn || undefined;
+}
+
 function resolveResumeMatterId(
   action: Pick<LawMindRequiresAction, "matterId">,
   session: Pick<AgentSession, "matterId">,
@@ -82,9 +102,16 @@ export async function resumeTurn(
   input: ResumeRequiresActionInput,
   opts: ResumeTurnOpts,
 ): Promise<ResumeTurnResult> {
-  return withSessionTurnGate(config.workspaceDir, input.sessionId, () =>
-    resumeTurnUngated(config, registry, input, opts),
-  );
+  return withSessionTurnGate(config.workspaceDir, input.sessionId, async () => {
+    const result = await resumeTurnUngated(config, registry, input, opts);
+    settleCollaborationChildTurn({
+      workspaceDir: config.workspaceDir,
+      sessionId: result.sessionId,
+      status: result.turn.status,
+      reply: result.reply,
+    });
+    return result;
+  });
 }
 
 async function resumeTurnUngated(
@@ -123,7 +150,13 @@ async function resumeTurnUngated(
     }
     saveSession(config.workspaceDir, session);
     const qs = action.clarificationQuestions ?? [];
-    const msg = formatClarificationResumeMessage(input.clarificationAnswers ?? {}, qs);
+    const original = originalInstructionForResume(session, action);
+    const msg = [
+      formatClarificationResumeMessage(input.clarificationAnswers ?? {}, qs),
+      original ? `原指令：\n${original}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
     return runTurn({
       config,
       registry,
@@ -189,10 +222,19 @@ async function resumeTurnUngated(
         input.decision === "edit" && input.editedArgs && typeof input.editedArgs === "object"
           ? input.editedArgs
           : undefined;
-      // 批准态由服务端经 preApproveToolName/preApproveToolArgs 注入，模型无需（也无法）自填审批旗标。
-      const instruction = edited
-        ? `【律师已修改参数并批准】请继续完成「${label}」，使用律师确认后的参数。`
-        : `【律师已批准】请继续完成「${label}」。`;
+      // 批准态由服务端经 preApproveToolName/preApproveToolArgs 注入：模型重发这次调用时
+      // 参数被整组换成律师确认过的，不能自行加键。这不是把未执行的调用在进程内重放，
+      // 而是放行下一次同名调用，所以必须同时带回原交办，避免模型只记得工具名。
+      const original = originalInstructionForResume(session, action);
+      const instruction = [
+        edited
+          ? `【律师已修改参数并批准】请继续完成「${label}」，使用律师确认后的参数。`
+          : `【律师已批准】请继续完成「${label}」。`,
+        "系统会放行这次已批调用；请接着办完原交办，不要重复已成功的步骤。",
+        original ? `原指令：\n${original}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
       return runTurn({
         config,
         registry,
@@ -348,9 +390,16 @@ export async function resumePausedTurn(
   sessionId: string,
   opts?: ResumeTurnOpts & { extraInstruction?: string },
 ): Promise<ResumeTurnResult> {
-  return withSessionTurnGate(config.workspaceDir, sessionId, () =>
-    resumePausedTurnUngated(config, registry, sessionId, opts),
-  );
+  return withSessionTurnGate(config.workspaceDir, sessionId, async () => {
+    const result = await resumePausedTurnUngated(config, registry, sessionId, opts);
+    settleCollaborationChildTurn({
+      workspaceDir: config.workspaceDir,
+      sessionId: result.sessionId,
+      status: result.turn.status,
+      reply: result.reply,
+    });
+    return result;
+  });
 }
 
 async function resumePausedTurnUngated(

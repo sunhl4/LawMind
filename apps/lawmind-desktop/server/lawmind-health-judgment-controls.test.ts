@@ -10,8 +10,8 @@ describe("buildJudgmentHardControlsReport", () => {
     expect(r.sendEmailApprovalHard).toBe(true);
   });
 
-  it("marks amplitude hard when LAWMIND_SURGICAL_ENFORCE=1", () => {
+  it("keeps amplitude soft when LAWMIND_SURGICAL_ENFORCE=1", () => {
     const r = buildJudgmentHardControlsReport({ LAWMIND_SURGICAL_ENFORCE: "1" });
-    expect(r.updateDraftAmplitudeSoft).toBe(false);
+    expect(r.updateDraftAmplitudeSoft).toBe(true);
   });
 });

@@ -33,7 +33,7 @@ export function mergeFleetQueueRows(opts: {
             kind: "pending_review",
             status: "awaiting_review",
             title: draft.title?.trim() || "待审核草稿",
-            subtitle: draft.reviewStatus === "modified" ? "修改后待复核" : "交付物待审核",
+            subtitle: draft.reviewStatus === "modified" ? "修改后待审核" : "交付物待审核",
             matterId: draft.matterId,
             taskId,
             updatedAt: draft.createdAt,

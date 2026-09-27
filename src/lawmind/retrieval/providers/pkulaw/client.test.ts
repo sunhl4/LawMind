@@ -9,6 +9,39 @@ const lawFixture = readFileSync(path.join(HERE, "fixtures/law-search-hits.json")
 const caseFixture = readFileSync(path.join(HERE, "fixtures/case-search-hits.json"), "utf8");
 
 describe("pkulawRetrieve", () => {
+  it("uses MCP tools/call for the official 法宝 gateway when mode is unset", async () => {
+    const prev = process.env.LAWMIND_PKULAW_MODE;
+    delete process.env.LAWMIND_PKULAW_MODE;
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { content: [{ type: "text", text: "[]" }] },
+          }),
+          { status: 200 },
+        ),
+    );
+    try {
+      await pkulawRetrieve({
+        endpointNormalized: "https://apim-gateway.pkulaw.com/mcp-law-search-service",
+        query: "出口管制",
+        apiKey: "tok-test",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      const init = fetchImpl.mock.calls[0]?.[1] as { method?: string; body?: string };
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(String(init.body)).method).toBe("tools/call");
+    } finally {
+      if (prev === undefined) {
+        delete process.env.LAWMIND_PKULAW_MODE;
+      } else {
+        process.env.LAWMIND_PKULAW_MODE = prev;
+      }
+    }
+  });
+
   it("rest_compat maps law fixture and sends Bearer", async () => {
     const fetchImpl = vi.fn(async () => new Response(lawFixture, { status: 200 }));
     const { result, httpStatus } = await pkulawRetrieve({

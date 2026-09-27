@@ -15,6 +15,8 @@ import {
   benchmarkPassesThreshold,
   buildBenchmarkReportMarkdown,
   runBenchmarks,
+  classifyReleaseBenchmarkFile,
+  releaseReadinessBenchmarkExit,
   selectReleaseGateBenchmarkResults,
   type LawMindEngineForBenchmark,
 } from "./benchmark.js";
@@ -286,6 +288,90 @@ describe("selectReleaseGateBenchmarkResults", () => {
     const gate = selectReleaseGateBenchmarkResults({ modelMode: "scripted", results });
     expect(gate.eligible).toBe(true);
     expect(gate.results).toHaveLength(1);
+  });
+
+  it("mock 文件必须失败，缺文件在非严格模式下通过", () => {
+    expect(
+      releaseReadinessBenchmarkExit({
+        filePresent: true,
+        eligible: false,
+        gatePass: false,
+        strict: false,
+      }),
+    ).toBe(1);
+    expect(
+      releaseReadinessBenchmarkExit({
+        filePresent: false,
+        eligible: false,
+        gatePass: false,
+        strict: false,
+      }),
+    ).toBe(0);
+    expect(
+      releaseReadinessBenchmarkExit({
+        filePresent: false,
+        eligible: false,
+        gatePass: false,
+        strict: true,
+      }),
+    ).toBe(1);
+    expect(
+      releaseReadinessBenchmarkExit({
+        filePresent: true,
+        eligible: true,
+        gatePass: false,
+        strict: false,
+      }),
+    ).toBe(0);
+    expect(
+      releaseReadinessBenchmarkExit({
+        filePresent: true,
+        eligible: true,
+        gatePass: true,
+        strict: true,
+      }),
+    ).toBe(0);
+  });
+
+  it("坏掉或 mock 的 benchmark 文件不算缺文件", () => {
+    expect(classifyReleaseBenchmarkFile({ readError: "missing" }).filePresent).toBe(false);
+    expect(classifyReleaseBenchmarkFile({ readError: "unreadable" })).toMatchObject({
+      filePresent: true,
+      eligible: false,
+    });
+    expect(classifyReleaseBenchmarkFile({ raw: "{" })).toMatchObject({
+      filePresent: true,
+      eligible: false,
+      reason: "benchmark JSON 无法解析",
+    });
+    expect(classifyReleaseBenchmarkFile({ raw: JSON.stringify({ results: [] }) })).toMatchObject({
+      filePresent: true,
+      eligible: false,
+    });
+    const mockFile = classifyReleaseBenchmarkFile({
+      raw: JSON.stringify({
+        modelMode: "mock",
+        results: [makeResult({ score: 1, modelMode: "mock" })],
+      }),
+    });
+    expect(mockFile.filePresent).toBe(true);
+    expect(mockFile.eligible).toBe(false);
+    expect(
+      releaseReadinessBenchmarkExit({
+        filePresent: mockFile.filePresent,
+        eligible: mockFile.eligible,
+        gatePass: false,
+        strict: false,
+      }),
+    ).toBe(1);
+    const scripted = classifyReleaseBenchmarkFile({
+      raw: JSON.stringify({
+        modelMode: "scripted",
+        results: [makeResult({ score: 0.9, modelMode: "scripted" })],
+      }),
+    });
+    expect(scripted.eligible).toBe(true);
+    expect(scripted.results).toHaveLength(1);
   });
 
   it("legacy scripted-model / real-model 仍被接受", () => {

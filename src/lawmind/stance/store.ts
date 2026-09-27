@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { withExclusiveFileLock, writeJsonAtomic } from "../adapters/matter-storage/io.js";
+import { syncStanceItemsToKernel } from "../memory/kernel/sync-stance.js";
 import {
   STANCE_SCHEMA_VERSION,
   type StanceEvidenceEntry,
@@ -102,6 +103,18 @@ function asStanceItem(raw: unknown): StanceItem | undefined {
   if (typeof r.statuteBasis === "string" && r.statuteBasis.trim()) {
     item.statuteBasis = r.statuteBasis.trim();
   }
+  if (typeof r.fallbackLanguage === "string" && r.fallbackLanguage.trim()) {
+    item.fallbackLanguage = r.fallbackLanguage.trim().slice(0, 240);
+  }
+  if (typeof r.unacceptableLanguage === "string" && r.unacceptableLanguage.trim()) {
+    item.unacceptableLanguage = r.unacceptableLanguage.trim().slice(0, 240);
+  }
+  if (typeof r.evidenceScore === "number" && Number.isFinite(r.evidenceScore)) {
+    item.evidenceScore = clamp01(r.evidenceScore);
+  }
+  if (typeof r.modelConfidence === "number" && Number.isFinite(r.modelConfidence)) {
+    item.modelConfidence = clamp01(r.modelConfidence);
+  }
   if (typeof r.supersededBy === "string" && r.supersededBy.trim()) {
     item.supersededBy = r.supersededBy.trim();
   }
@@ -130,6 +143,7 @@ export function writeStanceItems(workspaceDir: string, items: StanceItem[]): voi
     items,
   };
   writeJsonAtomic(stanceItemsPath(workspaceDir), payload);
+  syncStanceItemsToKernel(workspaceDir, items);
 }
 
 /** Read-modify-write under an exclusive lock so concurrent accepts do not tear the file. */

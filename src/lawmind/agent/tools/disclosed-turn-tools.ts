@@ -11,7 +11,7 @@ import { compiledIntentInjectsSkillBodies } from "../../intent/understand-first.
 import { instructionLooksLikeLetterQa } from "../../intent/utterance-kind.js";
 import type { ComposeContextPin } from "../../platform/compose-context-pin.js";
 import { COMPUTE_INTENT_RE, isPublicWebFactLookup } from "../../skills/capability-patterns.js";
-import { listLocalSkills } from "../../skills/skill-runtime.js";
+import { productPlaybookToolNames } from "../../skills/product-playbooks.js";
 import { collectDisclosedToolNames } from "./governance.js";
 import type { ToolRegistry } from "./registry.js";
 
@@ -45,6 +45,7 @@ export const DESK_EVENTS_TOOLS = [
   "apply_legal_events",
   "update_matter_profile",
   "record_deadline",
+  "record_obligation",
   "import_host_file",
   "search_host",
   "read_host_file",
@@ -91,6 +92,7 @@ export const DESK_WRITE_ALWAYS_TOOLS = [
   "create_matter",
   "revert_desk_write",
   "record_deadline",
+  "record_obligation",
 ] as const;
 
 /** Invoice / spreadsheet ops. */
@@ -178,12 +180,13 @@ const SKILL_DISCLOSE_DENY = new Set([
   "delegate_to_role",
 ]);
 
-export function collectEnabledSkillToolNames(workspaceDir: string): string[] {
+/**
+ * Tools named by product playbooks. `workspaceDir` is ignored: a dropped-in
+ * SKILL.md cannot add or remove tools.
+ */
+export function collectEnabledSkillToolNames(_workspaceDir?: string): string[] {
   try {
-    return listLocalSkills(workspaceDir)
-      .filter((s) => s.enabled && s.signatureOk)
-      .flatMap((s) => s.toolNames ?? [])
-      .filter((name) => !SKILL_DISCLOSE_DENY.has(name));
+    return productPlaybookToolNames().filter((name) => !SKILL_DISCLOSE_DENY.has(name));
   } catch {
     return [];
   }
@@ -338,12 +341,12 @@ export function mergeTurnDisclosedToolNames(opts: {
   found.push("list_dir");
   found.push("explore_folder");
   found.push("search_workspace");
-  found.push("list_mail_inbox");
   found.push("search_conversations", "read_conversation");
   found.push("read_skill", "search_company_registry");
   found.push(...DESK_WRITE_ALWAYS_TOOLS);
   if (opts.matterId?.trim()) {
     found.push(...DESK_READ_TOOLS);
+    found.push("list_mail_inbox", "list_mail_attachments");
   }
   if (pinsIncludeXlsx(opts.pins)) {
     found.push(...PINNED_SPREADSHEET_TOOL_NAMES);

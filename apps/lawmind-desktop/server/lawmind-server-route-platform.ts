@@ -1,5 +1,7 @@
+import { resolveConversationLength } from "../../../src/lawmind/agent/context-preset.js";
 import { listPlatformGateHistory } from "../../../src/lawmind/platform/audit-gate.js";
 import { mergeRecommendedLegalNetworkAllowlist } from "../../../src/lawmind/policy/network-allowlist.js";
+import { isAnalysisScriptsAllowed } from "../../../src/lawmind/policy/analysis-scripts.js";
 import {
   mergeWorkspacePolicyFile,
   readWorkspacePolicyFile,
@@ -31,13 +33,14 @@ export async function handlePlatformRoutes({
         // 「离线模式」是 egressMode 的别名，UI/MCP 统一看这两个派生值。
         egressMode,
         highSecurityMode: egressMode === "offline",
-        allowAnalysisScripts: policy?.allowAnalysisScripts === true,
+        allowAnalysisScripts: isAnalysisScriptsAllowed(ctx.workspaceDir),
         // 原始偏好：离线模式下被压制，但不被改写，退出离线后自动恢复。
         allowWebSearch: policy?.allowWebSearch,
         /** 运行进程当前是否真的在拦联网（env 闸）。 */
         webSearchForcedOff: isWebSearchForcedOffByPolicy(),
         networkAllowlist: policy?.networkAllowlist ?? [],
         hostAccess: policy?.hostAccess ?? {},
+        conversationLength: resolveConversationLength(policy?.conversationLength),
       },
       c,
     );
@@ -83,6 +86,9 @@ export async function handlePlatformRoutes({
         ? { allowAnalysisScripts: body.allowAnalysisScripts }
         : {}),
       ...(body.hostAccess ? { hostAccess: body.hostAccess } : {}),
+      ...(body.conversationLength !== undefined
+        ? { conversationLength: body.conversationLength }
+        : {}),
     });
     if (!merged.ok) {
       sendJson(res, 500, { ok: false, message: merged.error }, c);
@@ -99,11 +105,12 @@ export async function handlePlatformRoutes({
         ok: true,
         egressMode,
         highSecurityMode: egressMode === "offline",
-        allowAnalysisScripts: merged.policy.allowAnalysisScripts === true,
+        allowAnalysisScripts: isAnalysisScriptsAllowed(ctx.workspaceDir),
         allowWebSearch: merged.policy.allowWebSearch,
         /** 运行进程当前是否真的在拦联网（env 闸已按新策略刷新）。 */
         webSearchForcedOff: isWebSearchForcedOffByPolicy(),
         hostAccess: merged.policy.hostAccess ?? {},
+        conversationLength: resolveConversationLength(merged.policy.conversationLength),
       },
       c,
     );

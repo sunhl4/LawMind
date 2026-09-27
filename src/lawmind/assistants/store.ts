@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getAssistantPreset } from "../agent/assistant-presets.js";
 import { DEFAULT_ASSISTANT_ID } from "./constants.js";
+import { assertAssistantRosterHasRoom, normalizeAssistantRosterFlags } from "./roster.js";
 import type {
   AssistantJobBrief,
   AssistantOrgRole,
@@ -109,7 +110,7 @@ export function loadAssistantProfiles(lawMindRoot: string): AssistantProfile[] {
     const out: AssistantProfile[] = [];
     for (const row of parsed) {
       if (isAssistantProfile(row)) {
-        out.push(row);
+        out.push(normalizeAssistantRosterFlags(row));
       }
     }
     return out.length > 0 ? out : [defaultProfile(new Date().toISOString())];
@@ -159,8 +160,11 @@ export function upsertAssistant(
 
   if (idx >= 0) {
     const base = list[idx];
+    if (id === DEFAULT_ASSISTANT_ID && patch.hidden === true) {
+      throw new Error("默认助手要留在日常切换里，不能隐藏");
+    }
     const org = mergeOrgFields(base, patch);
-    const next: AssistantProfile = {
+    const next: AssistantProfile = normalizeAssistantRosterFlags({
       ...base,
       displayName: patch.displayName !== undefined ? patch.displayName.trim() : base.displayName,
       introduction:
@@ -184,8 +188,10 @@ export function upsertAssistant(
       orgRole: org.orgRole,
       reportsToAssistantId: org.reportsToAssistantId,
       peerReviewDefaultAssistantId: org.peerReviewDefaultAssistantId,
+      pinned: patch.pinned !== undefined ? patch.pinned : base.pinned,
+      hidden: patch.hidden !== undefined ? patch.hidden : base.hidden,
       updatedAt: now,
-    };
+    });
     const nextList = list.map((a) => (a.assistantId === id ? next : a));
     validateAssistantOrgLinks(nextList);
     list[idx] = next;
@@ -203,7 +209,8 @@ export function upsertAssistant(
     } as AssistantProfile,
     patch,
   );
-  const next: AssistantProfile = {
+  assertAssistantRosterHasRoom(list.length);
+  const next: AssistantProfile = normalizeAssistantRosterFlags({
     assistantId: id,
     displayName: patch.displayName?.trim() || "新助手",
     introduction: patch.introduction?.trim() || "",
@@ -215,9 +222,11 @@ export function upsertAssistant(
     orgRole: org.orgRole,
     reportsToAssistantId: org.reportsToAssistantId,
     peerReviewDefaultAssistantId: org.peerReviewDefaultAssistantId,
+    pinned: patch.pinned === true ? true : undefined,
+    hidden: patch.hidden === true ? true : undefined,
     createdAt: now,
     updatedAt: now,
-  };
+  });
   const nextList = [...list, next];
   validateAssistantOrgLinks(nextList);
   list.push(next);
@@ -265,6 +274,7 @@ export function duplicateAssistant(
   }
   const now = (opts.now ?? new Date()).toISOString();
   const list = loadAssistantProfiles(lawMindRoot);
+  assertAssistantRosterHasRoom(list.length);
   const existingNames = new Set(list.map((a) => a.displayName));
   const baseName = opts.displayName?.trim() || `${source.displayName} 副本`;
   const displayName = uniqueAssistantDisplayName(baseName, existingNames);

@@ -46,6 +46,10 @@ describe("isContextBudgetDeferralReply", () => {
     expect(isContextBudgetDeferralReply("本案预算分次支付，首期款见附件台账。")).toBe(false);
     // 只命中「另开一轮」而没有上下文水位：不是退让。
     expect(isContextBudgetDeferralReply("若对方拒绝，可另开一轮谈判并重新报价。")).toBe(false);
+    // 水位词 + 合同里的「分两次支付」不是把活儿退回律师。
+    expect(
+      isContextBudgetDeferralReply("合同内容较多，价款分两次支付，首期于签署后五个工作日内付清。"),
+    ).toBe(false);
     expect(isContextBudgetDeferralReply("")).toBe(false);
     expect(isContextBudgetDeferralReply("好的。")).toBe(false);
   });

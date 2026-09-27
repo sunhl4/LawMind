@@ -46,7 +46,7 @@ describe("lawmind-server-route-bootstrap", () => {
   it("returns aggregated bootstrap payload", async () => {
     const req = { method: "GET" } as http.IncomingMessage;
     const res = mockRes();
-    const handled = await handleBootstrapRoute({
+    const handled = handleBootstrapRoute({
       ctx,
       req,
       res,
@@ -61,8 +61,10 @@ describe("lawmind-server-route-bootstrap", () => {
       health: { modelConfigured: expect.any(Boolean), modelVerified: expect.any(Boolean) },
       edition: { id: expect.any(String), features: expect.any(Object) },
       assistants: expect.any(Array),
-      records: { taskCount: 0, draftCount: 0, matterCount: 0, pendingReviewCount: 0 },
+      presets: expect.any(Array),
     });
+    expect(res.body).not.toHaveProperty("records");
+    expect((res.body as { health?: { doctor?: unknown } }).health).not.toHaveProperty("doctor");
   });
 
   it("exposes the 起草大模型 switch so the settings checkbox survives /api/bootstrap", async () => {
@@ -80,7 +82,7 @@ describe("lawmind-server-route-bootstrap", () => {
     );
     const req = { method: "GET" } as http.IncomingMessage;
     const res = mockRes();
-    const handled = await handleBootstrapRoute({
+    const handled = handleBootstrapRoute({
       ctx: { ...ctx, envFile: path.join(lawMindRoot, ".env.lawmind") },
       req,
       res,
@@ -99,7 +101,7 @@ describe("lawmind-server-route-bootstrap", () => {
     const policy: LawMindPolicyFile = { schemaVersion: 1, allowWebSearch: false };
     const req = { method: "GET" } as http.IncomingMessage;
     const res = mockRes();
-    const handled = await handleBootstrapRoute({
+    const handled = handleBootstrapRoute({
       ctx: {
         ...ctx,
         policy: { loaded: true, path: path.join(workspaceDir, "lawmind.policy.json"), applied: [], policy },
@@ -125,7 +127,7 @@ describe("lawmind-server-route-bootstrap", () => {
   it("ignores non-bootstrap paths", async () => {    const req = { method: "GET" } as http.IncomingMessage;
     const res = mockRes();
     expect(
-      await handleBootstrapRoute({
+      handleBootstrapRoute({
         ctx,
         req,
         res,

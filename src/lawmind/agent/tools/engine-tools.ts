@@ -21,6 +21,7 @@ export {
   openWorkQueueItem,
   requestApprovalTool,
   recordDeadlineTool,
+  recordObligationTool,
   appendSessionSummaryTool,
 } from "./engine/engine-governance-tools.js";
 import type { AgentTool } from "../types.js";
@@ -28,6 +29,7 @@ import {
   openWorkQueueItem,
   requestApprovalTool,
   recordDeadlineTool,
+  recordObligationTool,
   appendSessionSummaryTool,
 } from "./engine/engine-governance-tools.js";
 import {
@@ -61,5 +63,6 @@ export const engineTools: AgentTool[] = [
   openWorkQueueItem,
   requestApprovalTool,
   recordDeadlineTool,
+  recordObligationTool,
   appendSessionSummaryTool,
 ];

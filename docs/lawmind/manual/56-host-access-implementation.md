@@ -2,64 +2,40 @@
 
 第 15 章从「机制清单」的角度讲过本机访问。这一章从**实现**的角度讲：13 个文件的 `host-access/` 是怎么把「律师的整台电脑」变成「一个受控的、只读的、带案件围栏的资源池」。
 
-## 56.1 四个模式，而不是一个开关
+## 56.1 解析固定为 command
 
-`host-access/types.ts` 定义的核心枚举是：
+`host-access/types.ts` 仍保留枚举：
 
 ```ts
 HostAccessMode = "matter" | "mounts" | "locate" | "command";
 ```
 
-四档不是「开多大」，而是**四种不同的能力**：
+`resolveHostAccessPolicy` 固定返回 **`command`**。`matter` / `mounts` / `locate` 留在类型里，策略文件写了也不再生效。挂载点一律只读。律师设置里没有这四档。
 
-| 模式      | 能用什么                                         |
-| --------- | ------------------------------------------------ |
-| `matter`  | 只用工作区（案件材料）。**最严**                 |
-| `mounts`  | 工作区 + 已选本机文件夹（**默认值**）            |
-| `locate`  | 加上「本机查找」（能找到路径，但读正文仍要授权） |
-| `command` | 加上受控本机命令                                 |
-
-`DEFAULT_HOST_ACCESS_POLICY` 的 `mode` 是 **`"mounts"`**。
-
-**为什么默认不是 `matter`**：律师要能把客户发来的材料收进本案，这需要能读本机文件夹。默认卡死在 `matter` 会让「收进本案」这条主路径不可用。所以默认给了 `mounts`，而**挂载点一律只读**（下一节）。
-
-### 默认策略的十三个字段
+### 解析结果里律师会碰到的字段
 
 ```ts
 {
-  mode: "mounts",
+  mode: "command",
   maxMounts: 16,
   spotlightEnabled: true,
-  fullDiskAccessOptIn: false,
-  allowHostCommands: false,      ← 默认不给命令
-  hostCommandLevel: "office",    ← 命令档位默认最窄
+  allowHostCommands: true,
+  hostCommandLevel: "session",
   fileTaskReadBudget: 16,
   fileTaskReadHardCap: 48,
   denyPathPatterns: [],
-  allowCrossMatterMounts: false, ← 默认不许跨案
+  allowCrossMatterMounts: true,
   indexBodyInAppSupport: true,
   forceMatterMode: false,
   allowSessionCommands: true,
 }
 ```
 
-三个默认值值得单独看：
+`mode`、`allowHostCommands`、`hostCommandLevel`、`allowCrossMatterMounts`、`forceMatterMode` 不读策略文件，避免旧开关把任务卡住。`maxMounts` 与读写预算仍按策略夹范围。
 
-- **`allowHostCommands: false`** —— 默认不给本机命令。要开得显式。
-- **`hostCommandLevel: "office"`** —— 命令档位默认最窄（只允许办公类）。
-- **`allowCrossMatterMounts: false`** —— 默认不许跨案件读别的案子的挂载。
+### 环境变量不收窄本机访问
 
-### 环境变量会被「打包态」屏蔽
-
-`resolveHostAccessPolicy` 里有一条：
-
-```text
-LAWMIND_PACKAGED === "1" → 忽略 LAWMIND_HOST_ACCESS_MODE 与 LAWMIND_HOST_COMMANDS
-```
-
-**打包（真实用户）状态下，环境变量不能改这两个值。** 这与第 13 章那条「生产不可被环境变量改状态」是同一个姿态。
-
-所以在生产里，本机能力的档位只能通过**工作区策略文件**或**界面设置**改。
+`LAWMIND_HOST_ACCESS_MODE` 与 `LAWMIND_HOST_COMMANDS` 在解析时忽略，打包与否都一样。
 
 ### 三组数值都要夹范围
 
@@ -77,14 +53,7 @@ if (fileTaskReadHardCap < fileTaskReadBudget) hardCap = budget
 
 **硬上限不能小于软上限**——否则「预算」这个概念自相矛盾。
 
-### 律所版的特殊处理
-
-```text
-firm 版：allowSessionCommands 必须是显式 true 才开；且档位是 session 时会降到 workspace
-solo 版：只要不是显式 false 就算开
-```
-
-**律所版默认更严**：不受信任的「本会话命令」在律所环境默认是关的。
+律所版不再把本机命令降档。`allowSessionCommands` 固定为开。
 
 ## 56.2 硬黑名单：授权也不能越过
 
@@ -206,26 +175,26 @@ audit/  sessions/  lawmind/
 | ⑦   | 挂载点 + 写请求                       | `write_forbidden`                                      | `MOUNT_WRITE_REFUSAL`                                                                                              |
 | ⑧   | 有匹配的 grant                        | ✅                                                     | `{ rootKind: "grant", writable: kind === "write" }`                                                                |
 | ⑨   | 写请求但没 grant                      | `write_forbidden`                                      | `写入只允许工作区。本机路径请先收进本案。`                                                                         |
-| ⑩   | 允许 locate 或模式是 locate/command   | `needs_grant`                                          | `尚未允许读取「X」（位于 Y）。请律师选择允许一次、本会话允许或始终允许。`                                          |
+| ⑩   | 工作区与已选文件夹之外的普通文件      | 直接读（只读）                                         | 不向律师弹出允许一次 / 本会话 / 始终                                                                               |
 | ⑪   | 都不在                                | `escape`                                               | `该路径不在工作区或已选本机文件夹内。请先选择本机文件夹，或改用本机查找。`                                         |
 
 ### 三个细节
 
 **第 ③ 步的两个「也」**：注释写着 `denied (claimed or real)`——**声明的路径和真实路径都要查**。因为软链可以让声称的路径看起来干净、真实的路径指向 `.ssh`。
 
-**第 ② 步的相对路径解析**有两层要求：段里不能有 `.`、`..`、空段；而且**多命中时要报出「是哪几个」**（`parent/base` 形式）。这不是随便报个错——律师需要知道要指明哪个。
+**第 ② 步的相对路径解析**拒绝整段是 `.`、空路径，以及路径里出现 `..`。`foo/./bar` 这种中间的 `.` 段不会在这一关被拒。多命中时要报出「是哪几个」（`parent/base` 形式），律师才知道该指哪一个。
 
 **第 ⑩ 步的三种授权时长**（`HostGrantDuration`）：`once` / `session` / `always`。文案里把这三种都念出来，是为了让界面能照做。
 
 ### 第 ⑥ 步的三种被挡原因
 
-| 原因                  | 文案                                                                     |
-| --------------------- | ------------------------------------------------------------------------ |
-| `ethical_wall`        | `该本机文件夹绑定的案件与本案当事人对立，已按利益冲突隔离。`             |
-| `cross_matter_denied` | `该本机文件夹已绑定其他案件。未打开「允许对照旧案材料」时不能读取正文。` |
-| `mode_denied`         | `当前本机能力为「仅本案」，请先在设置里改成已选文件夹。`                 |
+| 原因                  | 文案                                                         |
+| --------------------- | ------------------------------------------------------------ |
+| `ethical_wall`        | `该本机文件夹绑定的案件与本案当事人对立，已按利益冲突隔离。` |
+| `cross_matter_denied` | `该本机文件夹已绑定其他案件，当前会话不能读取正文。`         |
+| `mode_denied`         | `当前本机范围看不到该文件夹。请在工作区添加本机文件夹。`     |
 
-**第二条里藏了一个开关**：`allowCrossMatterMounts`（默认 false）。
+解析结果里 `allowCrossMatterMounts` 固定为 true，这条拒绝只在运行时被显式关掉时出现。对立当事人走 `ethical_wall`，不靠这个开关。
 
 ## 56.5 案件围栏：冲突判定会传递
 
@@ -453,10 +422,10 @@ basename 含 query（小写）
 ### 第 ③ 路的两个条件
 
 ```text
-spotlightEnabled && (mode 是 locate/command 或 fullDiskAccessOptIn)
+spotlightEnabled && mode 是 command
 ```
 
-也就是：**要么开了定位模式，要么律师显式给了全盘访问**。而且 macOS 用 `mdfind`（超时 4000ms），Windows 走自己遍历。
+解析结果里这两项都是开的，所以本机查找会走 Spotlight。macOS 用 `mdfind`（超时 4000ms），Windows 走自己遍历。`fullDiskAccessOptIn` 不再参与这个判断的产品开关。
 
 查询会被消毒：
 
@@ -540,19 +509,20 @@ officecli：可改写文件，且它的**位置参数是文档选择器**而不�
 1. **officecli 的 cwd 必须在工作区内**（注释：「相对路径参数以 cwd 为基准解析，所以写类命令的 cwd 也必须留在工作区内」）。
 2. **officecli 的 roots 只有工作区**（不是 `allowedRootsForCommands` 那套）。
 
-### 七步拒绝（每步的确切文案）
+### 八步拒绝（每步的确切文案）
 
-| #   | 情况                     | 文案                                                                                        |
-| --- | ------------------------ | ------------------------------------------------------------------------------------------- |
-| ①   | 策略没开命令             | `未打开本机命令。请到设置「本机能力」允许本机命令。`                                        |
-| ②   | 在禁止名单               | `不允许运行 <名字>。`                                                                       |
-| ③   | session 档但策略不允许   | `该命令超出办公/工作副本白名单。Solo 可在本机能力中打开「本会话命令」。`                    |
-| ④   | session 档但本会话没允许 | `请先在本会话确认「本机命令：本会话允许」。`（带 `needsApproval: true`）                    |
-| ⑤   | 档位不足                 | workspace：`请在本机能力中把本机命令档位调到「工作副本」。`；其他：`当前本机命令档位不足。` |
-| ⑥   | 非 office 档且未批准     | `该本机命令需要律师确认后才能执行。`（带 `needsApproval: true`）                            |
-| ⑦   | 命令找不到               | `找不到命令：<名字>`                                                                        |
+| #   | 情况                           | 文案                                   |
+| --- | ------------------------------ | -------------------------------------- |
+| ①   | 运行时关掉了命令               | `当前不能运行这条本机命令。`           |
+| ②   | 在禁止名单                     | `不允许运行 <名字>。`                  |
+| ③   | session 档但策略不允许         | `该命令超出办公与分析白名单。`         |
+| ④   | 禁止名单之外的命令             | 直接执行。不要求本会话再确认一次。     |
+| ⑤   | 档位不足                       | `当前不能运行这条本机命令。`           |
+| ⑥   | 非办公命令                     | 直接执行，不向律师要确认               |
+| ⑦   | 命令找不到                     | `找不到命令：<名字>`                   |
+| ⑧   | 命令已找到，但参数越出授权目录 | `参数路径不在已授权目录内：<basename>` |
 
-第 ⑥ 步还有一条参数检查：
+先解析命令，找不到就停在 ⑦。路径检查在命令解析之后：
 
 ```text
 参数路径不在已授权目录内：<basename>
@@ -718,9 +688,9 @@ needsLawyerConfirmation: true;
 
 ## 56.13 已知坑（本章相关）
 
-- **本机能力有四档（matter / mounts / locate / command），不是一个开关。** 默认 `mounts`。
-- **`matter` 模式会挡掉所有挂载点**，不是「优先用案件材料」。
-- **打包态忽略 `LAWMIND_HOST_ACCESS_MODE` 与 `LAWMIND_HOST_COMMANDS`。**
+- **解析固定为 `command`。** 设置里没有本机能力档位。策略文件里的 `matter` / `mounts` 不再生效。
+- **`matter` 模式的代码路径仍会挡掉挂载点**，但正常解析走不到。
+- **`LAWMIND_HOST_ACCESS_MODE` 与 `LAWMIND_HOST_COMMANDS` 被忽略。**
 - **硬上限不能小于软上限**（有联动修正）。
 - **黑名单的授权也越不过。** 「Grants cannot override」。
 - **`docs/lawmind` 被排除在治理路径拦截之外。**
@@ -735,7 +705,7 @@ needsLawyerConfirmation: true;
 - **未经授权的命中不给绝对路径、不给正文片段。**
 - **officecli 的参数是「文档选择器」，不是路径。** 那条正则不能删。
 - **officecli 的 cwd 必须在工作区内。**
-- **命令档位是三档且按 `rank` 比较**，不是按名字白名单。
+- **命令档位代码仍按 `rank` 比较**，解析结果固定为 `session`，律师不用在设置里升档。
 - **用户中断、日志失败都不许影响主流程。**
 - **OCR 结果必须律师确认才能入库**（`needsLawyerConfirmation` 是常量）。
 - **PDF 光栅化还没做。** 云 OCR 是占位。

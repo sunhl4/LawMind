@@ -132,6 +132,20 @@ describe("outbound-proxy", () => {
     expect(hops.some((h) => h.includes("169.254"))).toBe(false);
   });
 
+  it("rejects bracketed IPv6 metadata and mapped link-local", async () => {
+    const proxy = createOutboundProxy({ allowInsecure: true, allowLocalNetwork: true });
+    await expect(proxy.fetch("http://[fd00:ec2::254]/")).rejects.toThrow(/云元数据/);
+    await expect(proxy.fetch("http://[::ffff:169.254.169.254]/")).rejects.toThrow(/link-local/);
+    // Node URL 先把整段十进制收成点分，再进黑名单 / 地址族校验。
+    await expect(proxy.fetch("http://2852039166/")).rejects.toThrow(/link-local|黑名单/);
+  });
+
+  it("rejects IPv6 link-local fe80::/10 even when private networks are allowed", async () => {
+    const proxy = createOutboundProxy({ allowInsecure: true, allowLocalNetwork: true });
+    await expect(proxy.fetch("http://[fe80::1]/")).rejects.toThrow(/link-local/);
+    await expect(proxy.fetch("http://[febf::1]/")).rejects.toThrow(/link-local/);
+  });
+
   it("rejects SSRF blacklist (169.254 and 0.0.0.0/8)", async () => {
     const proxy = createOutboundProxy({ allowInsecure: true });
     await expect(proxy.fetch("http://169.254.169.254/")).rejects.toThrow(/SSRF|link-local/);

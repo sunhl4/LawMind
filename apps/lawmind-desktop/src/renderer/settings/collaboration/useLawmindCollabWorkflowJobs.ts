@@ -99,13 +99,13 @@ export function useLawmindCollabWorkflowJobs(opts: UseLawmindCollabWorkflowJobsO
 
   useEffect(() => {
     if (!apiBase || !collaborationEnabled) {
-      return;
+      return undefined;
     }
     const needsReconcile =
       runBusy ||
       (recentJobs?.some((r) => r.status === "queued" || r.status === "running") ?? false);
     if (!needsReconcile) {
-      return;
+      return undefined;
     }
     const t = window.setInterval(() => {
       void fetchRecentJobs();
@@ -321,6 +321,13 @@ export function useLawmindCollabWorkflowJobs(opts: UseLawmindCollabWorkflowJobsO
           }
           return true;
         }
+        if (job.status === "awaiting_lawyer") {
+          const text = job.result?.report
+            ? `状态：待确认\n\n${job.result.report}`
+            : (job.error ?? "请确认后再继续后续步骤。");
+          void finish(text, "流程停在确认。确认后可继续。");
+          return false;
+        }
         if (job.status === "cancelled") {
           const text = job.result?.report
             ? `状态：cancelled\n\n${job.result.report}`
@@ -434,6 +441,27 @@ export function useLawmindCollabWorkflowJobs(opts: UseLawmindCollabWorkflowJobsO
       }
     },
     [apiBase],
+  );
+
+  const continueAwaitingLawyerJob = useCallback(
+    async (jobId: string) => {
+      if (!apiBase) {
+        return;
+      }
+      const id = jobId.trim();
+      if (!id) {
+        return;
+      }
+      try {
+        await apiSendJson(apiBase, `/api/jobs/${encodeURIComponent(id)}/continue`, "POST");
+        setRunResult("已确认，正在继续后续步骤…");
+        setNotificationHint(null);
+        await trackJob(id);
+      } catch (e) {
+        setNotificationHint(errorMessage(e, "继续失败"));
+      }
+    },
+    [apiBase, trackJob],
   );
 
   const runWorkflow = useCallback(async () => {
@@ -577,6 +605,7 @@ export function useLawmindCollabWorkflowJobs(opts: UseLawmindCollabWorkflowJobsO
     copyHint,
     fetchRecentJobs,
     cancelBackgroundJob,
+    continueAwaitingLawyerJob,
     copyActiveJobId,
     runWorkflow,
     testSystemNotification,

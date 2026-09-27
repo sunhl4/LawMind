@@ -62,8 +62,8 @@ export type ModelsStoreFile = {
   /** When true, workflow drafting uses the configured chat model (same API key). */
   draftWithModelEnabled?: boolean;
   /**
-   * Optional fast/worker model for tool-loop rounds (E7).
-   * Falls back to defaultModelId when unset.
+   * Optional faster model for review and mid-turn summaries.
+   * The dialogue tool loop always uses the selected chat model.
    */
   workerModelId?: string;
   /**

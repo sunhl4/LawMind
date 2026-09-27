@@ -66,7 +66,19 @@ function mockFs() {
     writeFileSync: (p: string, content: string) => {
       files.set(p, content);
     },
-    _files: files,
+    renameSync: (from: string, to: string) => {
+      const content = files.get(from);
+      if (content === undefined) {
+        throw new Error("ENOENT");
+      }
+      files.set(to, content);
+      files.delete(from);
+    },
+    chmodSync: () => undefined,
+    unlinkSync: (p: string) => {
+      files.delete(p);
+    },
+    storedFiles: files,
   };
 }
 
@@ -105,7 +117,7 @@ function withMockedElectron(fn: (vault: VaultModule) => Promise<void>): Promise<
   } catch {
     /* ignore */
   }
-  fsMock._files.clear();
+  fsMock.storedFiles.clear();
   encryptedStore.clear();
   const vault = nodeRequire(vaultPath) as VaultModule;
   return fn(vault);
@@ -140,6 +152,17 @@ describe("lawmind-key-vault.cjs", () => {
       expect(list).toHaveLength(1);
       expect(list[0].account).toBe("wizard.default.apiKey");
       expect(await vault.deleteSecret("wizard.default.apiKey")).toBe(true);
+      expect(await vault.readSecret("wizard.default.apiKey")).toBeNull();
+    });
+  });
+
+  it("refuses to overwrite a corrupt secrets file", async () => {
+    encryptionAvailable = true;
+    await withMockedElectron(async (vault) => {
+      const secretsPath = "/tmp/lawmind-test-userData/lawmind-secrets.json";
+      fsMock.storedFiles.set(secretsPath, "{not-json");
+      expect(await vault.saveSecret("wizard.default.apiKey", "sk-new")).toBe(false);
+      expect(fsMock.storedFiles.get(secretsPath)).toBe("{not-json");
       expect(await vault.readSecret("wizard.default.apiKey")).toBeNull();
     });
   });

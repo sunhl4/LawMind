@@ -53,7 +53,7 @@ export const listMailInbox: AgentTool = {
   definition: {
     name: "list_mail_inbox",
     description:
-      "列出本案本地邮件匣（cases/<matterId>/mail/inbox）。只读，不远程同步。若需拉新信，请律师在「自动办件 → 邮箱配置」同步，或使用邮件合同审阅短路径。",
+      "列出本案本地邮件匣（cases/<matterId>/mail/inbox）。只读，不远程同步。若需拉新信，请律师在「设置 → 自动办件」点同步。",
     category: "system",
     parameters: {
       matter_id: { type: "string", description: "案件 ID（可从上下文继承）" },
@@ -88,7 +88,7 @@ export const listMailInbox: AgentTool = {
         messages,
         hint:
           messages.length === 0
-            ? "邮件匣为空。请在「设置 → 自动办件 → 邮箱配置」同步，或写入演示邮件后再试。"
+            ? "邮件匣为空。请在「设置 → 自动办件」接上邮箱并同步。"
             : "若要做合同改稿，选中附件路径后走短路径（analyze → update_draft → render_tracked_draft → prepare_outbound_mail），勿反复 search_workspace。",
       },
     };

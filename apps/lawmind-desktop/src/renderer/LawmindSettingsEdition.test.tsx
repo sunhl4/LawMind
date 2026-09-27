@@ -4,30 +4,14 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { soloEditionFeatures } from "../../../../src/lawmind/policy/edition-features.js";
 
 const editionState = {
   current: {
     edition: "solo" as "solo" | "firm",
     label: "独立律师版",
     source: "default" as const,
-    features: {
-      acceptanceGateStrict: true,
-      citationGateStrict: true,
-      crossMatterRoadmap: false,
-      crossMatterAcceptanceDashboard: false,
-      collaborationSummary: false,
-      complianceAuditExport: false,
-      auditIntegrityExport: false,
-      securitySbomPanel: false,
-      qualityDashboardJsonExport: false,
-      customDeliverableSpec: false,
-      acceptancePackExport: false,
-      strictDangerousToolApproval: false,
-      reviewCampaignParallel: true,
-      forcePeerReview: false,
-      matterReplicaCollab: false,
-      ethicsWall: false,
-    },
+    features: { ...soloEditionFeatures() },
     citationMode: "assisted" as const,
     loading: false,
   },
@@ -60,7 +44,7 @@ describe("LawmindSettingsEdition", () => {
       ...editionState.current,
       edition: "solo",
       label: "独立律师版",
-      features: { ...editionState.current.features, complianceAuditExport: false },
+      features: { ...soloEditionFeatures(), complianceAuditExport: false },
     };
   });
 
@@ -78,19 +62,23 @@ describe("LawmindSettingsEdition", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(host.textContent).toContain("独立律师版");
-    const admin = host.querySelector('[data-testid="lm-edition-admin"]') as HTMLDetailsElement | null;
-    expect(admin?.tagName).toBe("DETAILS");
-    expect(admin?.open).toBe(false);
-    expect(admin?.textContent).toContain("本版能力");
-    expect(admin?.textContent).toContain("可用文书类型");
+    const details = host.querySelector("details.lm-settings-advanced");
+    expect(details).toBeTruthy();
+    expect(details?.hasAttribute("open")).toBe(false);
+    expect(host.textContent).toMatch(/独立律师版/);
   });
 
-  it("Firm shows admin body without requiring details wrapper", async () => {
+  it("Firm shows export actions when compliance is on", async () => {
     editionState.current = {
       ...editionState.current,
       edition: "firm",
-      label: "律所版",
+      label: "律所协作版",
+      features: {
+        ...soloEditionFeatures(),
+        complianceAuditExport: true,
+        auditIntegrityExport: true,
+        qualityDashboardJsonExport: true,
+      },
     };
     await act(async () => {
       root.render(<LawmindSettingsEdition apiBase="http://127.0.0.1:8765" />);
@@ -98,8 +86,6 @@ describe("LawmindSettingsEdition", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    const admin = host.querySelector('[data-testid="lm-edition-admin"]');
-    expect(admin?.tagName).toBe("DIV");
-    expect(host.textContent).toContain("本版能力一览");
+    expect(host.textContent).toMatch(/导出合规审计|校验完整性/);
   });
 });

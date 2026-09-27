@@ -75,6 +75,7 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
     recentJobsError,
     copyHint,
     cancelBackgroundJob,
+    continueAwaitingLawyerJob,
     copyActiveJobId,
     runWorkflow,
     testSystemNotification,
@@ -384,6 +385,15 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
                           >
                             查看进度
                           </button>
+                          {r.status === "awaiting_lawyer" ? (
+                            <button
+                              type="button"
+                              className="lm-btn lm-btn-secondary lm-btn-sm"
+                              onClick={() => void continueAwaitingLawyerJob(r.jobId)}
+                            >
+                              确认并继续
+                            </button>
+                          ) : null}
                           {r.cancelRequested &&
                           (r.status === "queued" || r.status === "running") ? (
                             <span className="lm-collab-recent-jobs-flag">正在取消…</span>

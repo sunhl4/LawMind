@@ -1,9 +1,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { WORD_REVISION_DENIED_HINT } from "../platform/word-revision-instruction.js";
 import { runTurn } from "./runtime.js";
+import {
+  cassetteAssistant,
+  cassetteToolCall,
+  startCassetteModelServer,
+  type CassetteModelServer,
+} from "./testkit/index.js";
 import { ToolRegistry } from "./tools/registry.js";
 import type { AgentConfig } from "./types.js";
 
@@ -14,56 +20,21 @@ function tmpWorkspace(): string {
   return dir;
 }
 
-function baseConfig(workspaceDir: string): AgentConfig {
+function baseConfig(workspaceDir: string, baseUrl: string): AgentConfig {
   return {
     workspaceDir,
     model: {
       provider: "openai-compatible",
-      baseUrl: "https://example.com/v1",
+      baseUrl,
       apiKey: "sk-test",
       model: "demo",
     },
   };
 }
 
-function stubModelWithToolCall(toolName: string, argsJson: string) {
-  const responses = [
-    {
-      choices: [
-        {
-          message: {
-            role: "assistant",
-            content: "",
-            tool_calls: [
-              { id: "call-1", type: "function", function: { name: toolName, arguments: argsJson } },
-            ],
-          },
-          finish_reason: "tool_calls",
-        },
-      ],
-    },
-    {
-      choices: [
-        {
-          message: { role: "assistant", content: "已处理。" },
-          finish_reason: "stop",
-        },
-      ],
-    },
-  ];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => ({
-      ok: true,
-      json: async () => {
-        const next = responses.shift();
-        if (next === undefined) {
-          throw new Error("unexpected extra model call");
-        }
-        return next;
-      },
-    })),
-  );
+/** Loopback cassette：出口代理绕过 global fetch，模型字节由本机服务脚本化。 */
+function stubModelWithToolCall(server: CassetteModelServer, toolName: string): void {
+  server.enqueue(cassetteToolCall(toolName), cassetteAssistant("已处理。"));
 }
 
 const THAILAND_EDIT = [
@@ -74,13 +45,16 @@ const THAILAND_EDIT = [
 ].join("\n");
 
 describe("word-revision tool lock", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
+  const servers: CassetteModelServer[] = [];
+
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => s.close()));
   });
 
   it("rejects prepare_outbound_mail on a file-page Word edit", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     let mailed = false;
     registry.register({
@@ -95,10 +69,10 @@ describe("word-revision tool lock", () => {
         return { ok: true, data: {} };
       },
     });
-    stubModelWithToolCall("prepare_outbound_mail", "{}");
+    stubModelWithToolCall(server, "prepare_outbound_mail");
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: THAILAND_EDIT,
     });
@@ -114,6 +88,8 @@ describe("word-revision tool lock", () => {
 
   it("rejects render_document template rebuild on a file-page Word edit", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     let rendered = false;
     registry.register({
@@ -128,10 +104,10 @@ describe("word-revision tool lock", () => {
         return { ok: true, data: {} };
       },
     });
-    stubModelWithToolCall("render_document", "{}");
+    stubModelWithToolCall(server, "render_document");
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: THAILAND_EDIT,
     });
@@ -147,6 +123,8 @@ describe("word-revision tool lock", () => {
 
   it("allows search_statute on a file-page Word edit", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     let searched = false;
     registry.register({
@@ -161,10 +139,10 @@ describe("word-revision tool lock", () => {
         return { ok: true, data: { hits: [] } };
       },
     });
-    stubModelWithToolCall("search_statute", "{}");
+    stubModelWithToolCall(server, "search_statute");
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: THAILAND_EDIT,
     });

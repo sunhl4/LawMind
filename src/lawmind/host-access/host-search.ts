@@ -1,6 +1,6 @@
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { buildMinimalChildEnv, runSafeCommandSync } from "../platform/safe-command.js";
 import { isDeniedHostPath } from "./deny-list.js";
 import { searchHostIndex } from "./host-index.js";
 import { activeMountsForSession } from "./matter-fence.js";
@@ -160,8 +160,15 @@ export function searchSpotlight(query: string, onlyIn?: string[], limit = 20): s
   }
   const args = onlyIn?.length ? ["-onlyin", onlyIn[0], q] : [q];
   try {
-    const res = spawnSync("mdfind", args, { encoding: "utf8", timeout: 4000 });
-    if (res.status !== 0 || !res.stdout) {
+    const res = runSafeCommandSync({
+      command: "mdfind",
+      args,
+      env: buildMinimalChildEnv(),
+      timeoutMs: 4000,
+      maxStdoutBytes: 256_000,
+      maxStderrBytes: 2_000,
+    });
+    if (res.exitCode !== 0 || !res.stdout) {
       return [];
     }
     return res.stdout

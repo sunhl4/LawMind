@@ -9,6 +9,7 @@ import {
   loadSession,
   renameSession,
   sessionHistoryToSimpleMessages,
+  isLawyerChatSwitcherSession,
 } from "../../../src/lawmind/agent/session.js";
 import {
   deleteSessionWithCascade,
@@ -318,6 +319,7 @@ export async function handleRecordRoutes({
     if (assistantFilter) {
       rows = rows.filter((session) => sessionMatchesAssistantFilter(session, assistantFilter));
     }
+    rows = rows.filter((session) => isLawyerChatSwitcherSession(session));
     const sessions = rows.map((session) => {
       const tail = [...session.conversationHistory]
         .toReversed()

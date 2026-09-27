@@ -185,6 +185,51 @@ describe("lawmind-server-route-acceptance", () => {
     expect(cap.json()).toMatchObject({ ok: true, edition: "solo" });
   });
 
+  it("GET /api/policy/edition ignores policy.features overrides", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-edition-feat-"));
+    fs.writeFileSync(
+      path.join(workspaceDir, "lawmind.policy.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        edition: "solo",
+        features: { complianceAuditExport: true, acceptanceGateStrict: false },
+      }),
+      "utf8",
+    );
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env"),
+      policy: {
+        loaded: true,
+        path: path.join(workspaceDir, "lawmind.policy.json"),
+        applied: [],
+        policy: {
+          schemaVersion: 1,
+          edition: "solo",
+          features: { complianceAuditExport: true, acceptanceGateStrict: false },
+        },
+      },
+    };
+    const cap = createResponseCapture();
+    await expect(
+      handleAcceptanceRoutes({
+        ctx,
+        req: emptyReq(),
+        res: cap.res,
+        url: new URL("http://127.0.0.1/api/policy/edition"),
+        pathname: "/api/policy/edition",
+        c: {},
+      }),
+    ).resolves.toBe(true);
+    expect(cap.status).toBe(200);
+    const body = cap.json() as {
+      features?: { complianceAuditExport?: boolean; acceptanceGateStrict?: boolean };
+    };
+    expect(body.features?.complianceAuditExport).toBe(false);
+    expect(body.features?.acceptanceGateStrict).toBe(true);
+  });
+
   it("returns 400 for an unsafe task id on /acceptance", async () => {
     const ctx: LawmindDispatchContext = {
       workspaceDir: os.tmpdir(),

@@ -3,12 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { emit } from "../audit/index.js";
-import { rebuildWorkspaceSearchIndex, indexExists } from "./fts-ingest.js";
+import {
+  rebuildWorkspaceSearchIndex,
+  indexExists,
+  syncWorkspaceSearchIndex,
+} from "./fts-ingest.js";
 import {
   computeSearchIndexFreshness,
   searchWorkspaceIndex,
   getSearchIndexStatus,
-  SEARCH_INDEX_STALE_AFTER_MS,
 } from "./fts-search.js";
 
 describe("workspace search index", () => {
@@ -49,18 +52,42 @@ describe("workspace search index", () => {
     expect(computeSearchIndexFreshness({ ready: true, lastRebuildAt: undefined }, now).stale).toBe(
       true,
     );
-    const old = computeSearchIndexFreshness(
+    const changed = computeSearchIndexFreshness(
+      { ready: true, lastRebuildAt: new Date(now - 60_000).toISOString(), sourcesChanged: true },
+      now,
+    );
+    expect(changed).toEqual({ stale: true, staleReason: "sources_changed" });
+    const fresh = computeSearchIndexFreshness(
       {
         ready: true,
-        lastRebuildAt: new Date(now - SEARCH_INDEX_STALE_AFTER_MS - 1000).toISOString(),
+        lastRebuildAt: new Date(now - 86_400_000).toISOString(),
+        sourcesChanged: false,
       },
       now,
     );
-    expect(old).toEqual({ stale: true, staleReason: "older_than_24h" });
-    const fresh = computeSearchIndexFreshness(
-      { ready: true, lastRebuildAt: new Date(now - 60_000).toISOString() },
-      now,
-    );
     expect(fresh.stale).toBe(false);
+  });
+
+  it("picks up a changed knowledge file without a full rebuild", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-fts-inc-"));
+    dirs.push(ws);
+    fs.mkdirSync(path.join(ws, "memory"), { recursive: true });
+    const note = path.join(ws, "memory", "clause-note.md");
+    fs.writeFileSync(note, "## 付款\n\nuniqueKeywordBeta987 分期支付\n");
+    const first = await syncWorkspaceSearchIndex(ws);
+    expect(first.mode).toBe("rebuild");
+    expect(
+      searchWorkspaceIndex(ws, { q: "uniqueKeywordBeta987", sources: ["knowledge"] }).hits.length,
+    ).toBeGreaterThan(0);
+    fs.writeFileSync(note, "## 付款\n\nuniqueKeywordGamma654 一次付清\n");
+    const second = await syncWorkspaceSearchIndex(ws);
+    expect(second.mode).toBe("incremental");
+    const hits = searchWorkspaceIndex(ws, { q: "uniqueKeywordGamma654", sources: ["knowledge"] });
+    expect(hits.hits.length).toBeGreaterThan(0);
+    expect(
+      searchWorkspaceIndex(ws, { q: "uniqueKeywordBeta987", sources: ["knowledge"] }).hits.length,
+    ).toBe(0);
+    const third = await syncWorkspaceSearchIndex(ws);
+    expect(third.knowledgeRows).toBe(second.knowledgeRows);
   });
 });

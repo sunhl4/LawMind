@@ -1,0 +1,10 @@
+{
+  "note": "近义词棘轮地板（docs/LAWMIND-TERMINOLOGY.md「一动作一词」的存量冻结）。counts 是每个 syn.* 模式在 renderer 里允许的存量命中数；只许下降。收敛后跑 `pnpm lawmind:ui-copy-lint -- --update` 收紧。已排除术语表明令保留的合法用法（已批准/已修订/合同修订稿/修订记录）。",
+  "counts": {
+    "syn.daiban": 13,
+    "syn.shenpi": 27,
+    "syn.pizhun": 32,
+    "syn.xiuding": 22
+  },
+  "generatedAt": "2026-09-26T14:17:01.316Z"
+}

@@ -9,13 +9,14 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTurn } from "./runtime.js";
 import { loadSession } from "./session.js";
+import {
+  cassetteAssistant,
+  cassetteToolCall,
+  startCassetteModelServer,
+  type CassetteModelServer,
+} from "./testkit/index.js";
 import { ToolRegistry } from "./tools/registry.js";
 import type { AgentConfig } from "./types.js";
-
-function jsonBody(raw: unknown): Record<string, unknown> {
-  const text = typeof raw === "string" ? raw : JSON.stringify(raw ?? {});
-  return JSON.parse(text) as Record<string, unknown>;
-}
 
 function tmpWorkspace(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-perm-gate-"));
@@ -24,12 +25,12 @@ function tmpWorkspace(): string {
   return dir;
 }
 
-function baseConfig(workspaceDir: string): AgentConfig {
+function baseConfig(workspaceDir: string, baseUrl: string): AgentConfig {
   return {
     workspaceDir,
     model: {
       provider: "openai-compatible",
-      baseUrl: "https://example.com/v1",
+      baseUrl,
       apiKey: "sk-test",
       model: "demo",
     },
@@ -75,78 +76,41 @@ function buildRegistry(onWrite: () => void): ToolRegistry {
   return registry;
 }
 
-/** stub 模型：第一轮点名写工具，第二轮收尾；同时记录每次请求的 tools 广告清单。 */
-function stubModelAdversarialWrite(advertisedToolNames: string[][]): void {
-  const responses = [
-    {
-      choices: [
-        {
-          message: {
-            role: "assistant",
-            content: "",
-            tool_calls: [
-              {
-                id: "call-1",
-                type: "function",
-                function: { name: "write_document", arguments: "{}" },
-              },
-            ],
-          },
-          finish_reason: "tool_calls",
-        },
-      ],
-    },
-    {
-      choices: [
-        {
-          message: { role: "assistant", content: "已处理。" },
-          finish_reason: "stop",
-        },
-      ],
-    },
-  ];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (_input: unknown, init?: { body?: unknown }) => {
-      const body = jsonBody(init?.body) as {
-        tools?: Array<{ function?: { name?: string } }>;
-      };
-      if (Array.isArray(body.tools)) {
-        advertisedToolNames.push(
-          body.tools.map((t) => t.function?.name ?? "").filter((n) => n.length > 0),
-        );
-      }
-      return {
-        ok: true,
-        json: async () => {
-          const next = responses.shift();
-          if (next === undefined) {
-            throw new Error("unexpected extra model call");
-          }
-          return next;
-        },
-      };
-    }),
-  );
+/**
+ * Loopback cassette：第一轮点名写工具，第二轮收尾；同时记录每次请求的 tools 广告清单。
+ * （出口代理绕过 global fetch，模型字节走 127.0.0.1 本机服务。）
+ */
+function stubModelAdversarialWrite(
+  server: CassetteModelServer,
+  advertisedToolNames: string[][],
+): void {
+  server.onRequest((req) => {
+    advertisedToolNames.push(req.advertisedToolNames());
+  });
+  server.enqueue(cassetteToolCall("write_document"), cassetteAssistant("已处理。"));
 }
 
 describe("permission mode execution-layer gate (e2e)", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
+  const servers: CassetteModelServer[] = [];
+
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => s.close()));
     vi.restoreAllMocks();
   });
 
   it("readonly: model write call bypassing the ad list is hard-blocked by the pipeline", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     let writeExecuted = false;
     const registry = buildRegistry(() => {
       writeExecuted = true;
     });
     const advertised: string[][] = [];
-    stubModelAdversarialWrite(advertised);
+    stubModelAdversarialWrite(server, advertised);
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: "请导出审阅稿",
       permissionMode: "readonly",
@@ -180,7 +144,7 @@ describe("permission mode execution-layer gate (e2e)", () => {
 
     // 单一真相源：system prompt 的「可用工具」目录 = 本轮生效工具集。
     const session = loadSession(workspaceDir, result.sessionId);
-    const systemPrompt = String(session?.conversationHistory[0]?.content ?? "");
+    const systemPrompt = session?.conversationHistory[0]?.content ?? "";
     expect(systemPrompt).toContain("**analyze_document**");
     expect(systemPrompt).not.toContain("**write_document**");
     const promptToolNames = new Set(
@@ -193,15 +157,17 @@ describe("permission mode execution-layer gate (e2e)", () => {
 
   it("standard: the same write call executes (permission gate does not over-block)", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     let writeExecuted = false;
     const registry = buildRegistry(() => {
       writeExecuted = true;
     });
     const advertised: string[][] = [];
-    stubModelAdversarialWrite(advertised);
+    stubModelAdversarialWrite(server, advertised);
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: "请导出审阅稿",
       permissionMode: "standard",
@@ -214,13 +180,15 @@ describe("permission mode execution-layer gate (e2e)", () => {
     expect(advertised[0]).not.toContain("write_document");
     expect(advertised[0]).toContain("analyze_document");
     const session = loadSession(workspaceDir, result.sessionId);
-    const systemPrompt = String(session?.conversationHistory[0]?.content ?? "");
+    const systemPrompt = session?.conversationHistory[0]?.content ?? "";
     expect(systemPrompt).toContain("**analyze_document**");
     expect(systemPrompt).not.toContain("**write_document**");
   });
 
   it("research: write tools blocked, research_task stays in the advertised set", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     let writeExecuted = false;
     const registry = buildRegistry(() => {
       writeExecuted = true;
@@ -237,10 +205,10 @@ describe("permission mode execution-layer gate (e2e)", () => {
       },
     });
     const advertised: string[][] = [];
-    stubModelAdversarialWrite(advertised);
+    stubModelAdversarialWrite(server, advertised);
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: "请导出审阅稿",
       permissionMode: "research",
@@ -255,80 +223,37 @@ describe("permission mode execution-layer gate (e2e)", () => {
     expect(advertised[0]).toContain("research_task");
     expect(advertised[0]).not.toContain("write_document");
     const session = loadSession(workspaceDir, result.sessionId);
-    const systemPrompt = String(session?.conversationHistory[0]?.content ?? "");
+    const systemPrompt = session?.conversationHistory[0]?.content ?? "";
     expect(systemPrompt).toContain("**research_task**");
     expect(systemPrompt).not.toContain("**write_document**");
   });
 
-  it("mid-session switch to readonly: frozen static catalog stays, pipeline still hard-blocks", async () => {
-    // 静态前缀为 Provider 缓存而按会话冻结（applySystemPromptToHistory），
-    // 中途切 readonly 不会重写首轮工具目录；当轮权限由动态 world-state 块告知，
-    // 写工具调用由 permissionModeMiddleware 在执行层硬拦——prompt 只是提示层。
+  it("mid-session switch to readonly: tool catalog follows the turn, pipeline still hard-blocks", async () => {
+    // 身份前缀按会话冻结；工具清单在缓存边界之后，本轮广告集可以改写。
+    // 当轮权限由动态 world-state 块告知，写工具由 permissionModeMiddleware 硬拦。
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     let writeExecuted = false;
     const registry = buildRegistry(() => {
       writeExecuted = true;
     });
-    const responses = [
+    server.enqueue(
       // turn 1（standard）：直接收尾。
-      {
-        choices: [
-          {
-            message: { role: "assistant", content: "好的。" },
-            finish_reason: "stop",
-          },
-        ],
-      },
+      cassetteAssistant("好的。"),
       // turn 2（readonly）：模型点名写工具。
-      {
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: "",
-              tool_calls: [
-                {
-                  id: "call-w",
-                  type: "function",
-                  function: { name: "write_document", arguments: "{}" },
-                },
-              ],
-            },
-            finish_reason: "tool_calls",
-          },
-        ],
-      },
-      {
-        choices: [
-          {
-            message: { role: "assistant", content: "已处理。" },
-            finish_reason: "stop",
-          },
-        ],
-      },
-    ];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => {
-          const next = responses.shift();
-          if (next === undefined) {
-            throw new Error("unexpected extra model call");
-          }
-          return next;
-        },
-      })),
+      cassetteToolCall("write_document"),
+      cassetteAssistant("已处理。"),
     );
 
     const first = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: "请导出审阅稿",
       permissionMode: "standard",
     });
     const second = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       sessionId: first.sessionId,
       instruction: "请导出审阅稿",
@@ -341,9 +266,9 @@ describe("permission mode execution-layer gate (e2e)", () => {
       .map((resp) => resp.result.error ?? "")
       .join("\n");
     expect(toolText).toContain("只读");
-    // 静态目录冻结为首轮广告集（常用工具不含 write_document）；当轮权限块已切换为 readonly。
+    // 工具清单在边界之后，随本轮广告集更新；常用集本身不含 write_document。权限块已是 readonly。
     const session = loadSession(workspaceDir, first.sessionId);
-    const systemPrompt = String(session?.conversationHistory[0]?.content ?? "");
+    const systemPrompt = session?.conversationHistory[0]?.content ?? "";
     expect(systemPrompt).toContain("**analyze_document**");
     expect(systemPrompt).not.toContain("**write_document**");
     expect(systemPrompt).toContain("<permission_mode>readonly</permission_mode>");

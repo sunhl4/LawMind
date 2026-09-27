@@ -24,6 +24,7 @@ export {
   markDelegationRunning,
   markDelegationCompleted,
   markDelegationFailed,
+  markDelegationAwaitingLawyer,
   markDelegationTimeout,
   cancelDelegation,
   getDelegation,

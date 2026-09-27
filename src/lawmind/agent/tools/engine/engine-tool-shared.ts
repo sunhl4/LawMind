@@ -18,6 +18,7 @@ import {
   createPartnerLegalAdapterFromEnv,
 } from "../../../retrieval/providers.js";
 import { createUrlDossierAdapter } from "../../../retrieval/url-dossier-adapter.js";
+import type { TaskIntent } from "../../../types.js";
 import type { AgentContext, ToolCallResult } from "../../types.js";
 import type { WebSearchModelRef } from "../native-web-search.js";
 
@@ -26,6 +27,32 @@ export const MAX_TITLE_LENGTH = 200;
 export const MAX_AUDIENCE_LENGTH = 100;
 export const MAX_TEMPLATE_ID_LENGTH = 96;
 const TEMPLATE_ID_RE = /^(word|ppt|upload)\/[a-zA-Z0-9][a-zA-Z0-9._-]{1,95}$/;
+
+/**
+ * force_render 是 demo/测试旁路（跳过律师审批与双门禁）。
+ * 默认关闭：必须显式设置 LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER=1 才允许使用。
+ */
+export function isForceRenderAllowed(): boolean {
+  return process.env.LAWMIND_WORKFLOW_ALLOW_FORCE_RENDER === "1";
+}
+
+const LOCKABLE_DELIVERABLE_TYPES = new Set([
+  "report.compliance",
+  "report.learning",
+  "ppt.training",
+  "report.esg",
+  "report.general",
+]);
+
+export function parseLockedDeliverableType(
+  raw: unknown,
+): TaskIntent["deliverableType"] | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const t = raw.trim().toLowerCase();
+  return LOCKABLE_DELIVERABLE_TYPES.has(t) ? t : undefined;
+}
 
 export function asNonEmptyString(value: unknown, field: string, maxLength: number): string {
   if (typeof value !== "string") {

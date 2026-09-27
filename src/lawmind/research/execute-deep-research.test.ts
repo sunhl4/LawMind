@@ -81,7 +81,7 @@ describe("executeDeepResearchPlan", () => {
     expect(result.bundle.sources.some((s) => s.id === "url-should-not")).toBe(false);
     expect(result.bundle.sources.some((s) => s.id === "w1")).toBe(true);
     expect(result.bundle.riskFlags.some((r) => /allowWebSearch/.test(r))).toBe(true);
-    expect(result.outline.status).toBe("pending");
+    expect(result.outline.status).toBe("approved");
   });
 
   it("skips brave-web adapter when allowWebSearch is false", async () => {
@@ -136,7 +136,7 @@ describe("executeDeepResearchPlan", () => {
     expect(result.bundle.sources.some((s) => s.id === "brave-should-not")).toBe(false);
   });
 
-  it("produces evidence-backed pending outline from adapter claims", async () => {
+  it("produces an evidence-backed outline from adapter claims", async () => {
     const adapter: RetrievalAdapter = {
       name: "authority",
       supports: () => true,

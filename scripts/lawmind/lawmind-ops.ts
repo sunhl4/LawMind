@@ -10,6 +10,7 @@ import { listMatterIds } from "../../src/lawmind/cases/index.js";
 import { buildAcceptancePackMarkdown } from "../../src/lawmind/delivery/acceptance-pack.js";
 import { listDrafts } from "../../src/lawmind/drafts/index.js";
 import { writeQualityDashboardJson } from "../../src/lawmind/evaluation/export-json.js";
+import { gatherOpsDoctorSnapshot } from "../../src/lawmind/platform/ops-doctor.js";
 import { listTaskRecords } from "../../src/lawmind/tasks/index.js";
 
 type Command =
@@ -21,7 +22,8 @@ type Command =
   | "matter-repair-projection";
 
 function parseArgs(argv: string[]): { command: Command; workspaceDir: string; deep: boolean } {
-  let workspaceDir = path.resolve(process.cwd(), "workspace");
+  const fromEnv = process.env.LAWMIND_WORKSPACE_DIR?.trim();
+  let workspaceDir = fromEnv ? path.resolve(fromEnv) : path.resolve(process.cwd(), "workspace");
   let deep = false;
   const positionals: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
@@ -47,15 +49,6 @@ function run(command: string, args: string[]): number {
     shell: process.platform === "win32",
   });
   return result.status ?? 1;
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function status(workspaceDir: string): Promise<void> {
@@ -96,53 +89,22 @@ async function doctor(workspaceDir: string, deep: boolean): Promise<number> {
   console.log("LawMind Ops Doctor");
   console.log("==================");
   console.log(`workspace: ${workspaceDir}`);
-  console.log(`mode: ${deep ? "deep" : "standard"}`);
   console.log("");
-
-  const checks: Array<{ name: string; ok: boolean; detail?: string }> = [];
-
-  checks.push({
-    name: "workspace directory",
-    ok: await fileExists(workspaceDir),
-  });
-  checks.push({
-    name: "MEMORY.md",
-    ok: await fileExists(path.join(workspaceDir, "MEMORY.md")),
-  });
-  checks.push({
-    name: "LAWYER_PROFILE.md",
-    ok: await fileExists(path.join(workspaceDir, "LAWYER_PROFILE.md")),
-  });
-  checks.push({
-    name: ".env.lawmind",
-    ok: await fileExists(path.join(process.cwd(), ".env.lawmind")),
-  });
-
-  for (const check of checks) {
-    console.log(
-      `${check.ok ? "✅" : "❌"} ${check.name}${check.detail ? ` - ${check.detail}` : ""}`,
-    );
+  const snapshot = await gatherOpsDoctorSnapshot(workspaceDir);
+  for (const line of snapshot.lines) {
+    console.log(line);
   }
-
-  let exitCode = checks.every((item) => item.ok) ? 0 : 1;
-  console.log("");
-  console.log("Running environment strict check...");
-  const envStatus = run("npm", ["run", "lawmind:env:check", "--", "--strict"]);
-  if (envStatus !== 0) {
-    exitCode = 1;
-  }
-
+  let exitCode = snapshot.projectionDrift || snapshot.unsignedSkillCount > 0 ? 1 : 0;
   if (deep) {
     console.log("");
-    console.log("Running smoke check...");
+    console.log("Running smoke check (dev gate, not a weekly ops check)...");
     const smokeStatus = run("npm", ["run", "lawmind:smoke", "--", "--fail-on-empty-claims"]);
     if (smokeStatus !== 0) {
       exitCode = 1;
     }
   }
-
   console.log("");
-  console.log(exitCode === 0 ? "✅ doctor passed" : "❌ doctor failed");
+  console.log(exitCode === 0 ? "doctor passed" : "doctor failed");
   return exitCode;
 }
 

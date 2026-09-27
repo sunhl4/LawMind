@@ -15,10 +15,18 @@ import { introducedTerminologyDrift, type TerminologyDrift } from "./terminology
 
 export { commonAffixLength };
 
+/** 同一锚点出现多次时：缺省整条跳过；`all` 表示本节内统一替换。 */
+export type SurgicalOccurrenceMode = "first" | "all";
+
 export type SurgicalTextEdit = {
   find: string;
   replace: string;
   note?: string;
+  /**
+   * 缺省（及 `"first"`）只接受唯一命中。同一 find 在正文里出现多次时整条跳过，
+   * 不改第一处。当事人名 / 术语统一替换传 `"all"`。
+   */
+  occurrences?: SurgicalOccurrenceMode;
 };
 
 export type ApplySurgicalEditsResult =
@@ -172,40 +180,15 @@ export function applySurgicalTextEdits(params: {
       });
       continue;
     }
-    // 极端碎片化保护：一处编辑拆出过多小改动时，退回「收窄锚定」的单处写法。
+    // 拆得再碎也落最短改动。不因段数或收窄后的字数把这一条丢掉。
+    const planned = spans;
     const tooFragmented = spans.length > MAX_SPANS_PER_EDIT;
-    const planned = tooFragmented
-      ? (() => {
-          const narrowedEdit = tryNarrowSurgicalEdit(find, replace);
-          return narrowedEdit
-            ? [
-                {
-                  spanStart: 0,
-                  spanEnd: find.length,
-                  before: narrowedEdit.find,
-                  after: narrowedEdit.replace,
-                },
-              ]
-            : null;
-        })()
-      : spans;
-    if (!planned) {
-      skipped.push({
-        find: find.slice(0, 40),
-        replace: replace.slice(0, 40),
-        reason: "改动过于碎片化且无法收窄为单处最短锚定；请按实质应改点分条提交。",
-      });
-      continue;
-    }
 
-    let hitIndex = -1;
-    for (let i = 0; i < sections.length; i += 1) {
-      if (sections[i].body.includes(find)) {
-        hitIndex = i;
-        break;
-      }
-    }
-    if (hitIndex < 0) {
+    const sectionHits = sections
+      .map((section, index) => ({ index, starts: findAllIndexes(section.body, find) }))
+      .filter((hit) => hit.starts.length > 0);
+    const totalHits = sectionHits.reduce((sum, hit) => sum + hit.starts.length, 0);
+    if (totalHits === 0) {
       skipped.push({
         find: find.slice(0, 40),
         replace: replace.slice(0, 40),
@@ -213,72 +196,85 @@ export function applySurgicalTextEdits(params: {
       });
       continue;
     }
+    const replaceAll = raw.occurrences === "all";
+    if (!replaceAll && totalHits !== 1) {
+      skipped.push({
+        find: find.slice(0, 40),
+        replace: replace.slice(0, 40),
+        reason: `同一锚点命中 ${totalHits} 处，未确定改哪一处。请加长到唯一原文，或显式传 occurrences: "all" 做统一替换（本条未写入）。`,
+      });
+      continue;
+    }
 
-    const beforeBody = sections[hitIndex].body;
-    const base = beforeBody.indexOf(find);
-    // 从右往左落盘：右侧改动不影响左侧下标；同一处编辑拆出的多段互不重叠。
-    const ordered = [...planned].toSorted((a, b) => (b.spanStart ?? 0) - (a.spanStart ?? 0));
-    let nextBody = beforeBody;
-    const splitMark = planned.length > 1;
-    // 输入这对 find/replace 是否被重算过（粒度不符最短改动）——重算过就在回执里留痕。
-    const minimizedInput =
-      splitMark || planned[0]?.before !== find || planned[0]?.after !== replace;
-    // 回执按文档顺序（从左到右）排列，便于律师顺着正文核对；落盘顺序仍是右→左。
-    const editApplied: Array<{
-      spanStart: number;
-      entry: (typeof appliedList)[number];
-    }> = [];
-    for (const span of ordered) {
-      const from = base + (span.spanStart ?? 0);
-      const to =
-        typeof span.spanEnd === "number" && span.spanEnd >= (span.spanStart ?? 0)
-          ? base + span.spanEnd
-          : from + span.before.length;
-      const slice = nextBody.slice(from, to);
-      if (slice !== span.before) {
-        // 下标漂移（理论上不应发生）：退回子串替换，绝不按错位置改。
-        const drifted = nextBody.indexOf(span.before);
-        if (drifted < 0) {
-          skipped.push({
-            find: span.before.slice(0, 40),
-            replace: span.after.slice(0, 40),
-            reason: "落改时下标漂移且无法定位原文，已跳过该处（其余处已落）。",
-          });
-          continue;
-        }
-        nextBody =
-          nextBody.slice(0, drifted) + span.after + nextBody.slice(drifted + span.before.length);
-      } else {
-        nextBody = nextBody.slice(0, from) + span.after + nextBody.slice(to);
-      }
-      craftSignals.push(...craftSignalsForEdit(span.before, span.after));
-      const appliedNote = [
-        note,
-        splitMark ? "已按最短改动拆分" : minimizedInput ? "已收窄锚定" : undefined,
-        tooFragmented ? "已收窄锚定" : undefined,
-      ]
-        .filter(Boolean)
-        .join("；");
-      editApplied.push({
-        spanStart: span.spanStart ?? 0,
-        entry: {
-          find: span.before,
-          replace: span.after,
-          ...(appliedNote ? { note: appliedNote } : {}),
+    const targets = replaceAll
+      ? sectionHits
+      : sectionHits
+          .slice(0, 1)
+          .map((hit) => ({ index: hit.index, starts: hit.starts.slice(0, 1) }));
+    const bodiesBeforeEdit = sections.map((section) => section.body);
+    const appliedBeforeEdit = appliedList.length;
+    const signalsBeforeEdit = craftSignals.length;
+    const splitsBeforeEdit = minimalSplitEdits;
+    let editFailed = false;
+    for (const target of targets) {
+      const hitIndex = target.index;
+      const snapshot = sections[hitIndex].body;
+      let nextBody = snapshot;
+      const editApplied: Array<{
+        spanStart: number;
+        entry: (typeof appliedList)[number];
+      }> = [];
+      const bases = [...target.starts].toSorted((a, b) => b - a);
+      for (const base of bases) {
+        const landed = applyPlannedSpansAt({
+          body: nextBody,
+          base,
+          planned,
+          note,
+          splitMark: planned.length > 1,
+          minimizedInput:
+            planned.length > 1 || planned[0]?.before !== find || planned[0]?.after !== replace,
+          tooFragmented,
           sectionIndex: hitIndex,
           sectionHeading: sections[hitIndex].heading,
-          ...(splitMark ? { minimalSplit: true as const } : {}),
-        },
-      });
-    }
-    for (const row of editApplied.toSorted((a, b) => a.spanStart - b.spanStart)) {
-      appliedList.push(row.entry);
-    }
-    if (nextBody !== beforeBody) {
-      if (splitMark) {
-        minimalSplitEdits += 1;
+        });
+        if (!landed.ok) {
+          skipped.push({
+            find: find.slice(0, 40),
+            replace: replace.slice(0, 40),
+            reason: landed.reason,
+          });
+          nextBody = snapshot;
+          editFailed = true;
+          break;
+        }
+        nextBody = landed.body;
+        editApplied.push(...landed.applied);
+        craftSignals.push(...landed.craftSignals);
       }
-      sections[hitIndex] = { ...sections[hitIndex], body: nextBody };
+      if (editFailed) {
+        break;
+      }
+      if (nextBody !== snapshot) {
+        if (planned.length > 1) {
+          minimalSplitEdits += 1;
+        }
+        sections[hitIndex] = { ...sections[hitIndex], body: nextBody };
+        for (const row of editApplied.toSorted((a, b) => a.spanStart - b.spanStart)) {
+          appliedList.push(row.entry);
+        }
+      }
+    }
+    if (editFailed) {
+      appliedList.length = appliedBeforeEdit;
+      craftSignals.length = signalsBeforeEdit;
+      minimalSplitEdits = splitsBeforeEdit;
+      for (let i = 0; i < sections.length; i += 1) {
+        if (sections[i].body !== bodiesBeforeEdit[i]) {
+          sections[i] = { ...sections[i], body: bodiesBeforeEdit[i] ?? "" };
+        }
+      }
+      continue;
     }
   }
 
@@ -317,9 +313,107 @@ function sectionsText(sections: ArtifactSection[]): string {
   return (sections ?? []).map((s) => s.body ?? "").join("\n");
 }
 
+function findAllIndexes(body: string, needle: string): number[] {
+  const starts: number[] = [];
+  if (!needle) {
+    return starts;
+  }
+  let from = 0;
+  while (from <= body.length) {
+    const index = body.indexOf(needle, from);
+    if (index < 0) {
+      break;
+    }
+    starts.push(index);
+    from = index + needle.length;
+  }
+  return starts;
+}
+
+type PlannedSpan = { spanStart?: number; spanEnd?: number; before: string; after: string };
+
+function applyPlannedSpansAt(params: {
+  body: string;
+  base: number;
+  planned: PlannedSpan[];
+  note?: string;
+  splitMark: boolean;
+  minimizedInput: boolean;
+  tooFragmented: boolean;
+  sectionIndex: number;
+  sectionHeading: string;
+}):
+  | {
+      ok: true;
+      body: string;
+      applied: Array<{
+        spanStart: number;
+        entry: {
+          find: string;
+          replace: string;
+          note?: string;
+          sectionIndex: number;
+          sectionHeading: string;
+          minimalSplit?: boolean;
+        };
+      }>;
+      craftSignals: SurgicalCraftSignal[];
+    }
+  | { ok: false; reason: string } {
+  const ordered = [...params.planned].toSorted((a, b) => (b.spanStart ?? 0) - (a.spanStart ?? 0));
+  let nextBody = params.body;
+  const applied: Array<{
+    spanStart: number;
+    entry: {
+      find: string;
+      replace: string;
+      note?: string;
+      sectionIndex: number;
+      sectionHeading: string;
+      minimalSplit?: boolean;
+    };
+  }> = [];
+  const craftSignals: SurgicalCraftSignal[] = [];
+  for (const span of ordered) {
+    const from = params.base + (span.spanStart ?? 0);
+    const to =
+      typeof span.spanEnd === "number" && span.spanEnd >= (span.spanStart ?? 0)
+        ? params.base + span.spanEnd
+        : from + span.before.length;
+    const slice = nextBody.slice(from, to);
+    if (slice !== span.before) {
+      return {
+        ok: false,
+        reason: "落改时下标对不上原文，本条整处跳过（不改第一处、也不做部分成功）。",
+      };
+    }
+    nextBody = nextBody.slice(0, from) + span.after + nextBody.slice(to);
+    craftSignals.push(...craftSignalsForEdit(span.before, span.after));
+    const appliedNote = [
+      params.note,
+      params.splitMark ? "已按最短改动拆分" : params.minimizedInput ? "已收窄锚定" : undefined,
+      params.tooFragmented ? "已收窄锚定" : undefined,
+    ]
+      .filter(Boolean)
+      .join("；");
+    applied.push({
+      spanStart: params.base + (span.spanStart ?? 0),
+      entry: {
+        find: span.before,
+        replace: span.after,
+        ...(appliedNote ? { note: appliedNote } : {}),
+        sectionIndex: params.sectionIndex,
+        sectionHeading: params.sectionHeading,
+        ...(params.splitMark ? { minimalSplit: true as const } : {}),
+      },
+    });
+  }
+  return { ok: true, body: nextBody, applied, craftSignals };
+}
+
 export function parseSurgicalEditsInput(value: unknown): SurgicalTextEdit[] {
   if (!Array.isArray(value) || value.length === 0) {
-    throw new Error("edits 必须是非空数组，每项为 { find, replace, note? }");
+    throw new Error("edits 必须是非空数组，每项为 { find, replace, note?, occurrences? }");
   }
   return value.map((item, idx) => {
     if (!item || typeof item !== "object") {
@@ -329,10 +423,19 @@ export function parseSurgicalEditsInput(value: unknown): SurgicalTextEdit[] {
     const find = typeof record.find === "string" ? record.find : "";
     const replace = typeof record.replace === "string" ? record.replace : "";
     const note = typeof record.note === "string" ? record.note : undefined;
+    const occurrences = record.occurrences;
+    if (occurrences !== undefined && occurrences !== "first" && occurrences !== "all") {
+      throw new Error(`edits[${idx}].occurrences 只能是 "first" 或 "all"`);
+    }
     if (!find) {
       throw new Error(`edits[${idx}].find 不能为空`);
     }
-    return { find, replace, ...(note !== undefined ? { note } : {}) };
+    return {
+      find,
+      replace,
+      ...(note !== undefined ? { note } : {}),
+      ...(occurrences === "all" ? { occurrences: "all" as const } : {}),
+    };
   });
 }
 

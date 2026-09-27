@@ -16,6 +16,10 @@ import {
   replaceDroppedDigestInMessages,
 } from "../../../src/lawmind/agent/compact-llm-digest.js";
 import {
+  contextTokensForConversation,
+  resolveConversationLength,
+} from "../../../src/lawmind/agent/context-preset.js";
+import {
   estimateTokenBudget,
   estimateTokenBudgetBreakdown,
 } from "../../../src/lawmind/agent/context-budget.js";
@@ -40,6 +44,7 @@ import {
 } from "../../../src/lawmind/agent/session-message-mutate.js";
 import { createLawMindAgent } from "../../../src/lawmind/agent/agent-factory.js";
 import { resumePausedTurn } from "../../../src/lawmind/agent/runtime-resume.js";
+import { continueWorkflowJobsHeldOnSession } from "./lawmind-server-jobs.js";
 import {
   applyDerivedInterruptedAction,
   isSessionTurnLive,
@@ -73,10 +78,13 @@ const forkBodySchema = z.object({
 function resolveSessionEnvelope(workspaceDir: string, envFile?: string, modelId?: string) {
   const lawMindRoot = resolveLawMindRoot(workspaceDir, envFile);
   const resolved = resolveAgentModelById(lawMindRoot, modelId);
+  const length = resolveConversationLength(
+    readWorkspacePolicyFile(workspaceDir)?.conversationLength,
+  );
   return {
     resolved,
     envelope: resolveCapabilityEnvelope({
-      contextTokens: resolved.model?.contextTokens ?? undefined,
+      contextTokens: contextTokensForConversation(resolved.model?.contextTokens, length),
       timeoutMs: resolved.model?.timeoutMs,
     }),
   };
@@ -157,7 +165,7 @@ export async function handleSessionExtendedRoutes({
       contextTokens: envelope.contextTokens,
       charsPerToken: envelope.charsPerToken,
     });
-    // A3：分层用量（律对话 / 工具回包 / 钉选 / 清单 / 系统规则……），与 used 同口径。
+    // A3：分层用量（律师发言 / 工具回包 / 钉选 / 清单 / 强制规则 / 工具清单……），与 used 同口径。
     const breakdown = estimateTokenBudgetBreakdown(session, {
       charsPerToken: envelope.charsPerToken,
     });
@@ -317,6 +325,7 @@ export async function handleSessionExtendedRoutes({
         sessionId,
         queued: queued.queued,
         pendingCount: queued.pendingCount,
+        dropped: queued.dropped,
         inboxKind: classifySessionInbox("inject"),
       },
       c,
@@ -351,6 +360,8 @@ export async function handleSessionExtendedRoutes({
         sessionId,
         queued: queued.queued,
         pendingCount: queued.pendingCount,
+        dropped: queued.dropped,
+        truncated: queued.truncated,
         inboxKind: classifySessionInbox("steer"),
       },
       c,
@@ -663,6 +674,9 @@ export async function handleSessionExtendedRoutes({
       const result = await resumePausedTurn(built.config, agent.getRegistry(), sessionId, {
         matterId: session.matterId,
       });
+      if (result.turn.status === "completed") {
+        continueWorkflowJobsHeldOnSession(result.sessionId, built.config, { reply: result.reply });
+      }
       sendJson(
         res,
         200,

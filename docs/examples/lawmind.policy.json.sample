@@ -1,27 +1,19 @@
 {
   "schemaVersion": 1,
-  "description": "Sample LawMind policy file for firm IT review (draft). delivery / progressiveAutonomy are optional; omitted keys stay conservative (outbound never auto-delivers).",
-  "allowWebSearch": false,
-  "retrievalMode": "auto",
+  "description": "Sample LawMind policy file for firm IT review (draft). Only keys the commercial policy contract accepts are listed; unknown or engine-tuning keys are rejected with a reason (see policy.rejected in /api/health).",
   "edition": "firm",
-  "benchmarkGateMinScore": 0.7,
-  "auditExportCadenceHint": "P7D",
-  "delivery": {
-    "description": "Optional delivery tiering. Default: medium → one-tap signoff; high → full review; auto_deliver only if autonomy unlocked AND low AND not outbound.",
-    "firmForceFullReview": false
+  "allowWebSearch": false,
+  "network": {
+    "mode": "allowlist",
+    "hosts": ["api.deepseek.com", "flk.npc.gov.cn"]
   },
-  "progressiveAutonomy": {
-    "description": "Unlock thresholds. Defaults: minFirstPassRate 0.8, minSamples 20, maxLintEscapeRate 0.15. Missing lint-escape series refuses unlock.",
-    "minFirstPassRate": 0.8,
-    "minSamples": 20,
-    "maxLintEscapeRate": 0.15
+  "outbound": {
+    "recipientDomains": ["client.com"]
   },
-  "hostAccess": {
-    "mode": "mounts",
-    "allowHostCommands": false,
-    "hostCommandLevel": "office",
-    "allowCrossMatterMounts": false,
-    "forceMatterMode": false,
-    "allowSessionCommands": false
-  }
+  "delivery": "standard",
+  "conversationLength": "200k",
+  "replica": {
+    "sharedDir": "/Volumes/firm-share/lawmind-relay"
+  },
+  "wordAddinAutoRun": false
 }

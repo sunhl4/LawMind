@@ -230,16 +230,76 @@ export async function openLawRetrieve(opts: {
     return retrieveLiveLane(laneBySource(mode), laneOpts);
   }
 
-  const tried: string[] = [];
-  for (const lane of LIVE_LANES) {
-    if (!lane.enabled()) {
-      continue;
+  const enabled = LIVE_LANES.filter((lane) => lane.enabled());
+  const tried = enabled.map((lane) => lane.emptyLabel);
+  const outcomes = await Promise.all(
+    enabled.map(async (lane) => {
+      try {
+        return await retrieveLiveLane(lane, laneOpts);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        return {
+          result: {
+            sources: [],
+            claims: [],
+            riskFlags: [`${lane.emptyLabel}：${detail}`],
+            missingItems: [] as string[],
+          },
+          source: "none" as const,
+        };
+      }
+    }),
+  );
+  const contributing = outcomes.filter(
+    (outcome) => outcome.source !== "none" && outcome.result.sources.length > 0,
+  );
+  if (contributing.length > 0) {
+    const seen = new Set<string>();
+    const sources: RetrievalResult["sources"] = [];
+    const claims: RetrievalResult["claims"] = [];
+    const riskFlags: string[] = [];
+    const missingItems: string[] = [];
+    for (const outcome of contributing) {
+      for (const source of outcome.result.sources) {
+        if (seen.has(source.id)) {
+          continue;
+        }
+        seen.add(source.id);
+        sources.push(source);
+      }
+      claims.push(...outcome.result.claims);
+      for (const flag of outcome.result.riskFlags) {
+        if (!flag.endsWith("无命中")) {
+          riskFlags.push(flag);
+        }
+      }
+      missingItems.push(...outcome.result.missingItems);
     }
-    tried.push(lane.emptyLabel);
-    const outcome = await retrieveLiveLane(lane, laneOpts);
-    if (outcome.source === lane.source && outcome.result.sources.length > 0) {
-      return outcome;
+    if (contributing.length > 1) {
+      riskFlags.push(`hybrid 已并列合并：${contributing.map((o) => o.source).join("/")}`);
     }
+    for (const outcome of outcomes) {
+      if (contributing.includes(outcome)) {
+        continue;
+      }
+      for (const flag of outcome.result.riskFlags) {
+        if (flag === "权威库无命中" || flag.endsWith("无命中")) {
+          continue;
+        }
+        riskFlags.push(flag);
+      }
+    }
+    const primary = contributing[0];
+    return {
+      result: {
+        sources: sources.slice(0, 24),
+        claims,
+        riskFlags,
+        missingItems,
+      },
+      httpStatus: primary.httpStatus,
+      source: primary.source,
+    };
   }
   const local = localFallback();
   if (local.source === "local") {

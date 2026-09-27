@@ -1,6 +1,6 @@
 /**
- * 成员协作面板 — Firm 门控：邀请同事进同一案件、签出材料、接受邀请码。
- * Solo 默认不渲染（edition.features.matterReplicaCollab === false）。
+ * 成员协作面板 — 邀请同事进同一案件、签出材料、接受邀请码。
+ * 独立律师版默认可用；仅当功能键关闭且策略未打开时不渲染。
  */
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "../api-client";
@@ -78,6 +78,8 @@ type CloudStatus = {
 type Props = {
   apiBase: string;
   matterId: string;
+  /** 嵌在概览折叠行里时不再重复标题。 */
+  embedded?: boolean;
 };
 
 const INVITE_ROLES = [
@@ -87,6 +89,19 @@ const INVITE_ROLES = [
   { value: "external", label: "外协" },
   { value: "lead", label: "主办（共同）" },
 ] as const;
+
+function cloudHost(endpoint: string): string {
+  try {
+    return new URL(endpoint).host;
+  } catch {
+    return endpoint;
+  }
+}
+
+function folderLabel(dir: string): string {
+  const parts = dir.split(/[/\\]/).filter(Boolean);
+  return parts[parts.length - 1] || dir;
+}
 
 function formatBytes(n: number): string {
   if (n < 1024) {
@@ -98,9 +113,12 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
+export const LAWMIND_REPLICA_JOINED_EVENT = "lawmind-replica-joined";
+
+export function MatterReplicaPanel({ apiBase, matterId, embedded = false }: Props): ReactNode {
   const edition = useEdition(apiBase);
   const [enabled, setEnabled] = useState(false);
+  const [statusReady, setStatusReady] = useState(false);
   const [roleLabels, setRoleLabels] = useState<RoleLabels>({});
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -110,6 +128,9 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [scheduler, setScheduler] = useState<SchedulerStatus | null>(null);
   const [cloud, setCloud] = useState<CloudStatus | null>(null);
+  const [relayDir, setRelayDir] = useState<string | null>(null);
+  const [relayReady, setRelayReady] = useState(false);
+  const [endpointDraft, setEndpointDraft] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -119,7 +140,7 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<string>("associate");
   const [acceptToken, setAcceptToken] = useState("");
-  const [lockPath, setLockPath] = useState("materials/");
+  const [editingIdentity, setEditingIdentity] = useState(false);
   const [lastShare, setLastShare] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -134,8 +155,13 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
         roleLabels?: RoleLabels;
         identity?: Identity | null;
         cloud?: CloudStatus;
+        sharedRelayDir?: string | null;
+        relayReady?: boolean;
       }>(apiBase, "/api/matter-replica/status");
       setEnabled(status.enabled === true);
+      setStatusReady(true);
+      setRelayDir(status.sharedRelayDir ?? null);
+      setRelayReady(status.relayReady === true || status.cloud?.configured === true);
       setRoleLabels(status.roleLabels ?? {});
       setIdentity(status.identity ?? null);
       setCloud(status.cloud ?? null);
@@ -178,6 +204,7 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
       }
     } catch (e) {
       setErr(errorMessage(e, "无法加载成员协作"));
+      setStatusReady(true);
     }
   }, [apiBase, matterId]);
 
@@ -185,7 +212,7 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
     void refresh();
   }, [refresh]);
 
-  // Solo edition: hide entirely unless somehow enabled via policy (status.enabled)
+  // Hidden only when the edition turns the feature off and policy has not opted in.
   if (!edition.loading && !edition.features.matterReplicaCollab && !enabled) {
     return null;
   }
@@ -199,10 +226,51 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
         displayName: nameDraft.trim(),
         email: emailDraft.trim() || undefined,
       });
-      setHint("已保存你的协作身份");
+      setHint("已保存姓名");
+      setEditingIdentity(false);
       await refresh();
     } catch (e) {
       setErr(errorMessage(e, "保存失败"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function connectCloud(): Promise<void> {
+    const endpoint = endpointDraft.trim();
+    if (!endpoint) {
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    setHint(null);
+    try {
+      await apiSendJson(apiBase, "/api/matter-replica/cloud", "PUT", { endpoint });
+      setHint("已连接案件云。同事连接同一个地址后，粘贴邀请码就能看到这桩案子。");
+      await refresh();
+    } catch (e) {
+      setErr(errorMessage(e, "连接案件云失败"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function chooseRelay(): Promise<void> {
+    const picked = await window.lawmindDesktop?.pickFolder?.();
+    if (!picked?.ok || !picked.path) {
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    setHint(null);
+    try {
+      await apiSendJson(apiBase, "/api/matter-replica/relay", "PUT", {
+        sharedRelayDir: picked.path,
+      });
+      setHint("已记住这个共享文件夹。同事也要在自己的 LawMind 里选择同一个文件夹。");
+      await refresh();
+    } catch (e) {
+      setErr(errorMessage(e, "没能记住共享文件夹"));
     } finally {
       setBusy(false);
     }
@@ -249,10 +317,20 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
     setErr(null);
     setHint(null);
     try {
-      await apiSendJson(apiBase, "/api/matter-replica/invites/accept", "POST", {
+      const joined = await apiSendJson<{
+        invite?: { matterId?: string; matterTitle?: string };
+      }>(apiBase, "/api/matter-replica/invites/accept", "POST", {
         token: acceptToken.trim(),
       });
-      setHint("已加入案件");
+      const joinedTitle = joined.invite?.matterTitle?.trim() || "案件";
+      setHint(`已加入「${joinedTitle}」。它会出现在左侧案件列表里。`);
+      if (joined.invite?.matterId) {
+        window.dispatchEvent(
+          new CustomEvent(LAWMIND_REPLICA_JOINED_EVENT, {
+            detail: { matterId: joined.invite.matterId },
+          }),
+        );
+      }
       setAcceptToken("");
       await refresh();
     } catch (e) {
@@ -262,16 +340,16 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
     }
   }
 
-  async function acquireLock(): Promise<void> {
+  async function acquireLock(relPath: string): Promise<void> {
     setBusy(true);
     setErr(null);
     setHint(null);
     try {
       await apiSendJson(apiBase, "/api/matter-replica/locks/acquire", "POST", {
         matterId,
-        relPath: lockPath.trim(),
+        relPath,
       });
-      setHint("已签出，同事将看到你正在修改");
+      setHint("你正在改这份文件，同事那边会先避开");
       await refresh();
     } catch (e) {
       setErr(errorMessage(e, "签出失败"));
@@ -331,48 +409,42 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
           deletedLocally?: string[];
         };
       }>(apiBase, `/api/matter-replica/sync?matterId=${encodeURIComponent(matterId)}`, "POST", {});
-      const m = r.materials;
-      const matHint = m
-        ? ` · 材料 ${m.publishedFiles ?? 0} 份（上传 ${m.uploadedBlobs ?? 0} · 下载 ${m.downloadedFiles ?? 0}${
-            m.skippedLocked ? ` · 跳过签出 ${m.skippedLocked}` : ""
-          }${m.deletedLocally?.length ? ` · 删除 ${m.deletedLocally.length}` : ""}）`
-        : "";
-      const a = r.applied;
-      const appliedHint = a
-        ? ` · 生效 签出 ${a.locks ?? 0} · 成员 ${a.members ?? 0}${
-            a.matterFields ? ` · 案件字段 ${a.matterFields}` : ""
-          }${a.keyRotated ? " · 密钥已轮换" : ""}`
-        : "";
-      setHint(`已同步（记录 ${r.published ?? 0} / 拉取 ${r.pulled ?? 0}${matHint}${appliedHint}）`);
+      const pulled = r.pulled ?? 0;
+      const downloaded = r.materials?.downloadedFiles ?? 0;
+      setHint(
+        pulled > 0 || downloaded > 0
+          ? "已从同事那边更新"
+          : "已同步，对方那边稍后会看到",
+      );
       await refresh();
     } catch (e) {
-      setErr(errorMessage(e, "同步失败（未配置共享中继时仅本机索引）"));
+      setErr(errorMessage(e, "同步没有完成。请确认双方选的是同一个文件夹。"));
     } finally {
       setBusy(false);
     }
   }
 
-  if (!enabled && edition.features.matterReplicaCollab) {
-    // Feature flag on but gate off — rare; still show nothing noisy
+  if (!enabled) {
+    return (
+      <section className="lm-matter-replica" aria-label="协作" data-testid="lm-matter-replica-panel">
+        <h3>协作</h3>
+        <p className="lm-meta">
+          {err ??
+            (!statusReady || edition.loading ? "正在打开协作。" : "协作还没连上本机服务。请重新打开 LawMind。")}
+        </p>
+      </section>
+    );
   }
 
-  if (!enabled) {
-    return null;
-  }
+  const showIdentityForm = !identity || editingIdentity;
+  const lockByPath = new Map(locks.map((lock) => [lock.relPath, lock]));
 
   return (
-    <section
-      className="lm-matter-replica"
-      aria-label="成员协作"
-      data-testid="lm-matter-replica-panel"
-    >
+    <section className="lm-matter-replica" aria-label="协作" data-testid="lm-matter-replica-panel">
       <div className="lm-matter-replica-head">
         <div>
-          <strong>成员协作</strong>
-          <p className="lm-meta">
-            邀请同事用各自的 LawMind 共同办理本案。材料按内容哈希同步；签出避免互相覆盖。Solo
-            默认不开启。
-          </p>
+          {embedded ? null : <h3>协作</h3>}
+          <p className="lm-meta">连接案件云后邀请同事。改同一份文件前，先点「我来改」。</p>
         </div>
         <button
           type="button"
@@ -381,108 +453,153 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
           onClick={() => void syncOps()}
           data-testid="lm-replica-sync"
         >
-          同步记录与材料
+          同步
         </button>
       </div>
 
-      {scheduler?.autoSync ? (
-        <p className="lm-meta" data-testid="lm-replica-autosync">
-          自动同步已开启
-          {scheduler.watchingRelay ? "（正在监听共享中继，同事有动静就同步）" : "（后台定时轮询）"}
-          {scheduler.matters ? ` · 在册案件 ${scheduler.matters}` : ""}
-          {scheduler.lastRunAt
-            ? ` · 上次 ${scheduler.lastRunAt.slice(0, 16).replace("T", " ")}`
-            : ""}
-          {scheduler.syncs ? ` · 已同步 ${scheduler.syncs} 次` : ""}
-        </p>
+      {cloud?.configured && cloud.endpoint ? (
+        <div className="lm-lawyer-deadline-row" data-testid="lm-replica-invite-authority">
+          <span className="lm-lawyer-deadline-copy">
+            <strong>已连接案件云</strong>
+            <span className="lm-lawyer-today-meta">{cloudHost(cloud.endpoint)}</span>
+          </span>
+        </div>
       ) : (
-        <p className="lm-meta" data-testid="lm-replica-autosync-off">
-          自动同步未开启（可用 lawmind.policy.json 的 matterReplica.autoSync 打开）。
-        </p>
+        <div className="lm-matter-replica-block" data-testid="lm-replica-cloud">
+          <h4 className="lm-matter-replica-h">案件云</h4>
+          <div className="lm-matter-replica-row">
+            <label className="lm-field lm-field-grow">
+              <span>地址</span>
+              <input
+                className="lm-input"
+                value={endpointDraft}
+                onChange={(e) => setEndpointDraft(e.target.value)}
+                placeholder="https://cloud.example"
+                data-testid="lm-replica-cloud-endpoint"
+              />
+            </label>
+            <button
+              type="button"
+              className="lm-btn lm-btn-sm"
+              disabled={busy || !endpointDraft.trim() || !identity}
+              onClick={() => void connectCloud()}
+              data-testid="lm-replica-cloud-connect"
+            >
+              连接
+            </button>
+          </div>
+          <p className="lm-meta">
+            {identity ? "同事也连接这个地址。" : "先保存下方的姓名，再连接。"}
+            本机文件夹对方看不到。
+          </p>
+        </div>
       )}
-      {scheduler?.lastError ? <p className="lm-meta lm-danger">上次同步失败：{scheduler.lastError}</p> : null}
-
-      {cloud?.configured ? (
-        <p className="lm-meta" data-testid="lm-replica-invite-authority">
-          邀请由<b>案件云</b>管理（{cloud.endpoint}）—— 服务端记录谁邀请了谁、谁已加入；
-          同事在自己机器上粘贴云邀请码即可，无需共享目录。
-        </p>
-      ) : null}
-
+      {cloud?.configured ? null : (
+        <details className="lm-matter-replica-entry">
+          <summary>改用共享文件夹</summary>
+          <div className="lm-lawyer-deadline-row" data-testid="lm-replica-relay">
+            <span className="lm-lawyer-deadline-copy">
+              <strong data-testid="lm-replica-relay-path">
+                {relayDir ? folderLabel(relayDir) : "尚未选择"}
+              </strong>
+              <span className="lm-lawyer-today-meta">仅当两边已经有同一个网盘目录时使用。</span>
+            </span>
+            <button
+              type="button"
+              className="lm-btn lm-btn-ghost lm-btn-sm"
+              disabled={busy}
+              onClick={() => void chooseRelay()}
+              data-testid="lm-replica-pick-relay"
+            >
+              {relayDir ? "更换" : "选择文件夹"}
+            </button>
+          </div>
+        </details>
+      )}
+      {scheduler?.lastError ? <p className="lm-meta lm-danger">上次同步没有完成：{scheduler.lastError}</p> : null}
       {err ? <p className="lm-meta lm-danger">{err}</p> : null}
       {hint ? <p className="lm-meta lm-ok">{hint}</p> : null}
 
-      <div className="lm-matter-replica-block">
-        <h4 className="lm-matter-replica-h">新动态</h4>
-        {feed.length === 0 ? (
-          <p className="lm-meta">尚无协作动态。同步或上传材料后会出现在这里。</p>
-        ) : (
-          <ul className="lm-matter-replica-list" data-testid="lm-replica-feed">
-            {feed.slice(0, 12).map((item) => (
-              <li key={item.opId}>
-                <span>{item.title}</span>
-                <span className="lm-meta">
+      {feed.length > 0 ? (
+        <ul className="lm-lawyer-deadline-list" data-testid="lm-replica-feed">
+          {feed.slice(0, 5).map((item) => (
+            <li key={item.opId} className="lm-lawyer-deadline-row">
+              <span className="lm-lawyer-deadline-copy">
+                <strong>{item.title}</strong>
+                <span className="lm-lawyer-today-meta">
                   {item.actorName} · {item.createdAt.slice(0, 16).replace("T", " ")}
                 </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       <div className="lm-matter-replica-block">
-        <h4 className="lm-matter-replica-h">你的身份</h4>
-        <div className="lm-matter-replica-row">
-          <label className="lm-field">
-            <span>姓名</span>
-            <input
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-              placeholder="例如：张三"
-              data-testid="lm-replica-display-name"
-            />
-          </label>
-          <label className="lm-field">
-            <span>邮箱</span>
-            <input
-              value={emailDraft}
-              onChange={(e) => setEmailDraft(e.target.value)}
-              placeholder="用于邀请识别"
-              data-testid="lm-replica-email"
-            />
-          </label>
-          <button
-            type="button"
-            className="lm-btn lm-btn-sm"
-            disabled={busy || !nameDraft.trim()}
-            onClick={() => void saveIdentity()}
-            data-testid="lm-replica-save-identity"
-          >
-            保存
-          </button>
-        </div>
-        {identity ? (
-          <p className="lm-meta">
-            当前：{identity.displayName}
-            {identity.email ? ` · ${identity.email}` : ""}
-          </p>
+        <h4 className="lm-matter-replica-h">你的姓名</h4>
+        {showIdentityForm ? (
+          <div className="lm-matter-replica-row">
+            <label className="lm-field">
+              <span>姓名</span>
+              <input
+                className="lm-input"
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                placeholder="例如：张三"
+                data-testid="lm-replica-display-name"
+              />
+            </label>
+            <label className="lm-field">
+              <span>邮箱</span>
+              <input
+                className="lm-input"
+                value={emailDraft}
+                onChange={(e) => setEmailDraft(e.target.value)}
+                placeholder="同事用来认出你"
+                data-testid="lm-replica-email"
+              />
+            </label>
+            <button
+              type="button"
+              className="lm-btn lm-btn-sm"
+              disabled={busy || !nameDraft.trim()}
+              onClick={() => void saveIdentity()}
+              data-testid="lm-replica-save-identity"
+            >
+              保存
+            </button>
+          </div>
         ) : (
-          <p className="lm-meta">邀请同事前请先保存姓名。</p>
+          <div className="lm-lawyer-deadline-row">
+            <span className="lm-lawyer-deadline-copy">
+              <strong>{identity?.displayName}</strong>
+              {identity?.email ? <span className="lm-lawyer-today-meta">{identity.email}</span> : null}
+            </span>
+            <button
+              type="button"
+              className="lm-btn lm-btn-ghost lm-btn-sm"
+              onClick={() => setEditingIdentity(true)}
+            >
+              修改
+            </button>
+          </div>
         )}
       </div>
 
       <div className="lm-matter-replica-block">
         <h4 className="lm-matter-replica-h">本案成员</h4>
         {members.length === 0 ? (
-          <p className="lm-meta">尚无成员名册。保存身份后将自动登记你为主办。</p>
+          <p className="lm-meta">保存姓名后，你会作为主办出现在这里。</p>
         ) : (
-          <ul className="lm-matter-replica-list">
+          <ul className="lm-lawyer-deadline-list">
             {members.map((m) => (
-              <li key={m.lawyerId}>
-                <span>{m.displayName}</span>
-                <span className="lm-meta">
-                  {roleLabels[m.role] ?? m.role}
-                  {m.email ? ` · ${m.email}` : ""}
+              <li key={m.lawyerId} className="lm-lawyer-deadline-row">
+                <span className="lm-lawyer-deadline-copy">
+                  <strong>{m.displayName}</strong>
+                  <span className="lm-lawyer-today-meta">
+                    {roleLabels[m.role] ?? m.role}
+                    {m.email ? ` · ${m.email}` : ""}
+                  </span>
                 </span>
               </li>
             ))}
@@ -496,15 +613,17 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
           <label className="lm-field">
             <span>同事邮箱</span>
             <input
+              className="lm-input"
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="colleague@firm.com"
+              placeholder="colleague@example.com"
               data-testid="lm-replica-invite-email"
             />
           </label>
           <label className="lm-field">
             <span>角色</span>
             <select
+              className="lm-input"
               value={inviteRole}
               onChange={(e) => setInviteRole(e.target.value)}
               data-testid="lm-replica-invite-role"
@@ -519,37 +638,37 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
           <button
             type="button"
             className="lm-btn lm-btn-sm"
-            disabled={busy || !inviteEmail.trim() || !identity}
+            disabled={busy || !relayReady || !inviteEmail.trim() || !identity}
             onClick={() => void sendInvite()}
             data-testid="lm-replica-send-invite"
           >
-            生成邀请码
+            邀请
           </button>
         </div>
         {lastShare ? (
-          <pre className="lm-matter-replica-share" data-testid="lm-replica-share-text">
+          <p className="lm-meta lm-matter-replica-share" data-testid="lm-replica-share-text">
             {lastShare}
-          </pre>
+          </p>
         ) : null}
         {invites.length > 0 ? (
-          <ul className="lm-matter-replica-list">
+          <ul className="lm-lawyer-deadline-list">
             {invites.map((i) => (
-              <li key={i.inviteId}>
-                <span>
-                  {i.email} · {roleLabels[i.role] ?? i.role}
+              <li key={i.inviteId} className="lm-lawyer-deadline-row">
+                <span className="lm-lawyer-deadline-copy">
+                  <strong>{i.email}</strong>
+                  <span className="lm-lawyer-today-meta">
+                    {roleLabels[i.role] ?? i.role} · <span className="lm-matter-replica-token">{i.token}</span>
+                  </span>
                 </span>
-                <span className="lm-matter-replica-invite-actions">
-                  <code className="lm-matter-replica-token">{i.token}</code>
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-ghost lm-btn-sm"
-                    disabled={busy}
-                    onClick={() => void revokeInviteRow(i.inviteId)}
-                    data-testid={`lm-replica-revoke-${i.inviteId}`}
-                  >
-                    撤销
-                  </button>
-                </span>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost lm-btn-sm"
+                  disabled={busy}
+                  onClick={() => void revokeInviteRow(i.inviteId)}
+                  data-testid={`lm-replica-revoke-${i.inviteId}`}
+                >
+                  撤销
+                </button>
               </li>
             ))}
           </ul>
@@ -557,14 +676,15 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
       </div>
 
       <div className="lm-matter-replica-block">
-        <h4 className="lm-matter-replica-h">接受邀请</h4>
+        <h4 className="lm-matter-replica-h">加入同事的案子</h4>
         <div className="lm-matter-replica-row">
           <label className="lm-field lm-field-grow">
             <span>邀请码</span>
             <input
+              className="lm-input"
               value={acceptToken}
               onChange={(e) => setAcceptToken(e.target.value)}
-              placeholder="LM-XXXX-XXXX-XXXX-XXXX"
+              placeholder="粘贴邀请码"
               data-testid="lm-replica-accept-token"
             />
           </label>
@@ -575,73 +695,70 @@ export function MatterReplicaPanel({ apiBase, matterId }: Props): ReactNode {
             onClick={() => void acceptInvite()}
             data-testid="lm-replica-accept"
           >
-            加入本案
+            加入
           </button>
         </div>
       </div>
 
       <div className="lm-matter-replica-block">
-        <h4 className="lm-matter-replica-h">本案材料索引</h4>
-        <p className="lm-meta">扫描 cases/…/materials/，按 SHA-256 经共享中继交换（单文件 ≤50MB）。</p>
-        {materials.length === 0 ? (
-          <p className="lm-meta">尚无材料文件。放入材料文件夹后点「同步记录与材料」。</p>
+        <h4 className="lm-matter-replica-h">正在一起改的文件</h4>
+        {materials.length === 0 && locks.length === 0 ? (
+          <p className="lm-meta">材料放进本案后会出现在这里。点「我来改」再打开 Word。</p>
         ) : (
-          <ul className="lm-matter-replica-list" data-testid="lm-replica-materials">
-            {materials.slice(0, 20).map((f) => (
-              <li key={f.relPath}>
-                <span>{f.fileName}</span>
-                <span className="lm-meta">
-                  {formatBytes(f.size)} · {f.sha256.slice(0, 8)}…
-                </span>
-              </li>
-            ))}
+          <ul className="lm-lawyer-deadline-list" data-testid="lm-replica-materials">
+            {materials.slice(0, 20).map((file) => {
+              const held = lockByPath.get(file.relPath);
+              return (
+                <li key={file.relPath} className="lm-lawyer-deadline-row">
+                  <span className="lm-lawyer-deadline-copy">
+                    <strong>{file.fileName}</strong>
+                    <span className="lm-lawyer-today-meta">
+                      {formatBytes(file.size)}
+                      {held ? ` · ${held.holderDisplayName} 正在改` : ""}
+                    </span>
+                  </span>
+                  {held ? (
+                    <button
+                      type="button"
+                      className="lm-btn lm-btn-ghost lm-btn-sm"
+                      disabled={busy}
+                      onClick={() => void releaseLock(file.relPath)}
+                    >
+                      改完了
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="lm-btn lm-btn-sm"
+                      disabled={busy || !identity}
+                      onClick={() => void acquireLock(file.relPath)}
+                      data-testid="lm-replica-acquire-lock"
+                    >
+                      我来改
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+            {locks
+              .filter((lock) => !materials.some((file) => file.relPath === lock.relPath))
+              .map((lock) => (
+                <li key={lock.lockId} className="lm-lawyer-deadline-row">
+                  <span className="lm-lawyer-deadline-copy">
+                    <strong>{lock.relPath.split("/").pop()}</strong>
+                    <span className="lm-lawyer-today-meta">{lock.holderDisplayName} 正在改</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost lm-btn-sm"
+                    disabled={busy}
+                    onClick={() => void releaseLock(lock.relPath)}
+                  >
+                    改完了
+                  </button>
+                </li>
+              ))}
           </ul>
-        )}
-      </div>
-
-      <div className="lm-matter-replica-block">
-        <h4 className="lm-matter-replica-h">材料签出</h4>
-        <p className="lm-meta">改 Word / 关键材料前先签出，避免两人同时保存产生冲突副本。</p>
-        <div className="lm-matter-replica-row">
-          <label className="lm-field lm-field-grow">
-            <span>相对路径（本案 materials 下）</span>
-            <input
-              value={lockPath}
-              onChange={(e) => setLockPath(e.target.value)}
-              placeholder="materials/合同初稿.docx"
-              data-testid="lm-replica-lock-path"
-            />
-          </label>
-          <button
-            type="button"
-            className="lm-btn lm-btn-sm"
-            disabled={busy || !lockPath.trim() || !identity}
-            onClick={() => void acquireLock()}
-            data-testid="lm-replica-acquire-lock"
-          >
-            我来改
-          </button>
-        </div>
-        {locks.length > 0 ? (
-          <ul className="lm-matter-replica-list">
-            {locks.map((l) => (
-              <li key={l.lockId}>
-                <span>
-                  {l.relPath} · {l.holderDisplayName}
-                </span>
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-ghost lm-btn-sm"
-                  disabled={busy}
-                  onClick={() => void releaseLock(l.relPath)}
-                >
-                  释放
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="lm-meta">当前无签出。</p>
         )}
       </div>
     </section>

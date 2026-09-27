@@ -28,6 +28,7 @@ export type LawmindHealthState = {
   webSearchNativeAvailable?: boolean;
   webSearchReady?: boolean;
   webSearchPolicyBlocked?: boolean;
+  egressMode?: "open" | "allowlisted" | "offline";
   modelName?: string | null;
   modelEnvFileExists?: boolean;
   draftWithModelEnabled?: boolean;
@@ -63,6 +64,11 @@ export function mapHealthState(payload: {
       Boolean(payload.webSearchApiKeyConfigured),
     webSearchPolicyBlocked:
       payload.policy?.allowWebSearch === false || payload.policy?.egressMode === "offline",
+    ...(payload.policy?.egressMode === "offline" ||
+    payload.policy?.egressMode === "allowlisted" ||
+    payload.policy?.egressMode === "open"
+      ? { egressMode: payload.policy.egressMode }
+      : {}),
     modelName: typeof payload.modelName === "string" ? payload.modelName : null,
     modelEnvFileExists: Boolean(payload.modelEnvFileExists),
     draftWithModelEnabled: payload.draftWithModelEnabled === true,
@@ -77,7 +83,7 @@ export function mapHealthState(payload: {
 }
 
 function applyHealthFromSnapshot(
-  snapshot: Awaited<ReturnType<typeof loadAppBootstrapSnapshot>>,
+  snapshot: { health: Awaited<ReturnType<typeof loadAppBootstrapSnapshot>>["health"] },
   setHealth: (value: LawmindHealthState) => void,
   setHealthPayload: (value: HealthPayload | null) => void,
   setAllowWebSearchState: (enabled: boolean) => void,
@@ -182,26 +188,42 @@ export function useLawmindAppBootstrapEffects(params: UseLawmindAppBootstrapEffe
 
   useEffect(() => {
     if (!config) {
-      return;
+      return undefined;
     }
+    let cancelled = false;
     void (async () => {
       try {
-        const snapshot = await loadAppBootstrapSnapshot(config.apiBase);
-        const nextHealth = applyHealthFromSnapshot(
-          snapshot,
-          setHealth,
-          setHealthPayload,
-          setAllowWebSearchState,
-        );
-        if (!nextHealth.modelConfigured) {
-          setShowWizard(true);
+        const snapshot = await loadAppBootstrapSnapshot(config.apiBase, {
+          onShell: (shell) => {
+            if (cancelled) {
+              return;
+            }
+            const nextHealth = applyHealthFromSnapshot(
+              shell,
+              setHealth,
+              setHealthPayload,
+              setAllowWebSearchState,
+            );
+            if (!nextHealth.modelConfigured) {
+              setShowWizard(true);
+            }
+          },
+        });
+        if (cancelled) {
+          return;
         }
+        applyHealthFromSnapshot(snapshot, setHealth, setHealthPayload, setAllowWebSearchState);
         applyBootstrapSnapshot(snapshot);
         await refreshModelsCatalog(config.apiBase);
       } catch (cause) {
-        setError(errorMessage(cause, "加载 LawMind 配置失败"));
+        if (!cancelled) {
+          setError(errorMessage(cause, "加载 LawMind 配置失败"));
+        }
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [
     applyBootstrapSnapshot,
     config,
@@ -256,7 +278,11 @@ export function useLawmindAppBootstrapEffects(params: UseLawmindAppBootstrapEffe
         throw new Error("无法读取桌面配置，请完全退出并重新打开 LawMind。");
       }
       setConfig(fresh);
-      const snapshot = await loadAppBootstrapSnapshot(fresh.apiBase);
+      const snapshot = await loadAppBootstrapSnapshot(fresh.apiBase, {
+        onShell: (shell) => {
+          applyHealthFromSnapshot(shell, setHealth, setHealthPayload, setAllowWebSearchState);
+        },
+      });
       applyHealthFromSnapshot(snapshot, setHealth, setHealthPayload, setAllowWebSearchState);
       applyBootstrapSnapshot(snapshot);
       await refreshModelsCatalog(fresh.apiBase);

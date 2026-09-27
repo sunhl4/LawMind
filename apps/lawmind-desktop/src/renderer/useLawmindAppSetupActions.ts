@@ -8,13 +8,12 @@ import { applyPostFirstrunPermissionDefaults } from "./lawmind-compose-prefs";
 import { clearProjectDirectory } from "./lawmind-settings-project";
 import { mapHealthState, type LawmindHealthState } from "./useLawmindAppBootstrapEffects";
 import type { HealthPayload } from "./lawmind-app-data.js";
+import { FIRST_RUN_DEMO_MATTER_ID } from "./lawmind-day-one";
 
-/** 演示案件 ID 与首跑种子提示（与首跑向导「跳过向导，直接开始」同一口径）。 */
-export const FIRST_RUN_DEMO_MATTER_ID = "演示案件";
-export const FIRST_RUN_SEED_PROMPT = "把材料拖进来，或直接说要办的事。不必先选文书类型。";
+export { DAY_ONE_EXAMPLE_PROMPTS, FIRST_RUN_DEMO_MATTER_ID } from "./lawmind-day-one";
 
 /**
- * 钥匙验证通过后零选择落到可干活对话：建演示案件 + 写首跑审计 + 可执行默认 + 种子提示。
+ * 钥匙验证通过后零选择落到可干活对话：建演示案件 + 写首跑审计 + 可执行默认。输入框留空。
  * 失败只抛给调用方吞掉——模型已配好，律师仍能直接在对话里开工。
  */
 export async function startWorkingConversation(
@@ -46,7 +45,7 @@ export async function startWorkingConversation(
   applyPostFirstrunPermissionDefaults({ executable: true });
   extra?.onSeedReady?.({
     matterId: FIRST_RUN_DEMO_MATTER_ID,
-    seedPrompt: FIRST_RUN_SEED_PROMPT,
+    seedPrompt: "",
   });
   try {
     window.localStorage.setItem("lm.firstRun.dismissed", "1");
@@ -103,7 +102,7 @@ async function adoptConfigAfterBackendRestart(  previous: AppConfig | null,
 export type RunWizardSaveExtra = {
   webSearchApiKey?: string;
   /**
-   * 钥匙验证通过后直接落到「可干活对话」的回调：建好演示案件 + 种子提示，
+   * 钥匙验证通过后直接落到「可干活对话」的回调：建好演示案件，输入框留空，
    * 不再经由首跑向导弹窗（零选择冷启动）。
    */
   onSeedReady?: (params: { matterId: string; seedPrompt: string }) => void;
@@ -304,7 +303,7 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
       setShowWizard(false);
       setWizApiKey("");
       setWizHasExistingKey(true);
-      // 钥匙一验证通过就落到可干活对话：建演示案件 + 种子提示 + 可执行默认。
+      // 钥匙一验证通过就落到可干活对话：建演示案件 + 可执行默认，不再弹首跑向导。
       // 不再弹首跑向导（零选择冷启动）；律师之后仍可从设置重新打开向导。
       try {
         if (typeof window !== "undefined" && !window.localStorage.getItem("lm.firstRun.dismissed")) {

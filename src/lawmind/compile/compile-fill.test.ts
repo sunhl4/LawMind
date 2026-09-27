@@ -5,6 +5,7 @@ import {
   extractLiabilityCapCompileFill,
 } from "./complaint-liability-adapters.js";
 import { extractLaborCompileFill, extractPeriodCompileFill } from "./labor-period-adapters.js";
+import { extractLegalElementsCompileFill } from "./legal-elements-fill.js";
 import {
   extractLetterAddressFill,
   letterAddressSlots,
@@ -29,6 +30,16 @@ describe("compile-fill IR", () => {
     const period = extractPeriodCompileFill("2024年1月1日送达判决，计算上诉期届满日");
     expect(period.kind).toBe("period.calc");
     expect(period.slots.find((s) => s.key === "expires")?.value).toBe("2024-01-16");
+  });
+
+  it("legal elements stay gaps when the instruction has no facts", () => {
+    const empty = extractLegalElementsCompileFill("写一份备忘");
+    expect(empty.kind).toBe("legal.elements");
+    expect(empty.slots.find((s) => s.key === "act")?.value).toBeUndefined();
+    expect(empty.gaps.length).toBe(empty.slots.length);
+    const filled = extractLegalElementsCompileFill("他一直拖欠工资这算不算违法");
+    expect(filled.slots.find((s) => s.key === "act")?.value).toContain("劳动报酬");
+    expect(filled.gaps).not.toContain("行为");
   });
 
   it("complaint and liability-cap adapters fill named slots", () => {

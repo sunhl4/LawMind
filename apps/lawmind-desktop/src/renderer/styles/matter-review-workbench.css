@@ -3052,15 +3052,29 @@
 }
 
 /* ── Matter Replica（成员协作） ── */
+.lm-matter-replica-entry {
+  margin: 16px 0 4px;
+}
+
+.lm-matter-replica-entry > summary {
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.lm-matter-replica-entry > .lm-matter-replica {
+  margin-top: 12px;
+}
+
 .lm-matter-replica {
   margin: 0;
-  padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--accent-border) 40%, var(--border));
-  border-radius: var(--r-lg);
-  background: var(--surface);
+  padding: 0;
+  border: none;
+  background: transparent;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .lm-matter-replica-head {
@@ -3083,14 +3097,13 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-top: 4px;
-  border-top: 1px solid var(--border);
 }
 
 .lm-matter-replica-h {
-  margin: 0;
-  font-size: 0.85rem;
-  font-weight: 600;
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .lm-matter-replica-row {
@@ -3114,16 +3127,6 @@
 .lm-matter-replica-row .lm-field span {
   font-size: 0.75rem;
   color: var(--text-muted);
-}
-
-.lm-matter-replica-row input,
-.lm-matter-replica-row select {
-  min-height: 32px;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--bg);
-  color: var(--text);
 }
 
 .lm-matter-replica-list {
@@ -3161,13 +3164,7 @@
 
 .lm-matter-replica-share {
   margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--r-md);
-  border: 1px dashed var(--border);
-  background: var(--bg);
   white-space: pre-wrap;
-  font-size: 0.8rem;
-  line-height: 1.45;
 }
 
 .lm-ok {
@@ -3215,23 +3212,4 @@
 .lm-review-table-grid td .lm-input {
   width: 100%;
   min-width: 96px;
-}
-
-/* 交办成绩单（Doctor 律师可见区） */
-.lm-settings-scorecard {
-  display: grid;
-  gap: 6px;
-  margin: 8px 0;
-}
-
-.lm-settings-scorecard-row {
-  display: grid;
-  grid-template-columns: minmax(96px, 160px) minmax(80px, auto) 1fr;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.lm-settings-scorecard-value {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
 }

@@ -549,9 +549,10 @@ async function probePortOccupant(port) {
  * 清单由**服务端现场生成**（不是本地拼模板），这样端口与模板只有一处真相；
  * 静态面 GET 本就免 bearer，所以这里不需要凭据。
  */
-export async function syncWordAddinManifest() {
+export async function syncWordAddinManifest(options = {}) {
+  const downloadsFallback = options.downloadsFallback !== false;
   if (!apiPort) {
-    return { ok: false, error: "本机服务尚未启动。" };
+    return { ok: false, error: "请稍后再试。" };
   }
   const base = `http://localhost:${apiPort}`;
   let manifest;
@@ -560,22 +561,29 @@ export async function syncWordAddinManifest() {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) {
-      return { ok: false, error: `取清单失败（HTTP ${res.status}）。` };
+      console.warn("[LawMind] word manifest HTTP", res.status);
+      return { ok: false, error: "暂时连不上，请稍后再试。" };
     }
     manifest = await res.text();
   } catch (err) {
-    return {
-      ok: false,
-      error: `取清单失败：${err instanceof Error ? err.message : String(err)}`,
-    };
+    console.warn("[LawMind] word manifest fetch:", err instanceof Error ? err.message : err);
+    return { ok: false, error: "暂时连不上，请稍后再试。" };
   }
 
-  const attempts = resolveManifestTargets({
+  let attempts = resolveManifestTargets({
     platform: process.platform,
     home: app.getPath("home"),
     downloads: app.getPath("downloads"),
     exists: (p) => fs.existsSync(p),
   });
+  if (!downloadsFallback) {
+    attempts = attempts.filter((attempt) => attempt.location === "word-container");
+    if (attempts.length === 0) {
+      console.warn("[LawMind] 未找到已安装的 Word，跳过自动写回，不放入下载文件夹。");
+      return { ok: false, skipped: true };
+    }
+  }
+  const failed = [];
 
   for (const attempt of attempts) {
     const file = path.join(attempt.dir, "manifest.xml");
@@ -591,20 +599,43 @@ export async function syncWordAddinManifest() {
         instructions: manifestInstructions(attempt.location, base),
       };
     } catch (err) {
-      attempts.push({
-        location: `${attempt.location}-failed`,
+      failed.push({
         dir: attempt.dir,
         error: err instanceof Error ? err.message : String(err),
       });
     }
   }
-
-  const failed = attempts.filter((a) => a.location.endsWith("-failed"));
+  console.warn(
+    "[LawMind] word manifest write:",
+    failed.map((f) => `${f.dir}（${f.error}）`).join("；"),
+  );
   return {
     ok: false,
     apiBase: base,
-    error: `写入清单失败：${failed.map((f) => `${f.dir}（${f.error}）`).join("；")}`,
+    error: "没能重新连接。请稍后再试。",
   };
+}
+
+/**
+ * 端口变了就自己写回 Word 清单。另一个 LawMind 占着原端口时不改写，避免把 Word 指到这份多余实例。
+ */
+async function healWordManifestIfDrifted() {
+  if (!loopbackPortDrift || loopbackPortDrift.occupant === "another-lawmind") {
+    return;
+  }
+  try {
+    const res = await syncWordAddinManifest({ downloadsFallback: false });
+    if (res.skipped) {
+      return;
+    }
+    if (res.ok) {
+      console.warn(`[LawMind] 已按当前端口写回 Word 清单：${res.path}`);
+    } else {
+      console.warn("[LawMind] 自动写回 Word 清单失败：", res.error);
+    }
+  } catch (err) {
+    console.warn("[LawMind] 自动写回 Word 清单失败：", err instanceof Error ? err.message : err);
+  }
 }
 
 /** Best-effort：端口复用是优化，写盘失败绝不能影响启动。 */
@@ -660,19 +691,27 @@ async function waitForLocalServerReady(port, timeoutMs = 15000) {
       throw new Error("LawMind local server exited before becoming ready");
     }
     try {
-      const headers =
-        apiAuthToken.trim().length > 0
-          ? { authorization: `Bearer ${apiAuthToken}` }
-          : undefined;
-      const res = await fetch(`http://127.0.0.1:${port}/api/health`, { headers });
+      // 探活只打发现端点。/api/health 会扫会话、草稿和索引，窗口会一直等它扫完才出现。
+      // 发现端点在 Host 门之后、鉴权之前，不含密钥，返回就说明回环服务已经在听。
+      const res = await fetch(`http://127.0.0.1:${port}/.well-known/lawmind-local`);
       if (res.ok) {
-        return;
+        const body = await res.json().catch(() => null);
+        if (
+          body &&
+          body.ok === true &&
+          typeof body.base === "string" &&
+          body.credentialModel === "derived-hmac-sha256"
+        ) {
+          return;
+        }
+        lastError = new Error("Discovery payload missing base");
+      } else {
+        lastError = new Error(`Discovery check returned HTTP ${res.status}`);
       }
-      lastError = new Error(`Health check returned HTTP ${res.status}`);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
     }
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(
     `Timed out waiting for LawMind local server to start${lastError ? `: ${lastError.message}` : ""}`,
@@ -727,8 +766,7 @@ async function startLocalServerOnce(repoRoot, wsDir, envPath, retrievalMode, pro
     console.warn(
       `[LawMind] 本机 API 端口从 ${preferredPort} 漂移到 ${port}：${preferredPort} 被${who}占用。` +
         `Word 加载项的侧载清单把端口钉死（http://localhost:${preferredPort}/word-addin/taskpane.html），` +
-        `因此在重新侧载清单之前，已打开的窗格会报「无法加载」或加载失败。` +
-        `请在「设置 → 体检」里用「重新侧载 Word 清单」修复。`,
+        `因此已打开的 Word 窗格会连不上。将自动写回清单；请完全退出 Word 后再打开。`,
     );
   }
 
@@ -824,6 +862,15 @@ async function startLocalServerOnce(repoRoot, wsDir, envPath, retrievalMode, pro
     );
     if (app.isPackaged && serverEnv.LAWMIND_SKIP_API_AUTH === "1") {
       delete serverEnv.LAWMIND_SKIP_API_AUTH;
+    }
+    // 桌面进程拉起的本机 API：体检页「重建索引」是律师的显式动作，不必再配环境变量。
+    // 用户或 .env 已显式设置时尊重原值。独立启动的服务进程仍默认关闭。
+    const rebuildFromEnvFile = parsedEnvVars.LAWMIND_ALLOW_INDEX_REBUILD;
+    if (
+      !String(serverEnv.LAWMIND_ALLOW_INDEX_REBUILD ?? "").trim() &&
+      !String(rebuildFromEnvFile ?? "").trim()
+    ) {
+      serverEnv.LAWMIND_ALLOW_INDEX_REBUILD = "1";
     }
     serverProcess = spawn(cmd, args, {
       cwd,
@@ -963,9 +1010,8 @@ export async function restartBackendInternal() {
     await dialog.showMessageBox({
       type: "error",
       title: LAWMIND_PRODUCT_NAME,
-      message: "Cannot find LawMind workspace root.",
-      detail:
-        "Set LAWMIND_REPO_ROOT to the directory containing the LawMind workspace package.json, build the bundled server (pnpm lawmind:bundle:desktop-server), or install a packaged build that includes lawmind-server.",
+      message: "LawMind 没能找到工作文件。",
+      detail: "请重新安装。若这是开发版本，请先完成安装包构建后再打开。",
     });
     throw new Error("no repo root");
   }
@@ -982,6 +1028,7 @@ export async function restartBackendInternal() {
   // 重启成功（ready）后归零监督计数，恢复全额退避额度。
   supervisionAttempts = 0;
   broadcastLoopbackConfig();
+  await healWordManifestIfDrifted();
 }
 
 export async function ensureBackend() {

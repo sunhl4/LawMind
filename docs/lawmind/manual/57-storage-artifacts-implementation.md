@@ -4,23 +4,13 @@
 
 放在一章的原因：它们合起来是「从内存到磁盘」的全程——先原子写、再渲染、最后按规则命名放到正确的位置。
 
-## 57.1 两套 zod schema（一个已知的不一致）
+## 57.1 一套 zod schema，外加名字兼容层
 
-`adapters/matter-storage/` 里有**两个** schema 文件：`schemas.ts` 和 `schema.ts`。这本身就是一件需要解释的事。
+字段只定义在 `adapters/matter-storage/schema.ts`。`schemas.ts` 只把 `MatterRecordSchema` 等再导出成 `matterSchema` 这些旧名字，避免写侧再长出第二份 zod。改数据模型只改 `schema.ts`。
 
-### `schemas.ts`：五个 schema
+`schemas.ts` 再导出的旧名字包括 `matterSchema`、`deliverableSchema`、`approvalSchema`、`queueItemSchema`、`deadlineSchema`。它们不是第二份定义。
 
-头部注释说明了它和 `core/contracts.ts` 的关系：
-
-```text
-Matter 真相源 zod schemas — 与 src/lawmind/core/contracts.ts 类型保持一致。
-写侧 service 在落盘前用这些 schema 校验，错误走 audit `deliverable.spec.invalid`
-类似事件。读侧返回前也建议用 `safeParse` 防御坏 JSON。
-```
-
-它导出五个 schema 与五个类型：`matterSchema`、`deliverableSchema`、`approvalSchema`、`queueItemSchema`、`deadlineSchema`。
-
-### `schema.ts`：粒度更细、带默认值
+### `schema.ts`：粒度细到单个枚举
 
 `schema.ts` 的头部注释：
 
@@ -32,26 +22,9 @@ zod schemas — `workspace/matters/<id>/` 下的 JSON 真相源（W3）。
 
 它导出二十多个**命名的** schema（`RiskLevelSchema`、`MatterStatusSchema`、`MatterPartySchema`、`MatterDocketSchema`、`MatterRecordSchema`……），粒度细到单个枚举。
 
-### 两套的四处差异（这是要记住的）
+`io.ts` 的 `readJsonValidated` / `appendJsonl` / `rewriteJsonl` 仍由调用方传入 schema，传入的就是 `schema.ts` 里的那一份（或它的别名）。
 
-| 项                           | `schemas.ts`                                       | `schema.ts`           |
-| ---------------------------- | -------------------------------------------------- | --------------------- |
-| `currentReviewStatus`        | `pending/approved/rejected/modified`               | 多一个 **`redacted`** |
-| 数组字段                     | 必需                                               | 带 `.default([])`     |
-| `approvalSchema.requestedAt` | `.min(1)`                                          | 无 `.min(1)`          |
-| `deadlineSchema.dueAt`       | `.min(1)`                                          | 无 `.min(1)`          |
-| `queueItemSchema`            | 无 `dependsOn`/`blockedBy`/`blockedReason`/`phase` | **有这四个**          |
-
-**所以「用哪个 schema」会影响校验结果**：
-
-- 走 `schemas.ts` 的 `deliverableSchema` 会拒绝 `currentReviewStatus: "redacted"`。
-- 走 `schema.ts` 的 `QueueRecordSchema` 会**丢掉** `dependsOn` 那四个字段（因为它不认）。
-
-**实践中以「实际调用的那个」为准**。`io.ts` 的 `readJsonValidated` / `appendJsonl` / `rewriteJsonl` 都是**调用方传 schema**，所以取决于调用方传的是哪一个。
-
-这两套并存是历史演进留下的。**改数据模型时两处都要看**——这是这一层最容易出错的地方。
-
-### `matterSchema` 的完整字段（`schemas.ts`）
+### `matterSchema` 的字段（来自 `schema.ts` 的 `MatterRecordSchema`）
 
 我把它们按用途分组列一遍，因为这是「案件真相源长什么样」的权威答案。
 
@@ -125,14 +98,7 @@ W8 起：明确委派的目标角色（即审批应由谁完成）
 ALLOWED_MATTER_ID = /^[a-zA-Z0-9_-]{1,128}$/;
 ```
 
-**注意它比 `cases/matter-id.ts` 的 `MATTER_ID_PATTERN` 严得多**（那个允许中文、点、空格）。两套正则：
-
-| 位置                               | 正则                                     | 允许中文 |
-| ---------------------------------- | ---------------------------------------- | -------- |
-| `cases/matter-id.ts`               | `^[\p{L}\p{N}][\p{L}\p{N}._\- ]{1,127}$` | ✅       |
-| `adapters/matter-storage/paths.ts` | `^[a-zA-Z0-9_-]{1,128}$`                 | ❌       |
-
-**storage 那一层更严**：因为它拼的是磁盘路径，字符集越窄越安全。而 `cases/` 那边要容忍律师起的名字。
+`assertSafeMatterId` 接受这条 ASCII 正则，**或者** `cases/matter-id.ts` 的 `isValidMatterId`（允许中文）。两边都不许 `..`、`/`、`\` 和空字符。律师起的中文案件名可以落进 `matters/`。
 
 不合法会抛：
 
@@ -159,7 +125,7 @@ unsafe matter id: <id>
 
 后两个的注释标了来源：「Skills E1：分诊会话目录」「Skills E2：审查专案组目录」。
 
-**`deliverableId` 也过同一个正则**——所以交付物 id 也不许带中文。
+**`deliverableId` 也走 `assertSafeMatterId`**——能通过 `isValidMatterId` 的中文 id 同样可以。
 
 ## 57.3 IO 原语：四个能力
 
@@ -509,7 +475,7 @@ return ops.toSorted((a, b) => (b.spanStart ?? 0) - (a.spanStart ?? 0));
 ### 细节三：多处命中的「整处回滚」
 
 ```text
-matched > 1 → 回滚到备份 → 记 `multi_match_skipped:<前30字>`
+matched > 1 → 回滚到备份 → 记 `multi_match_skipped:<前40字>`
 回滚也失败 → 记 `multi_match_rollback_failed` → 这次导出不算可交付
 ```
 
@@ -933,8 +899,8 @@ Packaged desktop apps and `pnpm install` vendor a platform build under
 
 ## 57.13 已知坑（本章相关）
 
-- **两套 zod schema 并存，四处差异。** 改数据模型两处都看。
-- **`storage` 层的 matterId 正则比 `cases/` 层严**（不许中文）。
+- **zod 只在 `schema.ts`。** `schemas.ts` 是旧名字的再导出。
+- **案件 id 可以是中文。** `assertSafeMatterId` 认 ASCII 正则或 `isValidMatterId`，仍拒绝 `..` 和斜杠。
 - **原子写没有 fsync。** 防进程崩溃，不防掉电。
 - **`readJsonl` 跳过坏行不报错。** 所以「少了记录」可能是坏行。
 - **文件锁的 `EPERM` 算「进程活着」。**

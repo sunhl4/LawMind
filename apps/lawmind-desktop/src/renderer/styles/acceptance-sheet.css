@@ -1,0 +1,254 @@
+/* 对话中栏：核对纸。只排结论、出处、缺口和宽表。 */
+
+.lm-acceptance-sheet {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 22px 28px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.lm-acceptance-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.lm-acceptance-kicker {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.lm-acceptance-title {
+  margin: 4px 0 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.lm-acceptance-meta,
+.lm-acceptance-summary,
+.lm-acceptance-foot,
+.lm-acceptance-empty,
+.lm-acceptance-error {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2, var(--muted));
+}
+
+.lm-acceptance-error {
+  color: var(--danger-text, var(--danger));
+}
+
+.lm-acceptance-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2, var(--muted));
+}
+
+.lm-acceptance-summary-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+
+.lm-acceptance-reopen-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 8px 12px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lm-acceptance-head-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.lm-acceptance-claims {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lm-acceptance-claim {
+  margin: 0;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r, 8px);
+  background: var(--surface-elevated, var(--side-bg));
+}
+
+.lm-acceptance-claim-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.lm-acceptance-claim-loc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lm-acceptance-quote {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-left: 2px solid var(--border);
+  color: var(--text-2, var(--text));
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.lm-acceptance-sources {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lm-acceptance-sources li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lm-acceptance-sources li.is-focused {
+  color: var(--text);
+}
+
+.lm-acceptance-claim-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.lm-acceptance-restore {
+  margin-top: 12px;
+}
+
+.lm-acceptance-gaps,
+.lm-acceptance-table-wrap {
+  margin-top: 22px;
+}
+
+.lm-acceptance-gaps h3,
+.lm-acceptance-table-wrap h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lm-acceptance-gaps ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.lm-acceptance-table-scroll {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r, 8px);
+}
+
+.lm-acceptance-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.lm-acceptance-table th,
+.lm-acceptance-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  white-space: normal;
+  min-width: 7.5rem;
+}
+
+.lm-acceptance-table tr.is-unsourced td:last-child {
+  color: var(--danger-text, var(--danger));
+}
+
+.lm-acceptance-foot {
+  margin-top: 22px;
+}
+
+.lm-acceptance-chart {
+  margin-top: 22px;
+}
+
+.lm-acceptance-chart .lm-analysis-chart-svg svg {
+  width: 100%;
+  height: auto;
+}
+
+.lm-acceptance-chart-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.lm-acceptance-page {
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.lm-acceptance-page figcaption,
+.lm-acceptance-page p {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lm-acceptance-page img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r, 8px);
+  background: var(--surface-elevated, var(--side-bg));
+}
+
+.lm-acceptance-marks {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2, var(--muted));
+}
+
+.lm-acceptance-marks ul {
+  margin: 4px 0 8px;
+  padding-left: 1.15em;
+}
+
+.lm-acceptance-marks li + li {
+  margin-top: 4px;
+}

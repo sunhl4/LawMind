@@ -56,18 +56,18 @@ describe("text-intent", () => {
     expect(namedBracketFolders("【交办】5 分钟合同审查")).toEqual([]);
   });
 
-  it("requires folder explore on folder talk, not Word/mail/continue", () => {
+  it("folder talk does not require explore before writing", () => {
     expect(
       shouldRequireFolderExplore({
         instruction: "根据【河南堃云顿数据科技有限公司】文件夹起草审查备忘",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldRequireFolderExplore({
         instruction: "请审查这份采购合同",
         hasDirectoryPin: true,
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldRequireFolderExplore({
         instruction: "根据文件夹改这份合同",

@@ -2121,12 +2121,6 @@
   font-size: 11px;
   word-break: break-all;
 }
-.lm-provider-key-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 8px 0 12px;
-}
 .lm-settings-subsection {
   margin-top: 16px;
   padding-top: 12px;

@@ -32,9 +32,8 @@ export function installRendererRecovery(win, reload) {
         `data:text/html;charset=utf-8,${encodeURIComponent(
           `<!doctype html><meta charset="utf-8"><title>LawMind</title>
 <body style="font-family:system-ui;padding:40px;background:#f7f6f3;color:#1a1a1a">
-<h1>LawMind 未能打开界面</h1>
-<p>${String(errorDescription || "加载失败")}（${errorCode}）</p>
-<p>请关闭后重新打开应用，或检查开发服务是否在跑。</p>
+<h1>界面没有打开</h1>
+<p>请退出 LawMind 后重新打开。</p>
 </body>`,
         )}`,
       );

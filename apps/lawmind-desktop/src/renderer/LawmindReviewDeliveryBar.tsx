@@ -168,7 +168,7 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
               title={approveDisabled ? "请先完成律师必核清单" : undefined}
               onClick={onApprove}
             >
-              通过
+              签批
             </button>
           </>
         ) : null}
@@ -181,7 +181,7 @@ export function LawmindReviewDeliveryBar(props: Props): ReactNode {
               writing
                 ? "导出到本机，不发给对方"
                 : !approved
-                  ? "需先将签批标为「通过」"
+                  ? "需先签批"
                   : hardBlockExport
                     ? readiness?.summaryZh ?? "必核或引用未就绪，不可导出"
                     : undefined

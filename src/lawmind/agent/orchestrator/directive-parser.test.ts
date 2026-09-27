@@ -5,7 +5,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  cassetteAssistant,
+  cassetteHttpError,
+  startCassetteModelServer,
+  type CassetteModelServer,
+} from "../testkit/index.js";
 import {
   buildWorkflowFromDirective,
   parseAndBuildWorkflow,
@@ -14,6 +20,14 @@ import {
 } from "./directive-parser.js";
 
 const dirs: string[] = [];
+const servers: CassetteModelServer[] = [];
+
+/** Loopback cassette：出口代理绕过 global fetch，模型字节由 127.0.0.1 本机服务脚本化。 */
+async function startServer(): Promise<CassetteModelServer> {
+  const server = await startCassetteModelServer();
+  servers.push(server);
+  return server;
+}
 
 function tmpWorkspace(): string {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-directive-"));
@@ -50,7 +64,8 @@ function tmpWorkspace(): string {
   return ws;
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map((s) => s.close()));
   for (const d of dirs.splice(0)) {
     fs.rmSync(d, { recursive: true, force: true });
   }
@@ -69,10 +84,7 @@ describe("directive-parser", () => {
 
   it("parseDirectiveHeuristic parallel pattern", () => {
     const ws = tmpWorkspace();
-    const parsed = parseDirectiveHeuristic(
-      "让合同审查助手审条款，同时让诉讼策略助手查判例",
-      ws,
-    );
+    const parsed = parseDirectiveHeuristic("让合同审查助手审条款，同时让诉讼策略助手查判例", ws);
     expect(parsed?.steps).toHaveLength(2);
     expect(parsed?.steps[0]?.dependsOnHints).toEqual([]);
     expect(parsed?.steps[1]?.dependsOnHints).toEqual([]);
@@ -103,69 +115,60 @@ describe("directive-parser", () => {
 
   it("parseDirectiveWithModel returns parsed JSON from model", async () => {
     const ws = tmpWorkspace();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        Response.json({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  name: "测试流",
-                  description: "desc",
-                  steps: [
-                    { assigneeHint: "asst_contract", task: "审合同", dependsOnHints: [] },
-                  ],
-                }),
-              },
-            },
-          ],
+    const server = await startServer();
+    server.enqueue(
+      cassetteAssistant(
+        JSON.stringify({
+          name: "测试流",
+          description: "desc",
+          steps: [{ assigneeHint: "asst_contract", task: "审合同", dependsOnHints: [] }],
         }),
       ),
     );
-    const parsed = await parseDirectiveWithModel("审合同", {
-      model: "test-model",
-      apiKey: "k",
-      baseUrl: "https://api.example/v1",
-      temperature: 0.2,
-      maxTokens: 1024,
-      contextTokens: 8192,
-    }, ws);
+    const parsed = await parseDirectiveWithModel(
+      "审合同",
+      {
+        model: "test-model",
+        apiKey: "k",
+        baseUrl: server.url,
+        temperature: 0.2,
+        maxTokens: 1024,
+        contextTokens: 8192,
+      },
+      ws,
+    );
     expect(parsed?.name).toBe("测试流");
     expect(parsed?.steps).toHaveLength(1);
-    vi.unstubAllGlobals();
   });
 
   it("parseDirectiveWithModel returns undefined on HTTP error", async () => {
     const ws = tmpWorkspace();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("err", { status: 500 })),
+    const server = await startServer();
+    server.enqueue(cassetteHttpError(500, "err"));
+    const parsed = await parseDirectiveWithModel(
+      "x",
+      {
+        model: "m",
+        apiKey: "k",
+        baseUrl: server.url,
+      },
+      ws,
     );
-    const parsed = await parseDirectiveWithModel("x", {
-      model: "m",
-      apiKey: "k",
-      baseUrl: "https://api.example/v1",
-    }, ws);
     expect(parsed).toBeUndefined();
-    vi.unstubAllGlobals();
   });
 
   it("parseAndBuildWorkflow falls back to heuristic", async () => {
     const ws = tmpWorkspace();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("err", { status: 500 })),
-    );
+    const server = await startServer();
+    server.enqueue(cassetteHttpError(500, "err"));
     const wf = await parseAndBuildWorkflow({
       directive: "请合同审查助手完成初审",
       baseConfig: {
         workspaceDir: ws,
-        model: { model: "m", apiKey: "k", baseUrl: "https://api.example/v1" },
+        model: { model: "m", apiKey: "k", baseUrl: server.url },
       },
       createdBy: "lawyer:a",
     });
     expect(wf?.steps.length).toBe(1);
-    vi.unstubAllGlobals();
   });
 });

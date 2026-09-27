@@ -38,6 +38,7 @@ export function workflowJobStatusLabel(status: string): string {
     cancelled: "已取消",
     interrupted_by_restart: "已中断",
     scheduled: "已预约",
+    awaiting_lawyer: "待确认",
   };
   return map[status] ?? status;
 }
@@ -52,6 +53,8 @@ export function workflowJobStatusPillClass(status: string): string {
       return "lm-pill lm-pill-neutral";
     case "scheduled":
       return "lm-pill lm-pill-info";
+    case "awaiting_lawyer":
+      return "lm-pill lm-pill-warn";
     case "failed":
       return "lm-pill lm-pill-danger";
     case "cancelled":

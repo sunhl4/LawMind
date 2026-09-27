@@ -37,7 +37,7 @@ and subagent announce flow (src/agents/subagent-announce.ts).
 
 ### `sendAndWait` 的十二个参数
 
-除了三个必需的（`baseConfig`、`fromAssistantId`、`toAssistantId`、`message`），其余都是**继承父回合的约束**：
+四个必需参数是 `baseConfig`、`fromAssistantId`、`toAssistantId`、`message`。其余都是继承父回合的约束：
 
 | 参数                       | 作用                                      |
 | -------------------------- | ----------------------------------------- |
@@ -180,16 +180,16 @@ failed：终态守卫：completed/timeout/cancelled 等终态不被迟到的失�
 timeout：终态守卫：completed / failed / cancelled 不被迟到的超时回写覆盖。
 ```
 
-**三条合起来是一条规则**：除 `completed_after_timeout` 这个特例，**任何终态都不许被后来的事件覆盖**。
+迟到的完成可以盖住 `timeout`，写成 `completed_after_timeout`。`failed`、`completed`、`cancelled` 不被后到事件覆盖。`completed_after_timeout` 只允许再写成它自己。
 
 ### `validateDelegation` 的四条拒绝
 
-| #   | 情况       | 文案                                                      |
-| --- | ---------- | --------------------------------------------------------- |
-| ①   | 派给自己   | `Cannot delegate to self.`                                |
-| ②   | 超深度     | `Delegation depth <depth> exceeds maximum <max>.`         |
-| ③   | 超并发     | `Assistant <id> has <n> active delegations (max <m>).`    |
-| ④   | 不在允许对 | `Communication from <a> to <b> is not allowed by policy.` |
+| #   | 情况       | 文案                                                                           |
+| --- | ---------- | ------------------------------------------------------------------------------ |
+| ①   | 派给自己   | 不能把这件活派给自己。请交给另一位助手，或自己做完再回报。                     |
+| ②   | 超深度     | 派活已经套了 \<depth\> 层，上限是 \<max\> 层。请把结论交回，不要再往下派。     |
+| ③   | 超并发     | 你同时在办的派活已有 \<n\> 件，上限是 \<m\> 件。等一件做完，或改派给别的助手。 |
+| ④   | 不在允许对 | 当前协作策略不允许这样派活。请改派给允许的助手，或自己做完再回报。             |
 
 **第 ④ 条有个前置条件**：`policy.allowedPairs.length > 0` 才检查。空数组意味着「不限制」。
 
@@ -796,7 +796,7 @@ note: "以上回复来自其他助手（advisory）：可参考，不得当作�
 不能请求自己审查。
 ```
 
-**中文文案**（`delegate_*` 那边的自指拒绝是英文的 `Cannot delegate to self.`）——这两处不一致，属于历史遗留。
+委派给自己时同样用中文：「不能把这件活派给自己。」
 
 ### 一个单向的通知（`meeting.ts`）
 
@@ -956,7 +956,7 @@ riskLevel      = template.riskLevel ?? "unspecified"
 - **助手结果必须包不可信标记。** 报告里也要包。
 - **超时后子会话是「协作式中止」**，模型轮间生效，不是立即。
 - **`completed_after_timeout` 是唯一允许被后到事件覆盖的终态**（且只覆盖到它自己）。
-- **`failed` / `timeout` / `completed` / `cancelled` 都不许被后到事件覆盖。**
+- **迟到的完成可以盖住 `timeout`，状态变成 `completed_after_timeout`。** `failed`、`completed`、`cancelled` 不被后到事件覆盖。
 - **`allowedPairs` 为空 = 不限制。** 一旦配了组织关系就变成白名单。
 - **委派结果超 100 KB 溢出到文件**，内联只留头部 8 KB。
 - **只有 `mail-contract-redline` 带预批准工具，且不含 `send_email`。**
@@ -972,7 +972,7 @@ riskLevel      = template.riskLevel ?? "unspecified"
 - **`autoApprove` 缺省为真**（`!== false`），模板要显式写 false。
 - **指令解析出来的工作流是 `draft`**，不会自动跑。
 - **`resolveAssistantId` 要认 roleId 与 presetKey**（模板里常写岗位 id）。
-- **两处自指拒绝文案不一致**（委派是英文，咨询/审查是中文）。
+- **自指拒绝都是中文**：委派「不能把这件活派给自己」，咨询「不能向自己咨询」，审查「不能请求自己审查」。
 - **`notify_assistant` 不登记委派**，所以列表里看不到通知。
 - **协作上下文读最近 10 条结果、20 条事件**（都有上限）。
 - **协作审计只合并最近 120 天。**

@@ -43,7 +43,7 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
     });
   });
 
-  test("Firm：顶栏无 peer 文书台，从在办进入后出现次级文书台", async ({ page }) => {
+  test("Firm：顶栏无 peer 改稿，从在办进入后出现次级改稿", async ({ page }) => {
     await gotoShell(page);
     const mainNav = page.getByRole("navigation", { name: "功能模块" });
     await expect(mainNav).toBeVisible({ timeout: 30_000 });
@@ -56,7 +56,7 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
     });
     const secondary = mainNav.getByTestId("lm-tab-review");
     await expect(secondary).toBeVisible({ timeout: 15_000 });
-    await expect(secondary).toContainText("文书台");
+    await expect(secondary).toContainText("改稿");
     await expect(secondary).toHaveClass(/lm-tab-secondary/);
     await expect(secondary).toHaveAttribute("aria-current", "page");
   });
@@ -75,20 +75,21 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
           features: {
             acceptanceGateStrict: true,
             citationGateStrict: true,
-            crossMatterRoadmap: false,
-            crossMatterAcceptanceDashboard: false,
-            collaborationSummary: false,
+            crossMatterRoadmap: true,
+            crossMatterAcceptanceDashboard: true,
             complianceAuditExport: false,
-            auditIntegrityExport: false,
+            auditIntegrityExport: true,
             securitySbomPanel: false,
-            qualityDashboardJsonExport: false,
-            customDeliverableSpec: false,
-            acceptancePackExport: false,
+            qualityDashboardJsonExport: true,
+            customDeliverableSpec: true,
+            acceptancePackExport: true,
             strictDangerousToolApproval: false,
             reviewCampaignParallel: true,
             forcePeerReview: false,
             matterReplicaCollab: false,
             ethicsWall: false,
+            wordAddinAutoRun: true,
+            guardianTrackedRedlineBlock: false,
           },
         }),
       });

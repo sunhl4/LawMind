@@ -88,7 +88,7 @@ describe("system prompt sections", () => {
     const rows = listSystemPromptSectionCatalog();
     expect(rows.find((s) => s.id === "identity_principles")?.cache).toBe("static");
     expect(rows.find((s) => s.id === "matter_context")?.cache).toBe("session");
-    expect(rows.find((s) => s.id === "available_tools")?.cache).toBe("static");
+    expect(rows.find((s) => s.id === "available_tools")?.cache).toBe("session");
   });
 });
 
@@ -121,6 +121,35 @@ describe("system prompt cache boundary", () => {
     expect(withMail.sessionText).toContain("外发邮件落款");
     expect(base.staticText).toContain(LAWMIND_AGENT_BEHAVIOR_EPOCH);
     expect(base.staticText).not.toContain(LAWMIND_PROMPT_DYNAMIC_BOUNDARY);
+    expect(base.staticText).not.toContain("## 可用工具");
+    expect(base.sessionText).toContain("## 可用工具");
+    expect(base.sessionText).toContain("draft_document");
+  });
+
+  it("刷新会话后缀里的工具清单，不改已经发出的静态前缀", () => {
+    const first = buildSystemPrompt(minimalCtx);
+    const second = buildSystemPrompt({
+      ...minimalCtx,
+      availableTools: [
+        ...minimalCtx.availableTools,
+        {
+          name: "widget_ledger",
+          description: "台账",
+          category: "draft",
+          parameters: {},
+          riskLevel: "low",
+        },
+      ],
+    });
+    expect(splitSystemPromptAtBoundary(second).staticText).toBe(
+      splitSystemPromptAtBoundary(first).staticText,
+    );
+    const applied = applySystemPromptToHistory(first, second);
+    expect(splitSystemPromptAtBoundary(applied).staticText).toBe(
+      splitSystemPromptAtBoundary(first).staticText,
+    );
+    expect(splitSystemPromptAtBoundary(applied).sessionText).toContain("widget_ledger");
+    expect(splitSystemPromptAtBoundary(applied).staticText).not.toContain("widget_ledger");
   });
 
   it("changes static text when the behavior epoch is embedded", () => {

@@ -6,12 +6,23 @@
  */
 
 import path from "node:path";
+import { isValidMatterId } from "../../cases/matter-id.js";
 
 const ALLOWED_MATTER_ID = /^[a-zA-Z0-9_-]{1,128}$/;
 
 export function assertSafeMatterId(matterId: string): string {
   const trimmed = matterId.trim();
-  if (!ALLOWED_MATTER_ID.test(trimmed)) {
+  const ascii = ALLOWED_MATTER_ID.test(trimmed);
+  const unicode = isValidMatterId(trimmed);
+  if (!ascii && !unicode) {
+    throw new Error(`unsafe matter id: ${matterId}`);
+  }
+  if (
+    trimmed.includes("..") ||
+    trimmed.includes("/") ||
+    trimmed.includes("\\") ||
+    trimmed.includes("\0")
+  ) {
     throw new Error(`unsafe matter id: ${matterId}`);
   }
   return trimmed;

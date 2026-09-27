@@ -1,24 +1,10 @@
 /**
- * 将审核结构化标签写回律师档案、助手档案、Playbook，并晋升黄金样本。
- * 与 audit 中的 draft.review_labeled 分离：先由引擎 emit 该事件，再调用本函数。
+ * 审核标签只产生待确认记忆。黄金样本仍是律师勾了「质量范例」之后的显式晋升。
  */
 
-import {
-  appendAssistantProfileMarkdown,
-  buildReviewProfileLine,
-} from "../assistants/profile-md.js";
-import { resolveLawMindRoot } from "../assistants/store.js";
 import { emit } from "../audit/index.js";
 import { promoteGoldenExample } from "../evaluation/golden.js";
-import {
-  appendClausePlaybookLearning,
-  buildClausePlaybookReviewLine,
-  reviewLabelsTriggerPlaybook,
-} from "../memory/index.js";
-import {
-  appendLawyerProfileLearning,
-  buildLawyerProfileReviewLearningLine,
-} from "../memory/lawyer-profile-learning.js";
+import { commitMemory } from "../memory/kernel/gateway.js";
 import type { ArtifactDraft, ReviewLabel, ReviewStatus } from "../types.js";
 
 export type ApplyReviewLabelsParams = {
@@ -35,9 +21,9 @@ export async function applyReviewLabelsMemoryWrites(
   workspaceDir: string,
   auditDir: string,
   draft: ArtifactDraft,
-  params: ApplyReviewLabelsParams,
+  params: ApplyReviewLabelsParams & { confirmNow?: boolean },
 ): Promise<void> {
-  const { status, note, labels, assistantId } = params;
+  const { status, note, labels } = params;
   if (labels.length === 0) {
     return;
   }
@@ -46,40 +32,25 @@ export async function applyReviewLabelsMemoryWrites(
     Boolean,
   );
   const learningNote = noteParts.length > 0 ? noteParts.join(" ") : undefined;
-  const learningLine = buildLawyerProfileReviewLearningLine(draft.taskId, status, learningNote);
-  await appendLawyerProfileLearning(workspaceDir, learningLine, "review", {
-    auditDir,
-    auditTaskId: draft.taskId,
-  }).catch(() => {});
-
-  if (assistantId) {
-    const line = buildReviewProfileLine(draft.taskId, status, learningNote);
-    try {
-      appendAssistantProfileMarkdown(resolveLawMindRoot(workspaceDir), assistantId, line);
-    } catch {
-      /* ignore */
-    }
-    await emit(auditDir, {
-      taskId: draft.taskId,
-      kind: "memory.profile_updated",
-      actor: "system",
-      detail: `助手档案更新：assistantId=${assistantId}，标签=${labels.join(",")}`,
-    });
-  }
-
-  if (reviewLabelsTriggerPlaybook(labels)) {
-    const playbookLine = buildClausePlaybookReviewLine(draft.taskId, labels, note);
-    try {
-      await appendClausePlaybookLearning(workspaceDir, playbookLine);
-      await emit(auditDir, {
-        taskId: draft.taskId,
-        kind: "memory.playbook_updated",
-        actor: "system",
-        detail: `clause playbook：${playbookLine.slice(0, 500)}`,
-      });
-    } catch {
-      /* ignore */
-    }
+  const learningLine = learningNote
+    ? `草稿审核（任务 ${draft.taskId}，${status}）：${learningNote}`
+    : `草稿审核（任务 ${draft.taskId}，${status}）。`;
+  const saved = commitMemory(workspaceDir, {
+    kind: "habit",
+    scope: "lawyer",
+    key: "habit.review",
+    body: learningLine,
+    origin: "review",
+    sourceTaskId: draft.taskId,
+    ...(draft.matterId ? { sourceMatterId: draft.matterId } : {}),
+    confirmNow: params.confirmNow === true,
+  });
+  if (params.confirmNow === true) {
+    const { appendLawyerProfileLearning } = await import("../memory/lawyer-profile-learning.js");
+    await appendLawyerProfileLearning(workspaceDir, saved.body, "review", {
+      auditDir,
+      auditTaskId: draft.taskId,
+    }).catch(() => undefined);
   }
 
   if (labels.includes("质量范例")) {

@@ -1,3 +1,4 @@
+import { toolRequiresLawyerPause } from "../../platform/lawyer-outbound-decision.js";
 import type { RiskLevel } from "../../types.js";
 import { toolRequiresSubprocessSandbox } from "../dangerous-tool-policy.js";
 import { filterToolsForPermissionMode, type AgentPermissionMode } from "../permission-mode.js";
@@ -50,6 +51,7 @@ export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }>
   { name: "list_matters", hint: "列出工作区案件" },
   { name: "add_case_note", hint: "向 CASE.md 添加争点/风险/进展" },
   { name: "record_deadline", hint: "口播登记一项期限" },
+  { name: "record_obligation", hint: "记下一条付款、通知或履约义务" },
   { name: "extract_legal_events", hint: "从传票/短信抽出开庭与期限候选" },
   { name: "apply_legal_events", hint: "把有日期的期限写入工作台" },
   { name: "compile_intake_brief", hint: "整理谈话为结构化摘要" },
@@ -81,7 +83,7 @@ export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }>
   { name: "explore_folder", hint: "只读探查文件夹：看清树、找出相关文件并摘录" },
   { name: "draft_worker", hint: "并行写稿：按自包含任务书起草一节，父会话再汇总" },
   { name: "import_host_file", hint: "把本机文件收进本案" },
-  { name: "run_host_command", hint: "运行受控本机命令（须打开本机能力）" },
+  { name: "run_host_command", hint: "运行受控本机命令" },
   { name: "compare_documents", hint: "只读对比两份文件的文本差异" },
   { name: "web_search", hint: "联网检索公开网页" },
   { name: "search_statute_web", hint: "官方法规站点优先的联网检索" },
@@ -90,7 +92,7 @@ export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }>
   { name: "write_spreadsheet", hint: "把二维表写入本案或工作区交付目录下的 xlsx" },
   { name: "render_chart", hint: "按声明式规格出图（助手正文用 lm-chart 围栏）" },
   { name: "run_compute", hint: "后台核算：当场写 JS 读文件/表格、批量整理、出表/图，律师只看交件" },
-  { name: "run_analysis", hint: "预置分析脚本（须政策开启）" },
+  { name: "run_analysis", hint: "预置分析脚本（默认可用；离线时关闭）" },
   { name: "read_skill", hint: "按需读取索引里的技能正文" },
   { name: "search_company_registry", hint: "查企业登记；未接工商源时诚实标【待核实】" },
 ];
@@ -260,7 +262,7 @@ function buildPolicyReason(params: {
     return "Long-running legal work must expose job state, cancellation, and audit trail.";
   }
   if (params.runtimeMode === "lawyer_approved_write") {
-    return "This tool can change workspace state or produce a deliverable, so lawyer approval and audit context must remain visible.";
+    return "This tool can change workspace state or produce a deliverable. The write is local and audited; only an irreversible outbound send pauses the lawyer.";
   }
   if (params.matterScope === "required") {
     return "This read tool is safe only inside an explicit matter scope.";
@@ -286,7 +288,7 @@ export function buildToolGovernanceMetadata(tool: AgentTool): ToolGovernanceMeta
     idempotent,
     retryable: idempotent && runtimeMode !== "background_job",
     auditEventKind: "tool_call",
-    requiresApproval: definition.requiresApproval === true || runtimeMode !== "readonly",
+    requiresApproval: toolRequiresLawyerPause(definition.name),
     sandboxRecommended: toolRequiresSubprocessSandbox(definition.name),
     policyReason: buildPolicyReason({ definition, riskLevel, matterScope, runtimeMode }),
   };

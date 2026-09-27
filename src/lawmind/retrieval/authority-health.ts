@@ -191,7 +191,7 @@ export function buildAuthorityCorpusSummary(opts?: {
         id === "eurlex" ||
         id === "egov_jp",
     );
-    const liveNote = liveReady.length > 0 ? ` 已启用直播：${liveReady.join("+")}。` : "";
+    const liveNote = liveReady.includes("npc_flk") ? "国家法律法规数据库已启用。" : "";
     return {
       configured: ok,
       status,
@@ -201,9 +201,9 @@ export function buildAuthorityCorpusSummary(opts?: {
       providerLabel,
       message: ok
         ? stats.externalCorpus
-          ? `开源权威已就绪：本地语料 ${stats.recordCount} 条（含外部 CORPUS；许可由你自行确认）。${openSummary.message}.${liveNote}闭源法宝/Lexis 另见手动接入。`
-          : `演示语料就绪：内置 sample ${stats.recordCount} 条（非正式完整法库；许可仅供演示检索，正式引用请核对官方法条）。可选 LAWMIND_OPEN_LAW_CORPUS 扩充；NPC/caseopen/CourtListener/EUR-Lex/e-Gov 直播均需显式启用。${liveNote}`
-        : "开源语料未加载：请检查内置 sample 或 LAWMIND_OPEN_LAW_CORPUS。",
+          ? `公开法规已接上，本地 ${stats.recordCount} 条。正式引用请核对官方法条。${liveNote}`
+          : `已接上演示语料 ${stats.recordCount} 条。这不是完整法库，正式引用请核对官方法条。${liveNote}`
+        : "演示语料还没载入。请在「模型与连接」里重新检查。",
       envKey: ENV_KEY,
       authEnvKey: AUTH_ENV_KEY,
       providerEnvKey: PROVIDER_ENV_KEY,
@@ -219,7 +219,7 @@ export function buildAuthorityCorpusSummary(opts?: {
       authConfigured,
       provider,
       providerLabel,
-      message: `provider=${provider} 未配置。`,
+      message: "这一类权威库还没接上。请在「模型与连接」里检查。",
       envKey: ENV_KEY,
       authEnvKey: AUTH_ENV_KEY,
       providerEnvKey: PROVIDER_ENV_KEY,
@@ -236,8 +236,8 @@ export function buildAuthorityCorpusSummary(opts?: {
       providerLabel,
       message:
         provider === "pkulaw" || provider === "lexis"
-          ? `闭源 provider=${provider}：请配置 LAWMIND_AUTHORITY_ENDPOINT 与 API Key（手动接入）；或改回 LAWMIND_AUTHORITY_PROVIDER=open 使用开源语料。`
-          : "未配置 LAWMIND_AUTHORITY_ENDPOINT：请配置通用端点，或使用 LAWMIND_AUTHORITY_PROVIDER=open。",
+          ? "商业法库还没接上。请在连接向导里填写地址和密钥，或改用公开法规。"
+          : "权威库还没接上。请在连接向导里填写地址，或改用公开法规。",
       envKey: ENV_KEY,
       authEnvKey: AUTH_ENV_KEY,
       providerEnvKey: PROVIDER_ENV_KEY,
@@ -252,7 +252,7 @@ export function buildAuthorityCorpusSummary(opts?: {
       authConfigured,
       provider,
       providerLabel,
-      message: `权威端点配置无效（fail-closed）：${v.message}`,
+      message: `权威库地址无效，已停止连接。${v.message}`,
       envKey: ENV_KEY,
       authEnvKey: AUTH_ENV_KEY,
       providerEnvKey: PROVIDER_ENV_KEY,

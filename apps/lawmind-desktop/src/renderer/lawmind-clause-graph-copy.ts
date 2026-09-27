@@ -1,9 +1,16 @@
 import { clauseGraphHeadline, type ClauseGraph } from "../../../../src/lawmind/reasoning/clause-graph.ts";
+import { DRAFT_CRITIC_PREFIX } from "../../../../src/lawmind/reasoning/draft-critic-prefix.ts";
 
-const DRAFT_CRITIC_PREFIX = "复核：";
+const LAWYER_CRITIC_LABEL = "审核：";
 
 export function criticNotesFromReview(notes: string[] | undefined): string[] {
   return (notes ?? []).filter((note) => note.startsWith(DRAFT_CRITIC_PREFIX));
+}
+
+/** 落盘前缀仍是「复核：」。律师只看到「审核：」加正文。 */
+export function criticNoteForLawyer(note: string): string {
+  const body = note.startsWith(DRAFT_CRITIC_PREFIX) ? note.slice(DRAFT_CRITIC_PREFIX.length) : note;
+  return `${LAWYER_CRITIC_LABEL}${body}`;
 }
 
 export function clauseGraphSummaryLine(graph: ClauseGraph): string {

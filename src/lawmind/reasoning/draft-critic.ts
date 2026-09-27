@@ -16,9 +16,10 @@ import {
   clauseGraphRiskNotes,
   type ClauseGraph,
 } from "./clause-graph.js";
+import { DRAFT_CRITIC_PREFIX } from "./draft-critic-prefix.js";
 import { isModelReasoningEnabled } from "./model-draft.js";
 
-export const DRAFT_CRITIC_PREFIX = "复核：";
+export { DRAFT_CRITIC_PREFIX };
 const CRITIC_PREFIX = DRAFT_CRITIC_PREFIX;
 export const CLAUSE_MAP_CAP = 8;
 const LONG_DRAFT_SECTION_CAP = 24;

@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
+import { workspaceLocationCautionMessage } from "./lawmind-workspace-location";
+import { useWorkspaceVolumeFacts } from "./use-workspace-volume";
 
 type RetrievalMode = "single" | "dual";
 
@@ -75,6 +77,8 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
     onSave,
   } = props;
   const [wizWebSearchApiKey, setWizWebSearchApiKey] = useState("");
+  const workspaceVolume = useWorkspaceVolumeFacts(wizWorkspace);
+  const workspaceCaution = workspaceLocationCautionMessage(wizWorkspace, workspaceVolume);
 
   return (
     <div className="lm-wizard-backdrop" role="dialog" aria-modal="true" aria-label="配置模型">
@@ -117,14 +121,14 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
           />
         </label>
         <details className="lm-wizard-advanced" open={!wizBaseUrl && !wizModel}>
-          <summary className="lm-meta">进阶：手动填写 Base URL / 模型名</summary>
+          <summary className="lm-meta">进阶：手动填写服务地址和模型名</summary>
           <label className="lm-field">
-            <span>Base URL（可选）</span>
+            <span>服务地址（可选）</span>
             <input
               type="text"
               value={wizBaseUrl}
               onChange={(e) => setWizBaseUrl(e.target.value)}
-              placeholder="OpenAI-compatible /v1"
+              placeholder="多数情况不用填"
             />
           </label>
           <label className="lm-field">
@@ -133,14 +137,19 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
           </label>
         </details>
         <label className="lm-field">
-          <span>工作区目录（可选）</span>
+          <span>本机文件夹（可选）</span>
           <div className="lm-wizard-row">
-            <input type="text" readOnly value={wizWorkspace} placeholder="默认：用户数据/LawMind/workspace" />
+            <input type="text" readOnly value={wizWorkspace} placeholder="默认使用应用自己的资料夹" />
             <button type="button" className="lm-btn lm-btn-secondary" onClick={onPickWorkspace}>
               浏览…
             </button>
           </div>
         </label>
+        {workspaceCaution ? (
+          <p className="lm-meta lm-settings-hint" data-testid="lm-wizard-workspace-sync">
+            {workspaceCaution}
+          </p>
+        ) : null}
         <p className="lm-meta lm-settings-hint">默认检索与对话共用上方模型。接法律垂类时再关掉开关。</p>
         <details className="lm-wizard-advanced">
           <summary className="lm-meta">高级：检索策略</summary>
@@ -161,17 +170,17 @@ export function LawmindApiSetupWizard(props: Props): ReactNode {
           </div>
           <p className="lm-meta lm-settings-hint">
             {wizRetrievalMode === "dual"
-              ? "已分开：对话用上方模型。保存后请到「设置 → 模型/API」选择法律垂类检索模型。"
+              ? "已分开：对话用上方模型。保存后请到「设置 → 模型与连接」选择法律检索模型。"
               : "开启：对话、法律检索、公开网页都用上方模型。"}
           </p>
           <label className="lm-field">
-            <span>可选：独立网页检索（Brave）</span>
+            <span>可选：网页检索密钥</span>
             <input
               type="password"
               autoComplete="off"
               value={wizWebSearchApiKey}
               onChange={(e) => setWizWebSearchApiKey(e.target.value)}
-              placeholder="DeepSeek / 通义不用填；仅当当前模型没有厂商网页检索时才需要"
+              placeholder="多数模型不用填。只有当前模型不能自己搜网页时才需要"
             />
           </label>
         </details>

@@ -4,6 +4,7 @@ import {
   clauseGraphHasFlags,
   clauseGraphSummaryLine,
   clauseHasFlags,
+  criticNoteForLawyer,
   shouldDefaultCollapseClause,
   shouldShowClauseGraph,
   sortClausesForReview,
@@ -26,7 +27,7 @@ export function LawmindClauseGraph(props: Props): ReactNode {
       id="lm-review-clause-graph"
       className="lm-clause-graph"
       role="region"
-      aria-label="条款图与复核"
+      aria-label="条款图与审核"
       data-testid="lm-review-clause-graph"
     >
       <details className="lm-clause-graph-wrap" open={flagged}>
@@ -35,7 +36,7 @@ export function LawmindClauseGraph(props: Props): ReactNode {
           <span className="lm-meta">{clauseGraphSummaryLine(graph)}</span>
         </summary>
       <p className="lm-meta lm-clause-graph-hint">
-        有风险或缺项的条款排在前面；干净条款默认收起。复核只加意见，不改正文。
+        有风险或缺项的条款排在前面；干净条款默认收起。审核只加意见，不改正文。
       </p>
       <ol className="lm-clause-graph-list">
         {ordered.map((clause) => {
@@ -56,7 +57,7 @@ export function LawmindClauseGraph(props: Props): ReactNode {
                 {clause.criticNotes.length > 0 ? (
                   <ul className="lm-clause-graph-notes">
                     {clause.criticNotes.map((note) => (
-                      <li key={note}>复核：{note}</li>
+                      <li key={note}>{criticNoteForLawyer(note)}</li>
                     ))}
                   </ul>
                 ) : null}

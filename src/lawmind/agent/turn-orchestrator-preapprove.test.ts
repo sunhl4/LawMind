@@ -11,6 +11,12 @@ import { templatePreApprovableTools } from "./orchestrator/executor.js";
 import { runTurn } from "./runtime.js";
 import * as sessionEventLog from "./session-event-log.js";
 import { SessionPersistError } from "./session-persist.js";
+import {
+  cassetteAssistant,
+  cassetteToolCall,
+  startCassetteModelServer,
+  type CassetteModelServer,
+} from "./testkit/index.js";
 import { ToolRegistry } from "./tools/registry.js";
 import type { AgentConfig } from "./types.js";
 
@@ -21,62 +27,36 @@ function tmpWorkspace(): string {
   return dir;
 }
 
-function baseConfig(workspaceDir: string): AgentConfig {
+function baseConfig(workspaceDir: string, baseUrl: string): AgentConfig {
   return {
     workspaceDir,
     strictDangerousToolApproval: true,
     model: {
       provider: "openai-compatible",
-      baseUrl: "https://example.com/v1",
+      baseUrl,
       apiKey: "sk-test",
       model: "demo",
     },
   };
 }
 
-function stubModelWithToolCall(toolName: string, argsJson: string) {
-  const responses = [
-    {
-      choices: [
-        {
-          message: {
-            role: "assistant",
-            content: "",
-            tool_calls: [
-              { id: "call-1", type: "function", function: { name: toolName, arguments: argsJson } },
-            ],
-          },
-          finish_reason: "tool_calls",
-        },
-      ],
-    },
-    {
-      choices: [
-        {
-          message: { role: "assistant", content: "已处理。" },
-          finish_reason: "stop",
-        },
-      ],
-    },
-  ];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => ({
-      ok: true,
-      json: async () => {
-        const next = responses.shift();
-        if (next === undefined) {
-          throw new Error("unexpected extra model call");
-        }
-        return next;
-      },
-    })),
+/** Loopback cassette: the outbound proxy bypasses global fetch, so script real HTTP. */
+function stubModelWithToolCall(
+  server: CassetteModelServer,
+  toolName: string,
+  argsJson: string,
+): void {
+  server.enqueue(
+    cassetteToolCall(toolName, JSON.parse(argsJson) as Record<string, unknown>),
+    cassetteAssistant("已处理。"),
   );
 }
 
 describe("template-level preApproveToolNames", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
+  const servers: CassetteModelServer[] = [];
+
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => s.close()));
     vi.restoreAllMocks();
   });
 
@@ -96,6 +76,8 @@ describe("template-level preApproveToolNames", () => {
 
   it("strict mode: whitelisted tool executes with __approved injected", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     let captured: Record<string, unknown> | undefined;
     registry.register({
@@ -110,10 +92,10 @@ describe("template-level preApproveToolNames", () => {
         return { ok: true, data: { outputPath: "cases/m/审阅稿.docx" } };
       },
     });
-    stubModelWithToolCall("render_tracked_draft", "{}");
+    stubModelWithToolCall(server, "render_tracked_draft", "{}");
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: "请导出审阅稿",
       preApproveToolNames: ["render_tracked_draft"],
@@ -125,6 +107,8 @@ describe("template-level preApproveToolNames", () => {
 
   it("strict mode: local render does not pause the lawyer (待拍板 is outbound only)", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     let executed = false;
     registry.register({
@@ -139,10 +123,10 @@ describe("template-level preApproveToolNames", () => {
         return { ok: true, data: {} };
       },
     });
-    stubModelWithToolCall("render_tracked_draft", "{}");
+    stubModelWithToolCall(server, "render_tracked_draft", "{}");
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: "请导出审阅稿",
     });
@@ -153,6 +137,8 @@ describe("template-level preApproveToolNames", () => {
 
   it("strict mode: template list does not pre-approve tools outside the list", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     let executed = false;
     registry.register({
@@ -168,10 +154,10 @@ describe("template-level preApproveToolNames", () => {
         return { ok: true, data: {} };
       },
     });
-    stubModelWithToolCall("send_email", "{}");
+    stubModelWithToolCall(server, "send_email", "{}");
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: "请发送邮件",
       preApproveToolNames: ["render_tracked_draft", "prepare_outbound_mail"],
@@ -183,6 +169,8 @@ describe("template-level preApproveToolNames", () => {
 
   it("strict mode: name-only list does not inject __approved for apply_surgical_edits", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     let captured: Record<string, unknown> | undefined;
     registry.register({
@@ -203,6 +191,7 @@ describe("template-level preApproveToolNames", () => {
       },
     });
     stubModelWithToolCall(
+      server,
       "apply_surgical_edits",
       JSON.stringify({
         edits: [{ find: "甲方所在地人民法院", replace: "上海仲裁委员会" }],
@@ -211,7 +200,7 @@ describe("template-level preApproveToolNames", () => {
     );
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: "请按字词改管辖",
       preApproveToolNames: ["apply_surgical_edits"],
@@ -223,6 +212,8 @@ describe("template-level preApproveToolNames", () => {
 
   it("strict mode: matching hunk hash does pre-approve apply_surgical_edits", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     let captured: Record<string, unknown> | undefined;
     registry.register({
@@ -247,10 +238,10 @@ describe("template-level preApproveToolNames", () => {
       edits: [{ find: "甲方所在地人民法院", replace: "上海仲裁委员会" }],
       craft_check: { deferred: [] },
     };
-    stubModelWithToolCall("apply_surgical_edits", JSON.stringify(hunks));
+    stubModelWithToolCall(server, "apply_surgical_edits", JSON.stringify(hunks));
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: "请按字词改管辖",
       preApproveToolNames: ["apply_surgical_edits"],
@@ -263,6 +254,8 @@ describe("template-level preApproveToolNames", () => {
 
   it("strict mode: model-supplied __approved is stripped and cannot self-approve", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     let executed = false;
     registry.register({
@@ -279,10 +272,14 @@ describe("template-level preApproveToolNames", () => {
       },
     });
     // 模型在首次调用就自填 __approved: true（绕过尝试）。
-    stubModelWithToolCall("send_email", JSON.stringify({ to: "a@b.com", __approved: true }));
+    stubModelWithToolCall(
+      server,
+      "send_email",
+      JSON.stringify({ to: "a@b.com", __approved: true }),
+    );
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: "请发送邮件",
     });
@@ -293,6 +290,8 @@ describe("template-level preApproveToolNames", () => {
 
   it("resume pre-approval replaces model args wholesale (no appended keys)", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     let captured: Record<string, unknown> | undefined;
     registry.register({
@@ -313,6 +312,7 @@ describe("template-level preApproveToolNames", () => {
     });
     // 模型重发时夹带未获批的新键（额外附件）与自填审批旗标。
     stubModelWithToolCall(
+      server,
       "send_email",
       JSON.stringify({
         to: "a@b.com",
@@ -322,7 +322,7 @@ describe("template-level preApproveToolNames", () => {
     );
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: "请发送邮件",
       preApproveToolName: "send_email",
@@ -336,14 +336,16 @@ describe("template-level preApproveToolNames", () => {
 
   it("persist failure stops the turn instead of continuing", async () => {
     const workspaceDir = tmpWorkspace();
+    const server = await startCassetteModelServer();
+    servers.push(server);
     const registry = new ToolRegistry();
     vi.spyOn(sessionEventLog, "appendSessionEvent").mockImplementation(() => {
       throw new SessionPersistError("events");
     });
-    stubModelWithToolCall("render_tracked_draft", "{}");
+    stubModelWithToolCall(server, "render_tracked_draft", "{}");
 
     const result = await runTurn({
-      config: baseConfig(workspaceDir),
+      config: baseConfig(workspaceDir, server.url),
       registry,
       instruction: "请导出审阅稿",
     });

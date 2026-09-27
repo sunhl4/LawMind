@@ -6,7 +6,7 @@ import { loadMatter } from "../adapters/matter-storage/index.js";
 import { parseMatterDisplayNameFromCase } from "../cases/matter-label.js";
 import { caseFilePath } from "../memory/index.js";
 import { ensureMatterWithProjection } from "./matter-dual-write.js";
-import { projectMatterToCaseMd } from "./matter-projection.js";
+import { matterStatusLabel, projectMatterToCaseMd } from "./matter-projection.js";
 import { createMatterIfMissing } from "./services/matter-write-service.js";
 
 describe("application/matter-projection", () => {
@@ -19,6 +19,11 @@ describe("application/matter-projection", () => {
 
   afterEach(async () => {
     await fs.rm(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("does not call matter status active 「在办」", () => {
+    expect(matterStatusLabel("active")).toBe("进行中");
+    expect(matterStatusLabel("active")).not.toContain("在办");
   });
 
   it("ensureMatterWithProjection writes matter.json and CASE.md", async () => {

@@ -5,7 +5,10 @@ import type { TimeRangeFilter } from "./lawmind-time-range";
 
 export function countActiveDelegations(delegations: DelegationRow[]): number {
   return delegations.filter(
-    (delegation) => delegation.status === "running" || delegation.status === "pending",
+    (delegation) =>
+      delegation.status === "running" ||
+      delegation.status === "pending" ||
+      delegation.status === "awaiting_lawyer",
   ).length;
 }
 
