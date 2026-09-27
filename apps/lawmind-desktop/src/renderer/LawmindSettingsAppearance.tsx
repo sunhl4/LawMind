@@ -191,7 +191,7 @@ function WordRevisionAuthorField(props: { apiBase?: string }): ReactNode {
         setNote(stored ? "之后的 Word 修订用这个署名。" : "已改回默认 LawMind。");
       })
       .catch((err: unknown) => {
-        setNote(errorMessage(err));
+        setNote(errorMessage(err, "没能保存修订署名。"));
       })
       .finally(() => {
         setBusy(false);
@@ -320,7 +320,7 @@ export function LawmindSettingsAppearance({ apiBase, onPrefsChange }: Props): Re
         />
         <SettingsSwitch
           label="通过后生成 Word"
-          hint="通过审阅后直接生成，不必再导出一次。"
+          hint="第一版审阅稿在改完时已经写出。打开后，通过签批会按当时的修订再覆盖那一版。"
           checked={autoExport}
           testId="lm-auto-export-on-approve"
           onChange={(next) => {

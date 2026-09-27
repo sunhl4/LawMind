@@ -190,7 +190,7 @@ export function docketStopLine(run: AgentRunSummary): string {
     case "awaiting_clarification":
       return "办不下去，要你补一句。";
     case "awaiting_review":
-      return "稿已经写出。要改全文，去改稿。";
+      return "稿已经写出。要改修订，打开中间栏。";
     case "interrupted":
       return "办到一半停住了。已完成的步骤还在。";
     case "awaiting_approval":

@@ -1117,7 +1117,7 @@ unsignedMonthsAfterFirst 应在 0–11（未签合同第二个月起，最多十
 - **本机授权请求只给文件名与父目录名**，不给全路径。
 - **`hit_id` 是会话级的**，所以会有「已失效」这种拒绝。
 - **`write_document` 的四道围栏有固定顺序**，且 realpath 之后要重查。
-- **`draft_worker` / `explore_folder` 的子会话看不到对话历史**，任务书必须自包含。
+- **`draft_worker` / `explore_folder` 的子会话看不到对话历史**，任务书必须自包含。子工只读：不能改原件、不能导出、不能外发。正式稿由父会话 `draft_document` 落（手册 3.1.1、23.7）。
 - **三条材料整理工具都是「提计划 → 确认 → 执行」**，`organize` 还有 pending 文件。
 - **案件结构文件（十一项，含 `obligations.jsonl`）不许搬移。** 以 `.` 开头的卷内文件同样不许。
 - **`drafts/` 与 `artifacts/` 的路径被任务记录引用**，不许用文件操作搬。

@@ -231,7 +231,7 @@ LAWMIND_WORKSPACE_DIR=<工作区> pnpm lawmind:backup -- <输出.tar.gz>
 2. 装新版本（仍走原来的软件分发）。
 3. 打开后看体检：跑 `pnpm lawmind:doctor` 或看 `GET /api/health`——策略是否仍是 `policy.applied` 里的那些项，索引要不要重建。
 4. 源码开发态若大量 404，重建本地服务 bundle：`pnpm lawmind:bundle:desktop-server`。安装包用户不用跑这条。
-5. Word 连不上：设置 → 外观 → Word →「重新连接 Word」，然后完全退出 Word 再打开。
+5. Word 或 WPS 连不上：设置 → 外观 →「重新连接」，然后完全退出对应软件再打开。加载项尚未验收为成品，见 [LAWMIND-WORD-ADDIN.md](../LAWMIND-WORD-ADDIN.md) 的「现状：半成品」。
 
 ### 巡检看漂移，不看审计厚度
 

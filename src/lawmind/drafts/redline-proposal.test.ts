@@ -18,6 +18,8 @@ import {
   resetRedlineBaselineFromDraft,
   resolveAllRedlineHunks,
   resolveRedlineHunk,
+  revisePendingRedlineHunk,
+  revisePendingRedlineSpan,
   writeRedlineProposal,
 } from "./redline-proposal.js";
 
@@ -101,6 +103,75 @@ describe("redline-proposal", () => {
     expect(resolved.draft.sections[0]?.body).toBe("Revised text");
     const stored = readRedlineProposal(ws, draft.taskId);
     expect(stored?.hunks[0]?.status).toBe("accepted");
+  });
+
+  it("revise pending hunk rewrites the proposed after text", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-redline-"));
+    dirs.push(ws);
+    const draft: ArtifactDraft = {
+      taskId: "task-redline-revise",
+      title: "Test",
+      output: "markdown",
+      templateId: "default",
+      summary: "s",
+      sections: [{ heading: "Intro", body: "Original text" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(ws, draft);
+    resetBaseline(ws, draft);
+    draft.sections[0].body = "Revised text";
+    persistDraft(ws, draft);
+    const gen = generateRedlineProposal(ws, draft.taskId);
+    expect(gen.ok).toBe(true);
+    if (!gen.ok) {
+      return;
+    }
+    const hunkId = gen.proposal.hunks[0].hunkId;
+    const revised = revisePendingRedlineHunk(ws, draft.taskId, hunkId, "律师改过的文本");
+    expect(revised.ok).toBe(true);
+    expect(readRedlineProposal(ws, draft.taskId)?.hunks[0]?.after).toBe("律师改过的文本");
+    expect(readDraft(ws, draft.taskId)?.sections[0]?.body).toBe("律师改过的文本");
+    const accepted = resolveRedlineHunk(ws, draft.taskId, hunkId, "accept");
+    expect(accepted.ok).toBe(true);
+    const again = revisePendingRedlineHunk(ws, draft.taskId, hunkId, "再改");
+    expect(again.ok).toBe(false);
+    if (!again.ok) {
+      expect(again.error).toBe("hunk_not_pending");
+    }
+  });
+
+  it("rewrites one add-in span and rejects the hunk when that change is undone", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-redline-span-"));
+    dirs.push(ws);
+    const draft: ArtifactDraft = {
+      taskId: "task-redline-span",
+      title: "Test",
+      output: "markdown",
+      templateId: "default",
+      summary: "s",
+      sections: [{ heading: "付款", body: "甲方应当在十日内付款。" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(ws, draft);
+    resetBaseline(ws, draft);
+    draft.sections[0].body = "甲方应当在五个工作日内付款。";
+    persistDraft(ws, draft);
+    const gen = generateRedlineProposal(ws, draft.taskId);
+    expect(gen.ok).toBe(true);
+    if (!gen.ok) {
+      return;
+    }
+    const hunkId = gen.proposal.hunks[0].hunkId;
+    const revised = revisePendingRedlineSpan(ws, draft.taskId, hunkId, "十", "五个工作", "十五");
+    expect(revised.ok).toBe(true);
+    expect(readRedlineProposal(ws, draft.taskId)?.hunks[0]?.after).toContain("十五日内");
+    const dropped = revisePendingRedlineSpan(ws, draft.taskId, hunkId, "十", "十五", "十");
+    expect(dropped.ok).toBe(true);
+    expect(readRedlineProposal(ws, draft.taskId)?.hunks[0]?.status).toBe("rejected");
   });
 
   it("reject reverts draft body to before", () => {

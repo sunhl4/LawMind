@@ -28,6 +28,7 @@ import {
   keyVault,
   apiPort,
   rendererAuthToken,
+  addinHostSnapshot,
   loopbackPortDrift,
   syncWordAddinManifest,
   workspaceDir,
@@ -87,6 +88,7 @@ export function registerIpcHandlers(deps) {
       apiAuthToken: rendererAuthToken,
       // 端口漂移 = 侧载清单失联的前兆，必须在体检面板里看得见（见 local-server.mjs）。
       loopbackPortDrift,
+      addinHosts: addinHostSnapshot(),
       workspaceDir,
       projectDir,
       envFilePath,

@@ -38,6 +38,7 @@ import { describeFsWriteFailure } from "./fs-write-error";
 import {
   consumePendingOpenWorkspaceFile,
   LAWMIND_OPEN_WORKSPACE_FILE_EVENT,
+  LAWMIND_SHOW_WORD_SURFACE_EVENT,
   type OpenWorkspaceFileDetail,
 } from "../lawmind-workspace-file-open";
 import { setActiveWorkbenchWordFile } from "../lawmind-active-word-file";
@@ -374,6 +375,13 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     if (nextOpen) {await refreshDir(root, dirPath);}
   };
 
+  const revealWordSurface = useCallback((relPath: string) => {
+    if (!/\.docx$/i.test(relPath) || !portalHosts?.editor || typeof window === "undefined") {
+      return;
+    }
+    window.dispatchEvent(new CustomEvent(LAWMIND_SHOW_WORD_SURFACE_EVENT));
+  }, [portalHosts?.editor]);
+
   const openFile = useCallback(async (root: RootKey, relPath: string) => {
     if (isOfficeLikePath(relPath)) {
       setImagePreview(null);
@@ -382,6 +390,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       setSelected({ root, path: relPath, kind: "file" });
       setError(null);
       notifyMaterialChosen(root, relPath);
+      revealWordSurface(relPath);
       return;
     }
     const tabId = `${root}:${relPath}`;
@@ -410,6 +419,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
           setSelected({ root, path: relPath, kind: "file" });
           setError(null);
           notifyMaterialChosen(root, relPath);
+          revealWordSurface(relPath);
           return;
         }
         throw new Error(errText);
@@ -452,11 +462,11 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     } finally {
       setBusy(false);
     }
-  }, [tabs]);
+  }, [revealWordSurface, tabs]);
 
   /** Deep-link from 交办结果 / 文书台：打开工作区相对路径并展开父目录。 */
   const openWorkspaceRelPath = useCallback(
-    async (rawPath: string) => {
+    async (rawPath: string, root: "workspace" | "project" = "workspace") => {
       const relPath = rawPath.trim().replace(/^[/\\]+/, "");
       if (!relPath) {
         return;
@@ -466,14 +476,14 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       const expand: Record<string, boolean> = {};
       for (let i = 0; i < parts.length - 1; i++) {
         walk = walk ? `${walk}/${parts[i]}` : parts[i];
-        expand[keyOf("workspace", walk)] = true;
+        expand[keyOf(root, walk)] = true;
         try {
-          await refreshDir("workspace", walk);
+          await refreshDir(root, walk);
         } catch {
           /* parent may be missing; openFile still surfaces error */
         }
       }
-      if (parts[0] === "cases") {
+      if (root === "workspace" && parts[0] === "cases") {
         setCasesSectionOpen(true);
         expand[keyOf("workspace", "cases")] = true;
         try {
@@ -481,11 +491,11 @@ export function FileWorkbench(props: FileWorkbenchProps) {
         } catch {
           /* ignore */
         }
-      } else {
+      } else if (root === "workspace") {
         setWorkSectionOpen(true);
       }
       setExpanded((prev) => ({ ...prev, ...expand }));
-      await openFile("workspace", relPath);
+      await openFile(root, relPath);
     },
     [openFile, refreshDir],
   );
@@ -493,8 +503,8 @@ export function FileWorkbench(props: FileWorkbenchProps) {
   // 串行消费深链请求：连点不再被 in-flight 去重吞掉；挂载时消费 pending 路径。
   const openWorkspaceFileChainRef = useRef<Promise<void>>(Promise.resolve());
   const enqueueWorkspaceFileOpen = useCallback(
-    (relPath: string) => {
-      const run = () => openWorkspaceRelPath(relPath).catch(() => undefined);
+    (relPath: string, root: "workspace" | "project" = "workspace") => {
+      const run = () => openWorkspaceRelPath(relPath, root).catch(() => undefined);
       openWorkspaceFileChainRef.current = openWorkspaceFileChainRef.current.then(run, run);
     },
     [openWorkspaceRelPath],
@@ -507,7 +517,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     // 挂载消费：深链在本组件挂载前发出时，事件已错过但 pending 仍在。
     const pending = consumePendingOpenWorkspaceFile();
     if (pending) {
-      enqueueWorkspaceFileOpen(pending);
+      enqueueWorkspaceFileOpen(pending.relPath, pending.root);
     }
     const onOpen = (ev: Event) => {
       const detail = (ev as CustomEvent<OpenWorkspaceFileDetail>).detail;
@@ -516,7 +526,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
         return;
       }
       consumePendingOpenWorkspaceFile();
-      enqueueWorkspaceFileOpen(relPath);
+      enqueueWorkspaceFileOpen(relPath, detail?.root === "project" ? "project" : "workspace");
     };
     window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onOpen);
     return () => window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onOpen);

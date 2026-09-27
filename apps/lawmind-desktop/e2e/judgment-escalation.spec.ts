@@ -82,9 +82,8 @@ test.describe("G3 待定夺项 · 审核台旁路展示", () => {
     await gotoShell(page);
     await openReviewDraft(page, "e2e-draft-1");
 
-    // 先确认审核台确实渲染了（否则「没有这张卡」可能只是因为工作台没打开）。
-    await expect(page.locator(".lm-review-workbench-root").first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId("lm-decision-header")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("button", { name: "签批" }).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("lm-judgment-escalation")).toHaveCount(0);
   });
 

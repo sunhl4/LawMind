@@ -13,6 +13,7 @@ import {
 import { settleCollaborationChildTurn } from "./collaboration/settle-child-turn.js";
 import { mergeConfirmedAnswers } from "./confirmed-answers.js";
 import { runTurn } from "./runtime.js";
+import { prepareContinuationHistory } from "./session-tool-call-pairing.js";
 import { withSessionTurnGate } from "./session-turn-gate.js";
 import { loadSession, saveSession, upsertSessionTurn } from "./session.js";
 import { resolveToolCallBudgets } from "./tool-budget.js";
@@ -84,15 +85,34 @@ function resolveResumeMatterId(
  * 中断恢复的指令：把原指令带回模型，否则「继续」会变成没有目标的空转。
  * 标记 `【从检查点继续】` 让清单/无任务判定都按续作处理（见 turn-plan-model）。
  */
-export function formatInterruptedResumeInstruction(instruction: string | undefined): string {
+export function formatInterruptedResumeInstruction(
+  instruction: string | undefined,
+  digest?: { finished: string[]; unfinished: string[] },
+): string {
   const original = instruction?.trim();
+  const finished = (digest?.finished ?? []).map((name) => name.trim()).filter(Boolean);
+  const unfinished = (digest?.unfinished ?? []).map((name) => name.trim()).filter(Boolean);
   return [
     "【从检查点继续】律师同意继续本件。",
     original ? `原指令：\n${original}` : "",
+    finished.length > 0 ? `已完成且结果仍在上文，不要重做：${finished.join("、")}。` : "",
+    unfinished.length > 0
+      ? `未完成，从这里接着：${unfinished.join("、")}。不要把这些调用当成已取消或已成功。`
+      : "",
     "请在已有对话与工具结果上接着完成，不要重复已成功的步骤；仍缺的依据标【待补充】或写入缓办。",
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** 先收口悬空工具调用，再落盘。runTurn 会重新读会话，不落盘就接不上。 */
+function sealContinuationHistory(session: AgentSession): {
+  finished: string[];
+  unfinished: string[];
+} {
+  const prepared = prepareContinuationHistory(session.conversationHistory);
+  session.conversationHistory = prepared.messages;
+  return { finished: prepared.finished, unfinished: prepared.unfinished };
 }
 
 /** Resume after lawyer decision on a requires-action item. */
@@ -312,19 +332,24 @@ async function resumeTurnUngated(
         interruptedTurn.executionState = executionStateFromTurn(interruptedTurn);
         upsertSessionTurn(session, interruptedTurn);
       }
-      saveSession(config.workspaceDir, session);
       const lastTurn = interruptedTurn ?? session.turns[session.turns.length - 1];
       const priorUsed =
         typeof action.toolCallsExecuted === "number" && action.toolCallsExecuted > 0
           ? action.toolCallsExecuted
           : (lastTurn?.toolCallsExecuted ?? 0);
       const budgets = resolveToolCallBudgets(config.maxToolCalls);
+      // 已经顶到硬上限时，接着办必须重新给一段步数，否则点继续会立刻再次停下。
+      const seeded = priorUsed >= budgets.hard ? 0 : priorUsed;
+      const original = originalInstructionForResume(session, {
+        instruction: action.instruction ?? lastTurn?.instruction,
+        taskId: action.taskId ?? lastTurn?.turnId,
+      });
+      const digest = sealContinuationHistory(session);
+      saveSession(config.workspaceDir, session);
       return runTurn({
         config: { ...config, maxToolCalls: budgets.soft },
         registry,
-        instruction: interrupted
-          ? formatInterruptedResumeInstruction(action.instruction ?? interruptedTurn?.instruction)
-          : "【从检查点继续】律师同意继续本轮。请在已有对话与工具结果上接着完成，不要重复已成功的步骤。",
+        instruction: formatInterruptedResumeInstruction(original, digest),
         sessionId: session.sessionId,
         matterId: resolveResumeMatterId(action, session, opts),
         projectDir: opts.projectDir,
@@ -333,7 +358,7 @@ async function resumeTurnUngated(
         liveProgressSessionId: opts.liveProgressSessionId,
         skipSessionTurnGate: true,
         skipToolBudgetCheckpoint: true,
-        initialToolCallsExecuted: priorUsed,
+        initialToolCallsExecuted: seeded,
       });
     }
   }
@@ -422,12 +447,18 @@ async function resumePausedTurnUngated(
     .slice(0, 12);
   const toolsLine = toolNames.length > 0 ? `已用工具：${[...new Set(toolNames)].join("、")}。` : "";
   const extra = opts?.extraInstruction?.trim();
+  const digest = sealContinuationHistory(session);
+  saveSession(config.workspaceDir, session);
+  const unfinishedLine =
+    digest.unfinished.length > 0
+      ? `未完成，从这里接着：${digest.unfinished.join("、")}。不要把这些调用当成已取消或已成功。`
+      : "";
   const instruction = [
     "【从检查点继续】",
     `上一轮在完成 ${last.toolCallsExecuted} 次工具调用后被暂停。`,
     toolsLine,
     `原指令：\n${last.instruction}`,
-    "",
+    unfinishedLine,
     "请在已有对话与工具结果基础上继续完成任务，不要重复已成功的步骤。",
     extra ? `\n律师补充：${extra}` : "",
   ]
@@ -447,6 +478,9 @@ async function resumePausedTurnUngated(
     liveProgressSessionId: opts?.liveProgressSessionId,
     skipSessionTurnGate: true,
     skipToolBudgetCheckpoint: true,
-    initialToolCallsExecuted: last.toolCallsExecuted,
+    initialToolCallsExecuted:
+      last.toolCallsExecuted >= resolveToolCallBudgets(config.maxToolCalls).hard
+        ? 0
+        : last.toolCallsExecuted,
   });
 }

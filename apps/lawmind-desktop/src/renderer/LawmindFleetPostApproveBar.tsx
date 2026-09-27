@@ -87,7 +87,7 @@ export function LawmindFleetPostApproveBar(props: LawmindFleetPostApproveBarProp
             data-testid="lm-fleet-post-approve-review"
             onClick={() => onOpenReview(state.taskId, state.matterId)}
           >
-            去改稿
+            看修订
           </button>
         ) : null}
         {onSaveAsAutomation ? (

@@ -6,16 +6,15 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
     await installE2eBrowserPrefs(page);
   });
 
-  test("在办「改稿」进入改稿面", async ({ page }) => {
+  test("在办「看修订」回到对话，不打开改稿台", async ({ page }) => {
     await gotoShell(page);
     await page.getByTestId("lm-tab-agents").click();
-    await expect(page.getByTestId("lm-agents-open-review")).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId("lm-agents-open-review").click();
-    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
-      timeout: 30_000,
-    });
+    const openRevision = page.getByTestId("lm-agents-open-review");
+    await expect(openRevision).toHaveText("看修订", { timeout: 30_000 });
+    await openRevision.click();
+    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
     await expect(
-      page.locator(".lm-review-compose-main, .lm-review-editor-pane, .lm-review-preview-pane").first(),
+      page.locator("#lawmind-chat-messages-panel").or(page.getByRole("region", { name: "对话消息" })).first(),
     ).toBeVisible({ timeout: 15_000 });
   });
 
@@ -35,15 +34,13 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
     ).toBeVisible({ timeout: 15_000 });
   });
 
-  test("openReviewWorkbench helper still reaches workbench", async ({ page }) => {
+  test("看修订 helper 回到对话", async ({ page }) => {
     await gotoShell(page);
     await openReviewWorkbench(page);
-    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
   });
 
-  test("Firm：顶栏无 peer 改稿，从在办进入后出现次级改稿", async ({ page }) => {
+  test("Firm：看修订之后顶栏仍没有改稿", async ({ page }) => {
     await gotoShell(page);
     const mainNav = page.getByRole("navigation", { name: "功能模块" });
     await expect(mainNav).toBeVisible({ timeout: 30_000 });
@@ -51,17 +48,11 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
     await expect(mainNav).not.toContainText("文书台");
 
     await openReviewWorkbench(page);
-    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
-      timeout: 30_000,
-    });
-    const secondary = mainNav.getByTestId("lm-tab-review");
-    await expect(secondary).toBeVisible({ timeout: 15_000 });
-    await expect(secondary).toContainText("改稿");
-    await expect(secondary).toHaveClass(/lm-tab-secondary/);
-    await expect(secondary).toHaveAttribute("aria-current", "page");
+    await expect(mainNav.getByTestId("lm-tab-review")).toHaveCount(0);
+    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
   });
 
-  test("Solo：顶栏无 peer 文书台，从在办进入后出现次级改稿", async ({ page }) => {
+  test("Solo：看修订之后顶栏仍没有改稿", async ({ page }) => {
     await page.route("**/api/policy/edition**", async (route) => {
       await route.fulfill({
         status: 200,
@@ -102,12 +93,7 @@ test.describe("文书台 / 待我拍板 决策落地", () => {
     await expect(mainNav).not.toContainText("文书台");
 
     await openReviewWorkbench(page);
-    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
-      timeout: 30_000,
-    });
-    const secondary = mainNav.getByTestId("lm-tab-review");
-    await expect(secondary).toBeVisible({ timeout: 15_000 });
-    await expect(secondary).toContainText("改稿");
-    await expect(secondary).toHaveClass(/lm-tab-secondary/);
+    await expect(mainNav.getByTestId("lm-tab-review")).toHaveCount(0);
+    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
   });
 });

@@ -9,15 +9,21 @@
  * 生产侧由 executeToolBatches 兜底补齐（审批/澄清中断时同批剩余调用写「已跳过」）。
  * 送出前最后一道：
  *   - normalizeToolResultMessages：结果还对得上调用就挪回调用后面；对不上就丢掉。
- *   - repairToolCallPairing：仍缺结果的调用补「已取消」占位。
+ *   - repairToolCallPairing：仍缺结果的调用补「未完成，从这里接着」，不写成已取消。
  *   - alignCutIndexToToolGroups / sliceKeepingToolGroups：压缩按整组切，不从工具结果中间下刀。
  */
 
 import type { AgentMessage, ToolCall } from "./types.js";
 
-/** 占位 tool 消息的错误文案：明确告知模型该调用未执行，避免被当作成功结果续写。 */
+/**
+ * 占位 tool 消息：调用没有结果。写成「未完成，从这里接着」，
+ * 不要写成「已取消」——否则续跑时模型会把做了一半的步骤当成失败而重开。
+ */
 export const TOOL_CALL_PAIRING_PLACEHOLDER_ERROR =
-  "已取消：该调用未执行（前序操作中断或待律师处理）";
+  "未完成：该调用在续跑前没有结果。请从这里接着做，不要把它当成已取消或已成功。";
+
+/** 旧占位。磁盘上已有的会话在送出前改写成上面的未完成文案。 */
+export const LEGACY_CANCELLED_TOOL_PLACEHOLDER = "已取消：该调用未执行（前序操作中断或待律师处理）";
 
 /** 收集紧跟其后的 tool 消息已应答的 toolCallId。 */
 function collectAnsweredIds(messages: AgentMessage[], assistantIndex: number): Set<string> {
@@ -46,6 +52,101 @@ export function findUnpairedToolCallIds(messages: AgentMessage[]): string[] {
     }
   }
   return unpaired;
+}
+
+export function isUnfinishedToolPlaceholder(error: string | undefined): boolean {
+  const text = error?.trim() ?? "";
+  return text === LEGACY_CANCELLED_TOOL_PLACEHOLDER || text === TOOL_CALL_PAIRING_PLACEHOLDER_ERROR;
+}
+
+/** 把旧的「已取消」占位改成「未完成，从这里接着」。已成功或律师跳过的结果不动。 */
+export function rewriteUnfinishedToolPlaceholders(messages: AgentMessage[]): {
+  messages: AgentMessage[];
+  changed: boolean;
+} {
+  let changed = false;
+  const next = messages.map((msg) => {
+    if (msg.role !== "tool" || !msg.toolCallResponses?.length) {
+      return msg;
+    }
+    let rowChanged = false;
+    const toolCallResponses = msg.toolCallResponses.map((resp) => {
+      if (!isUnfinishedToolPlaceholder(resp.result.error)) {
+        return resp;
+      }
+      if (resp.result.error === TOOL_CALL_PAIRING_PLACEHOLDER_ERROR) {
+        return resp;
+      }
+      rowChanged = true;
+      return {
+        ...resp,
+        result: { ...resp.result, ok: false as const, error: TOOL_CALL_PAIRING_PLACEHOLDER_ERROR },
+      };
+    });
+    if (!rowChanged) {
+      return msg;
+    }
+    changed = true;
+    const sole = toolCallResponses.length === 1 ? toolCallResponses[0]?.result : undefined;
+    return {
+      ...msg,
+      content: JSON.stringify(sole ?? toolCallResponses.map((resp) => resp.result)),
+      toolCallResponses,
+    };
+  });
+  return { messages: changed ? next : messages, changed };
+}
+
+export type ContinuationDigest = {
+  finished: string[];
+  unfinished: string[];
+};
+
+/** 续跑指令用的短名单：上文里已经成功的工具，以及还没有结果的工具。 */
+export function summarizeContinuation(messages: AgentMessage[]): ContinuationDigest {
+  const finished: string[] = [];
+  const unfinished: string[] = [];
+  const seenDone = new Set<string>();
+  const seenOpen = new Set<string>();
+  for (const msg of messages) {
+    if (msg.role !== "tool") {
+      continue;
+    }
+    for (const resp of msg.toolCallResponses ?? []) {
+      const name = resp.name.trim();
+      if (!name) {
+        continue;
+      }
+      if (resp.result.ok) {
+        if (!seenDone.has(name)) {
+          seenDone.add(name);
+          finished.push(name);
+        }
+        continue;
+      }
+      if (isUnfinishedToolPlaceholder(resp.result.error) && !seenOpen.has(name)) {
+        seenOpen.add(name);
+        unfinished.push(name);
+      }
+    }
+  }
+  return { finished: finished.slice(-6), unfinished: unfinished.slice(-6) };
+}
+
+/**
+ * 续跑前收口：旧「已取消」改成未完成，悬空调用补上未完成结果。
+ * 调用方必须在写入「继续」这句用户消息之前做完，避免用户话插在调用和结果中间。
+ */
+export function prepareContinuationHistory(messages: AgentMessage[]): {
+  messages: AgentMessage[];
+  finished: string[];
+  unfinished: string[];
+} {
+  const rewritten = rewriteUnfinishedToolPlaceholders(messages);
+  const normalized = normalizeToolResultMessages(rewritten.messages);
+  const pairing = repairToolCallPairing(normalized.messages);
+  const digest = summarizeContinuation(pairing.messages);
+  return { messages: pairing.messages, ...digest };
 }
 
 function placeholderToolMessage(tc: ToolCall): AgentMessage {

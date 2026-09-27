@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog } from "electron";
 import { randomBytes } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -16,8 +16,14 @@ import { credentialForClient } from "./local-api-credentials.mjs";
 import {
   buildPortDrift,
   classifyDiscoveryResponse,
-  manifestInstructions,
+  addinHostStatus,
+  hostReconnectInstructions,
+  lawmindPortInWpsPublish,
+  loopbackPortInText,
   resolveManifestTargets,
+  resolveWpsJsaddonsDir,
+  upsertWpsPublishXml,
+  windowsWordDeveloperRegArgs,
 } from "./local-api-port-contract.mjs";
 import { hostAccessFilePath, rootsFromStore } from "./host-access-store.mjs";
 import { applyOfficeCliEnv, resolveOfficeCliExecutable } from "./officecli-runtime.mjs";
@@ -259,6 +265,9 @@ export let localApiInstanceId = "";
  * 根因治理见 `main.mjs` 的单实例锁。
  */
 export let loopbackPortDrift = null;
+/** 这次进程里改过清单。下次启动若文件已对上当前端口，设置页才显示「已连接」。 */
+let wordPendingReopen = false;
+let wpsPendingReopen = false;
 export let workspaceDir = "";
 export let projectDir = null;
 export let envFilePath = "";
@@ -549,8 +558,99 @@ async function probePortOccupant(port) {
  * 清单由**服务端现场生成**（不是本地拼模板），这样端口与模板只有一处真相；
  * 静态面 GET 本就免 bearer，所以这里不需要凭据。
  */
+function windowsWordInstalled() {
+  if (process.platform !== "win32") {
+    return false;
+  }
+  const queries = [
+    ["query", "HKCU\\Software\\Microsoft\\Office\\16.0\\Word"],
+    ["query", "HKLM\\Software\\Microsoft\\Office\\16.0\\Word\\InstallRoot"],
+  ];
+  return queries.some((args) => {
+    try {
+      return spawnSync("reg", args, { windowsHide: true }).status === 0;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function manifestTargetOptions() {
+  return {
+    platform: process.platform,
+    home: app.getPath("home"),
+    downloads: app.getPath("downloads"),
+    appData: app.getPath("appData"),
+    windowsWord: windowsWordInstalled(),
+    exists: (p) => fs.existsSync(p),
+  };
+}
+
+function registerWindowsWordManifest(manifestPath) {
+  try {
+    const result = spawnSync("reg", windowsWordDeveloperRegArgs(manifestPath), {
+      windowsHide: true,
+      encoding: "utf8",
+    });
+    if (result.status !== 0) {
+      console.warn(
+        "[LawMind] Word 侧载登记失败",
+        (result.stderr || result.stdout || "").trim(),
+      );
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn("[LawMind] Word 侧载登记失败", err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
+function writeTextIfChanged(file, next) {
+  let prev = null;
+  try {
+    prev = fs.readFileSync(file, "utf8");
+  } catch {
+    prev = null;
+  }
+  if (prev === next) {
+    return false;
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, next, "utf8");
+  return true;
+}
+
+function registerWpsAddin(base) {
+  const dir = resolveWpsJsaddonsDir({
+    platform: process.platform,
+    home: app.getPath("home"),
+    appData: process.platform === "win32" ? app.getPath("appData") : undefined,
+    exists: (p) => fs.existsSync(p),
+  });
+  if (!dir) {
+    return { status: "missing", changed: false };
+  }
+  const file = path.join(dir, "publish.xml");
+  let existing = "";
+  try {
+    existing = fs.readFileSync(file, "utf8");
+  } catch {
+    existing = "";
+  }
+  const next = upsertWpsPublishXml(existing, `${base}/word-addin/wps/`);
+  const changed = writeTextIfChanged(file, next);
+  if (changed) {
+    wpsPendingReopen = true;
+  }
+  return { status: changed ? "written" : "unchanged", changed, path: file };
+}
+
 export async function syncWordAddinManifest(options = {}) {
   const downloadsFallback = options.downloadsFallback !== false;
+  if (loopbackPortDrift?.occupant === "another-lawmind") {
+    return { ok: false, error: "请改用已经打开的 LawMind。不要同时开两份。" };
+  }
   if (!apiPort) {
     return { ok: false, error: "请稍后再试。" };
   }
@@ -570,34 +670,31 @@ export async function syncWordAddinManifest(options = {}) {
     return { ok: false, error: "暂时连不上，请稍后再试。" };
   }
 
-  let attempts = resolveManifestTargets({
-    platform: process.platform,
-    home: app.getPath("home"),
-    downloads: app.getPath("downloads"),
-    exists: (p) => fs.existsSync(p),
-  });
+  let attempts = resolveManifestTargets(manifestTargetOptions());
   if (!downloadsFallback) {
-    attempts = attempts.filter((attempt) => attempt.location === "word-container");
-    if (attempts.length === 0) {
-      console.warn("[LawMind] 未找到已安装的 Word，跳过自动写回，不放入下载文件夹。");
-      return { ok: false, skipped: true };
-    }
+    attempts = attempts.filter(
+      (attempt) => attempt.location === "word-container" || attempt.location === "word-windows",
+    );
   }
-  const failed = [];
 
+  let wordLocation;
+  let wordChanged = false;
+  let wordPath;
+  const failed = [];
   for (const attempt of attempts) {
     const file = path.join(attempt.dir, "manifest.xml");
     try {
-      fs.mkdirSync(attempt.dir, { recursive: true });
-      fs.writeFileSync(file, manifest, "utf8");
-      return {
-        ok: true,
-        apiBase: base,
-        path: file,
-        location: attempt.location,
-        bytes: Buffer.byteLength(manifest, "utf8"),
-        instructions: manifestInstructions(attempt.location, base),
-      };
+      wordChanged = writeTextIfChanged(file, manifest);
+      if (attempt.location === "word-windows" && !registerWindowsWordManifest(file)) {
+        failed.push({ dir: attempt.dir, error: "word_developer_registry" });
+        continue;
+      }
+      if (wordChanged) {
+        wordPendingReopen = true;
+      }
+      wordLocation = attempt.location;
+      wordPath = file;
+      break;
     } catch (err) {
       failed.push({
         dir: attempt.dir,
@@ -605,22 +702,101 @@ export async function syncWordAddinManifest(options = {}) {
       });
     }
   }
-  console.warn(
-    "[LawMind] word manifest write:",
-    failed.map((f) => `${f.dir}（${f.error}）`).join("；"),
-  );
+
+  let wps = { status: "missing", changed: false };
+  try {
+    wps = registerWpsAddin(base);
+  } catch (err) {
+    console.warn("[LawMind] wps publish write:", err instanceof Error ? err.message : err);
+    wps = { status: "missing", changed: false };
+  }
+
+  if (!wordLocation && wps.status === "missing") {
+    if (failed.length > 0) {
+      console.warn(
+        "[LawMind] word manifest write:",
+        failed.map((f) => `${f.dir}（${f.error}）`).join("；"),
+      );
+    } else if (!downloadsFallback) {
+      console.warn("[LawMind] 未找到已安装的 Word 或 WPS，跳过自动登记。");
+    }
+    return { ok: false, skipped: failed.length === 0, apiBase: base, error: "没能重新连接。请稍后再试。" };
+  }
+
+  const changed = wordChanged || wps.changed;
   return {
-    ok: false,
+    ok: true,
     apiBase: base,
-    error: "没能重新连接。请稍后再试。",
+    ...(wordPath ? { path: wordPath } : {}),
+    ...(wordLocation ? { location: wordLocation } : {}),
+    wordChanged,
+    wpsStatus: wps.status,
+    wpsChanged: wps.changed,
+    instructions: hostReconnectInstructions({
+      wordLocation,
+      wpsStatus: wps.status,
+      changed,
+    }),
   };
 }
 
 /**
- * 端口变了就自己写回 Word 清单。另一个 LawMind 占着原端口时不改写，避免把 Word 指到这份多余实例。
+ * 设置页要的连接状态。另一个 LawMind 占着原端口时两边都标成「去用已经打开的那份」，
+ * 并且不会把清单改写到这份多余实例上。
  */
-async function healWordManifestIfDrifted() {
-  if (!loopbackPortDrift || loopbackPortDrift.occupant === "another-lawmind") {
+export function addinHostSnapshot() {
+  const anotherCopy = loopbackPortDrift?.occupant === "another-lawmind";
+  const exists = (p) => fs.existsSync(p);
+  const home = app.getPath("home");
+  const wordTarget = resolveManifestTargets(manifestTargetOptions()).find(
+    (target) => target.location === "word-container" || target.location === "word-windows",
+  );
+  let wordPort = null;
+  if (wordTarget) {
+    try {
+      wordPort = loopbackPortInText(fs.readFileSync(path.join(wordTarget.dir, "manifest.xml"), "utf8"));
+    } catch {
+      wordPort = null;
+    }
+  }
+  const wpsDir = resolveWpsJsaddonsDir({
+    platform: process.platform,
+    home,
+    appData: process.platform === "win32" ? app.getPath("appData") : undefined,
+    exists,
+  });
+  let wpsPort = null;
+  if (wpsDir) {
+    try {
+      wpsPort = lawmindPortInWpsPublish(fs.readFileSync(path.join(wpsDir, "publish.xml"), "utf8"));
+    } catch {
+      wpsPort = null;
+    }
+  }
+  return {
+    word: addinHostStatus({
+      installed: Boolean(wordTarget),
+      recordedPort: wordPort,
+      actualPort: apiPort,
+      pendingReopen: wordPendingReopen,
+      anotherCopy,
+    }),
+    wps: addinHostStatus({
+      installed: Boolean(wpsDir),
+      recordedPort: wpsPort,
+      actualPort: apiPort,
+      pendingReopen: wpsPendingReopen,
+      anotherCopy,
+    }),
+  };
+}
+
+/**
+ * 每次服务就绪都登记 Word 与 WPS（第一次安装，以及清单还指着旧端口）。
+ * 另一个 LawMind 占着原端口时不改写，避免把加载项指到这份多余实例。
+ */
+async function ensureHostAddins() {
+  if (loopbackPortDrift?.occupant === "another-lawmind") {
     return;
   }
   try {
@@ -628,13 +804,13 @@ async function healWordManifestIfDrifted() {
     if (res.skipped) {
       return;
     }
-    if (res.ok) {
-      console.warn(`[LawMind] 已按当前端口写回 Word 清单：${res.path}`);
-    } else {
-      console.warn("[LawMind] 自动写回 Word 清单失败：", res.error);
+    if (res.ok && (res.wordChanged || res.wpsChanged)) {
+      console.warn(`[LawMind] 已按当前端口登记加载项。${res.instructions ?? ""}`);
+    } else if (!res.ok) {
+      console.warn("[LawMind] 自动登记加载项失败：", res.error);
     }
   } catch (err) {
-    console.warn("[LawMind] 自动写回 Word 清单失败：", err instanceof Error ? err.message : err);
+    console.warn("[LawMind] 自动登记加载项失败：", err instanceof Error ? err.message : err);
   }
 }
 
@@ -1028,7 +1204,7 @@ export async function restartBackendInternal() {
   // 重启成功（ready）后归零监督计数，恢复全额退避额度。
   supervisionAttempts = 0;
   broadcastLoopbackConfig();
-  await healWordManifestIfDrifted();
+  await ensureHostAddins();
 }
 
 export async function ensureBackend() {

@@ -68,7 +68,10 @@ export function classifyDiscoveryResponse(body) {
  *
  * `exists` 注入进来是为了可测（不碰真实文件系统）。
  */
-export function resolveManifestTargets({ platform, home, downloads, exists }) {
+/** 与清单模板里的 Id 一致。Windows 用它登记到当前用户的 Word 开发者加载项。 */
+export const WORD_ADDIN_MANIFEST_ID = "d6a1a7a6-8f8f-4d1b-9f5c-6b0f0f1c2a31";
+
+export function resolveManifestTargets({ platform, home, downloads, exists, appData, windowsWord }) {
   const targets = [];
   if (platform === "darwin" && typeof home === "string" && home.trim()) {
     const container = [
@@ -84,15 +87,154 @@ export function resolveManifestTargets({ platform, home, downloads, exists }) {
       targets.push({ location: "word-container", dir: `${container}/lawmind-word-addin` });
     }
   }
+  if (platform === "win32" && windowsWord && typeof appData === "string" && appData.trim()) {
+    targets.push({ location: "word-windows", dir: `${appData.trim()}/LawMind/word-addin` });
+  }
   if (typeof downloads === "string" && downloads.trim()) {
     targets.push({ location: "downloads", dir: downloads.trim() });
   }
   return targets;
 }
 
+/**
+ * `reg add` 的参数（不含 shell）。只写当前用户的 Office 开发者加载项，不碰 HKLM。
+ */
+export function windowsWordDeveloperRegArgs(manifestPath) {
+  if (typeof manifestPath !== "string" || !manifestPath.trim() || manifestPath.includes("\0")) {
+    throw new Error("invalid manifest path");
+  }
+  return [
+    "add",
+    "HKCU\\Software\\Microsoft\\Office\\16.0\\WEF\\Developer",
+    "/v",
+    WORD_ADDIN_MANIFEST_ID,
+    "/t",
+    "REG_SZ",
+    "/d",
+    manifestPath,
+    "/f",
+  ];
+}
+
 /** 给律师看的一句说明（按落点区分动作）。 */
 export function manifestInstructions(location, _base) {
-  return location === "word-container"
+  return location === "word-container" || location === "word-windows"
     ? "已重新连接。请完全退出 Word 后再打开。"
     : "已保存到「下载」。请把它放进 Word 的加载项文件夹，然后完全退出 Word 再打开。";
+}
+
+/**
+ * WPS 的 JS 加载项目录。只在已经装了 WPS（父目录存在）时返回，避免凭空造出 WPS 的容器。
+ * Mac 写在 Word 容器旁边的 kingsoft 容器里；Windows / Linux 用官方 jsaddons 路径。
+ */
+export function resolveWpsJsaddonsDir({ platform, home, exists, appData }) {
+  if (typeof home !== "string" || !home.trim() || typeof exists !== "function") {
+    return null;
+  }
+  const root = home.trim();
+  let parent = null;
+  if (platform === "darwin") {
+    parent = [
+      root,
+      "Library",
+      "Containers",
+      "com.kingsoft.wpsoffice.mac",
+      "Data",
+      ".kingsoft",
+      "wps",
+    ].join("/");
+  } else if (platform === "win32") {
+    const roaming =
+      typeof appData === "string" && appData.trim() ? appData.trim() : `${root}/AppData/Roaming`;
+    parent = `${roaming}/kingsoft/wps`;
+  } else if (platform === "linux") {
+    parent = `${root}/.local/share/Kingsoft/wps`;
+  }
+  if (!parent || !exists(parent)) {
+    return null;
+  }
+  return `${parent}/jsaddons`;
+}
+
+/** 从清单或 publish.xml 里认出回环端口。认不出就 null，不当成「已经连上」。 */
+export function loopbackPortInText(text) {
+  if (typeof text !== "string") {
+    return null;
+  }
+  const match = /https?:\/\/(?:localhost|127\.0\.0\.1):(\d{1,5})\b/.exec(text);
+  if (!match) {
+    return null;
+  }
+  const port = Number(match[1]);
+  return port > 0 && port <= 65535 ? port : null;
+}
+
+const LAWMIND_WPS_PLUGIN =
+  /<jsplugin\b(?=[^>]*\bname="lawmind")[^>]*\/>|<jsplugin\b(?=[^>]*\bname="lawmind")[^>]*>[\s\S]*?<\/jsplugin>/;
+
+/** 只读我们自己的那条，避免把别人插件的地址当成 LawMind。 */
+export function lawmindPortInWpsPublish(xml) {
+  if (typeof xml !== "string") {
+    return null;
+  }
+  const tag = LAWMIND_WPS_PLUGIN.exec(xml);
+  return tag ? loopbackPortInText(tag[0]) : null;
+}
+
+/**
+ * 登记或更新 publish.xml 里的 LawMind 条。其它加载项原样留下。
+ * url 必须是本机回环上的 WPS 加载项目录，避免把任意地址写进 WPS。
+ */
+export function upsertWpsPublishXml(existing, url) {
+  if (typeof url !== "string" || !/^https?:\/\/(?:localhost|127\.0\.0\.1):\d+\/word-addin\/wps\/$/.test(url)) {
+    throw new Error("invalid wps addin url");
+  }
+  const line = `<jsplugin name="lawmind" type="wps" url="${url}" enable="enable" install="null" version="1.0.0"/>`;
+  const text = typeof existing === "string" ? existing : "";
+  if (LAWMIND_WPS_PLUGIN.test(text)) {
+    return text.replace(LAWMIND_WPS_PLUGIN, line);
+  }
+  if (text.includes("</jsplugins>")) {
+    return text.replace("</jsplugins>", `  ${line}\n</jsplugins>`);
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<jsplugins>\n  ${line}\n</jsplugins>\n`;
+}
+
+/**
+ * 设置页上的连接状态。不带端口号。
+ * 这次进程里刚改过清单 → reopen，直到下次启动且文件已经对上当前端口。
+ */
+export function addinHostStatus({ installed, recordedPort, actualPort, pendingReopen, anotherCopy }) {
+  if (anotherCopy) {
+    return "another-copy";
+  }
+  if (!installed) {
+    return "missing";
+  }
+  if (pendingReopen || recordedPort !== actualPort) {
+    return "reopen";
+  }
+  return "connected";
+}
+
+/** 重新连接之后给律师的一句。地址不出现。 */
+export function hostReconnectInstructions({ wordLocation, wpsStatus, changed }) {
+  const hosts = [];
+  if (wordLocation === "word-container" || wordLocation === "word-windows") {
+    hosts.push("Word");
+  }
+  if (wpsStatus === "written" || wpsStatus === "unchanged") {
+    hosts.push("WPS");
+  }
+  if (!changed && hosts.length > 0 && wordLocation !== "downloads") {
+    return `已经连着。若窗格仍打不开，请完全退出${hosts.join("和")}后再打开。`;
+  }
+  if (wordLocation === "downloads") {
+    const wps = hosts.includes("WPS") ? "WPS 已重新连接，请完全退出后再打开。" : "";
+    return `${manifestInstructions("downloads")}${wps}`;
+  }
+  if (hosts.length > 0) {
+    return `已重新连接。请完全退出${hosts.join("和")}后再打开。`;
+  }
+  return "没能重新连接。请稍后再试。";
 }

@@ -59,6 +59,48 @@ describe("presentLawyerToolCall", () => {
         },
       ).detail,
     ).toMatch(/违约金.*读 1 步/);
+    expect(
+      presentLawyerToolResult(
+        "draft_worker",
+        {},
+        { ok: false, error: "请使用上一支返回的 workerId 作为 resume_id。" },
+      ).detail,
+    ).toBe("没有续上上一支。");
+    expect(
+      presentLawyerToolResult(
+        "draft_worker",
+        { section: "材料" },
+        { ok: true, data: { section: "材料", taskRole: "explore", draft: "候选" } },
+      ),
+    ).toMatchObject({ title: "探查目录", detail: "已探查「材料」" });
+    expect(
+      presentLawyerToolResult(
+        "draft_worker",
+        {},
+        {
+          ok: true,
+          data: {
+            section: "解除",
+            taskRole: "review",
+            joinIndex: "【并行写稿对照】\n- 解除：缺口 无；结论 乙方有权解除",
+          },
+        },
+      ).detail,
+    ).toBe("已审查「解除」");
+    expect(
+      presentLawyerToolResult(
+        "draft_worker",
+        {},
+        {
+          ok: true,
+          data: {
+            section: "解除",
+            taskRole: "review",
+            joinIndex: "【并行写稿对照】\n结论冲突：解除（解除 与 管辖）",
+          },
+        },
+      ).detail,
+    ).not.toContain("结论冲突");
   });
 
   it("labels explore_folder progress without snake_case tool names", () => {

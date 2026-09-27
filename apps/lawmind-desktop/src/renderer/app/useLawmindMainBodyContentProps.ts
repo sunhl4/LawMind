@@ -7,6 +7,7 @@ import {
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { LawmindMainView } from "../lawmind-main-view";
+import { requestOpenContractRevision } from "../lawmind-workspace-file-open";
 import type {
   CollabEvent,
   DelegationRow,
@@ -550,7 +551,7 @@ export function useLawmindMainBodyContentProps(
         if (matterId) {
           setContextMatterId(matterId);
         }
-        setMainView("review");
+        requestOpenContractRevision(taskId);
       },
       onOpenAgentsWorkflows: (matterId, jobId) => {
         const mid = matterId?.trim();

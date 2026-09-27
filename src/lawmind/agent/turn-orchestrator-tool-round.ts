@@ -32,7 +32,7 @@ import type { RiskLevel } from "../types.js";
 import type { ClarificationQuestion } from "../types.js";
 import { resolvePreApprovalInjection } from "./approval-cache-key.js";
 import { conversationSessionRefsFromToolData } from "./conversation-search.js";
-import { attachDraftWorkerJoinIndex, draftWorkerSectionErrors } from "./draft-worker-batch.js";
+import { attachDraftWorkerJoinIndex, draftWorkerDispatchErrors } from "./draft-worker-batch.js";
 import { presentLawyerToolResult } from "./tool-lawyer-card.js";
 import {
   stringifyToolResultForHistory,
@@ -583,7 +583,7 @@ export async function executeToolBatches(
       };
     };
 
-    const sectionErrors = draftWorkerSectionErrors(batch.calls);
+    const sectionErrors = draftWorkerDispatchErrors(batch.calls);
     const stageSectionReject = (ref: ToolCallRef, error: string): StagedToolOutcome => {
       emitEvent({
         type: "tool_call_start",

@@ -8,6 +8,12 @@
 
 对话面板即交办面板。律师说一句话或丢一份材料，系统在一个回合内自行选择工具、执行到产出草稿为止，中间步骤（列目录、检索、分析）不向律师提问「要不要继续」。这条设计的代码落点是 `runTurn`（`src/lawmind/agent/turn-orchestrator.ts`）：回合开始到结束是一条完整链路，产出的交付物落到工作区，而不是只留一段聊天摘要。
 
+### 3.1.1 对话里的子工：何时派、怎么做、和正式落稿的区别
+
+律师在对话框提交需求的那一轮，模型自己决定要不要派子工、要不要并行。工具是 `draft_worker`（对话里的真实任务才会广告；空话、改原件、邮件短路径、函件核对不广告）。不另做一套分类器，也不改律师原话。互不依赖、而且各自都要连读连查的长任务，在同一次回复里并行调用，`section` 必须不同；拆不开的长任务只派一支；一两步能做完的留在本对话。`role` 决定这一支怎么做：`review` 交结论和依据，`draft` 写条款片段，`explore` 只读探查目录（与 `explore_folder` 同一只读循环，只把摘要交回）。子工看不到本对话，任务书必须自包含。交回的 `result` 给父会话汇总。中途指示进入正在跑的那一支的下一轮；要改已交回的一支，用返回的 `workerId` 作为 `resume_id`，再写 `follow_up`。
+
+**和 Cursor / Codex 的区别（有意保留）：** 子工只读，不能改原件，不能导出，不能外发。正式落稿仍由父会话调用 `draft_document`（再经验收和律师签批）。这是法律交付必须停在父会话拍板，不是派工没接上。细节和参数见第 23.7 节。
+
 ## 3.2 怎么用：输入、钉选与会话管理
 
 - **直接说事**：不需要先选办件。意图由编译器判定，状态条只显示一行「本轮按××处理」。
@@ -16,7 +22,7 @@
 - **看过程**：思考面板（`LawmindChatThoughtPanel.tsx`）与执行轨迹（`LawmindChatExecutionTrace.tsx`）折叠展示工具调用与中间结论；正式的进度在「在办」，对话线程不堆过程芯片、短路径按钮或步骤拍板卡。
 - **切换模型 / 权限 / 检索**：输入框工具栏（`lawmind-chat-compose-toolbar.tsx`）提供模型选择、权限模式与检索开关。对话还短时不显示用量；变长或已经整理过，才出现「这场对话」（`LawmindComposeContextUsage.tsx`），让律师整理或另开一段。模型窗口和用量桶不进律师面。
 - **对话长度三档**：同一工具栏里的档位选择（`LawmindSettingsConversationLength.tsx`，testid `lm-compose-context-length`）：200K / 500K / 1M，默认 200K。这是本轮硬天花板 = min(模型自己的窗口, 所选档)。历史整理、蒸馏帽和写进历史的单条工具回包另按 200K 质量带封顶（`historyNominalTokens`），不随 500K / 1M 把整理推迟。写 `PATCH /api/policy/workspace` 的 `conversationLength`；旧策略值 `daily` / `dossier` 读出时自动迁移成 200K / 1M（`src/lawmind/agent/context-preset.ts`）。
-- **中途指示（steer）**：回合进行中继续输入会作为「律师中途指示」排队，在下一次模型采样前并入历史，文案形如 `【律师中途指示】…`。换行会保留。队列最多 8 条，满了留下最新的，并在输入框上方说明较早的已被取代；单条超过 2000 字会截断并标明。送进本轮后立刻显示「已带入本轮」。
+- **中途指示（steer）**：回合进行中继续输入会作为「律师中途指示」排队，在下一次模型采样前并入历史，文案形如 `【律师中途指示】…`。正在跑的子工也会在它的下一轮采样前看到同一条指示，但不从收件箱取走；父会话仍在自己的下一轮领取。换行会保留。队列最多 8 条，满了留下最新的，并在输入框上方说明较早的已被取代；单条超过 2000 字会截断并标明。送进本轮后立刻显示「已带入本轮」。
 - **停止**：停止生成会让回合进入「暂停」或「已停止」状态（见 3.10）。
 
 ## 3.3 怎么用：压缩、承前分叉与恢复
@@ -119,7 +125,7 @@
 
 **上下文让渡**（`context-deferral.ts`）：当模型回复同时命中「水位线」与「交回」两类特征时，判定为让渡，插入对律师隐藏的回弹（`【上下文预算】`），最多 `CONTEXT_DEFERRAL_BOUNCE_MAX = 2` 次，回合结束时删除。「分两次」必须带着处理/交办等交回动词才算交回；合同里的「价款分两次支付」即使旁边写了「内容较多」也不算让渡。
 
-**承前分叉**（`session-carryover.ts`）：`forkSessionWithCarryover` 用 `clientNonce` 幂等（对应源会话的 `forkedTo.nonce`）。以下情况会**拒绝**分叉：源会话不存在、回合仍在跑、存在未决授权（`tool_approval` / `matter_approval` / `judgment_escalation` / `workflow_blocked` / `continue_tools`）。成功时构造 `CarryoverDraft`，摘要字符上限 `CARRYOVER_SEED_CHAR_RATIO = 0.1`（clamp 在 8k–32k），消息以 `【前序对话续接】` 标记开头；迁移门禁状态（待澄清键、已确认答案、回合计划、上次能力、已披露工具、案件），并在两端写 `forkedTo` / `carriedOverFrom`，发审计 `session.forked_with_carryover`。桌面入口：用量面板「另起新对话（带上文）」+ 对话内一次性建议卡（`lastCompact.midTurn || compactCount >= 2`，同一会话只提示一次）；源会话在侧栏标「→ 由此续接」（`GET /api/sessions` 的 `forkedToSessionId`），新会话顶部渲染「续接来源」卡（`carriedOverFrom`，可展开摘要预览）。
+**承前分叉**（`session-carryover.ts`）：`forkSessionWithCarryover` 用 `clientNonce` 幂等（对应源会话的 `forkedTo.nonce`）。以下情况会**拒绝**分叉：源会话不存在、回合仍在跑、存在未决授权（`tool_approval` / `matter_approval` / `judgment_escalation` / `workflow_blocked` / `continue_tools`）。成功时构造 `CarryoverDraft`，摘要字符上限 `CARRYOVER_SEED_CHAR_RATIO = 0.1`（clamp 在 8k–32k），消息以 `【前序对话续接】` 标记开头；迁移门禁状态（待澄清键、已确认答案、回合计划、上次能力、已披露工具、案件），并在两端写 `forkedTo` / `carriedOverFrom`，发审计 `session.forked_with_carryover`。桌面入口：用量面板「另起新对话（带上文）」+ 对话内一次性建议卡（`lastCompact.midTurn || compactCount >= 2`，同一会话只提示一次）+ 律师在输入框里直接要求另起 / 重开 / 新开这场对话并带上文（`fork-continue-request.ts`：送给模型之前执行同一条 fork；回合还在跑就改排到结束后，不走 steer）；源会话在侧栏标「→ 由此续接」（`GET /api/sessions` 的 `forkedToSessionId`），新会话顶部渲染「续接来源」卡（`carriedOverFrom`，可展开摘要预览）。
 
 ## 3.9 实现：事件流与持久化
 

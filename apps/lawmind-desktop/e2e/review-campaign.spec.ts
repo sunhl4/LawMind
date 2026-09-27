@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { gotoShell, installE2eBrowserPrefs, openReviewWorkbench } from "./e2e-helpers";
+import { gotoShell, installE2eBrowserPrefs, openReviewDraft } from "./e2e-helpers";
 
 /**
  * 审查专案组（Skills E2）在改稿台上的**接线**测试。
@@ -20,12 +20,10 @@ test.describe("审查专案组 (Skills E2)", () => {
     await installE2eBrowserPrefs(page);
   });
 
-  test("文书台跑专案组：真实计数 + 角色 Tab + 报告下载", async ({ page }) => {
+  test("在办跑专案组：真实计数 + 角色 Tab + 报告下载", async ({ page }) => {
     await gotoShell(page);
-    await openReviewWorkbench(page);
-    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
-      timeout: 30_000,
-    });
+    await openReviewDraft(page);
+    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
 
     // 面板必须**不需要先展开折叠区**就能看见：它是跑审查的入口 + 结果看板。
     const panel = page.getByTestId("lm-review-campaign");

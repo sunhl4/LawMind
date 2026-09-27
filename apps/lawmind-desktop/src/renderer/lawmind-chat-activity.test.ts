@@ -10,6 +10,31 @@ import {
 } from "./lawmind-chat-activity.js";
 
 describe("lawmind-chat-activity", () => {
+  it("replaces a finished tool detail when a later preview arrives", () => {
+    let blocks = startActivityTool(createEmptyActivity(), {
+      toolCallId: "tc-draft",
+      toolName: "draft_worker",
+    });
+    blocks = endActivityTool(blocks, {
+      toolCallId: "tc-draft",
+      toolName: "draft_worker",
+      ok: true,
+      resultPreview: "已审查「解除」",
+    });
+    blocks = endActivityTool(blocks, {
+      toolCallId: "tc-draft",
+      toolName: "draft_worker",
+      ok: true,
+      resultPreview: "已审查「解除」（读 2 步）",
+    });
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.kind).toBe("tool");
+    if (blocks[0]?.kind === "tool") {
+      expect(blocks[0].detail).toContain("读 2 步");
+      expect(blocks[0].status).toBe("done");
+    }
+  });
+
   it("interleaves model text and tool blocks", () => {
     let blocks = createEmptyActivity();
     blocks = appendActivityDelta(blocks, "我先检索相关条款。");

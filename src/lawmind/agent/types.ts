@@ -160,6 +160,11 @@ export type AgentContext = {
    */
   deliveryIntent?: import("../intent/delivery-intent.js").DeliveryIntent;
   /**
+   * Codex reviewer vs worker. Review turns ask the sidecar for a finding.
+   * Draft turns ask for a clause fragment.
+   */
+  sidecarRole?: "review" | "draft";
+  /**
    * This turn is mail-read → Word revise short path.
    * No opinion→redline compile and no XML QA auto-retry re-export.
    */

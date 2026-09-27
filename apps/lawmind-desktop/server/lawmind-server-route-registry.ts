@@ -51,6 +51,7 @@ import { handleMemorySourceTextRoute } from "./lawmind-server-route-memory-previ
 import { handleMemoryAdoptionRoutes } from "./lawmind-server-route-memory-adoption.js";
 import { handleMemoryLibraryRoutes } from "./lawmind-server-route-memory-library.js";
 import { handleWordAddinRoutes } from "./lawmind-server-route-word-addin.js";
+import { handleWordSurfaceRoutes } from "./lawmind-server-route-word-surface.js";
 import { handleMetricsRoutes } from "./lawmind-server-route-metrics.js";
 import { handleHistoricalScanRoutes } from "./lawmind-server-route-historical-scan.js";
 import { handleRolesRoutes } from "./lawmind-server-route-roles.js";
@@ -121,6 +122,7 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleMemorySourceTextRoute(args),
   (args) => handleMemoryAdoptionRoutes(args),
   (args) => handleMemoryLibraryRoutes(args),
+  (args) => handleWordSurfaceRoutes(args),
   (args) => handleWordAddinRoutes(args),
   (args) => handleMetricsRoutes(args),
   (args) => handleHistoricalScanRoutes(args),

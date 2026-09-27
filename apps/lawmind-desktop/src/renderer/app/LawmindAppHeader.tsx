@@ -231,22 +231,6 @@ function LawmindAppHeaderImpl({
                     整理资料
                   </button>
                 ) : null}
-                {/* 改稿不占一级对等 Tab；从在办「改稿」或对话深链进入。已打开时显示次级以便定位。 */}
-                {mainView === "review" ? (
-                  <button
-                    type="button"
-                    className="lm-tab lm-tab-secondary active"
-                    aria-current="page"
-                    data-testid="lm-tab-review"
-                    onClick={() => {
-                      onClearNeedsDecisionFocus?.();
-                      onSetMainView("review");
-                    }}
-                    title="改稿、预览与导出（通常从在办进入）"
-                  >
-                    改稿
-                  </button>
-                ) : null}
               </nav>
               {!matterCockpitOpen && currentMatterLabel && onOpenMatterCockpit ? (
                 <button

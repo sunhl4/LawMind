@@ -19,7 +19,7 @@ const TASKPANE_JS = path.join(
 );
 
 type Internals = {
-  applyHunksInWord: (hunks: Array<{ find: string; replace: string }>) => Promise<{
+  applyHunksInWord: (hunks: Array<{ find: string; replace: string; comment?: string }>) => Promise<{
     applied: number;
     missed: string[];
   }>;
@@ -114,6 +114,11 @@ function makeFakeWord(initialText: string, opts?: { trackAll?: boolean }) {
             insertText(replaceWith: string) {
               log.push(`replace:${hitText}->${replaceWith}`);
               text = text.slice(0, atNow) + replaceWith + text.slice(atNow + hitText.length);
+              return {
+                insertComment(comment: string) {
+                  log.push(`comment:${comment}`);
+                },
+              };
             },
           });
           from = at + hitText.length;
@@ -208,6 +213,21 @@ describe("word taskpane · applyHunksInWord", () => {
     expect(word.textNow()).toContain("分别履行");
   });
 
+  it("writes a comment only when that suggestion asks for one", async () => {
+    const word = makeFakeWord("十日内付款。");
+    const internals = bootTaskpane(word.Word);
+    await internals.applyHunksInWord([
+      { find: "十日内", replace: "五个工作日内", comment: "付款期过短" },
+    ]);
+    expect(word.log).toContain("comment:付款期过短");
+    expect(word.log.indexOf("setMode:trackAll")).toBeLessThan(word.log.indexOf("comment:付款期过短"));
+
+    const plain = makeFakeWord("十日内付款。");
+    const again = bootTaskpane(plain.Word);
+    await again.applyHunksInWord([{ find: "十日内", replace: "五个工作日内" }]);
+    expect(plain.log.some((line) => line.startsWith("comment:"))).toBe(false);
+  });
+
   it("refuses to edit at all when the Word build has no tracked changes", async () => {
     const word = makeFakeWord("十日内付款。", { trackAll: false });
     const internals = bootTaskpane(word.Word);
@@ -218,6 +238,95 @@ describe("word taskpane · applyHunksInWord", () => {
     // 关键：什么都不改，绝不退化成无痕迹编辑。
     expect(word.log).toEqual([]);
     expect(word.textNow()).toBe("十日内付款。");
+  });
+
+  it("writes a unique WPS range as a tracked change and leaves repeated anchors untouched", async () => {
+    const edits: string[] = [];
+    let text = "十日内付款。甲方与甲方。";
+    let tracking = false;
+    const doc = {
+      TrackRevisions: false,
+      Content: {
+        get Text() {
+          return text;
+        },
+      },
+      Range(start: number, end: number) {
+        return {
+          set Text(next: string) {
+            edits.push(`${tracking ? "tracked" : "plain"}:${start}:${text.slice(start, end)}=>${next}`);
+            text = text.slice(0, start) + next + text.slice(end);
+          },
+        };
+      },
+    };
+    Object.defineProperty(doc, "TrackRevisions", {
+      get() {
+        return tracking;
+      },
+      set(next: boolean) {
+        tracking = next;
+      },
+    });
+    const internals = bootTaskpane(makeFakeWord("x").Word) as Internals & {
+      applyHunksInWps: (
+        hunks: Array<{ find: string; replace: string }>,
+        document: unknown,
+      ) => Promise<{ applied: number; missed: string[] }>;
+    };
+    const result = await internals.applyHunksInWps(
+      [
+        { find: "十日内", replace: "五个工作日内" },
+        { find: "甲方", replace: "委托人" },
+      ],
+      doc,
+    );
+    expect(result.applied).toBe(1);
+    expect(result.missed).toEqual(["甲方（命中 2 处）"]);
+    expect(text).toContain("五个工作日内");
+    expect(text).toContain("甲方与甲方");
+    expect(edits).toEqual(["tracked:0:十日内=>五个工作日内"]);
+    expect(tracking).toBe(false);
+  });
+
+  it("adds a WPS comment on the replaced span when the lawyer asks for one", async () => {
+    const comments: string[] = [];
+    let text = "十日内付款。";
+    const doc = {
+      TrackRevisions: true,
+      Content: {
+        get Text() {
+          return text;
+        },
+      },
+      Comments: {
+        Add(_range: unknown, body: string) {
+          comments.push(body);
+        },
+      },
+      Range(start: number, end: number) {
+        return {
+          start,
+          end,
+          set Text(next: string) {
+            text = text.slice(0, start) + next + text.slice(end);
+          },
+        };
+      },
+    };
+    const internals = bootTaskpane(makeFakeWord("x").Word) as Internals & {
+      applyHunksInWps: (
+        hunks: Array<{ find: string; replace: string; comment?: string }>,
+        document: unknown,
+      ) => Promise<{ applied: number }>;
+    };
+    const result = await internals.applyHunksInWps(
+      [{ find: "十日内", replace: "五个工作日内", comment: "付款期过短" }],
+      doc,
+    );
+    expect(result.applied).toBe(1);
+    expect(comments).toEqual(["付款期过短"]);
+    expect(text).toContain("五个工作日内");
   });
 
   it("fails loudly if a future refactor reads the property before load again", async () => {

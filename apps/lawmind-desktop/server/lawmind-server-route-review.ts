@@ -740,6 +740,7 @@ export async function handleReviewRoute({
         baselineRoot: draft.contractEdit?.baselineRoot,
         matterId: draft.matterId,
         fallbackBasename: `${draft.title?.trim() || "合同"}.docx`,
+        existingOutputAbs: draft.outputPath,
       });
       const preferContractReview =
         (draft.deliverableType ?? "").startsWith("contract.") || Boolean(draft.contractEdit);
@@ -752,6 +753,9 @@ export async function handleReviewRoute({
         includeProvenance: renderTrackedBody.includeProvenance,
         outputFileName: planned.outputFileName,
       });
+      if (result.ok && result.outputPath && draft.outputPath !== result.outputPath) {
+        persistDraft(workspaceDir, { ...draft, outputPath: result.outputPath });
+      }
       sendJson(
         res,
         result.ok ? 200 : 400,

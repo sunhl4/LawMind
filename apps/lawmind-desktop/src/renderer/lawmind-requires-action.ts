@@ -43,15 +43,17 @@ export function parseRequiresActionsFromResponse(raw: unknown): LawMindRequiresA
 
 /**
  * Chat is the conversation, not a second 在办.
- * Step-budget continue_tools and workflow-execute cards stay in 待我拍板 / 在办；
- * 但「上一轮被中断」的卡片必须留在对话里——律师是在对话里发现本件断了的。
+ * Workflow-execute cards stay in 待我拍板.
+ * 任务中断，或稿没交完让律师点继续时，按钮必须留在对话里，点下去才能接着办。
  */
 export function chatThreadDecisionActions(
   actions: LawMindRequiresAction[] | undefined,
 ): LawMindRequiresAction[] {
   return (actions ?? []).filter(
     (a) =>
-      (a.kind !== "continue_tools" || a.trigger === "interrupted") &&
+      (a.kind !== "continue_tools" ||
+        a.trigger === "interrupted" ||
+        a.trigger === "delivery") &&
       !(a.kind === "tool_approval" && a.toolName === "execute_workflow"),
   );
 }

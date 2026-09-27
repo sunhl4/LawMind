@@ -10401,6 +10401,198 @@ button.lm-side-chat-session-forked-btn {
   margin: 3px 4px;
 }
 
+/* ── Word revision surface (chat middle column) ───────────── */
+.lm-word-surface-pane {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lm-word-surface {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 10px;
+}
+
+.lm-word-surface-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.lm-word-surface-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.lm-word-surface-name {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-word-surface-count {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.lm-word-surface-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.lm-word-surface-note,
+.lm-word-surface-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.lm-word-surface-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-2);
+}
+
+.lm-word-surface-error {
+  color: var(--danger);
+}
+
+.lm-word-surface-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 10px;
+}
+
+.lm-word-surface-page {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  padding: 28px 36px 40px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.lm-word-surface-p {
+  margin: 0 0 0.85em;
+  white-space: pre-wrap;
+}
+
+.lm-word-surface-rail {
+  flex: 0 0 280px;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
+}
+
+.lm-word-surface-rail-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.lm-word-surface-empty {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.lm-word-rev {
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.lm-word-rev-active {
+  outline: 1px solid var(--accent-border);
+}
+
+.lm-word-rev-del {
+  text-decoration: line-through;
+  color: var(--danger);
+}
+
+.lm-word-rev-ins {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.lm-word-rev-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+
+.lm-word-rev-card-active {
+  border-color: var(--accent-border);
+}
+
+.lm-word-rev-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.lm-word-rev-status,
+.lm-word-rev-why,
+.lm-word-rev-unplaced,
+.lm-word-rev-preview {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.lm-word-rev-why,
+.lm-word-rev-unplaced,
+.lm-word-rev-preview {
+  margin: 0;
+}
+
+.lm-word-rev-edit {
+  min-height: 72px;
+  width: 100%;
+  resize: vertical;
+}
+
+.lm-word-rev-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 /* ── end imported: file-workbench ── */
 
 /* ── imported: matter-review-workbench ── */

@@ -146,7 +146,10 @@ x
       expect.arrayContaining(["search_case_law", "calculate", "search_workspace"]),
     );
     expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("draft_document");
-    expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("draft_worker");
+    expect(extraToolsForInstruction("请审查这份采购合同")).toContain("draft_worker");
+    expect(extraToolsForInstruction("请审查这份采购合同的付款、解除和管辖")).toContain(
+      "draft_worker",
+    );
     expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("render_tracked_draft");
     expect(extraToolsForInstruction("请起草买卖合同的违约金条款")).toContain("draft_worker");
     expect(extraToolsForInstruction("请分别审查这份采购合同的付款争点和解除争点")).toContain(
@@ -155,7 +158,10 @@ x
     expect(extraToolsForInstruction("查一下民法典违约责任，按争点分别写检索备忘")).toContain(
       "draft_worker",
     );
-    expect(extraToolsForInstruction("今天开庭准备什么？")).not.toContain("draft_worker");
+    expect(extraToolsForInstruction("今天开庭准备什么？")).toContain("draft_worker");
+    expect(extraToolsForInstruction("请把开庭时间、证据缺口和询问提纲分开查清")).toContain(
+      "draft_worker",
+    );
     expect(extraToolsForInstruction("逐份审查这些合同")).toContain("digest_materials");
     expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("digest_materials");
     expect(
@@ -211,7 +217,22 @@ x
           },
         ],
       }),
+    ).toContain("draft_worker");
+    expect(
+      extraToolsForInstruction("修改这份采购合同的违约金条款", {
+        pins: [
+          {
+            pinKind: "file",
+            root: "project",
+            relPath: "采购合同.docx",
+            kind: "file",
+          },
+        ],
+      }),
     ).not.toContain("draft_worker");
+    expect(extraToolsForInstruction("【邮件合同审阅改稿 · 短路径】\nmatterId=`m1`")).not.toContain(
+      "draft_worker",
+    );
     expect(extraToolsForInstruction("【邮件合同审阅改稿 · 短路径】\nmatterId=`m1`")).toContain(
       "search_workspace",
     );

@@ -20,6 +20,8 @@ import type { ApprovalDocumentPreview } from "../../../../src/lawmind/platform/t
 import { docketRowStatusLabel, docketRowTone } from "./lawmind-fleet-docket";
 import type { PostApproveExportState } from "./lawmind-post-approve-export";
 import { LawmindFleetPostApproveBar } from "./LawmindFleetPostApproveBar";
+import { LawmindJudgmentEscalationCard } from "./LawmindJudgmentEscalationCard";
+import { LawmindReviewCampaignForTask } from "./LawmindReviewCampaignPanel";
 
 export type LawmindAgentFleetDetailProps = {
   current: AgentRunSummary | null;
@@ -76,6 +78,7 @@ export type LawmindAgentFleetDetailProps = {
   onOpenChatSession: (sessionId: string, matterId?: string, assistantId?: string) => void;
   onOpenReview?: (taskId?: string, matterId?: string) => void;
   postApproveExport: PostApproveExportState | null;
+  apiBase?: string;
   workspaceDir?: string;
   onPostApproveExport: () => void;
   onPostApproveTrackedExport?: () => void | Promise<void>;
@@ -138,6 +141,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
     onOpenChatSession,
     onOpenReview,
     postApproveExport,
+    apiBase = "",
     workspaceDir,
     onPostApproveExport,
     onPostApproveTrackedExport,
@@ -285,6 +289,20 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                         />
                       </div>
                     ) : null}
+                    {apiBase && current.taskId ? (
+                      <>
+                        <LawmindJudgmentEscalationCard
+                          apiBase={apiBase}
+                          taskId={current.taskId}
+                          variant="inline"
+                        />
+                        <LawmindReviewCampaignForTask
+                          apiBase={apiBase}
+                          taskId={current.taskId}
+                          matterId={current.matterId}
+                        />
+                      </>
+                    ) : null}
                   </div>
                 ) : showForm ? (
                   <div
@@ -340,7 +358,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                     data-testid="lm-fleet-follow-review"
                     onClick={() => onOpenReview(current.taskId, current.matterId)}
                   >
-                    去改稿
+                    看修订
                   </button>
                 ) : null}
                 {current.status === "running" ||
@@ -431,7 +449,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                   disabled={busy}
                   data-testid="lm-fleet-draft-modify"
                   onClick={() => onDraftReview("modified")}
-                  title="标为需修改后打开改稿或派发助手修订"
+                  title="标为需修改。修订在对话中间栏。"
                 >
                   需修改
                 </button>
@@ -441,9 +459,9 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                   data-testid="lm-fleet-primary-review"
                   disabled={busy}
                   onClick={() => onOpenReview?.(current.taskId, current.matterId)}
-                  title="改稿、批注与交付预览；签批在本页或改稿页高级区均可，同一记录"
+                  title="在中间栏改修订。签批仍在本页。"
                 >
-                  改稿
+                  看修订
                 </button>
                 <details className="lm-fleet-dock-more" data-testid="lm-fleet-draft-more">
                   <summary className="lm-btn lm-btn-ghost">更多</summary>
@@ -500,7 +518,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                 disabled={busy}
                 data-testid="lm-fleet-approval-open-review"
                 onClick={() => onOpenReview(approvalLinkedTaskId, current.matterId)}
-                title="改稿、批注与交付预览"
+                title="在中间栏改修订"
               >
                 改稿
               </button>

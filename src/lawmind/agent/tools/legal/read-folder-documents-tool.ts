@@ -10,6 +10,7 @@
 
 import path from "node:path";
 import { isBinaryWordDocPath, readBinaryWordDocText } from "../../../mail/read-word-binary.js";
+import { IcloudLawyerPrompt } from "../../../runtime/icloud-materialize.js";
 import {
   joinListedRel,
   resolveDirectoryTarget,
@@ -77,7 +78,12 @@ export async function extractReadableFileText(
       if (size > MAX_DOCX_READ_BYTES) {
         return { ok: false, reason: "DOC 文件过大" };
       }
-      const text = await readBinaryWordDocText(abs).catch(() => "");
+      const text = await readBinaryWordDocText(abs).catch((err: unknown) => {
+        if (err instanceof IcloudLawyerPrompt) {
+          throw err;
+        }
+        return "";
+      });
       return text.trim()
         ? { ok: true, text }
         : { ok: false, reason: "DOC 无可提取文本（可能是纯图片或受保护文档）" };
@@ -99,14 +105,25 @@ export async function extractReadableFileText(
       if (size > MAX_XLSX_READ_BYTES) {
         return { ok: false, reason: "XLSX 文件过大" };
       }
-      const text = await readXlsxPlainText(abs).catch(() => "");
+      const text = await readXlsxPlainText(abs).catch((err: unknown) => {
+        if (err instanceof IcloudLawyerPrompt) {
+          throw err;
+        }
+        return "";
+      });
       return text.trim() ? { ok: true, text } : { ok: false, reason: "XLSX 无可提取文本" };
     }
     if (isPdfPath(abs)) {
       if (size > MAX_WORKSPACE_PDF_READ_BYTES) {
         return { ok: false, reason: "PDF 文件过大" };
       }
-      const text = (await readPdfText(abs).catch(() => "")) || (await readPdfTextByOcr(abs));
+      const text =
+        (await readPdfText(abs).catch((err: unknown) => {
+          if (err instanceof IcloudLawyerPrompt) {
+            throw err;
+          }
+          return "";
+        })) || (await readPdfTextByOcr(abs));
       return text.trim()
         ? { ok: true, text }
         : { ok: false, reason: "PDF 无可提取文本（扫描件请用 analyze_document 单读）" };
@@ -120,6 +137,9 @@ export async function extractReadableFileText(
     }
     return { ok: false, reason: "不支持的格式（可尝试 analyze_document 单读）" };
   } catch (err) {
+    if (err instanceof IcloudLawyerPrompt) {
+      throw err;
+    }
     return { ok: false, reason: `读取失败：${err instanceof Error ? err.message : String(err)}` };
   }
 }

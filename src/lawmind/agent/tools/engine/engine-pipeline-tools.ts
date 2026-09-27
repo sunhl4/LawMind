@@ -1354,6 +1354,7 @@ export const renderTrackedDraft: AgentTool = {
           ? pathMod.basename(baselineRel)
           : `${draft.title?.trim() || "合同"}.docx`,
         pins: ctx.contextPins,
+        existingOutputAbs: draft.outputPath,
       });
       if (ctx.wordRevisionTurn && !planned.baselineAbs) {
         return {
@@ -1463,6 +1464,10 @@ export const renderTrackedDraft: AgentTool = {
           xmlQaRetry = { action: "narrow_and_reapply", edits: [] };
         }
       }
+      const storedDraft = readDraft(ctx.workspaceDir, taskId);
+      if (storedDraft && result.outputPath && storedDraft.outputPath !== result.outputPath) {
+        persistDraft(ctx.workspaceDir, { ...storedDraft, outputPath: result.outputPath });
+      }
       const rel = pathMod.relative(ctx.workspaceDir, result.outputPath).replace(/\\/g, "/");
       const degraded = result.mode === "plain_fallback" || Boolean(result.degraded);
       const qaWarning = xmlQa && !xmlQa.ok ? xmlQa.warning : undefined;
@@ -1494,6 +1499,7 @@ export const renderTrackedDraft: AgentTool = {
             outputPath: result.outputPath,
             hunks: proposals,
             summary: draft.title,
+            taskId,
             // advisory 姿态下审稿不阻断导出，但缺口必须随结果交到律师手上（Word 窗格也看得到）。
             ...(guardianView ? { guardian: guardianView } : {}),
             // 部分落改也如实告知，别让律师以为全都改上了。

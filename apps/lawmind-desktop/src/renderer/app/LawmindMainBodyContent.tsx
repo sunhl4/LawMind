@@ -18,16 +18,11 @@ import type { FileChatContextItem } from "../lawmind-file-chat-context";
 import type { TruthSourceContextPin } from "../../../../../src/lawmind/platform/compose-context-pin.ts";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
-import { ReviewView } from "./ReviewView";
 import { AgentFleetView } from "./AgentFleetView";
 import { LawmindWorkspaceMainPane } from "./LawmindWorkspaceMainPane";
 import { LawmindWorkspaceBootstrapGate } from "./LawmindWorkspaceBootstrapGate";
 import { pickWorkspaceMainPaneProps } from "./pickWorkspaceMainPaneProps";
-import {
-  pickAgentFleetViewProps,
-  pickLawyerWorkbenchProps,
-  pickReviewViewProps,
-} from "./pickMainBodyBranchProps";
+import { pickAgentFleetViewProps, pickLawyerWorkbenchProps } from "./pickMainBodyBranchProps";
 import { LawmindArchiveOrganizePage } from "../LawmindArchiveOrganizePage";
 import { LawmindLawyerWorkbench } from "../LawmindLawyerWorkbench";
 import { LawmindErrorBoundary } from "../LawmindErrorBoundary";
@@ -195,9 +190,8 @@ export type LawmindMainBodyContentProps = {
 export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
   const { mainView } = useLawmindShellNavigationContext();
 
-  if (mainView === "review" && props.config) {
-    const reviewProps = pickReviewViewProps(props);
-    return reviewProps ? <ReviewView {...reviewProps} /> : null;
+  if (mainView === "review") {
+    return null;
   }
   if (mainView === "agents") {
     return <AgentFleetView {...pickAgentFleetViewProps(props)} />;

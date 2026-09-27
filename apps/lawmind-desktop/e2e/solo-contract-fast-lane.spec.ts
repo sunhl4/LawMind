@@ -60,9 +60,10 @@ test.describe("Solo 合同审查黄金路径", () => {
     await expect(openResult.first()).toBeVisible({ timeout: 30_000 });
     await openResult.first().click();
 
-    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
-      timeout: 20_000,
-    });
+    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
+    await expect(
+      page.locator("#lawmind-chat-messages-panel").or(page.getByRole("region", { name: "对话消息" })).first(),
+    ).toBeVisible({ timeout: 20_000 });
     expect(linkedTaskId).toBeTruthy();
   });
 

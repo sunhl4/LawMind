@@ -16,7 +16,11 @@ import {
   type ListDirEntry,
 } from "../runtime/list-dir.js";
 import { DIGEST_PILE_PIN_COUNT } from "./material-pile-digest.js";
-import { buildReadonlyToolRegistry, runReadonlyWorkerLoop } from "./readonly-worker-loop.js";
+import {
+  buildReadonlyToolRegistry,
+  runReadonlyWorkerLoop,
+  type WorkerLoopMessage,
+} from "./readonly-worker-loop.js";
 import { analyzeDocument } from "./tools/legal/file-tools.js";
 import { readDocxText, readPdfText } from "./tools/legal/ingest-helpers.js";
 import { listDirTool } from "./tools/legal/list-dir-tool.js";
@@ -26,13 +30,13 @@ import { validateWorkerBrief } from "./worker-brief.js";
 
 export const EXPLORE_FOLDER_TOOL_NAME = "explore_folder";
 
-/** When a listing is already a pile, point the parent at digest_materials. */
+/** File count is not a spawn rule. Short cards use digest; long tasks stay with the parent. */
 export function exploreListingHint(base: string, entries: Array<{ kind: string }>): string {
   const files = entries.filter((entry) => entry.kind === "file").length;
   if (files < DIGEST_PILE_PIN_COUNT) {
     return base;
   }
-  return `${base} 本目录有 ${files} 份文件，已到分头读门槛。若要逐份归纳，下一步调用 digest_materials，不要只凭这份摘录下结论。`;
+  return `${base} 本目录有 ${files} 份文件。每份只要短摘要时用 digest_materials。每份是独立长任务时按任务派子工，不要按文件数派工。`;
 }
 
 export const FOLDER_EXPLORER_DEVELOPER_INSTRUCTIONS = [
@@ -77,7 +81,10 @@ export type ExploreFolderContext = ListDirContext &
       | "hostAccessFile"
       | "emitToolProgress"
     >
-  >;
+  > & {
+    /** Sidecar transcript stays out of the parent tool payload. */
+    captureSidecarTranscript?: (messages: WorkerLoopMessage[]) => void;
+  };
 
 function scoreCandidate(entry: ListDirEntry, notGoal: string, goal: string): number {
   if (entry.kind !== "file") {
@@ -379,11 +386,6 @@ export async function runFolderExplorer(
     };
   }
 
-  const envelope = applyEnvelopeToAgentModelDefaults({
-    contextTokens: model.contextTokens,
-    temperature: model.temperature,
-    taskKind: "plan",
-  });
   const bootstrapBlock = [
     "【bootstrap 候选】",
     ...bootstrap.candidates.map((p) => `- ${p}`),
@@ -392,35 +394,23 @@ export async function runFolderExplorer(
     ...bootstrap.peeks.map((p) => `${p.path}\n${p.excerpt}`),
   ].join("\n");
 
-  const loop = await runReadonlyWorkerLoop({
-    model,
-    maxTokens: envelope.maxTokens,
-    timeoutMs: envelope.timeoutMs,
-    temperature: envelope.temperature,
-    messages: [
-      {
-        role: "system",
-        content: `${FOLDER_EXPLORER_DEVELOPER_INSTRUCTIONS}优先输出 JSON：{ "candidates": ["相对路径"], "peeks": [{"path":"...","excerpt":"..."}], "summary":"一句摘要" }；也可用【候选】【摘录】【摘要】。`,
-      },
-      {
-        role: "user",
-        content: [
-          "请按任务书探查目录。bootstrap 只是启发，可用只读工具补读后再定候选与摘录。",
-          checked.brief,
-          `目录：${path || "(钉选目录)"}`,
-          "",
-          bootstrapBlock,
-        ].join("\n"),
-      },
-    ],
-    ctx: asExploreAgentContext(ctx),
-    allowlist: EXPLORE_FOLDER_READONLY_TOOL_NAMES,
-    registry: exploreReadonlyRegistry(),
-    roleLabel: "探查工",
-    closePrompt:
-      "只读工具轮次已用尽。请立刻输出候选与摘录（JSON 或【候选】【摘录】【摘要】）。不要再调用工具。",
-    abortSignal: ctx.abortSignal,
-  });
+  const loop = await runExploreModelLoop(ctx, model, [
+    {
+      role: "system",
+      content: exploreSystemPrompt(),
+    },
+    {
+      role: "user",
+      content: [
+        "请按任务书探查目录。bootstrap 只是启发，可用只读工具补读后再定候选与摘录。",
+        checked.brief,
+        `目录：${path || "(钉选目录)"}`,
+        "",
+        bootstrapBlock,
+      ].join("\n"),
+    },
+  ]);
+  ctx.captureSidecarTranscript?.(loop.messages);
 
   if (loop.aborted) {
     return { ok: false, error: "已停止", aborted: true };
@@ -465,6 +455,86 @@ export async function runFolderExplorer(
       toolsUsed: loop.toolsUsed,
       steps: loop.steps,
       hint: exploreListingHint("以上是只读探查结果。未读完相关文件前不要改稿。", listing.entries),
+    },
+  };
+}
+
+function exploreSystemPrompt(): string {
+  return `${FOLDER_EXPLORER_DEVELOPER_INSTRUCTIONS}优先输出 JSON：{ "candidates": ["相对路径"], "peeks": [{"path":"...","excerpt":"..."}], "summary":"一句摘要" }；也可用【候选】【摘录】【摘要】。`;
+}
+
+async function runExploreModelLoop(
+  ctx: ExploreFolderContext,
+  model: AgentModelConfig,
+  messages: WorkerLoopMessage[],
+  maxToolRounds?: number,
+): Promise<Awaited<ReturnType<typeof runReadonlyWorkerLoop>>> {
+  const envelope = applyEnvelopeToAgentModelDefaults({
+    contextTokens: model.contextTokens,
+    temperature: model.temperature,
+    taskKind: "plan",
+  });
+  return runReadonlyWorkerLoop({
+    model,
+    maxTokens: envelope.maxTokens,
+    timeoutMs: envelope.timeoutMs,
+    temperature: envelope.temperature,
+    messages,
+    maxToolRounds,
+    ctx: asExploreAgentContext(ctx),
+    allowlist: EXPLORE_FOLDER_READONLY_TOOL_NAMES,
+    registry: exploreReadonlyRegistry(),
+    roleLabel: "探查工",
+    closePrompt:
+      "只读工具轮次已用尽。请立刻输出候选与摘录（JSON 或【候选】【摘录】【摘要】）。不要再调用工具。",
+    abortSignal: ctx.abortSignal,
+  });
+}
+
+/** Continue one explore sidecar. The parent still only receives the summary. */
+export async function continueFolderExplorer(
+  ctx: ExploreFolderContext,
+  priorMessages: WorkerLoopMessage[],
+  followUp: string,
+): Promise<
+  { ok: true; data: Record<string, unknown> } | { ok: false; error: string; aborted?: boolean }
+> {
+  const model = resolveExploreModel(ctx);
+  if (!model) {
+    return { ok: false, error: "未配置对话模型。探查续跑需要本轮对话模型凭据。" };
+  }
+  const follow = followUp.trim();
+  if (!follow) {
+    return { ok: false, error: "续跑要写 follow_up，说明这支还要改什么。" };
+  }
+  const base = priorMessages.some((message) => message.role === "system")
+    ? priorMessages
+    : [{ role: "system", content: exploreSystemPrompt() }, ...priorMessages];
+  const loop = await runExploreModelLoop(
+    ctx,
+    model,
+    [...base, { role: "user", content: `【续跑】${follow}` }],
+    3,
+  );
+  ctx.captureSidecarTranscript?.(loop.messages);
+  if (loop.aborted) {
+    return { ok: false, error: "已停止", aborted: true };
+  }
+  if (loop.error && !loop.text.trim()) {
+    return { ok: false, error: `探查模型调用失败：${loop.error}` };
+  }
+  const parsed = parseExploreModelText(loop.text);
+  const summary = parsed?.summary?.trim() || loop.text.trim() || "已按续跑更新探查。";
+  return {
+    ok: true,
+    data: {
+      role: "folder-explorer",
+      summary,
+      candidates: parsed?.candidates ?? [],
+      peeks: parsed?.peeks ?? [],
+      toolsUsed: loop.toolsUsed,
+      steps: loop.steps,
+      hint: "以上是续跑后的只读探查结果。",
     },
   };
 }

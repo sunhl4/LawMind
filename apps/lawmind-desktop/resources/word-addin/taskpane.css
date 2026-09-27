@@ -78,6 +78,16 @@ body {
   border-color: var(--accent);
 }
 
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ask {
+  min-height: 72px;
+  resize: vertical;
+}
+
 .btn--primary {
   background: var(--accent);
   color: #fff;
@@ -128,6 +138,19 @@ body {
   color: #8c3a3a;
 }
 
+.hunk__replace {
+  width: 100%;
+  min-height: 44px;
+}
+
+.hunk__keep {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 4px 0;
+  font-size: 12px;
+}
+
 .hunk__after {
   color: #2f6a44;
 }
@@ -135,4 +158,31 @@ body {
 .hunk__note {
   color: var(--muted);
   font-size: 11px;
+}
+
+.hunk__actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.hunk.is-done .hunk__actions {
+  display: none;
+}
+
+.thread {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.thread__item {
+  width: 100%;
+  margin: 0 0 4px;
+  text-align: left;
+}
+
+.thread__item.is-on {
+  border-color: var(--accent);
 }

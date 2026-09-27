@@ -85,6 +85,20 @@ describe("requires-action", () => {
     expect(list[0]?.decisions).toEqual(["approve", "reject"]);
   });
 
+  it("paused delivery continue keeps the original instruction for the chat button", () => {
+    const list = buildRequiresActionsFromTurn({
+      status: "paused",
+      sessionId: "s1",
+      turnId: "turn1",
+      toolCallsExecuted: 6,
+      instruction: "按批注改合作协议并出审阅稿",
+      continueTrigger: "delivery",
+    });
+    expect(list[0]?.trigger).toBe("delivery");
+    expect(list[0]?.title).toBe("稿还没交完");
+    expect(list[0]?.instruction).toContain("合作协议");
+  });
+
   it("adds escalate recommendation for outbound mail and never marks readyToUse", () => {
     for (const toolName of ["send_email", "prepare_outbound_mail"] as const) {
       const a = buildToolApprovalAction({

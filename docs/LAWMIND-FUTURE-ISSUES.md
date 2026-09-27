@@ -57,8 +57,8 @@
 - [x] 相关记忆召回与 system 注入的统一 budget 账本（单一计数器）
 - [x] 检索链路（research）与对话链路共享同一套窗口常量（避免两套漂移）
 - [x] **Codex 子工差距收敛 P5–P7**（2026-09-17）：共用只读 sidecar、explorer 真循环、draft 加深（预算 5 / 轻验收 / read_project_file）、律师卡进度。P8 角色包仍可选。硬约束：不嵌套 `runTurn`、不静默改写、`routeAsync` 不进 `runTurn`。见 [LAWMIND-CODEX-WORKER-PARITY.md](./LAWMIND-CODEX-WORKER-PARITY.md)。
-- [x] **并行写稿合同**（2026-09-27）：同批章名互异、子工叶子工具共用并发上限、分点审查/检索备忘可派 `draft_worker`、采样前写【并行写稿对照】。见同一篇。
-- [ ] 多 agent 并行时的上下文隔离配额（避免会议室 + 多委派同时灌满）
+- [x] **并行写稿合同**（2026-09-27）：长且独立才建议多个，短任务写在说明里由模型不派，引擎不按关键词拒绝。同批章名互异、叶子工具共用并发上限、采样前写【并行写稿对照】。见同一篇。
+- [x] **多 agent 并行时的上下文隔离配额**（2026-09-27）：同一父会话本轮，写稿摘要与探查摘要共用 3200 字；用完只留指针。续跑记录留最后一条完整答复，更早的步骤可能只留结尾。委派摘录仍用自己的 1200 字。见 [LAWMIND-CODEX-WORKER-PARITY.md](./LAWMIND-CODEX-WORKER-PARITY.md)。
 - [x] **同 session 并行 turn**：进程内按 `workspaceDir+sessionId` 串行（`session-turn-gate.ts`，2026-08-14）；跨进程双开本地 server 仍可能竞态（桌面默认单进程）
 - [x] **本轮可见短清单（update_plan）**（2026-09-13）：Codex 级 2–8 步 checklist 写入 world-state `plan`，律师在对话卡片勾进度；不往 system prompt 再塞一份「自主工作流程」。与 `plan_task` / `execute_workflow` / planHandoff 分离。
 - [x] **计划模式（2026-09-15）**：`readonly` 回合写工具关闭，清单可取消步骤，点「开始执行」再放写工具。见 [LAWMIND-AGENT-PARITY-REVIEW.md](./LAWMIND-AGENT-PARITY-REVIEW.md)。

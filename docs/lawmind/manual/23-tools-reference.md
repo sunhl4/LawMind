@@ -25,6 +25,8 @@
 
 闲聊回合把权限收成只读，写类即使在披露名单里也不会进模型工具表（第 3.7 节）。无任务不靠关键词把工具冻掉。
 
+`draft_worker` **不是**核心 12，也不是空会话就广告。律师在对话里提交了一条真实任务时，由 `extraToolsForInstruction` 放进本轮工具表（改原件、邮件短路径、函件核对、空话除外）。派不派、并几支，由这一轮模型判断。见 3.1.1 与 23.7。
+
 `deep_research`、`web_search`、`search_statute_web`、`url_dossier` **不是**每轮都广告。公开网页事实只给 `web_search`；律师写明联网或深度检索才打开对应工具。工具在注册表里存在，和这一轮广告给模型，是两件事。
 
 ## 23.1 核心常驻的 12 个
@@ -152,13 +154,13 @@ import_materials_metadata / extract_batch / set_review / to_draft
 
 ## 23.7 草稿与交付类（6 个）
 
-| 工具                                         | 干什么                                                  |
-| -------------------------------------------- | ------------------------------------------------------- |
-| `write_document`                             | 写入工作区普通文件（**正式交件请用 `draft_document`**） |
-| `render_tracked_draft`                       | 导出带审阅痕迹的 Word                                   |
-| `draft_worker`                               | 并行写稿：按自包含任务书起草一节，父会话再汇总          |
-| `register_template` / `set_template_enabled` | **已退役**：保留工具名，调用一律拒绝（出稿用内置模板）  |
-| `list_templates`                             | 查看内置文书模板（不再列上传模板）                      |
+| 工具                                         | 干什么                                                           |
+| -------------------------------------------- | ---------------------------------------------------------------- |
+| `write_document`                             | 写入工作区普通文件（**正式交件请用 `draft_document`**）          |
+| `render_tracked_draft`                       | 导出带审阅痕迹的 Word                                            |
+| `draft_worker`                               | 对话子工：长任务按 `role` 审查 / 起草 / 探查；只读，父会话再落稿 |
+| `register_template` / `set_template_enabled` | **已退役**：保留工具名，调用一律拒绝（出稿用内置模板）           |
+| `list_templates`                             | 查看内置文书模板（不再列上传模板）                               |
 
 **`write_document` 和 `draft_document` 的区别很重要**：
 
@@ -167,7 +169,9 @@ import_materials_metadata / extract_batch / set_review / to_draft
 
 研究类交付物想用 `write_document` 绕过门禁，会被 `research-write-bypass-gate` 拦下（第 10 章）。
 
-`draft_worker` 的模式和协作委派一样：**子任务书必须自包含**，因为 worker 看不到父会话的上下文。
+`draft_worker` 是对话框里的子工，不是另一条落稿通道。律师提交需求的那一轮，模型用它决定派不派、并几支（3.1.1）。`role` 为 `review`（结论和依据）、`draft`（条款片段）或 `explore`（只读探查目录，走和 `explore_folder` 相同的只读循环，父会话只收摘要）。任务书必须自包含，子工看不到父会话。多支并行时 `section` 必须互不相同。返回的 `result` 给父会话汇总；审查、写稿、探查都返回 `workerId`，续跑用 `resume_id` 加 `follow_up`。写稿和探查摘要共用 3200 字，正文超过 1600 字会截断。续跑记录留最后一条完整答复，更早的步骤可能只留结尾。委派摘录不进这个池。对照表列出各支结论、缺口和重复引用；是否互相矛盾由父模型判断，不出现在工具卡上。短任务留在本对话，写在任务说明里，引擎不按关键词或字数拒绝。
+
+**和 Cursor / Codex 的区别：** 子工只读，不能改原件，不能 `render_document` / `render_tracked_draft`，不能外发。正式稿仍由父会话调用 `draft_document`，再经验收和律师签批。这是法律交付停在父会话，不是子工没接上。改原件、邮件短路径、函件核对不会广告这个工具。
 
 ## 23.8 邮件类（4 个）
 
@@ -299,7 +303,8 @@ MCP 密钥存在密钥链（`mcp.<服务器id>.secret`），MCP 服务器配置�
 | 查类案             | `search_case_law`                                                         |
 | 查本所旧案怎么写   | `search_precedents`（需开启）                                             |
 | 查以前聊过什么     | `search_conversations`、`read_conversation`                               |
-| 起草               | `draft_document`                                                          |
+| 长任务要拆开并行   | 同一次回复里多次 `draft_worker`（`role` = review / draft / explore）      |
+| 起草               | `draft_document`（子工只准备片段，不代替落稿）                            |
 | 改已经有的稿       | `update_draft` 或 `apply_surgical_edits`（后者是修订轨那条路）            |
 | 算金额、算期限     | `calculate`                                                               |
 | 出 Word            | `render_document` / `render_tracked_draft`                                |
@@ -325,7 +330,7 @@ MCP 密钥存在密钥链（`mcp.<服务器id>.secret`），MCP 服务器配置�
 - **MCP 工具不许占用那 25 个保留名。** 不要把它说成「核心 12 个」。
 - **MCP 写类工具默认被剥离。** 要开 `allowWrites`，而且仍要审批。
 - **`search_precedents` 关闭时返回成功而非报错。** 别把「没开」当「没找到」。
-- **`draft_worker` 和委派的任务书必须自包含。** 子任务执行者看不到父会话。
+- **`draft_worker` 只读，不能落正式稿。** 子工不能改原件、不能导出、不能外发。正式稿仍由父会话 `draft_document`。任务书必须自包含，子工看不到父会话。见 3.1.1 与 23.7。
 - **金额和届满日要带来源公式。** 缺公式是提醒，不挡导出。口算假数不是质量；模型应调 `calculate`，这不是关键词硬拒。
 - **`matter_id` 省略时会用本轮上下文里的案件。** 两个都没有才报错。
 - **工具超时默认不限。** 生产环境如果担心卡死，设 `LAWMIND_TOOL_TIMEOUT_MS`。

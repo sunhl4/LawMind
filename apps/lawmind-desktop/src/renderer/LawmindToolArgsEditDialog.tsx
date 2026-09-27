@@ -126,7 +126,7 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
 
   useEffect(() => {
     if (!open) {
-      return;
+      return undefined;
     }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !busy) {
@@ -199,7 +199,7 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
             <h2 id={titleId}>{documentWrite ? "改参数" : "改拟稿"}</h2>
             <p className="lm-meta lm-tool-args-edit-lead">
               {documentWrite
-                ? "短字段；全文请改稿"
+                ? "短字段；全文在中间栏改"
                 : editFullBody
                   ? "调整后批准"
                   : "调整短字段后批准"}
@@ -220,7 +220,7 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
           <div className="lm-tool-args-edit-doc" data-testid="lm-tool-args-edit-doc-redirect">
             {onOpenReview && linkedTaskId ? (
               <div className="lm-callout lm-callout-muted" role="note">
-                <p className="lm-callout-title">全文请到改稿页编辑</p>
+                <p className="lm-callout-title">全文请在中间栏改</p>
                 <button
                   type="button"
                   className="lm-btn lm-btn-secondary lm-btn-sm"
@@ -231,7 +231,7 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
                     onOpenReview(linkedTaskId, matterId);
                   }}
                 >
-                  打开改稿
+                  看修订
                 </button>
               </div>
             ) : null}

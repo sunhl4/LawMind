@@ -90,6 +90,36 @@ describe("live-turn-progress", () => {
     expect(p?.steps[0]?.id).toBe("round-21");
   });
 
+  it("updates a finished tool card when a later result preview arrives", () => {
+    beginLiveTurnProgress("s-join");
+    applyLiveTurnEvent("s-join", {
+      type: "tool_call_start",
+      roundIndex: 1,
+      toolCallId: "tc-draft",
+      toolName: "draft_worker",
+      args: { section: "解除" },
+    });
+    applyLiveTurnEvent("s-join", {
+      type: "tool_call_end",
+      roundIndex: 1,
+      toolCallId: "tc-draft",
+      toolName: "draft_worker",
+      ok: true,
+      resultPreview: "已审查「解除」",
+    });
+    applyLiveTurnEvent("s-join", {
+      type: "tool_call_end",
+      roundIndex: 1,
+      toolCallId: "tc-draft",
+      toolName: "draft_worker",
+      ok: true,
+      resultPreview: "已审查「解除」（读 2 步）",
+    });
+    const step = getLiveTurnProgress("s-join")?.steps.find((row) => row.id === "tc-draft");
+    expect(step?.status).toBe("done");
+    expect(step?.detail).toContain("读 2 步");
+  });
+
   it("stores plan_update on live progress without a tool step", () => {
     beginLiveTurnProgress("s-plan");
     applyLiveTurnEvent("s-plan", {

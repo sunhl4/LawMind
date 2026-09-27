@@ -51,7 +51,7 @@ export function LawmindChatDraftStatusBar(props: Props): ReactNode {
       setFetchedGates(null);
       setOutputPath(undefined);
       setScaffold(null);
-      return;
+      return undefined;
     }
     let cancelled = false;
     void (async () => {
@@ -175,7 +175,7 @@ export function LawmindChatDraftStatusBar(props: Props): ReactNode {
         data-testid="lm-draft-status-scaffold"
       >
         <p className="lm-callout-body">{scaffoldReviewBannerText(scaffold)}</p>
-        {actions("去改稿")}
+        {actions("看修订")}
       </div>
     );
   }
@@ -207,7 +207,7 @@ export function LawmindChatDraftStatusBar(props: Props): ReactNode {
       data-testid="lm-draft-status-ready"
     >
       <p className="lm-callout-body">{hint.message}</p>
-      {actions(pendingOrModified ? primaryLabel : "改稿")}
+      {actions(pendingOrModified ? primaryLabel : "看修订")}
     </div>
   );
 }

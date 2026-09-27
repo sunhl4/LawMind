@@ -64,6 +64,33 @@ describe("chatThreadDecisionActions", () => {
     expect(out.map((a) => a.id)).toEqual(["m1"]);
   });
 
+  it("keeps a delivery continue card in the thread so 点继续 is a real button", () => {
+    const out = chatThreadDecisionActions([
+      {
+        id: "budget",
+        kind: "continue_tools",
+        threadId: "t",
+        title: "本轮步骤较多",
+        summary: "已经办理 31 步",
+        trigger: "step_budget",
+        decisions: ["approve", "reject"],
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "delivery",
+        kind: "continue_tools",
+        threadId: "t",
+        title: "稿还没交完",
+        summary: "点继续，接着把这份稿做完。",
+        trigger: "delivery",
+        instruction: "按批注改合作协议并出审阅稿",
+        decisions: ["approve", "reject"],
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    expect(out.map((a) => a.id)).toEqual(["delivery"]);
+  });
+
   it("keeps an interrupted-turn card and the gate-stop notice in the thread", () => {
     const out = chatThreadDecisionActions([
       {

@@ -13,6 +13,7 @@ import {
   type MaterialChosenDetail,
 } from "./lawmind-material-chosen";
 import { useAcceptancePaneStore } from "./stores/acceptance-pane-store";
+import { readActiveWorkbenchWordFile } from "./lawmind-active-word-file";
 
 type Props = {
   apiBase?: string;
@@ -362,6 +363,11 @@ export function LawmindAcceptanceSheet(props: Props) {
         });
         return;
       }
+      if (/\.docx$/i.test(detail.relPath)) {
+        setYielded(true);
+        onYieldRef.current?.();
+        return;
+      }
       if (isNativeOfficePath(detail.relPath)) {
         setFocusPath(detail.relPath);
         void openMaterial(apiBaseRef.current, detail.relPath, detail.root).then((failure) => {
@@ -385,6 +391,10 @@ export function LawmindAcceptanceSheet(props: Props) {
     }
     seenMessages.current = messageCount;
     setDismissedTaskId(null);
+    if (readActiveWorkbenchWordFile()) {
+      setYielded(true);
+      return;
+    }
     setYielded(false);
   }, [messageCount]);
 
@@ -480,7 +490,7 @@ export function LawmindAcceptanceSheet(props: Props) {
                 onOpenReview({ taskId: sheet.taskId, matterId: sheet.matterId });
               }}
             >
-              去改稿
+              看修订
             </button>
           ) : null}
           {onYieldToEditor ? (
@@ -699,7 +709,7 @@ export function LawmindAcceptanceSheet(props: Props) {
         </section>
       ))}
 
-      <p className="lm-acceptance-foot">改字、签批和导出在改稿。这里只记下你认不认这句。</p>
+      <p className="lm-acceptance-foot">改字在中间栏，签批在在办。这里只记下你认不认这句。</p>
     </section>
   );
 }

@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { type RootKey, type OpenFileTab } from "./file-workbench-types";
 import { getFileIcon } from "./file-workbench-fs";
 import { isContractReviewCandidatePath } from "../lawmind-file-chat-context";
+import { LawmindWordRevisionSurface } from "./LawmindWordRevisionSurface";
 
 export type FileWorkbenchEditorPaneProps = {
   tabs: OpenFileTab[];
@@ -26,6 +27,8 @@ export type FileWorkbenchEditorPaneProps = {
   saveActive: () => void | Promise<void>;
   saveActiveAs: () => void | Promise<void>;
   doShowInFolder: (root: RootKey, relPath: string) => void | Promise<void>;
+  apiBase?: string;
+  projectDir?: string | null;
 };
 
 export function FileWorkbenchEditorPane({
@@ -47,6 +50,8 @@ export function FileWorkbenchEditorPane({
   saveActive,
   saveActiveAs,
   doShowInFolder,
+  apiBase = "",
+  projectDir = null,
 }: FileWorkbenchEditorPaneProps) {
   return (
     <section className="lm-files-editor" onClick={(e) => e.stopPropagation()}>
@@ -197,6 +202,29 @@ export function FileWorkbenchEditorPane({
             <img className="lm-image-preview-img" src={imagePreview.dataUrl} alt={imagePreview.name} />
             <p className="lm-meta lm-image-preview-caption">{imagePreview.name}</p>
           </div>
+        </div>
+      ) : officeBlock && /\.docx$/i.test(officeBlock.relPath) ? (
+        <div className="lm-editor-pane lm-office-doc-pane lm-word-surface-pane">
+          <LawmindWordRevisionSurface
+            apiBase={apiBase}
+            projectDir={projectDir}
+            root={officeBlock.root}
+            relPath={officeBlock.relPath}
+            fileName={officeBlock.name}
+            busy={busy}
+            onRevealSource={() => void doShowInFolder(officeBlock.root, officeBlock.relPath)}
+            onOpenWithSystem={() => {
+              setError(null);
+              void window.lawmindDesktop?.openWithSystem({
+                root: officeBlock.root,
+                path: officeBlock.relPath,
+              }).then((r) => {
+                if (r && !r.ok) {
+                  setError(r.error ?? "无法用系统应用打开该文件。");
+                }
+              });
+            }}
+          />
         </div>
       ) : officeBlock ? (
         <div className="lm-editor-pane lm-office-doc-pane">

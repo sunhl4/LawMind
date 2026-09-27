@@ -19,7 +19,7 @@ export function pickLatestScaffoldDraft(drafts: ArtifactDraft[]): ArtifactDraft 
 
 export function scaffoldChatBannerText(title: string): string {
   const trimmed = title.trim() || "这份草稿";
-  return `「${trimmed}」仍是骨架稿，请打开改稿补全后再外发。`;
+  return `「${trimmed}」仍是骨架稿，请在中间栏补全后再外发。`;
 }
 
 export function scaffoldReviewBannerText(view: DraftScaffoldView): string {

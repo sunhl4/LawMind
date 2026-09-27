@@ -24,6 +24,11 @@ declare global {
           actualPort: number;
           occupant: "another-lawmind" | "foreign" | "unknown";
         } | null;
+        /** Word / WPS 加载项是否已指到当前这次 LawMind。不含端口号。 */
+        addinHosts?: {
+          word: "connected" | "reopen" | "missing" | "another-copy";
+          wps: "connected" | "reopen" | "missing" | "another-copy";
+        };
         workspaceDir: string;
         projectDir: string | null;
         envFilePath: string;
@@ -89,7 +94,8 @@ declare global {
         /** 清单写入的绝对路径。 */
         path?: string;
         /** `word-container` = 直接装进 Word 的侧载目录；`downloads` = 退到下载目录。 */
-        location?: "word-container" | "downloads";
+        location?: "word-container" | "word-windows" | "downloads";
+        wpsStatus?: "written" | "unchanged" | "missing";
         bytes?: number;
         instructions?: string;
         error?: string;

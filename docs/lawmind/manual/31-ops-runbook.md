@@ -98,11 +98,11 @@ LAWMIND_WORKSPACE_DIR=<工作区> pnpm lawmind:backup -- /path/to/backup-$(date 
 
 ## 31.6 重新连接 Word
 
-Word 报无法加载加载项、端口漂移、或换了机器：设置 → 外观 → Word →「重新连接 Word」。端口变化时应用会写回清单；另一个 LawMind 占着原端口时不改写。
+Word 或 WPS 报无法加载加载项、端口变了、或换了机器：设置 → 外观，看 Word 和 WPS 两行，点「重新连接」。另一个 LawMind 占着原端口时不改写清单。
 
-然后**完全退出 Word 再打开**（macOS 上侧载是启动时读的）。
+然后**完全退出 Word 和 WPS 再打开**（侧载是启动时读的）。
 
-**确认**：任务窗格能打开，点「审这份」能建出请求。
+**确认**：任务窗格能打开，输入框里点「开始」能建出请求。这一步在本机还没有验收记录。缺什么、还要提供什么，见 [LAWMIND-WORD-ADDIN.md](../LAWMIND-WORD-ADDIN.md) 的「现状：半成品」。
 
 卡住的审查请求：服务在跑时，超过 30 分钟仍是 `running` 的会被标成 `failed`。窗口关着且守护进程也没起，就没有 tick，清理不会发生。先按 31.8 确认有一个 tick 主人，不要去手改 `word-addin/reviews.json`。
 

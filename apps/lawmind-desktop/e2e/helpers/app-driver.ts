@@ -208,7 +208,7 @@ export async function submitWorkspaceChat(page: Page, message: string): Promise<
 }
 
 /**
- * 从「在办」进入文书台/改稿台。
+ * 「看修订」回到对话，不打开全文改稿台。
  */
 export async function openReviewWorkbench(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
@@ -217,17 +217,13 @@ export async function openReviewWorkbench(page: Page): Promise<void> {
   const agentsTab = mainNav.getByRole("button", { name: "在办", exact: true });
   await agentsTab.click({ force: true });
   await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
-  const openReview = page
-    .getByTestId("lm-agents-open-review")
-    .or(page.getByTestId("lm-fleet-primary-review"))
-    .or(page.getByTestId("lm-fleet-empty-review"))
-    .or(page.getByRole("button", { name: /改稿|文书台/ }))
-    .first();
+  const openReview = page.getByTestId("lm-agents-open-review");
   await expect(openReview).toBeVisible({ timeout: 30_000 });
   await openReview.click();
-  await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
-    timeout: 60_000,
-  });
+  await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
+  await expect(
+    page.locator("#lawmind-chat-messages-panel").or(page.getByRole("region", { name: "对话消息" })).first(),
+  ).toBeVisible({ timeout: 60_000 });
 }
 
 /**

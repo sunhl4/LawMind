@@ -1,6 +1,7 @@
 /**
  * 律师办任务时点名的文件夹或文件若在 iCloud 上，正文可能还不在本机。
- * 这里只服务这类材料：先问律师要不要下载，同意后再下载，然后才能读取并继续任务。
+ * 这里只服务这类材料：直接下载到原路径，下完再读，同一轮继续办。
+ * 单个文件超过 5 分钟还没落地，才停下来请律师在访达里下完后回复「继续」。
  * 不改 LawMind 自己的会话、任务账本。那些仍只在本机读写。
  * dataless 文件不能用 read() 去触发下载，否则进程会堵在系统调用里。
  */
@@ -26,7 +27,7 @@ const MAX_BUFFER = 16 * 1024 * 1024;
 
 const LS_ENTRY = /^([-bcdlps][^\s]*)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\d{9,11})\s+(.+)$/;
 
-/** 需要律师拍板：现在下载，或手动下完后继续。抛出后本轮停止，不读文件。 */
+/** 下载超时后请律师手动下完再继续。抛出后本轮停止，不读文件。 */
 export class IcloudLawyerPrompt extends Error {
   readonly question: ClarificationQuestion;
 
@@ -366,7 +367,7 @@ function probeStat(filePath: string, io: IcloudMaterializeIO): FileStatLike | un
 
 /**
  * 扫描用。正文不在本机就立刻抛出，不下载、不等待、不 read()。
- * 向律师确认并下载由 ensureLocalFile 负责。
+ * 下载并等待由 ensureLocalFile 负责。
  */
 export function ensureLocalFileSync(filePath: string, io?: IcloudMaterializeIO): void {
   const use = io ?? defaultIO;
@@ -416,17 +417,36 @@ export function icloudManualQuestion(name: string): ClarificationQuestion {
   };
 }
 
+/** 澄清卡片会把问题原文和「答：」一起送回来。只认答语，避免问题里的「现在下载」盖过「先不下载」。 */
+function icloudReplyBody(text: string): string {
+  const marked = text.match(/答：\s*([^\n]+)/);
+  return (marked?.[1] ?? text).replace(/\s+/g, "");
+}
+
 /** 律师在澄清里的答复。要在本轮工具读文件之前调用。 */
 export function noteLawyerIcloudReply(text: string): void {
-  const compact = text.replace(/\s+/g, "");
+  const compact = icloudReplyBody(text);
   if (/先不下载|不下载/.test(compact) && !/现在下载/.test(compact)) {
     for (const key of askedKeys) {
       consentedKeys.delete(key);
       declinedKeys.add(key);
     }
+    downloadThisTurn = false;
     return;
   }
-  if (/现在下载/.test(compact)) {
+  // 「继续 / 已经下载」只检查是否落地，不再自动下 5 分钟。
+  if (
+    /继续|已经下载|下载完|下好了/.test(compact) &&
+    manualHoldKeys.size > 0 &&
+    !/现在下载/.test(compact)
+  ) {
+    manualHoldKeys.clear();
+    resumeWithoutDownload = true;
+    resumeThisTurn = askedKeys.length > 0;
+    return;
+  }
+  // 「下载」和「现在下载」都算同意。超时后说「下载」会再试一次。
+  if (/现在下载/.test(compact) || (/下载/.test(compact) && !/不下载/.test(compact))) {
     resumeWithoutDownload = false;
     downloadThisTurn = askedKeys.length > 0;
     for (const key of askedKeys) {
@@ -434,12 +454,6 @@ export function noteLawyerIcloudReply(text: string): void {
       manualHoldKeys.delete(key);
       consentedKeys.add(key);
     }
-    return;
-  }
-  if (/继续|已经下载|下载完|下好了/.test(compact) && manualHoldKeys.size > 0) {
-    manualHoldKeys.clear();
-    resumeWithoutDownload = true;
-    resumeThisTurn = askedKeys.length > 0;
   }
 }
 
@@ -455,8 +469,8 @@ async function sleepMs(ms: number): Promise<void> {
 }
 
 /**
- * 律师已同意时才下载，单个文件最多等 5 分钟。
- * 未同意则抛出提问并不下载。超时则停下，请她手动下载后再继续。
+ * 正文还在 iCloud 就下载到原路径，单个文件最多等 5 分钟，下完返回，调用方接着读。
+ * 律师明确说过先不下载的文件不再下。超时则停下，请她手动下载后再继续。
  * 等待用定时器，不堵住整个服务进程。
  */
 export async function ensureLocalFile(
@@ -477,13 +491,16 @@ export async function ensureLocalFile(
     return;
   }
   const flags = readFlags(filePath, use);
-  // 只有标志里明确有 dataless 才算在云端。解析不到、或只是 compressed，都当本地文件。
-  if (!flags || !flagsLookDataless(flags)) {
-    return;
-  }
   const diskPath = path.resolve(filePath);
   const key = icloudFileKey(diskPath);
   const name = path.basename(diskPath);
+  // 只有标志里明确有 dataless 才算在云端。解析不到、或只是 compressed，都当本地文件。
+  // 已经在本机就直接读。刚才那次「继续」也到此结束，后面的文件仍可自动下载。
+  if (!flags || !flagsLookDataless(flags)) {
+    resumeWithoutDownload = false;
+    manualHoldKeys.delete(key);
+    return;
+  }
   if (declinedKeys.has(key)) {
     throw new IcloudDatalessError([key]);
   }
@@ -495,11 +512,8 @@ export async function ensureLocalFile(
     manualHoldKeys.add(key);
     throw new IcloudLawyerPrompt(icloudManualQuestion(name));
   }
-  if (!consentedKeys.has(key)) {
-    rememberAsked(diskPath);
-    throw new IcloudLawyerPrompt(icloudDownloadQuestion([name]));
-  }
-  // 原路径上下载，不另存一份。效果与律师在访达里点「下载」相同。
+  // 原路径上下载，不另存一份。效果与律师在访达里点「下载」相同。不问就下，下完本轮继续读。
+  rememberAsked(diskPath);
   queueDownload(diskPath, use);
   const waitMs = deps?.waitMs ?? ICLOUD_FILE_DOWNLOAD_WAIT_MS;
   const sleep = deps?.sleep ?? sleepMs;

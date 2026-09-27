@@ -147,6 +147,7 @@ export function formatDelegationParentFollowUp(
   rec: DelegationRecord,
   body: string,
   ok: boolean | "waiting",
+  excerptChars = DELEGATION_PARENT_EXCERPT_CHARS,
 ): string {
   const label =
     ok === "waiting"
@@ -155,10 +156,13 @@ export function formatDelegationParentFollowUp(
         ? "【委派结果 · 已自动回传】"
         : "【委派结果 · 未成功】";
   const main = body.trim() || (ok ? "（子助手未返回正文）" : "（无错误详情）");
+  const cap = Math.max(0, excerptChars);
   const excerpt =
-    main.length > DELEGATION_PARENT_EXCERPT_CHARS
-      ? `${main.slice(0, DELEGATION_PARENT_EXCERPT_CHARS)}…`
-      : main;
+    cap === 0
+      ? "本轮并行上下文配额已用完。用 get_delegation_result 读取全文，不要把缺失当成没有结论。"
+      : main.length > cap
+        ? `${main.slice(0, cap)}…`
+        : main;
   const lines = [
     label,
     `- 目标助手：**${rec.toAssistantId}**`,
@@ -169,7 +173,7 @@ export function formatDelegationParentFollowUp(
   if (child && ok !== "waiting") {
     lines.push(`- 子会话：\`sessions/${child}.json\`（检索过程在子会话里，不带进本对话）`);
   }
-  const truncated = main.length > DELEGATION_PARENT_EXCERPT_CHARS;
+  const truncated = cap === 0 || main.length > cap;
   if (rec.resultPath?.trim()) {
     lines.push(`- 全文：\`${rec.resultPath.trim()}\`，用 get_delegation_result 读取`);
   } else if (truncated) {
@@ -189,7 +193,11 @@ function injectDelegationParentFollowUp(
   if (!sid) {
     return;
   }
-  appendSyntheticAssistantReply(workspaceDir, sid, formatDelegationParentFollowUp(rec, body, ok));
+  appendSyntheticAssistantReply(
+    workspaceDir,
+    sid,
+    formatDelegationParentFollowUp(rec, body, ok, DELEGATION_PARENT_EXCERPT_CHARS),
+  );
 }
 
 /**

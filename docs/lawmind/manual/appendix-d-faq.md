@@ -135,9 +135,9 @@ pnpm lawmind:env:check --strict
 
 **第一步：确认用的是 `localhost` 而不是 `127.0.0.1` 取清单。** 服务同时绑了 IPv4 和 IPv6，但 WebKit 会先试 `::1`。
 
-**第二步：看设置里的 Word。** 若显示「请重新打开 Word」，先完全退出 Word 再打开。LawMind 会在端口变化时自己写回清单（另一个 LawMind 占着原端口时不改写）。
+**第二步：看设置 → 外观里的 Word 和 WPS。** 若写着「请完全退出后再打开」，先完全退出对应软件再打开。LawMind 会在启动时按当前端口登记（另一个 LawMind 占着原端口时不改写）。
 
-**修**：设置 → 外观 → Word →「重新连接 Word」，然后**完全退出 Word 再打开**。
+**修**：点「重新连接」，然后**完全退出 Word 或 WPS 再打开**。加载项仍是半成品，真机验收和还要提供的东西见 [LAWMIND-WORD-ADDIN.md](../LAWMIND-WORD-ADDIN.md) 开头。
 
 ### 症状：窗格报 `unauthorized`
 

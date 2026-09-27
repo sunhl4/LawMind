@@ -4,6 +4,7 @@ import { formatSidecarProgressLabel, sidecarWaitLabel } from "./readonly-worker-
 describe("sidecarWaitLabel", () => {
   it("names the hidden model wait for draft and folder workers", () => {
     expect(sidecarWaitLabel("写稿工")).toBe("正在写稿");
+    expect(sidecarWaitLabel("审查工")).toBe("正在审查");
     expect(sidecarWaitLabel("探查工")).toBe("正在探查目录");
     expect(sidecarWaitLabel("助手")).toBe("正在办理");
   });

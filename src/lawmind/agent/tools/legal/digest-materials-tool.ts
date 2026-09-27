@@ -9,7 +9,7 @@ export const digestMaterialsTool: AgentTool = {
   definition: {
     name: DIGEST_MATERIALS_TOOL_NAME,
     description:
-      "一次分头读很多份材料。每份单独归纳，长文保留头尾，图片会识别文字（本页有上限）。引用必须整段出现在该文件正文里。suggestedEvents 可原样交给 apply_legal_events 的 events；suggestedReviewRows 可原样交给 review_table_update 的 add_rows。本工具不写档案、不导出。读不完用 nextOffset。",
+      "每份只要一段短摘要时，一次分头读很多份材料并只交回卡片。文件多不是派多个子工的理由。每一份本身要连读、连查、再写时，不要用本工具代替 draft_worker。长文保留头尾，图片会识别文字（本页有上限）。引用必须整段出现在该文件正文里。suggestedEvents 可原样交给 apply_legal_events 的 events；suggestedReviewRows 可原样交给 review_table_update 的 add_rows。本工具不写档案、不导出。读不完用 nextOffset。",
     category: "search",
     parameters: {
       goal: {

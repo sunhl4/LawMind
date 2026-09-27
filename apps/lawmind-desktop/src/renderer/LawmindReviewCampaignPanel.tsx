@@ -26,6 +26,36 @@ type PlaybookOption = { id: string; label: string; roleCount: number };
  * Skills E2 — 真实核对指标 + role tabs（工作台 meta column）。
  * 不展示启发式 Safety Score，仅显示 runtime-events / lint / 律师编辑统计。
  */
+/** Load the campaign for one draft and keep it on 在办, next to sign-off. */
+export function LawmindReviewCampaignForTask(props: {
+  apiBase: string;
+  taskId: string;
+  matterId?: string | null;
+}): ReactNode {
+  const { apiBase, taskId, matterId } = props;
+  const [campaign, setCampaign] = useState<ReviewCampaign | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void apiGetReviewCampaignByTask(apiBase, taskId, matterId).then((body) => {
+      if (!cancelled) {
+        setCampaign(body.ok ? (body.campaign ?? null) : null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, taskId, matterId]);
+  return (
+    <LawmindReviewCampaignPanel
+      apiBase={apiBase}
+      taskId={taskId}
+      matterId={matterId}
+      campaign={campaign}
+      onCampaignChange={setCampaign}
+    />
+  );
+}
+
 export function LawmindReviewCampaignPanel(props: Props): ReactNode {
   const { apiBase, taskId, matterId, campaign, onCampaignChange } = props;
   const edition = useEdition(apiBase);

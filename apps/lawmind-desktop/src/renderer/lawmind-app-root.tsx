@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLawmindAppShell } from "./lawmind-app-shell";
 import { useSettingsPanelStore } from "./stores/settings-panel-store";
+import { useAcceptancePaneStore } from "./stores/acceptance-pane-store";
 import type { AgentsDeskTab } from "./lawmind-agents-desk";
 import { useActionSummaryQuery } from "./lawmind-query-hooks";
 import { useLawmindRecordsDeskMatters, RECORDS_DESK_UNLINKED } from "./lawmind-records-desk-state";
@@ -18,7 +19,15 @@ import { applyAllUiPrefs } from "./lawmind-ui-prefs";
 
 import { resolveOpenableOutputPath, artifactApiRelFromOutput } from "./lawmind-app-utils";
 import { scheduleScrollChatMessagesToLatest } from "./lawmind-chat-scroll";
-import { LAWMIND_OPEN_WORKSPACE_FILE_EVENT } from "./lawmind-workspace-file-open";
+import {
+  LAWMIND_OPEN_CONTRACT_REVISION_EVENT,
+  LAWMIND_OPEN_WORKSPACE_FILE_EVENT,
+  LAWMIND_SHOW_WORD_SURFACE_EVENT,
+  requestOpenContractRevision,
+  requestOpenWorkspaceFile,
+  revisionColumnTarget,
+  type OpenContractRevisionDetail,
+} from "./lawmind-workspace-file-open";
 import { useLawmindAppRootHandlers } from "./app/useLawmindAppRootHandlers";
 import { useLawmindAppRootLayout } from "./app/useLawmindAppRootLayout";
 import { LawmindAppRootView } from "./app/LawmindAppRootView";
@@ -343,12 +352,7 @@ export function LawmindAppRoot() {
   useEffect(() => {
     const unsub = window.lawmindDesktop?.onNotificationClick?.((payload) => {
       if (payload?.reason === "open_review") {
-        setReviewLaunchedFromMatter(false);
-        setMainView("review");
-        setReviewFocusTaskId(payload.reviewTaskId?.trim() ? payload.reviewTaskId : null);
-        setReviewFocusMatterId(payload.reviewMatterId?.trim() ? payload.reviewMatterId : null);
-        setReviewFocusStatus("pending");
-        setReviewFocusListMode("pending");
+        requestOpenContractRevision(payload.reviewTaskId);
         return;
       }
       if (payload?.reason === "open_workspace_chat") {
@@ -387,10 +391,6 @@ export function LawmindAppRoot() {
     selectChatSession,
     setMainView,
     setAgentsDeskTab,
-    setReviewFocusListMode,
-    setReviewFocusMatterId,
-    setReviewFocusStatus,
-    setReviewFocusTaskId,
     setSelectedAssistantId,
   ]);
 
@@ -427,6 +427,12 @@ export function LawmindAppRoot() {
   }, [wsShowChat]);
 
   useEffect(() => {
+    if (mainView === "review") {
+      setMainView("workspace");
+    }
+  }, [mainView, setMainView]);
+
+  useEffect(() => {
     if (mainView !== "workspace" || matterCockpitOpen) {
       return;
     }
@@ -442,10 +448,37 @@ export function LawmindAppRoot() {
       setMatterCockpitOpen(false);
       setMainView("workspace");
       setWsShowEditor(true);
+      useAcceptancePaneStore.getState().revealEditor();
+    };
+    const openRevision = (ev: Event) => {
+      const taskId = (ev as CustomEvent<OpenContractRevisionDetail>).detail?.taskId?.trim() ?? "";
+      setMatterCockpitOpen(false);
+      setMainView("workspace");
+      const apiBase = config?.apiBase ?? "";
+      if (!taskId || !apiBase) {
+        return;
+      }
+      void apiGetJson<{ ok?: boolean; draft?: Parameters<typeof revisionColumnTarget>[0] }>(
+        apiBase,
+        `/api/drafts/${encodeURIComponent(taskId)}`,
+      )
+        .then((body) => {
+          const target = body.draft ? revisionColumnTarget(body.draft, config?.workspaceDir) : null;
+          if (target) {
+            requestOpenWorkspaceFile(target.relPath, target.root);
+          }
+        })
+        .catch(() => undefined);
     };
     window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, revealEditor);
-    return () => window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, revealEditor);
-  }, [setMainView]);
+    window.addEventListener(LAWMIND_SHOW_WORD_SURFACE_EVENT, revealEditor);
+    window.addEventListener(LAWMIND_OPEN_CONTRACT_REVISION_EVENT, openRevision);
+    return () => {
+      window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, revealEditor);
+      window.removeEventListener(LAWMIND_SHOW_WORD_SURFACE_EVENT, revealEditor);
+      window.removeEventListener(LAWMIND_OPEN_CONTRACT_REVISION_EVENT, openRevision);
+    };
+  }, [config?.apiBase, config?.workspaceDir, setMainView]);
 
   const { width: wsChatColWidth, onResizePointerDown: onWsChatSplitResize } = usePaneResizePx({
     storageKey: "lawmind.ui.wsChatColumnWidth",

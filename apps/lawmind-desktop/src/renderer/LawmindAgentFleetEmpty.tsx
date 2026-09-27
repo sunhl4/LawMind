@@ -46,7 +46,7 @@ export function LawmindAgentFleetEmpty(props: LawmindAgentFleetEmptyProps): Reac
             data-testid="lm-fleet-empty-review"
             onClick={() => props.onOpenReview?.()}
           >
-            改稿
+            看修订
           </button>
         ) : null}
       </div>

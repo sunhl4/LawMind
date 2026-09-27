@@ -27,6 +27,7 @@ import {
   hasOpenToolGroup,
   normalizeToolResultMessages,
   repairToolCallPairing,
+  rewriteUnfinishedToolPlaceholders,
   sliceKeepingToolGroups,
 } from "./session-tool-call-pairing.js";
 import type { AgentMessage, AgentSession, AgentTurn, PersistedChatLiveTrace } from "./types.js";
@@ -219,9 +220,10 @@ export function isSessionToolBatchOpen(sessionId: string): boolean {
 
 /** 历史是否已双向配对；未配对时返回补好的副本，已配对则原样返回。 */
 function pairToolHistory(history: AgentMessage[]): AgentMessage[] {
-  const normalized = normalizeToolResultMessages(history);
+  const rewritten = rewriteUnfinishedToolPlaceholders(history);
+  const normalized = normalizeToolResultMessages(rewritten.messages);
   const pairing = repairToolCallPairing(normalized.messages);
-  if (!normalized.changed && pairing.repairedToolCallIds.length === 0) {
+  if (!rewritten.changed && !normalized.changed && pairing.repairedToolCallIds.length === 0) {
     return history;
   }
   return pairing.messages;
@@ -709,19 +711,21 @@ export type ModelChatMessage = {
  *
  * 送出前的最后一道配对修复，并写回 session（随下一次 saveSession 落盘）：
  *   - 孤立 tool 结果：调用还在就挪回去，调用已被压缩丢掉就删除（DeepSeek 400）。
- *   - 悬空 tool_call：补「已取消」占位，避免缺结果的 tool_calls 整请求 400。
+ *   - 悬空 tool_call：补「未完成，从这里接着」，避免缺结果的 tool_calls 整请求 400，
+ *     也不要把中断的步骤写成已取消。
  *   - 一条 tool 消息里的多个结果：展开成每个 tool_call_id 一条 wire 消息（不改落盘行数）。
  *
  * Remaining-token notes are sample-time only — use {@link deriveModelMessagesForSampling}.
  */
 export function deriveModelMessages(session: AgentSession): ModelChatMessage[] {
-  const normalized = normalizeToolResultMessages(session.conversationHistory);
+  const rewritten = rewriteUnfinishedToolPlaceholders(session.conversationHistory);
+  const normalized = normalizeToolResultMessages(rewritten.messages);
   const pairing = repairToolCallPairing(normalized.messages);
-  if (normalized.changed || pairing.repairedToolCallIds.length > 0) {
+  if (rewritten.changed || normalized.changed || pairing.repairedToolCallIds.length > 0) {
     session.conversationHistory = pairing.messages;
   }
   const source =
-    normalized.changed || pairing.repairedToolCallIds.length > 0
+    rewritten.changed || normalized.changed || pairing.repairedToolCallIds.length > 0
       ? pairing.messages
       : session.conversationHistory;
   return projectHistoryToModelMessages(source);

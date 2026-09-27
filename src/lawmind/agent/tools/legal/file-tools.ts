@@ -15,6 +15,7 @@ import {
   shouldRefuseResearchWriteBypass,
 } from "../../../research/research-write-bypass-gate.js";
 import { isProtectedAnalysisScriptRel } from "../../../runtime/analysis-script-path.js";
+import { IcloudLawyerPrompt } from "../../../runtime/icloud-materialize.js";
 import { resolveLawyerLocalFile } from "../../../runtime/lawyer-local-file.js";
 import { directoryListingToolData, resolveAndListDirectory } from "../../../runtime/list-dir.js";
 import {
@@ -197,6 +198,9 @@ export const analyzeDocument: AgentTool = {
         }
         return toAnalyzeSuccess("docx", content, st.size, "office_extract");
       } catch (err) {
+        if (err instanceof IcloudLawyerPrompt) {
+          throw err;
+        }
         return toolFailureFromIngest(
           ingestFailure(
             "INGEST_PARSE_FAILED",
@@ -255,6 +259,9 @@ export const analyzeDocument: AgentTool = {
       try {
         xlsxText = await readXlsxPlainText(filePath);
       } catch (err) {
+        if (err instanceof IcloudLawyerPrompt) {
+          throw err;
+        }
         return toolFailureFromIngest(
           ingestFailure(
             "INGEST_PARSE_FAILED",

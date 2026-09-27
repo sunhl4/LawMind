@@ -317,7 +317,7 @@ export function MatterReviewMatrixPanel({ apiBase, matterId, onOpenReview }: Pro
                       className="lm-btn lm-btn-ghost lm-btn-sm"
                       onClick={() => onOpenReview({ taskId: doc.taskId, matterId })}
                     >
-                      改稿
+                      看修订
                     </button>
                   ) : null}
                 </th>

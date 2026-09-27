@@ -30,6 +30,10 @@ import {
   resolveWordAddinMatterForSource,
 } from "../../../src/lawmind/integrations/word-addin/auto-run.js";
 import {
+  loadPracticePlaybook,
+  PRACTICE_STANCE_LABELS,
+} from "../../../src/lawmind/practice/practice-playbook.js";
+import {
   getWorkflowJob as defaultGetWorkflowJob,
   isTerminalWorkflowJobStatus,
 } from "./lawmind-server-jobs.js";
@@ -301,6 +305,7 @@ export async function processOneQueuedWordAddinReview(
       matterId,
 
       instruction: claimed.request.instruction,
+      standardName: PRACTICE_STANCE_LABELS[loadPracticePlaybook(deps.workspaceDir).stanceDefault],
     }),
     at: now,
   });

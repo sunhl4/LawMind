@@ -3,6 +3,7 @@
  * 纯提取无行为变化）：review / meeting / chat 三组跳转 handler。
  */
 import type { LawmindMainView } from "../lawmind-main-view";
+import { requestOpenContractRevision } from "../lawmind-workspace-file-open";
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 
 export type ReviewDeepLinkDeps = {
@@ -53,7 +54,7 @@ export function buildReviewDeepLinkHandlers(deps: ReviewDeepLinkDeps) {
       if (matterId) {
         setContextMatterId(matterId);
       }
-      setMainView("review");
+      requestOpenContractRevision(taskId);
     },
     onOpenReviewFromWorkItem: (taskId: string, matterId?: string) => {
       setReviewLaunchedFromMatter(false);
@@ -64,7 +65,7 @@ export function buildReviewDeepLinkHandlers(deps: ReviewDeepLinkDeps) {
       if (matterId) {
         setContextMatterId(matterId);
       }
-      setMainView("review");
+      requestOpenContractRevision(taskId);
     },
     onReturnToMatter: () => {
       const mid = reviewFocusMatterId?.trim();

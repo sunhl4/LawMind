@@ -12,6 +12,7 @@ import { apiPost } from "../lawmind-api-routes.ts";
 import { displayNameFromImportBasename, suggestMatterIdForImport } from "../../../../../src/lawmind/cases/matter-label.ts";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { LawmindMainView } from "../lawmind-main-view";
+import { requestOpenContractRevision } from "../lawmind-workspace-file-open";
 
 export type UseLawmindAppRootHandlersInput = {
   config: AppConfig | null;
@@ -92,7 +93,10 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
       if (!config?.apiBase) {
         return;
       }
-      const sid = sessionByAssistant[selectedAssistantId] ?? activeChatSessionId;
+      const sid =
+        action.sessionId?.trim() ||
+        sessionByAssistant[selectedAssistantId] ||
+        activeChatSessionId;
       if (!sid) {
         return;
       }
@@ -346,7 +350,7 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
         setReviewFocusMatterId(matterId);
         setContextMatterId(matterId);
       }
-      setMainView("review");
+      requestOpenContractRevision(taskId);
     },
     [
       contextTaskId,

@@ -5,6 +5,7 @@
 
 import { withLeafToolSlot } from "../runtime/tool-concurrency.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
+import { formatSteerUserMessage, peekPendingSteer } from "./session-context-steer.js";
 import {
   resolveToolDecisionMaxTokens,
   shouldRaiseToolDecisionOutput,
@@ -55,6 +56,8 @@ export type ReadonlyWorkerLoopResult = {
   grounding: string;
   toolsUsed: string[];
   steps: Array<{ tool: string; ok: boolean }>;
+  /** Transcript of this sidecar only. Not written into the parent history. */
+  messages: WorkerLoopMessage[];
   aborted?: boolean;
   error?: string;
 };
@@ -147,6 +150,9 @@ export function sidecarWaitLabel(roleLabel: string): string {
   if (roleLabel === "写稿工") {
     return "正在写稿";
   }
+  if (roleLabel === "审查工") {
+    return "正在审查";
+  }
   if (roleLabel === "探查工") {
     return "正在探查目录";
   }
@@ -210,8 +216,33 @@ export async function runReadonlyWorkerLoop(opts: {
   const sample = async (tools: unknown[], maxTokens: number) =>
     callModelWithRetry({ ...modelCfg, maxTokens }, messages, tools, { signal: opts.abortSignal });
 
+  const appliedSteer = new Set<string>();
+  const done = (partial: Omit<ReadonlyWorkerLoopResult, "messages">): ReadonlyWorkerLoopResult => ({
+    ...partial,
+    messages,
+  });
+  const pullSteer = () => {
+    const workspaceDir = opts.ctx.workspaceDir?.trim();
+    const sessionId = opts.ctx.sessionId?.trim();
+    if (!workspaceDir || !sessionId) {
+      return;
+    }
+    const fresh = peekPendingSteer(workspaceDir, sessionId).filter(
+      (note) => !appliedSteer.has(note),
+    );
+    if (fresh.length === 0) {
+      return;
+    }
+    for (const note of fresh) {
+      appliedSteer.add(note);
+    }
+    messages.push({ role: "user", content: formatSteerUserMessage(fresh) });
+    opts.ctx.emitToolProgress?.("已带入中途指示");
+  };
+
   try {
     for (let round = 0; round < maxRounds; round += 1) {
+      pullSteer();
       opts.ctx.emitToolProgress?.(sidecarWaitLabel(opts.roleLabel));
       const tools = openaiTools(opts.registry, allowlist);
       const decisionMax =
@@ -232,18 +263,21 @@ export async function runReadonlyWorkerLoop(opts: {
         response = (await sample(tools, opts.maxTokens)) as ModelChoice;
       }
       if (!response?.choices?.[0]) {
-        return {
+        return done({
           text: "",
           grounding: groundingParts.join("\n"),
           toolsUsed,
           steps,
           error: `${opts.roleLabel}模型无返回`,
-        };
+        });
       }
       const calls = extractWorkerToolCalls(response);
       const text = (response.choices?.[0]?.message?.content ?? "").trim();
       if (calls.length === 0) {
-        return { text, grounding: groundingParts.join("\n"), toolsUsed, steps };
+        if (text) {
+          messages.push({ role: "assistant", content: text });
+        }
+        return done({ text, grounding: groundingParts.join("\n"), toolsUsed, steps });
       }
 
       const openaiCalls = calls.map((call) => ({
@@ -282,6 +316,7 @@ export async function runReadonlyWorkerLoop(opts: {
       }
     }
 
+    pullSteer();
     messages.push({
       role: "user",
       content: opts.closePrompt,
@@ -291,12 +326,27 @@ export async function runReadonlyWorkerLoop(opts: {
     );
     const closing = (await sample([], opts.maxTokens)) as ModelChoice;
     const text = (closing.choices?.[0]?.message?.content ?? "").trim();
-    return { text, grounding: groundingParts.join("\n"), toolsUsed, steps };
+    if (text) {
+      messages.push({ role: "assistant", content: text });
+    }
+    return done({ text, grounding: groundingParts.join("\n"), toolsUsed, steps });
   } catch (err) {
     if (err instanceof ModelCallUserAbortError || opts.abortSignal?.aborted) {
-      return { text: "", grounding: groundingParts.join("\n"), toolsUsed, steps, aborted: true };
+      return done({
+        text: "",
+        grounding: groundingParts.join("\n"),
+        toolsUsed,
+        steps,
+        aborted: true,
+      });
     }
     const message = err instanceof Error ? err.message : String(err);
-    return { text: "", grounding: groundingParts.join("\n"), toolsUsed, steps, error: message };
+    return done({
+      text: "",
+      grounding: groundingParts.join("\n"),
+      toolsUsed,
+      steps,
+      error: message,
+    });
   }
 }

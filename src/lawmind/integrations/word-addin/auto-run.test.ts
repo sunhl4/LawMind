@@ -117,6 +117,16 @@ describe("buildWordAddinRedlineInstruction", () => {
     expect(instruction).toContain("己方立场");
   });
 
+  it("names the firm standard when the pane is showing one", () => {
+    const named = buildWordAddinRedlineInstruction({
+      sourceAbs: "/tmp/a.docx",
+      instruction: "按本所标准审这份",
+      standardName: "中立偏委托方（开箱默认）",
+    });
+    expect(named).toContain("本所标准：中立偏委托方（开箱默认）");
+    expect(named).toContain("不要再问");
+  });
+
   it("denies outbound tools in the wording the lock reads", () => {
     expect(instruction).toContain("prepare_outbound_mail");
     expect(instruction).toContain("send_email");

@@ -92,6 +92,8 @@ export type WordAddinTemplateVars = {
    * 任务窗格据此选文案：关掉时不能说「正在自动审查」，那是在说谎。
    */
   autoRun: boolean;
+  /** 窗格上显示的本所标准名字（执业口径的立场）。 */
+  standardName: string;
 };
 
 export function renderWordAddinTemplate(text: string, vars: WordAddinTemplateVars): string {

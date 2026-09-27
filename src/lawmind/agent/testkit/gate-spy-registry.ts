@@ -120,6 +120,18 @@ export function createGateSpyRegistry(extra: SpySpec[] = []): GateSpyRegistry {
             ? (args) => {
                 const section = typeof args.section === "string" ? args.section.trim() : "";
                 const materials = typeof args.materials === "string" ? args.materials.trim() : "";
+                const goal = typeof args.goal === "string" ? args.goal : "";
+                const conclusion = /无权解除/.test(goal)
+                  ? "乙方无权解除"
+                  : /有权解除/.test(goal)
+                    ? "乙方有权解除"
+                    : /不构成违约|未构成违约/.test(goal)
+                      ? "不构成违约"
+                      : /构成违约/.test(goal)
+                        ? "已构成违约"
+                        : section
+                          ? `${section}需对照材料`
+                          : "需对照材料";
                 return Promise.resolve({
                   ok: true,
                   data: {
@@ -127,6 +139,7 @@ export function createGateSpyRegistry(extra: SpySpec[] = []): GateSpyRegistry {
                     name: "draft_worker",
                     section,
                     draft: section ? `${section}片段` : "片段",
+                    conclusion,
                     citations: [materials || "材料"],
                     gaps: ["待核"],
                   },

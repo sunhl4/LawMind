@@ -97,11 +97,15 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
         },
       );
       const detail = event.error?.trim() || event.resultPreview || resultCard.detail;
-      const idx = [...next.steps]
+      const byId = event.toolCallId
+        ? next.steps.findIndex((step) => step.kind === "tool" && step.id === event.toolCallId)
+        : -1;
+      const runningFromEnd = [...next.steps]
         .toReversed()
-        .findIndex((s) => s.kind === "tool" && s.status === "running");
-      if (idx >= 0) {
-        const realIdx = next.steps.length - 1 - idx;
+        .findIndex((step) => step.kind === "tool" && step.status === "running");
+      const realIdx =
+        byId >= 0 ? byId : runningFromEnd >= 0 ? next.steps.length - 1 - runningFromEnd : -1;
+      if (realIdx >= 0) {
         const row = next.steps[realIdx];
         next.steps[realIdx] = {
           ...row,

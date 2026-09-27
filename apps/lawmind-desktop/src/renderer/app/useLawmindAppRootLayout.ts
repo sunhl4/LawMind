@@ -12,6 +12,7 @@ import {
   taskBadgeClass,
 } from "../lawmind-app-utils";
 import type { LawmindAppRootViewProps } from "./LawmindAppRootView";
+import { requestOpenContractRevision } from "../lawmind-workspace-file-open";
 import { useLawmindAppHeaderProps } from "./useLawmindAppHeaderProps";
 import { useLawmindMainBodyContentProps } from "./useLawmindMainBodyContentProps";
 import { useLawmindAppOverlaysProps } from "./useLawmindAppOverlaysProps";
@@ -558,7 +559,7 @@ export function useLawmindAppRootLayout(
       if (matterId) {
         setContextMatterId(matterId);
       }
-      setMainView("review");
+      requestOpenContractRevision(taskId);
     },
   });
 

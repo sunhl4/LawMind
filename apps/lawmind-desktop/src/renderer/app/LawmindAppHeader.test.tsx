@@ -239,9 +239,7 @@ describe("LawmindAppHeader", () => {
         />,
       );
     });
-    const reviewTab = host.querySelector('[data-testid="lm-tab-review"]');
-    expect(reviewTab?.textContent?.trim()).toBe("改稿");
-    expect(reviewTab?.className).toContain("lm-tab-secondary");
+    expect(host.querySelector('[data-testid="lm-tab-review"]')).toBeNull();
   });
 
   it("Firm hides peer 文书台 until that scene is open", async () => {
@@ -328,9 +326,7 @@ describe("LawmindAppHeader", () => {
         />,
       );
     });
-    const reviewTab = host.querySelector('[data-testid="lm-tab-review"]');
-    expect(reviewTab?.textContent?.trim()).toBe("改稿");
-    expect(reviewTab?.className).toContain("lm-tab-secondary");
+    expect(host.querySelector('[data-testid="lm-tab-review"]')).toBeNull();
   });
 
   it("does not show a meeting tab", async () => {

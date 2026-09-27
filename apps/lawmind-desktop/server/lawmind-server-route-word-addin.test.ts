@@ -3,7 +3,10 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { updateWordAddinReview } from "../../../src/lawmind/integrations/word-addin/review-requests.js";
+import {
+  createWordAddinReview,
+  updateWordAddinReview,
+} from "../../../src/lawmind/integrations/word-addin/review-requests.js";
 import {
   formatWordAddinAccessLine,
   handleWordAddinRoutes,
@@ -110,6 +113,9 @@ describe("word addin routes", () => {
     expect(html).not.toContain("{{BASE}}");
     expect(html).not.toContain("{{TOKEN}}");
     // Word 任务窗格启用 CSP：内联 <script> 会被 script-src 挡掉，令牌必须走同源脚本。
+    expect(html).toContain("按本所标准审这份");
+    expect(html).not.toContain("记到案卷");
+    expect(html).not.toContain("btn-review");
     expect(html).not.toMatch(/<script(?![^>]*\ssrc=)/);
     expect(html).toContain("http://localhost:52100/word-addin/config.js");
     expect(html).not.toMatch(/[0-9a-f]{64}/);
@@ -131,11 +137,13 @@ describe("word addin routes", () => {
       base?: string;
       token?: string;
       autoRun?: boolean;
+      standardName?: string;
     };
     expect(config.base).toBe("http://localhost:52100");
     expect(config.token).toMatch(/^[0-9a-f]{64}$/);
     // 默认 edition（solo）自动开跑：任务窗格据此选文案，不能猜。
     expect(config.autoRun).toBe(true);
+    expect(config.standardName).toBe("中立偏委托方（开箱默认）");
   });
 
   it("tells the pane to use manual wording when this machine requires a desk-side confirm", async () => {
@@ -482,5 +490,51 @@ describe("word addin access log line", () => {
   it("tolerates a missing socket / headers without throwing", () => {
     const line = formatWordAddinAccessLine({ method: "GET", pathname: "/word-addin/taskpane.js" });
     expect(line).toBe('[word-addin] GET /word-addin/taskpane.js host=- remote=- (ipv4) ua="-"');
+  });
+});
+
+describe("word addin suggestion decisions", () => {
+  let workspaceDir: string;
+  let ctx: LawmindDispatchContext;
+
+  beforeEach(async () => {
+    workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-word-addin-decision-route-"));
+    ctx = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false, policy: null },
+    };
+  });
+
+  afterEach(async () => {
+    await fs.rm(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("stores a suggestion decision and refuses to discard one already applied", async () => {
+    const file = path.join(workspaceDir, "合同.docx");
+    await fs.writeFile(file, "十日内付款。");
+    const created = await createWordAddinReview(workspaceDir, { sourcePath: file });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    await updateWordAddinReview(workspaceDir, created.request.id, {
+      state: "ready",
+      outputPath: file,
+      hunks: [{ find: "十日内", replace: "五个工作日内" }],
+    });
+    const saved = await call(ctx, {
+      method: "POST",
+      pathname: `/api/word-addin/reviews/${created.request.id}/decisions`,
+      body: { index: 0, status: "applied" },
+    });
+    expect(saved.res.status).toBe(200);
+    const undone = await call(ctx, {
+      method: "POST",
+      pathname: `/api/word-addin/reviews/${created.request.id}/decisions`,
+      body: { index: 0, status: "discarded" },
+    });
+    expect(undone.res.status).toBe(409);
   });
 });

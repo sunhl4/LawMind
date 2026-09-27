@@ -34,7 +34,11 @@ import {
 } from "./testkit/index.js";
 import { isSessionTurnLive } from "./turn-interrupt.js";
 import { clearTurnLifecycleHooks, registerTurnLifecycleHook } from "./turn-lifecycle-hooks.js";
-import { formatIdenticalToolRepeatNudge } from "./turn-orchestrator-model-loop.js";
+import {
+  formatDocumentRereadContinue,
+  formatDocumentRereadNudge,
+  formatIdenticalToolRepeatNudge,
+} from "./turn-orchestrator-model-loop.js";
 import type { AgentMessage } from "./types.js";
 
 const FAST_LANE = [
@@ -1452,6 +1456,105 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
+  it("a chat task advertises draft_worker without a review or draft keyword", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已分开查清。"));
+        const instruction = "请把开庭时间、证据缺口和询问提纲分开查清，每项对照材料后给结论";
+        await h.runTurn(instruction);
+        expect(h.request(0).contains(instruction)).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("draft_worker")).toBe(true);
+        expect(h.request(0).contains("同一次回复里调用")).toBe(true);
+        expect(h.request(0).contains("role")).toBe(true);
+      },
+    );
+  });
+
+  it("contract review advertises draft_worker without a section keyword", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已按争点列出意见。"));
+        const instruction = "请审查这份采购合同的付款、解除和管辖";
+        await h.runTurn(instruction);
+        expect(h.request(0).contains(instruction)).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("draft_worker")).toBe(true);
+        expect(h.request(0).contains("同一轮每个争点一次")).toBe(true);
+      },
+    );
+  });
+
+  it("long review runs one worker per issue and the next request shows each conclusion", async () => {
+    const instruction = "请审查这份采购合同的付款、解除和管辖";
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(
+          cassetteToolCalls([
+            {
+              name: "draft_worker",
+              arguments: {
+                goal: "对照采购合同审查付款迟延是否构成违约，并检索条文",
+                not_goal: "不要写解除、不要改原件",
+                materials: "采购合同.docx",
+                section: "付款",
+              },
+            },
+            {
+              name: "draft_worker",
+              arguments: {
+                goal: "对照采购合同审查乙方是否有权解除",
+                not_goal: "不要改原件",
+                materials: "采购合同.docx",
+                section: "解除",
+              },
+            },
+            {
+              name: "draft_worker",
+              arguments: {
+                goal: "对照采购合同审查约定管辖，并写明乙方无权解除",
+                not_goal: "不要改原件",
+                materials: "采购合同.docx",
+                section: "管辖",
+              },
+            },
+          ]),
+          cassetteAssistant("三支已汇总，解除结论互相冲突，请律师核定。"),
+        );
+        await h.runTurn(instruction);
+        expect(h.request(0).contains(instruction)).toBe(true);
+        const executed = h.spy?.log.calls.filter((c) => c.name === "draft_worker") ?? [];
+        expect(executed).toHaveLength(3);
+        expect(executed.map((c) => String(c.args.section)).toSorted()).toEqual(
+          ["付款", "解除", "管辖"].toSorted(),
+        );
+        expect(executed.every((c) => c.result.ok)).toBe(true);
+        expect(h.request(1).contains("【并行写稿对照】")).toBe(true);
+        expect(h.request(1).contains("乙方有权解除")).toBe(true);
+        expect(h.request(1).contains("乙方无权解除")).toBe(true);
+        expect(h.request(1).contains("结论冲突")).toBe(false);
+      },
+    );
+  });
+
+  it("a one-step draft_worker is not keyword-refused", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("draft_worker", { goal: "写一句违约金", section: "违约金" }),
+          cassetteAssistant("这一句留在本对话写。"),
+        );
+        await h.runTurn("请起草买卖合同的违约金条款");
+        const executed = h.spy?.log.calls.filter((c) => c.name === "draft_worker") ?? [];
+        expect(executed).toHaveLength(1);
+        expect(executed[0]?.result.ok).toBe(true);
+        expect(h.request(1).contains("短任务留在父会话")).toBe(false);
+      },
+    );
+  });
+
   it("sectioned contract review advertises draft_worker", async () => {
     await withTestLawMind(
       (b) => b,
@@ -2709,7 +2812,98 @@ describe("turn-orchestrator cassettes (admission)", () => {
         );
         expect(asked).toHaveLength(4);
         expect(result.turn.status).toBe("completed");
-        expect(result.reply).toContain("接着办");
+        expect(result.reply).toContain("同样的查找");
+        expect(result.reply).toContain("回复「继续」");
+        expect(result.reply).not.toContain("不应再采样");
+      },
+    );
+  });
+
+  it("word revision: a finished reread gets one more sample, then can leave the read", async () => {
+    const same = cassetteToolCall("analyze_document", { file_path: "三方协议.docx" });
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("analyze_document", async () => ({
+          ok: true,
+          data: { hasMore: false, totalChars: 628, content: "甲方将权利义务转让给乙方。" },
+        })),
+      async (h) => {
+        h.enqueue(same, same, same, same, cassetteAssistant("按已读正文落改。"));
+        const result = await h.runTurn("继续不澄清。请修改这份三方协议.docx，出审阅痕迹修订稿。");
+        expect(h.requests).toHaveLength(5);
+        expect(
+          h.request(3).contains(formatDocumentRereadNudge({ totalChars: 628, wordRevision: true })),
+        ).toBe(true);
+        expect(h.request(4).contains(formatDocumentRereadContinue({ totalChars: 628 }))).toBe(true);
+        expect(result.turn.status).toBe("completed");
+        expect(result.reply).toContain("按已读正文落改");
+        expect(result.reply).not.toContain("先停下来");
+      },
+    );
+  });
+
+  it("word revision: a fifth identical finished reread still stops and names the read", async () => {
+    const same = cassetteToolCall("analyze_document", { file_path: "三方协议.docx" });
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("analyze_document", async () => ({
+          ok: true,
+          data: { hasMore: false, totalChars: 628, content: "甲方将权利义务转让给乙方。" },
+        })),
+      async (h) => {
+        h.enqueue(same, same, same, same, same, cassetteAssistant("不应再采样。"));
+        const result = await h.runTurn("继续不澄清。请修改这份三方协议.docx，出审阅痕迹修订稿。");
+        expect(h.requests).toHaveLength(5);
+        expect(h.request(4).contains(formatDocumentRereadContinue({ totalChars: 628 }))).toBe(true);
+        expect(result.turn.status).toBe("completed");
+        expect(result.reply).toContain("已经读完");
+        expect(result.reply).toContain("原文件旁边");
+        expect(result.reply).toContain("回复「继续」");
+        expect(result.reply).not.toMatch(/[a-z]+_[a-z]+/);
+        expect(result.reply).not.toContain("不应再采样");
+      },
+    );
+  });
+
+  it("a finished reread outside Word revision still stops on the fourth batch", async () => {
+    const same = cassetteToolCall("analyze_document", { file_path: "说明.md" });
+    const nudge = formatDocumentRereadNudge({ totalChars: 628, wordRevision: false });
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("analyze_document", async () => ({
+          ok: true,
+          data: { hasMore: false, totalChars: 628, content: "说明正文" },
+        })),
+      async (h) => {
+        h.enqueue(same, same, same, same, cassetteAssistant("不应再采样。"));
+        const result = await h.runTurn("继续不澄清。请把说明.md摘要成三段。");
+        expect(h.requests).toHaveLength(4);
+        expect(h.request(3).contains(nudge)).toBe(true);
+        expect(nudge).not.toContain("apply_surgical_edits");
+        expect(result.reply).toContain("已经读完");
+        expect(result.reply).toContain("回复「继续」");
+        expect(result.reply).not.toContain("原文件旁边");
+        expect(result.reply).not.toContain("不应再采样");
+      },
+    );
+  });
+
+  it("an unfinished reread still stops on the fourth identical batch", async () => {
+    const same = cassetteToolCall("analyze_document", { file_path: "三方协议.docx" });
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("analyze_document", async () => ({
+          ok: true,
+          data: { hasMore: true, totalChars: 20000, nextOffset: 4000, content: "未完" },
+        })),
+      async (h) => {
+        h.enqueue(same, same, same, same, cassetteAssistant("不应再采样。"));
+        const result = await h.runTurn("继续不澄清。请修改这份三方协议.docx，出审阅痕迹修订稿。");
+        expect(h.requests).toHaveLength(4);
+        expect(h.request(3).contains(formatIdenticalToolRepeatNudge())).toBe(true);
+        expect(result.reply).toContain("同一处又读了好几次");
+        expect(result.reply).toContain("原文件旁边");
+        expect(result.reply).not.toContain("已经读完");
         expect(result.reply).not.toContain("不应再采样");
       },
     );

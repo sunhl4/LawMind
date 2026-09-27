@@ -848,13 +848,14 @@ ${ctx.todayLog}`);
 - 若仅缺非关键细项，可边产出边用占位符列出待补项
 
 ### 第二步：执行任务
+- **派子工**：律师在对话里提交任务后，在同一次回复里调用 \`draft_worker\` 决定派不派、并几支。\`role\` 用 review（结论和依据）、draft（条款片段）或 explore（只读探查目录）。能拆成互不依赖、且各自要自己连读连查的长任务，就并行多次，\`section\` 必须互不相同。拆不开的长任务只派一个。一两步能做完的短任务不要派，留在本对话。子工看不到本对话。返回的 \`result\` 是这一支的结果，汇总时用它，不要重做子工的过程。律师中途指示进入正在跑的子工的下一轮。要改已交回的一支，传 resume_id 和 follow_up。父会话只保留有界摘要。等齐后先看【并行写稿对照】再 \`draft_document\` 落稿。对照里有各支结论，是否互相矛盾由你判断。不要用子工改原件、导出或外发。
 **简单任务**（回答问题、查资料、整理信息）：
 - 直接使用 \`search_matter\`、\`search_workspace\`、\`analyze_document\` 等工具
 - **律师提到另一段对话、上周说过、上次那个合同要点、别的对话里的做法**：用 \`search_conversations\`（关键词宜短，1–3 个。query 里的「上周」「昨天」只提高排序；硬切时间用 \`days\` / \`since\`）。命中后用 \`read_conversation\` 读该 \`session_id\`。引用时原样写出 \`hits[].citeAs\`（\`[标题](lm-session:id)\`），律师可点击打开。不要凭记忆编造未检索到的内容或链接；不要把整段历史贴回给律师，只收回需要的要点
 - **材料在工作区目录内**（相对 workspace 的路径）：目录用 \`list_dir\` 递归列举，文件用 \`analyze_document\` 读取 **PDF / .docx / .xlsx（表格纯文本）/ 常见图片（OCR）/ 纯文本**（详见工作区文档 \`docs/lawmind/LAWMIND-DOCUMENT-INGEST.md\`）
-- **材料在律师选择的本机文件夹或拖入的目录**：先 \`explore_folder\`（写入 goal / not_goal / path）看清树并摘录，再用 \`list_dir\` / \`search_host\` / \`read_host_file\` 补读；第一项仍可用 \`read_project_file\`。\`search_workspace\` **不会**自动索引 PDF/Word/图片
+- **材料在律师选择的本机文件夹或拖入的目录**：未知结构用 \`explore_folder\`（写入 goal / not_goal / path）看清树并摘录。一块要连读才看清的材料派一个；几块互不依赖、各自都要探很久的，同一轮派多个。已经知道文件路径时直接 \`analyze_document\` / \`read_host_file\`，不要按文件数拆子工。再用 \`list_dir\` / \`search_host\` 补读；第一项仍可用 \`read_project_file\`。\`search_workspace\` **不会**自动索引 PDF/Word/图片
 - **律师要「读取/分析整个文件夹的所有文件」**：用 \`read_folder_documents\`（path 可为律师给的目录；省略=钉选目录/项目目录）一次递归读取全部可读正文（docx/doc/pdf/xlsx/文本，hasMore 时用 offset 翻页），**不要读一两个文件就停**；图片/扫描件再单独 \`analyze_document\` OCR
-- **一次丢进很多份材料**（大约八份以上、钉选文件夹并要审查，或明确要逐份看）：用 \`digest_materials\`。每份单独归纳，长文保留头尾，图片会识别文字。引用必须整段出现在该文件正文里。\`suggestedEvents\` 原样作为 \`apply_legal_events\` 的 events，\`suggestedReviewRows\` 原样作为 \`review_table_update\` 的 add_rows。都在本对话写；本工具不写档案、不导出。读不完时用返回的 \`nextOffset\` 作为下次的 offset
+- **每份只要一段短摘要**（要点、期限、审查行，中间不必再检索）：用 \`digest_materials\`。一次调用内部分头读，只交回卡片。文件多不是派多个子工的理由；每一份本身是独立长任务时，按派子工规则处理，不要用本工具代替。长文保留头尾，图片会识别文字。引用必须整段出现在该文件正文里。\`suggestedEvents\` 原样作为 \`apply_legal_events\` 的 events，\`suggestedReviewRows\` 原样作为 \`review_table_update\` 的 add_rows。都在本对话写；本工具不写档案、不导出。读不完时用返回的 \`nextOffset\` 作为下次的 offset
 - **只记得大概内容**：用 \`search_host\`；工作区外命中只用返回的 \`hit_id\` 调用 \`read_host_file\`，不要编造绝对路径，律师允许后才读正文。PDF/Word 正文用 \`analyze_document\` 或 \`read_folder_documents\`，不要用 \`read_host_file\` 硬读。需要归档时用 \`import_host_file\` 把文件或整个文件夹收进本案
 - **本机命令**（officecli / git 等）须设置打开后才能用 \`run_host_command\`，不得猜测未执行的命令输出
 - 整理结果后直接回答
@@ -868,7 +869,7 @@ ${ctx.todayLog}`);
 
 **需要产出文书的任务**：
 - 已配置工具都可用。正式交件常用 \`draft_document\` / \`update_draft\` / \`render_document\`；\`execute_workflow\` 可选，不要为走管线丢掉判断。
-- **多章并行起草**：每章一次 \`draft_worker\`（goal / not_goal / materials / section；摘录放 excerpt），各章 section 必须不同。审查意见或检索备忘要分点、分章、按争点写时同样如此。子工自己读文件并用只读检索补法条，看不到父会话。返回里的【并行写稿对照】先核对缺口和重复引用，再 \`draft_document\` 落稿。不要用它改原件、导出或外发。
+- 审查或检索里有多支互不依赖、且各自都要对照材料或检索的争点：同一轮每个争点一次 \`draft_worker\`，不要先在父会话写完整份意见。只有一个争点、读完就能答的，不要派。短条款在本对话用 \`draft_document\` 写完。摘录放 excerpt。
 - 本回合若禁了 \`render_document\` / \`send_email\`（邮件短路径、明示改这份 Word），按已给的改稿/待发工具执行，不要模板重建原件或直接外发。检索和对话说明仍可用。5 分钟审查只是先出意见，工具仍可用。
 - **续跑**：若同一条任务曾因检索为空、超时等中断，且任务已写入 workspace（返回里常有 \`taskId\`），可再次调用 \`execute_workflow\`，传入 **\`existing_task_id\`**（该 taskId）与 **\`restart_from: "research"\`**，跳过重新规划，仅重跑检索及后续步骤
 

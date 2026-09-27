@@ -690,7 +690,7 @@ function buildChatTurnResult(body: ChatResponse): {
         (body.status === "awaiting_approval"
           ? "有操作等您确认。请在这条对话里批准或拒绝，批准后会接着办完。"
           : body.toolCalls && body.toolCalls > 0
-            ? "本轮已执行工具但未返回文字说明，请查看上方工具状态或改稿页草稿。"
+            ? "本轮已执行工具但未返回文字说明，请查看上方工具状态或中间栏。"
             : "本轮未返回可见回复，请重试或检查模型配置。"),
       ...(typeof body.status === "string" && body.status.trim() ? { status: body.status } : {}),
       ...(body.executionState ? { executionState: body.executionState } : {}),

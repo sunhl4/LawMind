@@ -73,7 +73,7 @@ describe("attachWordAddinResultForSource", () => {
     expect(row?.state).toBe("ready");
     expect(row?.outputPath).toBe("/tmp/某案/合同_2026-09-20_01.docx");
     // 最短改动：「十日内→五个工作日内」里共有的「日内」留在修订轨之外。
-    expect(row?.hunks).toEqual([{ find: "十", replace: "五个工作" }]);
+    expect(row?.hunks).toEqual([{ find: "十", replace: "五个工作", hunkId: "h1" }]);
     expect(row?.skippedSectionHunks).toBe(1);
     expect(row?.summary).toBe("合作协议审查");
   });

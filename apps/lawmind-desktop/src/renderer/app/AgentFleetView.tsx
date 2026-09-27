@@ -123,10 +123,10 @@ function AgentFleetViewImpl(props: AgentFleetViewProps) {
               type="button"
               className="lm-tab lm-tab-secondary"
               data-testid="lm-agents-open-review"
-              title="打开已出的稿，自行改或再吩咐一轮"
+              title="在对话中间栏看这份合同改了哪几处"
               onClick={() => props.onOpenReview()}
             >
-              改稿
+              看修订
             </button>
             <details className="lm-agents-desk-more" data-testid="lm-agents-desk-more">
               <summary className="lm-tab lm-tab-secondary">更多</summary>

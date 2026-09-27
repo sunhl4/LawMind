@@ -248,7 +248,9 @@ function describeResultData(name: string, data: unknown): string | undefined {
   const outputPath = asTrimmedString(rec.outputPath) || asTrimmedString(rec.path);
   if (outputPath) {
     const decisions = Array.isArray(rec.lawyerDecisions)
-      ? rec.lawyerDecisions.filter((row): row is string => typeof row === "string" && row.trim())
+      ? rec.lawyerDecisions.filter(
+          (row): row is string => typeof row === "string" && row.trim().length > 0,
+        )
       : [];
     const written = `已写入 ${basenamePath(outputPath)}`;
     return decisions.length > 0 ? clip(`${written}。${decisions.length} 处需您定夺`, 96) : written;
@@ -289,8 +291,12 @@ function describeResultData(name: string, data: unknown): string | undefined {
   }
   if (name === "draft_worker") {
     const section = asTrimmedString(rec.section);
+    const taskRole = asTrimmedString(rec.taskRole);
+    const verb = taskRole === "explore" ? "已探查" : taskRole === "review" ? "已审查" : "已起草";
+    const fallback =
+      taskRole === "explore" ? "已探查目录" : taskRole === "review" ? "已审查争点" : "已起草片段";
     const toolsUsed = Array.isArray(rec.toolsUsed) ? rec.toolsUsed.length : 0;
-    const base = section ? `已起草「${section}」` : "已起草片段";
+    const base = section ? `${verb}「${section}」` : fallback;
     return toolsUsed > 0 ? clip(`${base}（读 ${toolsUsed} 步）`, 80) : clip(base, 80);
   }
   if (name === "explore_folder") {
@@ -398,6 +404,14 @@ export function lawyerFacingToolFailureDetail(
   if (!err && codes.length === 0) {
     return "未完成";
   }
+  if (name === "draft_worker") {
+    if (/章节名/.test(err)) {
+      return "这几支的章节名重复或没写，没有开工。";
+    }
+    if (/resume_id|workerId|续跑/.test(err)) {
+      return "没有续上上一支。";
+    }
+  }
   if (err.includes("【同一回合验收未过】") || /请立即调用\s+\w+/.test(err) || codes.length > 0) {
     if (/未见审阅痕迹|xml_qa/.test(blob)) {
       return "正在写成审阅稿。";
@@ -453,8 +467,18 @@ export function presentLawyerToolResult(
     }
   }
   const fromData = describeResultData(name, result.data);
+  const taskRole =
+    result.data && typeof result.data === "object"
+      ? asTrimmedString((result.data as { taskRole?: unknown }).taskRole)
+      : "";
+  const titled =
+    name === "draft_worker" && taskRole === "explore"
+      ? "探查目录"
+      : name === "draft_worker" && taskRole === "review"
+        ? "审查争点"
+        : title;
   if (fromData) {
-    return { title, detail: fromData };
+    return { title: titled, detail: fromData };
   }
   const fromArgs = describeCallArgs(name, args);
   return fromArgs ? { title, detail: fromArgs } : { title, detail: "已完成" };

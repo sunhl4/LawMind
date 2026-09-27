@@ -7,6 +7,9 @@
  * - GET  /api/word-addin/reviews           就地审查请求列表（?state=&since=）
  * - POST /api/word-addin/reviews           { path, matterId?, instruction? } 建请求（审这份）
  * - GET  /api/word-addin/reviews/:id       单条状态（插件轮询）
+ * - POST /api/word-addin/reviews/:id/decisions  { index, status } 律师对一条建议的决定
+ * - POST /api/word-addin/reviews/:id/revise    { index, replace } 改这一处的替换文字，写回修订清单
+ * - POST /api/word-addin/reviews/:id/commit    按清单覆盖已写出的审阅 Word
  * - POST /api/word-addin/reviews/:id/result  桌面端回填：{ task_id } 或 { outputPath, hunks, ... }
  * - POST /api/word-addin/reviews/:id/export  导出：返回产物路径与存在性
  *
@@ -25,7 +28,10 @@ import {
   wordAddinMimeFor,
   WORD_ADDIN_VENDOR_REL,
   type WordAddinTemplateVars,
-} from "../../../src/lawmind/integrations/word-addin/addin-assets.js";import {
+} from "../../../src/lawmind/integrations/word-addin/addin-assets.js";
+import { exportTrackedSiblingForTask } from "../../../src/lawmind/drafts/export-tracked-sibling.js";
+import { revisePendingRedlineSpan } from "../../../src/lawmind/drafts/redline-proposal.js";
+import {
   createWordAddinReview,
   hunksFromRedlineProposal,
   listWordAddinReviews,
@@ -33,6 +39,7 @@ import {
   pickWordAddinReviewForDocument,
   readWordAddinReview,
   resolveWordAddinAssetPath,
+  recordWordAddinSuggestionDecision,
   updateWordAddinReview,
   type WordAddinReviewState,
 } from "../../../src/lawmind/integrations/word-addin/review-requests.js";
@@ -44,6 +51,10 @@ import {
 import { loopbackBaseFromRequest, readJsonBody, sendJson } from "./lawmind-server-helpers.js";
 import { wakeWordAddinAutoRun } from "./lawmind-server-word-addin-runner.js";
 import { isWordAddinAutoRunEnabled } from "../../../src/lawmind/policy/edition.js";
+import {
+  loadPracticePlaybook,
+  PRACTICE_STANCE_LABELS,
+} from "../../../src/lawmind/practice/practice-playbook.js";
 import { readWorkspacePolicyFile } from "../../../src/lawmind/policy/workspace-policy.js";
 import type { LawmindDispatchContext, LawmindRouteContext } from "./lawmind-server-route-types.js";
 
@@ -126,13 +137,14 @@ function addinVars(ctx: LawmindDispatchContext, req: http.IncomingMessage): Word
     instanceId: getLocalApiInstanceId(),
     // 插件与桌面端必须是同一个口径：读工作区的 policy 文件，而不是看渲染端状态。
     autoRun: isWordAddinAutoRunEnabled({ policy: readWorkspacePolicyFile(ctx.workspaceDir) }),
+    standardName: PRACTICE_STANCE_LABELS[loadPracticePlaybook(ctx.workspaceDir).stanceDefault],
   };
 }
 
 function parseReviewId(
   pathname: string,
-): { id: string; action?: "result" | "export" | "matter" } | null {
-  const m = /^\/api\/word-addin\/reviews\/([^/]+)(?:\/(result|export|matter))?$/.exec(pathname);
+): { id: string; action?: "result" | "export" | "matter" | "decisions" | "revise" | "commit" } | null {
+  const m = /^\/api\/word-addin\/reviews\/([^/]+)(?:\/(result|export|matter|decisions|revise|commit))?$/.exec(pathname);
   if (!m) {
     return null;
   }
@@ -143,7 +155,14 @@ function parseReviewId(
   const action = m[2];
   return {
     id,
-    ...(action === "result" || action === "export" || action === "matter" ? { action } : {}),
+    ...(action === "result" ||
+    action === "export" ||
+    action === "matter" ||
+    action === "decisions" ||
+    action === "revise" ||
+    action === "commit"
+      ? { action }
+      : {}),
   };
 }
 
@@ -363,6 +382,130 @@ export async function handleWordAddinRoutes({
     return true;
   }
 
+  if (parsed?.action === "decisions" && req.method === "POST") {
+    let body: unknown;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, error: "invalid_json" }, c);
+      return true;
+    }
+    const record = (body ?? {}) as Record<string, unknown>;
+    const status = record.status;
+    if (status !== "applied" && status !== "discarded" && status !== "missed") {
+      sendJson(res, 400, { ok: false, error: "bad_status" }, c);
+      return true;
+    }
+    const index = typeof record.index === "number" ? record.index : Number(record.index);
+    const saved = recordWordAddinSuggestionDecision({
+      workspaceDir: ctx.workspaceDir,
+      id: parsed.id,
+      index,
+      status,
+    });
+    if (!saved.ok) {
+      const code = saved.error === "not_found" ? 404 : saved.error === "already_applied" ? 409 : 400;
+      sendJson(res, code, { ok: false, error: saved.error }, c);
+      return true;
+    }
+    if (status === "discarded") {
+      const hunk = saved.request.hunks?.[index];
+      const taskId = saved.request.taskId;
+      if (hunk?.hunkId && taskId) {
+        revisePendingRedlineSpan(ctx.workspaceDir, taskId, hunk.hunkId, hunk.find, hunk.replace, hunk.find);
+      }
+    }
+    sendJson(res, 200, { ok: true, request: saved.request }, c);
+    return true;
+  }
+
+  if (parsed?.action === "revise" && req.method === "POST") {
+    let body: unknown;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { ok: false, error: "invalid_json" }, c);
+      return true;
+    }
+    const record = (body ?? {}) as Record<string, unknown>;
+    const index = typeof record.index === "number" ? record.index : Number(record.index);
+    const replace = typeof record.replace === "string" ? record.replace : null;
+    if (!Number.isInteger(index) || index < 0 || replace == null || replace.length > 50_000) {
+      sendJson(res, 400, { ok: false, error: "bad_revise" }, c);
+      return true;
+    }
+    const request = readWordAddinReview(ctx.workspaceDir, parsed.id);
+    const hunk = request?.hunks?.[index];
+    if (!request || request.state !== "ready" || !hunk) {
+      sendJson(res, request ? 400 : 404, { ok: false, error: request ? "bad_index" : "not_found" }, c);
+      return true;
+    }
+    if (request.taskId && hunk.hunkId) {
+      const revised = revisePendingRedlineSpan(
+        ctx.workspaceDir,
+        request.taskId,
+        hunk.hunkId,
+        hunk.find,
+        hunk.replace,
+        replace,
+      );
+      if (!revised.ok && revised.error !== "hunk_not_pending") {
+        const status = revised.error === "redline_not_found" || revised.error === "hunk_not_found" ? 404 : 409;
+        sendJson(res, status, { ok: false, error: revised.error }, c);
+        return true;
+      }
+    }
+    const hunks = request.hunks?.map((row, i) => (i === index ? { ...row, replace } : row));
+    const updated = await updateWordAddinReview(ctx.workspaceDir, parsed.id, (hunks ? { hunks } : {}));
+    if (!updated.ok) {
+      sendJson(res, 400, { ok: false, error: updated.error }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true, request: updated.request }, c);
+    return true;
+  }
+
+  if (parsed?.action === "commit" && req.method === "POST") {
+    const request = readWordAddinReview(ctx.workspaceDir, parsed.id);
+    if (!request) {
+      sendJson(res, 404, { ok: false, error: "not_found" }, c);
+      return true;
+    }
+    if (!request.taskId) {
+      sendJson(res, 409, { ok: false, error: "task_missing" }, c);
+      return true;
+    }
+    const exported = await exportTrackedSiblingForTask({
+      workspaceDir: ctx.workspaceDir,
+      taskId: request.taskId,
+    });
+    if (!exported.ok) {
+      sendJson(
+        res,
+        exported.status,
+        { ok: false, error: exported.error, ...(exported.code ? { code: exported.code } : {}) },
+        c,
+      );
+      return true;
+    }
+    const updated = await updateWordAddinReview(ctx.workspaceDir, parsed.id, {
+      outputPath: exported.outputPath,
+    });
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        outputPath: exported.outputPath,
+        outputFileName: exported.outputFileName,
+        degraded: exported.degraded,
+        request: updated.ok ? updated.request : request,
+      },
+      c,
+    );
+    return true;
+  }
+
   if (parsed && req.method === "GET" && !parsed.action) {
     const request = readWordAddinReview(ctx.workspaceDir, parsed.id);    if (!request) {
       sendJson(res, 404, { ok: false, error: "not_found" }, c);
@@ -388,7 +531,7 @@ export async function handleWordAddinRoutes({
     }
 
     let hunks = Array.isArray(record.hunks)
-      ? (record.hunks as Array<{ find?: unknown; replace?: unknown; note?: unknown }>)
+      ? (record.hunks as Array<{ find?: unknown; replace?: unknown; note?: unknown; where?: unknown }>)
           .filter(
             (h) => typeof h?.find === "string" && h.find.length > 0 && typeof h.replace === "string",
           )
@@ -396,6 +539,7 @@ export async function handleWordAddinRoutes({
             find: String(h.find),
             replace: String(h.replace),
             ...(typeof h.note === "string" && h.note ? { note: h.note } : {}),
+            ...(typeof h.where === "string" && h.where.trim() ? { where: h.where.trim().slice(0, 80) } : {}),
           }))
       : undefined;
     let skippedSectionHunks =
@@ -434,6 +578,7 @@ export async function handleWordAddinRoutes({
       ...(hunks ? { hunks } : {}),
       ...(skippedSectionHunks !== undefined ? { skippedSectionHunks } : {}),
       ...(summary ? { summary } : {}),
+      ...(taskId ? { taskId } : {}),
       ...(typeof record.error === "string" && record.error.trim() ? { error: record.error } : {}),
     });
     if (!updated.ok) {

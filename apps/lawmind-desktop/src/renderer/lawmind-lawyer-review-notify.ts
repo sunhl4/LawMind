@@ -72,7 +72,7 @@ export function useLawyerReviewDesktopNotify(args: {
           storageKey: `task:${task.taskId}`,
           sig,
           title: "LawMind · 任务待您审核",
-          body: `${task.title || task.summary || task.taskId}：可打开改稿核对全文。`,
+          body: `${task.title || task.summary || task.taskId}：可在中间栏核对修订。`,
           reviewTaskId: task.taskId,
           reviewMatterId: task.matterId,
         });
@@ -91,7 +91,7 @@ export function useLawyerReviewDesktopNotify(args: {
           storageKey: `draft:${item.id}`,
           sig,
           title: "LawMind · 已出结果",
-          body: `${item.label || item.id}：可打开改稿核对，需要时再导出。`,
+          body: `${item.label || item.id}：可在中间栏核对，需要时再出稿。`,
           reviewTaskId: item.id,
           reviewMatterId: item.matterId,
         });

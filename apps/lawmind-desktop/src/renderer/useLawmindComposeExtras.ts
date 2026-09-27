@@ -247,8 +247,14 @@ export function useLawmindComposeExtras(opts: {
    * `clientNonce` 由调用方给并复用，重复点击只会复用一个新会话，不会造第二份。
    */
   const forkWithCarryover = useCallback(
-    async (input?: { clientNonce?: string; title?: string }): Promise<ComposeForkResult> => {
-      if (!opts.apiBase || !opts.sessionId) {
+    async (input?: {
+      clientNonce?: string;
+      title?: string;
+      /** 不传则用当前焦点会话。对话里要求续接时，要钉住发出那句话的会话。 */
+      sessionId?: string;
+    }): Promise<ComposeForkResult> => {
+      const sessionId = input?.sessionId?.trim() || opts.sessionId;
+      if (!opts.apiBase || !sessionId) {
         return { ok: false, code: "source_not_found", message: "当前没有可续接的对话。" };
       }
       setForkBusy(true);
@@ -268,7 +274,7 @@ export function useLawmindComposeExtras(opts: {
           { clientNonce?: string; title?: string; useLlmDigest?: boolean }
         >(
           opts.apiBase,
-          `/api/sessions/${encodeURIComponent(opts.sessionId)}/fork-with-carryover`,
+          `/api/sessions/${encodeURIComponent(sessionId)}/fork-with-carryover`,
           "POST",
           {
             ...(input?.clientNonce ? { clientNonce: input.clientNonce } : {}),

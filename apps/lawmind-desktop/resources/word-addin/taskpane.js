@@ -1,10 +1,9 @@
 /*
  * LawMind Word 插件任务窗格。
  *
- * 只做三件事：
- *   审这份 —— 把当前文档路径交给本机 LawMind，建一条就地审查请求；
- *   取回   —— 轮询同一条请求，拿回桌面端产出的修订轨锚点与产物路径；
- *   改这份 —— 用 Word 原生修订轨把这些锚点落进当前文档（Track Changes 打开）。
+ * 律师只看到一个输入框。默认「按本所标准审这份」，多写的那句话覆盖默认。
+ * 结果自动落成当前宿主的修订（Word 用 Word.run，WPS 用 Application）。
+ * 整节重写不在这里落，只说已放到桌面稿。
  *
  * 网络面只有 window.LAWMIND_ADDIN.base（本机回环地址）；没有远程控制面。
  */
@@ -21,6 +20,10 @@
    * 那时律师确实还得回桌面端跑一次，文案必须说真话。
    */
   var AUTO_RUN = CONFIG.autoRun !== false;
+  var DEFAULT_ASK = "按本所标准审这份";
+  /** 每条建议在这份窗格里的决定：applied / discarded / missed。按请求 id 分开。 */
+  var suggestionDecisions = {};
+  var documentReviews = [];
 
   var pollTimer = null;
   var pollTicks = 0;
@@ -98,7 +101,12 @@
       el.addEventListener("load", function () {
         var next = window.LAWMIND_ADDIN;
         if (next && next.token) {
+          var host = CONFIG.host;
           CONFIG = next;
+          if (host) {
+            CONFIG.host = host;
+          }
+          AUTO_RUN = CONFIG.autoRun !== false;
           configRefreshInFlight = null;
           resolve(true);
           return;
@@ -143,13 +151,52 @@
    */
   function humanApiError(err) {
     if (isLoopbackAuthError(err)) {
-      return "本机 LawMind 没有接受这个窗格的凭据，自动重连也没成功（可能换了端口或已关闭）。"
-        + "请关掉窗格重新打开：插入 → 我的加载项 → LawMind。";
+      return "LawMind 没连上。请完全退出 Word 或 WPS 后重新打开。";
     }
     return String((err && err.message) || err);
   }
 
+  function wpsDocumentPath() {
+    var app = window.Application;
+    var doc = app && app.ActiveDocument;
+    if (!doc) {
+      return "";
+    }
+    var full = "";
+    try {
+      full = String(doc.FullName || "");
+    } catch {
+      full = "";
+    }
+    if (full && full.indexOf("://") < 0 && (full.indexOf("/") >= 0 || full.indexOf("\\") >= 0)) {
+      return full;
+    }
+    var dir = "";
+    var name = "";
+    try {
+      dir = String(doc.Path || "");
+    } catch {
+      dir = "";
+    }
+    try {
+      name = String(doc.Name || "");
+    } catch {
+      name = "";
+    }
+    if (!dir || !name) {
+      return "";
+    }
+    var sep = dir.indexOf("\\") >= 0 ? "\\" : "/";
+    return dir.replace(/[\\/]+$/, "") + sep + name;
+  }
+
   function currentDocumentPath() {
+    if (CONFIG.host === "wps") {
+      return wpsDocumentPath();
+    }
+    if (typeof Office === "undefined" || !Office.context || !Office.context.document) {
+      return "";
+    }
     var url = Office.context.document.url || "";
     return url ? decodeURIComponent(url.replace(/^file:\/\//, "")) : "";
   }
@@ -174,8 +221,8 @@
     pollTicks += 1;
     if (pollTicks > POLL_MAX_TICKS) {
       setText("review-state", AUTO_RUN
-        ? "已等 5 分钟仍未有结果：请回 Word 点「刷新状态」看最新进度；若已失败，桌面端会写明原因。"
-        : "已等 5 分钟仍未有结果：请在桌面端 LawMind 里跑一次审查，或稍后点「刷新状态」。");
+        ? "已等 5 分钟仍未有结果。请关掉窗格再打开；若已失败，桌面端会写明原因。"
+        : "已等 5 分钟仍未有结果。请在桌面端 LawMind 里跑一次审查，然后关掉窗格再打开。");
       stopPolling();
       return;
     }
@@ -201,7 +248,7 @@
         : "已交给桌面端（排队中）。请在 LawMind 桌面端跑这次审查。";
     }
     if (state === "running") {
-      return "桌面端正在审查…";
+      return "正在通读这份稿，并准备逐条建议。";
     }
     if (state === "ready") {
       return "已拿到结果。";
@@ -228,48 +275,109 @@
     return detail ? label + " " + detail : label;
   }
 
-  function renderRequest(request) {
-    currentRequest = request;
-    if (!request) {
+  function setComposerLocked(locked) {
+    var ask = el("ask");
+    var submit = el("btn-submit");
+    var note = el("lock-note");
+    if (ask) {
+      ask.disabled = locked;
+    }
+    if (submit) {
+      submit.disabled = locked;
+    }
+    if (note) {
+      note.hidden = !locked;
+    }
+  }
+
+  function showDesktopDraft(request) {
+    var note = el("desktop-note");
+    if (!note) {
       return;
     }
-    currentRequestId = request.id;
-    setText("review-state", requestStatusLine(request));
-    renderMatterPicker(request);
-    var hunks = request.hunks || [];
-    var card = el("result-card");
-    if (request.state !== "ready" || hunks.length === 0) {
-      if (card) {
-        card.hidden = request.state !== "ready";
-      }
-      if (request.state === "ready" && hunks.length === 0) {
-        setText(
-          "result-summary",
-          "桌面端结论没有可就地落改的最短锚点"
-            + (request.skippedSectionHunks ? "（另有 " + request.skippedSectionHunks + " 处整节重写，请回桌面端看）" : "")
-            + "。可点「导出产物」。",
-        );
-      }
+    var show = Boolean(request && request.skippedSectionHunks);
+    note.hidden = !show;
+    if (show) {
+      note.textContent = "整节重写已放到桌面稿。";
+    }
+  }
+
+  function seedDecisions(request) {
+    var local = suggestionDecisions[request.id] || {};
+    var remote = request.decisions || {};
+    var merged = {};
+    Object.keys(remote).forEach(function (key) {
+      merged[key] = remote[key];
+    });
+    Object.keys(local).forEach(function (key) {
+      merged[key] = local[key];
+    });
+    suggestionDecisions[request.id] = merged;
+  }
+
+  function decisionsFor(requestId) {
+    if (!suggestionDecisions[requestId]) {
+      suggestionDecisions[requestId] = {};
+    }
+    return suggestionDecisions[requestId];
+  }
+
+  function persistDecision(index, status) {
+    if (!currentRequestId) {
       return;
     }
-    if (card) {
-      card.hidden = false;
+    api("/api/word-addin/reviews/" + encodeURIComponent(currentRequestId) + "/decisions", {
+      method: "POST",
+      body: JSON.stringify({ index: index, status: status }),
+    }).catch(function () {
+      setText("apply-log", "这一处已在窗格里记下，但没能写回本机记录。重开后可能要再选一次。");
+    });
+  }
+
+  function commentText(hunk) {
+    var parts = [];
+    if (hunk.where) {
+      parts.push("位于" + hunk.where);
     }
-    setText(
-      "result-summary",
-      (request.summary ? request.summary + "；" : "")
-        + "共 " + hunks.length + " 处锚点"
-        + (request.skippedSectionHunks ? "，另有 " + request.skippedSectionHunks + " 处整节重写请回桌面端看" : "")
-        + (request.outputPath ? "；产物：" + request.outputPath : ""),
-    );
+    parts.push(hunk.note || "LawMind 建议");
+    return parts.join("。");
+  }
+
+  function openSuggestionIndexes(request) {
+    var map = decisionsFor(request.id);
+    var indexes = [];
+    (request.hunks || []).forEach(function (_hunk, index) {
+      if (!map[index]) {
+        indexes.push(index);
+      }
+    });
+    return indexes;
+  }
+
+  function decisionLabel(kind) {
+    if (kind === "applied") {
+      return "已写入修订。请在正文里接受或拒绝。";
+    }
+    if (kind === "discarded") {
+      return "已放弃，不写入。";
+    }
+    if (kind === "missed") {
+      return "没写上：正文里对不上这一处。";
+    }
+    return "";
+  }
+
+  function renderHunks(hunks) {
     var list = el("hunk-list");
-    if (!list) {
+    if (!list || !currentRequest) {
       return;
     }
+    var map = decisionsFor(currentRequest.id);
     list.innerHTML = "";
-    hunks.forEach(function (hunk) {
+    hunks.forEach(function (hunk, index) {
       var li = document.createElement("li");
-      li.className = "hunk";
+      var decided = map[index];
+      li.className = "hunk" + (decided ? " is-done" : "");
       var before = document.createElement("p");
       before.className = "hunk__before";
       before.textContent = "- " + hunk.find;
@@ -278,126 +386,145 @@
       after.textContent = "+ " + hunk.replace;
       li.appendChild(before);
       li.appendChild(after);
+      if (hunk.where) {
+        var where = document.createElement("p");
+        where.className = "hunk__note";
+        where.textContent = "位于：" + hunk.where;
+        li.appendChild(where);
+      }
       if (hunk.note) {
         var note = document.createElement("p");
         note.className = "hunk__note";
-        note.textContent = hunk.note;
+        note.textContent = "为什么：" + hunk.note;
         li.appendChild(note);
+      }
+      if (decided) {
+        var status = document.createElement("p");
+        status.className = "hunk__note";
+        status.textContent = decisionLabel(decided);
+        li.appendChild(status);
+      } else {
+        var field = document.createElement("textarea");
+        field.className = "field hunk__replace";
+        field.rows = 2;
+        field.value = hunk.replace || "";
+        field.setAttribute("aria-label", "修改这一处的替换文字");
+        field.addEventListener("input", function () {
+          hunk.replace = field.value;
+        });
+        field.addEventListener("change", function () {
+          hunk.replace = field.value;
+          api("/api/word-addin/reviews/" + encodeURIComponent(currentRequest.id) + "/revise", {
+            method: "POST",
+            body: JSON.stringify({ index: index, replace: field.value }),
+          }).catch(function () {
+            setText("apply-log", "措辞先记在窗格里。确认写入时会再试一次。");
+          });
+        });
+        li.appendChild(field);
+        var keep = document.createElement("label");
+        keep.className = "hunk__keep";
+        var keepBox = document.createElement("input");
+        keepBox.type = "checkbox";
+        keepBox.checked = hunk.keep !== false;
+        keepBox.addEventListener("change", function () {
+          hunk.keep = keepBox.checked;
+        });
+        keep.appendChild(keepBox);
+        keep.appendChild(document.createTextNode("写入这一处"));
+        var commentBox = document.createElement("input");
+        commentBox.type = "checkbox";
+        commentBox.checked = hunk.withComment === true;
+        commentBox.addEventListener("change", function () {
+          hunk.withComment = commentBox.checked;
+        });
+        keep.appendChild(commentBox);
+        keep.appendChild(document.createTextNode("加批注"));
+        li.appendChild(keep);
+        var actions = document.createElement("div");
+        actions.className = "hunk__actions";
+        var discard = document.createElement("button");
+        discard.type = "button";
+        discard.className = "btn";
+        discard.setAttribute("data-act", "discard");
+        discard.setAttribute("data-index", String(index));
+        discard.textContent = "不要这处";
+        actions.appendChild(discard);
+        li.appendChild(actions);
       }
       list.appendChild(li);
     });
-  }
-
-  var mattersCache = null;
-
-  /** 案卷列表只在需要时拉一次并缓存（律师一般只选一次）。 */
-  function loadMatters() {
-    if (mattersCache) {
-      return Promise.resolve(mattersCache);
-    }
-    return api("/api/word-addin/matters").then(function (body) {
-      mattersCache = (body && body.items) || [];
-      return mattersCache;
-    });
-  }
-
-  function hideMatterPicker() {
-    var card = el("matter-card");
-    if (card) {
-      card.hidden = true;
+    var applyAll = el("btn-apply-all");
+    if (applyAll) {
+      applyAll.hidden = openSuggestionIndexes(currentRequest).length === 0;
     }
   }
 
-  function renderMatterPicker(request) {
-    // 只在「这次没挂案卷」时露一个**可选**入口（审查已经在跑了，不阻断）。
-    if (!request || request.matterId || request.state !== "queued") {
-      hideMatterPicker();
+  function renderRequest(request) {
+    currentRequest = request;
+    if (!request) {
       return;
     }
-    var card = el("matter-card");
-    var select = el("matter-select");
-    if (!card || !select) {
+    currentRequestId = request.id;
+    seedDecisions(request);
+    var running = request.state === "queued" || request.state === "running";
+    setComposerLocked(running);
+    setText("review-state", requestStatusLine(request));
+    var hunks = request.hunks || [];
+    var card = el("result-card");
+    var hasDesktop = Boolean(request.skippedSectionHunks);
+    var showCard = request.state === "ready" && (hunks.length > 0 || hasDesktop);
+    if (card) {
+      card.hidden = !showCard;
+    }
+    if (!showCard) {
+      return;
+    }
+    showDesktopDraft(request);
+    if (hunks.length === 0) {
+      setText("result-summary", "这次没有能写进正文的短修订。");
+      renderHunks([]);
       return;
     }
     setText(
-      "matter-note",
-      "这次会直接出修订稿，不必先选案卷。若想把这次改稿归档到某个案卷，可在下面选（可选）。",
+      "result-summary",
+      (request.summary ? request.summary + "。" : "") +
+        "共 " +
+        hunks.length +
+        " 处建议。桌面稿已经写出。先改措辞、去掉不要的，再确认写入当前文档。",
     );
-    loadMatters()
-      .then(function (items) {
-        var rows = items;
-        select.innerHTML = "";
-        rows.forEach(function (it) {
-          var opt = document.createElement("option");
-          opt.value = it.matterId;
-          opt.textContent = it.title ? it.title + "（" + it.matterId + "）" : it.matterId;
-          select.appendChild(opt);
-        });
-        if (rows.length === 0) {
-          hideMatterPicker();
-          return;
-        }
-        card.hidden = false;
-      })
-      .catch(function () {
-        hideMatterPicker();
-      });
+    renderHunks(hunks);
   }
 
-  function onMatterPick() {
-    if (!currentRequestId) {
-      return;
-    }
-    var select = el("matter-select");
-    var matterId = select ? select.value : "";
-    if (!matterId) {
-      setText("matter-note", "请先选一个案卷。");
-      return;
-    }
-    setText("matter-note", "正在归档…");
-    api("/api/word-addin/reviews/" + encodeURIComponent(currentRequestId) + "/matter", {
-      method: "POST",
-      body: JSON.stringify({ matterId: matterId }),
-    })
-      .then(function (body) {
-        hideMatterPicker();
-        renderRequest(body.request);
-      })
-      .catch(function (err) {
-        setText("matter-note", humanApiError(err));
-      });
-  }
-
-  function onReview() {
+  function onSubmit() {
     var path = currentDocumentPath();
     if (!path) {
       setText("review-state", "这份文档还没有本机路径（未保存）。请先另存为 .docx。");
       return;
     }
+    var askNode = el("ask");
+    var ask = askNode && askNode.value ? String(askNode.value).trim() : "";
+    if (!ask) {
+      ask = DEFAULT_ASK;
+    }
     setText("review-state", "正在交给桌面端…");
+    setComposerLocked(true);
     api("/api/word-addin/reviews", {
       method: "POST",
-      body: JSON.stringify({ path: path }),
+      body: JSON.stringify({ path: path, instruction: ask }),
     })
       .then(function (body) {
         renderRequest(body.request);
+        var next = [body.request].concat(
+          documentReviews.filter(function (item) {
+            return item.id !== body.request.id;
+          }),
+        );
+        renderThread(next, body.request.id);
         startPolling();
       })
       .catch(function (err) {
-        setText("review-state", humanApiError(err));
-      });
-  }
-
-  function onRefresh() {
-    if (!currentRequestId) {
-      setText("review-state", "还没有发起过审查。");
-      return;
-    }
-    api("/api/word-addin/reviews/" + encodeURIComponent(currentRequestId))
-      .then(function (body) {
-        renderRequest(body.request);
-      })
-      .catch(function (err) {
+        setComposerLocked(false);
         setText("review-state", humanApiError(err));
       });
   }
@@ -454,7 +581,10 @@
               missed.push(hunk.find + "（命中 " + results.items.length + " 处）");
               return undefined;
             }
-            results.items[0].insertText(hunk.replace, replaceLocation);
+            var inserted = results.items[0].insertText(hunk.replace, replaceLocation);
+            if (hunk.comment && inserted && typeof inserted.insertComment === "function") {
+              inserted.insertComment(String(hunk.comment));
+            }
             applied += 1;
             return context.sync();
           });
@@ -465,24 +595,246 @@
       });
   }
 
-  function onApply() {
-    if (!currentRequest || !currentRequest.hunks || currentRequest.hunks.length === 0) {
-      setText("apply-log", "没有可落改的锚点。");
+  /**
+   * WPS 文字：打开修订后，用 Range 只替换唯一命中的锚点。
+   * 没有 Range 就不改全文，避免整篇变成一次无差别替换。
+   */
+  function applyHunksInWps(hunks, document) {
+    var doc = document;
+    if (!doc) {
+      var app = window.Application;
+      doc = app && app.ActiveDocument;
+    }
+    if (!doc) {
+      return Promise.reject(new Error("WPS 里没有打开的文档。已放到桌面稿。"));
+    }
+    if (typeof doc.TrackRevisions === "undefined" || typeof doc.Range !== "function" || !doc.Content) {
+      return Promise.reject(new Error("当前 WPS 不能把修订写进正文。已放到桌面稿。"));
+    }
+    var previous = doc.TrackRevisions;
+    doc.TrackRevisions = true;
+    var applied = 0;
+    var missed = [];
+    try {
+      hunks.forEach(function (hunk) {
+        var text = String(doc.Content.Text || "");
+        var first = text.indexOf(hunk.find);
+        if (first < 0) {
+          missed.push(hunk.find);
+          return;
+        }
+        var next = text.indexOf(hunk.find, first + hunk.find.length);
+        if (next >= 0) {
+          var count = 1;
+          var from = next;
+          while (from >= 0) {
+            count += 1;
+            from = text.indexOf(hunk.find, from + hunk.find.length);
+          }
+          missed.push(hunk.find + "（命中 " + count + " 处）");
+          return;
+        }
+        var range = doc.Range(first, first + hunk.find.length);
+        range.Text = hunk.replace;
+        if (hunk.comment && doc.Comments && typeof doc.Comments.Add === "function") {
+          try {
+            var commented = doc.Range(first, first + String(hunk.replace).length);
+            doc.Comments.Add(commented, String(hunk.comment));
+          } catch {
+            /* 修订已经落下；批注失败不把这一处算没写入。 */
+          }
+        }
+        applied += 1;
+      });
+    } finally {
+      doc.TrackRevisions = previous;
+    }
+    return Promise.resolve({ applied: applied, missed: missed });
+  }
+
+  function placeIndexes(indexes, withComment) {
+    if (!currentRequest || !indexes || indexes.length === 0) {
       return;
     }
-    setText("apply-log", "正在写入 Word 修订轨…");
-    applyHunksInWord(currentRequest.hunks)
-      .then(function (result) {
+    var request = currentRequest;
+    var map = decisionsFor(request.id);
+    setText("apply-log", withComment ? "正在写入修订并加批注…" : "正在写入修订…");
+    var chain = Promise.resolve();
+    indexes.forEach(function (index) {
+      chain = chain.then(function () {
+        if (map[index]) {
+          return undefined;
+        }
+        var hunk = request.hunks[index];
+        var payload = {
+          find: hunk.find,
+          replace: hunk.replace,
+          note: hunk.note,
+        };
+        if (withComment || hunk.withComment) {
+          payload.comment = commentText(hunk);
+        }
+        var placing = CONFIG.host === "wps" ? applyHunksInWps([payload]) : applyHunksInWord([payload]);
+        return placing.then(function (result) {
+          var status = result.applied > 0 ? "applied" : "missed";
+          map[index] = status;
+          persistDecision(index, status);
+        });
+      });
+    });
+    chain
+      .then(function () {
+        renderHunks(request.hunks || []);
+        var applied = 0;
+        var missed = 0;
+        indexes.forEach(function (index) {
+          if (map[index] === "applied") {
+            applied += 1;
+          } else if (map[index] === "missed") {
+            missed += 1;
+          }
+        });
         setText(
           "apply-log",
-          "已落 " + result.applied + " 处"
-            + (result.missed.length ? "；" + result.missed.length + " 处未落（锚点找不到或多处命中）：" + result.missed.join("；") : "")
-            + "。请复核修订轨后再决定接受。",
+          "已写入 " + applied + " 处" + (missed ? "；" + missed + " 处没对上正文。" : "。") + "请在正文里接受或拒绝。",
         );
       })
       .catch(function (err) {
-        setText("apply-log", "落改失败：" + String(err.message || err));
+        renderHunks(request.hunks || []);
+        setText("apply-log", String((err && err.message) || err));
       });
+  }
+
+  function onHunkClick(event) {
+    var button = event.target;
+    if (!button || !button.getAttribute || !currentRequest) {
+      return;
+    }
+    var action = button.getAttribute("data-act");
+    var index = Number(button.getAttribute("data-index"));
+    if (!action || !isFinite(index)) {
+      return;
+    }
+    if (action === "discard") {
+      decisionsFor(currentRequest.id)[index] = "discarded";
+      persistDecision(index, "discarded");
+      renderHunks(currentRequest.hunks || []);
+      setText("apply-log", "这一处不写入。");
+      return;
+    }
+  }
+
+  function keptIndexes(request) {
+    var map = decisionsFor(request.id);
+    var indexes = [];
+    (request.hunks || []).forEach(function (hunk, index) {
+      if (!map[index] && hunk.keep !== false) {
+        indexes.push(index);
+      }
+    });
+    return indexes;
+  }
+
+  function onApplyAll() {
+    if (!currentRequest) {
+      return;
+    }
+    var request = currentRequest;
+    var map = decisionsFor(request.id);
+    var dropped = [];
+    (request.hunks || []).forEach(function (hunk, index) {
+      if (!map[index] && hunk.keep === false) {
+        dropped.push(index);
+      }
+    });
+    var kept = keptIndexes(request);
+    if (kept.length === 0 && dropped.length === 0) {
+      setText("apply-log", "没有要写入的修订。");
+      return;
+    }
+    setText("apply-log", "正在按勾选写入…");
+    var chain = Promise.resolve();
+    dropped.forEach(function (index) {
+      chain = chain.then(function () {
+        map[index] = "discarded";
+        return api("/api/word-addin/reviews/" + encodeURIComponent(request.id) + "/decisions", {
+          method: "POST",
+          body: JSON.stringify({ index: index, status: "discarded" }),
+        });
+      });
+    });
+    kept.forEach(function (index) {
+      chain = chain.then(function () {
+        var hunk = request.hunks[index];
+        return api("/api/word-addin/reviews/" + encodeURIComponent(request.id) + "/revise", {
+          method: "POST",
+          body: JSON.stringify({ index: index, replace: hunk.replace }),
+        });
+      });
+    });
+    chain
+      .then(function () {
+        if (!request.taskId) {
+          return undefined;
+        }
+        return api("/api/word-addin/reviews/" + encodeURIComponent(request.id) + "/commit", {
+          method: "POST",
+          body: JSON.stringify({}),
+        }).catch(function () {
+          setText("apply-log", "当前文档会写入。旁边那版 Word 这次没能覆盖。");
+          return undefined;
+        });
+      })
+      .then(function () {
+        if (kept.length === 0) {
+          renderHunks(request.hunks || []);
+          setText("apply-log", "已去掉不写的修订。");
+          return undefined;
+        }
+        placeIndexes(kept, false);
+        return undefined;
+      })
+      .catch(function (err) {
+        setText("apply-log", humanApiError(err));
+      });
+  }
+
+  function threadTitle(item) {
+    var ask = String((item && item.instruction) || DEFAULT_ASK)
+      .replace(/\s+/g, " ")
+      .trim();
+    if (ask.length > 42) {
+      ask = ask.slice(0, 42) + "…";
+    }
+    return ask + " · " + stateLabel(item && item.state);
+  }
+
+  function renderThread(items, activeId) {
+    var list = el("thread-list");
+    if (!list) {
+      return;
+    }
+    documentReviews = items || [];
+    var rows = documentReviews.slice(0, 8);
+    list.hidden = rows.length === 0;
+    list.innerHTML = "";
+    rows.forEach(function (item) {
+      var li = document.createElement("li");
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn thread__item" + (item.id === activeId ? " is-on" : "");
+      button.textContent = threadTitle(item);
+      button.addEventListener("click", function () {
+        renderRequest(item);
+        renderThread(documentReviews, item.id);
+        if (item.state === "queued" || item.state === "running") {
+          currentRequestId = item.id;
+          startPolling();
+        }
+      });
+      li.appendChild(button);
+      list.appendChild(li);
+    });
   }
 
   function onExport() {
@@ -508,37 +860,27 @@
   }
 
   function bind() {
-    var review = el("btn-review");
-    var refresh = el("btn-refresh");
-    var apply = el("btn-apply");
+    var submit = el("btn-submit");
+    var applyAll = el("btn-apply-all");
     var exportBtn = el("btn-export");
-    if (review) {
-      review.addEventListener("click", onReview);
+    var hunks = el("hunk-list");
+    if (submit) {
+      submit.addEventListener("click", onSubmit);
     }
-    if (refresh) {
-      refresh.addEventListener("click", onRefresh);
-    }
-    if (apply) {
-      apply.addEventListener("click", onApply);
-    }
-    var matterBtn = el("btn-matter");
-    if (matterBtn) {
-      matterBtn.addEventListener("click", onMatterPick);
+    if (applyAll) {
+      applyAll.addEventListener("click", onApplyAll);
     }
     if (exportBtn) {
       exportBtn.addEventListener("click", onExport);
+    }
+    if (hunks) {
+      hunks.addEventListener("click", onHunkClick);
     }
   }
 
   function boot() {
     bind();
-    setText("engine-line", "本机 LawMind：" + CONFIG.base);
-    setText(
-      "engine-note",
-      AUTO_RUN
-        ? "插件只与本机回环地址上的 LawMind 服务通信，不连任何远程控制面。点「审这份」后桌面端会自动开跑；跑完结果自动回到这里，直接落成 Word 原生修订轨。"
-        : "插件只与本机回环地址上的 LawMind 服务通信，不连任何远程控制面。这台机器设成「需在桌面端确认」：点「审这份」会登记请求，请在 LawMind 桌面端对同一份文件跑一次审查，结果会自动回到这里。",
-    );
+    setText("standard-line", "正在用：" + (CONFIG.standardName || "本所标准"));
     var path = currentDocumentPath();
     setText("doc-path", path || "（这份文档尚未保存到本机，请先另存为 .docx）");
     resumeLatestRequest(path);
@@ -558,6 +900,7 @@
         // 该看哪一条由引擎侧决定（有结果先给结果）；插件只负责显示。
         var pick = body.picked || items[0];
         renderRequest(pick);
+        renderThread(items, pick.id);
         if (pick.state === "queued" || pick.state === "running") {
           startPolling();
           return;
@@ -591,6 +934,7 @@
   if (CONFIG.testHook === true) {
     window.LAWMIND_ADDIN_INTERNALS = {
       applyHunksInWord: applyHunksInWord,
+      applyHunksInWps: applyHunksInWps,
       pickFromList: function (items) {
         var ready = (items || []).filter(function (i) {
           return i.state === "ready";

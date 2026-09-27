@@ -4,7 +4,9 @@ import {
   findUnpairedToolCallIds,
   hasOpenToolGroup,
   isToolPairingRejectText,
+  LEGACY_CANCELLED_TOOL_PLACEHOLDER,
   normalizeToolResultMessages,
+  prepareContinuationHistory,
   repairToolCallPairing,
   sanitizeWireMessages,
   sliceKeepingToolGroups,
@@ -53,6 +55,36 @@ describe("findUnpairedToolCallIds", () => {
       { role: "user", content: "等等", timestamp: "t" } as AgentMessage,
     ];
     expect(findUnpairedToolCallIds(history)).toEqual(["a"]);
+  });
+});
+
+describe("prepareContinuationHistory", () => {
+  it("rewrites a legacy cancelled placeholder and closes a dangling call as unfinished", () => {
+    const history: AgentMessage[] = [
+      assistantWithCalls(["done", "open"]),
+      {
+        role: "tool",
+        content: JSON.stringify({ ok: false, error: LEGACY_CANCELLED_TOOL_PLACEHOLDER }),
+        toolCallResponses: [
+          {
+            toolCallId: "done",
+            name: "apply_surgical_edits",
+            result: { ok: false, error: LEGACY_CANCELLED_TOOL_PLACEHOLDER },
+          },
+        ],
+        timestamp: "t",
+      },
+    ];
+    const prepared = prepareContinuationHistory(history);
+    expect(prepared.unfinished).toEqual(["apply_surgical_edits", "tool_open"]);
+    const errors = prepared.messages
+      .flatMap((msg) => msg.toolCallResponses ?? [])
+      .map((resp) => resp.result.error);
+    expect(errors).toEqual([
+      TOOL_CALL_PAIRING_PLACEHOLDER_ERROR,
+      TOOL_CALL_PAIRING_PLACEHOLDER_ERROR,
+    ]);
+    expect(prepared.messages.map((msg) => msg.role)).toEqual(["assistant", "tool", "tool"]);
   });
 });
 

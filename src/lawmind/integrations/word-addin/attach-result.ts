@@ -74,6 +74,7 @@ export async function attachWordAddinResultForSource(params: {
   summary?: string;
   guardian?: WordAddinGuardianAdvisory;
   partialHunks?: WordAddinPartialHunks;
+  taskId?: string;
 }): Promise<{ attached: string[] }> {
   const pending = [
     ...listWordAddinReviews(params.workspaceDir, { state: "queued" }),
@@ -113,6 +114,7 @@ export async function attachWordAddinResultForSource(params: {
       hunks,
       skippedSectionHunks: derived.skippedSectionHunks,
       summary,
+      ...(params.taskId?.trim() ? { taskId: params.taskId.trim() } : {}),
       ...(note ? { note } : {}),
     });
     if (updated.ok) {
@@ -150,6 +152,7 @@ export async function attachWordAddinResultSafely(params: {
   summary?: string;
   guardian?: WordAddinGuardianAdvisory;
   partialHunks?: WordAddinPartialHunks;
+  taskId?: string;
 }): Promise<string[]> {
   try {
     const result = await attachWordAddinResultForSource(params);

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { resolveOfficeCliBin } from "../artifacts/officecli-bin.js";
 import { runSafeCommand } from "../platform/safe-command.js";
+import { ensureLocalFile, IcloudLawyerPrompt } from "../runtime/icloud-materialize.js";
 import { allowedRootsForCommands, resolveHostPath } from "./access-broker.js";
 import { isUnderRoot } from "./paths.js";
 import type { HostAccessRuntime } from "./types.js";
@@ -214,6 +215,7 @@ export async function runHostCommand(
     return auth;
   }
   try {
+    await materializeHostCommandInputs(auth.args, auth.cwd);
     const result = await runSafeCommand({
       command: auth.command,
       args: auth.args,
@@ -228,6 +230,25 @@ export async function runHostCommand(
       exitCode: result.exitCode ?? 1,
     };
   } catch (err) {
+    if (err instanceof IcloudLawyerPrompt) {
+      throw err;
+    }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** 命令参数里的文件若还在 iCloud，先落到本机再交给子进程，避免 textutil 堵在 read() 上。 */
+async function materializeHostCommandInputs(args: readonly string[], cwd: string): Promise<void> {
+  const seen = new Set<string>();
+  for (const raw of args) {
+    if (!raw || raw.startsWith("-")) {
+      continue;
+    }
+    const candidate = path.isAbsolute(raw) ? raw : path.resolve(cwd, raw);
+    if (seen.has(candidate)) {
+      continue;
+    }
+    seen.add(candidate);
+    await ensureLocalFile(candidate);
   }
 }

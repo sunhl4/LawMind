@@ -134,7 +134,7 @@ const BUILT_IN_ROLES = ASSISTANT_PRESETS.map(presetToRole);
 | `output_format`     | 交付形式                  |
 | `priority`          | `normal` / `high` / `low` |
 
-`goal` / `not_goal` 这一对是「自包含任务书」的关键：被派的助手**看不到委派方的对话历史**，所以任务书必须把边界写清。这个模式在 `draft_worker` 那里也用了（第 5 章）。
+`goal` / `not_goal` 这一对是「自包含任务书」的关键：被派的助手**看不到委派方的对话历史**，所以任务书必须把边界写清。对话里的 `draft_worker` 用同一套任务书（第 23.7 节），但是只读子工：不能改原件、不能导出，正式稿仍由父会话 `draft_document` 落。委派是另一位助手的完整会话，不是这条只读子工。
 
 目标助手找不到时报：
 

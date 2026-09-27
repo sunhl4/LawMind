@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' {{BASE}}; script-src 'self'; connect-src {{BASE}}; img-src 'self' {{BASE}} data:; style-src 'self' {{BASE}};" />
+    <title>LawMind</title>
+    <link rel="stylesheet" href="{{BASE}}/word-addin/taskpane.css" />
+  </head>
+  <body>
+    <main class="pane">
+      <header class="pane__head">
+        <h1>LawMind</h1>
+        <p class="pane__meta" id="standard-line">正在读取本所标准…</p>
+        <p class="card__value" id="doc-path">（读取中…）</p>
+      </header>
+
+      <section class="card">
+        <label class="card__label" for="ask">要办的事</label>
+        <textarea id="ask" class="field ask" rows="3">按本所标准审这份</textarea>
+        <div class="row">
+          <button type="button" id="btn-submit" class="btn btn--primary">开始</button>
+        </div>
+        <p class="hint" id="lock-note" hidden>审查进行中，先不要改同一段。</p>
+        <p class="hint" id="review-state"></p>
+        <ul class="thread" id="thread-list" hidden></ul>
+      </section>
+
+      <section class="card" id="result-card" hidden>
+        <p class="card__label">建议</p>
+        <p class="card__value" id="result-summary"></p>
+        <ul class="hunks" id="hunk-list"></ul>
+        <p class="hint" id="desktop-note" hidden>整节重写已放到桌面稿。</p>
+        <p class="hint" id="apply-log"></p>
+        <div class="row">
+          <button type="button" id="btn-apply-all" class="btn btn--primary">确认写入</button>
+          <button type="button" id="btn-export" class="btn">导出桌面稿</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="{{BASE}}/word-addin/config.js"></script>
+    <script src="{{BASE}}/word-addin/wps/host.js"></script>
+    <script src="{{BASE}}/word-addin/taskpane.js"></script>
+  </body>
+</html>

@@ -11,6 +11,7 @@ import type { LawmindComposeExtras } from "./useLawmindComposeExtras";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "./lawmind-requires-action";
 import { handleEnterSendShiftNewline, type ChatMsg } from "./lawmind-chat";
 import { useTurnInboxNote } from "./lawmind-turn-inbox-post";
+import { parseForkContinueRequest } from "../../../../src/lawmind/agent/fork-continue-request.ts";
 import type { ChatContextForkProps } from "./LawmindContextForkSuggestion";
 import {
   LM_CHAT_COMPOSE_DEFAULT_HEIGHT_PX,
@@ -506,7 +507,15 @@ export function LawmindChatComposeFooter({
     }
     const text = input.trim();
     // Inbox: live turn + Enter is steer (same turn). 「下一轮再发」 must call onSend (followup).
-    if (loading && text && apiBase && chatSessionId) {
+    // 「另起 / 重开对话并带上文」不能 steer：steer 只进当前回合的下一轮采样，模型开不了新会话。
+    // 改走 onSend，活回合会把它排成 followup，回合停稳后再 fork。
+    if (
+      loading &&
+      text &&
+      apiBase &&
+      chatSessionId &&
+      !parseForkContinueRequest(text)
+    ) {
       turnInbox.post("steer", { text }, apiBase, chatSessionId);
       onInputChange("");
       writeComposeStash(contextMatterId, "");
@@ -527,8 +536,8 @@ export function LawmindChatComposeFooter({
       {
         id: "review",
         slash: "/review",
-        label: "改稿",
-        hint: "打开全文改稿、预览与导出",
+        label: "修订",
+        hint: "在中间栏看这份合同改了哪几处",
         run: () => onOpenReview?.(),
       },
       {

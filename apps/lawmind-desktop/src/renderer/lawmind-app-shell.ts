@@ -9,7 +9,7 @@ import { useLawmindChatShell } from "./useLawmindChatShell";
 import { useLawmindCollaborationWatch } from "./useLawmindCollaborationWatch";
 import { useLawmindBackgroundWatch } from "./useLawmindBackgroundWatch";
 import { useLawmindChatSessions } from "./useLawmindChatSessions";
-import { useLawmindChatSend } from "./useLawmindChatSend";
+import { useLawmindChatSend, type ForkContinueHandler } from "./useLawmindChatSend";
 import { useLawmindComposeExtras } from "./useLawmindComposeExtras";
 import { resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
 import { useLawmindDetailDomain, useLawmindRecordsDomain } from "./lawmind-app-shell-domains";
@@ -388,6 +388,8 @@ export function useLawmindAppShell() {
   const [streamCompactNoticesByAssistant, setStreamCompactNoticesByAssistant] = useState<
     Record<string, string[]>
   >({});
+  /** 对话里要求「另起新对话并带上文」时，发送路径在模型看见原文之前调用。 */
+  const forkContinueRef = useRef<ForkContinueHandler | null>(null);
   /** 建议卡关掉后要重渲染（判定读的是 localStorage，不是 state，故只取 setter）。 */
   const [, bumpContextForkVersion] = useState(0);
   /** 同一源会话复用同一个 nonce：连点两次只复用一个新会话，不造第二份。 */
@@ -464,6 +466,7 @@ export function useLawmindAppShell() {
     abortLiveChatSessionRef,
     hasLiveClientTurnRef,
     reattachLiveChatSessionRef,
+    forkContinueRef,
   });
   useLawmindCollaborationWatch({
     apiBase: config?.apiBase,
@@ -477,23 +480,29 @@ export function useLawmindAppShell() {
    * 另起新对话并带上文：源会话的整理稿作为续接种子进新会话，然后切过去。
    * 失败（回合在跑 / 有待批准授权）如实说明——不静默丢授权。
    */
-  const handleForkWithCarryover = useCallback(async () => {
-    const sourceSessionId = sessionByAssistant[selectedAssistantId];
-    if (!sourceSessionId) {
-      return;
+  const handleForkWithCarryover = useCallback(async (sourceSessionId?: string) => {
+    const source = (sourceSessionId ?? sessionByAssistant[selectedAssistantId] ?? "").trim();
+    if (!source) {
+      const message = "当前没有可续接的对话。";
+      setStreamCompactNoticesByAssistant((prev) => ({
+        ...prev,
+        [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), message],
+      }));
+      return { ok: false as const, message };
     }
-    if (forkNonceRef.current?.sessionId !== sourceSessionId) {
-      forkNonceRef.current = { sessionId: sourceSessionId, nonce: newForkNonce() };
+    if (forkNonceRef.current?.sessionId !== source) {
+      forkNonceRef.current = { sessionId: source, nonce: newForkNonce() };
     }
     const result = await composeExtras.forkWithCarryover({
       clientNonce: forkNonceRef.current.nonce,
+      sessionId: source,
     });
     if (!result.ok) {
       setStreamCompactNoticesByAssistant((prev) => ({
         ...prev,
         [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), result.message],
       }));
-      return;
+      return { ok: false as const, message: result.message };
     }
     await refreshChatSessionListForAssistant(selectedAssistantId);
     await selectChatSession(result.sessionId, selectedAssistantId);
@@ -505,6 +514,7 @@ export function useLawmindAppShell() {
       ...prev,
       [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), `已另起新对话${carried}`],
     }));
+    return { ok: true as const, sessionId: result.sessionId };
   }, [
     composeExtras,
     refreshChatSessionListForAssistant,
@@ -512,6 +522,7 @@ export function useLawmindAppShell() {
     selectedAssistantId,
     sessionByAssistant,
   ]);
+  forkContinueRef.current = handleForkWithCarryover;
 
   const copyMessage = useCallback(async (text: string, index: number) => {
     await navigator.clipboard.writeText(text);

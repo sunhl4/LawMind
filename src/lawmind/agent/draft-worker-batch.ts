@@ -1,7 +1,8 @@
 /**
  * Same-round draft_worker contract.
- * The parent model emits the briefs; this module only rejects colliding
- * sections and writes a deterministic join index before the next sample.
+ * The parent model emits the briefs; this module rejects colliding sections
+ * and writes a join index (gaps, each conclusion, shared citations) before
+ * the next sample. It does not decide whether two conclusions conflict.
  */
 
 import { DRAFT_WORKER_TOOL_NAME } from "./draft-worker.js";
@@ -15,7 +16,12 @@ export type DraftWorkerCallRef = {
 };
 
 const EMPTY_SECTION_ERROR =
-  "并行写稿必须写明章节名（section），且各章不能相同。空的 section 不会执行。";
+  "并行的几支必须各自写明章节名，而且不能相同。这一支没有章节名，没有执行。";
+
+/** Section collisions only. Short tasks stay in the prompt; the engine does not keyword-reject them. */
+export function draftWorkerDispatchErrors(calls: DraftWorkerCallRef[]): Map<string, string> {
+  return draftWorkerSectionErrors(calls);
+}
 
 export function draftWorkerSectionErrors(calls: DraftWorkerCallRef[]): Map<string, string> {
   const workers = calls.filter((call) => call.name === DRAFT_WORKER_TOOL_NAME);
@@ -32,7 +38,7 @@ export function draftWorkerSectionErrors(calls: DraftWorkerCallRef[]): Map<strin
     }
     const previous = seen.get(section);
     if (previous) {
-      const error = `并行写稿的章节名重复：「${section}」。请改成互不相同的 section 后再调用。`;
+      const error = `并行的几支章节名重复：「${section}」。请改成不同的章节名后再调用。`;
       errors.set(call.id, error);
       errors.set(previous, error);
       continue;
@@ -46,6 +52,7 @@ export type DraftJoinRow = {
   section: string;
   gaps: string[];
   citations: string[];
+  conclusion?: string;
 };
 
 /** Short index the parent must read before stitching sections. No extra model call. */
@@ -53,13 +60,19 @@ export function buildDraftWorkerJoinIndex(rows: DraftJoinRow[]): string | undefi
   if (rows.length < 2) {
     return undefined;
   }
-  const lines = ["【并行写稿对照】汇总前先核对，不要把各章原文直接拼接。"];
+  const lines = [
+    "【并行写稿对照】汇总前先核对，不要把各章原文直接拼接。各支结论列在下面，是否互相矛盾由你判断。",
+  ];
   for (const row of rows) {
     const gaps = row.gaps
       .map((gap) => gap.replace(/\s+/g, " ").trim())
       .filter(Boolean)
       .slice(0, 3);
-    lines.push(`- ${row.section}：缺口 ${gaps.length > 0 ? gaps.join("；") : "无"}`);
+    const conclusion = row.conclusion?.replace(/\s+/g, " ").trim();
+    const conclusionBit = conclusion ? `；结论 ${conclusion}` : "";
+    lines.push(
+      `- ${row.section}：缺口 ${gaps.length > 0 ? gaps.join("；") : "无"}${conclusionBit}`,
+    );
   }
   const owners = new Map<string, string[]>();
   for (const row of rows) {
@@ -111,6 +124,7 @@ export function attachDraftWorkerJoinIndex(outcomes: JoinCarrier[]): void {
       section,
       gaps: stringList(data?.gaps),
       citations: stringList(data?.citations),
+      conclusion: typeof data?.conclusion === "string" ? data.conclusion : undefined,
     });
   }
   const index = buildDraftWorkerJoinIndex(rows);

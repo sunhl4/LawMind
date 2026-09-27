@@ -31,25 +31,23 @@ describe("WordAddinDoctorGroup", () => {
     });
   }
 
-  it("不展示端口，只请律师重开 Word", async () => {
-    vi.stubGlobal("lawmindDesktop", {
-      getConfig: async () => ({
-        loopbackPortDrift: { requestedPort: 54881, actualPort: 55102, occupant: "foreign" },
-      }),
-    });
+  it("清单刚写过时请律师重开，并且不展示端口", async () => {
     Object.defineProperty(window, "lawmindDesktop", {
       configurable: true,
       value: {
         getConfig: async () => ({
-          loopbackPortDrift: { requestedPort: 54881, actualPort: 55102, occupant: "foreign" },
+          addinHosts: { word: "reopen", wps: "reopen" },
         }),
       },
     });
     await render();
     const text = host.textContent ?? "";
     expect(text).toContain("请完全退出 Word");
-    expect(text).toContain("重新连接 Word");
-    expect(host.querySelector("[data-testid=lm-doctor-addin-port-contract]")?.textContent).not.toContain("已连接");
+    expect(text).toContain("请完全退出 WPS");
+    expect(text).toContain("重新连接");
+    expect(host.querySelector("[data-testid=lm-doctor-addin-port-contract]")?.textContent).not.toContain(
+      "已连接",
+    );
     expect(text).not.toContain("54881");
     expect(text).not.toContain("55102");
     expect(text).not.toContain("侧载");
@@ -60,7 +58,7 @@ describe("WordAddinDoctorGroup", () => {
       configurable: true,
       value: {
         getConfig: async () => ({
-          loopbackPortDrift: { requestedPort: 1, actualPort: 2, occupant: "unknown" },
+          addinHosts: { word: "reopen", wps: "missing" },
         }),
         syncWordAddinManifest: async () => ({
           ok: true,
@@ -77,7 +75,9 @@ describe("WordAddinDoctorGroup", () => {
     });
     expect(host.textContent).toContain("请完全退出 Word");
     expect(host.textContent).toContain("下载");
-    expect(host.querySelector("[data-testid=lm-doctor-addin-port-contract]")?.textContent).not.toContain("已连接");
+    expect(host.querySelector("[data-testid=lm-doctor-addin-port-contract]")?.textContent).not.toContain(
+      "已连接",
+    );
   });
 
   it("另一个 LawMind 占用时不提供改写按钮", async () => {
@@ -85,7 +85,7 @@ describe("WordAddinDoctorGroup", () => {
       configurable: true,
       value: {
         getConfig: async () => ({
-          loopbackPortDrift: { requestedPort: 1, actualPort: 2, occupant: "another-lawmind" },
+          addinHosts: { word: "another-copy", wps: "another-copy" },
         }),
       },
     });
@@ -94,16 +94,19 @@ describe("WordAddinDoctorGroup", () => {
     expect(host.querySelector("[data-testid=lm-doctor-addin-resync]")).toBeNull();
   });
 
-  it("端口没有被占用时不占设置页", async () => {
+  it("两边都指着当前 LawMind 时仍留在设置页，方便再次登记", async () => {
     Object.defineProperty(window, "lawmindDesktop", {
       configurable: true,
       value: {
-        getConfig: async () => ({}),
+        getConfig: async () => ({
+          addinHosts: { word: "connected", wps: "connected" },
+        }),
       },
     });
     await render();
-    expect(host.querySelector("[data-testid=lm-doctor-word-addin]")).toBeNull();
-    expect(host.textContent ?? "").not.toContain("已连接");
-    expect(host.textContent ?? "").not.toContain("重新连接");
+    expect(host.querySelector("[data-testid=lm-doctor-word-addin]")).not.toBeNull();
+    expect(host.textContent).toContain("Word 已连接");
+    expect(host.textContent).toContain("WPS 已连接");
+    expect(host.querySelector("[data-testid=lm-doctor-addin-resync]")?.textContent).toContain("重新连接");
   });
 });

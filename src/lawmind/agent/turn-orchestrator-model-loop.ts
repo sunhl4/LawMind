@@ -42,7 +42,11 @@ import { applyMidTurnCompact } from "./mid-turn-compact.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import { claimAndApplyPendingContextPins, appendContextPins } from "./session-context-inject.js";
 import { claimAndApplyPendingSteer } from "./session-context-steer.js";
-import { normalizeToolResultMessages, repairToolCallPairing } from "./session-tool-call-pairing.js";
+import {
+  normalizeToolResultMessages,
+  repairToolCallPairing,
+  rewriteUnfinishedToolPlaceholders,
+} from "./session-tool-call-pairing.js";
 import {
   isContextOverflowError,
   OVERFLOW_PRUNE_KEEP_RECENT,
@@ -103,8 +107,18 @@ export function shouldWarnToolBudget(used: number, maxToolCalls: number): boolea
 /**
  * Same tool batch this many times in a row is a spin, not progress.
  * Nudge once (the model may still change course); the next identical batch stops.
+ * A Word-revision reread of a file that already came back `hasMore=false` gets
+ * one extra sample after that stop would have fired. The next identical batch
+ * still stops. See {@link shouldContinueCompletedDocumentReread}.
  */
 export const IDENTICAL_TOOL_REPEAT_NUDGE_AT = 3;
+
+/** Reads whose completed payload is `hasMore: false`. Not search, not writers. */
+const COMPLETED_READ_TOOL_NAMES = new Set([
+  "analyze_document",
+  "read_project_file",
+  "read_host_file",
+]);
 
 export type IdenticalToolStreak = {
   signature: string;
@@ -153,8 +167,149 @@ export function formatIdenticalToolRepeatNudge(): string {
   return "【重复调用】刚才这组工具和参数已经连续重复，没有新信息。换一种做法，或根据已有结果直接写回复。";
 }
 
-export function formatIdenticalToolRepeatStop(): string {
-  return "同一操作已连续重复，先停在这里以防空转。已有的结果都还在。需要时在对话里接着办。";
+export function formatDocumentRereadNudge(opts: {
+  totalChars?: number;
+  wordRevision: boolean;
+}): string {
+  const chars =
+    typeof opts.totalChars === "number"
+      ? `（约 ${Math.max(0, Math.floor(opts.totalChars))} 字）`
+      : "";
+  const next = opts.wordRevision
+    ? "不要再读这一份。还没有合同基线就 seed 一次；已有基线就 apply_surgical_edits（定位不到的写入 craft_check.deferred），然后 render_tracked_draft。不要编造原文里没有的句子。"
+    : "不要再读这一份。根据已有正文直接写回复。";
+  return `【重复调用】这份文书已经读完${chars}，相同参数没有新正文。${next}`;
+}
+
+/** One extra sample after a finished reread would have stopped a Word-revision turn. */
+export function formatDocumentRereadContinue(opts: { totalChars?: number }): string {
+  const chars =
+    typeof opts.totalChars === "number"
+      ? `已有正文约 ${Math.max(0, Math.floor(opts.totalChars))} 字。`
+      : "正文已经在上面的工具结果里。";
+  return [
+    "【改稿】同一份文书已读完，再读不会多出正文。",
+    chars,
+    "不要再调用读取工具。还没有合同基线就 seed 一次；已有基线就 apply_surgical_edits（最短锚定；定位不到的写入 craft_check.deferred），然后 render_tracked_draft。",
+    "不要编造原文里没有的句子，也不要再 draft 一份意见稿。",
+  ].join("\n");
+}
+
+const DRAFT_REPEAT_TOOL_NAMES = new Set(["draft_document", "update_draft"]);
+const SEARCH_REPEAT_TOOL_NAMES = new Set([
+  "search_matter",
+  "search_workspace",
+  "search_statute",
+  "search_statute_web",
+  "search_case_law",
+  "search_host",
+  "web_search",
+]);
+
+/** Why the lawyer-facing stop says what it says. Tool ids never appear in that sentence. */
+export type LawyerRepeatKind = "read_done" | "read_stuck" | "draft" | "search" | "other";
+
+export function lawyerRepeatKind(
+  toolNames: readonly string[],
+  readFinished: boolean,
+): LawyerRepeatKind {
+  if (readFinished) {
+    return "read_done";
+  }
+  if (toolNames.length > 0 && toolNames.every((name) => COMPLETED_READ_TOOL_NAMES.has(name))) {
+    return "read_stuck";
+  }
+  if (toolNames.length > 0 && toolNames.every((name) => DRAFT_REPEAT_TOOL_NAMES.has(name))) {
+    return "draft";
+  }
+  if (toolNames.length > 0 && toolNames.every((name) => SEARCH_REPEAT_TOOL_NAMES.has(name))) {
+    return "search";
+  }
+  return "other";
+}
+
+const LAWYER_REPEAT_LEAD: Record<LawyerRepeatKind, string> = {
+  read_done:
+    "这份材料已经读完，再用同样的方式读也不会多出内容，所以先停下来。已经读到的内容都还在。",
+  read_stuck: "同一处又读了好几次，没有读到新的内容，所以先停下来。已经读到的内容都还在。",
+  draft: "起草做了好几次，没有写出新的修改，所以先停下来。已经做好的结果都还在。",
+  search: "同样的查找做了好几次，没有新的结果，所以先停下来。已经查到的内容都还在。",
+  other: "同一步做了好几次，没有新的进展，所以先停下来。已经做好的结果都还在。",
+};
+
+export function formatIdenticalToolRepeatStop(opts?: {
+  kind?: LawyerRepeatKind;
+  /** 这一轮是改原 Word，带修改痕迹的稿还没写到原文件旁边。 */
+  trackedDraftMissing?: boolean;
+}): string {
+  const parts = [LAWYER_REPEAT_LEAD[opts?.kind ?? "other"]];
+  if (opts?.trackedDraftMissing) {
+    parts.push("带修改痕迹的稿子还没有出现在原文件旁边。");
+  }
+  parts.push("要继续办理，在这条对话里回复「继续」即可。");
+  return parts.join("");
+}
+
+export type CompletedDocumentReread = {
+  /** Set only when the batch is a single completed read with a numeric total. */
+  totalChars?: number;
+};
+
+function toolResultDataByCallId(
+  messages: ReadonlyArray<Pick<AgentMessage, "role" | "toolCallResponses">>,
+): Map<string, Record<string, unknown>> {
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const msg of messages) {
+    if (msg.role !== "tool") {
+      continue;
+    }
+    for (const resp of msg.toolCallResponses ?? []) {
+      const data = resp.result.ok ? resp.result.data : undefined;
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        byId.set(resp.toolCallId, data as Record<string, unknown>);
+      }
+    }
+  }
+  return byId;
+}
+
+/**
+ * Every call is a document read that already returned the whole extract.
+ * `hasMore !== false` (missing, true, or a failed read) is not this case:
+ * repeating a page or an error is still a spin and must stop.
+ */
+export function completedDocumentReread(
+  calls: ReadonlyArray<{ id: string; name: string }>,
+  messages: ReadonlyArray<Pick<AgentMessage, "role" | "toolCallResponses">>,
+): CompletedDocumentReread | null {
+  if (calls.length === 0 || calls.some((call) => !COMPLETED_READ_TOOL_NAMES.has(call.name))) {
+    return null;
+  }
+  const byId = toolResultDataByCallId(messages);
+  let totalChars: number | undefined;
+  for (const call of calls) {
+    const data = byId.get(call.id);
+    if (!data || data.hasMore !== false || data.kind === "directory") {
+      return null;
+    }
+    if (
+      calls.length === 1 &&
+      typeof data.totalChars === "number" &&
+      Number.isFinite(data.totalChars)
+    ) {
+      totalChars = data.totalChars;
+    }
+  }
+  return totalChars === undefined ? {} : { totalChars };
+}
+
+/** Word 改稿、且本轮还没用过这次豁免时，读完再读不收工。 */
+export function shouldContinueCompletedDocumentReread(opts: {
+  wordRevision: boolean;
+  alreadyContinued: boolean;
+  reread: CompletedDocumentReread | null;
+}): boolean {
+  return opts.wordRevision && !opts.alreadyContinued && opts.reread != null;
 }
 
 /**
@@ -218,6 +373,8 @@ export async function runModelToolLoop(opts: {
   /** One missing provider choice per turn is a glitch, not a failed delivery. */
   let emptyChoiceRetryUsed = false;
   let identicalToolStreak: IdenticalToolStreak | null = null;
+  /** At most one extra sample per turn after a finished Word-revision reread. */
+  let documentRereadContinued = false;
 
   const strictUpstreamToolStreaming = resolveStrictUpstreamToolStreaming(opts.hasOnEvent);
   const hardCeiling =
@@ -508,7 +665,8 @@ export async function runModelToolLoop(opts: {
           // 服务端以「工具结果不配对」拒收时：修复来源历史并落盘，再重发一次。
           // 修复必须落到 session，否则下一轮又会从同一份坏历史重建（Claude Code 的教训）。
           onToolPairingReject: () => {
-            const normalized = normalizeToolResultMessages(opts.session.conversationHistory);
+            const rewritten = rewriteUnfinishedToolPlaceholders(opts.session.conversationHistory);
+            const normalized = normalizeToolResultMessages(rewritten.messages);
             const pairing = repairToolCallPairing(normalized.messages);
             opts.session.conversationHistory = pairing.messages;
             try {
@@ -880,11 +1038,15 @@ export async function runModelToolLoop(opts: {
         toolCallBatchSignature(toolRefs),
       );
       const repeat = identicalToolRepeatDecision(identicalToolStreak);
+      const reread = completedDocumentReread(toolRefs, opts.session.conversationHistory);
+      const wordRevision = opts.ctx.wordRevisionTurn === true;
       if (repeat === "nudge") {
         identicalToolStreak = { ...identicalToolStreak, nudged: true };
         const nudge = {
           role: "user" as const,
-          content: formatIdenticalToolRepeatNudge(),
+          content: reread
+            ? formatDocumentRereadNudge({ totalChars: reread.totalChars, wordRevision })
+            : formatIdenticalToolRepeatNudge(),
           timestamp: new Date().toISOString(),
           hiddenFromLawyer: true,
         };
@@ -893,8 +1055,34 @@ export async function runModelToolLoop(opts: {
         continue;
       }
       if (repeat === "stop") {
+        if (
+          shouldContinueCompletedDocumentReread({
+            wordRevision,
+            alreadyContinued: documentRereadContinued,
+            reread,
+          })
+        ) {
+          documentRereadContinued = true;
+          const steer = {
+            role: "user" as const,
+            content: formatDocumentRereadContinue({ totalChars: reread?.totalChars }),
+            timestamp: new Date().toISOString(),
+            hiddenFromLawyer: true,
+          };
+          opts.session.conversationHistory.push(steer);
+          opts.turn.messages.push(steer);
+          continue;
+        }
+        const trackedDraftMissing =
+          wordRevision && (opts.turn.toolNameCallCounts?.render_tracked_draft ?? 0) === 0;
         opts.turn.status = "completed";
-        finalReply = formatIdenticalToolRepeatStop();
+        finalReply = formatIdenticalToolRepeatStop({
+          kind: lawyerRepeatKind(
+            toolRefs.map((call) => call.name),
+            reread != null,
+          ),
+          trackedDraftMissing,
+        });
         break;
       }
     }

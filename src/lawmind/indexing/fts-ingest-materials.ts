@@ -15,6 +15,7 @@ import {
   readXlsxPlainText,
 } from "../agent/tools/legal/ingest-helpers.js";
 import { isBinaryWordDocPath, readBinaryWordDocText } from "../mail/read-word-binary.js";
+import { ensureLocalFileSync, IcloudDatalessError } from "../runtime/icloud-materialize.js";
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_BODY_CHARS = 60_000;
@@ -74,6 +75,13 @@ function walkMaterials(workspaceDir: string): MaterialFileRow[] {
 
 async function extractMaterialText(abs: string, fileName: string): Promise<string> {
   const lower = fileName.toLowerCase();
+  try {
+    ensureLocalFileSync(abs);
+  } catch (err) {
+    if (err instanceof IcloudDatalessError) {
+      return "";
+    }
+  }
   try {
     if (/\.(txt|md|markdown|csv|log|text)$/i.test(lower)) {
       return fs.readFileSync(abs, "utf8");

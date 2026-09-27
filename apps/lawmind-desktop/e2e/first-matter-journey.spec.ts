@@ -9,7 +9,6 @@ import {
   launchLawMindElectron,
   openReviewWorkbench,
   prepareE2EUserData,
-  selectDraftInWorkbench,
   submitWorkspaceChat,
   waitForLocalServerReady,
   waitForShell,
@@ -52,14 +51,11 @@ test.describe("首跑案件全旅程 E2E", () => {
       });
       expect(draft.taskId).toBeTruthy();
 
-      // 5. 在审核台/文书台查看草稿
+      // 5. 看修订回到对话，不进入全文改稿台
       await openReviewWorkbench(window);
-      await selectDraftInWorkbench(window, draft.taskId);
-      await expect(
-        window.getByRole("heading", { name: "E2E 买卖合同审查意见" }),
-      ).toBeVisible({ timeout: 15_000 });
+      await expect(window.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
 
-      // 6. 执行签批（UI 按钮因必核清单被禁用，故使用 API 签批；仍属于端到端状态断言）
+      // 6. 执行签批（API；签批界面在在办）
       await approveDraft(rendererConfig.apiBase, rendererConfig.apiAuthToken, draft.taskId);
       const detailAfterApprove = await getDraftDetail(
         rendererConfig.apiBase,
@@ -127,8 +123,6 @@ test.describe("首跑案件全旅程 E2E", () => {
         sections: [{ heading: "结论", body: "E2E_SKIP_FIRST_RUN_CONTENT" }],
       });
 
-      await openReviewWorkbench(window);
-      await selectDraftInWorkbench(window, draft.taskId);
       await approveDraft(rendererConfig.apiBase, rendererConfig.apiAuthToken, draft.taskId);
       const renderResp = await renderDraft(
         rendererConfig.apiBase,

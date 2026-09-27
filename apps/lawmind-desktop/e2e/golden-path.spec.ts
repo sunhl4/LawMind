@@ -41,14 +41,12 @@ test.describe("LawMind golden path", () => {
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(280);
   });
 
-  test("review workbench shows acceptance gate region when opened", async ({ page }) => {
+  test("签批在在办，不打开改稿台", async ({ page }) => {
     test.setTimeout(120_000);
     await gotoShell(page);
     await openReviewDraft(page);
-    await expect(page.locator(".lm-review-workbench-root")).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator("#lm-review-acceptance-gate")).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/出稿检查/).first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("lm-review-export-blockers")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".lm-review-workbench-root")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "签批" }).first()).toBeVisible({ timeout: 30_000 });
   });
 
   test("tool approval card resumes without manual __approved JSON", async ({ page }) => {

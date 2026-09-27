@@ -86,6 +86,11 @@ export function queuePendingSteer(
   });
 }
 
+/** Read queued notes without consuming them. Sidecars inject a copy; the parent still claims. */
+export function peekPendingSteer(workspaceDir: string, sessionId: string): string[] {
+  return readPendingFile(pendingSteerPath(workspaceDir, sessionId));
+}
+
 export function claimPendingSteer(
   workspaceDir: string,
   sessionId: string,

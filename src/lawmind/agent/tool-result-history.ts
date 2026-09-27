@@ -242,6 +242,26 @@ export function slimDuplicateVerifyFields(result: unknown): unknown {
   return { ...record, data: nextData };
 }
 
+/** Parent history keeps `result` once. `draft` repeats the same body. */
+function slimDuplicateWorkerBody(result: unknown): unknown {
+  const record = asRecord(result);
+  if (!record) {
+    return result;
+  }
+  const data = asRecord(record.data);
+  if (!data || data.role !== "draft-worker") {
+    return result;
+  }
+  const draft = typeof data.draft === "string" ? data.draft : "";
+  const visible = typeof data.result === "string" ? data.result : "";
+  if (!draft || !visible || !visible.includes(draft)) {
+    return result;
+  }
+  const nextData = { ...data };
+  delete nextData.draft;
+  return { ...record, data: nextData };
+}
+
 function pickCraftDataFields(data: unknown): Record<string, unknown> | undefined {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     return undefined;
@@ -381,7 +401,7 @@ export function summarizeToolResultForHistory(
   opts: ToolResultHistoryOpts = {},
 ): unknown {
   const budget = resolveBudget(opts);
-  const slimmedDup = slimDuplicateVerifyFields(result);
+  const slimmedDup = slimDuplicateWorkerBody(slimDuplicateVerifyFields(result));
   if (slimmedDup == null || typeof slimmedDup !== "object" || Array.isArray(slimmedDup)) {
     const raw = typeof slimmedDup === "string" ? slimmedDup : JSON.stringify(slimmedDup);
     if (!primitiveOverBudget(raw ?? "", budget)) {

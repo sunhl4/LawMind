@@ -15,8 +15,16 @@ import { describe, expect, it } from "vitest";
 import {
   buildPortDrift,
   classifyDiscoveryResponse,
+  addinHostStatus,
+  hostReconnectInstructions,
+  lawmindPortInWpsPublish,
+  loopbackPortInText,
   manifestInstructions,
   resolveManifestTargets,
+  resolveWpsJsaddonsDir,
+  upsertWpsPublishXml,
+  windowsWordDeveloperRegArgs,
+  WORD_ADDIN_MANIFEST_ID,
 } from "./local-api-port-contract.mjs";
 
 describe("buildPortDrift：端口漂移的判定", () => {
@@ -123,6 +131,42 @@ describe("resolveManifestTargets：清单落点", () => {
     expect(targets).toEqual([{ location: "downloads", dir: "/Users/shl/Downloads" }]);
   });
 
+  it("Windows 且装了 Word ⇒ 先登记当前用户的开发者加载项，不写下载目录优先", () => {
+    const targets = resolveManifestTargets({
+      platform: "win32",
+      home: "C:/Users/shl",
+      downloads: "C:/Users/shl/Downloads",
+      appData: "C:/Users/shl/AppData/Roaming",
+      windowsWord: true,
+      exists: () => false,
+    });
+    expect(targets[0]).toEqual({
+      location: "word-windows",
+      dir: "C:/Users/shl/AppData/Roaming/LawMind/word-addin",
+    });
+  });
+
+  it("Windows 没装 Word ⇒ 不造开发者加载项目录", () => {
+    const targets = resolveManifestTargets({
+      platform: "win32",
+      home: "C:/Users/shl",
+      downloads: "C:/Users/shl/Downloads",
+      appData: "C:/Users/shl/AppData/Roaming",
+      windowsWord: false,
+      exists: () => true,
+    });
+    expect(targets.map((target) => target.location)).toEqual(["downloads"]);
+  });
+
+  it("Word 开发者登记只用当前用户的注册表参数", () => {
+    const args = windowsWordDeveloperRegArgs("C:\\Users\\shl\\AppData\\Roaming\\LawMind\\word-addin\\manifest.xml");
+    expect(args[0]).toBe("add");
+    expect(args.join(" ")).toContain("HKCU\\Software\\Microsoft\\Office\\16.0\\WEF\\Developer");
+    expect(args).toContain(WORD_ADDIN_MANIFEST_ID);
+    expect(args.join(" ")).not.toContain("HKLM");
+    expect(() => windowsWordDeveloperRegArgs("")).toThrow(/invalid/);
+  });
+
   it("非 macOS（Windows / Linux）⇒ 只有下载目录", () => {
     for (const platform of ["win32", "linux"]) {
       const targets = resolveManifestTargets({
@@ -143,11 +187,119 @@ describe("manifestInstructions：说明要说清下一步做什么", () => {
     expect(text).not.toContain("拖进");
   });
 
+  it("同时连上 Word 和 WPS 时，说明里不写地址", () => {
+    const text = hostReconnectInstructions({
+      wordLocation: "word-container",
+      wpsStatus: "written",
+      changed: true,
+    });
+    expect(text).toContain("Word");
+    expect(text).toContain("WPS");
+    expect(text).not.toContain("localhost");
+    expect(text).not.toContain("54881");
+  });
+
   it("退到下载目录 ⇒ 让律师放进 Word，不写出地址", () => {
     const text = manifestInstructions("downloads", "http://localhost:54881");
     expect(text).toContain("下载");
     expect(text).toContain("完全退出 Word");
     expect(text).not.toContain("http://localhost:54881");
     expect(text).not.toContain("54881");
+  });
+});
+
+describe("WPS publish.xml", () => {
+  const url = "http://localhost:62400/word-addin/wps/";
+
+  it("没装 WPS 时不造目录", () => {
+    expect(
+      resolveWpsJsaddonsDir({
+        platform: "darwin",
+        home: "/Users/shl",
+        exists: () => false,
+      }),
+    ).toBeNull();
+  });
+
+  it("Mac 上父目录已在就登记到 jsaddons", () => {
+    expect(
+      resolveWpsJsaddonsDir({
+        platform: "darwin",
+        home: "/Users/shl",
+        exists: (p) => p.endsWith("/.kingsoft/wps"),
+      }),
+    ).toBe("/Users/shl/Library/Containers/com.kingsoft.wpsoffice.mac/Data/.kingsoft/wps/jsaddons");
+  });
+
+  it("写入时保留别人的加载项，并只认自己的端口", () => {
+    const xml = upsertWpsPublishXml(
+      `<jsplugins>\n  <jsplugin name="other" type="wps" url="http://127.0.0.1:9/x/" enable="enable"/>\n</jsplugins>\n`,
+      url,
+    );
+    expect(xml).toContain('name="other"');
+    expect(xml).toContain(url);
+    expect(lawmindPortInWpsPublish(xml)).toBe(62400);
+    expect(loopbackPortInText("noise")).toBeNull();
+  });
+
+  it("重复登记替换自己的那条，不追加第二条", () => {
+    const once = upsertWpsPublishXml("", "http://localhost:54881/word-addin/wps/");
+    const twice = upsertWpsPublishXml(once, url);
+    expect(twice.match(/name="lawmind"/g)).toHaveLength(1);
+    expect(lawmindPortInWpsPublish(twice)).toBe(62400);
+  });
+
+  it("拒绝不是回环加载项目录的地址", () => {
+    expect(() => upsertWpsPublishXml("", "https://example.com/word-addin/wps/")).toThrow(/invalid/);
+  });
+});
+
+describe("addinHostStatus", () => {
+  it("文件端口对上且这次没改过 ⇒ 已连接", () => {
+    expect(
+      addinHostStatus({
+        installed: true,
+        recordedPort: 62400,
+        actualPort: 62400,
+        pendingReopen: false,
+        anotherCopy: false,
+      }),
+    ).toBe("connected");
+  });
+
+  it("刚改过清单 ⇒ 请重开，即使端口已经写对", () => {
+    expect(
+      addinHostStatus({
+        installed: true,
+        recordedPort: 62400,
+        actualPort: 62400,
+        pendingReopen: true,
+        anotherCopy: false,
+      }),
+    ).toBe("reopen");
+  });
+
+  it("另一个 LawMind 占着端口 ⇒ 不叫人去连这份", () => {
+    expect(
+      addinHostStatus({
+        installed: true,
+        recordedPort: 1,
+        actualPort: 2,
+        pendingReopen: false,
+        anotherCopy: true,
+      }),
+    ).toBe("another-copy");
+  });
+
+  it("没安装 ⇒ missing", () => {
+    expect(
+      addinHostStatus({
+        installed: false,
+        recordedPort: null,
+        actualPort: 62400,
+        pendingReopen: false,
+        anotherCopy: false,
+      }),
+    ).toBe("missing");
   });
 });

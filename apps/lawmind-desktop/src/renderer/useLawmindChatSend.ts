@@ -69,6 +69,10 @@ import {
 import type { ModelCatalogEntry } from "./lawmind-models-api";
 import { chatSessionStoreKey, persistActiveChatSessionId } from "./useLawmindChatShell";
 import { readComposePermissionMode, writeComposeStash } from "./lawmind-compose-prefs";
+import {
+  FORK_CONTINUE_WORK_MESSAGE,
+  parseForkContinueRequest,
+} from "../../../../src/lawmind/agent/fork-continue-request.ts";
 import { abortSessionTurn, mutateSessionMessages } from "./lawmind-chat-message-mutate";
 import {
   clientHasLiveTurn,
@@ -143,7 +147,18 @@ export type UseLawmindChatSendInput = {
   hasLiveClientTurnRef?: MutableRefObject<(sessionId: string) => boolean>;
   /** Paint a background turn again after its transcript is reloaded. */
   reattachLiveChatSessionRef?: MutableRefObject<(sessionId: string) => void>;
+  /**
+   * 律师要求另起新对话并带上文时，在送给模型之前执行 fork。
+   * 未接线时保持原样（把原话送进当前回合）。
+   */
+  forkContinueRef?: MutableRefObject<ForkContinueHandler | null>;
 };
+
+export type ForkContinueOutcome =
+  | { ok: true; sessionId: string }
+  | { ok: false; message: string };
+
+export type ForkContinueHandler = (sourceSessionId: string) => Promise<ForkContinueOutcome>;
 
 export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
   const {
@@ -183,6 +198,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
     abortLiveChatSessionRef,
     hasLiveClientTurnRef,
     reattachLiveChatSessionRef,
+    forkContinueRef,
   } = opts;
 
   const liveTurnsRef = useRef<Map<string, LiveTurn>>(new Map());
@@ -202,6 +218,8 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         fromQueue?: boolean;
         /** Deliver this follow-up to a conversation that is not on screen. */
         background?: { assistantId: string; sessionId: string };
+        /** 已经在承前分叉之后，禁止再把续办句识别成另一次分叉。 */
+        forkHop?: boolean;
       },
     ) => Promise<void>
   >(async () => {});
@@ -379,6 +397,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       opts2?: {
         fromQueue?: boolean;
         background?: { assistantId: string; sessionId: string };
+        forkHop?: boolean;
       },
     ) => {
       const text = rawText.trim();
@@ -417,6 +436,40 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
           });
         }
         return;
+      }
+      // 另起 / 重开这场对话并带上文：先 fork，再把剩下的交办送进新会话。
+      // 不在这里做的话，原话会进当前回合，模型没有这条工具，只能说自己开不了新对话。
+      // 回合还在跑时上面已经改排成 followup；steer 路径不收这句话（见聊天输入）。
+      if (!opts2?.forkHop && forkContinueRef?.current) {
+        const forkAsk = parseForkContinueRequest(text);
+        const sourceSessionId = (background?.sessionId ?? focusNow.sessionId ?? "").trim();
+        if (forkAsk && sourceSessionId) {
+          if (!opts2?.fromQueue) {
+            setInput("");
+            writeComposeStash(contextMatterId, "");
+          }
+          const outcome = await forkContinueRef.current(sourceSessionId);
+          if (!outcome.ok) {
+            if (!opts2?.fromQueue) {
+              setInput(text);
+              writeComposeStash(contextMatterId, text);
+            }
+            return;
+          }
+          const assistantId = background?.assistantId ?? selectedAssistantIdRef.current;
+          sessionByAssistantRef.current = {
+            ...sessionByAssistantRef.current,
+            [assistantId]: outcome.sessionId,
+          };
+          focusedSessionRef.current = outcome.sessionId;
+          focusOverrideRef.current = { assistantId, sessionId: outcome.sessionId };
+          const next =
+            forkAsk.remainder || (forkAsk.continueWork ? FORK_CONTINUE_WORK_MESSAGE : "");
+          if (next && !parseForkContinueRequest(next)) {
+            await sendChatMessageRef.current(next, { forkHop: true });
+          }
+          return;
+        }
       }
       const picked = modelCatalog.find((m) => m.id === selectedModelId);
       setComposeModelHint(null);
@@ -783,7 +836,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
             text:
               useFinal
                 ? finalText
-                : activityText || placeholderText || finalText || "本轮未返回可见回复，请查看改稿页或重试。",
+                : activityText || placeholderText || finalText || "本轮未返回可见回复，请查看中间栏或重试。",
             activity: activityDone,
             activityActive: false,
             liveTrace: finalizeLiveTrace(prev?.liveTrace ?? createEmptyLiveTrace()),
@@ -997,6 +1050,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       publishRunning,
       rememberQueue,
       syncVisibleQueue,
+      forkContinueRef,
     ],
   );
 

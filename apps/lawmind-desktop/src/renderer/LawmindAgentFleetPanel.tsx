@@ -694,7 +694,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
         ? "批准发送"
         : isAutomationInbox
           ? current?.taskId
-            ? "改稿"
+            ? "看修订"
             : "已知悉"
           : current?.status === "awaiting_approval" || isInterruptedRun
             ? approvalDock.primary
@@ -936,6 +936,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
             }
           />
           <LawmindAgentFleetDetail
+            apiBase={apiBase}
             current={current}
             overview={{
               needsYou: docketScoped.needsYou.length,

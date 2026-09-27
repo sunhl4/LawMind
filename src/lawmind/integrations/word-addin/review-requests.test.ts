@@ -9,6 +9,7 @@ import {
   fingerprintWordFile,
   hunksFromRedlineProposal,
   listWordAddinReviews,
+  recordWordAddinSuggestionDecision,
   normalizeWordSourcePath,
   pickWordAddinReviewForDocument,
   readWordAddinReview,
@@ -253,6 +254,7 @@ describe("hunksFromRedlineProposal", () => {
       {
         hunkId: "h1",
         sectionIndex: 0,
+        sectionHeading: "第三条 付款",
         before: "十日内",
         after: "五个工作日内",
         rationale: "与商务口径一致",
@@ -278,8 +280,14 @@ describe("hunksFromRedlineProposal", () => {
     ];
     const result = hunksFromRedlineProposal({ hunks });
     expect(result.hunks).toEqual([
-      { find: "十", replace: "五个工作", note: "与商务口径一致" },
-      { find: "旧", replace: "新" },
+      {
+        find: "十",
+        replace: "五个工作",
+        hunkId: "h1",
+        note: "与商务口径一致",
+        where: "第三条 付款",
+      },
+      { find: "旧", replace: "新", hunkId: "h2" },
     ]);
     // 整节粒度不再直接丢弃：重算后能就地落的就落，落不了的才计数。
     expect(result.skippedSectionHunks).toBe(0);
@@ -342,6 +350,55 @@ describe("hunksFromRedlineProposal", () => {
     });
     expect(result.skippedSectionHunks).toBe(1);
     expect(result.hunks).toEqual([]);
+  });
+});
+
+describe("recordWordAddinSuggestionDecision", () => {
+  let workspaceDir: string;
+
+  beforeEach(async () => {
+    workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-word-addin-decision-"));
+  });
+
+  afterEach(async () => {
+    await fs.rm(workspaceDir, { recursive: true, force: true });
+  });
+
+  it("remembers a decision and refuses to discard one already written", async () => {
+    const file = path.join(workspaceDir, "合同.docx");
+    await fs.writeFile(file, "十日内付款。");
+    const created = await createWordAddinReview(workspaceDir, { sourcePath: file });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+    const ready = await updateWordAddinReview(workspaceDir, created.request.id, {
+      state: "ready",
+      outputPath: file,
+      hunks: [{ find: "十日内", replace: "五个工作日内", where: "第三条 付款" }],
+    });
+    expect(ready.ok).toBe(true);
+    const saved = recordWordAddinSuggestionDecision({
+      workspaceDir,
+      id: created.request.id,
+      index: 0,
+      status: "applied",
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) {
+      return;
+    }
+    expect(saved.request.decisions).toEqual({ "0": "applied" });
+    const again = recordWordAddinSuggestionDecision({
+      workspaceDir,
+      id: created.request.id,
+      index: 0,
+      status: "discarded",
+    });
+    expect(again).toEqual({ ok: false, error: "already_applied" });
+    expect(readWordAddinReview(workspaceDir, created.request.id)?.decisions).toEqual({
+      "0": "applied",
+    });
   });
 });
 

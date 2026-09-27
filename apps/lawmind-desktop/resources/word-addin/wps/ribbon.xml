@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui" onLoad="OnAddinLoad">
+  <ribbon startFromScratch="false">
+    <tabs>
+      <tab id="lawmindTab" label="LawMind">
+        <group id="lawmindGroup" label="就地审查">
+          <button id="lawmindOpen" label="打开" onAction="OnAction" size="large" />
+        </group>
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>

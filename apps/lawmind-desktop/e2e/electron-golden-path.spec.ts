@@ -45,7 +45,7 @@ test.describe("LawMind Electron golden path", () => {
     }
   });
 
-  test("review workbench region is reachable from shell", async () => {
+  test("看修订回到对话，不打开改稿台", async () => {
     const config = await prepareE2EUserData();
     const electronApp = await launchLawMindElectron(config);
 
@@ -54,10 +54,9 @@ test.describe("LawMind Electron golden path", () => {
       await expect(window.locator(".lm-shell")).toBeVisible({ timeout: 120_000 });
       await bootstrapE2ePage(window);
       await openReviewWorkbench(window);
+      await expect(window.locator(".lm-review-workbench, .lm-review-workbench-root")).toHaveCount(0);
       await expect(
-        window
-          .locator(".lm-review-workbench, .lm-workbench-placeholder, #lm-review-acceptance-gate")
-          .first(),
+        window.locator("#lawmind-chat-messages-panel").or(window.getByRole("region", { name: "对话消息" })).first(),
       ).toBeVisible({ timeout: 60_000 });
     } finally {
       await electronApp.close();

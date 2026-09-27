@@ -38,6 +38,27 @@ describe("tool-result-history", () => {
     expect(typeof slim.text === "string" ? slim.text.length : 0).toBeLessThanOrEqual(4_000);
   });
 
+  it("drops a draft_worker body that repeats result", () => {
+    const body = "正文甲".repeat(40);
+    const result = {
+      ok: true,
+      data: {
+        role: "draft-worker",
+        draft: body,
+        result: body,
+        workerId: "w0123456789abcdef",
+        section: "违约金",
+      },
+    };
+    const slim = summarizeToolResultForHistory(result) as {
+      data: { draft?: string; result?: string; workerId?: string };
+    };
+    expect(slim.data.draft).toBeUndefined();
+    expect(slim.data.result).toBe(body);
+    expect(slim.data.workerId).toBe("w0123456789abcdef");
+    expect(result.data.draft).toBe(body);
+  });
+
   it("preserves craftSignals and gateDecision when truncating", () => {
     const huge = {
       ok: true,

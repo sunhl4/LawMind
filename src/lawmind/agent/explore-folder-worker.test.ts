@@ -113,6 +113,7 @@ describe("explore-folder-worker", () => {
       return;
     }
     expect(String(result.data.hint)).toContain("digest_materials");
+    expect(String(result.data.hint)).toContain("不要按文件数派工");
     expect(exploreListingHint("只读。", [{ kind: "file" }, { kind: "directory" }])).toBe("只读。");
   });
 

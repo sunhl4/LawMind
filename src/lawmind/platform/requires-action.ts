@@ -17,8 +17,8 @@ export type LawMindRequiresActionKind =
 
 export type LawMindRequiresActionDecision = "approve" | "edit" | "reject" | "respond";
 
-/** `continue_tools` 的两种来源（见 turn-interrupt.ts）。 */
-export type ContinueToolsTrigger = "step_budget" | "interrupted";
+/** `continue_tools` 的来源（见 turn-interrupt.ts）。`delivery`：稿未交完，对话里点继续接着办。 */
+export type ContinueToolsTrigger = "step_budget" | "interrupted" | "delivery";
 
 export type LawMindRequiresAction = {
   id: string;
@@ -38,8 +38,8 @@ export type LawMindRequiresAction = {
   /** Legacy / same-turn-verify pause: tools already used this thread (continue_tools). */
   toolCallsExecuted?: number;
   /**
-   * `continue_tools` 的来源：步骤预算用尽（旧行为）或上一轮被中断（Codex 对齐）。
-   * 中断卡片要进对话线索并给出「继续本件 / 弃办」，预算卡片只进在办。
+   * `continue_tools` 的来源：步骤预算（旧）、上一轮被中断，或稿还没交完。
+   * 中断与「点继续接着交稿」都留在对话里。
    */
   trigger?: ContinueToolsTrigger;
   /** 中断轮次的原指令，恢复时带出让模型接着办同一件事。 */
@@ -330,20 +330,30 @@ export function buildContinueToolsAction(input: {
   taskId?: string;
   used?: number;
   trigger?: ContinueToolsTrigger;
+  instruction?: string;
 }): LawMindRequiresAction {
   const used = input.used && input.used > 0 ? input.used : undefined;
   const trigger = input.trigger ?? "step_budget";
+  const instruction = input.instruction?.trim();
   return {
     id: newRequiresActionId(),
     kind: "continue_tools",
     threadId: buildThreadId(input),
-    title: trigger === "interrupted" ? "上一轮被中断" : "本轮步骤较多",
+    title:
+      trigger === "interrupted"
+        ? "上一轮被中断"
+        : trigger === "delivery"
+          ? "稿还没交完"
+          : "本轮步骤较多",
     summary:
       trigger === "interrupted"
         ? "已办理的步骤保留。继续本件，还是先弃办？"
-        : used
-          ? `已经办理 ${used} 步。继续，还是先停在这里？`
-          : "本轮步骤较多。继续，还是先停在这里？",
+        : trigger === "delivery"
+          ? "点继续，接着把这份稿做完。"
+          : used
+            ? `已经办理 ${used} 步。继续，还是先停在这里？`
+            : "本轮步骤较多。继续，还是先停在这里？",
+    ...(instruction ? { instruction } : {}),
     matterId: input.matterId,
     sessionId: input.sessionId,
     taskId: input.taskId,
@@ -455,6 +465,9 @@ export function buildRequiresActionsFromTurn(
     matterId?: string;
     /** 门禁把本件停下（见 platform/gate-stop.ts）：缺口要进律师待办。 */
     gateStop?: { reason?: string; gaps?: string[]; codes?: string[] };
+    /** 暂停时带回原交办，对话里点继续才能接着办同一件事。 */
+    instruction?: string;
+    continueTrigger?: ContinueToolsTrigger;
   },
 ): LawMindRequiresAction[] {
   const out: LawMindRequiresAction[] = [];
@@ -486,11 +499,18 @@ export function buildRequiresActionsFromTurn(
   }
 
   if (turn.status === "paused" || turn.status === "interrupted") {
+    const trigger =
+      turn.status === "interrupted"
+        ? ("interrupted" as const)
+        : turn.continueTrigger === "delivery"
+          ? ("delivery" as const)
+          : undefined;
     out.push(
       buildContinueToolsAction({
         ...base,
         used: turn.toolCallsExecuted,
-        ...(turn.status === "interrupted" ? { trigger: "interrupted" as const } : {}),
+        ...(trigger ? { trigger } : {}),
+        ...(turn.instruction?.trim() ? { instruction: turn.instruction.trim() } : {}),
       }),
     );
   }

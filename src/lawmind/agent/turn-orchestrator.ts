@@ -10,6 +10,7 @@ import { accumulateFactPin } from "./compact-fact-pin.js";
 import { applyCompactReinjectionToSession, selectTaskPinText } from "./compact-reinjection.js";
 import { autoCompactSessionHistory } from "./compact.js";
 import { estimateTokenBudget } from "./context-budget.js";
+import { isolationKey, resetIsolationBudget } from "./context-isolation-budget.js";
 import { resolveContextTuning } from "./context-tuning.js";
 import { resolveToolSandboxEnabled } from "./dangerous-tool-policy.js";
 import {
@@ -180,6 +181,7 @@ export async function runTurn(opts: {
       session.assistantId = config.assistantId;
     }
   }
+  resetIsolationBudget(isolationKey(config.workspaceDir, session.sessionId));
 
   // 律师在工作台切「用于对话」的案件后，本回合显式带来的 matterId 才是本案。
   // 早期「首次为空才写」的写法会让旧会话永远钉在第一个案件上：之后
@@ -358,6 +360,15 @@ export async function runTurn(opts: {
     delete session.lastBoundCapabilityId;
   }
   if (
+    !wordRevisionTurn &&
+    !mailContractTurn &&
+    (compiledIntent.capabilityId === "contract.review" ||
+      compiledIntent.capabilityId === "research.memo" ||
+      deliveryIntent.artifactShape === "opinion_memo")
+  ) {
+    ctx.sidecarRole = "review";
+  }
+  if (
     session.turnPlan &&
     (isTaskSwitchUtterance(instruction) ||
       isCorrectionUtterance(instruction) ||
@@ -443,6 +454,8 @@ export async function runTurn(opts: {
       content: instruction,
       timestamp: new Date().toISOString(),
       ...(typed && typed !== instruction.trim() ? { lawyerVisibleText: typed } : {}),
+      // 续跑说明给模型看。律师已经点过继续，气泡里不再出现这句内部交代。
+      ...(instruction.includes("【从检查点继续】") ? { hiddenFromLawyer: true } : {}),
     });
   }
 
@@ -678,6 +691,8 @@ export async function runTurn(opts: {
           toolCallsExecuted: turn.toolCallsExecuted,
           matterId: session.matterId,
           pendingToolApproval: turn.pendingToolApproval,
+          ...(turn.instruction?.trim() ? { instruction: turn.instruction } : {}),
+          continueTrigger: "delivery",
         });
         if (turn.requiresAction.length > 0) {
           session.pendingRequiresAction = turn.requiresAction;
@@ -911,6 +926,7 @@ export async function runTurn(opts: {
     }
     throw err;
   } finally {
+    resetIsolationBudget(isolationKey(config.workspaceDir, session.sessionId));
     clearInterval(abortMirror);
     clearTurnAbort(session.sessionId);
     await Promise.all(mcpSessions.map((s) => s.close().catch(() => undefined)));

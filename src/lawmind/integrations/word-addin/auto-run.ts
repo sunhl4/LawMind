@@ -123,10 +123,13 @@ export function buildWordAddinRedlineInstruction(params: {
   /** 缺省 = ad-hoc 改稿（未挂案卷），指令里就不写 matterId，避免模型引用不存在的案卷。 */
   matterId?: string;
   instruction: string;
+  /** 窗格上那句「正在用」的名字，写进指令，避免模型另猜立场。 */
+  standardName?: string;
 }): string {
   const baseline = params.sourceAbs.trim();
-  const ask = params.instruction.trim() || "审查这份合同并出最短锚点修订轨。";
+  const ask = params.instruction.trim() || "按本所标准审这份";
   const matterId = params.matterId?.trim();
+  const standardName = params.standardName?.trim();
   return [
     "【Word 改稿】",
     ...(matterId ? [`matterId=\`${matterId}\``] : []),
@@ -134,13 +137,16 @@ export function buildWordAddinRedlineInstruction(params: {
     "",
     "## 审查要求",
     ask,
+    ...(standardName ? [`本所标准：${standardName}`] : []),
     "",
     "## 执行约束（Word 就地改稿）",
     "- 基线就是上面这个本机文件（绝对路径已给）。不要再翻案卷或检索同名文件；核法条可用 `search_statute` / `search_case_law`。",
     "- 通读原文与批注/对方修订后再改；不要反复读同一文件。",
     // 无人值守的关键：一旦模型反问「审查重点/己方立场」，澄清门禁会把这一步停住，
     // 渲染就不会发生 → 律师在 Word 里只会看到一个没有结果的请求。邮件短路径同样明确禁止反问。
-    "- 路径、要求与基线都已给出：不要再问「审查重点」「己方立场」「要不要改」这类问题；按合同文本本身的风险点直接出稿，立场未指明处按中性口径处理并在 note 里写明取值假设。",
+    standardName
+      ? "- 路径、要求、基线与本所标准都已给出：不要再问「审查重点」「要不要改」。立场按本所标准，未覆盖处写进 note。"
+      : "- 路径、要求与基线都已给出：不要再问「审查重点」「己方立场」「要不要改」这类问题；按合同文本本身的风险点直接出稿，立场未指明处按中性口径处理并在 note 里写明取值假设。",
     "- **最小修改（硬约束·条数不限）**：用 `apply_surgical_edits` 落改（附 `craft_check`），只标真正变动的字；一句话里改几个字就只改那几个字。",
     "- 整句/整段/整节删除重写会被硬门禁跳过；这些争点写进 deferred，不要硬塞。",
     "- 推荐路径：`analyze_document` → `draft_document`/`update_draft`（`contract_edit_baseline_path` + `seed_sections_from_baseline=true`）→ `apply_surgical_edits` → `render_tracked_draft` 写入源文件同目录（原名_日期_01.docx，不打开 Word）。",

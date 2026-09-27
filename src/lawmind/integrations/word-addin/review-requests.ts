@@ -92,8 +92,14 @@ export type WordAddinRunAuthorization = {
 export type WordAddinHunk = {
   find: string;
   replace: string;
+  /** Redline hunk this suggestion was cut from. Edits write back to that hunk. */
+  hunkId?: string;
   note?: string;
+  /** 条款或节标题，用来在建议卡上标出改的是哪一处。 */
+  where?: string;
 };
+
+export type WordAddinSuggestionStatus = "applied" | "discarded" | "missed";
 
 export type WordAddinReviewRequest = {
   id: string;
@@ -117,6 +123,8 @@ export type WordAddinReviewRequest = {
   sourceMtimeMs?: number;
   /** 桌面端自动取件：本次运行的工作流任务号。 */
   jobId?: string;
+  /** 这份建议对应的草稿。窗格改措辞、放弃一处，都写回这份修订清单。 */
+  taskId?: string;
   /** 律师点击即授权：取件时写入，审计可见。 */
   authorization?: WordAddinRunAuthorization;
   /** `needs_matter`：路径对不唯一时给 Word 窗格的候选案卷。 */
@@ -129,6 +137,11 @@ export type WordAddinReviewRequest = {
   outputPath?: string;
   /** 桌面端回填：可变成 Word 修订轨的最短锚点。 */
   hunks?: WordAddinHunk[];
+  /**
+   * 律师对每条建议的决定，键是 hunk 下标。
+   * 写在本机请求上，关掉窗格再打开仍然在。
+   */
+  decisions?: Record<string, WordAddinSuggestionStatus>;
   /** 桌面端回填：整节重写等无法就地落改的 hunk 数（如实告知）。 */
   skippedSectionHunks?: number;
   summary?: string;
@@ -552,6 +565,7 @@ export async function updateWordAddinReview(
     error?: string;
     note?: string;
     jobId?: string;
+    taskId?: string;
     matterId?: string;
     matterCandidates?: string[];
     authorization?: WordAddinRunAuthorization;
@@ -573,6 +587,46 @@ export async function updateWordAddinReview(
   store.requests[idx] = next;
   writeStore(workspaceDir, store);
   return { ok: true, request: next };
+}
+
+const SUGGESTION_STATUSES: readonly WordAddinSuggestionStatus[] = new Set([
+  "applied",
+  "discarded",
+  "missed",
+]);
+
+/** 记下律师对一条建议的决定。已经写入正文的，不能再改成放弃。 */
+export function recordWordAddinSuggestionDecision(params: {
+  workspaceDir: string;
+  id: string;
+  index: number;
+  status: WordAddinSuggestionStatus;
+}): { ok: true; request: WordAddinReviewRequest } | { ok: false; error: string } {
+  if (!SUGGESTION_STATUSES.has(params.status)) {
+    return { ok: false, error: "bad_status" };
+  }
+  if (!Number.isInteger(params.index) || params.index < 0) {
+    return { ok: false, error: "bad_index" };
+  }
+  const store = readStore(params.workspaceDir);
+  const idx = store.requests.findIndex((row) => row.id === params.id);
+  if (idx < 0) {
+    return { ok: false, error: "not_found" };
+  }
+  const row = store.requests[idx];
+  if (!row || row.state !== "ready" || !row.hunks || params.index >= row.hunks.length) {
+    return { ok: false, error: "bad_index" };
+  }
+  const key = String(params.index);
+  const previous = row.decisions?.[key];
+  if (previous === "applied" && params.status !== "applied") {
+    return { ok: false, error: "already_applied" };
+  }
+  row.decisions = { ...row.decisions, [key]: params.status };
+  row.updatedAt = new Date().toISOString();
+  store.requests[idx] = row;
+  writeStore(params.workspaceDir, store);
+  return { ok: true, request: row };
 }
 
 /** 纯插入时取插入点之后多少字作为锚点（与 officecli lookbehind 同一思路）。 */
@@ -612,12 +666,20 @@ export function hunksFromRedlineProposal(proposal: { hunks: RedlineHunk[] }): {
     }
     for (const span of computeMinimalEditSpans(before, after)) {
       const note = hunk.rationale ? { note: hunk.rationale } : {};
+      const where = hunk.sectionHeading?.trim().slice(0, 80);
+      const located = where ? { where } : {};
       if (span.before.length > WORD_ADDIN_MAX_FIND_CHARS) {
         skipped += 1;
         continue;
       }
       if (span.before.length > 0) {
-        hunks.push({ find: span.before, replace: span.after, ...note });
+        hunks.push({
+          find: span.before,
+          replace: span.after,
+          hunkId: hunk.hunkId,
+          ...note,
+          ...located,
+        });
         continue;
       }
       // 纯插入：以插入点之后的原文作锚点，把「插入内容 + 锚点」整体替换回去。
@@ -632,7 +694,7 @@ export function hunksFromRedlineProposal(proposal: { hunks: RedlineHunk[] }): {
         skipped += 1;
         continue;
       }
-      hunks.push({ ...expressed, ...note });
+      hunks.push({ ...expressed, hunkId: hunk.hunkId, ...note, ...located });
     }
   }
   return { hunks, skippedSectionHunks: skipped };

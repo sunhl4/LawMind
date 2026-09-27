@@ -88,6 +88,29 @@ function assertWritableDeliveryDir(params: {
  * Default: write next to the source Word file.
  * Fallback: matter folder, then workspace `artifacts/` — still date+version, never task-id.
  */
+/**
+ * Re-export overwrites the sibling already written for this draft.
+ * A path outside the planned folder is ignored so a memo output cannot be reused.
+ */
+export function reuseTrackedSiblingFileName(
+  outDir: string,
+  existingOutputAbs?: string,
+): string | undefined {
+  const abs = existingOutputAbs?.trim();
+  if (!abs) {
+    return undefined;
+  }
+  const resolved = path.resolve(abs);
+  if (path.dirname(resolved) !== path.resolve(outDir)) {
+    return undefined;
+  }
+  const base = path.basename(resolved);
+  if (!/\.docx$/i.test(base)) {
+    return undefined;
+  }
+  return base;
+}
+
 export function planTrackedWordDelivery(params: {
   workspaceDir: string;
   projectDir?: string;
@@ -97,6 +120,8 @@ export function planTrackedWordDelivery(params: {
   fallbackBasename?: string;
   pins?: ComposeContextPin[];
   at?: Date;
+  /** When set and beside the baseline, keep this filename instead of `_02`. */
+  existingOutputAbs?: string;
 }): PlannedWordRevisionDelivery {
   const at = params.at ?? new Date();
   if (params.baselineRel?.trim()) {
@@ -112,9 +137,11 @@ export function planTrackedWordDelivery(params: {
       if (assertWritableDeliveryDir({ ...params, outDir })) {
         return {
           outDir,
-          outputFileName: buildWordRevisionFilename(path.basename(baseline.abs), at, {
-            dirForUniqueness: outDir,
-          }),
+          outputFileName:
+            reuseTrackedSiblingFileName(outDir, params.existingOutputAbs) ??
+            buildWordRevisionFilename(path.basename(baseline.abs), at, {
+              dirForUniqueness: outDir,
+            }),
           baselineAbs: baseline.abs,
           baselineRel: baseline.rel,
           baselineRoot: baseline.root,
@@ -129,7 +156,9 @@ export function planTrackedWordDelivery(params: {
       const outDir = resolveMatterWorkspaceDir(params.workspaceDir, params.matterId);
       return {
         outDir,
-        outputFileName: buildWordRevisionFilename(fallbackName, at, { dirForUniqueness: outDir }),
+        outputFileName:
+          reuseTrackedSiblingFileName(outDir, params.existingOutputAbs) ??
+          buildWordRevisionFilename(fallbackName, at, { dirForUniqueness: outDir }),
       };
     } catch {
       /* invalid matter id — fall through */
@@ -139,6 +168,8 @@ export function planTrackedWordDelivery(params: {
   const outDir = path.join(path.resolve(params.workspaceDir), "artifacts");
   return {
     outDir,
-    outputFileName: buildWordRevisionFilename(fallbackName, at, { dirForUniqueness: outDir }),
+    outputFileName:
+      reuseTrackedSiblingFileName(outDir, params.existingOutputAbs) ??
+      buildWordRevisionFilename(fallbackName, at, { dirForUniqueness: outDir }),
   };
 }

@@ -210,33 +210,17 @@ export async function bootstrapE2ePage(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
 }
 
-/** Open review workbench, wait for the draft list, then select `taskId`. */
-export async function openReviewDraft(page: Page, taskId = "e2e-draft-1"): Promise<void> {
-  await openReviewWorkbench(page);
-  const count = page.locator(".lm-review-draft-toolbar-count");
-  await expect(count).not.toHaveText("…", { timeout: 20_000 });
-
-  const allTab = page.getByRole("tab", { name: "全部", exact: true });
-  await expect(allTab).toBeVisible({ timeout: 15_000 });
-  await allTab.click();
-  await expect(allTab).toHaveAttribute("aria-selected", "true", { timeout: 10_000 });
-
-  const statusSelect = page.getByRole("combobox", { name: "签批状态" });
-  if (await statusSelect.isVisible().catch(() => false)) {
-    await statusSelect.selectOption("all");
-  }
-
-  const draftSelect = page.getByRole("combobox", { name: "选择草稿" });
-  await expect(draftSelect).toBeEnabled({ timeout: 20_000 });
-  await expect(draftSelect.locator(`option[value="${taskId}"]`)).toBeAttached({
-    timeout: 15_000,
+/** Open 在办 on the pending draft. Sign-off, 待定夺, and 专案组 live there. */
+export async function openReviewDraft(page: Page, _taskId = "e2e-draft-1"): Promise<void> {
+  await dismissBlockingDialogs(page);
+  await leaveSettingsIfOpen(page);
+  const agentsTab = page.getByRole("navigation", { name: "功能模块" }).getByRole("button", {
+    name: "在办",
+    exact: true,
   });
-  await draftSelect.selectOption(taskId);
-  await expect(draftSelect).toHaveValue(taskId);
-  await expect(page.getByText("在上方选择草稿后开始改稿与预览")).toHaveCount(0, {
-    timeout: 20_000,
-  });
-  await ensureReviewMetaPaneVisible(page);
+  await agentsTab.click();
+  await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "签批" }).first()).toBeVisible({ timeout: 30_000 });
 }
 
 /** Ensure review meta side pane + advanced section are open (acceptance gate / gate list live there). */
@@ -318,36 +302,25 @@ async function leaveSettingsIfOpen(page: Page): Promise<void> {
   }
 }
 
+/** 「看修订」回到对话，不打开全文改稿台。 */
 export async function openReviewWorkbench(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
   await leaveSettingsIfOpen(page);
 
-  // 改稿/文书台不占一级；从「在办」主 CTA「改稿」进入（已打开时顶栏才有次级定位）。
   const mainNav = page.getByRole("navigation", { name: "功能模块" });
   await expect(mainNav).toBeVisible({ timeout: 30_000 });
-  const reviewTab = mainNav.getByTestId("lm-tab-review");
-  if (await reviewTab.isVisible().catch(() => false)) {
-    await reviewTab.click();
-  } else {
-    const agentsTab = mainNav.getByRole("button", { name: "在办", exact: true });
-    await dismissBlockingDialogs(page);
-    await agentsTab.click();
-    await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
-    const openWorkbench = page
-      .getByTestId("lm-agents-open-review")
-      .or(page.getByTestId("lm-fleet-primary-review"))
-      .or(page.getByTestId("lm-ceremony-open-review"))
-      .or(page.getByTestId("lm-fleet-empty-review"))
-      .or(page.getByRole("button", { name: /改稿|文书台/ }))
-      .first();
-    await expect(openWorkbench).toBeVisible({ timeout: 30_000 });
-    await openWorkbench.click();
-  }
-
-  await page.waitForFunction(
-    () => document.querySelector(".lm-review-workbench-root") !== null,
-    { timeout: 60_000 },
-  );
+  await expect(mainNav.getByTestId("lm-tab-review")).toHaveCount(0);
+  const agentsTab = mainNav.getByRole("button", { name: "在办", exact: true });
+  await agentsTab.click();
+  await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
+  const openRevision = page.getByTestId("lm-agents-open-review");
+  await expect(openRevision).toBeVisible({ timeout: 30_000 });
+  await expect(openRevision).toHaveText("看修订");
+  await openRevision.click();
+  await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
+  await expect(
+    page.locator("#lawmind-chat-messages-panel").or(page.getByRole("region", { name: "对话消息" })).first(),
+  ).toBeVisible({ timeout: 30_000 });
 }
 
 /** Open 工作台本案卷宗 (header chip / sidebar / desk dossier). */
@@ -465,47 +438,12 @@ export async function openWorkspaceChat(page: Page): Promise<void> {
   ).toBeVisible({ timeout: 30_000 });
 }
 
-/** Open review tab, load mock draft detail, assert gate copy is visible. */
+/** 签批在在办，不在全文改稿台。 */
 export async function assertReviewGateList(page: Page): Promise<void> {
-  // 工作台可能已被调用方打开（Electron golden-path）：此时详情早已加载，
-  // 不会再有新的 detail 响应；容忍拿不到，改用 DOM 断言兜底。
-  const detailWait = page
-    .waitForResponse(
-      (res) =>
-        res.request().method() === "GET" &&
-        new URL(res.url()).pathname.endsWith('/api/drafts/e2e-draft-1') &&
-        res.ok(),
-      { timeout: 30_000 },
-    )
-    .catch(() => null);
-  await openReviewWorkbench(page);
-  await page
-    .waitForResponse(
-      (res) => {
-        const path = new URL(res.url()).pathname;
-        return res.request().method() === "GET" && path.endsWith("/api/drafts") && res.ok();
-      },
-      { timeout: 30_000 },
-    )
-    .catch(() => undefined);
-
-  const detailRes = await detailWait;
-  if (detailRes) {
-    const detailJson = (await detailRes.json()) as {
-      gateDecisions?: Array<{ reason?: string }>;
-    };
-    expect(
-      detailJson.gateDecisions?.some((g) => /等待律师签批|出稿检查|待签批/.test(g.reason ?? "")),
-    ).toBe(true);
-  }
-
-  await ensureReviewMetaPaneVisible(page);
-  await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench").first()).toBeVisible({
-    timeout: 15_000,
+  await openReviewDraft(page);
+  await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "签批" }).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("lm-fleet-desk-checklist").or(page.getByText("必核")).first()).toBeVisible({
+    timeout: 30_000,
   });
-  await expect(page.getByText("执行状态看板")).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator(".lm-review-detail-row")).toContainText(
-    /等待律师签批|出稿检查|待签批/,
-    { timeout: 30_000 },
-  );
 }

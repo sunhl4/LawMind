@@ -224,6 +224,10 @@ export function finalizeAgentTurn(opts: {
     matterId: session.matterId,
     pendingToolApproval: turn.pendingToolApproval,
     ...(gateStop.stopped ? { gateStop } : {}),
+    ...(turn.instruction?.trim() ? { instruction: turn.instruction } : {}),
+    ...(turn.status === "paused" && turn.sameTurnVerify?.red
+      ? { continueTrigger: "delivery" as const }
+      : {}),
   });
 
   /**

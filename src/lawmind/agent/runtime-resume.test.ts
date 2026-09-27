@@ -150,6 +150,93 @@ describe("resumeTurn continue_tools", () => {
     );
   });
 
+  it("点继续带着原指令接着办；步数已经顶满时重新给一段", async () => {
+    const session: AgentSession = {
+      sessionId,
+      matterId: "matter-a",
+      conversationHistory: [
+        {
+          role: "assistant",
+          content: "",
+          timestamp: new Date().toISOString(),
+          toolCalls: [{ id: "c1", name: "apply_surgical_edits", arguments: {} }],
+        },
+        {
+          role: "tool",
+          content: JSON.stringify({ ok: true }),
+          timestamp: new Date().toISOString(),
+          toolCallResponses: [
+            {
+              toolCallId: "c1",
+              name: "apply_surgical_edits",
+              result: { ok: true },
+            },
+          ],
+        },
+      ],
+      turns: [
+        {
+          turnId: "turn-paused",
+          sessionId,
+          instruction: "按批注改合作协议并出审阅稿",
+          messages: [],
+          toolCallsExecuted: 80,
+          status: "paused",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      pendingRequiresAction: [
+        {
+          id: "ra-delivery",
+          kind: "continue_tools",
+          threadId: "t:1",
+          title: "稿还没交完",
+          summary: "点继续，接着把这份稿做完。",
+          trigger: "delivery",
+          taskId: "turn-paused",
+          instruction: "按批注改合作协议并出审阅稿",
+          toolCallsExecuted: 80,
+          decisions: ["approve", "reject"],
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    vi.spyOn(sessionMod, "loadSession").mockReturnValue(session);
+    vi.spyOn(sessionMod, "saveSession").mockImplementation(() => {});
+    const runTurnSpy = vi.spyOn(runtimeMod, "runTurn").mockResolvedValue({
+      turn: {
+        turnId: "t-next",
+        sessionId,
+        instruction: "",
+        messages: [],
+        toolCallsExecuted: 0,
+        status: "completed",
+        startedAt: new Date().toISOString(),
+      },
+      reply: "ok",
+      sessionId,
+      memoryContext: { layers: [] },
+    });
+
+    await resumeTurn(
+      { workspaceDir } as AgentConfig,
+      { list: () => [], get: () => undefined } as never,
+      { sessionId, actionId: "ra-delivery", decision: "approve" },
+      {},
+    );
+
+    const call = runTurnSpy.mock.calls[0]?.[0] as {
+      instruction: string;
+      initialToolCallsExecuted?: number;
+    };
+    expect(call.instruction).toContain("按批注改合作协议并出审阅稿");
+    expect(call.instruction).toContain("【从检查点继续】");
+    expect(call.instruction).toContain("不要重做：apply_surgical_edits");
+    expect(call.initialToolCallsExecuted).toBe(0);
+  });
+
   it("继续本件：中断轮次没有落盘待办时也按 id 找回，并带出原指令", async () => {
     const interrupted: AgentSession = {
       sessionId,

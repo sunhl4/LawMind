@@ -34,13 +34,13 @@
 
 导出：
 
-| 符号                                                                                    | 作用                                                                              |
-| --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `resolveStrictUpstreamToolStreaming(hasOnEvent, env)`                                   | 是否开启严格工具流式（`LAWMIND_STRICT_TOOL_STREAM=1`）                            |
-| `shouldWarnToolBudget(used, max)`                                                       | 是否该提示工具预算（≥80%）                                                        |
-| `toolCallBatchSignature` / `advanceIdenticalToolStreak` / `identicalToolRepeatDecision` | 同一工具批次连着重复：第三次提醒，提醒后再重复则停                                |
-| `ModelToolLoopResult`                                                                   | 循环结果（`finalReply`、`pendingClarificationQuestions`、`turnUsage`、`aborted`） |
-| `runModelToolLoop(opts)`                                                                | 主循环                                                                            |
+| 符号                                                                                    | 作用                                                                                                                                   |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolveStrictUpstreamToolStreaming(hasOnEvent, env)`                                   | 是否开启严格工具流式（`LAWMIND_STRICT_TOOL_STREAM=1`）                                                                                 |
+| `shouldWarnToolBudget(used, max)`                                                       | 是否该提示工具预算（≥80%）                                                                                                             |
+| `toolCallBatchSignature` / `advanceIdenticalToolStreak` / `identicalToolRepeatDecision` | 同一工具批次连着重复：第三次提醒，提醒后再重复则停。Word 改稿里已经读完的同一份文书（`hasMore=false`）多给一次采样改去落改，下一次仍停 |
+| `ModelToolLoopResult`                                                                   | 循环结果（`finalReply`、`pendingClarificationQuestions`、`turnUsage`、`aborted`）                                                      |
+| `runModelToolLoop(opts)`                                                                | 主循环                                                                                                                                 |
 
 循环内部两条行为不在导出表里，但撞排查时会遇到：
 

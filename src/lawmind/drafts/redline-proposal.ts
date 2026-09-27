@@ -9,6 +9,7 @@ import path from "node:path";
 import { writeJsonAtomic, withExclusiveFileLock } from "../adapters/matter-storage/io.js";
 import type { ArtifactDraft, ArtifactSection } from "../types.js";
 import { persistDraft, readDraft } from "./index.js";
+import { computeMinimalEditSpans } from "./minimal-edit-script.js";
 import { appendProvenanceEvent, createProvenanceEvent, diffSummary } from "./provenance.js";
 import { applySpanToBody, splitSurgicalEditSpans } from "./surgical-diff.js";
 
@@ -397,6 +398,172 @@ export function resolveAllRedlineHunks(
     return { ok: false, error: "redline_not_found" };
   }
   return { ok: true, proposal: next, draft: lastDraft, resolved };
+}
+
+const REVISE_AFTER_MAX = 50_000;
+
+function replaceOnce(haystack: string, needle: string, replacement: string): string | undefined {
+  if (!needle) {
+    return undefined;
+  }
+  const idx = haystack.indexOf(needle);
+  if (idx < 0) {
+    return undefined;
+  }
+  return haystack.slice(0, idx) + replacement + haystack.slice(idx + needle.length);
+}
+
+/**
+ * Replay minimal spans onto `before`, swapping one span's replacement.
+ * Falls back to a unique substring swap when the pane shows a transformed anchor
+ * (pure inserts are stored as "anchor → inserted+anchor", not the raw span).
+ */
+export function nextAfterForSpan(
+  before: string,
+  after: string,
+  find: string,
+  currentReplace: string,
+  nextReplace: string,
+): string | undefined {
+  const spans = computeMinimalEditSpans(before, after);
+  const target = spans.find((span) => span.before === find && span.after === currentReplace);
+  if (target) {
+    const ordered = spans.toSorted((a, b) => a.spanStart - b.spanStart);
+    let cursor = 0;
+    let out = "";
+    for (const span of ordered) {
+      if (span.spanStart < cursor) {
+        continue;
+      }
+      out += before.slice(cursor, span.spanStart);
+      const isTarget = span.spanStart === target.spanStart && span.spanEnd === target.spanEnd;
+      out += isTarget ? nextReplace : span.after;
+      cursor = span.spanEnd;
+    }
+    out += before.slice(cursor);
+    return out;
+  }
+  if (!currentReplace) {
+    return undefined;
+  }
+  const idx = after.indexOf(currentReplace);
+  if (idx < 0 || after.indexOf(currentReplace, idx + currentReplace.length) >= 0) {
+    return undefined;
+  }
+  return after.slice(0, idx) + nextReplace + after.slice(idx + currentReplace.length);
+}
+
+function applyPendingAfterUnlocked(
+  workspaceDir: string,
+  taskId: string,
+  hunkId: string,
+  after: string,
+): { ok: true; proposal: RedlineProposal } | { ok: false; error: string } {
+  const proposal = readRedlineProposal(workspaceDir, taskId);
+  if (!proposal) {
+    return { ok: false, error: "redline_not_found" };
+  }
+  const hunk = proposal.hunks.find((h) => h.hunkId === hunkId);
+  if (!hunk) {
+    return { ok: false, error: "hunk_not_found" };
+  }
+  if (hunk.status !== "pending") {
+    return { ok: false, error: "hunk_not_pending" };
+  }
+  if (hunk.after === after) {
+    return { ok: true, proposal };
+  }
+  const previousAfter = hunk.after;
+  hunk.after = after;
+  proposal.updatedAt = new Date().toISOString();
+
+  const draft = readDraft(workspaceDir, taskId);
+  if (draft) {
+    const sections = [...draft.sections];
+    while (sections.length <= hunk.sectionIndex) {
+      sections.push({ heading: hunk.sectionHeading ?? "", body: "" });
+    }
+    const section = sections[hunk.sectionIndex] ?? { heading: "", body: "" };
+    let body = section.body;
+    if (hunk.granularity !== "surgical") {
+      body = after;
+    } else {
+      const replaced = replaceOnce(section.body, previousAfter, after);
+      if (replaced !== undefined) {
+        body = replaced;
+      }
+    }
+    sections[hunk.sectionIndex] = {
+      ...section,
+      heading: hunk.sectionHeading ?? section.heading,
+      body,
+    };
+    persistDraft(workspaceDir, { ...draft, sections });
+  }
+
+  writeRedlineProposal(workspaceDir, proposal);
+  return { ok: true, proposal };
+}
+
+/**
+ * Lawyer rewrites a pending revision in the Word surface before accept/reject.
+ * The proposal `after` is what export and the page render. The draft body is
+ * updated when the previous `after` can be found, so a later accept stays aligned.
+ */
+export function revisePendingRedlineHunk(
+  workspaceDir: string,
+  taskId: string,
+  hunkId: string,
+  after: string,
+): { ok: true; proposal: RedlineProposal } | { ok: false; error: string } {
+  if (after.length > REVISE_AFTER_MAX) {
+    return { ok: false, error: "after_too_long" };
+  }
+  return withExclusiveFileLock(redlineProposalLockPath(workspaceDir, taskId), () =>
+    applyPendingAfterUnlocked(workspaceDir, taskId, hunkId, after),
+  );
+}
+
+/**
+ * Edit one suggestion the add-in is showing. Undoing the only change rejects the hunk
+ * so the middle column and the next Word export drop it together.
+ */
+export function revisePendingRedlineSpan(
+  workspaceDir: string,
+  taskId: string,
+  hunkId: string,
+  find: string,
+  currentReplace: string,
+  nextReplace: string,
+): { ok: true; proposal: RedlineProposal } | { ok: false; error: string } {
+  if (nextReplace.length > REVISE_AFTER_MAX) {
+    return { ok: false, error: "after_too_long" };
+  }
+  return withExclusiveFileLock(redlineProposalLockPath(workspaceDir, taskId), () => {
+    const proposal = readRedlineProposal(workspaceDir, taskId);
+    if (!proposal) {
+      return { ok: false, error: "redline_not_found" };
+    }
+    const hunk = proposal.hunks.find((h) => h.hunkId === hunkId);
+    if (!hunk) {
+      return { ok: false, error: "hunk_not_found" };
+    }
+    if (hunk.status !== "pending") {
+      return { ok: false, error: "hunk_not_pending" };
+    }
+    const rebuilt = nextAfterForSpan(hunk.before, hunk.after, find, currentReplace, nextReplace);
+    if (rebuilt === undefined) {
+      return { ok: false, error: "span_not_found" };
+    }
+    if (rebuilt === hunk.before) {
+      const rejected = resolveRedlineHunkUnlocked(workspaceDir, taskId, hunkId, "reject");
+      if (!rejected.ok) {
+        return rejected;
+      }
+      return { ok: true, proposal: rejected.proposal };
+    }
+    return applyPendingAfterUnlocked(workspaceDir, taskId, hunkId, rebuilt);
+  });
 }
 
 /**

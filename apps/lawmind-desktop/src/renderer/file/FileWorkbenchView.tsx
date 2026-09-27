@@ -464,6 +464,8 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
       saveActive={saveActive}
       saveActiveAs={saveActiveAs}
       doShowInFolder={doShowInFolder}
+      apiBase={casesNodeActions?.apiBase}
+      projectDir={projectDir}
     />
   );
 

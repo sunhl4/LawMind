@@ -506,7 +506,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
         ...opts,
         kind: "revision",
         hints: {
-          complete: "修订完成，可打开改稿核对",
+          complete: "修订完成，可在中间栏核对",
           failed: "后台修订未完成，请查看对话中的错误信息",
           timeout: "后台修订轮询超时，请手动刷新会话查看结果",
         },

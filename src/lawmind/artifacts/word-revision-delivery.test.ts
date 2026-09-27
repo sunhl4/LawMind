@@ -84,4 +84,25 @@ describe("word-revision-delivery", () => {
     expect(planned.outputFileName).toBe("合作协议_20260827_01.docx");
     expect(planned.outputFileName).not.toMatch(/_[0-9a-f]{8}\.docx$/i);
   });
+
+  it("reuses the sibling already written for this draft", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-word-reuse-"));
+    dirs.push(ws);
+    const rel = "contracts/合作协议.docx";
+    fs.mkdirSync(path.join(ws, "contracts"), { recursive: true });
+    fs.writeFileSync(path.join(ws, rel), "docx");
+    const at = new Date("2026-08-27T08:00:00");
+    const first = planTrackedWordDelivery({ workspaceDir: ws, baselineRel: rel, at });
+    const existing = path.join(first.outDir, first.outputFileName);
+    fs.writeFileSync(existing, "docx");
+    const again = planTrackedWordDelivery({
+      workspaceDir: ws,
+      baselineRel: rel,
+      at,
+      existingOutputAbs: existing,
+    });
+    expect(again.outputFileName).toBe(first.outputFileName);
+    const bumped = planTrackedWordDelivery({ workspaceDir: ws, baselineRel: rel, at });
+    expect(bumped.outputFileName).toBe("合作协议_20260827_02.docx");
+  });
 });
