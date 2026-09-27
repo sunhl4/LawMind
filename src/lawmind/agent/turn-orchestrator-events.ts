@@ -95,12 +95,12 @@ export function buildTurnReplyFallback(turn: AgentTurn): string {
       "本轮模型未返回附加说明，以下为工具执行结果摘要：",
       ...lines.slice(-8),
       turn.status === "awaiting_approval"
-        ? "\n有步骤等待您确认；请打开待我拍板或通过对话继续。"
+        ? "\n有步骤等您确认。请在这条对话里批准或拒绝，批准后会接着办完。"
         : "\n如需 Word，请到「在办」签批通过后，在改稿页点击「渲染交付物」或「仍要导出 Word」。",
     ].join("\n");
   }
   if (turn.status === "awaiting_approval") {
-    return "有操作等待您的确认。请查看工具结果，或到「在办」签批、到改稿页导出。";
+    return "有操作等您确认。请在这条对话里批准或拒绝，批准后会接着办完。";
   }
   return "本轮未生成文字说明。若您要求完善并导出 Word，请到改稿页打开对应草稿：已在「在办」签批通过的可点「仍要导出 Word」；或在对话中说明 task_id 让我调用 render_document。";
 }
@@ -188,6 +188,12 @@ export type RunTurnEvent =
       type: "context_deferral_bounce";
       roundIndex: number;
       bounceCount: number;
+    }
+  | {
+      /** 同一回合验收未过。先把缺口写进轨迹，再决定打回模型还是停给律师。 */
+      type: "verify_gap";
+      roundIndex: number;
+      message: string;
     }
   | {
       type: "model_error";

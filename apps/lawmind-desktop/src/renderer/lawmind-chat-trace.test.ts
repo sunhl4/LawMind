@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyRoundStart,
+  applyVerifyGap,
   applyToolEnd,
   applyToolProgress,
   applyToolStart,
@@ -52,6 +53,15 @@ describe("lawmind-chat-trace", () => {
     expect(JSON.stringify(trace.steps[0])).not.toMatch(/list_mail_inbox/);
   });
 
+  it("records a verify gap and closes the open decision step", () => {
+    let trace = createEmptyLiveTrace();
+    trace = applyRoundStart(trace, 2);
+    trace = applyVerifyGap(trace, "验收未过：空修订");
+    expect(trace.steps[0]?.status).toBe("done");
+    expect(trace.steps[1]?.label).toBe("验收未过：空修订");
+    expect(trace.steps[1]?.status).toBe("done");
+  });
+
   it("accumulates round, tool, and workflow steps", () => {
     let trace = createEmptyLiveTrace();
     trace = applyRoundStart(trace, 1);
@@ -67,6 +77,7 @@ describe("lawmind-chat-trace", () => {
 
     expect(trace.active).toBe(false);
     expect(trace.steps.filter((s) => s.kind === "round")).toHaveLength(1);
+    expect(trace.steps.find((s) => s.kind === "round")?.label).toBe("决定下一步");
     expect(trace.steps.filter((s) => s.kind === "tool")).toHaveLength(1);
     expect(trace.steps.filter((s) => s.kind === "workflow")).toHaveLength(2);
     expect(trace.steps.every((s) => s.status === "done")).toBe(true);

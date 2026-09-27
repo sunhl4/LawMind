@@ -8,6 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+import { useRunningChatSessionIds } from "./lawmind-live-turns";
 
 export type LawmindChatSessionTab = {
   sessionId: string;
@@ -18,7 +19,6 @@ export type LawmindChatSessionTabsProps = {
   sessions: LawmindChatSessionTab[];
   activeSessionId?: string;
   loading?: boolean;
-  busy?: boolean;
   onSelect: (sessionId: string) => void | Promise<void>;
   onNewChat: () => void | Promise<void>;
   onRename: (sessionId: string, title: string) => void | Promise<void>;
@@ -50,7 +50,6 @@ export function LawmindChatSessionTabs({
   sessions,
   activeSessionId,
   loading,
-  busy,
   onSelect,
   onNewChat,
   onRename,
@@ -65,10 +64,11 @@ export function LawmindChatSessionTabs({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const runningSessionIds = useRunningChatSessionIds();
 
   useEffect(() => {
     if (!editingId) {
-      return;
+      return undefined;
     }
     const t = window.setTimeout(() => {
       inputRef.current?.focus();
@@ -192,6 +192,7 @@ export function LawmindChatSessionTabs({
         ) : null}
         {sessions.map((s) => {
           const active = s.sessionId === activeSessionId;
+          const running = runningSessionIds.has(s.sessionId);
           if (editingId === s.sessionId) {
             return (
               <div key={s.sessionId} className="lm-chat-session-tab-edit-wrap">
@@ -230,10 +231,13 @@ export function LawmindChatSessionTabs({
                 aria-selected={active}
                 aria-controls={panelId}
                 aria-haspopup="menu"
-                aria-label={`切换到对话：${s.title}`}
-                className="lm-chat-session-tab"
-                title={`${s.title} — 左键切换；右键可重命名或删除`}
-                disabled={Boolean(busy)}
+                aria-label={running ? `切换到对话：${s.title}，执行中` : `切换到对话：${s.title}`}
+                className={`lm-chat-session-tab${running ? " is-running" : ""}`}
+                title={
+                  running
+                    ? `${s.title} — 执行中；左键切换；右键可重命名或删除`
+                    : `${s.title} — 左键切换；右键可重命名或删除`
+                }
                 tabIndex={active ? 0 : -1}
                 onKeyDown={(event) => handleTabKeyDown(event, s.sessionId)}
                 onClick={() => void onSelect(s.sessionId)}
@@ -248,8 +252,12 @@ export function LawmindChatSessionTabs({
         type="button"
         className="lm-chat-session-tab-new"
         aria-label="新建对话"
-        title="新建对话"
-        disabled={Boolean(busy) || Boolean(loading)}
+        title={
+          runningSessionIds.size > 0
+            ? "新建对话。正在办的那些会继续，不用等它们结束"
+            : "新建对话"
+        }
+        disabled={Boolean(loading)}
         onClick={() => void onNewChat()}
       >
         <PlusIcon />
@@ -274,7 +282,6 @@ export function LawmindChatSessionTabs({
             type="button"
             role="menuitem"
             className="lm-chat-session-tab-menu-item"
-            disabled={Boolean(busy)}
             onClick={() => {
               startRename(contextMenu.sessionId, contextMenu.title);
               setContextMenu(null);
@@ -286,7 +293,6 @@ export function LawmindChatSessionTabs({
             type="button"
             role="menuitem"
             className="lm-chat-session-tab-menu-item lm-chat-session-tab-menu-item-danger"
-            disabled={Boolean(busy)}
             onClick={() => {
               setContextMenu(null);
               void onDelete(contextMenu.sessionId);

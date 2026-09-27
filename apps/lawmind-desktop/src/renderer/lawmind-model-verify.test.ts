@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isActiveModelVerified, isSelectedModelVerified } from "./lawmind-model-verify";
+import {
+  blockSendForUnconfiguredCatalogRow,
+  isActiveModelVerified,
+  isSelectedModelVerified,
+} from "./lawmind-model-verify";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
 
 const row: ModelCatalogEntry = {
@@ -13,6 +17,26 @@ const row: ModelCatalogEntry = {
   configured: true,
   verifiedAt: "2026-01-01T00:00:00.000Z",
 };
+
+describe("blockSendForUnconfiguredCatalogRow", () => {
+  it("does not open settings when health already has a configured model", () => {
+    expect(
+      blockSendForUnconfiguredCatalogRow({
+        catalogRowConfigured: false,
+        healthModelConfigured: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("opens settings when the selected row has no key and health is not configured", () => {
+    expect(
+      blockSendForUnconfiguredCatalogRow({
+        catalogRowConfigured: false,
+        healthModelConfigured: false,
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("isSelectedModelVerified", () => {
   it("returns true when selected row has verifiedAt", () => {

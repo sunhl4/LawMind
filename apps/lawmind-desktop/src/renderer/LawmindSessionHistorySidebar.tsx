@@ -75,7 +75,6 @@ export function LawmindSessionHistorySidebar({
                 <button
                   type="button"
                   className="lm-session-history-title"
-                  disabled={busy}
                   onClick={() => void onSelect(row.sessionId)}
                 >
                   {row.title}

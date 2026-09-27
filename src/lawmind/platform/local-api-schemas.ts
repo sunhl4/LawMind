@@ -3,6 +3,7 @@
  * Imported by desktop server routes and renderer typed clients.
  */
 import { z } from "zod";
+import { WORD_REVISION_AUTHOR_MAX_CHARS } from "../policy/word-revision-author.js";
 import { contextPinsRequestSchema } from "./compose-context-pin.js";
 
 export const trimmedNonEmptyString = z.string().trim().min(1);
@@ -355,6 +356,8 @@ export const workspacePolicyPatchSchema = z
     allowAnalysisScripts: z.boolean().optional(),
     /** 200K（默认）/ 500K / 1M。旧档 `daily`、`dossier` 仍接受，读入后分别视为 200K、1M。 */
     conversationLength: z.enum(["200k", "500k", "1m", "daily", "dossier"]).optional(),
+    /** Word 修订署名。空字符串表示改回默认 LawMind。 */
+    wordRevisionAuthor: z.string().max(WORD_REVISION_AUTHOR_MAX_CHARS).optional(),
     hostAccess: z
       .object({
         mode: z.enum(["matter", "mounts", "locate", "command"]).optional(),
@@ -374,6 +377,7 @@ export const workspacePolicyPatchSchema = z
       v.highSecurityMode !== undefined ||
       v.allowAnalysisScripts !== undefined ||
       v.conversationLength !== undefined ||
+      v.wordRevisionAuthor !== undefined ||
       v.hostAccess !== undefined,
     {
       message: "at least one policy field required",

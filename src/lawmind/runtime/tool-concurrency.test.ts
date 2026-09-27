@@ -3,7 +3,7 @@ import { ToolRegistry } from "../agent/tools/registry.js";
 import { executeToolBatches } from "../agent/turn-orchestrator-tool-round.js";
 import type { AgentTool } from "../agent/types.js";
 import type { AgentContext, AgentTurn } from "../agent/types.js";
-import { isToolConcurrencySafe, partitionToolCalls } from "./tool-concurrency.js";
+import { isToolConcurrencySafe, partitionToolCalls, withLeafToolSlot } from "./tool-concurrency.js";
 
 function stubTool(
   name: string,
@@ -349,5 +349,33 @@ describe("executeToolBatches approval race", () => {
     expect(pushed).toEqual(["search_ok", "ask_more"]);
     expect(turn.status).toBe("running");
     expect(result.pendingClarificationQuestions).toHaveLength(1);
+  });
+});
+
+describe("withLeafToolSlot", () => {
+  it("caps overlapping sidecar tool calls at LAWMIND_MAX_TOOL_CONCURRENCY", async () => {
+    const previous = process.env.LAWMIND_MAX_TOOL_CONCURRENCY;
+    process.env.LAWMIND_MAX_TOOL_CONCURRENCY = "1";
+    let current = 0;
+    let max = 0;
+    try {
+      await Promise.all(
+        [1, 2, 3].map(() =>
+          withLeafToolSlot(async () => {
+            current += 1;
+            max = Math.max(max, current);
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            current -= 1;
+          }),
+        ),
+      );
+      expect(max).toBe(1);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.LAWMIND_MAX_TOOL_CONCURRENCY;
+      } else {
+        process.env.LAWMIND_MAX_TOOL_CONCURRENCY = previous;
+      }
+    }
   });
 });

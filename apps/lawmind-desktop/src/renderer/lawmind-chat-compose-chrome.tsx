@@ -6,7 +6,6 @@
 import { useMemo, type ReactNode } from "react";
 import { LawmindComposeAttachments } from "./LawmindComposeAttachments";
 import { LawmindSpreadsheetHintBar } from "./LawmindSpreadsheetHintBar";
-import { LawmindWordRevisionBar } from "./LawmindWordRevisionBar";
 import { composeModelHintCalloutClass } from "./lawmind-compose-model-hint";
 import { isPrivilegeTipUiEnabled, scanPrivilegeTip } from "./lawmind-privilege-tip";
 
@@ -20,7 +19,6 @@ export type LawmindChatComposeChromeProps = {
   composeModelQuickTestBusy?: boolean;
   /** Draft text for privilege preflight tip (E10). */
   composeInput?: string;
-  onComposeInputChange?: (text: string) => void;
   queuedMessages: string[];
   cancelQueuedMessage?: (index: number) => void;
   fileChatPills: Array<{ id: string; shortLabel: string; title: string; relPath?: string }>;
@@ -38,8 +36,6 @@ export type LawmindChatComposeChromeProps = {
   planHandoffSummary?: string | null;
   onFillPlanHandoff?: () => void;
   onClearPlanHandoff?: () => void;
-  /** 快审卡打开时收起改稿条，避免两套立场叠在一起。 */
-  hideWordRevisionBar?: boolean;
 };
 
 export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): ReactNode {
@@ -52,7 +48,6 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
     composeModelHint,
     composeModelQuickTestBusy,
     composeInput,
-    onComposeInputChange,
     queuedMessages,
     cancelQueuedMessage,
     fileChatPills,
@@ -69,7 +64,6 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
     planHandoffSummary = null,
     onFillPlanHandoff,
     onClearPlanHandoff,
-    hideWordRevisionBar = false,
   } = props;
 
   const privilegeTip = useMemo(() => {
@@ -192,13 +186,6 @@ export function LawmindChatComposeChrome(props: LawmindChatComposeChromeProps): 
             ))}
           </ul>
         </div>
-      ) : null}
-      {onComposeInputChange && !hideWordRevisionBar ? (
-        <LawmindWordRevisionBar
-          composeInput={composeInput ?? ""}
-          filePills={fileChatPills}
-          onComposeInputChange={onComposeInputChange}
-        />
       ) : null}
       <LawmindSpreadsheetHintBar filePills={fileChatPills} />
       <LawmindComposeAttachments

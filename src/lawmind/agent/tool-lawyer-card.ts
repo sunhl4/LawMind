@@ -247,7 +247,11 @@ function describeResultData(name: string, data: unknown): string | undefined {
   const rec = data as Record<string, unknown>;
   const outputPath = asTrimmedString(rec.outputPath) || asTrimmedString(rec.path);
   if (outputPath) {
-    return `已写入 ${basenamePath(outputPath)}`;
+    const decisions = Array.isArray(rec.lawyerDecisions)
+      ? rec.lawyerDecisions.filter((row): row is string => typeof row === "string" && row.trim())
+      : [];
+    const written = `已写入 ${basenamePath(outputPath)}`;
+    return decisions.length > 0 ? clip(`${written}。${decisions.length} 处需您定夺`, 96) : written;
   }
   if (name === "list_mail_inbox") {
     const count = asFiniteNumber(rec.count);
@@ -363,6 +367,20 @@ function verifyCodesFromData(data: unknown): string[] {
   return verify.codes.filter((c): c is string => typeof c === "string" && c.trim().length > 0);
 }
 
+/** Same-turn mechanical retries. The lawyer should not see these as a failed step. */
+export function isInternalDeliveryRetryError(error?: string): boolean {
+  const err = error?.trim() ?? "";
+  if (!err) {
+    return false;
+  }
+  return (
+    err.includes("【同一回合验收未过】") ||
+    /未见审阅痕迹|xml_qa|导出前机械核对|机械核对未过|lint_mechanical|empty_redline|craft_check/.test(
+      err,
+    )
+  );
+}
+
 export function lawyerFacingToolFailureDetail(
   name: string,
   error?: string,
@@ -382,19 +400,22 @@ export function lawyerFacingToolFailureDetail(
   }
   if (err.includes("【同一回合验收未过】") || /请立即调用\s+\w+/.test(err) || codes.length > 0) {
     if (/未见审阅痕迹|xml_qa/.test(blob)) {
-      return "导出未见审阅痕迹，请重导";
+      return "正在写成审阅稿。";
     }
     if (/独立审稿/.test(blob)) {
-      return "独立审稿未过";
+      return "正在按审阅意见改稿。";
     }
     if (/空修订|redlinePending=0|empty_redline/.test(blob)) {
-      return "未产生可核验修订";
+      return "修改还没写进稿子，正在继续改。";
     }
-    if (/引用对不上/.test(blob)) {
-      return "引用对不上来源";
+    if (/引用对不上|citation_integrity/.test(blob)) {
+      return "正在把法条和检索依据对齐。";
+    }
+    if (/机械核对|lint_mechanical/.test(blob)) {
+      return "正在改正文里还没过的几处。";
     }
     if (err.includes("【同一回合验收未过】") || /请立即调用\s+\w+/.test(err)) {
-      return "本回合验收未过";
+      return "正在核对稿件。";
     }
   }
   return err ? clip(err, 96) : "未完成";

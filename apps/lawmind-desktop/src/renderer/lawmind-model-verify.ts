@@ -24,6 +24,18 @@ export function isSelectedModelVerified(
   return isModelEntryVerified(findCatalogEntry(catalog, selectedModelId));
 }
 
+/**
+ * 目录行 `configured: false` 表示这一行没有单独存密钥。
+ * 健康检查已经 `modelConfigured` 时，运行中的服务自己有密钥（环境变量或向导），
+ * 不能因为目录行没标密钥就把律师拽进设置、把这句话吞掉。
+ */
+export function blockSendForUnconfiguredCatalogRow(opts: {
+  catalogRowConfigured: boolean | undefined;
+  healthModelConfigured: boolean | undefined;
+}): boolean {
+  return opts.catalogRowConfigured === false && opts.healthModelConfigured !== true;
+}
+
 /** Catalog probe stamp, or `/api/health` / bootstrap `modelVerified` after wizard save. */
 export function isActiveModelVerified(opts: {
   catalog: ModelCatalogEntry[];

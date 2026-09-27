@@ -59,7 +59,6 @@ import {
 import { LawmindContractFastLaneCard } from "./LawmindContractFastLaneCard";
 import { LawmindMailContractFastLaneCard } from "./LawmindMailContractFastLaneCard";
 import { LawmindResearchFastLaneCard } from "./LawmindResearchFastLaneCard";
-import { LawmindMailIntentBanner } from "./LawmindMailIntentBanner";
 import { subscribeContractFastLaneOpen, installContractFastLaneE2eHook } from "./lawmind-contract-fast-lane-bus";
 import { subscribeDeskLaneOpen, installDeskLaneE2eHook } from "./lawmind-desk-lane-bus";
 import { requestOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
@@ -783,7 +782,6 @@ export function LawmindChatComposeFooter({
         onPointerDown={onComposeResizePointerDown}
       />
       {/* Chrome above the reserved input height — must not eat composeHeight. */}
-      <LawmindMailIntentBanner matterId={contextMatterId} />
       <LawmindIntentStatusBar
         input={input}
         fileRelPaths={fileChatPills.map((p) => p.relPath ?? p.title)}
@@ -846,7 +844,6 @@ export function LawmindChatComposeFooter({
         composeModelHint={composeModelHint}
         composeModelQuickTestBusy={composeModelQuickTestBusy}
         composeInput={input}
-        onComposeInputChange={handleComposeInputChange}
         queuedMessages={queuedMessages}
         cancelQueuedMessage={cancelQueuedMessage}
         fileChatPills={fileChatPills}
@@ -863,7 +860,6 @@ export function LawmindChatComposeFooter({
         planHandoffSummary={planHandoffText ? planHandoffSummary(planHandoffText) : null}
         onFillPlanHandoff={planHandoffText ? fillPlanHandoff : undefined}
         onClearPlanHandoff={planHandoffText ? dismissPlanHandoff : undefined}
-        hideWordRevisionBar={compactFastLaneOpen}
       />
       <div
         className={`lm-compose lm-compose-resizable${composeDrop.active ? " lm-chat-drop-active" : ""}`}

@@ -3,31 +3,25 @@
  * UI indices match `sessionHistoryToSimpleMessages` (user/assistant bubbles only).
  */
 
-import { isLawyerVisibleChatMessage, type AgentMessage, type AgentSession } from "./types.js";
+import { projectLawyerChatBubbles } from "./lawyer-chat-projection.js";
+import type { AgentMessage, AgentSession } from "./types.js";
 
 export type UiHistoryMapEntry = {
   uiIndex: number;
   historyIndex: number;
+  /** Exclusive end of this bubble in conversationHistory (an answer includes its tool rows). */
+  historyEndExclusive: number;
   role: "user" | "assistant";
 };
 
-/** Map desktop bubble indices → conversationHistory indices (same filter as simple messages). */
+/** Map desktop bubble indices → conversationHistory spans (same pairing as simple messages). */
 export function listUiHistoryMap(session: AgentSession): UiHistoryMapEntry[] {
-  const out: UiHistoryMapEntry[] = [];
-  let uiIndex = 0;
-  for (let historyIndex = 0; historyIndex < session.conversationHistory.length; historyIndex++) {
-    const msg = session.conversationHistory[historyIndex];
-    if (!isLawyerVisibleChatMessage(msg)) {
-      continue;
-    }
-    const text = (msg.content ?? "").trim();
-    if (!text && !msg.liveTrace?.steps?.length) {
-      continue;
-    }
-    out.push({ uiIndex, historyIndex, role: msg.role });
-    uiIndex += 1;
-  }
-  return out;
+  return projectLawyerChatBubbles(session.conversationHistory).map((bubble, uiIndex) => ({
+    uiIndex,
+    historyIndex: bubble.historyIndex,
+    historyEndExclusive: bubble.historyEndExclusive,
+    role: bubble.role,
+  }));
 }
 
 function lastAssistantHistoryIndex(history: AgentMessage[]): number {
@@ -107,17 +101,17 @@ export function deleteSessionMessagePairAtUiIndex(
   if (entry.role === "user") {
     const next = map.find((e) => e.uiIndex === uiIndex + 1);
     if (next?.role === "assistant") {
-      endHistExclusive = next.historyIndex + 1;
+      endHistExclusive = next.historyEndExclusive;
     } else {
       // Include trailing tool/system rows until next UI bubble or end.
       const following = map.find((e) => e.uiIndex > uiIndex);
       endHistExclusive = following ? following.historyIndex : session.conversationHistory.length;
     }
   } else if (entry.role === "assistant") {
-    // Also drop preceding tool rows after previous UI bubble.
+    // Also drop preceding tool rows after previous UI bubble, and every round of this answer.
     const prev = [...map].toReversed().find((e) => e.uiIndex < uiIndex);
     startHist = prev ? prev.historyIndex + 1 : entry.historyIndex;
-    endHistExclusive = entry.historyIndex + 1;
+    endHistExclusive = entry.historyEndExclusive;
   }
 
   const lastAssistantBefore = lastAssistantHistoryIndex(session.conversationHistory);

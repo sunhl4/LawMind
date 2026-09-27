@@ -1,4 +1,9 @@
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  DEFAULT_WORD_REVISION_AUTHOR,
+  WORD_REVISION_AUTHOR_MAX_CHARS,
+} from "../../../../src/lawmind/policy/word-revision-author.ts";
+import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import {
   applyUiDensity,
   applyUiFontScale,
@@ -24,6 +29,7 @@ import {
 } from "./lawmind-review-prefs";
 
 type Props = {
+  apiBase?: string;
   onPrefsChange?: () => void;
 };
 
@@ -130,7 +136,102 @@ function SettingsSwitch(props: {
   );
 }
 
-export function LawmindSettingsAppearance({ onPrefsChange }: Props): ReactNode {
+function WordRevisionAuthorField(props: { apiBase?: string }): ReactNode {
+  const { apiBase } = props;
+  const [value, setValue] = useState("");
+  const [saved, setSaved] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const edited = useRef(false);
+
+  useEffect(() => {
+    if (!apiBase) {
+      return undefined;
+    }
+    let cancelled = false;
+    void apiGetJson<{ wordRevisionAuthor?: string }>(apiBase, "/api/policy/workspace")
+      .then((body) => {
+        if (cancelled || edited.current) {
+          return;
+        }
+        const next = typeof body.wordRevisionAuthor === "string" ? body.wordRevisionAuthor : "";
+        setValue(next);
+        setSaved(next);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setNote("署名暂时读不出来，稍后再试。");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
+
+  const persist = (raw: string) => {
+    const next = raw.trim();
+    if (!apiBase || next === saved || busy) {
+      return;
+    }
+    setBusy(true);
+    setNote(null);
+    void apiSendJson<{ wordRevisionAuthor?: string }>(apiBase, "/api/policy/workspace", "PATCH", {
+      wordRevisionAuthor: next,
+    })
+      .then((body) => {
+        const stored = typeof body.wordRevisionAuthor === "string" ? body.wordRevisionAuthor : "";
+        setSaved(stored);
+        setValue((current) => {
+          if (current.trim() === next) {
+            edited.current = false;
+            return stored;
+          }
+          return current;
+        });
+        setNote(stored ? "之后的 Word 修订用这个署名。" : "已改回默认 LawMind。");
+      })
+      .catch((err: unknown) => {
+        setNote(errorMessage(err));
+      })
+      .finally(() => {
+        setBusy(false);
+      });
+  };
+
+  return (
+    <div className="lm-settings-row">
+      <label className="lm-settings-key lm-settings-key-stack" htmlFor="lm-word-revision-author">
+        修订署名
+        <span className="lm-settings-caption" id="lm-word-revision-author-hint">
+          改 Word 时，修订显示这个名字。留空就是 {DEFAULT_WORD_REVISION_AUTHOR}。
+          {note ? ` ${note}` : ""}
+        </span>
+      </label>
+      <input
+        id="lm-word-revision-author"
+        className="lm-input lm-settings-author-input"
+        data-testid="lm-word-revision-author"
+        aria-describedby="lm-word-revision-author-hint"
+        placeholder={DEFAULT_WORD_REVISION_AUTHOR}
+        maxLength={WORD_REVISION_AUTHOR_MAX_CHARS}
+        value={value}
+        disabled={!apiBase || busy}
+        onChange={(event) => {
+          edited.current = true;
+          setValue(event.target.value);
+        }}
+        onBlur={() => persist(value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+export function LawmindSettingsAppearance({ apiBase, onPrefsChange }: Props): ReactNode {
   const [fontScale, setFontScaleState] = useState(readUiFontScale);
   const [density, setDensityState] = useState(readUiDensity);
   const [theme, setThemeState] = useState(readUiTheme);
@@ -228,6 +329,7 @@ export function LawmindSettingsAppearance({ onPrefsChange }: Props): ReactNode {
             notify();
           }}
         />
+        <WordRevisionAuthorField apiBase={apiBase} />
       </div>
 
       <div className="lm-settings-group lm-settings-surface">

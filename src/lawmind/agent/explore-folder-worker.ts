@@ -15,6 +15,7 @@ import {
   type ListDirContext,
   type ListDirEntry,
 } from "../runtime/list-dir.js";
+import { DIGEST_PILE_PIN_COUNT } from "./material-pile-digest.js";
 import { buildReadonlyToolRegistry, runReadonlyWorkerLoop } from "./readonly-worker-loop.js";
 import { analyzeDocument } from "./tools/legal/file-tools.js";
 import { readDocxText, readPdfText } from "./tools/legal/ingest-helpers.js";
@@ -24,6 +25,15 @@ import type { AgentContext, AgentModelConfig, AgentTool } from "./types.js";
 import { validateWorkerBrief } from "./worker-brief.js";
 
 export const EXPLORE_FOLDER_TOOL_NAME = "explore_folder";
+
+/** When a listing is already a pile, point the parent at digest_materials. */
+export function exploreListingHint(base: string, entries: Array<{ kind: string }>): string {
+  const files = entries.filter((entry) => entry.kind === "file").length;
+  if (files < DIGEST_PILE_PIN_COUNT) {
+    return base;
+  }
+  return `${base} 本目录有 ${files} 份文件，已到分头读门槛。若要逐份归纳，下一步调用 digest_materials，不要只凭这份摘录下结论。`;
+}
 
 export const FOLDER_EXPLORER_DEVELOPER_INSTRUCTIONS = [
   "只读探查工：根据任务书看清目录、找出相关文件、摘录要点。",
@@ -364,7 +374,7 @@ export async function runFolderExplorer(
         peeks: bootstrap.peeks,
         toolsUsed: [] as string[],
         steps: [] as Array<{ tool: string; ok: boolean }>,
-        hint: "以上是只读探查结果。未读完相关文件前不要改稿。",
+        hint: exploreListingHint("以上是只读探查结果。未读完相关文件前不要改稿。", listing.entries),
       },
     };
   }
@@ -434,7 +444,10 @@ export async function runFolderExplorer(
         peeks: bootstrap.peeks,
         toolsUsed: loop.toolsUsed,
         steps: loop.steps,
-        hint: "模型未补充候选；已回退 bootstrap 摘录。未读完相关文件前不要改稿。",
+        hint: exploreListingHint(
+          "模型未补充候选；已回退 bootstrap 摘录。未读完相关文件前不要改稿。",
+          listing.entries,
+        ),
       },
     };
   }
@@ -451,7 +464,7 @@ export async function runFolderExplorer(
       summary: merged.summary || undefined,
       toolsUsed: loop.toolsUsed,
       steps: loop.steps,
-      hint: "以上是只读探查结果。未读完相关文件前不要改稿。",
+      hint: exploreListingHint("以上是只读探查结果。未读完相关文件前不要改稿。", listing.entries),
     },
   };
 }

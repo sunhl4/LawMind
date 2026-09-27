@@ -10,12 +10,16 @@ export type CassetteToolCall = {
 };
 
 export type CassetteRound =
-  | { kind: "assistant"; content: string }
+  | { kind: "assistant"; content: string; finishReason?: string }
   | { kind: "tool_calls"; calls: CassetteToolCall[] }
   | { kind: "http_error"; status: number; body?: string };
 
-export function cassetteAssistant(content: string): CassetteRound {
-  return { kind: "assistant", content };
+export function cassetteAssistant(content: string, finishReason?: string): CassetteRound {
+  return {
+    kind: "assistant",
+    content,
+    ...(finishReason ? { finishReason } : {}),
+  };
 }
 
 export function cassetteToolCall(name: string, args: Record<string, unknown> = {}): CassetteRound {

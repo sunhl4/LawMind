@@ -4,8 +4,13 @@
  */
 
 import { CONTEXT_DEFERRAL_BOUNCE_MARKER } from "./context-deferral.js";
-import { CARRYOVER_SEED_MARKER } from "./session-carryover.js";
 import type { AgentMessage } from "./types.js";
+
+/**
+ * Same text as `CARRYOVER_SEED_MARKER` in session-carryover.ts.
+ * Kept as a literal so this file stays a leaf (session-carryover imports compact).
+ */
+const CARRYOVER_SEED_MARKER = "【前序对话续接】";
 
 /** Shared with compact-reinjection — keep the heading text identical. */
 export const COMPACT_REINJECTION_MARKER = "压缩后红线重注（仍有效）";

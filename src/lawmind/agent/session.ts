@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { appendTranscriptLines } from "../adapters/session-transcript/index.js";
+import { projectLawyerChatBubbles } from "./lawyer-chat-projection.js";
 import {
   formatRemainingTokensNote,
   shouldInjectRemainingTokensNote,
@@ -29,7 +30,6 @@ import {
   sliceKeepingToolGroups,
 } from "./session-tool-call-pairing.js";
 import type { AgentMessage, AgentSession, AgentTurn, PersistedChatLiveTrace } from "./types.js";
-import { isLawyerVisibleChatMessage } from "./types.js";
 
 const SESSIONS_DIR = "sessions";
 const MAX_HISTORY_DEFAULT = 40;
@@ -408,7 +408,10 @@ export function maybeUpdateSessionTitleFromInstruction(
   return true;
 }
 
-/** 将持久化历史映射为桌面气泡（仅 user / assistant 正文） */
+/**
+ * 桌面气泡：律师打的一句对应一个回答窗口。
+ * 压缩锚点、反弹备注不出现；同一句之后的多轮助手正文合成一个窗口。
+ */
 export function sessionHistoryToSimpleMessages(session: AgentSession): Array<{
   role: "user" | "assistant";
   text: string;
@@ -424,31 +427,21 @@ export function sessionHistoryToSimpleMessages(session: AgentSession): Array<{
     executionState?: AgentMessage["executionState"];
     requiresAction?: AgentTurn["requiresAction"];
     turnPlan?: AgentMessage["turnPlan"];
-  }> = [];
-  for (const msg of session.conversationHistory) {
-    if (!isLawyerVisibleChatMessage(msg)) {
-      continue;
-    }
-    const text = (msg.content ?? "").trim();
-    if (!text && !msg.liveTrace?.steps?.length && !msg.turnPlan) {
-      continue;
-    }
-    out.push({
-      role: msg.role,
-      text,
-      ...(msg.liveTrace
-        ? {
-            liveTrace: {
-              active: false,
-              currentRound: msg.liveTrace.currentRound,
-              steps: msg.liveTrace.steps,
-            },
-          }
-        : {}),
-      ...(msg.executionState ? { executionState: msg.executionState } : {}),
-      ...(msg.turnPlan ? { turnPlan: msg.turnPlan } : {}),
-    });
-  }
+  }> = projectLawyerChatBubbles(session.conversationHistory).map((bubble) => ({
+    role: bubble.role,
+    text: bubble.text,
+    ...(bubble.liveTrace
+      ? {
+          liveTrace: {
+            active: false,
+            currentRound: bubble.liveTrace.currentRound,
+            steps: bubble.liveTrace.steps,
+          },
+        }
+      : {}),
+    ...(bubble.executionState ? { executionState: bubble.executionState } : {}),
+    ...(bubble.turnPlan ? { turnPlan: bubble.turnPlan } : {}),
+  }));
   const pending = session.pendingRequiresAction;
   if (pending?.length) {
     for (let i = out.length - 1; i >= 0; i--) {

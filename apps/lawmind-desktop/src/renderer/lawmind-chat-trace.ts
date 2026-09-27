@@ -1,6 +1,7 @@
 import type { ChatLiveTrace, ChatTraceStep } from "./lawmind-chat-trace-types.js";
 import { fetchApiJson } from "./api-client-proxy.ts";
 import {
+  isInternalDeliveryRetryError,
   lawyerFacingToolFailureDetail,
   presentLawyerToolCall,
   presentLawyerToolResult,
@@ -53,7 +54,7 @@ export function applyRoundStart(trace: ChatLiveTrace, roundIndex: number): ChatL
       {
         id: `round-${roundIndex}`,
         kind: "round",
-        label: `第 ${roundIndex} 轮`,
+        label: "决定下一步",
         status: "running",
       },
     ],
@@ -78,6 +79,19 @@ export function applyToolStart(
       },
     ],
   };
+}
+
+export function applyVerifyGap(trace: ChatLiveTrace, message: string): ChatLiveTrace {
+  const steps = trace.steps.map((step) =>
+    step.kind === "round" && step.status === "running" ? { ...step, status: "done" as const } : step,
+  );
+  steps.push({
+    id: `verify-${steps.length}`,
+    kind: "workflow",
+    label: message.trim() || "验收未过",
+    status: "done",
+  });
+  return { ...trace, steps };
 }
 
 export function applyToolProgress(trace: ChatLiveTrace, label: string): ChatLiveTrace {
@@ -113,12 +127,13 @@ export function applyToolEnd(
     error: info.error,
   });
   const rawError = info.error?.trim();
+  const internalRetry = !info.ok && isInternalDeliveryRetryError(info.error);
   const detail = info.ok
     ? rawError || info.resultPreview || resultCard.detail
     : lawyerFacingToolFailureDetail(info.toolName, info.error) || resultCard.detail;
   const patch = (row: ChatTraceStep): ChatTraceStep => ({
     ...row,
-    status: info.ok ? "done" : "failed",
+    status: info.ok || internalRetry ? "done" : "failed",
     detail,
     ...(info.ok && info.sessionRefs && info.sessionRefs.length > 0
       ? { sessionRefs: info.sessionRefs }

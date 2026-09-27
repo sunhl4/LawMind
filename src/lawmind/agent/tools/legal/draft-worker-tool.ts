@@ -5,7 +5,7 @@ export const draftWorkerTool: AgentTool = {
   definition: {
     name: DRAFT_WORKER_TOOL_NAME,
     description:
-      "并行写稿工：根据任务书起草一份文书片段。子会话看不到对话历史，必须传入自包含任务书。工会自己读 path/钉选源文件，并可用只读工具（list_dir / analyze_document / search_statute / search_case_law）。返回草稿片段、引用出处和待补缺口。不要用于改原件。多章可并行多次调用，由父会话汇总后再 draft_document。",
+      "并行写稿工：根据任务书起草一份文书片段。子会话看不到对话历史，必须传入自包含任务书。工会自己读 path/钉选源文件，并可用只读工具（list_dir / analyze_document / search_statute / search_case_law）。返回草稿片段、引用出处和待补缺口。不要用于改原件、导出或外发。多章或分点意见可并行多次调用，每章 section 必须互不相同。同一批返回后先看【并行写稿对照】再汇总，然后 draft_document。",
     category: "draft",
     parameters: {
       goal: {

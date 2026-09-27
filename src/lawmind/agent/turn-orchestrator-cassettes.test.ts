@@ -106,6 +106,24 @@ function orphanToolCallIds(
 }
 
 describe("turn-orchestrator cassettes (admission)", () => {
+  it("tool rounds cap max_tokens and raise it when the reply is truncated", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withConfig((config) => {
+          config.model.maxTokens = 40_000;
+        }),
+      async (h) => {
+        h.enqueue(cassetteAssistant("未写完", "length"), cassetteAssistant("写完了。"));
+        const result = await h.runTurn("继续不澄清。根据此前依据写结论。");
+        expect(h.request(0).body.max_tokens).toBe(4_096);
+        expect(h.request(0).advertisedToolNames().length).toBeGreaterThan(0);
+        expect(h.request(1).body.max_tokens).toBe(40_000);
+        expect(result.reply).toContain("写完了");
+        expect(result.turn.messages.some((m) => m.content === "未写完")).toBe(false);
+      },
+    );
+  });
+
   it("stop during setup never samples the model and does not keep the user line", async () => {
     await withTestLawMind(
       (b) => b,
@@ -497,7 +515,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("context: 回合内的模型摘要真的跑了，且它的输出进了下一次请求", async () => {
+  it("context: mid-turn compact stays extractive and does not sample a model digest", async () => {
     await withTestLawMind(
       (b) => b.withMaxHistory(8),
       async (h) => {
@@ -507,11 +525,9 @@ describe("turn-orchestrator cassettes (admission)", () => {
           "utf8",
         );
         process.env.LAWMIND_CONTEXT_TUNING = JSON.stringify({ midTurnCompactTriggerRatio: 0.02 });
-        // 堆足量的历史：提取式摘要素材必须超过 600 字符的下限，否则会（正确地）
-        // 跳过模型调用——那正是另一个用例覆盖的路径。
+        // 堆足量历史，确保工具轮边界一定会触发整理。
         const history: AgentMessage[] = [{ role: "system", content: "sys", timestamp: ts() }];
         for (let i = 0; i < 24; i += 1) {
-          // 每条都够长：提取式摘要必须越过 600 字符门槛，否则（正确地）跳过模型调用。
           const pad = `补充口径 ${i}：`.repeat(40);
           history.push(
             {
@@ -526,35 +542,27 @@ describe("turn-orchestrator cassettes (admission)", () => {
             },
           );
         }
-        h.seedHistory(history, { matterId: "m-llm-digest" });
+        h.seedHistory(history, { matterId: "m-extractive-midturn" });
 
-        // 第 1 次调用 = 回合开始；第 2 次 = 工具轮边界整理后（真的模型摘要：这里喂一段
-        // 带哨兵的话）；第 3 次 = 拿到模型摘要后继续办的那一轮。
+        // 自动整理不再多采一次模型摘要：只有工具轮 + 续办两轮。
         h.enqueue(
           cassetteToolCall("search_statute", { q: "违约金" }),
-          cassetteAssistant(
-            "MODEL-DIGEST-SENTINEL：律师要写解除条款，已定位第23条，仍在核对付款。",
-          ),
           cassetteAssistant("已按检索结果继续完成交付。"),
         );
         const result = await h.runTurn("继续不澄清。根据此前依据写结论。", {
-          matterId: "m-llm-digest",
+          matterId: "m-extractive-midturn",
         });
 
         expect(result.turn.status).toBe("completed");
-        // 请求数证明「多了一次模型调用」——就是摘要那次（Codex 的模型摘要同形）。
-        expect(h.requests.length).toBe(3);
-        // 断言摘要**落到请求体**：模型下一轮看到的是模型写的摘要，不是提取式要点。
-        expect(h.request(2).contains("MODEL-DIGEST-SENTINEL")).toBe(true);
-        // 提取式要点仍在（作为兜底骨架保留，不是被替换掉）。
-        expect(h.request(2).contains("上一轮整理稿") || h.request(2).contains("律师要点")).toBe(
+        expect(h.requests.length).toBe(2);
+        expect(h.request(1).contains("上一轮整理稿") || h.request(1).contains("律师要点")).toBe(
           true,
         );
 
         const pressure = summarizeContextPressure(h.workspaceDir);
-        expect(pressure.compactions.llmDigest.attempted).toBe(1);
-        expect(pressure.compactions.llmDigest.used).toBe(1);
-        expect(pressure.compactions.llmDigest.fellBack).toBe(0);
+        expect(pressure.compactions.midTurn).toBe(1);
+        expect(pressure.compactions.llmDigest.attempted).toBe(0);
+        expect(pressure.compactions.llmDigest.used).toBe(0);
         delete process.env.LAWMIND_CONTEXT_TUNING;
       },
     );
@@ -1400,6 +1408,59 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(executed.map((c) => String(c.args.section)).toSorted()).toEqual(["管辖", "违约金"]);
         expect(executed.every((c) => c.result.ok)).toBe(true);
         expect(h.request(1).hasAdvertisedTool("draft_worker")).toBe(true);
+        expect(h.request(1).contains("【并行写稿对照】")).toBe(true);
+        expect(h.request(1).contains("违约金")).toBe(true);
+        expect(h.request(1).contains("管辖")).toBe(true);
+        expect(h.request(1).contains("引用重复：买卖合同.docx")).toBe(true);
+      },
+    );
+  });
+
+  it("duplicate draft_worker sections fail before execute", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(
+          cassetteToolCalls([
+            {
+              name: "draft_worker",
+              arguments: {
+                goal: "起草买卖合同违约金条款",
+                not_goal: "不要改原件",
+                materials: "买卖合同.docx",
+                section: "违约金",
+              },
+            },
+            {
+              name: "draft_worker",
+              arguments: {
+                goal: "再写一遍违约金",
+                not_goal: "不要改原件",
+                materials: "买卖合同.docx",
+                section: "违约金",
+              },
+            },
+          ]),
+          cassetteAssistant("两章重名，未执行。"),
+        );
+        await h.runTurn("请根据买卖合同.docx 起草违约金条款和管辖条款");
+        const executed = h.spy?.log.calls.filter((c) => c.name === "draft_worker") ?? [];
+        expect(executed).toHaveLength(0);
+        expect(h.request(1).contains("章节名重复")).toBe(true);
+        expect(h.request(1).contains("引用重复：")).toBe(false);
+      },
+    );
+  });
+
+  it("sectioned contract review advertises draft_worker", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已按争点列出意见。"));
+        const instruction = "请分别审查这份采购合同的付款争点和解除争点";
+        await h.runTurn(instruction);
+        expect(h.request(0).contains(instruction)).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("draft_worker")).toBe(true);
       },
     );
   });

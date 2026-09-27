@@ -252,6 +252,11 @@ export type AgentMessage = {
    * Kept in conversationHistory for the next sample; omitted from lawyer bubbles.
    */
   hiddenFromLawyer?: boolean;
+  /**
+   * Words the lawyer typed, when `content` also carries file excerpts or other
+   * injected context. The model still sees `content`. The bubble shows this.
+   */
+  lawyerVisibleText?: string;
   /** 持久化的执行轨迹（assistant 消息，供桌面 reload 后展示） */
   liveTrace?: PersistedChatLiveTrace;
   executionState?: TaskExecutionState;

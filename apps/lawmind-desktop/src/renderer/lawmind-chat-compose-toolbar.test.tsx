@@ -132,4 +132,41 @@ describe("LawmindChatComposeToolbar slim bar", () => {
     ) as HTMLSelectElement;
     expect(select.querySelector('option[value="readonly"]')?.textContent).toBe("计划模式");
   });
+
+  it("keeps the model picker clickable while a reply is generating", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindChatComposeToolbar
+          loading
+          input=""
+          onSend={vi.fn()}
+          permissionMode="standard"
+          onPermissionModeChange={vi.fn()}
+          allowWebSearch
+          onAllowWebSearchChange={vi.fn()}
+          modelCatalog={[
+            {
+              id: "custom:demo",
+              kind: "custom",
+              label: "Demo",
+              group: "自定义模型",
+              provider: "custom",
+              model: "demo-model",
+              baseUrl: "https://example.com/v1",
+              configured: true,
+            },
+          ]}
+          selectedModelId="custom:demo"
+          onModelSelect={vi.fn()}
+        />,
+      );
+    });
+    const trigger = host.querySelector(".lm-model-picker-trigger") as HTMLButtonElement;
+    expect(trigger.disabled).toBe(false);
+    expect(trigger.title).toContain("下一句");
+    await act(async () => {
+      trigger.click();
+    });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
 });

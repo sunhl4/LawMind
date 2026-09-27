@@ -167,6 +167,23 @@ describe("lawmind-app-bootstrap", () => {
     });
   });
 
+  it("does not leave list fetches unhandled when the local server is down", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    vi.stubGlobal("window", {} as Window);
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
+    try {
+      await expect(loadAppBootstrapSnapshot("http://127.0.0.1:9")).rejects.toBeTruthy();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("returns normalized collaboration settings", async () => {
     vi.stubGlobal("window", {} as Window);
     vi.spyOn(globalThis, "fetch").mockResolvedValue(

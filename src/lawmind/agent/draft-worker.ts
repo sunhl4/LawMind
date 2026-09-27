@@ -80,8 +80,19 @@ export type DraftWorkerContext = Partial<
     | "hostGrants"
     | "hostAccessFile"
     | "emitToolProgress"
+    | "deliveryIntent"
   >
 >;
+
+/** Opinion turns stay read-only inside the sidecar. Does not rewrite the lawyer's words. */
+export function draftWorkerSidecarConstraint(
+  intent?: import("../intent/delivery-intent.js").DeliveryIntent,
+): string {
+  if (intent?.artifactShape === "opinion_memo" || intent?.mutateSource === "forbid") {
+    return "本轮只交回意见片段。不要改原件、不要导出、不要外发。";
+  }
+  return "";
+}
 
 export type DraftWorkerOutput =
   | {
@@ -475,6 +486,13 @@ export async function runDraftWorker(
 
   const section = (input.section ?? "正文").trim() || "正文";
   const agentCtx = asWorkerAgentContext(ctx);
+  if (agentCtx?.emitToolProgress) {
+    const inner = agentCtx.emitToolProgress;
+    agentCtx.emitToolProgress = (label) => {
+      inner(section ? `${section} · ${label}` : label);
+    };
+  }
+  const sidecarConstraint = draftWorkerSidecarConstraint(ctx?.deliveryIntent);
   const loaded = await loadSourceMaterials(input, ctx);
   const hasSource = loaded.text.replace(/\s+/g, "").length >= MIN_SOURCE_CHARS;
   if (!hasSource && !agentCtx) {
@@ -501,7 +519,7 @@ export async function runDraftWorker(
   const sourceBlock = hasSource
     ? loaded.text
     : `材料尚未读到。请先用 ${DRAFT_WORKER_READONLY_TOOL_NAMES.join(" / ")} 读取后再起草。不要编造未读文件。`;
-  const systemContent = `${DRAFT_WORKER_DEVELOPER_INSTRUCTIONS}出处必须来自材料或只读工具返回；材料没有的写进缺口。`;
+  const systemContent = `${DRAFT_WORKER_DEVELOPER_INSTRUCTIONS}${sidecarConstraint}出处必须来自材料或只读工具返回；材料没有的写进缺口。`;
   const userContent = buildDraftUserPrompt(input, checked.brief, sourceBlock);
 
   if (agentCtx) {

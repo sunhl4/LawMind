@@ -1065,6 +1065,7 @@ export const renderDocument: AgentTool = {
           guardianFailToolResult,
         } = await import("../../../guardian/index.js");
         if (shouldRunLegalGuardianForDocument(draft)) {
+          ctx.emitToolProgress?.("正在核对交件");
           const guardianRecord = await runLegalGuardianForDocument({
             workspaceDir: ctx.workspaceDir,
             draft,
@@ -1259,6 +1260,7 @@ export const renderTrackedDraft: AgentTool = {
           slimGuardianView,
           guardianFailToolResult,
         } = await import("../../../guardian/index.js");
+        ctx.emitToolProgress?.("正在核对交件");
         const guardianRecord = await runLegalGuardianForTrackedDraft({
           workspaceDir: ctx.workspaceDir,
           draft,
@@ -1278,6 +1280,7 @@ export const renderTrackedDraft: AgentTool = {
           return guardianFailToolResult(taskId, guardianView);
         }
       }
+      let lawyerDecisions: string[] = [];
       {
         // 交件 lint 包：意见正文（非红线 hunk）过机械核对；判断类与 warning 不拦。
         const { deliverableNeedsExportLint, runExportLintGateForDraft } =
@@ -1291,6 +1294,11 @@ export const renderTrackedDraft: AgentTool = {
             deliverableType: draft.deliverableType,
             citationHits,
           });
+          if (exportLint.ok) {
+            const { lawyerDecisionLines } =
+              await import("../../../delivery/lawyer-decision-notes.js");
+            lawyerDecisions = lawyerDecisionLines(exportLint.lintReport.findings);
+          }
           if (!exportLint.ok) {
             return {
               ok: false,
@@ -1508,8 +1516,8 @@ export const renderTrackedDraft: AgentTool = {
               : `已写入源文件同目录审阅修订稿（保留原格式；新修改以修订显示；请自行用 Word 打开，不会自动打开）：${rel}`,
         typeof result.appliedHunks === "number" ? `已叠加修订条数：${result.appliedHunks}` : "",
         result.conversionTool ? `基线转换：${result.conversionTool}` : "",
-        xmlQaAutoRetried ? "XML 未见修订时已内部收窄并重导一次。" : "",
         qaWarning ?? "",
+        lawyerDecisions.length > 0 ? lawyerDecisions.join("\n") : "",
       ]
         .filter(Boolean)
         .join(" · ");
@@ -1529,6 +1537,7 @@ export const renderTrackedDraft: AgentTool = {
           warning: [result.warning, qaWarning].filter(Boolean).join(" ") || undefined,
           appliedHunks: result.appliedHunks,
           ...(guardianView ? { guardian: guardianView } : {}),
+          ...(lawyerDecisions.length > 0 ? { lawyerDecisions } : {}),
           xmlQa,
           ...(xmlQaRetry ? { xmlQaRetry } : {}),
           ...(xmlQaAutoRetried ? { xmlQaAutoRetried: true as const } : {}),

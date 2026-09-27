@@ -501,13 +501,13 @@ chmod(workingDocxPath, 0o644)
 
 ### 三组常量
 
-| 项             | 值                  |
-| -------------- | ------------------- |
-| officecli 超时 | 120000 ms           |
-| 超时错误码     | `officecli_timeout` |
-| kill 信号      | `SIGTERM`           |
-| 修订作者默认   | `"LawMind"`         |
-| 备份后缀       | `.lm-bak`           |
+| 项             | 值                                |
+| -------------- | --------------------------------- |
+| officecli 超时 | 120000 ms                         |
+| 超时错误码     | `officecli_timeout`               |
+| kill 信号      | `SIGTERM`                         |
+| 修订作者默认   | `"LawMind"`；设置里的修订署名优先 |
+| 备份后缀       | `.lm-bak`                         |
 
 ### 结果对象：成功有十二个字段
 

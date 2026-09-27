@@ -219,4 +219,19 @@ describe("lawmind-server-route-platform", () => {
     expect(off.capture.json().webSearchForcedOff).toBe(false);
     expect(process.env.LAWMIND_POLICY_FORCE_NO_WEB_SEARCH).toBeUndefined();
   });
+
+  it("PATCH stores a Word revision author and a blank clears it", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-rev-author-"));
+    tempDirs.push(ws);
+
+    const set = await patchPolicy(ws, { wordRevisionAuthor: "张律师" });
+    expect(set.capture.status).toBe(200);
+    expect(set.capture.json().wordRevisionAuthor).toBe("张律师");
+    expect(readPolicy(ws).wordRevisionAuthor).toBe("张律师");
+
+    const cleared = await patchPolicy(ws, { wordRevisionAuthor: "  " });
+    expect(cleared.capture.status).toBe(200);
+    expect(cleared.capture.json().wordRevisionAuthor).toBe("");
+    expect(readPolicy(ws).wordRevisionAuthor).toBeUndefined();
+  });
 });

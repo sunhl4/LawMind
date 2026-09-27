@@ -4,6 +4,7 @@
  */
 
 import { normalizeConversationLength } from "../agent/context-preset.js";
+import { normalizeWordRevisionAuthor } from "./word-revision-author.js";
 import type { LawMindWorkspacePolicy } from "./workspace-policy.js";
 
 export type PolicyKeyNote = {
@@ -268,6 +269,17 @@ export function inspectCommercialPolicy(raw: unknown): CommercialPolicyInspectio
     }
   }
 
+  if (src.wordRevisionAuthor !== undefined) {
+    if (typeof src.wordRevisionAuthor !== "string") {
+      rejected.push(note("wordRevisionAuthor", "修订署名必须是文字"));
+    } else {
+      const author = normalizeWordRevisionAuthor(src.wordRevisionAuthor);
+      if (author) {
+        out.wordRevisionAuthor = author;
+      }
+    }
+  }
+
   if (src.context && typeof src.context === "object" && !Array.isArray(src.context)) {
     out.context = src.context;
   }
@@ -314,6 +326,7 @@ export function inspectCommercialPolicy(raw: unknown): CommercialPolicyInspectio
     "guardianTrackedRedline",
     "description",
     "conversationLength",
+    "wordRevisionAuthor",
     "context",
   ]);
 

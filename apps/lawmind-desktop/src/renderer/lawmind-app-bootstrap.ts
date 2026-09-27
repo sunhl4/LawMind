@@ -65,8 +65,18 @@ export async function loadAppBootstrapSnapshot(
   hooks?: { onShell?: (shell: AppBootstrapShell) => void },
 ) {
   const base = apiBase.replace(/\/$/, "");
-  const recordsPromise = loadRecordsPayload(apiBase);
-  const collaborationPromise = loadCollaborationPayload(apiBase);
+  // 健康检查失败时不能把已经发出的列表请求留成未处理拒绝：
+  // 断连会被渲染成页面错误，崩溃恢复把这当成监督失败。
+  let recordsError: unknown;
+  let collaborationError: unknown;
+  const recordsPromise = loadRecordsPayload(apiBase).catch((err: unknown) => {
+    recordsError = err;
+    return { tasks: [], items: [] };
+  });
+  const collaborationPromise = loadCollaborationPayload(apiBase).catch((err: unknown) => {
+    collaborationError = err;
+    return { delegations: [], events: [], gateHistory: [] };
+  });
   const bootstrapRes = await fetch(`${base}/api/bootstrap`, { headers: apiAuthHeaders() })
     .then(async (res) => (res.ok ? ((await res.json()) as Record<string, unknown>) : null))
     .catch(() => null);
@@ -90,6 +100,12 @@ export async function loadAppBootstrapSnapshot(
   hooks?.onShell?.({ health, assistants });
 
   const [records, collaboration] = await Promise.all([recordsPromise, collaborationPromise]);
+  if (recordsError) {
+    throw recordsError;
+  }
+  if (collaborationError) {
+    throw collaborationError;
+  }
   return {
     health,
     records,

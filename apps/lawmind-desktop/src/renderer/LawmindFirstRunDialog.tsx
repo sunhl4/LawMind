@@ -5,7 +5,7 @@
  *   role → prefs → starter deliverable → create matter + seed prompt + write preferences
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
@@ -153,6 +153,8 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [createDemoMatter, setCreateDemoMatter] = useState(true);
+  /** 关掉引导后，进行中的「要不要自动打开」请求不能再把它弹回来。 */
+  const dismissedThisSessionRef = useRef(false);
 
   useEffect(() => {
     if (open) {
@@ -167,6 +169,9 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
     }
     let cancelled = false;
     void (async () => {
+      if (dismissedThisSessionRef.current) {
+        return;
+      }
       try {
         const requested =
           window.sessionStorage.getItem(REQUEST_OPEN_KEY) === "1" ||
@@ -174,7 +179,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
         if (requested) {
           window.sessionStorage.removeItem(REQUEST_OPEN_KEY);
           window.localStorage.removeItem(REQUEST_OPEN_KEY);
-          if (!cancelled) {
+          if (!cancelled && !dismissedThisSessionRef.current) {
             setAutoOpen(true);
           }
           return;
@@ -201,7 +206,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
         }
         const empty =
           j.ok !== false && Array.isArray(j.overviews) && j.overviews.length === 0;
-        if (empty) {
+        if (empty && !dismissedThisSessionRef.current) {
           setAutoOpen(true);
         }
       } catch (e) {
@@ -260,6 +265,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
   }, [specs]);
 
   const dismissForever = useCallback(() => {
+    dismissedThisSessionRef.current = true;
     const stamp = new Date().toISOString();
     if (apiBase) {
       void apiSendJson<{ ok?: boolean }, Record<string, never>>(
@@ -286,6 +292,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
   }, [apiBase, onClose]);
 
   const dismissForNow = useCallback(() => {
+    dismissedThisSessionRef.current = true;
     setAutoOpen(false);
     onClose();
   }, [onClose]);

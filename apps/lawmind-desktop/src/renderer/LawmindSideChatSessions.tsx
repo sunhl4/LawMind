@@ -20,6 +20,7 @@ import {
   LAWMIND_FOCUS_CHAT_SEARCH_EVENT,
 } from "./lawmind-chat-search-focus";
 import { isSafeLmSessionId } from "./lawmind-session-link";
+import { useRunningChatSessionIds } from "./lawmind-live-turns";
 
 export type SideChatSessionRow = {
   sessionId: string;
@@ -35,7 +36,6 @@ export type LawmindSideChatSessionsProps = {
   sessions: SideChatSessionRow[];
   activeSessionId?: string;
   loading?: boolean;
-  busy?: boolean;
   apiBase?: string;
   /** Kept for callers; search is workspace-wide like the agent tool. */
   assistantId?: string;
@@ -86,7 +86,6 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
     sessions,
     activeSessionId,
     loading,
-    busy,
     apiBase,
     onSelect,
     onNewChat,
@@ -109,6 +108,7 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
   const inputRef = useRef<HTMLInputElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const runningSessionIds = useRunningChatSessionIds();
 
   useEffect(() => {
     if (!editingId) {
@@ -323,13 +323,22 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
           }}
         >
           <span className="lm-section-label">对话</span>
+          {runningSessionIds.size > 0 ? (
+            <span className="lm-side-chat-running-count" title="这些对话同时在办，互不等待">
+              {runningSessionIds.size} 在办
+            </span>
+          ) : null}
         </div>
         <button
           type="button"
           className="lm-fs-root-add"
-          title="新建对话"
+          title={
+            runningSessionIds.size > 0
+              ? "新建对话。正在办的那些会继续，不用等它们结束"
+              : "新建对话"
+          }
           aria-label="新建对话"
-          disabled={Boolean(busy) || Boolean(loading)}
+          disabled={Boolean(loading)}
           onClick={() => void onNewChat()}
         >
           ＋
@@ -376,6 +385,7 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
             ) : null}
             {shown.map((row) => {
               const active = row.sessionId === activeSessionId;
+              const running = runningSessionIds.has(row.sessionId);
               const assistantLabel = row.assistantId
                 ? assistantDisplayById?.[row.assistantId]?.trim() || row.assistantId
                 : "";
@@ -416,20 +426,17 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
                 <div
                   key={row.sessionId}
                   role="option"
-                  className={`lm-side-chat-session-row${active ? " is-active" : ""}`}
+                  className={`lm-side-chat-session-row${active ? " is-active" : ""}${running ? " is-running" : ""}`}
                   data-testid={`lm-side-chat-session-${row.sessionId}`}
-                  aria-disabled={busy ? true : undefined}
                   aria-selected={active}
-                  tabIndex={busy ? -1 : 0}
-                  title={row.title}
+                  tabIndex={0}
+                  aria-label={running ? `${row.title}，执行中` : row.title}
+                  title={running ? `${row.title} · 执行中` : row.title}
                   onClick={() => {
-                    if (busy) {
-                      return;
-                    }
                     void onSelect(row.sessionId);
                   }}
                   onKeyDown={(e) => {
-                    if (busy || (e.key !== "Enter" && e.key !== " ")) {
+                    if (e.key !== "Enter" && e.key !== " ") {
                       return;
                     }
                     e.preventDefault();
@@ -448,7 +455,6 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
                       className="lm-side-chat-session-forked lm-side-chat-session-forked-btn"
                       data-testid={`lm-side-chat-session-forked-${row.sessionId}`}
                       title="已用「另起新对话（带上文）」承前；点开可回到那条新对话"
-                      disabled={Boolean(busy)}
                       onClick={(e) => {
                         e.stopPropagation();
                         e.preventDefault();

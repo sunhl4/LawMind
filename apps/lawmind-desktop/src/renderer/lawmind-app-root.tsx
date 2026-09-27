@@ -18,6 +18,7 @@ import { applyAllUiPrefs } from "./lawmind-ui-prefs";
 
 import { resolveOpenableOutputPath, artifactApiRelFromOutput } from "./lawmind-app-utils";
 import { scheduleScrollChatMessagesToLatest } from "./lawmind-chat-scroll";
+import { LAWMIND_OPEN_WORKSPACE_FILE_EVENT } from "./lawmind-workspace-file-open";
 import { useLawmindAppRootHandlers } from "./app/useLawmindAppRootHandlers";
 import { useLawmindAppRootLayout } from "./app/useLawmindAppRootLayout";
 import { LawmindAppRootView } from "./app/LawmindAppRootView";
@@ -434,6 +435,17 @@ export function LawmindAppRoot() {
       setWsShowChat(true);
     }
   }, [mainView, matterCockpitOpen, canUseFilesystemBridge, wsShowEditor, wsShowChat, setWsShowChat]);
+
+  useEffect(() => {
+    // 编辑区默认收起（display:none）。深链已经把文件写进标签，但父级仍是 none 时标签不可见。
+    const revealEditor = () => {
+      setMatterCockpitOpen(false);
+      setMainView("workspace");
+      setWsShowEditor(true);
+    };
+    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, revealEditor);
+    return () => window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, revealEditor);
+  }, [setMainView]);
 
   const { width: wsChatColWidth, onResizePointerDown: onWsChatSplitResize } = usePaneResizePx({
     storageKey: "lawmind.ui.wsChatColumnWidth",

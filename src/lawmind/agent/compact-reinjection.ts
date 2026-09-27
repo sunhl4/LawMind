@@ -202,6 +202,7 @@ export function applyCompactReinjectionToSession(
         role: "user",
         content: block,
         timestamp: new Date().toISOString(),
+        hiddenFromLawyer: true,
       },
     ]);
   }

@@ -600,6 +600,7 @@ export function autoCompactSessionHistory(
       role: "user",
       content: droppedDigest,
       timestamp: new Date().toISOString(),
+      hiddenFromLawyer: true,
     });
   }
   const materialPaths = matterMaterialPaths(workspaceDir, session.matterId, summaryPath);
@@ -608,6 +609,7 @@ export function autoCompactSessionHistory(
       role: "user",
       content: materialPaths,
       timestamp: new Date().toISOString(),
+      hiddenFromLawyer: true,
     });
   }
 
@@ -620,6 +622,7 @@ export function autoCompactSessionHistory(
       workspaceDir,
     }),
     timestamp: new Date().toISOString(),
+    hiddenFromLawyer: true,
   });
 
   const keptHead = [...systemMessages.slice(0, 1), ...nonSystem];

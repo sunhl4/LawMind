@@ -592,7 +592,6 @@ export function useLawmindAppRootLayout(
     chatSessions: chatSessionList,
     activeChatSessionId,
     chatSessionsLoading,
-    chatBusy: loading,
     chatAssistantId: selectedAssistantId,
     chatListScope,
     chatMattersReady,

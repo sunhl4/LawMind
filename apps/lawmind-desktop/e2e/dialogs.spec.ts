@@ -10,7 +10,11 @@ test.describe("LawMind dialogs", () => {
     page,
   }) => {
     await gotoShell(page);
-    // 侧栏「新建」弹窗路径（与桌面壳一致）。
+    // 对话侧栏把「新建案件」放在「当前案件」菜单里；无会话列表时按钮直接在案件列表上。
+    const scopeSwitcher = page.getByTestId("lm-chat-scope-switcher");
+    if (await scopeSwitcher.isVisible().catch(() => false)) {
+      await scopeSwitcher.click();
+    }
     const createBtn = page.getByTestId("lm-matter-sidebar-create");
     await expect(createBtn).toBeVisible({ timeout: 30_000 });
     await createBtn.click();

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DRAFT_WORKER_MAX_TOOL_ROUNDS } from "./draft-worker-loop.js";
 import {
   DRAFT_WORKER_DEVELOPER_INSTRUCTIONS,
+  draftWorkerSidecarConstraint,
   groundDraftCitations,
   parseDraftWorkerModelText,
   runDraftWorker,
@@ -220,6 +221,42 @@ describe("draft-worker", () => {
     };
     expect(cfg.responseFormat).toBeUndefined();
     expect(cfg.maxRetries).toBe(0);
+  });
+
+  it("locks opinion sidecars to a fragment and prefixes live progress with the section", async () => {
+    expect(
+      draftWorkerSidecarConstraint({
+        artifactShape: "opinion_memo",
+        mutateSource: "forbid",
+        outputPlace: "unspecified",
+        chatMirror: "unspecified",
+      }),
+    ).toContain("不要改原件、不要导出、不要外发");
+    expect(draftWorkerSidecarConstraint(undefined)).toBe("");
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lm-draft-"));
+    const labels: string[] = [];
+    vi.mocked(callModelWithRetry).mockResolvedValue(
+      successResponse(JSON.stringify({ draft: DRAFT, citations: ["买卖合同"], gaps: [] })),
+    );
+    await runDraftWorker(completeBrief, {
+      chatModel: model,
+      workspaceDir: tmp,
+      sessionId: "s",
+      deliveryIntent: {
+        artifactShape: "opinion_memo",
+        mutateSource: "forbid",
+        outputPlace: "unspecified",
+        chatMirror: "unspecified",
+      },
+      emitToolProgress: (label) => {
+        labels.push(label);
+      },
+    });
+    const messages = vi.mocked(callModelWithRetry).mock.calls[0]?.[1] as Array<{
+      content?: string;
+    }>;
+    expect(messages[0]?.content).toContain("不要改原件、不要导出、不要外发");
+    expect(labels.some((label) => label.startsWith("违约金 · "))).toBe(true);
   });
 
   it("reads a local source file instead of trusting the filename string", async () => {

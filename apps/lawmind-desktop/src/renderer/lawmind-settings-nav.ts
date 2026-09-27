@@ -77,7 +77,7 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
         id: "appearance",
         label: "外观",
         description: "浅色或深色、全软件字号，以及审稿是否要您拍板",
-        keywords: "appearance 字体 字号 全局 ui 主题 深色 浅色 疏密 导出 word 签批 审阅 review",
+        keywords: "appearance 字体 字号 全局 ui 主题 深色 浅色 疏密 导出 word 签批 审阅 review 署名 修订作者",
       },
     ],
   },

@@ -5,6 +5,7 @@ import {
   isCompactSyntheticUserMessage,
 } from "./compact-insert.js";
 import { COMPACT_REINJECTION_MARKER } from "./compact-reinjection.js";
+import { CARRYOVER_SEED_MARKER } from "./session-carryover.js";
 import type { AgentMessage } from "./types.js";
 
 function msg(role: AgentMessage["role"], content: string): AgentMessage {
@@ -19,6 +20,7 @@ describe("compact-insert", () => {
       true,
     );
     expect(isCompactSyntheticUserMessage("请继续改违约责任")).toBe(false);
+    expect(isCompactSyntheticUserMessage(CARRYOVER_SEED_MARKER)).toBe(true);
 
     const history = [
       msg("system", "sys"),

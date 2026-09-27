@@ -308,7 +308,7 @@ ops.toSorted((a, b) => (b.spanStart ?? 0) - (a.spanStart ?? 0));
 
 ### 时间与作者
 
-officecli 超时设的是 120 秒。修订作者默认写 `"LawMind"`，可以通过 `--prop revision.author=` 改。
+officecli 超时设的是 120 秒。修订作者默认写 `"LawMind"`。设置 → 外观里的「修订署名」写了名字后，导出改用那个名字（仍通过 `--prop revision.author=` 写入）。
 
 ### 回执清单
 

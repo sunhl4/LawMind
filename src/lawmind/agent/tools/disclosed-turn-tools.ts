@@ -229,6 +229,13 @@ const CAPABILITY_EXTRA_TOOLS: Record<string, readonly string[]> = {
   "contract.draft": ["search_case_law", "search_workspace", "compare_documents"],
 };
 
+/** 分点 / 分章意见，不是从零起草。用来给审查和检索备忘打开 draft_worker。 */
+export function instructionLooksLikeSectionedWriting(text: string): boolean {
+  return /分章|分点|各写|逐条(?:写|起草|审查)|分别(?:起草|写|审查)|按争点|按章节|多章|一节一节/.test(
+    text,
+  );
+}
+
 export function extraToolsForInstruction(
   instruction: string | undefined,
   extras?: Pick<CompileIntentInput, "pins" | "documents" | "matterKind" | "previousCapabilityId">,
@@ -260,8 +267,11 @@ export function extraToolsForInstruction(
     compiled.capabilityId === "contract.draft" ||
     compiled.capabilityId === "litigation.draft" ||
     compiled.capabilityId === "materials.draft";
+  const sectionedReview =
+    (compiled.capabilityId === "contract.review" || compiled.capabilityId === "research.memo") &&
+    instructionLooksLikeSectionedWriting(text);
   if (
-    (draftCapability || extractTextIntent(text).verbs.includes("draft")) &&
+    (draftCapability || extractTextIntent(text).verbs.includes("draft") || sectionedReview) &&
     !instructionLooksLikeLetterQa(text)
   ) {
     extrasTools.push("draft_worker");

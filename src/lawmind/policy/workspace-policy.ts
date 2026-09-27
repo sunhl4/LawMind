@@ -210,6 +210,11 @@ export type LawMindWorkspacePolicy = {
    */
   conversationLength?: "200k" | "500k" | "1m";
   /**
+   * Word 修订署名。空白或不写时，审阅稿上的修订作者是 LawMind。
+   * 设置页写入；导出时交给 officecli 的 `revision.author`。
+   */
+  wordRevisionAuthor?: string;
+  /**
    * 上下文窗口 / 自动压缩 / 摘要 / 钉子 / 续接的调参（高级设置）。
    *
    * 全部可选；**每一项都做类型校验与夹取**，非法值回落默认、越界值夹到边界

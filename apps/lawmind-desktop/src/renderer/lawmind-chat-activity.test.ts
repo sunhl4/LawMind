@@ -40,6 +40,28 @@ describe("lawmind-chat-activity", () => {
     expect(blocks[0]?.kind).toBe("text");
   });
 
+  it("does not mark an internal delivery retry as a failed step", () => {
+    let blocks = startActivityTool(createEmptyActivity(), {
+      toolCallId: "tc-xml",
+      toolName: "render_tracked_draft",
+    });
+    blocks = endActivityTool(blocks, {
+      toolCallId: "tc-xml",
+      toolName: "render_tracked_draft",
+      ok: false,
+      error:
+        "【同一回合验收未过】验证器未绿，本回合不得结束。请立即调用 render_tracked_draft。\n- [xml_qa_fail] 导出文件的 XML 未见审阅痕迹",
+    });
+    const tool = blocks[0];
+    expect(tool?.kind).toBe("tool");
+    if (tool?.kind === "tool") {
+      expect(tool.status).toBe("done");
+      expect(tool.detail).toBe("正在写成审阅稿。");
+      expect(tool.detail).not.toContain("XML");
+      expect(tool.detail).not.toContain("请重导");
+    }
+  });
+
   it("keeps search result preview and session chips on success", () => {
     let blocks = startActivityTool(createEmptyActivity(), {
       toolCallId: "tc-2",

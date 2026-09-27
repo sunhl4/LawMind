@@ -49,8 +49,7 @@ export function LawmindCollaborationComposeModelRail(props: LawmindCollabCompose
             onOpenApiWizard={onOpenApiWizard}
             onTestCurrent={onComposeModelQuickTest}
             quickTestBusy={composeModelQuickTestBusy}
-            disabled={chatLoading ?? false}
-            disabledTitle={chatLoading ? "对话进行中，请稍后再切换模型" : undefined}
+            title={chatLoading ? "本轮仍用正在跑的模型；换选从下一句或新对话起生效" : undefined}
           />
         </label>
       </div>

@@ -284,6 +284,26 @@ describe("applyRedlineHunksWithOfficeCli", () => {
     expect(r.attempted).toBe(1);
     expect(r.applied).toBe(1);
     expect(r.ambiguous).toBe(0);
+    expect(spawnState.lastSetArgs).toContain("revision.author=LawMind");
+  });
+
+  it("writes a custom revision author onto the officecli prop", async () => {
+    spawnState.setSucceeds = true;
+    const r = await applyRedlineHunksWithOfficeCli({
+      workingDocxPath: "/tmp/x.docx",
+      author: "张律师",
+      proposals: [
+        {
+          hunkId: "a",
+          sectionIndex: 0,
+          before: "x",
+          after: "y",
+          status: "accepted",
+        },
+      ],
+    });
+    expect(r.applied).toBe(1);
+    expect(spawnState.lastSetArgs).toContain("revision.author=张律师");
   });
 
   it('uses r"..." find form for regex lookbehind (no regex=true prop)', async () => {
@@ -454,6 +474,44 @@ describe("renderDocxWithTrackedChanges multi-match safety", () => {
     expect(manifest.applyResult).toMatchObject({ applied: 1, attempted: 2, ambiguous: 1 });
     expect(manifest.proposals.find((p) => p.hunkId === "amb-1")?.applyStatus).toBe("ambiguous");
     expect(manifest.proposals.find((p) => p.hunkId === "ok-1")?.applyStatus).toBeUndefined();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("renderDocxWithTrackedChanges revision author", () => {
+  it("uses the workspace signature when one is saved", async () => {
+    spawnState.setSucceeds = true;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-tracked-author-"));
+    fs.writeFileSync(path.join(dir, "合同.docx"), "pk");
+    fs.writeFileSync(
+      path.join(dir, "lawmind.policy.json"),
+      `${JSON.stringify({ schemaVersion: 1, wordRevisionAuthor: "王律师" })}\n`,
+      "utf8",
+    );
+    const result = await renderDocxWithTrackedChanges({
+      draft: {
+        taskId: "task-author",
+        title: "Test",
+        summary: "",
+        templateId: "general",
+        output: "docx",
+        reviewStatus: "approved",
+        reviewNotes: [],
+        sections: [{ heading: "一", body: "甲", citations: [] }],
+        createdAt: new Date().toISOString(),
+        contractEdit: {
+          baselineRelativePath: "合同.docx",
+          mode: "surgical",
+        },
+      } as import("../types.js").ArtifactDraft,
+      outputDir: dir,
+      proposals: [
+        { hunkId: "ok-1", sectionIndex: 0, before: "甲", after: "乙", status: "pending" },
+      ],
+      workspaceDir: dir,
+    });
+    expect(result.ok).toBe(true);
+    expect(spawnState.lastSetArgs).toContain("revision.author=王律师");
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });

@@ -72,6 +72,7 @@ import {
   runApprovedIcloudDownloads,
 } from "../runtime/icloud-materialize.js";
 import { contextUsesHostFileLedger } from "../runtime/tool-pipeline.js";
+import { DEFAULT_TOOL_WALL_TIMEOUT_MS } from "../runtime/tool-timeout-env.js";
 import { deskItemById } from "../skills/lawyer-capability-lock.js";
 import { ensureLawyerWorkForTurn } from "../work/goal.js";
 import { intersectAllowedToolNames } from "./child-gates.js";
@@ -94,8 +95,8 @@ import { freezeTurnContext } from "./turn-step-context.js";
 import type { AgentConfig, AgentContext, AgentTurn } from "./types.js";
 
 const DEFAULT_MAX_HISTORY_MESSAGES = 100;
-/** Used only when `AgentConfig.toolExecutionTimeoutMs` is unset — 0 = no wall-clock tool kill. */
-const DEFAULT_TOOL_TIMEOUT_MS = 0;
+/** Used only when `AgentConfig.toolExecutionTimeoutMs` is unset. */
+const DEFAULT_TOOL_TIMEOUT_MS = DEFAULT_TOOL_WALL_TIMEOUT_MS;
 
 export async function runTurn(opts: {
   config: AgentConfig;
@@ -436,10 +437,12 @@ export async function runTurn(opts: {
   const stoppedDuringSetup =
     opts.shouldAbort?.() === true || isTurnAbortRequested(session.sessionId);
   if (!stoppedDuringSetup) {
+    const typed = sessionTitleHint?.trim();
     session.conversationHistory.push({
       role: "user",
       content: instruction,
       timestamp: new Date().toISOString(),
+      ...(typed && typed !== instruction.trim() ? { lawyerVisibleText: typed } : {}),
     });
   }
 

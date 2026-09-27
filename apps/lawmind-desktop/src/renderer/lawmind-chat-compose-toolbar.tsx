@@ -260,8 +260,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
           onOpenApiWizard={onOpenApiWizard}
           onTestCurrent={onComposeModelQuickTest}
           quickTestBusy={composeModelQuickTestBusy}
-          disabled={loading}
-          disabledTitle={loading ? "回复生成中，请稍后再切换模型" : undefined}
+          title={loading ? "本轮仍用正在跑的模型；换选从下一句或新对话起生效" : undefined}
         />
         <LawmindSettingsConversationLength
           apiBase={apiBase}

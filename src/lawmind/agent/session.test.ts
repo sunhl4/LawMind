@@ -330,6 +330,70 @@ describe("session title and history helpers", () => {
     const rows = sessionHistoryToSimpleMessages(s);
     expect(rows[1]?.turnPlan?.items).toHaveLength(2);
   });
+
+  it("sessionHistoryToSimpleMessages pairs one typed turn with one assistant window", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    const now = new Date().toISOString();
+    s.conversationHistory.push(
+      { role: "user", content: "去做下一轮", timestamp: now },
+      { role: "assistant", content: "本轮先补正文。", timestamp: now },
+      {
+        role: "tool",
+        content: "",
+        timestamp: now,
+        toolCallResponses: [{ toolCallId: "c1", name: "draft_document", result: { ok: true } }],
+      },
+      { role: "assistant", content: "草稿写错了，改走合并稿。", timestamp: now },
+    );
+    const rows = sessionHistoryToSimpleMessages(s);
+    expect(rows.map((row) => row.role)).toEqual(["user", "assistant"]);
+    expect(rows[0]?.text).toBe("去做下一轮");
+    expect(rows[1]?.text).toBe("本轮先补正文。\n\n草稿写错了，改走合并稿。");
+  });
+
+  it("sessionHistoryToSimpleMessages does not merge a later question into the previous answer", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    const now = new Date().toISOString();
+    s.conversationHistory.push(
+      { role: "user", content: "先看合同", timestamp: now },
+      { role: "assistant", content: "看完了。", timestamp: now },
+      { role: "assistant", content: "风险在第三条。", timestamp: now },
+      { role: "user", content: "改违约金", timestamp: now },
+      { role: "assistant", content: "已改。", timestamp: now },
+    );
+    const rows = sessionHistoryToSimpleMessages(s);
+    expect(rows.map((row) => row.text)).toEqual([
+      "先看合同",
+      "看完了。\n\n风险在第三条。",
+      "改违约金",
+      "已改。",
+    ]);
+  });
+
+  it("sessionHistoryToSimpleMessages hides compact anchors and shows only the typed sentence", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    const now = new Date().toISOString();
+    s.conversationHistory.push(
+      {
+        role: "user",
+        content:
+          "【压缩后上下文锚点】\n- 交付物验收与 render 门禁仍须遵守当前草稿 acceptance 状态。",
+        timestamp: now,
+      },
+      {
+        role: "user",
+        content: "【LawMind 文件页】\n摘录\n\n去做下一轮",
+        lawyerVisibleText: "去做下一轮",
+        timestamp: now,
+      },
+      { role: "assistant", content: "继续。", timestamp: now },
+    );
+    const rows = sessionHistoryToSimpleMessages(s);
+    expect(rows.map((row) => row.text)).toEqual(["去做下一轮", "继续。"]);
+  });
 });
 
 describe("tool batch persistence barrier", () => {

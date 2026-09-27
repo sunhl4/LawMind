@@ -425,7 +425,8 @@ describe("turn-orchestrator-prompt", () => {
       projectDirResolved: undefined,
     });
     expect(visiblePrompt(result, session)).toContain(WORD_REVISION_PROMPT.split("\n")[0] ?? "");
-    expect(visiblePrompt(result, session)).toContain("### tech.scope");
+    expect(visiblePrompt(result, session)).toContain("不要按文件名套用类型清单");
+    expect(visiblePrompt(result, session)).not.toContain("### tech.scope");
     expect(visiblePrompt(result, session)).not.toContain("### pr.pay");
     expect(visiblePrompt(result, session)).toContain("## 改稿计划");
     expect(visiblePrompt(result, session)).not.toContain("纸侧与交易角色");

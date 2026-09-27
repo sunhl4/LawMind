@@ -32,6 +32,7 @@ import type { RiskLevel } from "../types.js";
 import type { ClarificationQuestion } from "../types.js";
 import { resolvePreApprovalInjection } from "./approval-cache-key.js";
 import { conversationSessionRefsFromToolData } from "./conversation-search.js";
+import { attachDraftWorkerJoinIndex, draftWorkerSectionErrors } from "./draft-worker-batch.js";
 import { presentLawyerToolResult } from "./tool-lawyer-card.js";
 import {
   stringifyToolResultForHistory,
@@ -582,6 +583,49 @@ export async function executeToolBatches(
       };
     };
 
+    const sectionErrors = draftWorkerSectionErrors(batch.calls);
+    const stageSectionReject = (ref: ToolCallRef, error: string): StagedToolOutcome => {
+      emitEvent({
+        type: "tool_call_start",
+        roundIndex,
+        toolCallId: ref.id,
+        toolName: ref.name,
+        args: { ...ref.arguments },
+      });
+      emitEvent({
+        type: "tool_call_end",
+        roundIndex,
+        toolCallId: ref.id,
+        toolName: ref.name,
+        ok: false,
+        error,
+        resultPreview: error,
+      });
+      const result = { ok: false as const, error };
+      return {
+        toolResponseMsg: {
+          role: "tool",
+          content: stringifyToolResultForHistory(result),
+          toolCallResponses: [{ toolCallId: ref.id, name: ref.name, result }],
+          timestamp: new Date().toISOString(),
+        },
+        clarificationQuestions: [],
+        approvalRequest: false,
+        toolName: ref.name,
+        toolCallId: ref.id,
+        toolArgs: { ...ref.arguments },
+      };
+    };
+    const runOrReject = (ref: ToolCallRef): Promise<StagedToolOutcome> => {
+      const error = sectionErrors.get(ref.id);
+      if (error) {
+        return Promise.resolve(stageSectionReject(ref, error));
+      }
+      return runOne(ref);
+    };
+    const batchStaged: StagedToolOutcome[] = [];
+    let stopBatch = false;
+
     if (batch.concurrencySafe && batch.calls.length > 1) {
       // 并发批按上限分片（LAWMIND_MAX_TOOL_CONCURRENCY，默认 4），避免模型一次
       // 抛出大量只读调用时对磁盘/检索/模型端造成无节流压力。
@@ -594,7 +638,7 @@ export async function executeToolBatches(
           }
           continue;
         }
-        const staged = await Promise.all(slice.map((ref) => runOne(ref)));
+        const staged = await Promise.all(slice.map((ref) => runOrReject(ref)));
         if (isAborted()) {
           for (const ref of slice) {
             if (!answeredToolCallIds.has(ref.id)) {
@@ -603,8 +647,10 @@ export async function executeToolBatches(
           }
           continue;
         }
+        batchStaged.push(...staged);
         if (commitStagedBatch(staged)) {
-          break toolBatchLoop;
+          stopBatch = true;
+          break;
         }
       }
     } else {
@@ -614,7 +660,7 @@ export async function executeToolBatches(
           skipToolDueToAbort(ref);
           continue;
         }
-        staged.push(await runOne(ref));
+        staged.push(await runOrReject(ref));
         if (isAborted()) {
           break;
         }
@@ -628,11 +674,15 @@ export async function executeToolBatches(
             skipToolDueToAbort(ref);
           }
         }
-      } else if (commitStagedBatch(staged)) {
-        break toolBatchLoop;
+      } else {
+        batchStaged.push(...staged);
+        if (commitStagedBatch(staged)) {
+          stopBatch = true;
+        }
       }
     }
-    if (turn.status === "awaiting_approval") {
+    attachDraftWorkerJoinIndex(batchStaged);
+    if (stopBatch || turn.status === "awaiting_approval") {
       break toolBatchLoop;
     }
   }

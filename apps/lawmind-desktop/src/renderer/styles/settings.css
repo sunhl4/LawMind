@@ -745,6 +745,12 @@ label.lm-settings-row {
   padding: 10px 0;
 }
 
+.lm-input.lm-settings-author-input {
+  width: 11rem;
+  max-width: 46%;
+  flex: 0 0 auto;
+}
+
 .lm-settings-segment {
   display: grid;
   grid-auto-flow: column;

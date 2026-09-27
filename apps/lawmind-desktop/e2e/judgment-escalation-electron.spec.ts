@@ -31,7 +31,7 @@ import { bootstrapE2ePage, openReviewDraft } from "./e2e-helpers";
  * 「策略接线」撤掉（`resolveEscalationPosture()` 改回无参调用）后，**三条照样通过** ——
  * 因为无参调用仍能从 `process.env` 读到档位，差异只在**策略文件**那一档。
  * 所以：**这三条是真机 edition 对等性覆盖，不是策略文件接线的守卫。**
- * 真正守策略文件那条路的是最后一条用例（posture 写进 `lawmind.policy.json`）。
+ * 策略文件只留 `edition`（优先于 env）。`judgmentEscalationPosture` 会被拒绝，不能把 firm 调成不打断。
  */
 
 /** 与 `guardian/types.ts` 的 `escalationItems` 同形（真实落盘的字段）。 */
@@ -152,21 +152,26 @@ test.describe("G3 待定夺卡 · 真机 Electron（引擎 → 路由 → 界面
   });
 
   /**
-   * **唯一**能区分「策略文件那一档接没接上」的真机用例（变异验证过）。
-   *
-   * 场景：律所版（firm，缺省 block）由**律所自行调回不打断** —— 这是 policy 的既有能力。
-   * 姿态**只**写在 `lawmind.policy.json`，env 里不设 `LAWMIND_JUDGMENT_ESCALATION_POSTURE`
-   * （且 `applyLawMindPolicyToEnv` 本就不投影 judgment 族键）。
-   *
-   * 于是：调用方若用无参 `resolveEscalationPosture()`（2026-09-22 修复前就是如此），
-   * 策略文件被整条丢掉 → 回落到 edition 缺省 → **block** → 本用例失败；
-   * 只有真的把工作区策略读进来，才会得到 advisory。
+   * 策略合同不再接受 `judgmentEscalationPosture`（那是产品行为，不是律所硬边界）。
+   * 写了放宽姿态也必须仍是 firm 缺省的 block。若界面改成 advisory，说明拒绝键又被读回去了。
    */
-  test("策略文件里的姿态真的生效：firm 也能被所内调回「不打断」", async () => {
+  test("策略文件里的放宽姿态不生效，律所仍停下等确认", async () => {
+    await runEscalationScenario({
+      edition: "firm",
+      expectPosture: "block",
+      policyFile: { judgmentEscalationPosture: "advisory" },
+    });
+  });
+
+  /**
+   * 策略文件仍生效的一档是 `edition`（优先于 env）。
+   * firm 环境里把工作区写成 solo，姿态必须回到 advisory；无参解析会停在 env 的 block。
+   */
+  test("策略文件的 edition 优先于 env：firm 环境写 solo 则不打断", async () => {
     await runEscalationScenario({
       edition: "firm",
       expectPosture: "advisory",
-      policyFile: { judgmentEscalationPosture: "advisory" },
+      policyFile: { edition: "solo" },
     });
   });
 });

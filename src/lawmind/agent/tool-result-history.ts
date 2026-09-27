@@ -307,6 +307,7 @@ function pickKeyFields(result: Record<string, unknown>): Record<string, unknown>
     "gateDecision",
     "guardian",
     "redlinePending",
+    "joinIndex",
   ] as const) {
     if (key in result) {
       out[key] = result[key];

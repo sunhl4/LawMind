@@ -3,7 +3,12 @@
  * Not runTurn: no compact, playbook, CORE catalog, or approval pipeline.
  */
 
+import { withLeafToolSlot } from "../runtime/tool-concurrency.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
+import {
+  resolveToolDecisionMaxTokens,
+  shouldRaiseToolDecisionOutput,
+} from "./tool-decision-sampling.js";
 import { presentLawyerToolCall } from "./tool-lawyer-card.js";
 import { stringifyToolResultForHistory } from "./tool-result-history.js";
 import { ToolRegistry } from "./tools/registry.js";
@@ -123,7 +128,9 @@ async function executeAllowlistedTool(
   }
   try {
     ctx.emitToolProgress?.(formatSidecarProgressLabel(call.name, call.arguments, "start"));
-    const result = await tool.execute(call.arguments, { ...ctx, inReadonlyWorkerLoop: true });
+    const result = await withLeafToolSlot(() =>
+      tool.execute(call.arguments, { ...ctx, inReadonlyWorkerLoop: true }),
+    );
     ctx.emitToolProgress?.(
       formatSidecarProgressLabel(call.name, call.arguments, result.ok ? "ok" : "fail"),
     );
@@ -133,6 +140,17 @@ async function executeAllowlistedTool(
     ctx.emitToolProgress?.(formatSidecarProgressLabel(call.name, call.arguments, "fail"));
     return { ok: false, error: `只读工具失败：${message}` };
   }
+}
+
+/** Shown while the sidecar model is sampling, before an inner tool starts. */
+export function sidecarWaitLabel(roleLabel: string): string {
+  if (roleLabel === "写稿工") {
+    return "正在写稿";
+  }
+  if (roleLabel === "探查工") {
+    return "正在探查目录";
+  }
+  return "正在办理";
 }
 
 /** Lawyer-facing inner-step labels for explore/draft sidecars. */
@@ -189,12 +207,30 @@ export async function runReadonlyWorkerLoop(opts: {
     maxRetries: 0,
   };
 
-  const sample = async (tools: unknown[]) =>
-    callModelWithRetry(modelCfg, messages, tools, { signal: opts.abortSignal });
+  const sample = async (tools: unknown[], maxTokens: number) =>
+    callModelWithRetry({ ...modelCfg, maxTokens }, messages, tools, { signal: opts.abortSignal });
 
   try {
     for (let round = 0; round < maxRounds; round += 1) {
-      const response = (await sample(openaiTools(opts.registry, allowlist))) as ModelChoice;
+      opts.ctx.emitToolProgress?.(sidecarWaitLabel(opts.roleLabel));
+      const tools = openaiTools(opts.registry, allowlist);
+      const decisionMax =
+        resolveToolDecisionMaxTokens(opts.maxTokens, tools.length > 0) ?? opts.maxTokens;
+      let response = (await sample(tools, decisionMax)) as ModelChoice;
+      const firstChoice = response?.choices?.[0];
+      if (
+        firstChoice &&
+        shouldRaiseToolDecisionOutput({
+          toolsAdvertised: tools.length > 0,
+          configuredMaxTokens: opts.maxTokens,
+          finishReason: firstChoice.finish_reason,
+        })
+      ) {
+        opts.ctx.emitToolProgress?.(
+          opts.roleLabel === "写稿工" ? "正在写成交件" : sidecarWaitLabel(opts.roleLabel),
+        );
+        response = (await sample(tools, opts.maxTokens)) as ModelChoice;
+      }
       if (!response?.choices?.[0]) {
         return {
           text: "",
@@ -250,7 +286,10 @@ export async function runReadonlyWorkerLoop(opts: {
       role: "user",
       content: opts.closePrompt,
     });
-    const closing = (await sample([])) as ModelChoice;
+    opts.ctx.emitToolProgress?.(
+      opts.roleLabel === "写稿工" ? "正在写成交件" : sidecarWaitLabel(opts.roleLabel),
+    );
+    const closing = (await sample([], opts.maxTokens)) as ModelChoice;
     const text = (closing.choices?.[0]?.message?.content ?? "").trim();
     return { text, grounding: groundingParts.join("\n"), toolsUsed, steps };
   } catch (err) {

@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ListDirEntry } from "../runtime/list-dir.js";
 import {
+  exploreListingHint,
   FOLDER_EXPLORER_DEVELOPER_INSTRUCTIONS,
   parseExploreModelText,
   rankExploreCandidates,
@@ -89,6 +90,30 @@ describe("explore-folder-worker", () => {
     const peeks = result.data.peeks as Array<{ path: string; excerpt: string }>;
     expect(peeks.some((p) => p.excerpt.includes("催告"))).toBe(true);
     expect(vi.mocked(callModelWithRetry)).not.toHaveBeenCalled();
+    expect(String(result.data.hint)).not.toContain("digest_materials");
+  });
+
+  it("points a pile of files at digest_materials", async () => {
+    dir = tmpDir();
+    const folder = path.join(dir, "材料夹");
+    fs.mkdirSync(folder);
+    for (let i = 0; i < 8; i += 1) {
+      fs.writeFileSync(path.join(folder, `合同${i}.txt`), `正文${i}`, "utf8");
+    }
+    const result = await runFolderExplorer(
+      { workspaceDir: dir, sessionId: "s1", projectDir: dir },
+      {
+        goal: "归纳这些合同的付款和期限",
+        notGoal: "不要改原件",
+        path: "材料夹",
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(String(result.data.hint)).toContain("digest_materials");
+    expect(exploreListingHint("只读。", [{ kind: "file" }, { kind: "directory" }])).toBe("只读。");
   });
 
   it("rejects a vague brief", async () => {

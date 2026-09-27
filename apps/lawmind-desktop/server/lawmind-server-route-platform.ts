@@ -1,4 +1,5 @@
 import { resolveConversationLength } from "../../../src/lawmind/agent/context-preset.js";
+import { normalizeWordRevisionAuthor } from "../../../src/lawmind/policy/word-revision-author.js";
 import { listPlatformGateHistory } from "../../../src/lawmind/platform/audit-gate.js";
 import { mergeRecommendedLegalNetworkAllowlist } from "../../../src/lawmind/policy/network-allowlist.js";
 import { isAnalysisScriptsAllowed } from "../../../src/lawmind/policy/analysis-scripts.js";
@@ -41,6 +42,7 @@ export async function handlePlatformRoutes({
         networkAllowlist: policy?.networkAllowlist ?? [],
         hostAccess: policy?.hostAccess ?? {},
         conversationLength: resolveConversationLength(policy?.conversationLength),
+        wordRevisionAuthor: policy?.wordRevisionAuthor ?? "",
       },
       c,
     );
@@ -89,6 +91,9 @@ export async function handlePlatformRoutes({
       ...(body.conversationLength !== undefined
         ? { conversationLength: body.conversationLength }
         : {}),
+      ...(body.wordRevisionAuthor !== undefined
+        ? { wordRevisionAuthor: normalizeWordRevisionAuthor(body.wordRevisionAuthor) }
+        : {}),
     });
     if (!merged.ok) {
       sendJson(res, 500, { ok: false, message: merged.error }, c);
@@ -111,6 +116,7 @@ export async function handlePlatformRoutes({
         webSearchForcedOff: isWebSearchForcedOffByPolicy(),
         hostAccess: merged.policy.hostAccess ?? {},
         conversationLength: resolveConversationLength(merged.policy.conversationLength),
+        wordRevisionAuthor: merged.policy.wordRevisionAuthor ?? "",
       },
       c,
     );

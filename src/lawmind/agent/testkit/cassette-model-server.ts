@@ -76,7 +76,7 @@ function renderJson(
         choices: [
           {
             message: { role: "assistant", content: round.content },
-            finish_reason: "stop",
+            finish_reason: round.finishReason ?? "stop",
           },
         ],
       }),
@@ -124,7 +124,7 @@ function renderSse(
         chunks.push(sseEvent({ choices: [{ delta: { content: text.slice(i, i + 24) } }] }));
       }
     }
-    chunks.push(sseEvent({ choices: [{ finish_reason: "stop" }] }));
+    chunks.push(sseEvent({ choices: [{ finish_reason: round.finishReason ?? "stop" }] }));
     chunks.push("data: [DONE]\n\n");
     return { status: 200, contentType: "text/event-stream", body: chunks.join("") };
   }

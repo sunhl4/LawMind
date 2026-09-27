@@ -140,7 +140,7 @@ describe("presentLawyerToolResult", () => {
         },
       },
     );
-    expect(card.detail).toBe("未产生可核验修订");
+    expect(card.detail).toBe("修改还没写进稿子，正在继续改。");
     expect(card.detail).not.toContain("apply_surgical_edits");
     expect(card.detail).not.toContain("同一回合验收未过");
   });
@@ -158,7 +158,7 @@ describe("presentLawyerToolResult", () => {
         },
       },
     );
-    expect(card.detail).toBe("导出未见审阅痕迹，请重导");
+    expect(card.detail).toBe("正在写成审阅稿。");
     expect(card.detail).not.toContain("render_tracked_draft");
     expect(card.detail).not.toContain("同一回合验收未过");
   });

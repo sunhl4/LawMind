@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { formatWorkflowTimingSummary } from "../agent/tools/engine/engine-tool-shared.js";
-import { isUnlimitedToolTimeoutMs, parseToolTimeoutMsEnv } from "./tool-timeout-env.js";
+import {
+  DEFAULT_TOOL_WALL_TIMEOUT_MS,
+  isUnlimitedToolTimeoutMs,
+  LONG_RUNNING_TOOL_TIMEOUT_MS,
+  parseToolTimeoutMsEnv,
+  resolveToolWallTimeoutMs,
+} from "./tool-timeout-env.js";
 
 describe("parseToolTimeoutMsEnv", () => {
   it("defaults to 0 (no tool wall-clock kill)", () => {
@@ -13,6 +19,19 @@ describe("parseToolTimeoutMsEnv", () => {
 
   it("parses positive caps", () => {
     expect(parseToolTimeoutMsEnv(0, { LAWMIND_TOOL_TIMEOUT_MS: "180000" })).toBe(180_000);
+  });
+});
+
+describe("resolveToolWallTimeoutMs", () => {
+  it("keeps an explicit cap and raises nested tools off the product default", () => {
+    expect(resolveToolWallTimeoutMs("search_statute", DEFAULT_TOOL_WALL_TIMEOUT_MS)).toBe(
+      DEFAULT_TOOL_WALL_TIMEOUT_MS,
+    );
+    expect(resolveToolWallTimeoutMs("draft_worker", DEFAULT_TOOL_WALL_TIMEOUT_MS)).toBe(
+      LONG_RUNNING_TOOL_TIMEOUT_MS,
+    );
+    expect(resolveToolWallTimeoutMs("render_tracked_draft", 30_000)).toBe(30_000);
+    expect(resolveToolWallTimeoutMs("draft_worker", 0)).toBe(0);
   });
 });
 

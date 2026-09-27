@@ -35,8 +35,10 @@ type Props = {
   onTestCurrent?: () => void | Promise<void>;
   /** Disables "Test connection" while the request runs. */
   quickTestBusy?: boolean;
-  /** When true, the trigger button is rendered disabled (e.g. while streaming). */
+  /** When true, the trigger button is rendered disabled. */
   disabled?: boolean;
+  /** Hover text while the trigger stays clickable. */
+  title?: string;
   /** Shown when `disabled` is true (hover tooltip). */
   disabledTitle?: string;
 };
@@ -123,6 +125,7 @@ export function LawmindModelPicker(props: Props): ReactNode {
     quickTestBusy,
     disabled,
     disabledTitle,
+    title,
   } = props;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -347,9 +350,9 @@ export function LawmindModelPicker(props: Props): ReactNode {
         className="lm-model-picker-trigger"
         disabled={disabled}
         title={
-            disabled
+          disabled
             ? (disabledTitle ?? (offered.length === 0 ? "Loading models…" : "Model switching unavailable"))
-            : undefined
+            : title
         }
         onClick={() => setOpen((v) => !v)}
       >

@@ -283,6 +283,12 @@ export function useLawmindAppShell() {
   const watchBackgroundSessionFnRef = useRef<
     (opts: import("./useLawmindBackgroundWatch.js").BackgroundWatchOpts) => Promise<void>
   >(async () => {});
+  const noteFocusedChatSessionRef = useRef<
+    (focus: { assistantId: string; sessionId: string | undefined }) => void
+  >(() => {});
+  const abortLiveChatSessionRef = useRef<(sessionId: string) => void>(() => {});
+  const hasLiveClientTurnRef = useRef<(sessionId: string) => boolean>(() => false);
+  const reattachLiveChatSessionRef = useRef<(sessionId: string) => void>(() => {});
 
   const { watchBackgroundSessionProgress, watchBackgroundRevisionSession } = useLawmindBackgroundWatch({
     config,
@@ -355,6 +361,10 @@ export function useLawmindAppShell() {
     setMessagesByAssistant,
     knownChatMatterIdsRef,
     knownChatMatterTick,
+    noteFocusedChatSessionRef,
+    abortLiveChatSessionRef,
+    hasLiveClientTurnRef,
+    reattachLiveChatSessionRef,
   });
 
   const activeChatSessionIdForExtras = sessionByAssistant[selectedAssistantId];
@@ -449,6 +459,11 @@ export function useLawmindAppShell() {
         setMatterRefreshVersion((v) => v + 1);
       }
     },
+    loadSessionMessagesIntoState,
+    noteFocusedChatSessionRef,
+    abortLiveChatSessionRef,
+    hasLiveClientTurnRef,
+    reattachLiveChatSessionRef,
   });
   useLawmindCollaborationWatch({
     apiBase: config?.apiBase,

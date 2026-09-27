@@ -167,7 +167,41 @@ describe("word-revision-checklist", () => {
         instruction: "修改合同",
         documentText: "甲方委托乙方进行软件开发，并授予技术许可与许可使用范围。",
       }),
-    ).toContain("按合同正文判断为「技术与许可」，已套该类要点");
+    ).toContain("正文更像「技术与许可」");
+  });
+
+  it("does not apply a filename guess as a checklist", () => {
+    const block = formatWordRevisionChecklistBlock({
+      instruction: "修改合同",
+      pins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "《聘用合同》（劳务合同）.docx",
+          kind: "file",
+        },
+      ],
+    });
+    expect(block).toContain("不要按文件名套用类型清单");
+    expect(block).not.toContain("已套该类要点");
+    expect(block).not.toContain("### em.");
+  });
+
+  it("lets the contract body beat a conflicting filename", () => {
+    const r = resolveWordRevisionChecklist({
+      instruction: "修改合同",
+      pins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "设备采购合同.docx",
+          kind: "file",
+        },
+      ],
+      documentText: "甲方委托乙方进行软件开发，并授予技术许可与许可使用范围。",
+    });
+    expect(r.family).toBe("tech");
+    expect(r.familySource).toBe("inferred");
   });
 
   it("formats confirmed 甲方 items without the other side's 改", () => {

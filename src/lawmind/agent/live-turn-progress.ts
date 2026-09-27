@@ -64,7 +64,7 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
       next.steps.push({
         id: `round-${event.roundIndex}`,
         kind: "round",
-        label: `第 ${event.roundIndex} 轮`,
+        label: "决定下一步",
         status: "running",
       });
       break;
@@ -162,6 +162,21 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
         label: "较早的检索结果已收短，继续办",
         status: "done",
         detail: event.prunedCount > 0 ? `收短了 ${event.prunedCount} 条较早的结果` : undefined,
+      });
+      break;
+    case "verify_gap":
+      for (let i = next.steps.length - 1; i >= 0; i--) {
+        const step = next.steps[i];
+        if (step?.kind === "round" && step.status === "running") {
+          next.steps[i] = { ...step, status: "done" };
+          break;
+        }
+      }
+      next.steps.push({
+        id: `verify-${next.steps.length}`,
+        kind: "round",
+        label: event.message.trim() || "验收未过",
+        status: "done",
       });
       break;
     case "context_deferral_bounce":

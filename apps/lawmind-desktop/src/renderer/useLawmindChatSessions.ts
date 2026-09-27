@@ -74,6 +74,16 @@ export type UseLawmindChatSessionsInput = {
   knownChatMatterIdsRef?: MutableRefObject<ReadonlySet<string> | null>;
   /** 案件目录更新后递增，用来把已删除案件的对话收进未归案。 */
   knownChatMatterTick?: number;
+  /** Detach a live turn's transcript when the lawyer opens another conversation. */
+  noteFocusedChatSessionRef?: MutableRefObject<
+    (focus: { assistantId: string; sessionId: string | undefined }) => void
+  >;
+  /** Stop a live turn before its conversation is deleted. */
+  abortLiveChatSessionRef?: MutableRefObject<(sessionId: string) => void>;
+  /** This window still has the live stream for the session. */
+  hasLiveClientTurnRef?: MutableRefObject<(sessionId: string) => boolean>;
+  /** Resume painting that stream after the transcript reload. */
+  reattachLiveChatSessionRef?: MutableRefObject<(sessionId: string) => void>;
 };
 
 export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
@@ -99,6 +109,10 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
     setMessagesByAssistant,
     knownChatMatterIdsRef: knownChatMatterIdsRefProp,
     knownChatMatterTick = 0,
+    noteFocusedChatSessionRef,
+    abortLiveChatSessionRef,
+    hasLiveClientTurnRef,
+    reattachLiveChatSessionRef,
   } = input;
   const fallbackKnownRef = useRef<ReadonlySet<string> | null>(null);
   const knownChatMatterIdsRef = knownChatMatterIdsRefProp ?? fallbackKnownRef;
@@ -166,12 +180,14 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           return;
         }
         if (!pick) {
+          noteFocusedChatSessionRef?.current({ assistantId, sessionId: undefined });
           setSessionByAssistant((prev) => ({ ...prev, [assistantId]: undefined }));
           setMessagesByAssistant?.((prev) => ({ ...prev, [assistantId]: [] }));
           setContextMatterId(scope);
           return;
         }
         const openAssistantId = pick.assistantId?.trim() || assistantId;
+        noteFocusedChatSessionRef?.current({ assistantId: openAssistantId, sessionId: pick.sessionId });
         persistActiveChatSessionId(sessionStoreKey, openAssistantId, pick.sessionId);
         setSessionByAssistant((prev) => ({ ...prev, [openAssistantId]: pick.sessionId }));
         setContextMatterId(chatScopeForMatterId(pick.matterId, known));
@@ -234,6 +250,18 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       if (!config?.apiBase) {
         return;
       }
+      const hintedAssistantId = assistantIdOverride?.trim() || selectedAssistantId;
+      if (
+        sessionId === sessionByAssistant[hintedAssistantId] &&
+        hintedAssistantId === selectedAssistantId
+      ) {
+        return;
+      }
+      const previousFocus = {
+        assistantId: selectedAssistantId,
+        sessionId: sessionByAssistant[selectedAssistantId],
+      };
+      noteFocusedChatSessionRef?.current({ assistantId: hintedAssistantId, sessionId });
       let assistantId = assistantIdOverride?.trim() || "";
       if (!assistantId) {
         try {
@@ -267,28 +295,36 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         },
       );
       if (!ok) {
+        noteFocusedChatSessionRef?.current(previousFocus);
         return;
+      }
+      if (assistantId !== hintedAssistantId) {
+        noteFocusedChatSessionRef?.current({ assistantId, sessionId });
       }
       if (assistantId !== selectedAssistantId) {
         setSelectedAssistantId(assistantId);
       }
       persistActiveChatSessionId(chatSessionStoreKey(config.workspaceDir), assistantId, sessionId);
       setSessionByAssistant((p) => ({ ...p, [assistantId]: sessionId }));
-      try {
-        const live = await fetchChatLiveTurnProgress(config.apiBase, sessionId);
-        if (live.progress?.status === "running") {
-          await watchBackgroundSessionFnRef.current({
-            sessionId,
-            assistantId,
-            kind: "generic",
-            resumeOnly: true,
-          });
+      if (hasLiveClientTurnRef?.current(sessionId)) {
+        reattachLiveChatSessionRef?.current(sessionId);
+      } else {
+        try {
+          const live = await fetchChatLiveTurnProgress(config.apiBase, sessionId);
+          if (live.progress?.status === "running") {
+            await watchBackgroundSessionFnRef.current({
+              sessionId,
+              assistantId,
+              kind: "generic",
+              resumeOnly: true,
+            });
+          }
+        } catch {
+          /* ignore */
         }
-      } catch {
-        /* ignore */
       }
     },
-    [config, loadSessionMessagesIntoState, rememberOpenedSession, selectedAssistantId, setSelectedAssistantId, setSessionByAssistant],
+    [config, hasLiveClientTurnRef, loadSessionMessagesIntoState, noteFocusedChatSessionRef, reattachLiveChatSessionRef, rememberOpenedSession, selectedAssistantId, sessionByAssistant, setSelectedAssistantId, setSessionByAssistant],
   );
 
   const openDelegationTargetWorkspaceChat = useCallback(
@@ -357,6 +393,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         if (!sessionId) {
           return;
         }
+        noteFocusedChatSessionRef?.current({ assistantId: toId, sessionId });
         persistActiveChatSessionId(sessionStoreKey, toId, sessionId);
         setSessionByAssistant((p) => ({ ...p, [toId]: sessionId }));
         await loadSessionMessagesIntoState(toId, sessionId);
@@ -431,6 +468,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         throw new Error(sessionCreateErrorMessage(cr.status, cj));
       }
       await refreshChatSessionListForAssistant(assistantId);
+      noteFocusedChatSessionRef?.current({ assistantId, sessionId: cj.sessionId });
       persistActiveChatSessionId(chatSessionStoreKey(config.workspaceDir), assistantId, cj.sessionId);
       setSessionByAssistant((p) => ({ ...p, [assistantId]: cj.sessionId }));
       await loadSessionMessagesIntoState(assistantId, cj.sessionId, undefined, undefined, (boundMatterId) => {
@@ -507,6 +545,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         tone: "danger",
       });
       setError(null);
+      abortLiveChatSessionRef?.current(sessionId);
       try {
         const r = await fetchApi(
           `${config.apiBase}/api/sessions/delete`,
@@ -541,12 +580,17 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         }
         const next = remaining[0];
         if (!next) {
+          noteFocusedChatSessionRef?.current({ assistantId, sessionId: undefined });
           setSessionByAssistant((prev) => ({ ...prev, [assistantId]: undefined }));
           setMessagesByAssistant?.((prev) => ({ ...prev, [assistantId]: [] }));
           setContextMatterId(scope);
           return;
         }
         const nextAssistantId = next.assistantId?.trim() || assistantId;
+        noteFocusedChatSessionRef?.current({
+          assistantId: nextAssistantId,
+          sessionId: next.sessionId,
+        });
         persistActiveChatSessionId(sessionStoreKey, nextAssistantId, next.sessionId);
         setSessionByAssistant((prev) => ({ ...prev, [nextAssistantId]: next.sessionId }));
         if (nextAssistantId !== selectedAssistantId) {
@@ -615,6 +659,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         storedSessionId: getStoredScopeSessionId(storeKey, scope),
       });
       if (!pick) {
+        noteFocusedChatSessionRef?.current({ assistantId, sessionId: undefined });
         setSessionByAssistant((prev) => ({ ...prev, [assistantId]: undefined }));
         setMessagesByAssistant?.((prev) => ({ ...prev, [assistantId]: [] }));
         setContextMatterId(scope);
@@ -645,6 +690,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         storedSessionId: getStoredScopeSessionId(storeKey, scope),
       });
       if (!pick) {
+        noteFocusedChatSessionRef?.current({ assistantId, sessionId: undefined });
         setSessionByAssistant((prev) => ({ ...prev, [assistantId]: undefined }));
         setMessagesByAssistant?.((prev) => ({ ...prev, [assistantId]: [] }));
         setContextMatterId(scope);

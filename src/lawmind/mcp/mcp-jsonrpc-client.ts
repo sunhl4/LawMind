@@ -40,6 +40,33 @@ function nextId(): number {
   return Math.floor(Math.random() * 1_000_000_000);
 }
 
+/** Handshake ceiling. A silent MCP server must not hold the turn open. */
+export const MCP_CONNECT_TIMEOUT_MS = 12_000;
+
+async function raceConnect<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+  onTimeout: () => void,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  void work.catch(() => undefined);
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          onTimeout();
+          reject(new Error("MCP 连接超时"));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 export async function connectMcpStdio(opts: {
   command: string;
   args?: string[];
@@ -72,11 +99,11 @@ export async function connectMcpStdio(opts: {
     if (msg.id == null) {
       return;
     }
-    const wait = pending.get(Number(msg.id));
+    const wait = pending.get(msg.id);
     if (!wait) {
       return;
     }
-    pending.delete(Number(msg.id));
+    pending.delete(msg.id);
     if (msg.error) {
       wait.reject(new Error(msg.error.message ?? "MCP error"));
       return;
@@ -216,6 +243,7 @@ export async function connectMcpStdioSdk(opts: {
   command: string;
   args?: string[];
   env?: NodeJS.ProcessEnv;
+  timeoutMs?: number;
 }): Promise<McpSession> {
   const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
   const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
@@ -225,7 +253,9 @@ export async function connectMcpStdioSdk(opts: {
     env: buildMcpChildEnv(opts.env),
   });
   const client = new Client({ name: "lawmind", version: "0.2.0" });
-  await client.connect(transport);
+  await raceConnect(client.connect(transport), opts.timeoutMs ?? MCP_CONNECT_TIMEOUT_MS, () => {
+    void transport.close().catch(() => undefined);
+  });
   return wrapSdkClient(client);
 }
 
@@ -233,6 +263,7 @@ export async function connectMcpHttpSdk(opts: {
   url: string;
   secret?: string;
   allowInsecureHttp?: boolean;
+  timeoutMs?: number;
 }): Promise<McpSession> {
   const url = normalizeMcpHttpUrl(opts.url, { allowInsecureHttp: opts.allowInsecureHttp === true });
   if (!url.ok) {
@@ -255,6 +286,8 @@ export async function connectMcpHttpSdk(opts: {
       proxy.fetch(input, init)) as typeof fetch,
   });
   const client = new Client({ name: "lawmind", version: "0.2.0" });
-  await client.connect(transport);
+  await raceConnect(client.connect(transport), opts.timeoutMs ?? MCP_CONNECT_TIMEOUT_MS, () => {
+    void transport.close().catch(() => undefined);
+  });
   return wrapSdkClient(client);
 }

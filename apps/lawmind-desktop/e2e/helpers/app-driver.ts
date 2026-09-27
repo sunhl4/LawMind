@@ -192,15 +192,18 @@ export async function skipFirstRunDialog(page: Page): Promise<void> {
  * 在工作区聊天中提交一条消息。
  */
 export async function submitWorkspaceChat(page: Page, message: string): Promise<void> {
+  await dismissBlockingDialogs(page);
   const composer = page.getByRole("textbox", { name: "消息输入" });
   await expect(composer).toBeVisible({ timeout: 30_000 });
+  const messages = page.getByRole("region", { name: "对话消息" });
+  await expect(messages).toBeVisible({ timeout: 30_000 });
   await composer.fill(message);
   const send = page.getByRole("button", { name: "发送" });
   await expect(send).toBeEnabled();
   await send.click();
   // 断言用户消息出现在对话区
-  await expect(page.getByRole("region", { name: "对话消息" })).toContainText(message, {
-    timeout: 10_000,
+  await expect(messages).toContainText(message, {
+    timeout: 15_000,
   });
 }
 

@@ -604,7 +604,7 @@ function checklistForDraft(
     pins,
     documentText,
   });
-  if (!resolved.family) {
+  if (!resolved.family || resolved.familySource === "hint") {
     return { items: [], keys: [] };
   }
   const pack = loadWordRevisionPack(resolved.family, workspaceDir);

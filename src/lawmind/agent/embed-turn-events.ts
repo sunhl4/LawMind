@@ -19,6 +19,7 @@ export const EMBED_TURN_EVENT_TYPES = [
   "compact_boundary",
   "overflow_prune",
   "context_deferral_bounce",
+  "verify_gap",
   "model_error",
   "tool_delta",
   "requires_action",

@@ -27,7 +27,6 @@ export type UseLawmindAppSidebarPropsInput = {
   chatSessions?: SideChatSessionRow[];
   activeChatSessionId?: string;
   chatSessionsLoading?: boolean;
-  chatBusy?: boolean;
   chatAssistantId?: string;
   /** null = 未归案。不传则列表不过滤。 */
   chatListScope?: string | null;
@@ -67,7 +66,6 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
     chatSessions,
     activeChatSessionId,
     chatSessionsLoading,
-    chatBusy,
     chatAssistantId,
     chatListScope,
     chatMattersReady,
@@ -105,7 +103,6 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       chatSessions,
       activeChatSessionId,
       chatSessionsLoading,
-      chatBusy,
       chatAssistantId,
       chatListScope,
       chatMattersReady,
@@ -155,7 +152,6 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       chatSessions,
       activeChatSessionId,
       chatSessionsLoading,
-      chatBusy,
       chatAssistantId,
       chatListScope,
       chatMattersReady,

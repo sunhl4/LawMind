@@ -338,6 +338,7 @@ export type StreamingChatCallbacks = {
    * `compact_boundary(midTurn)`，律师看到的是「已整理上下文，继续办理」而不是推诿。
    */
   onContextDeferralBounce?: (info: { roundIndex: number; bounceCount: number }) => void;
+  onVerifyGap?: (info: { roundIndex: number; message: string }) => void;
   onCompactBoundary?: (info: {
     sessionSummaryPath?: string;
     droppedMessageCount?: number;
@@ -528,6 +529,16 @@ export async function sendChatTurnStream(
           }
           break;
         }
+        case "verify_gap": {
+          const message = typeof parsed.message === "string" ? parsed.message.trim() : "";
+          if (message) {
+            callbacks.onVerifyGap?.({
+              roundIndex: typeof parsed.roundIndex === "number" ? parsed.roundIndex : 0,
+              message,
+            });
+          }
+          break;
+        }
         case "overflow_prune": {
           const pruned =
             typeof parsed.prunedCount === "number" ? parsed.prunedCount : undefined;
@@ -677,7 +688,7 @@ function buildChatTurnResult(body: ChatResponse): {
       text:
         body.reply?.trim() ||
         (body.status === "awaiting_approval"
-          ? "有操作等待您的确认，请打开待我拍板或继续对话。"
+          ? "有操作等您确认。请在这条对话里批准或拒绝，批准后会接着办完。"
           : body.toolCalls && body.toolCalls > 0
             ? "本轮已执行工具但未返回文字说明，请查看上方工具状态或改稿页草稿。"
             : "本轮未返回可见回复，请重试或检查模型配置。"),

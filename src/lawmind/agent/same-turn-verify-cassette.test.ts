@@ -51,7 +51,7 @@ describe("same-turn verify cassette", () => {
         expect(calls[1]?.pending).toBe(1);
         const toolResults = result.turn.messages.flatMap((m) => m.toolCallResponses ?? []);
         expect(toolResults[0]?.result.ok).toBe(false);
-        expect(String(toolResults[0]?.result.error ?? "")).toContain(SAME_TURN_VERIFY_USER_PREFIX);
+        expect(toolResults[0]?.result.error ?? "").toContain(SAME_TURN_VERIFY_USER_PREFIX);
         const failJson = JSON.stringify(toolResults[0]?.result);
         expect(failJson.split(SAME_TURN_VERIFY_USER_PREFIX).length - 1).toBe(1);
         expect(toolResults[1]?.result.ok).toBe(true);
@@ -108,7 +108,8 @@ describe("same-turn verify cassette", () => {
         expect(calls).toHaveLength(1);
         expect(result.turn.status).toBe("paused");
         expect(result.turn.requiresAction?.some((a) => a.kind === "continue_tools")).toBe(true);
-        expect(result.reply).toContain(SAME_TURN_VERIFY_USER_PREFIX);
+        expect(result.reply).toContain("点继续，我会接着改完再交给您。");
+        expect(result.reply).not.toContain(SAME_TURN_VERIFY_USER_PREFIX);
         expect(result.reply).not.toMatch(/^已完成/);
         expect(h.request(1).contains(SAME_TURN_VERIFY_USER_PREFIX)).toBe(true);
         const paused = h.session();
@@ -243,7 +244,8 @@ describe("same-turn verify cassette", () => {
         h.enqueue(cassetteAssistant("已完成。"));
         const result = await h.runTurn("请按词修订这份合同，继续不澄清");
         expect(result.turn.status).toBe("paused");
-        expect(result.reply).toContain(SAME_TURN_VERIFY_USER_PREFIX);
+        expect(result.reply).toContain("点继续，我会接着改完再交给您。");
+        expect(result.reply).not.toContain(SAME_TURN_VERIFY_USER_PREFIX);
         expect(result.reply).not.toMatch(/^已完成/);
       },
     );

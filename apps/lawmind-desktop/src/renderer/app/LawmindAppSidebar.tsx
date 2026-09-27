@@ -35,7 +35,6 @@ export type LawmindAppSidebarProps = {
   chatSessions?: SideChatSessionRow[];
   activeChatSessionId?: string;
   chatSessionsLoading?: boolean;
-  chatBusy?: boolean;
   chatAssistantId?: string;
   /** null = 未归案。不传则列表不过滤。 */
   chatListScope?: string | null;
@@ -140,7 +139,12 @@ function ChatScopeSwitcher(props: {
           </li>
           {props.onCreateMatter ? (
             <li>
-              <button type="button" className="lm-chat-scope-item" onClick={props.onCreateMatter}>
+              <button
+                type="button"
+                className="lm-chat-scope-item"
+                data-testid="lm-matter-sidebar-create"
+                onClick={props.onCreateMatter}
+              >
                 新建案件
               </button>
             </li>
@@ -174,7 +178,6 @@ function LawmindAppSidebarImpl({
   chatSessions,
   activeChatSessionId,
   chatSessionsLoading,
-  chatBusy,
   chatAssistantId,
   chatListScope,
   onOpenChatScope,
@@ -291,7 +294,6 @@ function LawmindAppSidebarImpl({
               sessions={chatSessions ?? []}
               activeSessionId={activeChatSessionId}
               loading={chatSessionsLoading}
-              busy={chatBusy}
               apiBase={apiBase}
               assistantId={chatAssistantId}
               scopeMatterId={chatListScope}

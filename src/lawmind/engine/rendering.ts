@@ -21,6 +21,7 @@ import {
   validateReasoningForDraft,
   type ReasoningReport,
 } from "../deliverables/index.js";
+import { attachLawyerDecisionNotes } from "../delivery/lawyer-decision-notes.js";
 import { formatCitationGateCoach } from "../drafts/citation-craft.js";
 import {
   appendProvenanceEvent,
@@ -198,6 +199,7 @@ export async function renderDraft(
         lintBlockerRuleIds: exportLint.blockerRuleIds,
       };
     }
+    attachLawyerDecisionNotes(draft, exportLint.lintReport.findings);
   }
 
   const override = opts?.templateIdOverride?.trim();

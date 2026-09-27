@@ -550,6 +550,12 @@ export async function handleChatRoute({
                 bounceCount: event.bounceCount,
               });
               break;
+            case "verify_gap":
+              sseWriteEvent("verify_gap", {
+                roundIndex: event.roundIndex,
+                message: event.message,
+              });
+              break;
             // 这两个是「中途需要律师拍板」的事件，必须在回合结束前就流出去；
             // 以前它们掉进 default 被静默丢弃，第二个窗口 / live-turn 只能等回合收口
             // 才从末端 payload 看到暂停。契约见 src/lawmind/agent/embed-turn-events.ts。

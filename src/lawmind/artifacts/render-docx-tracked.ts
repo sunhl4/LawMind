@@ -25,6 +25,8 @@ import {
 } from "../drafts/surgical-diff.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { buildMinimalChildEnv, runSafeCommand } from "../platform/safe-command.js";
+import { resolveWordRevisionAuthor } from "../policy/word-revision-author.js";
+import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
 import { resolveWorkspaceRelativePath } from "../runtime/workspace-path.js";
 import type { ArtifactDraft } from "../types.js";
 import { resolveOfficeCliBin } from "./officecli-bin.js";
@@ -553,6 +555,11 @@ export async function renderDocxWithTrackedChanges(params: {
   projectDir?: string;
   pins?: ComposeContextPin[];
   officecliCommand?: string;
+  /**
+   * 修订署名。不传时读工作区策略；策略空白则 LawMind。
+   * 显式传入时不再读策略（测试与调用方覆盖）。
+   */
+  author?: string;
   /** Prefer contractReview typography when rendering a fresh draft shell. */
   templateVariant?: string;
   /**
@@ -834,9 +841,18 @@ export async function renderDocxWithTrackedChanges(params: {
         ? readRedlineProposal(params.workspaceDir, params.draft.taskId)
         : undefined;
     const sectionBodiesBefore = locked?.baselineSections?.map((s) => s.body ?? "") ?? undefined;
+    const author =
+      params.author !== undefined
+        ? resolveWordRevisionAuthor(params.author)
+        : resolveWordRevisionAuthor(
+            params.workspaceDir
+              ? readWorkspacePolicyFile(params.workspaceDir)?.wordRevisionAuthor
+              : undefined,
+          );
     const apply = await applyRedlineHunksWithOfficeCli({
       workingDocxPath: trackedPath,
       proposals: params.proposals,
+      author,
       sectionBodiesAfter: params.draft.sections?.map((s) => s.body ?? ""),
       sectionBodiesBefore,
       officecliCommand: params.officecliCommand,

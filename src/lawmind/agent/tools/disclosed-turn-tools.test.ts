@@ -149,6 +149,12 @@ x
     expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("draft_worker");
     expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("render_tracked_draft");
     expect(extraToolsForInstruction("请起草买卖合同的违约金条款")).toContain("draft_worker");
+    expect(extraToolsForInstruction("请分别审查这份采购合同的付款争点和解除争点")).toContain(
+      "draft_worker",
+    );
+    expect(extraToolsForInstruction("查一下民法典违约责任，按争点分别写检索备忘")).toContain(
+      "draft_worker",
+    );
     expect(extraToolsForInstruction("今天开庭准备什么？")).not.toContain("draft_worker");
     expect(extraToolsForInstruction("逐份审查这些合同")).toContain("digest_materials");
     expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("digest_materials");

@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { icloudDownloadQuestion } from "../runtime/icloud-materialize.js";
 import { findUnpairedToolCallIds } from "./session-tool-call-pairing.js";
+import { draftWorkerTool } from "./tools/legal/draft-worker-tool.js";
 import { ToolRegistry } from "./tools/registry.js";
 import {
   executeToolBatches,
@@ -614,5 +615,87 @@ describe("executeToolBatches permission-mode hard gate", () => {
       .find((r) => r.toolCallId === "h2");
     expect(second?.result.ok).toBe(false);
     expect(second?.result.error ?? "").toMatch(/跳过|澄清|拍板/i);
+  });
+});
+
+describe("draft_worker same-batch contract", () => {
+  function draftRegistry(): { registry: ToolRegistry; executed: () => number } {
+    const registry = new ToolRegistry();
+    let executed = 0;
+    registry.register({
+      definition: draftWorkerTool.definition,
+      async execute(args) {
+        executed += 1;
+        const section = typeof args.section === "string" ? args.section : "";
+        return {
+          ok: true,
+          data: {
+            section,
+            draft: `${section}片段`,
+            citations: ["买卖合同.docx"],
+            gaps: section === "违约金" ? ["金额未定"] : [],
+          },
+        };
+      },
+    });
+    return { registry, executed: () => executed };
+  }
+
+  async function run(calls: Array<{ id: string; section?: string }>) {
+    const { registry, executed } = draftRegistry();
+    const history: AgentMessage[] = [];
+    await executeToolBatches({
+      toolRefs: calls.map((call) => ({
+        id: call.id,
+        name: "draft_worker",
+        arguments: {
+          goal: `写${call.section ?? ""}`,
+          not_goal: "不要改原件",
+          materials: "买卖合同.docx",
+          ...(call.section ? { section: call.section } : {}),
+        },
+      })),
+      registry,
+      turn: stubTurn(),
+      ctx: { workspaceDir: testWorkspaceDir } as AgentContext,
+      roundIndex: 1,
+      assistantContent: "",
+      maxToolCalls: 8,
+      toolTimeoutMs: 5000,
+      strictDangerousToolApproval: false,
+      allowDangerousToolsWithoutApproval: true,
+      toolSandboxEnabled: false,
+      actorId: "test",
+      pendingClarificationQuestions: [],
+      emitEvent: () => {},
+      pushMessage: (msg) => {
+        history.push(msg);
+      },
+    });
+    return { history, executed: executed() };
+  }
+
+  it("does not execute colliding sections", async () => {
+    const { history, executed } = await run([
+      { id: "a", section: "违约金" },
+      { id: "b", section: "违约金" },
+    ]);
+    expect(executed).toBe(0);
+    expect(history).toHaveLength(2);
+    expect(history.every((msg) => msg.content.includes("章节名重复"))).toBe(true);
+  });
+
+  it("writes one join index onto both distinct sections", async () => {
+    const { history, executed } = await run([
+      { id: "a", section: "违约金" },
+      { id: "b", section: "管辖" },
+    ]);
+    expect(executed).toBe(2);
+    expect(history).toHaveLength(2);
+    for (const msg of history) {
+      expect(msg.content).toContain("【并行写稿对照】");
+      expect(msg.content).toContain("金额未定");
+      expect(msg.content).toContain("引用重复：买卖合同.docx");
+    }
   });
 });

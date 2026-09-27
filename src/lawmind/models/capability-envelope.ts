@@ -4,7 +4,10 @@
  */
 
 import { clampPromptWindowScale } from "../memory/prompt-windows.js";
-import { parseToolTimeoutMsEnv } from "../runtime/tool-timeout-env.js";
+import {
+  DEFAULT_TOOL_WALL_TIMEOUT_MS,
+  parseToolTimeoutMsEnv,
+} from "../runtime/tool-timeout-env.js";
 
 export type CapabilityTaskKind = "chat" | "draft" | "review" | "classify" | "plan";
 
@@ -112,7 +115,7 @@ export function resolveCapabilityEnvelope(opts: {
     maxOutputTokens,
     charsPerToken,
     toolCallsPerTurn: toolCallsForContext(contextTokens),
-    toolTimeoutMs: parseToolTimeoutMsEnv(0),
+    toolTimeoutMs: parseToolTimeoutMsEnv(DEFAULT_TOOL_WALL_TIMEOUT_MS),
     modelTimeoutMs,
     promptWindowScale,
     maxHistoryMessages: historyForContext(contextTokens),

@@ -21,6 +21,44 @@ export function getMaxToolUseConcurrency(): number {
   return 4;
 }
 
+/**
+ * Leaf tool slots shared by readonly sidecars.
+ * Parent batches and workflow steps already chunk at the same cap and must
+ * not hold a slot for the whole call: a draft_worker that occupied the last
+ * slot could not run its own search tools.
+ */
+let leafInFlight = 0;
+const leafWaiters: Array<() => void> = [];
+
+export async function withLeafToolSlot<T>(fn: () => Promise<T>): Promise<T> {
+  await acquireLeafSlot();
+  try {
+    return await fn();
+  } finally {
+    releaseLeafSlot();
+  }
+}
+
+function acquireLeafSlot(): Promise<void> {
+  const cap = Math.max(1, getMaxToolUseConcurrency());
+  if (leafInFlight < cap) {
+    leafInFlight += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    leafWaiters.push(() => {
+      leafInFlight += 1;
+      resolve();
+    });
+  });
+}
+
+function releaseLeafSlot(): void {
+  leafInFlight = Math.max(0, leafInFlight - 1);
+  const next = leafWaiters.shift();
+  next?.();
+}
+
 export function isToolConcurrencySafe(registry: ToolRegistry, toolName: string): boolean {
   const tool = registry.get(toolName);
   // Approval-gated tools must never share a concurrent batch (approvalRequest race).

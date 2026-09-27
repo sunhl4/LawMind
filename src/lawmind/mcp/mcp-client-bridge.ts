@@ -16,6 +16,7 @@ import {
   connectMcpHttpSdk,
   connectMcpStdio,
   connectMcpStdioSdk,
+  MCP_CONNECT_TIMEOUT_MS,
   type McpSession,
 } from "./mcp-jsonrpc-client.js";
 import {
@@ -77,12 +78,22 @@ async function openSession(record: McpServerRecord): Promise<McpSession> {
   if (record.transport === "http") {
     const allowInsecureHttp = record.allowInsecureHttp === true;
     try {
-      return await connectMcpHttp({ url: record.url ?? "", secret, allowInsecureHttp });
+      return await connectMcpHttp({
+        url: record.url ?? "",
+        secret,
+        allowInsecureHttp,
+        timeoutMs: MCP_CONNECT_TIMEOUT_MS,
+      });
     } catch (err) {
       if (err instanceof OutboundProxyError) {
         throw err;
       }
-      return connectMcpHttpSdk({ url: record.url ?? "", secret, allowInsecureHttp });
+      return connectMcpHttpSdk({
+        url: record.url ?? "",
+        secret,
+        allowInsecureHttp,
+        timeoutMs: MCP_CONNECT_TIMEOUT_MS,
+      });
     }
   }
   const stdio = {
@@ -93,7 +104,7 @@ async function openSession(record: McpServerRecord): Promise<McpSession> {
   try {
     return await connectMcpStdio({ ...stdio, timeoutMs: 2_500 });
   } catch {
-    return connectMcpStdioSdk(stdio);
+    return connectMcpStdioSdk({ ...stdio, timeoutMs: MCP_CONNECT_TIMEOUT_MS });
   }
 }
 

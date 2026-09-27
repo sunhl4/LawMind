@@ -96,10 +96,12 @@ describe("resolveCapabilityEnvelope", () => {
     expect(large.temperature).toBe(resolveTemperatureForTask("classify"));
   });
 
-  it("defaults tool timeout to unlimited (0)", () => {
+  it("defaults tool timeout to the wall clock, and explicit 0 stays unlimited", () => {
     clearEnv();
     const env = resolveCapabilityEnvelope({ contextTokens: 128_000 });
-    expect(env.toolTimeoutMs).toBe(0);
+    expect(env.toolTimeoutMs).toBe(180_000);
+    process.env.LAWMIND_TOOL_TIMEOUT_MS = "0";
+    expect(resolveCapabilityEnvelope({ contextTokens: 128_000 }).toolTimeoutMs).toBe(0);
   });
 
   it("applyEnvelopeToAgentModelDefaults attaches contextTokens", () => {

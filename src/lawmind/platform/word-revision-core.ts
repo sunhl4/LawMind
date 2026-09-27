@@ -185,12 +185,11 @@ export function resolveWordRevisionChecklist(input: {
   let hintedFamily: WordRevisionFamilyId | undefined;
   let inferredFamily: WordRevisionFamilyId | undefined;
   if (!explicitFamily) {
-    const pathHay = `${instruction}\n${haystackFromPins(input.pins)}`;
-    hintedFamily = uniqueFamilyWinner(pathHay);
-    if (!hintedFamily && input.documentText?.trim()) {
-      inferredFamily =
-        uniqueFamilyWinner(input.documentText) ??
-        uniqueFamilyWinner(`${pathHay}\n${input.documentText}`);
+    if (input.documentText?.trim()) {
+      inferredFamily = uniqueFamilyWinner(input.documentText);
+    }
+    if (!inferredFamily) {
+      hintedFamily = uniqueFamilyWinner(`${instruction}\n${haystackFromPins(input.pins)}`);
     }
   }
 
@@ -199,17 +198,17 @@ export function resolveWordRevisionChecklist(input: {
     hintedStance = parseWordRevisionStance(instruction);
   }
 
-  const family = explicitFamily ?? hintedFamily ?? inferredFamily;
+  const family = explicitFamily ?? inferredFamily ?? hintedFamily;
   const stance = explicitStance ?? hintedStance;
   return {
     family,
     familyLabel: family ? WORD_REVISION_FAMILY_LABEL[family] : undefined,
     familySource: explicitFamily
       ? "explicit"
-      : hintedFamily
-        ? "hint"
-        : inferredFamily
-          ? "inferred"
+      : inferredFamily
+        ? "inferred"
+        : hintedFamily
+          ? "hint"
           : "none",
     stance,
     stanceSource: explicitStance ? "explicit" : hintedStance ? "hint" : "none",

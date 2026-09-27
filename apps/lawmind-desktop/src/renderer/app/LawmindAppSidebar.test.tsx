@@ -105,6 +105,40 @@ describe("LawmindAppSidebar", () => {
     expect(host.querySelector(".lm-matter-sidebar-list")).toBeNull();
   });
 
+  it("chat scope menu exposes 新建案件 with the sidebar create test id", async () => {
+    let created = false;
+    await act(async () => {
+      root.render(
+        <LawmindAppSidebar
+          {...baseProps({
+            mainView: "workspace",
+            showSidebarWorkbenchFiles: true,
+            onCreateMatter: () => {
+              created = true;
+            },
+            chatSessions: [],
+            onSelectChatSession: () => undefined,
+            onCreateNewChatSession: () => undefined,
+            onRenameChatSession: async () => undefined,
+            onDeleteChatSession: async () => undefined,
+          })}
+        />,
+      );
+    });
+    expect(host.querySelector("[data-testid='lm-matter-sidebar-create']")).toBeNull();
+    const switcher = host.querySelector("[data-testid='lm-chat-scope-switcher']") as HTMLButtonElement;
+    expect(switcher).not.toBeNull();
+    await act(async () => {
+      switcher.click();
+    });
+    const create = host.querySelector("[data-testid='lm-matter-sidebar-create']") as HTMLButtonElement;
+    expect(create?.textContent).toContain("新建案件");
+    await act(async () => {
+      create.click();
+    });
+    expect(created).toBe(true);
+  });
+
   it("empty matter list exposes 新建案件 CTA when onCreateMatter is set", async () => {
     let created = false;
     await act(async () => {

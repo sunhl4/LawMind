@@ -116,7 +116,23 @@ export function createGateSpyRegistry(extra: SpySpec[] = []): GateSpyRegistry {
               // mix 探查工 requests into h.request(n). Keep bootstrap listing
               // + peek; sidecar has its own worker tests.
               exploreFolderTool.execute(args, { ...ctx, inReadonlyWorkerLoop: true })
-          : async () => defaultResult(spec.name),
+          : spec.name === "draft_worker"
+            ? (args) => {
+                const section = typeof args.section === "string" ? args.section.trim() : "";
+                const materials = typeof args.materials === "string" ? args.materials.trim() : "";
+                return Promise.resolve({
+                  ok: true,
+                  data: {
+                    spy: true,
+                    name: "draft_worker",
+                    section,
+                    draft: section ? `${section}片段` : "片段",
+                    citations: [materials || "材料"],
+                    gaps: ["待核"],
+                  },
+                });
+              }
+            : async () => defaultResult(spec.name),
     );
     registry.register({
       definition: {

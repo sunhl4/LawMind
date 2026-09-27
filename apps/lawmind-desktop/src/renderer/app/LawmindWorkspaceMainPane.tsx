@@ -371,7 +371,6 @@ function LawmindWorkspaceMainPaneImpl({
                   }))}
                   activeSessionId={activeChatSessionId}
                   loading={chatSessionsLoading}
-                  busy={loading}
                   onSelect={(id) => void onSelectChatSession(id)}
                   onNewChat={() => void onCreateNewChatSession()}
                   onRename={(id, title) => void onRenameChatSession(id, title)}
@@ -383,7 +382,7 @@ function LawmindWorkspaceMainPaneImpl({
                         apiBase={config.apiBase}
                         sessions={chatSessionList}
                         activeSessionId={activeChatSessionId}
-                        busy={loading || chatSessionsLoading}
+                        busy={chatSessionsLoading}
                         onSelect={(id) => void onSelectChatSession(id)}
                       />
                     ) : null

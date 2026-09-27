@@ -122,6 +122,30 @@ describe("session-message-mutate", () => {
     expect(s.conversationHistory.map((m) => m.content)).toEqual(["q1", "a1", "q2"]);
   });
 
+  it("deleting a question removes every assistant round of that one answer", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    const now = new Date().toISOString();
+    s.conversationHistory.push(
+      { role: "user", content: "去做下一轮", timestamp: now },
+      { role: "assistant", content: "先补正文。", timestamp: now },
+      {
+        role: "tool",
+        content: "",
+        timestamp: now,
+        toolCallResponses: [{ toolCallId: "c1", name: "draft_document", result: { ok: true } }],
+      },
+      { role: "assistant", content: "改走合并稿。", timestamp: now },
+      { role: "user", content: "再看一眼", timestamp: now },
+      { role: "assistant", content: "看过了。", timestamp: now },
+    );
+    const map = listUiHistoryMap(s);
+    expect(map.map((entry) => entry.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    const removed = deleteSessionMessagePairAtUiIndex(s, 0);
+    expect(removed.ok).toBe(true);
+    expect(s.conversationHistory.map((msg) => msg.content)).toEqual(["再看一眼", "看过了。"]);
+  });
+
   it("deleting earlier pair keeps pending owned by later assistant", () => {
     const ws = tmpDir();
     const s = createSession({ workspaceDir: ws, actorId: "a" });

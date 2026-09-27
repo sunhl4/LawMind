@@ -178,11 +178,26 @@ export function formatSameTurnCompletionBounce(state: SameTurnVerifyTurnState): 
   return formatSameTurnVerifyError(state.issues);
 }
 
+const LAWYER_PROGRESS: Record<SameTurnVerifyCode, string> = {
+  empty_redline: "修改还没写进稿子，正在继续改。",
+  craft_check_missing: "正在补齐改稿说明。",
+  citation_integrity: "正在把法条和检索依据对齐。",
+  lint_mechanical: "正在改正文里还没过的几处。",
+  guardian_fail: "正在按审阅意见改稿。",
+  xml_qa_fail: "正在写成审阅稿。",
+};
+
+/** Progress the lawyer may see. No tool names, rule ids, or XML. */
+export function formatSameTurnVerifyLawyerProgress(codes: string[]): string {
+  const lines = [
+    ...new Set(codes.filter(isSameTurnVerifyCode).map((code) => LAWYER_PROGRESS[code])),
+  ];
+  return lines[0] ?? "正在核对稿件。";
+}
+
 export function formatSameTurnVerifyPaused(state: SameTurnVerifyTurnState): string {
-  return [
-    formatSameTurnVerifyError(state.issues),
-    "已多次停止改稿，本回合未完成。可点继续，或在对话里接着改。",
-  ].join("\n");
+  const progress = formatSameTurnVerifyLawyerProgress(state.issues.map((issue) => issue.code));
+  return `${progress}\n点继续，我会接着改完再交给您。`;
 }
 
 /** Minimal history row — avoids importing agent types into this runtime module. */

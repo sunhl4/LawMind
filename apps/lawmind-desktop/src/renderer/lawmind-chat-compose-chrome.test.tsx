@@ -23,24 +23,25 @@ describe("LawmindChatComposeChrome", () => {
     host.remove();
   });
 
-  it("hides the Word revision bar when the fast lane is open", async () => {
+  it("does not ask for document type or stance when a Word file is attached", async () => {
     await act(async () => {
       root.render(
         <LawmindChatComposeChrome
           error={null}
           composeInput="请改合同"
-          onComposeInputChange={() => undefined}
           queuedMessages={[]}
-          fileChatPills={[{ id: "1", shortLabel: "合同", title: "设备采购合同.docx", relPath: "设备采购合同.docx" }]}
+          fileChatPills={[{ id: "1", shortLabel: "合同", title: "《聘用合同》（劳务合同）.docx", relPath: "聘用合同.docx" }]}
           contextMatterId={null}
           contextTaskId={null}
           matterTitle={null}
           onRemoveFileChatPill={() => undefined}
           onClearFileChatPills={() => undefined}
-          hideWordRevisionBar
         />,
       );
     });
     expect(host.querySelector('[data-testid="lm-word-revision-bar"]')).toBeNull();
+    expect(host.textContent).not.toContain("股权融资");
+    expect(host.textContent).not.toContain("人事用工");
+    expect(host.textContent).not.toContain("己方立场");
   });
 });

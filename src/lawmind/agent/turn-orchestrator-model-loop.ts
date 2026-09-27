@@ -17,6 +17,7 @@ import {
   applySameTurnVerifyHistoryCollapse,
   collapseSameTurnVerifyHistoryForTurnEnd,
   formatSameTurnCompletionBounce,
+  formatSameTurnVerifyLawyerProgress,
   formatSameTurnVerifyPaused,
   shouldBounceSameTurnCompletion,
   shouldPauseSameTurnVerify,
@@ -55,6 +56,10 @@ import {
   saveSession,
 } from "./session.js";
 import { formatToolBudgetHardStopReply, shouldHardStopToolBudget } from "./tool-budget.js";
+import {
+  resolveToolDecisionMaxTokens,
+  shouldRaiseToolDecisionOutput,
+} from "./tool-decision-sampling.js";
 import { applyToolDisclosureDelta } from "./tool-disclosure-delta.js";
 import { mergeTurnDisclosedToolNames } from "./tools/disclosed-turn-tools.js";
 import type { ToolRegistry } from "./tools/registry.js";
@@ -479,17 +484,24 @@ export async function runModelToolLoop(opts: {
     // 更快模型只做摘要（上面）和审稿（reviewModel），不接管这一轮。
     const modelForRound = opts.config.model;
 
-    const callModelRound = () => {
+    const callModelRound = (mode: "decision" | "deliverable" = "decision") => {
       const budget = estimateTokenBudget(opts.session, policyForTurn(), {
         contextTokens: modelForRound.contextTokens ?? opts.config.model.contextTokens,
       });
+      const toolsAdvertised = openAITools.length > 0;
+      const decisionMax = resolveToolDecisionMaxTokens(modelForRound.maxTokens, toolsAdvertised);
+      const maxTokens =
+        mode === "deliverable" || !toolsAdvertised ? modelForRound.maxTokens : decisionMax;
+      const model = typeof maxTokens === "number" ? { ...modelForRound, maxTokens } : modelForRound;
+      // 工具轮先不流式：短回复在收齐后一次吐出；被截断时再开流式把交件写完。
+      const stream = mode === "decision" && toolsAdvertised ? false : useUpstreamTokenStream;
       return callModelWithRetry(
-        modelForRound,
+        model,
         deriveModelMessagesForSampling(opts.session, budget),
         openAITools,
         {
-          stream: useUpstreamTokenStream,
-          onDelta: useUpstreamTokenStream
+          stream,
+          onDelta: stream
             ? (chunk: string) => opts.emitEvent({ type: "delta", roundIndex, text: chunk })
             : undefined,
           signal: opts.abortSignal,
@@ -613,10 +625,51 @@ export async function runModelToolLoop(opts: {
       break;
     }
 
+    let outputRaised = false;
+    if (
+      shouldRaiseToolDecisionOutput({
+        toolsAdvertised: openAITools.length > 0,
+        configuredMaxTokens: modelForRound.maxTokens,
+        finishReason: choice.finish_reason,
+      })
+    ) {
+      outputRaised = true;
+      try {
+        response = await callModelRound("deliverable");
+      } catch (err) {
+        if (
+          err instanceof ModelCallUserAbortError ||
+          opts.abortSignal?.aborted ||
+          opts.abortRequested()
+        ) {
+          collapseHistoryForEnd();
+          return {
+            finalReply,
+            pendingClarificationQuestions,
+            turnUsage,
+            aborted: true,
+          };
+        }
+        closeOnModelFailure(err, roundIndex);
+        break;
+      }
+      turnUsage = mergeUsageSnapshots(turnUsage, usageFromProvider(response.usage));
+      const raisedPromptTokens = usageFromProvider(response.usage)?.promptTokens ?? 0;
+      if (raisedPromptTokens > 0) {
+        lastMeasuredPromptTokens = raisedPromptTokens;
+      }
+      choice = response.choices[0];
+      if (!choice) {
+        closeOnModelFailure(new Error("Empty response from model"), roundIndex);
+        break;
+      }
+    }
+
     const assistantMsg = choice.message;
     const toolCalls = assistantMsg.tool_calls;
 
-    if (!useUpstreamTokenStream) {
+    const decisionWasQuiet = openAITools.length > 0 && !outputRaised;
+    if (!useUpstreamTokenStream || decisionWasQuiet) {
       const segment = assistantMsg.content ?? "";
       if (segment.length > 0) {
         opts.emitEvent({ type: "delta", roundIndex, text: segment });
@@ -653,6 +706,14 @@ export async function runModelToolLoop(opts: {
         break;
       }
       if (shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)) {
+        const verifyState = opts.turn.sameTurnVerify!;
+        opts.emitEvent({
+          type: "verify_gap",
+          roundIndex,
+          message: formatSameTurnVerifyLawyerProgress(
+            verifyState.issues.map((issue) => issue.code),
+          ),
+        });
         if (shouldPauseSameTurnVerify(opts.turn.sameTurnVerify)) {
           opts.turn.status = "paused";
           finalReply = formatSameTurnVerifyPaused(opts.turn.sameTurnVerify!);
@@ -850,8 +911,16 @@ export async function runModelToolLoop(opts: {
 
     if (shouldHardStopToolBudget(opts.turn.toolCallsExecuted, hardCeiling)) {
       if (shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)) {
+        const verifyState = opts.turn.sameTurnVerify!;
+        opts.emitEvent({
+          type: "verify_gap",
+          roundIndex,
+          message: formatSameTurnVerifyLawyerProgress(
+            verifyState.issues.map((issue) => issue.code),
+          ),
+        });
         opts.turn.status = "paused";
-        finalReply = formatSameTurnVerifyPaused(opts.turn.sameTurnVerify!);
+        finalReply = formatSameTurnVerifyPaused(verifyState);
       } else if (pendingClarificationQuestions.length > 0) {
         opts.turn.status = "awaiting_clarification";
         opts.turn.clarificationQuestions = pendingClarificationQuestions;

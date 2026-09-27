@@ -40,7 +40,7 @@ import { toolRequiresLawyerPause } from "../platform/lawyer-outbound-decision.js
 import { IcloudLawyerPrompt } from "./icloud-materialize.js";
 import { legalVerifyMiddleware } from "./legal-verify-middleware.js";
 import { runToolInSubprocessSandbox } from "./tool-sandbox.js";
-import { isUnlimitedToolTimeoutMs } from "./tool-timeout-env.js";
+import { isUnlimitedToolTimeoutMs, resolveToolWallTimeoutMs } from "./tool-timeout-env.js";
 
 /**
  * Write/export tools blocked while clarification is pending.
@@ -671,7 +671,8 @@ function copyPendingCtxFields(from: AgentContext, to: AgentContext): void {
 }
 
 export const timeoutMiddleware: ToolMiddleware = async (call, next) => {
-  if (isUnlimitedToolTimeoutMs(call.policy.toolTimeoutMs)) {
+  const wallMs = resolveToolWallTimeoutMs(call.toolName, call.policy.toolTimeoutMs);
+  if (isUnlimitedToolTimeoutMs(wallMs)) {
     const prev = call.ctx.abortSignal;
     if (prev?.aborted) {
       return { ok: false, error: "已停止", aborted: true };
@@ -694,7 +695,7 @@ export const timeoutMiddleware: ToolMiddleware = async (call, next) => {
     }
   }
   const prev = call.ctx.abortSignal;
-  const combined = combineAbortSignals(call.policy.toolTimeoutMs, prev);
+  const combined = combineAbortSignals(wallMs, prev);
   const prevCtx = call.ctx;
   call.ctx = { ...prevCtx, abortSignal: combined.signal };
   try {
@@ -706,7 +707,7 @@ export const timeoutMiddleware: ToolMiddleware = async (call, next) => {
         ? { ok: false, error: "已停止", aborted: true }
         : {
             ok: false,
-            error: `Tool ${call.toolName} timed out after ${call.policy.toolTimeoutMs}ms`,
+            error: `Tool ${call.toolName} timed out after ${wallMs}ms`,
             timedOut: true,
           };
     const run = next().catch((err): ToolCallResult => {

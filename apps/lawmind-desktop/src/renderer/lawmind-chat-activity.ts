@@ -1,5 +1,6 @@
 import type { ChatLiveTrace } from "./lawmind-chat-trace-types.js";
 import {
+  isInternalDeliveryRetryError,
   lawyerFacingToolFailureDetail,
   presentLawyerToolCall,
 } from "../../../../src/lawmind/agent/tool-lawyer-card.ts";
@@ -150,10 +151,11 @@ export function endActivityTool(
     return blocks;
   }
   const row = next[idx] as ChatActivityToolBlock;
+  const internalRetry = !info.ok && isInternalDeliveryRetryError(info.error);
   next[idx] = {
     ...row,
     label: humanToolLabel(info.toolName),
-    status: info.ok ? "done" : "failed",
+    status: info.ok || internalRetry ? "done" : "failed",
     detail: info.ok
       ? info.resultPreview?.trim() || row.detail
       : lawyerFacingToolFailureDetail(info.toolName, info.error),

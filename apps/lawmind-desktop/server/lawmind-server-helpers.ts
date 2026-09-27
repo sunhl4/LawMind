@@ -24,7 +24,10 @@ import {
   resolveCapabilityEnvelope,
   resolveTemperatureForTask,
 } from "../../../src/lawmind/models/capability-envelope.js";
-import { parseToolTimeoutMsEnv } from "../../../src/lawmind/runtime/tool-timeout-env.js";
+import {
+  DEFAULT_TOOL_WALL_TIMEOUT_MS,
+  parseToolTimeoutMsEnv,
+} from "../../../src/lawmind/runtime/tool-timeout-env.js";
 import { resolveEdition } from "../../../src/lawmind/policy/edition.js";
 import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import {
@@ -235,7 +238,7 @@ export function buildAgentConfig(
 ): { config: AgentConfig; error?: string; modelId?: string } {
   const lawMindRoot = resolveLawMindRoot(workspaceDir, opts?.envFile);
   const modelTimeoutMs = parsePositiveIntEnv("LAWMIND_AGENT_TIMEOUT_MS", 120000);
-  const toolTimeoutMs = parseToolTimeoutMsEnv(0);
+  const toolTimeoutMs = parseToolTimeoutMsEnv(DEFAULT_TOOL_WALL_TIMEOUT_MS);
   const resolved = resolveAgentModelById(lawMindRoot, opts?.modelId);
   const fallbackEnvelope = resolveCapabilityEnvelope({
     contextTokens: resolved.model?.contextTokens,

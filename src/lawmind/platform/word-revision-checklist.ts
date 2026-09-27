@@ -65,31 +65,26 @@ export function formatWordRevisionChecklistBlock(input: {
   const purpose = input.purpose ?? "revise";
   const title = purpose === "review" ? "## 审查对照要点" : "## 改稿要点";
   const resolved = resolveWordRevisionChecklist(input);
-  if (!resolved.family) {
-    const stanceLine = resolved.stance
-      ? `己方立场：${resolved.stance}（${resolved.stanceSource === "explicit" ? "律师选定" : "从指令推断"}）。未确认的数字仍缓办。`
-      : "立场不明则写入 deferred，勿单边改商务条件。";
+  const stanceLine = resolved.stance
+    ? `己方立场：${resolved.stance}（${resolved.stanceSource === "explicit" ? "律师选定" : "从指令推断"}）。未确认的数字仍缓办。`
+    : "立场不明则写入 deferred，勿单边改商务条件。";
+  if (!resolved.family || resolved.familySource === "hint") {
+    const readLine =
+      resolved.familySource === "hint"
+        ? "不要按文件名套用类型清单。先通读合同正文，再决定要点和工具。"
+        : purpose === "review"
+          ? "未识别合同类型。请先通读合同，按正文归纳审查要点，不要套用某一类预设清单。"
+          : "未识别合同类型。不要套用任何预设类型清单。";
     if (purpose === "review") {
-      return [
-        title,
-        "未识别合同类型。请先通读合同，按正文归纳审查要点，不要套用某一类预设清单。",
-        stanceLine,
-      ].join("\n");
+      return [title, readLine, stanceLine].join("\n");
     }
-    return [
-      title,
-      "未识别合同类型。不要套用任何预设类型清单。",
-      stanceLine,
-      "按用户指令与必要性落改。",
-    ].join("\n");
+    return [title, readLine, stanceLine, "按用户指令与必要性落改。"].join("\n");
   }
   const pack = loadWordRevisionPack(resolved.family, input.workspaceDir);
   const head =
     resolved.familySource === "explicit"
       ? `律师选定「${pack.label}」。按下列检查单处理：能落改则最短锚定；停项不得改；不对题的条目忽略并缓办。`
-      : resolved.familySource === "inferred"
-        ? `律师未点选类型。按合同正文判断为「${pack.label}」，已套该类要点。正文不对题则忽略该条，勿按错类强改。`
-        : `律师未点选类型。按文件名或指令判断为「${pack.label}」，已套该类要点。正文不对题则忽略该条，勿按错类强改。`;
+      : `正文更像「${pack.label}」。下列要点只作对照，不对题则忽略，不要按清单强改。`;
   const stanceNote =
     resolved.stanceSource === "none"
       ? "立场未确认：两侧「改」都列出，能确定的才落改，其余缓办。"

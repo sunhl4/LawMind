@@ -156,8 +156,7 @@ export function installE2eFirstRunDismiss(page: { addInitScript: Page["addInitSc
   return installE2eBrowserPrefs(page);
 }
 
-/** Apply E2E localStorage prefs on an already-loaded page and reload once. */
-export async function bootstrapE2ePage(page: Page): Promise<void> {
+async function applyE2eBrowserPrefs(page: Page): Promise<void> {
   await page.evaluate((firstRunKey) => {
     localStorage.setItem(firstRunKey, "1");
     localStorage.setItem("lawmind.ui.sidebarCollapsed", "0");
@@ -172,6 +171,40 @@ export async function bootstrapE2ePage(page: Page): Promise<void> {
       localStorage.setItem(key, "1");
     }
   }, E2E_FIRST_RUN_DISMISS_KEY);
+}
+
+/**
+ * 首跑是否自动打开以工作区 `firstrun-dismissed.json` 为准，localStorage 只在接口失败时兜底。
+ * 真机套件必须先把工作区标成已关闭，否则引导会挡住「在办」。
+ */
+async function dismissServerFirstRun(page: Page): Promise<void> {
+  const config = await page.evaluate(async () => {
+    const desktop = (
+      window as Window & { lawmindDesktop?: { getConfig?: () => Promise<unknown> } }
+    ).lawmindDesktop;
+    return desktop?.getConfig?.() ?? null;
+  });
+  if (!config || typeof config !== "object") {
+    return;
+  }
+  const row = config as { apiBase?: unknown; apiAuthToken?: unknown };
+  if (typeof row.apiBase !== "string" || typeof row.apiAuthToken !== "string") {
+    return;
+  }
+  await page.request
+    .post(`${row.apiBase}/api/onboarding/firstrun-dismiss`, {
+      headers: { authorization: `Bearer ${row.apiAuthToken}` },
+    })
+    .catch(() => undefined);
+}
+
+/** Apply E2E localStorage prefs on an already-loaded page and reload once. */
+export async function bootstrapE2ePage(page: Page): Promise<void> {
+  await applyE2eBrowserPrefs(page);
+  await page.reload();
+  await expect(page.locator(".lm-shell")).toBeVisible({ timeout: 120_000 });
+  await dismissServerFirstRun(page);
+  await applyE2eBrowserPrefs(page);
   await page.reload();
   await expect(page.locator(".lm-shell")).toBeVisible({ timeout: 120_000 });
   await dismissBlockingDialogs(page);
@@ -297,6 +330,7 @@ export async function openReviewWorkbench(page: Page): Promise<void> {
     await reviewTab.click();
   } else {
     const agentsTab = mainNav.getByRole("button", { name: "在办", exact: true });
+    await dismissBlockingDialogs(page);
     await agentsTab.click();
     await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
     const openWorkbench = page
