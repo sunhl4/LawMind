@@ -1,8 +1,9 @@
 /**
  * 在办左栏：停在你这里 / 正在办 / 今天办完。
  */
-import type { ReactNode } from "react";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import type { AgentRunSummary } from "./lawmind-agent-fleet-api";
+import { chatSessionListKeyAction } from "./lawmind-chat-session-selection";
 import { sanitizeLawyerFacingText } from "../../../../src/lawmind/platform/requires-action.ts";
 import {
   docketBandLabel,
@@ -28,6 +29,21 @@ export type LawmindAgentFleetListAsideProps = {
   onOnlyNeedsYou: (next: boolean) => void;
   selectedId: string | null;
   onSelectRun: (id: string) => void;
+  /** 多选集合。不传时单击仍只打开这一件。 */
+  pickedIds?: ReadonlySet<string>;
+  onPointerSelect?: (
+    event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
+    id: string,
+  ) => void;
+  onListKeyAction?: (action: "select-all" | "collapse" | "delete") => void;
+  batch?: {
+    count: number;
+    canSend: boolean;
+    busy: boolean;
+    onReject: () => void;
+    onApprove: () => void;
+    onSnooze: () => void;
+  } | null;
   inFlightOpen: boolean;
   settledOpen: boolean;
   onToggleBand: (band: "inFlight" | "settled") => void;
@@ -70,6 +86,10 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
     onOnlyNeedsYou,
     selectedId,
     onSelectRun,
+    pickedIds,
+    onPointerSelect,
+    onListKeyAction,
+    batch = null,
     inFlightOpen,
     settledOpen,
     onToggleBand,
@@ -143,7 +163,69 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
           )
         ) : null}
       </div>
-      <div className="lm-agents-wb-list-scroll">
+      {batch && batch.count > 1 ? (
+        <div className="lm-agents-wb-batch" data-testid="lm-fleet-batch">
+          <span className="lm-agents-wb-batch-count">已选 {batch.count}</span>
+          {batch.canSend ? (
+            <>
+              <button
+                type="button"
+                className="lm-btn lm-btn-accent lm-btn-sm"
+                data-testid="lm-fleet-batch-approve"
+                disabled={batch.busy}
+                onClick={() => batch.onApprove()}
+              >
+                批准发送
+              </button>
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-sm"
+                data-testid="lm-fleet-batch-reject"
+                disabled={batch.busy}
+                onClick={() => batch.onReject()}
+              >
+                驳回
+              </button>
+            </>
+          ) : (
+            <span>不全是待发信，只能一起稍后。</span>
+          )}
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            data-testid="lm-fleet-batch-snooze"
+            disabled={batch.busy}
+            onClick={() => batch.onSnooze()}
+          >
+            稍后
+          </button>
+        </div>
+      ) : null}
+      <div
+        className="lm-agents-wb-list-scroll lm-scroll"
+        title="Shift 连选，Ctrl 或 ⌘ 加选"
+        onKeyDown={(e) => {
+          if (!onListKeyAction) {
+            return;
+          }
+          const action = chatSessionListKeyAction(
+            {
+              key: e.key,
+              metaKey: e.metaKey,
+              ctrlKey: e.ctrlKey,
+              altKey: e.altKey,
+              shiftKey: e.shiftKey,
+              targetIsField: eventTargetIsField(e.target),
+            },
+            pickedIds?.size ?? 0,
+          );
+          if (action === "none") {
+            return;
+          }
+          e.preventDefault();
+          onListKeyAction(action);
+        }}
+      >
         {onlyNeedsYou && needsCount === 0 && (hiddenInFlight > 0 || hiddenSettled > 0) ? (
           <div className="lm-agents-wb-band-note" data-testid="lm-fleet-needs-clear">
             <p>没有要你处理的。</p>
@@ -159,7 +241,9 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
             open
             matterLabelById={matterLabelById}
             selectedId={selectedId}
+            pickedIds={pickedIds}
             onSelectRun={onSelectRun}
+            onPointerSelect={onPointerSelect}
           />
         ) : null}
         {docket.inFlight.length > 0 ? (
@@ -170,7 +254,9 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
             onToggle={() => onToggleBand("inFlight")}
             matterLabelById={matterLabelById}
             selectedId={selectedId}
+            pickedIds={pickedIds}
             onSelectRun={onSelectRun}
+            onPointerSelect={onPointerSelect}
           />
         ) : null}
         {docket.settled.length > 0 ? (
@@ -181,7 +267,9 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
             onToggle={() => onToggleBand("settled")}
             matterLabelById={matterLabelById}
             selectedId={selectedId}
+            pickedIds={pickedIds}
             onSelectRun={onSelectRun}
+            onPointerSelect={onPointerSelect}
           />
         ) : null}
       </div>
@@ -196,7 +284,12 @@ function DocketBand(props: {
   onToggle?: () => void;
   matterLabelById: Record<string, string>;
   selectedId: string | null;
+  pickedIds?: ReadonlySet<string>;
   onSelectRun: (id: string) => void;
+  onPointerSelect?: (
+    event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
+    id: string,
+  ) => void;
 }): ReactNode {
   const label = docketBandLabel(props.id);
   const panelId = `lm-fleet-band-panel-${props.id}`;
@@ -237,8 +330,14 @@ function DocketBand(props: {
               key={run.id}
               run={run}
               matterLabel={matterLine(run, props.matterLabelById)}
-              selected={run.id === props.selectedId}
+              current={run.id === props.selectedId}
+              picked={props.pickedIds ? props.pickedIds.has(run.id) : run.id === props.selectedId}
               onSelect={() => props.onSelectRun(run.id)}
+              onPointerSelect={
+                props.onPointerSelect
+                  ? (event) => props.onPointerSelect?.(event, run.id)
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -247,11 +346,21 @@ function DocketBand(props: {
   );
 }
 
+function eventTargetIsField(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
+}
+
 function DocketRow(props: {
   run: AgentRunSummary;
   matterLabel: string;
-  selected: boolean;
+  current: boolean;
+  picked: boolean;
   onSelect: () => void;
+  onPointerSelect?: (event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => void;
 }): ReactNode {
   const { run } = props;
   const tone = docketRowTone(run);
@@ -270,10 +379,24 @@ function DocketRow(props: {
       className="lm-agents-wb-row"
       data-kind={tone}
       data-fleet-run-id={run.id}
-      aria-selected={props.selected}
+      aria-selected={props.picked}
+      aria-current={props.current ? "true" : undefined}
       aria-label={`${status} ${title}`}
       data-testid={`lm-agent-fleet-card-${run.kind}`}
-      onClick={props.onSelect}
+      onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
+        if (event.shiftKey) {
+          event.preventDefault();
+        }
+        if (props.onPointerSelect) {
+          props.onPointerSelect({
+            shiftKey: event.shiftKey,
+            metaKey: event.metaKey,
+            ctrlKey: event.ctrlKey,
+          });
+          return;
+        }
+        props.onSelect();
+      }}
     >
       <span className="lm-agents-wb-row-kind" data-kind={tone}>
         {status}

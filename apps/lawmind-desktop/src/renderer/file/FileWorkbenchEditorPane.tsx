@@ -1,8 +1,15 @@
-import type { Dispatch, SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, SetStateAction } from "react";
 import { type RootKey, type OpenFileTab } from "./file-workbench-types";
 import { getFileIcon } from "./file-workbench-fs";
 import { isContractReviewCandidatePath } from "../lawmind-file-chat-context";
 import { LawmindWordRevisionSurface } from "./LawmindWordRevisionSurface";
+import { CanvasFileView } from "../canvas/CanvasFileView";
+import { useLawmindCanvasKind } from "../canvas/theme";
+import {
+  LAWMIND_CANVAS_EXPORT_RESULT_EVENT,
+  requestCanvasExport,
+  type CanvasExportResultDetail,
+} from "../canvas/host-actions";
 
 export type FileWorkbenchEditorPaneProps = {
   tabs: OpenFileTab[];
@@ -53,8 +60,38 @@ export function FileWorkbenchEditorPane({
   apiBase = "",
   projectDir = null,
 }: FileWorkbenchEditorPaneProps) {
+  const canvasFile = Boolean(activeTab && /\.canvas\.tsx$/i.test(activeTab.path));
+  const [canvasSource, setCanvasSource] = useState(false);
+  const canvasKind = useLawmindCanvasKind();
+  const canvasPreview = canvasFile && !canvasSource;
+  const canvasBg = canvasKind === "dark" ? "#181818" : "#FCFCFC";
+  const canvasFg = canvasKind === "dark" ? "#E4E4E4" : "#141414";
+  const canvasLine = canvasKind === "dark" ? "#E4E4E41F" : "#1414141F";
+  const canvasTabId = activeTab?.id;
+  const [canvasTabSeen, setCanvasTabSeen] = useState(canvasTabId);
+  const [canvasExportNote, setCanvasExportNote] = useState<string | null>(null);
+  if (canvasTabId !== canvasTabSeen) {
+    setCanvasTabSeen(canvasTabId);
+    setCanvasSource(false);
+    setCanvasExportNote(null);
+  }
+  useEffect(() => {
+    const onResult = (event: Event) => {
+      const detail = (event as CustomEvent<CanvasExportResultDetail>).detail;
+      if (!detail || !activeTab || detail.root !== activeTab.root || detail.path !== activeTab.path) {
+        return;
+      }
+      setCanvasExportNote(detail.ok ? "已导出" : detail.message);
+      if (detail.ok && detail.htmlPath) {
+        void doShowInFolder(activeTab.root, detail.htmlPath);
+      }
+    };
+    window.addEventListener(LAWMIND_CANVAS_EXPORT_RESULT_EVENT, onResult);
+    return () => window.removeEventListener(LAWMIND_CANVAS_EXPORT_RESULT_EVENT, onResult);
+  }, [activeTab, doShowInFolder]);
   return (
     <section className="lm-files-editor" onClick={(e) => e.stopPropagation()}>
+      {canvasPreview || tabs.length === 0 ? null : (
       <div className="lm-file-tabs" role="tablist" aria-label="打开的文件">
         {tabs.map((tab) => {
           const dirty = tab.content !== tab.savedContent;
@@ -94,9 +131,83 @@ export function FileWorkbenchEditorPane({
           );
         })}
       </div>
+      )}
 
       {activeTab ? (
-        <div className="lm-editor-pane" role="tabpanel" id="lm-file-editor-panel" aria-label={activeTab.name}>
+        <div
+          className="lm-editor-pane"
+          role="tabpanel"
+          id="lm-file-editor-panel"
+          aria-label={activeTab.name}
+          style={
+            canvasPreview
+              ? {
+                  background: canvasBg,
+                  color: canvasFg,
+                  display: "flex",
+                  flexDirection: "column",
+                  minHeight: 0,
+                  flex: "1 1 auto",
+                }
+              : undefined
+          }
+        >
+          {canvasPreview ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                height: 28,
+                padding: "0 12px",
+                flexShrink: 0,
+                borderBottom: `1px solid ${canvasLine}`,
+                fontSize: 12,
+                lineHeight: "16px",
+              }}
+            >
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {activeTab.name}
+                {canvasExportNote ? ` · ${canvasExportNote}` : ""}
+              </span>
+              <span style={{ display: "flex", gap: 12, flexShrink: 0 }}>
+                <button
+                  type="button"
+                  onClick={() => requestCanvasExport(activeTab.root, activeTab.path)}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: "inherit",
+                    opacity: 0.74,
+                    font: "inherit",
+                    fontSize: 12,
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                >
+                  导出
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCanvasSource(true)}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: "inherit",
+                    opacity: 0.74,
+                    font: "inherit",
+                    fontSize: 12,
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                >
+                  源码
+                </button>
+              </span>
+            </div>
+          ) : null}
+          {canvasPreview ? null : (
           <div className="lm-editor-header">
             <div className="lm-editor-breadcrumb">
               <span className="lm-editor-root-badge">{activeTab.root}</span>
@@ -127,6 +238,15 @@ export function FileWorkbenchEditorPane({
                   送审本合同
                 </button>
               ) : null}
+              {canvasFile ? (
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost lm-btn-sm"
+                  onClick={() => setCanvasSource((value) => !value)}
+                >
+                  {canvasSource ? "画布" : "源码"}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="lm-btn lm-btn-sm"
@@ -139,15 +259,22 @@ export function FileWorkbenchEditorPane({
               <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" disabled={busy || !activeTab} onClick={() => void saveActiveAs()}>另存为…</button>
             </div>
           </div>
-          <textarea
-            className="lm-editor-textarea"
-            value={activeTab.content}
-            onChange={(e) => updateActiveContent(e.target.value)}
-            spellCheck={false}
-          />
+          )}
+          {canvasPreview ? (
+            <CanvasFileView root={activeTab.root} path={activeTab.path} source={activeTab.content} />
+          ) : (
+            <textarea
+              className="lm-editor-textarea"
+              value={activeTab.content}
+              onChange={(e) => updateActiveContent(e.target.value)}
+              spellCheck={false}
+            />
+          )}
+          {canvasPreview ? null : (
           <div className="lm-editor-statusbar">
             {activeTab.name} · {activeTab.content.split("\n").length} 行 · {activeTab.content.length} 字符
           </div>
+          )}
         </div>
       ) : imagePreview ? (
         <div className="lm-editor-pane lm-image-preview-pane">

@@ -13,7 +13,9 @@ import {
   isSessionTurnLive,
 } from "../agent/turn-interrupt.js";
 import { listApprovalRequests, listWorkQueueItems } from "../application/services/queue-service.js";
-import { listDraftReviewHeads } from "../drafts/index.js";
+import { listDraftReviewHeads, readDraft } from "../drafts/index.js";
+import { readRedlineProposal } from "../drafts/redline-proposal.js";
+import { listOpenWordReviews, syncWordReviewTicketsFromDrafts } from "../drafts/word-review.js";
 import { listLawyerWorks } from "../work/store.js";
 import {
   isFleetSettledVisible,
@@ -505,6 +507,37 @@ export async function buildAgentFleetSummary(
     });
   }
 
+  syncWordReviewTicketsFromDrafts(workspaceDir);
+  for (const ticket of listOpenWordReviews(workspaceDir)) {
+    const draft = readDraft(workspaceDir, ticket.taskId);
+    const baseline = draft?.contractEdit?.baselineRelativePath?.trim();
+    if (!draft || !baseline || !draft.outputPath?.trim()) {
+      continue;
+    }
+    if (matterId && draft.matterId !== matterId) {
+      continue;
+    }
+    const live = (readRedlineProposal(workspaceDir, ticket.taskId)?.hunks ?? []).filter(
+      (hunk) => hunk.status !== "rejected",
+    );
+    if (live.length === 0) {
+      continue;
+    }
+    const fileName = path.basename(ticket.baselineRel.replace(/\\/g, "/"));
+    runs.push({
+      id: `word-check:${ticket.taskId}`,
+      kind: "word_check",
+      status: "awaiting_review",
+      title: fileName || "待核对",
+      subtitle: `${live.length} 处修订 · 待核对`,
+      matterId: draft.matterId,
+      taskId: ticket.taskId,
+      updatedAt: ticket.openedAt,
+      createdAt: ticket.openedAt,
+      priority: 0,
+    });
+  }
+
   attachLawyerWorkOverlay(workspaceDir, runs);
   // 助手自己的队列项不占在办名额，否则今天办完的会被挤出上限。
   // 待发出单独留在名额外面，和以前从待拍板汇总结进来时一样，不会被挤掉。
@@ -525,6 +558,7 @@ export async function buildAgentFleetSummary(
     "tool_approval",
     "matter_approval",
     "pending_review",
+    "word_check",
   ] as const) {
     byKind[kind] = sliced.filter((r) => r.kind === kind).length;
   }

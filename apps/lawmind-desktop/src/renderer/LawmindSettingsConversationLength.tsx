@@ -17,10 +17,12 @@ type Props = {
   /** 当前模型目录里的窗口。比所选档短时，说明会按模型自己的能力来。 */
   modelContextTokens?: number;
   disabled?: boolean;
+  /** 附在说明后，例如回复还在输出时：本轮窗口不变。 */
+  pendingHint?: string;
 };
 
 export function LawmindSettingsConversationLength(props: Props): ReactNode {
-  const { apiBase, modelContextTokens, disabled = false } = props;
+  const { apiBase, modelContextTokens, disabled = false, pendingHint } = props;
   const [length, setLength] = useState<ConversationLengthId>(DEFAULT_CONVERSATION_LENGTH);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -72,9 +74,14 @@ export function LawmindSettingsConversationLength(props: Props): ReactNode {
     typeof modelContextTokens === "number" &&
     modelContextTokens > 0 &&
     modelContextTokens < preset.contextTokens;
-  const title = modelShorter
-    ? `${preset.detail} 当前模型比这一档短，会按它自己的能力记住。`
-    : preset.detail;
+  const title = [
+    modelShorter
+      ? `${preset.detail} 当前模型比这一档短，会按它自己的能力记住。`
+      : preset.detail,
+    pendingHint,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <label className="lm-compose-context-length" data-testid="lm-compose-context-length">

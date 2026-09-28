@@ -6,6 +6,8 @@ import {
   formatDocumentRereadNudge,
   formatIdenticalToolRepeatNudge,
   formatIdenticalToolRepeatStop,
+  formatWordRevisionCapStop,
+  formatWordRevisionExportNudge,
   identicalToolRepeatDecision,
   lawyerRepeatKind,
   resolveStrictUpstreamToolStreaming,
@@ -145,6 +147,15 @@ describe("completed document reread", () => {
     expect(tracked).toContain("回复「继续」");
     expect(tracked).not.toMatch(/[a-z]+_[a-z]+/);
     expect(tracked).not.toContain("空转");
+    const delivered = formatIdenticalToolRepeatStop({
+      kind: "read_done",
+      trackedDraftMissing: true,
+      deliverInstead: true,
+    });
+    expect(delivered).toContain("待确认");
+    expect(delivered).not.toContain("回复「继续」");
+    expect(formatWordRevisionCapStop()).toContain("待确认");
+    expect(formatWordRevisionExportNudge()).toContain("render_tracked_draft");
     expect(formatIdenticalToolRepeatStop({ kind: "search" })).toContain("查找");
     expect(formatDocumentRereadNudge({ totalChars: 628, wordRevision: true })).toContain("628");
     expect(formatDocumentRereadNudge({ wordRevision: false })).not.toContain(

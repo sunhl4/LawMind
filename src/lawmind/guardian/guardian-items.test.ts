@@ -5,6 +5,7 @@ import {
   buildGuardianEvidencePack,
   guardianExpectedItemIds,
   guardianBlocksExport,
+  guardianChecklistGapsOnly,
   parseGuardianItemVerdicts,
   parseGuardianReviewerJson,
   parseGuardianVerdict,
@@ -256,6 +257,79 @@ describe("P2.2 合同审查 spec 的检查单能变成逐项判定清单", () =>
   it("contract.review 有 reasoningGate 且能取到 spec（防 spec 被删/改名）", () => {
     const spec = getDeliverableSpec("contract.review");
     expect(spec?.reasoningGate?.required).toBe(true);
+  });
+
+  it("修订稿上，不对题的检查项和审稿层空包不挡出稿", () => {
+    const offTopic = aggregateGuardianItems({
+      items: [
+        { id: "pr.price", supported: false, applicable: false, note: "保洁合同无价款结构" },
+        { id: "pr.delivery", supported: false, note: "该项不对题" },
+        { id: "loan.rate", supported: true },
+      ],
+      summaryGaps: [
+        { code: "no_checklist_evidence", message: "检查单为空" },
+        { code: "citation_not_supporting", message: "usedInHeadings 为空，只有案件元数据" },
+        { code: "writer_deferred_empty", message: "writerDeferredClaims 为空" },
+        {
+          code: "issues_empty_no_verification",
+          message: "sections 为空，仅有 hunk 不足以认定覆盖",
+        },
+      ],
+      expectedItemIds: ["pr.price", "pr.delivery", "loan.rate"],
+      trackedRedline: true,
+    });
+    expect(offTopic.verdict).toBe("pass");
+    expect(guardianBlocksExport({ verdict: offTopic.verdict, gaps: offTopic.gaps })).toBe(false);
+
+    const realMiss = aggregateGuardianItems({
+      items: [{ id: "pr.price", supported: false, note: "价款未约定" }],
+      summaryGaps: [{ code: "coverage", message: "违约金上限未写入修订" }],
+      expectedItemIds: ["pr.price"],
+      trackedRedline: true,
+    });
+    expect(realMiss.verdict).toBe("fail");
+    expect(realMiss.gaps.map((gap) => gap.code)).toEqual(["checklist_not_covered", "coverage"]);
+    expect(guardianBlocksExport({ verdict: realMiss.verdict, gaps: realMiss.gaps })).toBe(true);
+    expect(
+      guardianChecklistGapsOnly({
+        verdict: "fail",
+        gaps: [{ code: "checklist_not_covered", message: "价款未约定" }],
+      }),
+    ).toBe(true);
+    expect(guardianChecklistGapsOnly({ verdict: realMiss.verdict, gaps: realMiss.gaps })).toBe(
+      false,
+    );
+    expect(
+      guardianChecklistGapsOnly({
+        verdict: "fail",
+        gaps: [{ code: "citation_ids_missing", message: "引用对不上" }],
+      }),
+    ).toBe(false);
+
+    const blankNumber = aggregateGuardianItems({
+      items: [{ id: "pr.price", supported: false, note: "单价未经确认不得改" }],
+      summaryGaps: [],
+      expectedItemIds: ["pr.price"],
+      trackedRedline: true,
+    });
+    expect(blankNumber.verdict).toBe("pass");
+    expect(blankNumber.gaps[0]?.code).toBe("checklist_note");
+    expect(guardianBlocksExport({ verdict: blankNumber.verdict, gaps: blankNumber.gaps })).toBe(
+      false,
+    );
+  });
+
+  it("意见书路径仍把审稿层空包和未覆盖当成未过", () => {
+    const agg = aggregateGuardianItems({
+      items: [{ id: "c1", supported: false, applicable: false }],
+      summaryGaps: [{ code: "citation_not_supporting", message: "引用不支撑" }],
+      expectedItemIds: ["c1"],
+    });
+    expect(agg.verdict).toBe("fail");
+    expect(agg.gaps.map((gap) => gap.code)).toEqual([
+      "checklist_not_covered",
+      "citation_not_supporting",
+    ]);
   });
 
   it("逐项 fail 会让 guardianBlocksExport 为真（门禁语义未变）", () => {

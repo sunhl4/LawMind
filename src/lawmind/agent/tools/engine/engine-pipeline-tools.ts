@@ -1266,6 +1266,7 @@ export const renderTrackedDraft: AgentTool = {
         const {
           runLegalGuardianForTrackedDraft,
           guardianBlocksExport,
+          guardianChecklistGapsOnly,
           resolveGuardianTrackedRedlinePosture,
           slimGuardianView,
           guardianFailToolResult,
@@ -1286,7 +1287,11 @@ export const renderTrackedDraft: AgentTool = {
             ctx.workspaceDir,
           ),
         });
-        if (posture === "block" && guardianBlocksExport(guardianRecord)) {
+        if (
+          posture === "block" &&
+          guardianBlocksExport(guardianRecord) &&
+          !(ctx.wordRevisionFloorDelivery === true && guardianChecklistGapsOnly(guardianRecord))
+        ) {
           return guardianFailToolResult(taskId, guardianView);
         }
       }
@@ -1537,6 +1542,20 @@ export const renderTrackedDraft: AgentTool = {
       ]
         .filter(Boolean)
         .join(" · ");
+      const reviewCopyReady =
+        !xmlMissingTracks &&
+        !xmlNonMinimal &&
+        result.mode !== "plain_fallback" &&
+        Boolean(baselineRel) &&
+        Boolean(result.outputPath);
+      if (reviewCopyReady && result.outputPath) {
+        const { openWordReviewTicket } = await import("../../../drafts/word-review.js");
+        openWordReviewTicket({
+          workspaceDir: ctx.workspaceDir,
+          taskId,
+          reviewAbs: result.outputPath,
+        });
+      }
       return {
         ok: !xmlMissingTracks && !xmlNonMinimal,
         ...(xmlMissingTracks || xmlNonMinimal ? { error: message } : {}),

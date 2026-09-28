@@ -38,6 +38,7 @@ describe("lawyer-outbound-decision", () => {
     expect(isLawyerOutboundDecision({ kind: "pending_review", status: "awaiting_review" })).toBe(
       false,
     );
+    expect(isLawyerOutboundDecision({ kind: "word_check", status: "awaiting_review" })).toBe(false);
     expect(
       isLawyerOutboundDecision({
         kind: "chat",

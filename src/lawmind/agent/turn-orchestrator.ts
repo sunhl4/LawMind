@@ -883,7 +883,8 @@ export async function runTurn(opts: {
     // 仅在回合已完成且可写时补 Word 改稿；澄清/只读/暂停不得绕过工具管线落盘。
     if (turn.status === "completed") {
       try {
-        const { autoDeliverWordRevisionIfNeeded } = await import("./word-revision-auto-deliver.js");
+        const { autoDeliverWordRevisionIfNeeded, successfullyExportedTaskIds } =
+          await import("./word-revision-auto-deliver.js");
         const delivered = await autoDeliverWordRevisionIfNeeded({
           ctx,
           registry,
@@ -892,6 +893,12 @@ export async function runTurn(opts: {
         if (delivered) {
           finalReply = [finalReply, delivered].filter((s) => s?.trim()).join("\n\n");
         }
+        const { appendOpenWordCheckMarkers } = await import("../drafts/word-review.js");
+        finalReply = appendOpenWordCheckMarkers({
+          workspaceDir: ctx.workspaceDir,
+          reply: finalReply ?? "",
+          taskIds: successfullyExportedTaskIds(turn),
+        });
       } catch {
         /* delivery is best-effort; the model path already ran */
       }

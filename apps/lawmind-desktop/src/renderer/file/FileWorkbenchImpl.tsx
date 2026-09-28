@@ -382,6 +382,13 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     window.dispatchEvent(new CustomEvent(LAWMIND_SHOW_WORD_SURFACE_EVENT));
   }, [portalHosts?.editor]);
 
+  const revealCanvasSurface = useCallback((relPath: string) => {
+    if (!/\.canvas\.tsx$/i.test(relPath) || !portalHosts?.editor || typeof window === "undefined") {
+      return;
+    }
+    window.dispatchEvent(new CustomEvent(LAWMIND_SHOW_WORD_SURFACE_EVENT));
+  }, [portalHosts?.editor]);
+
   const openFile = useCallback(async (root: RootKey, relPath: string) => {
     if (isOfficeLikePath(relPath)) {
       setImagePreview(null);
@@ -400,6 +407,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       setImagePreview(null);
       setActiveTabId(existing.id);
       notifyMaterialChosen(root, relPath);
+      revealCanvasSurface(relPath);
       return;
     }
     setBusy(true);
@@ -457,12 +465,13 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       setSelected({ root, path: relPath, kind: "file" });
       setError(null);
       notifyMaterialChosen(root, relPath);
+      revealCanvasSurface(relPath);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
-  }, [revealWordSurface, tabs]);
+  }, [revealCanvasSurface, revealWordSurface, tabs]);
 
   /** Deep-link from 交办结果 / 文书台：打开工作区相对路径并展开父目录。 */
   const openWorkspaceRelPath = useCallback(

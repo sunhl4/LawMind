@@ -108,6 +108,7 @@ function applyUpsert(
     source: StanceSource;
     family?: string;
     rationale?: string;
+    unacceptableLanguage?: string;
     seedOccurrences?: number;
     evidence: StanceEvidenceEntry[];
   },
@@ -124,6 +125,12 @@ function applyUpsert(
     existing.updatedAt = now;
     if (params.family && !existing.family) {
       existing.family = params.family;
+    }
+    if (params.unacceptableLanguage && !existing.unacceptableLanguage) {
+      existing.unacceptableLanguage = params.unacceptableLanguage;
+    }
+    if (params.rationale && !existing.rationale) {
+      existing.rationale = params.rationale;
     }
     return { items, item: existing };
   }
@@ -152,6 +159,9 @@ function applyUpsert(
     if (params.rationale) {
       next.rationale = params.rationale;
     }
+    if (params.unacceptableLanguage) {
+      next.unacceptableLanguage = params.unacceptableLanguage;
+    }
     existing.supersededBy = next.id;
     existing.updatedAt = now;
     return { items: [...items, next], item: next };
@@ -177,6 +187,9 @@ function applyUpsert(
   }
   if (params.rationale) {
     created.rationale = params.rationale;
+  }
+  if (params.unacceptableLanguage) {
+    created.unacceptableLanguage = params.unacceptableLanguage;
   }
   return { items: [...items, created], item: created };
 }
@@ -226,6 +239,47 @@ export function captureStanceFromRedline(params: {
 }): StanceItem | undefined {
   try {
     return upsertStanceFromRedline(params);
+  } catch {
+    return undefined;
+  }
+}
+
+/** 整处拒绝：留下原来的写法，模型那句只记成不要再用的措辞。 */
+export function captureStanceRejection(params: {
+  workspaceDir: string;
+  hunk: StanceRedlineHunk;
+  avoidedLanguage: string;
+  matterId?: string;
+}): StanceItem | undefined {
+  try {
+    const preferredLanguage = normalizeStanceLanguage(params.hunk.before ?? "");
+    const unacceptableLanguage = normalizeStanceLanguage(params.avoidedLanguage);
+    if (!preferredLanguage || !unacceptableLanguage || preferredLanguage === unacceptableLanguage) {
+      return undefined;
+    }
+    const blob = `${params.hunk.heading ?? ""} ${params.hunk.before ?? ""} ${unacceptableLanguage}`;
+    const clauseType = detectStanceClauseType(blob);
+    if (!clauseType) {
+      return undefined;
+    }
+    const matterId = params.matterId?.trim() || undefined;
+    let captured: StanceItem | undefined;
+    mutateStanceItems(params.workspaceDir, (items) => {
+      const out = applyUpsert(items, {
+        clauseType,
+        preferredLanguage,
+        unacceptableLanguage,
+        rationale: "这次不要这种改法",
+        source: "redline",
+        family: detectFamily(blob),
+        evidence: [
+          { source: "redline", at: new Date().toISOString(), ...(matterId ? { matterId } : {}) },
+        ],
+      });
+      captured = out.item;
+      return out.items;
+    });
+    return captured;
   } catch {
     return undefined;
   }

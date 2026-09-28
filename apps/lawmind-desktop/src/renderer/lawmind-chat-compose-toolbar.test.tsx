@@ -169,4 +169,68 @@ describe("LawmindChatComposeToolbar slim bar", () => {
     });
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
   });
+
+  it("keeps length, context entry, and plus options usable while a reply is generating", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ ok: true, conversationLength: "500k" }), { status: 200 })),
+    );
+    await act(async () => {
+      root.render(
+        <LawmindChatComposeToolbar
+          loading
+          input=""
+          onSend={vi.fn()}
+          permissionMode="standard"
+          onPermissionModeChange={vi.fn()}
+          allowWebSearch
+          onAllowWebSearchChange={vi.fn()}
+          apiBase="http://127.0.0.1:9"
+          modelCatalog={[]}
+          selectedModelId=""
+          contextBudget={{ used: 94_000, effectiveLimit: 95_000, level: "compact" }}
+          onCompactContext={vi.fn()}
+          onDistillLearning={vi.fn()}
+          onForkWithCarryover={vi.fn()}
+          onOpenMemoryInspector={vi.fn()}
+        />,
+      );
+    });
+
+    const plus = host.querySelector('button[aria-label="输入选项"]') as HTMLButtonElement;
+    expect(plus.disabled).toBe(false);
+    await act(async () => {
+      plus.click();
+    });
+    const permission = host.querySelector(
+      '[data-testid="lm-compose-permission-mode"]',
+    ) as HTMLSelectElement;
+    const web = host.querySelector('[aria-label="联网工具"]') as HTMLSelectElement;
+    expect(permission.disabled).toBe(false);
+    expect(web.disabled).toBe(false);
+    expect(web.title).toContain("下一句");
+
+    const length = host.querySelector(
+      '[data-testid="lm-compose-context-length-select"]',
+    ) as HTMLSelectElement;
+    expect(length.disabled).toBe(false);
+    expect(length.title).toContain("下一句");
+
+    const usage = host.querySelector('[data-testid="lm-compose-token-bar"]') as HTMLButtonElement;
+    expect(usage.disabled).toBe(false);
+    await act(async () => {
+      usage.click();
+    });
+    expect(host.querySelector('[data-testid="lm-compose-ctx-usage-panel"]')).toBeTruthy();
+    expect(
+      (host.querySelector('[data-testid="lm-compose-open-memory"]') as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(
+      (host.querySelector('[data-testid="lm-compose-compact"]') as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (host.querySelector('[data-testid="lm-compose-fork-carryover"]') as HTMLButtonElement).disabled,
+    ).toBe(true);
+    vi.unstubAllGlobals();
+  });
 });

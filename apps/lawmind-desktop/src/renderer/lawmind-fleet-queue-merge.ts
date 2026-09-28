@@ -15,7 +15,10 @@ export function mergeFleetQueueRows(opts: {
 }): AgentRunSummary[] {
   const { fleetRuns, pendingReviewDrafts, automationInbox, snoozed, includePendingReview } = opts;
   const runs = (fleetRuns ?? []).filter(
-    (run) => needsLawyer(run) || (includePendingReview && run.kind === "pending_review"),
+    (run) =>
+      needsLawyer(run) ||
+      run.kind === "word_check" ||
+      (includePendingReview && run.kind === "pending_review"),
   );
   const seenTaskIds = new Set(
     runs.map((run) => run.taskId?.trim()).filter((id): id is string => Boolean(id)),

@@ -11,6 +11,7 @@ export {
   formatGuardianEvidenceUserMessage,
   formatGuardianFailMessage,
   guardianBlocksExport,
+  guardianChecklistGapsOnly,
   guardianExpectedItemIds,
   resolveGuardianTrackedRedlinePosture,
   guardianFailToolResult,

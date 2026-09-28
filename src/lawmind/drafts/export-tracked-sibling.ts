@@ -3,10 +3,33 @@
  * on the draft so a later 出稿 overwrites that Word instead of minting `_02`.
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import { renderDocxWithTrackedChanges } from "../artifacts/render-docx-tracked.js";
-import { planTrackedWordDelivery } from "../artifacts/word-revision-delivery.js";
+import {
+  planTrackedWordDelivery,
+  resolveWordBaselineAbs,
+} from "../artifacts/word-revision-delivery.js";
+import { writeVisibleTrackedEdits } from "./docx-visible-revisions.js";
 import { persistDraft, readDraft } from "./index.js";
 import { readRedlineProposal, type RedlineHunk } from "./redline-proposal.js";
+import { readWordReview } from "./word-review.js";
+
+export const REVIEW_FILE_LOCKED =
+  "审阅稿正被 Word 或 WPS 打开，覆盖没有写成。请先关掉那份稿再导出。这一条仍留在在办。";
+
+export function reviewFileLockMessage(err: unknown): string | undefined {
+  const code =
+    err && typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code) : "";
+  if (code === "EBUSY" || code === "EPERM" || code === "EACCES") {
+    return REVIEW_FILE_LOCKED;
+  }
+  const message = err instanceof Error ? err.message : "";
+  if (/EBUSY|EPERM|resource busy|being used by another process/i.test(message)) {
+    return REVIEW_FILE_LOCKED;
+  }
+  return undefined;
+}
 
 /** Preview export keeps accepted hunks only. The add-in commit still includes pending revisions. */
 export function selectTrackedExportHunks(
@@ -42,6 +65,9 @@ export async function exportTrackedSiblingForTask(params: {
       status: 409,
     };
   }
+  const ticket = readWordReview(params.workspaceDir, params.taskId);
+  const existingOutputAbs =
+    ticket && !ticket.closedAt && ticket.reviewAbs.trim() ? ticket.reviewAbs : draft.outputPath;
   const planned = planTrackedWordDelivery({
     workspaceDir: params.workspaceDir,
     projectDir: params.projectDir,
@@ -49,20 +75,79 @@ export async function exportTrackedSiblingForTask(params: {
     baselineRoot: draft.contractEdit?.baselineRoot,
     matterId: draft.matterId,
     fallbackBasename: `${draft.title?.trim() || "合同"}.docx`,
-    existingOutputAbs: draft.outputPath,
+    existingOutputAbs,
   });
+  const destPreview = path.join(planned.outDir, planned.outputFileName);
+  if (fs.existsSync(destPreview)) {
+    try {
+      const fd = fs.openSync(destPreview, "r+");
+      fs.closeSync(fd);
+    } catch (err) {
+      const locked = reviewFileLockMessage(err);
+      if (locked) {
+        return { ok: false, error: locked, code: "review_file_locked", status: 409 };
+      }
+    }
+  }
   const preferContractReview =
     (draft.deliverableType ?? "").startsWith("contract.") || Boolean(draft.contractEdit);
-  const result = await renderDocxWithTrackedChanges({
-    draft,
-    outputDir: planned.outDir,
-    proposals,
-    workspaceDir: params.workspaceDir,
-    projectDir: params.projectDir,
-    templateVariant: preferContractReview ? "contractReview" : undefined,
-    includeProvenance: false,
-    outputFileName: planned.outputFileName,
-  });
+  let result: Awaited<ReturnType<typeof renderDocxWithTrackedChanges>>;
+  try {
+    result = await renderDocxWithTrackedChanges({
+      draft,
+      outputDir: planned.outDir,
+      proposals,
+      workspaceDir: params.workspaceDir,
+      projectDir: params.projectDir,
+      templateVariant: preferContractReview ? "contractReview" : undefined,
+      includeProvenance: false,
+      outputFileName: planned.outputFileName,
+    });
+  } catch (err) {
+    const locked = reviewFileLockMessage(err);
+    if (locked) {
+      return { ok: false, error: locked, code: "review_file_locked", status: 409 };
+    }
+    throw err;
+  }
+  if (!result.ok || (proposals.length > 0 && (result.appliedHunks ?? 0) === 0)) {
+    const baseline = resolveWordBaselineAbs({
+      workspaceDir: params.workspaceDir,
+      projectDir: params.projectDir,
+      raw: draft.contractEdit?.baselineRelativePath ?? "",
+      preferredRoot: draft.contractEdit?.baselineRoot,
+    });
+    if (baseline) {
+      const dest = path.join(planned.outDir, planned.outputFileName);
+      let xml: Awaited<ReturnType<typeof writeVisibleTrackedEdits>> | null = null;
+      try {
+        xml = await writeVisibleTrackedEdits({
+          sourceAbs: baseline.abs,
+          destAbs: dest,
+          hunks: proposals,
+        });
+      } catch (err) {
+        const locked = reviewFileLockMessage(err);
+        if (locked) {
+          return { ok: false, error: locked, code: "review_file_locked", status: 409 };
+        }
+        xml = null;
+      }
+      if (xml && xml.applied > 0) {
+        const storedXml = readDraft(params.workspaceDir, params.taskId);
+        if (storedXml && storedXml.outputPath !== dest) {
+          persistDraft(params.workspaceDir, { ...storedXml, outputPath: dest });
+        }
+        return {
+          ok: true,
+          outputPath: dest,
+          outputFileName: planned.outputFileName,
+          mode: "docx-xml",
+          degraded: xml.applied < xml.attempted,
+        };
+      }
+    }
+  }
   if (!result.ok) {
     return { ok: false, error: result.error, code: result.code, status: 400 };
   }

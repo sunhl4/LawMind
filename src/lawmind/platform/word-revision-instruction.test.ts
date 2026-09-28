@@ -91,7 +91,11 @@ describe("word-revision-instruction", () => {
     expect(WORD_REVISION_TOOL_NAMES).not.toContain("render_document");
     expect(WORD_REVISION_DENY_TOOL_NAMES).toContain("prepare_outbound_mail");
     expect(WORD_REVISION_DENY_TOOL_NAMES).toContain("render_document");
-    expect(WORD_REVISION_PROMPT).toContain("源文件同一目录");
+    expect(WORD_REVISION_PROMPT).toContain("draft_worker");
+    expect(WORD_REVISION_PROMPT).toContain("原句、改后句、待确认");
+    expect(WORD_REVISION_PROMPT).toContain("craft_check.deferred");
+    expect(WORD_REVISION_PROMPT).toContain("检查单未覆盖不拦出稿");
+    expect(WORD_REVISION_PROMPT).toContain("子代理读过的全文不要再整份读进来");
     expect(WORD_REVISION_PROMPT).toContain("YYYYMMDD_01");
     expect(WORD_REVISION_PROMPT).toContain("禁止 `render_document`");
     expect(WORD_REVISION_PROMPT).toContain("禁止 `prepare_outbound_mail`");

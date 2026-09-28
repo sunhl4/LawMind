@@ -35,6 +35,7 @@ export type FleetDeskViewState = {
   /** 深链到达：放开案件筛选，避免在错误滤镜下匹配失败。 */
   resetFiltersForDeepLink: (matterId: string | null) => void;
   snooze: (runId: string) => void;
+  snoozeMany: (runIds: readonly string[]) => void;
   /** 面板重挂载时复位瞬时态（稍后看保留）。 */
   resetTransient: () => void;
 };
@@ -52,6 +53,17 @@ export const useFleetDeskViewStore = create<FleetDeskViewState>()((set, get) => 
   resetFiltersForDeepLink: (matterId) => set({ matterFilter: matterId ?? "all" }),
 
   snooze: (runId) => set({ snoozed: persistFleetSnoozed(new Set(get().snoozed).add(runId)) }),
+
+  snoozeMany: (runIds) => {
+    if (runIds.length === 0) {
+      return;
+    }
+    const next = new Set(get().snoozed);
+    for (const id of runIds) {
+      next.add(id);
+    }
+    set({ snoozed: persistFleetSnoozed(next) });
+  },
 
   resetTransient: () => set({ ...transientDefaults }),
 }));

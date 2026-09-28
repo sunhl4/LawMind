@@ -229,7 +229,7 @@ x
           },
         ],
       }),
-    ).not.toContain("draft_worker");
+    ).toContain("draft_worker");
     expect(extraToolsForInstruction("【邮件合同审阅改稿 · 短路径】\nmatterId=`m1`")).not.toContain(
       "draft_worker",
     );

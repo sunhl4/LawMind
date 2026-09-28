@@ -35,6 +35,43 @@ describe("lawmind-chat-activity", () => {
     }
   });
 
+  it("keeps a canvas path from tool args when the result preview omits it", () => {
+    let blocks = startActivityTool(createEmptyActivity(), {
+      toolCallId: "tc-canvas",
+      toolName: "write_file",
+      args: { path: "notes/brief.canvas.tsx" },
+    });
+    blocks = endActivityTool(blocks, {
+      toolCallId: "tc-canvas",
+      toolName: "write_file",
+      ok: true,
+      resultPreview: "已写入",
+    });
+    expect(blocks[0]?.kind).toBe("tool");
+    if (blocks[0]?.kind === "tool") {
+      expect(blocks[0].detail).toContain("notes/brief.canvas.tsx");
+    }
+  });
+
+  it("keeps every canvas path from one tool call", () => {
+    let blocks = startActivityTool(createEmptyActivity(), {
+      toolCallId: "tc-two",
+      toolName: "write_file",
+      args: { paths: ["notes/a.canvas.tsx", "notes/b.canvas.tsx"] },
+    });
+    blocks = endActivityTool(blocks, {
+      toolCallId: "tc-two",
+      toolName: "write_file",
+      ok: true,
+      resultPreview: "已写入",
+    });
+    expect(blocks[0]?.kind).toBe("tool");
+    if (blocks[0]?.kind === "tool") {
+      expect(blocks[0].detail).toContain("notes/a.canvas.tsx");
+      expect(blocks[0].detail).toContain("notes/b.canvas.tsx");
+    }
+  });
+
   it("interleaves model text and tool blocks", () => {
     let blocks = createEmptyActivity();
     blocks = appendActivityDelta(blocks, "我先检索相关条款。");

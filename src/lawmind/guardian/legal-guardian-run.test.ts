@@ -8,6 +8,7 @@ import { persistDraft } from "../drafts/index.js";
 import { writeRedlineProposal } from "../drafts/redline-proposal.js";
 import { modelAttemptBudget } from "../llm/http-retry.js";
 import type { ArtifactDraft } from "../types.js";
+import { hashGuardianEvidencePack } from "./evidence-hash.js";
 import { buildGuardianEvidencePack } from "./legal-guardian.js";
 import {
   runLegalGuardian,
@@ -47,6 +48,142 @@ const draft = (wsTask = "t1"): ArtifactDraft => ({
 });
 
 describe("legal guardian run", () => {
+  it("does not block a tracked export on an empty review packet", async () => {
+    const ws = tmpWs();
+    tmp.push(ws);
+    fs.mkdirSync(path.join(ws, "drafts"), { recursive: true });
+    const pack = buildGuardianEvidencePack({
+      draft: draft(),
+      hunks: [
+        {
+          hunkId: "h1",
+          sectionIndex: 0,
+          before: "甲方所在地人民法院",
+          after: "上海仲裁委员会",
+          status: "pending",
+        },
+      ],
+      allowEmptyRedline: false,
+    });
+    persistGuardianRecord(ws, {
+      taskId: "t1",
+      at: "2026-09-28T00:00:00.000Z",
+      verdict: "fail",
+      round: 2,
+      maxRounds: 2,
+      gaps: [
+        { code: "guardian_exhausted", message: "独立审稿已 2 轮未过。" },
+        { code: "no_checklist_evidence", message: "检查单为空" },
+        {
+          code: "issues_empty_no_verification",
+          message: "sections 为空，仅有 hunk 不足以认定覆盖",
+        },
+      ],
+      evidencePackHash: hashGuardianEvidencePack(pack),
+    });
+    let calls = 0;
+    const record = await runLegalGuardian({
+      pack,
+      taskId: "t1",
+      workspaceDir: ws,
+      callReviewer: async () => {
+        calls += 1;
+        return JSON.stringify({
+          items: [],
+          summaryGaps: [
+            { code: "writer_deferred_empty", message: "writerDeferredClaims 为空" },
+            { code: "citation_not_supporting", message: "usedInHeadings 为空，只有案件元数据" },
+          ],
+        });
+      },
+    });
+    expect(calls).toBe(1);
+    expect(record.verdict).toBe("pass");
+    expect(record.round).toBe(1);
+  });
+
+  it("leaves a real tracked-redline miss blocked", async () => {
+    const ws = tmpWs();
+    tmp.push(ws);
+    fs.mkdirSync(path.join(ws, "drafts"), { recursive: true });
+    const purchase = draft();
+    purchase.title = "采购合同";
+    const pack = buildGuardianEvidencePack({
+      draft: purchase,
+      hunks: [
+        {
+          hunkId: "h1",
+          sectionIndex: 0,
+          before: "甲方所在地人民法院",
+          after: "上海仲裁委员会",
+          status: "pending",
+        },
+      ],
+      allowEmptyRedline: false,
+      checklist: {
+        family: "采购供货",
+        items: [{ id: "pr.price", look: "单价总价", stop: "单价未经确认不得改" }],
+      },
+    });
+    const record = await runLegalGuardian({
+      pack,
+      taskId: "t1",
+      workspaceDir: ws,
+      callReviewer: async () =>
+        JSON.stringify({
+          items: [{ id: "pr.price", applicable: true, supported: false, note: "价款未约定" }],
+          summaryGaps: [],
+        }),
+    });
+    expect(record.verdict).toBe("fail");
+    expect(record.gaps[0]?.code).toBe("checklist_not_covered");
+  });
+
+  it("does not attach a procurement or loan checklist to the wrong contract", async () => {
+    const ws = tmpWs();
+    tmp.push(ws);
+    fs.mkdirSync(path.join(ws, "drafts"), { recursive: true });
+    const cleaning = draft("clean");
+    cleaning.title = "保洁服务委托合同";
+    cleaning.sections = [
+      {
+        heading: "服务",
+        body: "甲方（采购方）委托乙方（供应商）提供保洁服务。乙方不得对外借款、抵押、质押。",
+      },
+    ];
+    persistDraft(ws, cleaning);
+    let packet = "";
+    const ctx: AgentContext = {
+      workspaceDir: ws,
+      sessionId: "s",
+      actorId: "t",
+      guardianCaller: async ({ user }) => {
+        packet = user;
+        return JSON.stringify({ items: [], summaryGaps: [] });
+      },
+    };
+    const record = await runLegalGuardianForTrackedDraft({
+      workspaceDir: ws,
+      draft: cleaning,
+      hunks: [
+        {
+          hunkId: "h1",
+          sectionIndex: 0,
+          before: "提供保洁",
+          after: "提供保洁服务",
+          status: "pending",
+        },
+      ],
+      allowEmptyRedline: false,
+      ctx,
+    });
+    expect(record.verdict).toBe("pass");
+    expect(packet).not.toContain("pr.price");
+    expect(packet).not.toContain("loan.rate");
+    expect(packet).not.toContain("采购供货");
+    expect(packet).not.toContain("借款担保");
+  });
+
   it("keeps reviewer transcript in the sidecar only", async () => {
     const ws = tmpWs();
     tmp.push(ws);

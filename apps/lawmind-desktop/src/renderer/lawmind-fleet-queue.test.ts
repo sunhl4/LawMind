@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { AgentRunSummary } from "./lawmind-agent-fleet-api";
 import {
+  automationSendInboxId,
+  collectOutboundInboxIds,
   defaultExpandedFleetGroups,
   fleetApprovalDockLabels,
   fleetRunNeedsLawyer,
@@ -48,10 +50,27 @@ describe("lawmind-fleet-queue", () => {
     });
     // 中断的办件归入「待拍板」组，与待律师处置同级可见。
     expect(fleetStatusKind("interrupted")).toBe("approve");
+    expect(fleetStatusKind("awaiting_review", "word_check")).toBe("check");
     expect(fleetStatusLabel("interrupted")).toBe("已被中断");
     expect(fleetApprovalDockLabels("tool_approval")).toEqual({
       primary: "签批",
       secondary: "驳回",
+    });
+    expect(automationSendInboxId({ id: "automation-send:inbox-9", queueItemId: "inbox-9" })).toBe(
+      "inbox-9",
+    );
+    expect(automationSendInboxId({ id: "automation-send:inbox-9" })).toBe("inbox-9");
+    expect(automationSendInboxId({ id: "chat:s1" })).toBe("");
+    expect(
+      collectOutboundInboxIds([
+        { id: "automation-send:a", queueItemId: "a" },
+        { id: "automation-send:b" },
+        { id: "chat:s1" },
+      ]),
+    ).toEqual({ ids: ["a", "b"], missing: 1 });
+    expect(collectOutboundInboxIds([{ id: "chat:s1" }, { id: "x" }])).toEqual({
+      ids: [],
+      missing: 2,
     });
   });
 

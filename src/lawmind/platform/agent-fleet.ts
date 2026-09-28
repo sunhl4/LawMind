@@ -11,6 +11,8 @@ export type AgentRunKind =
   | "tool_approval"
   | "matter_approval"
   | "pending_review"
+  /** 已有 Word 的修订写出审阅稿后，等律师打开同一修订窗口核对。不是签批。 */
+  | "word_check"
   /** Automation inbox item awaiting lawyer approve_send (may include tracked docx). */
   | "automation_send";
 

@@ -15,8 +15,11 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { z } from "zod";
 import { exportTrackedSiblingForTask } from "../../../src/lawmind/drafts/export-tracked-sibling.js";
+import { finishWordReviewExport } from "../../../src/lawmind/drafts/word-review.js";
 import {
   loadWordSurface as loadWordSurfaceStatic,
+  recordLawyerSurfaceEdit,
+  syncLawyerSurfaceDocument,
   type WordSurfaceSnapshot,
 } from "../../../src/lawmind/drafts/word-surface.js";
 import {
@@ -37,6 +40,28 @@ const reviseSchema = z.object({
 const exportSchema = z.object({
   taskId: z.string().trim().min(1).max(200),
   projectDir: z.string().optional(),
+});
+
+const syncSchema = z.object({
+  root: z.enum(["workspace", "project"]),
+  path: z.string().trim().min(1).max(2_000),
+  projectDir: z.string().optional(),
+  paragraphs: z
+    .array(
+      z.object({
+        baseline: z.string().max(50_000),
+        current: z.string().max(50_000),
+      }),
+    )
+    .max(2_000),
+});
+
+const lawyerEditSchema = z.object({
+  root: z.enum(["workspace", "project"]),
+  path: z.string().trim().min(1).max(2_000),
+  projectDir: z.string().optional(),
+  before: z.string().max(50_000),
+  after: z.string().max(50_000),
 });
 
 function parseRoot(raw: string | null): WordBaselineRoot | undefined {
@@ -141,6 +166,102 @@ export async function handleWordSurfaceRoutes({
     return true;
   }
 
+  if (pathname === "/api/word-surface/sync" && req.method === "POST") {
+    let body: z.infer<typeof syncSchema>;
+    try {
+      body = await parseJsonBodyZod(req, syncSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const root = parseRoot(body.root);
+    if (!root) {
+      sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+      return true;
+    }
+    const loaded = await loadWordSurfaceStatic({
+      workspaceDir: ctx.workspaceDir,
+      projectDir: safeOptionalProjectDir(body.projectDir),
+      root,
+      relPath: body.path,
+    });
+    if (!loaded.ok) {
+      const status = loaded.error === "not_found" ? 404 : 400;
+      sendJson(res, status, { ok: false, error: loaded.error }, c);
+      return true;
+    }
+    if ("unchanged" in loaded) {
+      sendJson(res, 400, { ok: false, error: "unreadable_docx" }, c);
+      return true;
+    }
+    const synced = syncLawyerSurfaceDocument({
+      workspaceDir: ctx.workspaceDir,
+      relPath: loaded.snapshot.relPath,
+      root: loaded.snapshot.root,
+      fileName: loaded.snapshot.fileName,
+      taskId: loaded.snapshot.taskId,
+      paragraphs: body.paragraphs,
+    });
+    if (!synced.ok) {
+      sendJson(res, 400, { ok: false, error: synced.error }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true, taskId: synced.taskId, removed: synced.removed, updated: synced.updated }, c);
+    return true;
+  }
+
+  if (pathname === "/api/word-surface/hunks" && req.method === "POST") {
+    let body: z.infer<typeof lawyerEditSchema>;
+    try {
+      body = await parseJsonBodyZod(req, lawyerEditSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const root = parseRoot(body.root);
+    const relPath = body.path.trim();
+    if (!root || !relPath) {
+      sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+      return true;
+    }
+    const loaded = await loadWordSurfaceStatic({
+      workspaceDir: ctx.workspaceDir,
+      projectDir: safeOptionalProjectDir(body.projectDir),
+      root,
+      relPath,
+    });
+    if (!loaded.ok) {
+      const status = loaded.error === "not_found" ? 404 : 400;
+      sendJson(res, status, { ok: false, error: loaded.error }, c);
+      return true;
+    }
+    if ("unchanged" in loaded) {
+      sendJson(res, 400, { ok: false, error: "unreadable_docx" }, c);
+      return true;
+    }
+    const recorded = recordLawyerSurfaceEdit({
+      workspaceDir: ctx.workspaceDir,
+      relPath: loaded.snapshot.relPath,
+      root: loaded.snapshot.root,
+      fileName: loaded.snapshot.fileName,
+      before: body.before,
+      after: body.after,
+      taskId: loaded.snapshot.taskId,
+    });
+    if (!recorded.ok) {
+      sendJson(res, 400, { ok: false, error: recorded.error }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true, taskId: recorded.taskId, hunkId: recorded.hunkId }, c);
+    return true;
+  }
+
   const reviseMatch = pathname.match(/^\/api\/word-surface\/hunks\/([^/]+)\/revise$/);
   if (reviseMatch && req.method === "POST") {
     const hunkId = decodeURIComponent(reviseMatch[1] ?? "");
@@ -199,6 +320,9 @@ export async function handleWordSurfaceRoutes({
       acceptedOnly: true,
       ...(projectDir ? { projectDir } : {}),
     });
+    if (result.ok) {
+      finishWordReviewExport(ctx.workspaceDir, body.taskId);
+    }
     sendJson(
       res,
       result.ok ? 200 : result.status,

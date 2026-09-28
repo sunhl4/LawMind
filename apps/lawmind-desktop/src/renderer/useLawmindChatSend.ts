@@ -78,6 +78,8 @@ import {
   fetchSessionBubbles,
   mutateSessionMessages,
 } from "./lawmind-chat-message-mutate";
+import { retitlePlaceholderChatSession } from "./lawmind-chat-session-list";
+import type { ChatSessionListEntry } from "./lawmind-chat-active-storage";
 import {
   clientHasLiveTurn,
   focusedSessionHasLiveTurn,
@@ -116,6 +118,8 @@ export type UseLawmindChatSendInput = {
   projectDir: string | null;
   allowWebSearch: boolean;
   refreshChatSessionListForAssistant: (assistantId: string) => Promise<unknown>;
+  /** 发送当下把占位标题换成这句话，左栏不用等本轮结束。 */
+  setChatSessionList?: Dispatch<SetStateAction<ChatSessionListEntry[]>>;
   refreshLists: () => Promise<void>;
   refreshAssistants: () => Promise<void>;
   refreshCollaboration: () => Promise<void>;
@@ -190,6 +194,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
     projectDir,
     allowWebSearch,
     refreshChatSessionListForAssistant,
+    setChatSessionList,
     refreshLists,
     refreshAssistants,
     refreshCollaboration,
@@ -555,6 +560,15 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       const turnQueueKey = sessionQueueKey(turn.boundSessionId, assistantId);
       liveTurnsRef.current.set(turnKey, turn);
       publishRunning();
+      const titledSessionId = turn.boundSessionId?.trim();
+      if (titledSessionId) {
+        setChatSessionList?.((prev) =>
+          retitlePlaceholderChatSession(prev, titledSessionId, text, {
+            assistantId,
+            matterId: contextMatterId,
+          }),
+        );
+      }
       const implicitWordPins = background
         ? []
         : resolveImplicitWordPinsForChat({
@@ -1080,6 +1094,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       projectDir,
       refreshAssistants,
       refreshChatSessionListForAssistant,
+      setChatSessionList,
       refreshCollaboration,
       refreshLists,
       selectedAssistantId,

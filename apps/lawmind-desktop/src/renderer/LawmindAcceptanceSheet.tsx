@@ -5,7 +5,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AcceptanceClaimView, AcceptanceSheet } from "../../../../src/lawmind/acceptance-sheet/model.ts";
 import { tooStrongInstruction } from "../../../../src/lawmind/acceptance-sheet/model.ts";
+import { CanvasHost } from "./canvas/CanvasHost";
+import { acceptanceCanvasPath, renderAcceptanceCanvas } from "./canvas/acceptance-canvas";
+import { Button, Callout, Card, CardBody, CardHeader, H1, H2, Pill, Row, Stack, Stat, Table, Text } from "./canvas/primitives";
+import { useCanvasTheme } from "./canvas/theme";
 import { LawmindAnalysisChart } from "./LawmindAnalysisChart";
+import { describeFsWriteFailure } from "./file/fs-write-error";
+import { requestOpenWorkspaceFile } from "./lawmind-workspace-file-open";
 import { apiGetJson, apiSendJson, fetchApi, fetchWithLoopbackAuthRetry } from "./api-client";
 import {
   isNativeOfficePath,
@@ -48,6 +54,19 @@ const PAGE_FAILURE_COPY: Record<PageFailure, string> = {
   too_large: "这份 PDF 太大，页图打不开。可以改用本机打开。",
   ambiguous: "工作区和本机文件夹里都有这份文件。请从左栏点开要看的那一份，或用本机打开。",
 };
+
+function ClaimQuote(props: { children: string }) {
+  const theme = useCanvasTheme();
+  return (
+    <Text
+      tone="secondary"
+      size="small"
+      style={{ marginTop: 10, paddingLeft: 10, borderLeft: `2px solid ${theme.stroke.secondary}` }}
+    >
+      {props.children}
+    </Text>
+  );
+}
 
 function pageForPath(sheet: AcceptanceSheet, relPath: string): number | undefined {
   for (const claim of sheet.claims) {
@@ -213,23 +232,41 @@ function AcceptancePdfFrame(props: {
     };
   }, [apiBase, preview.page, preview.relPath, preview.root]);
 
+  const theme = useCanvasTheme();
   const name = preview.relPath.split("/").pop() ?? preview.relPath;
+  const caption = `${name} · 第 ${preview.page} 页${preview.firstPage ? "（出处未写页码，从第 1 页看起）" : ""}`;
   return (
     <figure
-      className="lm-acceptance-page"
       data-testid="lm-acceptance-page-frame"
       aria-busy={!src && !failure ? true : undefined}
+      style={{ margin: "12px 0 0", display: "flex", flexDirection: "column", gap: 8 }}
     >
-      <figcaption>
-        {name} · 第 {preview.page} 页
-        {preview.firstPage ? "（出处未写页码，从第 1 页看起）" : ""}
-      </figcaption>
-      {failure ? <p>{PAGE_FAILURE_COPY[failure]}</p> : null}
-      {!src && !failure ? <p>正在打开这一页。</p> : null}
-      {src ? <img src={src} alt={`${name} 第 ${preview.page} 页`} /> : null}
-      <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={onOpen}>
+      <Text as="span" size="small" tone="tertiary">
+        {caption}
+      </Text>
+      {failure ? <Text size="small">{PAGE_FAILURE_COPY[failure]}</Text> : null}
+      {!src && !failure ? (
+        <Text size="small" tone="tertiary">
+          正在打开这一页。
+        </Text>
+      ) : null}
+      {src ? (
+        <img
+          src={src}
+          alt={`${name} 第 ${preview.page} 页`}
+          style={{
+            display: "block",
+            width: "100%",
+            height: "auto",
+            border: `1px solid ${theme.stroke.secondary}`,
+            borderRadius: 8,
+            background: theme.bg.elevated,
+          }}
+        />
+      ) : null}
+      <Button variant="ghost" onClick={onOpen}>
         用本机打开
-      </button>
+      </Button>
     </figure>
   );
 }
@@ -255,6 +292,7 @@ export function LawmindAcceptanceSheet(props: Props) {
   const [focusPath, setFocusPath] = useState<string | null>(null);
   const [pagePreview, setPagePreview] = useState<PagePreview | null>(null);
   const [placed, setPlaced] = useState(false);
+  const [canvasBusy, setCanvasBusy] = useState(false);
   const activeRef = useRef(false);
   const sheetRef = useRef(sheet);
   const refreshGen = useRef(0);
@@ -454,6 +492,34 @@ export function LawmindAcceptanceSheet(props: Props) {
     });
   };
 
+  const openAcceptanceCanvas = async () => {
+    if (!sheet) {
+      return;
+    }
+    const path = acceptanceCanvasPath(sheet.taskId);
+    if (!path) {
+      setError("这份核对没有可用的编号，画布没写成。");
+      return;
+    }
+    setCanvasBusy(true);
+    try {
+      const res = await window.lawmindDesktop?.fsWrite({
+        root: "workspace",
+        path,
+        content: renderAcceptanceCanvas(sheet),
+      });
+      if (!res?.ok) {
+        setError(describeFsWriteFailure(res));
+        return;
+      }
+      setYielded(true);
+      onYieldToEditor?.();
+      requestOpenWorkspaceFile(path, "workspace");
+    } finally {
+      setCanvasBusy(false);
+    }
+  };
+
   if (!showing || !sheet) {
     return null;
   }
@@ -463,253 +529,277 @@ export function LawmindAcceptanceSheet(props: Props) {
   const pageHostId = pagePreview ? previewHostClaimId(claims, pagePreview) : undefined;
 
   return (
-    <section
-      className="lm-acceptance-sheet lm-scroll"
+    <CanvasHost
+      className="lm-scroll"
       aria-label="核对"
       aria-busy={busyId !== null}
       data-testid="lm-acceptance-sheet"
     >
-      <header className="lm-acceptance-head">
-        <div className="lm-acceptance-head-copy">
-          <p className="lm-acceptance-kicker">核对</p>
-          <h2 className="lm-acceptance-title">{sheet.title}</h2>
-          <p className="lm-acceptance-meta">
-            {claims.length} 条可核对
-            {gapCount > 0 ? ` · ${gapCount} 条还没站稳` : ""}
-            {sheet.removedCount > 0 ? ` · 已拿掉 ${sheet.removedCount} 条` : ""}
-          </p>
-        </div>
-        <div className="lm-acceptance-head-actions">
-          {sheet.hasDraft && onOpenReview ? (
-            <button
-              type="button"
-              className="lm-btn lm-btn-accent lm-btn-sm"
-              data-testid="lm-acceptance-review"
-              onClick={() => {
-                setDismissedTaskId(sheet.taskId);
-                onOpenReview({ taskId: sheet.taskId, matterId: sheet.matterId });
-              }}
-            >
-              看修订
-            </button>
-          ) : null}
-          {onYieldToEditor ? (
-            <button
-              type="button"
-              className="lm-btn lm-btn-ghost lm-btn-sm"
-              data-testid="lm-acceptance-files"
-              onClick={() => {
-                setYielded(true);
-                onYieldToEditor?.();
-              }}
-            >
-              看文件
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="lm-btn lm-btn-ghost lm-btn-sm"
-            data-testid="lm-acceptance-close"
-            onClick={() => setDismissedTaskId(sheet.taskId)}
-          >
-            关闭
-          </button>
-        </div>
-      </header>
+      <Stack gap={16}>
+        <Row align="start" justify="space-between" gap={16} wrap>
+          <Stack gap={8}>
+            <Text size="small" tone="tertiary">
+              核对
+            </Text>
+            <H1>{sheet.title}</H1>
+            <Row gap={20} wrap>
+              <Stat value={claims.length} label="可核对" />
+              {gapCount > 0 ? <Stat value={gapCount} label="还没站稳" tone="warning" /> : null}
+              {sheet.removedCount > 0 ? <Stat value={sheet.removedCount} label="已拿掉" /> : null}
+            </Row>
+          </Stack>
+          <Row gap={8} align="center" wrap>
+            {sheet.hasDraft && onOpenReview ? (
+              <Button
+                variant="primary"
+                data-testid="lm-acceptance-review"
+                onClick={() => {
+                  setDismissedTaskId(sheet.taskId);
+                  onOpenReview({ taskId: sheet.taskId, matterId: sheet.matterId });
+                }}
+              >
+                看修订
+              </Button>
+            ) : null}
+            {onYieldToEditor ? (
+              <Button
+                variant="secondary"
+                data-testid="lm-acceptance-canvas"
+                disabled={canvasBusy}
+                onClick={() => void openAcceptanceCanvas()}
+              >
+                画布
+              </Button>
+            ) : null}
+            {onYieldToEditor ? (
+              <Button
+                variant="ghost"
+                data-testid="lm-acceptance-files"
+                onClick={() => {
+                  setYielded(true);
+                  onYieldToEditor?.();
+                }}
+              >
+                看文件
+              </Button>
+            ) : null}
+            <Button variant="ghost" data-testid="lm-acceptance-close" onClick={() => setDismissedTaskId(sheet.taskId)}>
+              关闭
+            </Button>
+          </Row>
+        </Row>
 
-      {sheet.summary ? (
-        <p className="lm-acceptance-summary">
-          <span className="lm-acceptance-summary-label">导语，还不能逐句采信。</span>
-          {sheet.summary}
-        </p>
-      ) : null}
-      {pagePreview && !pageHostId ? (
-        <AcceptancePdfFrame
-          apiBase={apiBase}
-          preview={pagePreview}
-          onOpen={() => revealFile(pagePreview.relPath, pagePreview.root)}
-        />
-      ) : null}
-      {error ? (
-        <p className="lm-acceptance-error" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {placed ? <p className="lm-acceptance-note">已放到输入框，改完再发送。</p> : null}
+        {sheet.summary ? (
+          <Callout tone="neutral" title="导语，还不能逐句采信。">
+            {sheet.summary}
+          </Callout>
+        ) : null}
+        {pagePreview && !pageHostId ? (
+          <AcceptancePdfFrame
+            apiBase={apiBase}
+            preview={pagePreview}
+            onOpen={() => revealFile(pagePreview.relPath, pagePreview.root)}
+          />
+        ) : null}
+        {error ? (
+          <Callout tone="danger" title="没记下">
+            <span role="alert">{error}</span>
+          </Callout>
+        ) : null}
+        {placed ? <Text size="small" tone="secondary">已放到输入框，改完再发送。</Text> : null}
 
-      {claims.length > 0 ? (
-        <ol className="lm-acceptance-claims">
-          {claims.map((claim) => (
-            <li key={claim.id} className="lm-acceptance-claim" data-testid="lm-acceptance-claim">
-              <p className="lm-acceptance-claim-text">{claim.text}</p>
-              <p className="lm-acceptance-claim-loc">
-                {claim.locator ? <span>{claim.locator}</span> : null}
-                {claim.confidenceLabel ? <span>把握{claim.confidenceLabel}</span> : null}
-                {claim.demo ? <span>演示语料</span> : null}
-                {claim.mark === "accepted" ? <span>已采信</span> : null}
-                {claim.mark === "too_strong" ? <span>已退回改弱</span> : null}
-              </p>
-              {claim.quote ? <blockquote className="lm-acceptance-quote">{claim.quote}</blockquote> : null}
-              <ul className="lm-acceptance-sources">
-                {claim.sources.map((source) => {
-                  const relPath = source.relPath;
-                  const focused = Boolean(focusPath && relPath && focusPath === relPath);
-                  const knownRoot = relPath ? rootsByPath.current.get(relPath) : undefined;
-                  return (
-                    <li key={source.id} className={focused ? "is-focused" : undefined}>
-                      <span>{source.citation || source.title}</span>
-                      {source.pageLabel ? <span>{source.pageLabel}</span> : null}
-                      {relPath && source.openKind === "pdf" ? (
-                        <button
-                          type="button"
-                          className="lm-btn lm-btn-ghost lm-btn-sm"
-                          data-testid="lm-acceptance-page"
-                          onClick={() =>
-                            setPagePreview({
-                              relPath,
-                              page: source.page ?? 1,
-                              root: knownRoot,
-                              firstPage: source.page == null,
-                              claimId: claim.id,
-                            })
-                          }
-                        >
-                          看这一页
-                        </button>
-                      ) : null}
-                      {relPath && source.openKind !== "citation" ? (
-                        <button
-                          type="button"
-                          className="lm-btn lm-btn-ghost lm-btn-sm"
-                          onClick={() => revealFile(relPath, knownRoot)}
-                        >
-                          {source.openKind === "word" ? "用 Word 打开" : "用本机打开"}
-                        </button>
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
-              <div className="lm-acceptance-claim-actions">
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-sm"
-                  aria-pressed={claim.mark === "accepted"}
-                  disabled={busyId === claim.id}
-                  data-testid="lm-acceptance-accept"
-                  onClick={() =>
-                    void post({
-                      claimId: claim.id,
-                      mark: claim.mark === "accepted" ? null : "accepted",
-                    })
+        {claims.length > 0 ? (
+          <Stack gap={16}>
+            {claims.map((claim) => (
+              <Card key={claim.id}>
+                <CardHeader
+                  trailing={
+                    claim.mark === "accepted" ? (
+                      <Pill active size="sm">
+                        已采信
+                      </Pill>
+                    ) : claim.mark === "too_strong" ? (
+                      <Pill size="sm">已退回改弱</Pill>
+                    ) : null
                   }
                 >
-                  {claim.mark === "accepted" ? "撤销采信" : "采信"}
-                </button>
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-sm"
-                  disabled={busyId === claim.id || claim.mark === "too_strong"}
-                  title="记下这句，并把改弱要求放进对话框，由你发送"
-                  data-testid="lm-acceptance-weaken"
-                  onClick={() => {
-                    void (async () => {
-                      const ok = await post({ claimId: claim.id, mark: "too_strong" });
-                      if (ok) {
-                        onTooStrong?.(tooStrongInstruction(claim));
-                        if (onTooStrong) {
-                          setPlaced(true);
+                  {claim.locator || "结论"}
+                </CardHeader>
+                <CardBody>
+                  <div data-testid="lm-acceptance-claim">
+                    <Text>{claim.text}</Text>
+                    <Row gap={8} wrap style={{ marginTop: 8 }}>
+                      {claim.confidenceLabel ? (
+                        <Text as="span" size="small" tone="tertiary">
+                          把握{claim.confidenceLabel}
+                        </Text>
+                      ) : null}
+                      {claim.demo ? (
+                        <Text as="span" size="small" tone="tertiary">
+                          演示语料
+                        </Text>
+                      ) : null}
+                    </Row>
+                    {claim.quote ? <ClaimQuote>{claim.quote}</ClaimQuote> : null}
+                    <Stack gap={6} style={{ marginTop: 10 }}>
+                      {claim.sources.map((source) => {
+                        const relPath = source.relPath;
+                        const focused = Boolean(focusPath && relPath && focusPath === relPath);
+                        const knownRoot = relPath ? rootsByPath.current.get(relPath) : undefined;
+                        return (
+                          <Row key={source.id} gap={8} align="center" wrap>
+                            <Text as="span" size="small" tone={focused ? "primary" : "tertiary"}>
+                              {source.citation || source.title}
+                            </Text>
+                            {source.pageLabel ? (
+                              <Text as="span" size="small" tone="quaternary">
+                                {source.pageLabel}
+                              </Text>
+                            ) : null}
+                            {relPath && source.openKind === "pdf" ? (
+                              <Button
+                                variant="ghost"
+                                data-testid="lm-acceptance-page"
+                                onClick={() =>
+                                  setPagePreview({
+                                    relPath,
+                                    page: source.page ?? 1,
+                                    root: knownRoot,
+                                    firstPage: source.page == null,
+                                    claimId: claim.id,
+                                  })
+                                }
+                              >
+                                看这一页
+                              </Button>
+                            ) : null}
+                            {relPath && source.openKind !== "citation" ? (
+                              <Button variant="ghost" onClick={() => revealFile(relPath, knownRoot)}>
+                                {source.openKind === "word" ? "用 Word 打开" : "用本机打开"}
+                              </Button>
+                            ) : null}
+                          </Row>
+                        );
+                      })}
+                    </Stack>
+                    <Row gap={8} wrap style={{ marginTop: 12 }}>
+                      <Button
+                        aria-pressed={claim.mark === "accepted"}
+                        disabled={busyId === claim.id}
+                        data-testid="lm-acceptance-accept"
+                        onClick={() =>
+                          void post({
+                            claimId: claim.id,
+                            mark: claim.mark === "accepted" ? null : "accepted",
+                          })
                         }
-                      }
-                    })();
-                  }}
-                >
-                  这句太满
-                </button>
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-ghost lm-btn-sm"
-                  disabled={busyId === claim.id}
-                  data-testid="lm-acceptance-remove"
-                  onClick={() => void post({ claimId: claim.id, mark: "removed" })}
-                >
-                  拿掉
-                </button>
-              </div>
-              {pageHostId === claim.id && pagePreview ? (
-                <AcceptancePdfFrame apiBase={apiBase} preview={pagePreview} onOpen={() => revealFile(pagePreview.relPath, pagePreview.root)} />
-              ) : null}
-            </li>
-          ))}
-        </ol>
-      ) : sheet.removedCount > 0 ? (
-        <p className="lm-acceptance-empty">可核对的句子都已拿掉。</p>
-      ) : gapCount === 0 && !sheet.table && (sheet.charts?.length ?? 0) === 0 ? (
-        <p className="lm-acceptance-empty">这轮没有能挂上出处的结论。</p>
-      ) : null}
-
-      {sheet.removedCount > 0 ? (
-        <button
-          type="button"
-          className="lm-btn lm-btn-ghost lm-btn-sm lm-acceptance-restore"
-          onClick={() => void post({ restoreRemoved: true })}
-        >
-          放回拿掉的 {sheet.removedCount} 条
-        </button>
-      ) : null}
-
-      {sheet.gaps.length > 0 || sheet.risks.length > 0 ? (
-        <section className="lm-acceptance-gaps" aria-label="缺口">
-          <h3>还没站稳</h3>
-          <ul>
-            {sheet.gaps.map((gap) => (
-              <li key={gap.id}>{gap.text}</li>
+                      >
+                        {claim.mark === "accepted" ? "撤销采信" : "采信"}
+                      </Button>
+                      <Button
+                        disabled={busyId === claim.id || claim.mark === "too_strong"}
+                        title="记下这句，并把改弱要求放进对话框，由你发送"
+                        data-testid="lm-acceptance-weaken"
+                        onClick={() => {
+                          void (async () => {
+                            const ok = await post({ claimId: claim.id, mark: "too_strong" });
+                            if (ok) {
+                              onTooStrong?.(tooStrongInstruction(claim));
+                              if (onTooStrong) {
+                                setPlaced(true);
+                              }
+                            }
+                          })();
+                        }}
+                      >
+                        这句太满
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        disabled={busyId === claim.id}
+                        data-testid="lm-acceptance-remove"
+                        onClick={() => void post({ claimId: claim.id, mark: "removed" })}
+                      >
+                        拿掉
+                      </Button>
+                    </Row>
+                    {pageHostId === claim.id && pagePreview ? (
+                      <AcceptancePdfFrame
+                        apiBase={apiBase}
+                        preview={pagePreview}
+                        onOpen={() => revealFile(pagePreview.relPath, pagePreview.root)}
+                      />
+                    ) : null}
+                  </div>
+                </CardBody>
+              </Card>
             ))}
-            {sheet.risks.map((risk) => (
-              <li key={risk}>{risk}</li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+          </Stack>
+        ) : sheet.removedCount > 0 ? (
+          <Text tone="secondary">可核对的句子都已拿掉。</Text>
+        ) : gapCount === 0 && !sheet.table && (sheet.charts?.length ?? 0) === 0 ? (
+          <Text tone="secondary">这轮没有能挂上出处的结论。</Text>
+        ) : null}
 
-      {sheet.table ? (
-        <section className="lm-acceptance-table-wrap" aria-label={sheet.table.title}>
-          <h3>{sheet.table.title}</h3>
-          <div className="lm-acceptance-table-scroll lm-scroll">
-            <table className="lm-acceptance-table">
-              <thead>
-                <tr>
-                  {sheet.table.columns.map((column) => (
-                    <th key={column.key} scope="col">
-                      {column.label}
-                    </th>
-                  ))}
-                  <th scope="col">出处</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sheet.table.rows.map((row) => (
-                  <tr key={row.id} className={row.sourced ? undefined : "is-unsourced"}>
-                    {sheet.table!.columns.map((column) => (
-                      <td key={column.key}>{row.cells[column.key] ?? ""}</td>
-                    ))}
-                    <td>{row.sourceLabel}</td>
-                  </tr>
+        {sheet.removedCount > 0 ? (
+          <Button variant="ghost" onClick={() => void post({ restoreRemoved: true })}>
+            放回拿掉的 {sheet.removedCount} 条
+          </Button>
+        ) : null}
+
+        {sheet.gaps.length > 0 || sheet.risks.length > 0 ? (
+          <Stack gap={8}>
+            <H2>还没站稳</H2>
+            <Callout tone="warning">
+              <Stack gap={4}>
+                {sheet.gaps.map((gap) => (
+                  <Text key={gap.id} size="small" tone="secondary">
+                    {gap.text}
+                  </Text>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
+                {sheet.risks.map((risk) => (
+                  <Text key={risk} size="small" tone="secondary">
+                    {risk}
+                  </Text>
+                ))}
+              </Stack>
+            </Callout>
+          </Stack>
+        ) : null}
 
-      {sheet.charts?.map((chart) => (
-        <section key={chart.id} className="lm-acceptance-chart" aria-label={chart.title}>
-          <LawmindAnalysisChart specText={chart.specText} />
-          <p className="lm-acceptance-chart-note">只读。要改数字，改表格后再出图。</p>
-        </section>
-      ))}
+        {sheet.table ? (
+          <Stack gap={8}>
+            <H2>{sheet.table.title}</H2>
+            <div className="lm-scroll" aria-label={sheet.table.title}>
+              <Table
+                striped
+                stickyHeader
+                headers={[...sheet.table.columns.map((column) => column.label), "出处"]}
+                rowTone={sheet.table.rows.map((row) => (row.sourced ? undefined : "danger"))}
+                rows={sheet.table.rows.map((row) => [
+                  ...sheet.table!.columns.map((column) => row.cells[column.key] ?? ""),
+                  row.sourceLabel,
+                ])}
+              />
+            </div>
+          </Stack>
+        ) : null}
 
-      <p className="lm-acceptance-foot">改字在中间栏，签批在在办。这里只记下你认不认这句。</p>
-    </section>
+        {sheet.charts?.map((chart) => (
+          <Stack key={chart.id} gap={8}>
+            <div className="lm-acceptance-chart" aria-label={chart.title}>
+              <LawmindAnalysisChart specText={chart.specText} />
+            </div>
+            <Text size="small" tone="tertiary">
+              只读。要改数字，改表格后再出图。
+            </Text>
+          </Stack>
+        ))}
+
+        <Text size="small" tone="tertiary">
+          改字在中间栏，签批在在办。这里只记下你认不认这句。
+        </Text>
+      </Stack>
+    </CanvasHost>
   );
 }

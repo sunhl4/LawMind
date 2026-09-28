@@ -8,7 +8,9 @@ import {
   filterSideChatSessions,
   LawmindSideChatSessions,
   mergeSideChatSearchRows,
+  pinLiveSideChatSessions,
 } from "./LawmindSideChatSessions";
+import { setRunningChatSessionIds } from "./lawmind-live-turns";
 
 describe("filterSideChatSessions", () => {
   it("matches title or preview with AND tokens and strips 上周", () => {
@@ -37,6 +39,22 @@ describe("mergeSideChatSearchRows", () => {
   });
 });
 
+describe("pinLiveSideChatSessions", () => {
+  it("keeps the open chat and a running chat that the matter filter hid", () => {
+    const sessions = [
+      { sessionId: "old", title: "旧对话", matterId: "m-other" },
+      { sessionId: "fresh", title: "新对话", matterId: "m-this" },
+    ];
+    const scoped = sessions.filter((row) => row.matterId === "m-other");
+    const shown = pinLiveSideChatSessions(sessions, scoped, {
+      activeSessionId: "fresh",
+      runningSessionIds: new Set(["live"]),
+    });
+    expect(shown.map((row) => row.sessionId)).toEqual(["fresh", "live", "old"]);
+    expect(shown.find((row) => row.sessionId === "live")?.title).toBe("新对话");
+  });
+});
+
 describe("LawmindSideChatSessions", () => {
   let host: HTMLDivElement;
   let root: Root;
@@ -48,6 +66,7 @@ describe("LawmindSideChatSessions", () => {
   });
 
   afterEach(() => {
+    setRunningChatSessionIds(new Set());
     act(() => {
       root.unmount();
     });
@@ -70,7 +89,14 @@ describe("LawmindSideChatSessions", () => {
       );
     });
     expect(host.querySelector('[aria-label="新建对话"]')).toBeTruthy();
-    expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeTruthy();
+    const search = host.querySelector('[data-testid="lm-side-chat-search"]');
+    const label = host.querySelector(".lm-section-label");
+    expect(search).toBeTruthy();
+    expect(host.querySelector(".lm-side-chat-sessions-header [data-testid='lm-side-chat-search']")).toBe(
+      search,
+    );
+    expect(host.querySelector(".lm-side-chat-sessions-body [data-testid='lm-side-chat-search']")).toBeNull();
+    expect(label && search && (label.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy();
     expect(host.querySelector('[data-testid="lm-side-chat-session-a"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="lm-side-chat-session-b"]')).toBeTruthy();
   });
@@ -138,6 +164,46 @@ describe("LawmindSideChatSessions", () => {
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
     expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeTruthy();
+  });
+
+  it("shows the open chat in the list as soon as it exists, before the catalog includes it", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindSideChatSessions
+          sessions={[{ sessionId: "old", title: "旧对话", matterId: "m-other" }]}
+          activeSessionId="fresh"
+          scopeMatterId="m-other"
+          knownMatterIds={new Set(["m-other", "m-this"])}
+          onSelect={() => undefined}
+          onNewChat={() => undefined}
+          onRename={async () => undefined}
+          onDelete={async () => undefined}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-side-chat-session-fresh"]')?.textContent).toContain(
+      "新对话",
+    );
+    expect(host.textContent).not.toContain("这个案件还没有对话");
+  });
+
+  it("shows a running chat that is not in the loaded list", async () => {
+    setRunningChatSessionIds(new Set(["live"]));
+    await act(async () => {
+      root.render(
+        <LawmindSideChatSessions
+          sessions={[{ sessionId: "old", title: "旧对话" }]}
+          onSelect={() => undefined}
+          onNewChat={() => undefined}
+          onRename={async () => undefined}
+          onDelete={async () => undefined}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-side-chat-session-live"]')?.textContent).toContain(
+      "新对话",
+    );
+    expect(host.textContent).toContain("1 在办");
   });
 
   it("says the current matter has no chats instead of a blank list", async () => {

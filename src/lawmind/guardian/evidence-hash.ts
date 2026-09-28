@@ -4,7 +4,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { isInfraGuardianFail } from "./legal-guardian.js";
+import { isInfraGuardianFail, isReviewLayerOnlyFail } from "./legal-guardian.js";
 import type { GuardianEvidencePack, GuardianRecord } from "./types.js";
 
 export function hashGuardianEvidencePack(pack: GuardianEvidencePack): string {
@@ -26,6 +26,11 @@ export function shouldReuseGuardianRecord(
     return false;
   }
   if (isInfraGuardianFail(prior)) {
+    return false;
+  }
+  // 上一轮只因检查单为空、引用没挂标题这类审稿层空包失败时，重新审。
+  // 证据包哈希没变，否则会一直交回旧的 fail，修订稿出不来。
+  if (prior.verdict === "fail" && isReviewLayerOnlyFail(prior.gaps)) {
     return false;
   }
   return prior.verdict === "pass" || prior.verdict === "fail";

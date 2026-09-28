@@ -15,12 +15,20 @@ import { applySpanToBody, splitSurgicalEditSpans } from "./surgical-diff.js";
 
 export type RedlineHunkStatus = "pending" | "accepted" | "rejected";
 
+/** 律师在正文里改出的修订。没有模型提议，收口时按律师自己的写法记例子。 */
+export const LAWYER_SURFACE_RATIONALE = "律师在正文里改的";
+
 export type RedlineHunk = {
   hunkId: string;
   sectionIndex: number;
   sectionHeading?: string;
   before: string;
   after: string;
+  /**
+   * 模型第一次写出的改法。之后律师改 `after` 不再覆盖这里。
+   * 收口时只在它和律师最终写法不同时记偏好。
+   */
+  proposedAfter?: string;
   rationale?: string;
   status: RedlineHunkStatus;
   /** Baseline-relative span (surgical mode). */
@@ -52,6 +60,116 @@ export function readRedlineProposal(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * A sentence the lawyer typed in the open document. Same hunk list the rail
+ * and the tracked Word export already use.
+ */
+export function appendLawyerHunk(
+  workspaceDir: string,
+  taskId: string,
+  edit: { before: string; after: string },
+): { ok: true; proposal: RedlineProposal; hunkId: string } | { ok: false; error: string } {
+  const before = edit.before;
+  const after = edit.after;
+  if (!before.trim() || before.length > REVISE_AFTER_MAX || after.length > REVISE_AFTER_MAX) {
+    return { ok: false, error: "invalid_edit" };
+  }
+  if (before === after) {
+    return { ok: false, error: "unchanged" };
+  }
+  return withExclusiveFileLock(redlineProposalLockPath(workspaceDir, taskId), () => {
+    const draft = readDraft(workspaceDir, taskId);
+    if (!draft) {
+      return { ok: false, error: "draft_not_found" };
+    }
+    const proposal = readRedlineProposal(workspaceDir, taskId) ?? {
+      taskId,
+      ...(draft.matterId ? { matterId: draft.matterId } : {}),
+      baselineSections: draft.sections.map((section) => ({ ...section })),
+      hunks: [],
+      updatedAt: new Date().toISOString(),
+    };
+    const existing = proposal.hunks.find(
+      (hunk) =>
+        hunk.before === before &&
+        hunk.status !== "rejected" &&
+        hunk.rationale === LAWYER_SURFACE_RATIONALE,
+    );
+    if (existing) {
+      existing.after = after;
+      existing.status = "pending";
+      proposal.updatedAt = new Date().toISOString();
+      writeRedlineProposal(workspaceDir, proposal);
+      return { ok: true, proposal, hunkId: existing.hunkId };
+    }
+    const hunkId = randomUUID();
+    proposal.hunks.push({
+      hunkId,
+      sectionIndex: 0,
+      sectionHeading: before.replace(/\s+/g, " ").trim().slice(0, 24) || "正文",
+      before,
+      after,
+      rationale: LAWYER_SURFACE_RATIONALE,
+      status: "pending",
+      granularity: "surgical",
+    });
+    proposal.updatedAt = new Date().toISOString();
+    writeRedlineProposal(workspaceDir, proposal);
+    return { ok: true, proposal, hunkId };
+  });
+}
+
+/**
+ * Replace every lawyer-made document edit with the paragraphs that still differ
+ * from the original. A paragraph typed back to the original drops its revision.
+ */
+export function replaceLawyerHunks(
+  workspaceDir: string,
+  taskId: string,
+  edits: { before: string; after: string }[],
+):
+  | { ok: true; proposal: RedlineProposal; removed: number; updated: number }
+  | { ok: false; error: string } {
+  const nextEdits = edits.filter(
+    (edit) =>
+      edit.before.trim() &&
+      edit.before !== edit.after &&
+      edit.before.length <= REVISE_AFTER_MAX &&
+      edit.after.length <= REVISE_AFTER_MAX,
+  );
+  return withExclusiveFileLock(redlineProposalLockPath(workspaceDir, taskId), () => {
+    const draft = readDraft(workspaceDir, taskId);
+    if (!draft) {
+      return { ok: false, error: "draft_not_found" };
+    }
+    const proposal = readRedlineProposal(workspaceDir, taskId) ?? {
+      taskId,
+      ...(draft.matterId ? { matterId: draft.matterId } : {}),
+      baselineSections: draft.sections.map((section) => ({ ...section })),
+      hunks: [],
+      updatedAt: new Date().toISOString(),
+    };
+    const removed = proposal.hunks.filter(
+      (hunk) => hunk.rationale === LAWYER_SURFACE_RATIONALE,
+    ).length;
+    const kept = proposal.hunks.filter((hunk) => hunk.rationale !== LAWYER_SURFACE_RATIONALE);
+    const added = nextEdits.map((edit) => ({
+      hunkId: randomUUID(),
+      sectionIndex: 0,
+      sectionHeading: edit.before.replace(/\s+/g, " ").trim().slice(0, 24) || "正文",
+      before: edit.before,
+      after: edit.after,
+      rationale: LAWYER_SURFACE_RATIONALE,
+      status: "pending" as const,
+      granularity: "surgical" as const,
+    }));
+    proposal.hunks = [...kept, ...added];
+    proposal.updatedAt = new Date().toISOString();
+    writeRedlineProposal(workspaceDir, proposal);
+    return { ok: true, proposal, removed, updated: added.length };
+  });
 }
 
 export function writeRedlineProposal(workspaceDir: string, proposal: RedlineProposal): string {
@@ -131,6 +249,17 @@ function findPriorHunk(
   });
 }
 
+/** 模型原句只记一次。律师后来改 `after` 时，这里保持第一次的写法。 */
+function proposedAfterField(
+  prior: RedlineHunk | undefined,
+  modelAfter: string,
+): { proposedAfter: string } | Record<string, never> {
+  if (prior?.rationale === LAWYER_SURFACE_RATIONALE) {
+    return prior.proposedAfter != null ? { proposedAfter: prior.proposedAfter } : {};
+  }
+  return { proposedAfter: prior?.proposedAfter ?? prior?.after ?? modelAfter };
+}
+
 export function generateRedlineProposal(
   workspaceDir: string,
   taskId: string,
@@ -165,6 +294,7 @@ export function generateRedlineProposal(
             ...prior,
             before: span.before,
             after: span.after,
+            ...proposedAfterField(prior, span.after),
             spanStart: span.spanStart,
             spanEnd: span.spanEnd,
             granularity: "surgical",
@@ -177,6 +307,7 @@ export function generateRedlineProposal(
           sectionHeading: heading,
           before: span.before,
           after: span.after,
+          proposedAfter: span.after,
           spanStart: span.spanStart,
           spanEnd: span.spanEnd,
           granularity: "surgical",
@@ -187,7 +318,13 @@ export function generateRedlineProposal(
     }
     const prior = findPriorHunk(existing, i, { before: beforeFull, after: afterFull });
     if (prior) {
-      hunks.push({ ...prior, before: beforeFull, after: afterFull, granularity: "section" });
+      hunks.push({
+        ...prior,
+        before: beforeFull,
+        after: afterFull,
+        ...proposedAfterField(prior, afterFull),
+        granularity: "section",
+      });
       continue;
     }
     hunks.push({
@@ -196,6 +333,7 @@ export function generateRedlineProposal(
       sectionHeading: heading,
       before: beforeFull,
       after: afterFull,
+      proposedAfter: afterFull,
       granularity: "section",
       status: "pending",
     });
@@ -238,7 +376,12 @@ function resolveRedlineHunkUnlocked(
     return { ok: false, error: "hunk_not_found" };
   }
   if (hunk.status !== "pending") {
-    return { ok: false, error: "hunk_already_resolved" };
+    const next = decision === "accept" ? "accepted" : "rejected";
+    if (hunk.status === next) {
+      return { ok: true, proposal, draft: readDraft(workspaceDir, taskId) };
+    }
+    // 接受和拒绝都可以改口。已经点过的条目再点另一边，正文跟 baseline 跟着换回去。
+    return retargetResolvedHunkUnlocked(workspaceDir, proposal, hunk, decision);
   }
 
   hunk.status = decision === "accept" ? "accepted" : "rejected";
@@ -453,6 +596,59 @@ export function nextAfterForSpan(
   return after.slice(0, idx) + nextReplace + after.slice(idx + currentReplace.length);
 }
 
+function replaceSectionText(body: string, from: string, to: string, surgical: boolean): string {
+  if (!surgical || body === from) {
+    return to;
+  }
+  return replaceOnce(body, from, to) ?? body;
+}
+
+/**
+ * 已经接受或拒绝的条目改点另一边。草稿和 baseline 里落下去的那段文字跟着换，
+ * 不把这条再锁死。
+ */
+function retargetResolvedHunkUnlocked(
+  workspaceDir: string,
+  proposal: RedlineProposal,
+  hunk: RedlineHunk,
+  decision: "accept" | "reject",
+): { ok: true; proposal: RedlineProposal; draft?: ArtifactDraft } | { ok: false; error: string } {
+  const draft = readDraft(workspaceDir, proposal.taskId);
+  if (!draft) {
+    return { ok: false, error: "draft_not_found" };
+  }
+  const from = hunk.status === "accepted" ? hunk.after : hunk.before;
+  const to = decision === "accept" ? hunk.after : hunk.before;
+  const surgical = hunk.granularity === "surgical";
+  const sections = [...draft.sections];
+  while (sections.length <= hunk.sectionIndex) {
+    sections.push({ heading: hunk.sectionHeading ?? "", body: "" });
+  }
+  const section = sections[hunk.sectionIndex] ?? { heading: "", body: "" };
+  sections[hunk.sectionIndex] = {
+    ...section,
+    heading: hunk.sectionHeading ?? section.heading,
+    body: replaceSectionText(section.body, from, to, surgical),
+  };
+  const nextDraft = { ...draft, sections };
+  persistDraft(workspaceDir, nextDraft);
+
+  const baseline = [...proposal.baselineSections];
+  while (baseline.length <= hunk.sectionIndex) {
+    baseline.push({ heading: hunk.sectionHeading ?? "", body: "" });
+  }
+  const base = baseline[hunk.sectionIndex] ?? { heading: "", body: "" };
+  baseline[hunk.sectionIndex] = {
+    heading: hunk.sectionHeading ?? base.heading,
+    body: replaceSectionText(base.body, from, to, surgical),
+  };
+  proposal.baselineSections = baseline;
+  hunk.status = decision === "accept" ? "accepted" : "rejected";
+  proposal.updatedAt = new Date().toISOString();
+  writeRedlineProposal(workspaceDir, proposal);
+  return { ok: true, proposal, draft: nextDraft };
+}
+
 function applyPendingAfterUnlocked(
   workspaceDir: string,
   taskId: string,
@@ -467,9 +663,6 @@ function applyPendingAfterUnlocked(
   if (!hunk) {
     return { ok: false, error: "hunk_not_found" };
   }
-  if (hunk.status !== "pending") {
-    return { ok: false, error: "hunk_not_pending" };
-  }
   if (hunk.after === after) {
     return { ok: true, proposal };
   }
@@ -478,27 +671,30 @@ function applyPendingAfterUnlocked(
   proposal.updatedAt = new Date().toISOString();
 
   const draft = readDraft(workspaceDir, taskId);
-  if (draft) {
+  if (draft && hunk.status !== "rejected") {
     const sections = [...draft.sections];
     while (sections.length <= hunk.sectionIndex) {
       sections.push({ heading: hunk.sectionHeading ?? "", body: "" });
     }
     const section = sections[hunk.sectionIndex] ?? { heading: "", body: "" };
-    let body = section.body;
-    if (hunk.granularity !== "surgical") {
-      body = after;
-    } else {
-      const replaced = replaceOnce(section.body, previousAfter, after);
-      if (replaced !== undefined) {
-        body = replaced;
-      }
-    }
     sections[hunk.sectionIndex] = {
       ...section,
       heading: hunk.sectionHeading ?? section.heading,
-      body,
+      body: replaceSectionText(section.body, previousAfter, after, hunk.granularity === "surgical"),
     };
     persistDraft(workspaceDir, { ...draft, sections });
+  }
+  if (hunk.status === "accepted") {
+    const baseline = [...proposal.baselineSections];
+    while (baseline.length <= hunk.sectionIndex) {
+      baseline.push({ heading: hunk.sectionHeading ?? "", body: "" });
+    }
+    const base = baseline[hunk.sectionIndex] ?? { heading: "", body: "" };
+    baseline[hunk.sectionIndex] = {
+      heading: hunk.sectionHeading ?? base.heading,
+      body: replaceSectionText(base.body, previousAfter, after, hunk.granularity === "surgical"),
+    };
+    proposal.baselineSections = baseline;
   }
 
   writeRedlineProposal(workspaceDir, proposal);

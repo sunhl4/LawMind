@@ -6,6 +6,7 @@ import {
 } from "../../../../src/lawmind/agent/tool-lawyer-card.ts";
 import { humanToolLabel } from "./lawmind-chat-trace.js";
 import type { ChatSessionRef } from "./lawmind-session-link";
+import { canvasPathsInText } from "./canvas/canvas-paths";
 
 export type ChatActivityTextBlock = {
   id: string;
@@ -60,6 +61,15 @@ export function appendActivityDelta(blocks: ChatActivityBlock[], text: string): 
   return next;
 }
 
+function withCanvasPath(detail: string | undefined, extra: string): string | undefined {
+  const paths = canvasPathsInText(extra).filter((path) => !detail?.includes(path));
+  if (paths.length === 0) {
+    return detail;
+  }
+  const suffix = paths.join("\n");
+  return detail ? `${detail}\n${suffix}` : suffix;
+}
+
 export function startActivityTool(
   blocks: ChatActivityBlock[],
   info: { toolCallId: string; toolName: string; args?: Record<string, unknown> },
@@ -81,7 +91,7 @@ export function startActivityTool(
       toolName: info.toolName,
       label: card.title,
       status: "running",
-      detail: card.detail,
+      detail: withCanvasPath(card.detail, JSON.stringify(info.args ?? {})),
       progress: [],
     },
   ];
@@ -157,7 +167,7 @@ export function endActivityTool(
     label: humanToolLabel(info.toolName),
     status: info.ok || internalRetry ? "done" : "failed",
     detail: info.ok
-      ? info.resultPreview?.trim() || row.detail
+      ? withCanvasPath(info.resultPreview?.trim() || row.detail, row.detail ?? "")
       : lawyerFacingToolFailureDetail(info.toolName, info.error),
     ...(info.ok && info.sessionRefs && info.sessionRefs.length > 0
       ? { sessionRefs: info.sessionRefs }

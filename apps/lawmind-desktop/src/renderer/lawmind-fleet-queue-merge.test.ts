@@ -122,6 +122,27 @@ describe("mergeFleetQueueRows", () => {
     expect(rows.map((r) => r.id)).toEqual(["review:t9", "automation-send:inb-1"]);
   });
 
+  it("keeps an open word check on 在办 without turning it into 签批", () => {
+    const rows = mergeFleetQueueRows({
+      fleetRuns: [
+        run({
+          id: "word-check:t1",
+          kind: "word_check",
+          status: "awaiting_review",
+          taskId: "t1",
+          title: "合同.docx",
+          subtitle: "2 处修订 · 待核对",
+        }),
+        run({ id: "review:t2", kind: "pending_review", taskId: "t2" }),
+      ],
+      pendingReviewDrafts: [],
+      automationInbox: [],
+      snoozed: new Set(),
+    });
+    expect(rows.map((row) => row.id)).toEqual(["word-check:t1"]);
+    expect(rows[0]?.kind).toBe("word_check");
+  });
+
   it("filters snoozed outbound rows", () => {
     const rows = mergeFleetQueueRows({
       fleetRuns: [

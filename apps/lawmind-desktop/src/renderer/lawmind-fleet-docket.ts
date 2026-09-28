@@ -100,6 +100,9 @@ export function docketRowTitle(run: AgentRunSummary, sanitizedTitle: string): st
 }
 
 export function docketRowStatusLabel(run: AgentRunSummary): string {
+  if (run.kind === "word_check") {
+    return "待核对";
+  }
   switch (run.status) {
     case "awaiting_review":
       return "待签批";

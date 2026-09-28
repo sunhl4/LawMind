@@ -25,10 +25,13 @@ import {
   loadFleetTranscript,
   matchNeedsDecisionFocusId,
   type AgentFleetSummary,
+  type AgentRunSummary,
 } from "./lawmind-agent-fleet-api";
 import type { NeedsDecisionDeskTarget } from "./lawmind-agents-desk";
 import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
+import { confirmDialog } from "./lawmind-confirm-dialog";
+import { openContractRevisionForTask } from "./lawmind-open-contract-revision";
 import {
   buildChecklistView,
   type VerificationChecklistView,
@@ -48,7 +51,13 @@ import {
   toolArgsHaveLawyerEditableShortFields,
   toolArgsLinkedTaskId,
 } from "../../../../src/lawmind/platform/tool-approval-diff.ts";
-import { fleetApprovalDockLabels } from "./lawmind-fleet-queue";
+import { useChatSessionMultiSelect } from "./lawmind-chat-session-selection";
+import { fleetBatchOutboundSends, fleetListOrderedIds } from "./lawmind-fleet-selection";
+import {
+  automationSendInboxId,
+  collectOutboundInboxIds,
+  fleetApprovalDockLabels,
+} from "./lawmind-fleet-queue";
 import {
   buildFleetDocket,
   docketInstruction,
@@ -180,6 +189,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
   const setMatterFilter = useFleetDeskViewStore((s) => s.setMatterFilter);
   const resetFiltersForDeepLink = useFleetDeskViewStore((s) => s.resetFiltersForDeepLink);
   const snoozeRun = useFleetDeskViewStore((s) => s.snooze);
+  const snoozeMany = useFleetDeskViewStore((s) => s.snoozeMany);
   const resetFleetViewTransient = useFleetDeskViewStore((s) => s.resetTransient);
   const [onlyMine, setOnlyMine] = useState(false);
   const [inFlightOpen, setInFlightOpen] = useState(true);
@@ -363,6 +373,17 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
       }),
     [docketScoped],
   );
+  const listInFlightOpen = bandsReady ? inFlightOpen : bandOpen.inFlight;
+  const listSettledOpen = bandsReady ? settledOpen : bandOpen.settled;
+  const orderedListIds = useMemo(
+    () =>
+      fleetListOrderedIds(docketVisible, {
+        inFlight: listInFlightOpen,
+        settled: listSettledOpen,
+      }),
+    [docketVisible, listInFlightOpen, listSettledOpen],
+  );
+  const multi = useChatSessionMultiSelect(orderedListIds, selectedId ?? undefined);
   const scopedCount =
     docketScoped.needsYou.length + docketScoped.inFlight.length + docketScoped.settled.length;
 
@@ -467,7 +488,10 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
   }, [selectedId]);
 
   useEffect(() => {
-    const taskId = current?.status === "awaiting_review" ? current.taskId?.trim() : "";
+    const taskId =
+      current?.kind === "pending_review" && current.status === "awaiting_review"
+        ? current.taskId?.trim()
+        : "";
     if (!apiBase || !taskId) {
       setDeskChecklistView(null);
       setDeskChecklistChecked({});
@@ -599,7 +623,8 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     [docketVisible.needsYou],
   );
 
-  const isDraftReview = current?.status === "awaiting_review";
+  const isWordCheck = current?.kind === "word_check";
+  const isDraftReview = current?.kind === "pending_review" && current.status === "awaiting_review";
 
   // 清单未加载时视为未完成（勿把 null view 当成 complete，否则一键勾选会被误禁用）
   const deskChecklistComplete = Boolean(
@@ -673,8 +698,10 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     current?.kind === "automation_send" || Boolean(current?.id.startsWith("automation-send:"));
   const isAutomationInbox = Boolean(current?.id.startsWith("automation-inbox:"));
   const isInterruptedRun = current?.status === "interrupted";
-  const approvalAction =
-    current?.status === "awaiting_approval" || isInterruptedRun
+  // 待发出没有自己的工具票。不要回退到池里第一张案件审批，否则「驳回」会打到别的票上并 404。
+  const approvalAction = isAutomationSend
+    ? null
+    : current?.status === "awaiting_approval" || isInterruptedRun
       ? (pickFleetActionForRun(allActions, current) ??
         allActions.find(
           (a) =>
@@ -682,11 +709,21 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
             a.kind === "continue_tools" ||
             a.kind === "workflow_blocked",
         ) ??
-        allActions[0] ??
         null)
       : null;
   const approvalDock = fleetApprovalDockLabels(approvalAction?.kind, approvalAction?.trigger);
-  const primaryLabel = isDraftReview
+  const pickedRuns = useMemo(() => {
+    const byId = new Map(visibleRows.map((run) => [run.id, run]));
+    return multi.selectedIds.flatMap((id) => {
+      const run = byId.get(id);
+      return run ? [run] : [];
+    });
+  }, [multi.selectedIds, visibleRows]);
+  const batchSends = fleetBatchOutboundSends(pickedRuns);
+  const batchMixed = pickedRuns.length > 1 && !batchSends;
+  const singlePrimaryLabel = isWordCheck
+    ? "去核对"
+    : isDraftReview
     ? "签批"
     : current?.status === "awaiting_clarification"
       ? "提交补充并继续"
@@ -699,6 +736,8 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
           : current?.status === "awaiting_approval" || isInterruptedRun
             ? approvalDock.primary
             : "打开";
+  const primaryLabel = batchSends ? `批准发送 ${batchSends.length}` : singlePrimaryLabel;
+  const rejectLabel = batchSends ? `驳回 ${batchSends.length}` : approvalDock.secondary;
 
   const clarifyComplete =
     current?.status !== "awaiting_clarification" ||
@@ -706,15 +745,64 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     clarifyAction.kind !== "clarification" ||
     clarificationAnswersComplete(clarifyAction.clarificationQuestions ?? [], clarificationDraft);
 
-  const primaryDisabled =
-    busy ||
-    (current?.status === "awaiting_clarification" && !clarifyComplete) ||
-    (isDraftReview && (!deskChecklistComplete || deskChecklistLoading));
+  const primaryDisabled = batchSends
+    ? busy
+    : busy ||
+      batchMixed ||
+      (current?.status === "awaiting_clarification" && !clarifyComplete) ||
+      (isDraftReview && (!deskChecklistComplete || deskChecklistLoading));
 
   const approveAutomationSend = useCallback(async () => {
     const run = current;
-    const inboxId = run?.queueItemId?.trim();
-    if (!run || !inboxId || busy) {
+    const inboxId = automationSendInboxId(run);
+    if (!run || busy) {
+      return;
+    }
+    if (!inboxId) {
+      setError("这封待发信缺少编号，无法批准。");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const sent = await apiSendJson<
+        { ok?: boolean; remote?: { ok?: boolean; hint?: string; error?: string } },
+        { action: "approve_send" }
+      >(apiBase, `/api/automations/inbox/${encodeURIComponent(inboxId)}/action`, "POST", {
+        action: "approve_send",
+      });
+      onRefreshSummary?.();
+      await refresh();
+      advanceAfter(run.id);
+      if (sent.remote && sent.remote.ok === false) {
+        const hint = sent.remote.hint?.trim() || sent.remote.error?.trim();
+        setError(hint ? `已批准，但没有从邮箱发出：${hint}` : "已批准，但没有从邮箱发出。");
+      }
+    } catch (e) {
+      setError(errorMessage(e, "批准发送失败"));
+    } finally {
+      setBusy(false);
+    }
+  }, [apiBase, advanceAfter, busy, current, onRefreshSummary, refresh]);
+
+  const dismissAutomationSend = useCallback(async () => {
+    const run = current;
+    const inboxId = automationSendInboxId(run);
+    if (!run || busy) {
+      return;
+    }
+    if (!inboxId) {
+      setError("这封待发信缺少编号，无法驳回。");
+      return;
+    }
+    if (
+      !(await confirmDialog({
+        title: "驳回这封待发信？",
+        body: "不会发出。这件会从在办里拿掉。",
+        confirmLabel: "驳回",
+        tone: "danger",
+      }))
+    ) {
       return;
     }
     setBusy(true);
@@ -724,17 +812,98 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
         apiBase,
         `/api/automations/inbox/${encodeURIComponent(inboxId)}/action`,
         "POST",
-        { action: "approve_send" },
+        { action: "dismiss" },
       );
       onRefreshSummary?.();
       await refresh();
       advanceAfter(run.id);
     } catch (e) {
-      setError(errorMessage(e, "批准发送失败"));
+      setError(errorMessage(e, "驳回失败"));
     } finally {
       setBusy(false);
     }
   }, [apiBase, advanceAfter, busy, current, onRefreshSummary, refresh]);
+
+  const postOutboundBatch = useCallback(
+    async (runs: AgentRunSummary[], action: "dismiss" | "approve_send") => {
+      if (busy) {
+        return;
+      }
+      const { ids: inboxIds, missing } = collectOutboundInboxIds(runs);
+      if (inboxIds.length === 0) {
+        setError(
+          action === "dismiss"
+            ? "这些待发信缺少编号，无法驳回。"
+            : "这些待发信缺少编号，无法批准。",
+        );
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      const failures: string[] = Array.from({ length: missing }, () => "缺少编号");
+      try {
+        for (const inboxId of inboxIds) {
+          try {
+            const sent = await apiSendJson<
+              { ok?: boolean; remote?: { ok?: boolean; hint?: string; error?: string } },
+              { action: "dismiss" | "approve_send" }
+            >(apiBase, `/api/automations/inbox/${encodeURIComponent(inboxId)}/action`, "POST", {
+              action,
+            });
+            if (action === "approve_send" && sent.remote && sent.remote.ok === false) {
+              failures.push(
+                sent.remote.hint?.trim() || sent.remote.error?.trim() || "没有从邮箱发出",
+              );
+            }
+          } catch (e) {
+            failures.push(errorMessage(e, action === "dismiss" ? "驳回失败" : "批准发送失败"));
+          }
+        }
+        onRefreshSummary?.();
+        await refresh();
+        if (failures.length > 0) {
+          const verb = action === "dismiss" ? "驳回" : "批准发送";
+          setError(`${verb}有 ${failures.length} 件没完成。${failures[0]}`);
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [apiBase, busy, onRefreshSummary, refresh],
+  );
+
+  const rejectPickedSends = useCallback(async () => {
+    if (!batchSends || busy) {
+      return;
+    }
+    if (
+      !(await confirmDialog({
+        title: `驳回这 ${batchSends.length} 件待发信？`,
+        body: "不会发出，并从在办里拿掉。",
+        confirmLabel: "驳回",
+        tone: "danger",
+      }))
+    ) {
+      return;
+    }
+    await postOutboundBatch(batchSends, "dismiss");
+  }, [batchSends, busy, postOutboundBatch]);
+
+  const approvePickedSends = useCallback(async () => {
+    if (!batchSends || busy) {
+      return;
+    }
+    if (
+      !(await confirmDialog({
+        title: `批准发送这 ${batchSends.length} 件？`,
+        body: "会按每件写好的收件人和附件发出。",
+        confirmLabel: "批准发送",
+      }))
+    ) {
+      return;
+    }
+    await postOutboundBatch(batchSends, "approve_send");
+  }, [batchSends, busy, postOutboundBatch]);
 
   const acknowledgeAutomationInbox = useCallback(async () => {
     const run = current;
@@ -765,6 +934,23 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     if (!current || busy) {
       return;
     }
+    if (batchSends) {
+      void approvePickedSends();
+      return;
+    }
+    if (isWordCheck) {
+      const taskId = current.taskId?.trim();
+      if (!taskId) {
+        setError("缺少任务编号，无法打开修订窗。");
+        return;
+      }
+      void openContractRevisionForTask({ apiBase, taskId, workspaceDir }).then((result) => {
+        if (!result.ok) {
+          setError(result.error);
+        }
+      });
+      return;
+    }
     if (isAutomationSend) {
       void approveAutomationSend();
       return;
@@ -786,10 +972,16 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
       return;
     }
     if (current.status === "awaiting_approval" || current.status === "interrupted") {
-      // 优先批准当前行绑定的动作（actionId/approvalId），避免多票并存时批错；
-      // 无绑定时才回退池内首个。
+      // 只批这一行绑上的票，或本会话里的工具票。不要回退到别的案件审批。
       const bound = pickFleetActionForRun(allActions, current);
-      const target = bound ?? allActions[0];
+      const target =
+        bound ??
+        allActions.find(
+          (a) =>
+            a.kind === "tool_approval" ||
+            a.kind === "continue_tools" ||
+            a.kind === "workflow_blocked",
+        );
       if (target?.kind === "matter_approval") {
         void resolveMatter(target, "approved");
         return;
@@ -909,7 +1101,39 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
               }
             }}
             selectedId={current?.id ?? null}
+            pickedIds={multi.selectedSet}
             onSelectRun={setSelectedId}
+            onPointerSelect={(event, id) => {
+              const next = multi.applyPointer(event, id);
+              if (next.open) {
+                setSelectedId(id);
+              }
+            }}
+            onListKeyAction={(action) => {
+              if (action === "select-all") {
+                multi.selectAll();
+                return;
+              }
+              if (action === "collapse") {
+                multi.collapseTo(selectedId ?? undefined);
+                return;
+              }
+              if (batchSends) {
+                void rejectPickedSends();
+              }
+            }}
+            batch={
+              pickedRuns.length > 1
+                ? {
+                    count: pickedRuns.length,
+                    canSend: Boolean(batchSends),
+                    busy,
+                    onReject: () => void rejectPickedSends(),
+                    onApprove: () => void approvePickedSends(),
+                    onSnooze: () => snoozeMany(pickedRuns.map((run) => run.id)),
+                  }
+                : null
+            }
             inFlightOpen={bandsReady ? inFlightOpen : bandOpen.inFlight}
             settledOpen={bandsReady ? settledOpen : bandOpen.settled}
             onToggleBand={(band) => {
@@ -966,13 +1190,27 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
             onClearError={() => setError(null)}
             busy={busy}
             primaryLabel={primaryLabel}
-            rejectLabel={approvalDock.secondary}
+            isOutboundSend={isAutomationSend}
+            batchOutbound={Boolean(batchSends)}
+            rejectLabel={rejectLabel}
+            rejectDisabled={batchMixed}
+            primaryTitle={
+              batchMixed ? "所选不都是待发信。点一行只看这一件，或用「稍后」一起放下。" : undefined
+            }
             primaryDisabled={primaryDisabled}
             clarifyComplete={clarifyComplete}
             onPrimary={runPrimary}
             onDraftReview={(status) => void submitDraftReview(status)}
             onDiscardPendingDraft={() => void discardPendingDraft()}
             onRejectApproval={() => {
+              if (batchSends) {
+                void rejectPickedSends();
+                return;
+              }
+              if (isAutomationSend) {
+                void dismissAutomationSend();
+                return;
+              }
               if (!approvalAction) {
                 return;
               }
@@ -983,6 +1221,10 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
               void rejectTool(approvalAction);
             }}
             onSnooze={() => {
+              if (pickedRuns.length > 1) {
+                snoozeMany(pickedRuns.map((run) => run.id));
+                return;
+              }
               if (!current) {
                 return;
               }

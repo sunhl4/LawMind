@@ -22,7 +22,7 @@ import {
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { ChatSessionListEntry } from "./useLawmindChatShell";
 import { chatSessionStoreKey, persistActiveChatSessionId } from "./useLawmindChatShell";
-import { mapChatSessionListPayload } from "./lawmind-chat-session-list";
+import { mapChatSessionListPayload, mergeChatSessionListRefresh } from "./lawmind-chat-session-list";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 
 export type BackgroundWatchOpts = {
@@ -180,7 +180,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
           };
           const mapped = listJ.ok ? mapChatSessionListPayload(listJ.sessions) : null;
           if (mapped) {
-            setChatSessionList(mapped);
+            setChatSessionList((prev) => mergeChatSessionListRefresh(prev, mapped));
           }
 
           const sessionRes = await fetch(
@@ -388,7 +388,7 @@ export function useLawmindBackgroundWatch(input: UseLawmindBackgroundWatchInput)
             };
             const mapped2 = listJ2.ok ? mapChatSessionListPayload(listJ2.sessions) : null;
             if (mapped2) {
-              setChatSessionList(mapped2);
+              setChatSessionList((prev) => mergeChatSessionListRefresh(prev, mapped2));
             }
           } catch {
             /* ignore */

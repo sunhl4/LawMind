@@ -280,19 +280,6 @@ function LawmindWorkspaceMainPaneImpl({
             overflow: "hidden",
           }}
         >
-          {sheetAvailable && !sheetActive && !wsShowChat ? (
-            <div className="lm-acceptance-reopen-row">
-              <span>核对已收起</span>
-              <button
-                type="button"
-                className="lm-btn lm-btn-ghost lm-btn-sm"
-                data-testid="lm-acceptance-reopen"
-                onClick={() => openAcceptanceSheet()}
-              >
-                打开核对
-              </button>
-            </div>
-          ) : null}
           <LawmindAcceptanceSheet
             apiBase={config?.apiBase}
             sessionId={chatSessionId}

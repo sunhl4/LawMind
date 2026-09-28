@@ -429,35 +429,13 @@ export function useLawmindAppShell() {
     projectDir,
     allowWebSearch,
     refreshChatSessionListForAssistant,
+    setChatSessionList,
     refreshLists,
     refreshAssistants,
     refreshCollaboration,
     applyStreamTokenBudget: composeExtras.applyStreamTokenBudget,
-    onStreamCompactBoundary: (info) => {
-      const dropped =
-        typeof info.droppedMessageCount === "number" ? info.droppedMessageCount : 0;
-      // Lawyers only get a quiet status line. Digest body stays on disk for developers
-      // (`cases/<matter>/compact-digest.md`); turn on diagnostics in settings to see the path.
-      let label = info.overflowPrune
-        ? "较早的检索结果已收短，继续办"
-        : dropped > 0
-          ? "较早的来回已收成要点，继续办"
-          : "这场对话已整理，继续办";
-      try {
-        if (
-          typeof localStorage !== "undefined" &&
-          localStorage.getItem("lawmind.includeTurnDiagnostics") === "1" &&
-          contextMatterId?.trim()
-        ) {
-          label = `${label}（开发者：cases/${contextMatterId.trim()}/compact-digest.md）`;
-        }
-      } catch {
-        /* ignore */
-      }
-      setStreamCompactNoticesByAssistant((prev) => ({
-        ...prev,
-        [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), label],
-      }));
+    onStreamCompactBoundary: () => {
+      // 整理和检索收短只留给模型。不写进对话框：律师看不懂，也容易当成对话还没开始就有很多上文。
       void composeExtras.refreshContextBudget();
     },
     onStreamToolBudget: (info) => {

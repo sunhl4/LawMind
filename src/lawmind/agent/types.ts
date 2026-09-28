@@ -155,6 +155,11 @@ export type AgentContext = {
    */
   wordRevisionTurn?: boolean;
   /**
+   * 收工补导出这一次：检查单缺口写进结果，不扣下已有修订。
+   * 只由引擎在补导出时置位，模型的工具参数设不了。
+   */
+  wordRevisionFloorDelivery?: boolean;
+  /**
    * Compiled delivery constraints for this turn (opinion memo vs tracked copy,
    * named place, preserve-source). Orthogonal to capability bind.
    */

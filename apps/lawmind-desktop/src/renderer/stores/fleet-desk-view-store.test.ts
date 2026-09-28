@@ -65,4 +65,9 @@ describe("fleet-desk-view-store", () => {
     expect(state().snoozed.has("run-9")).toBe(true);
     expect(JSON.parse(localStorage.getItem(SNOOZE_STORAGE_KEY) ?? "[]")).toContain("run-9");
   });
+
+  it("snoozeMany 一次收下多件", () => {
+    state().snoozeMany(["run-1", "run-2"]);
+    expect([...state().snoozed].toSorted()).toEqual(["run-1", "run-2"]);
+  });
 });

@@ -93,14 +93,6 @@ export function loadBuiltinWordRevisionPack(family: WordRevisionFamilyId): WordR
   return builtinPacks()[family];
 }
 
-/** ASCII aliases (SHA/SPA/MSA/ESOP) match as tokens; substrings like SHANGHAI must not hit. */
-function aliasMatches(text: string, alias: string): boolean {
-  if (/^[A-Za-z]+$/.test(alias)) {
-    return new RegExp(`(?<![A-Za-z])${alias}(?![A-Za-z])`, "i").test(text);
-  }
-  return text.includes(alias);
-}
-
 export function familyIdFromLabel(raw: string): WordRevisionFamilyId | undefined {
   const t = raw.trim();
   if (!t) {
@@ -143,10 +135,95 @@ function haystackFromPins(pins?: ComposeContextPin[]): string {
     .join("\n");
 }
 
+/**
+ * 这些词在别的合同里也会顺带出现（廉洁协议里的「抵押」、保洁合同里的「供应商」）。
+ * 单独命中不得据此套检查单。显式「改稿类型」仍可用短名，见 `familyIdFromLabel`。
+ */
+const WEAK_FAMILY_ALIASES = new Set([
+  "采购",
+  "供货",
+  "订购",
+  "供应商",
+  "订货",
+  "MSA",
+  "SOW",
+  "借款",
+  "借贷",
+  "抵押",
+  "质押",
+  "租赁",
+  "租房",
+  "用工",
+  "竞业",
+  "竞业限制",
+  "聘用",
+  "章程",
+  "并购",
+  "转股",
+  "总包",
+]);
+
+/** 禁止句里提到的类型名，不是本件合同本身。「双方签订借款合同」仍算本件。 */
+const PROHIBITION_BEFORE_RE = /(?:不得|不应|不准|禁止|严禁|不许|无权|避免|不向|杜绝).{0,10}$/;
+
+/**
+ * 派遣、廉洁协议里用「签订劳动合同 / 签订担保合同」指另一份合同。
+ * 不把「签订」用到所有类型名上，否则「双方签订借款合同」会被漏掉。
+ */
+const OTHER_CONTRACT_ALIASES = new Set(["劳动合同", "劳务合同", "担保合同", "保证合同"]);
+const OTHER_CONTRACT_BEFORE_RE = /(?:签订|订立|签署|另订).{0,4}$/;
+
+function forEachAliasHit(text: string, alias: string, fn: (index: number) => void): void {
+  if (/^[A-Za-z]+$/.test(alias)) {
+    const re = new RegExp(`(?<![A-Za-z])${alias}(?![A-Za-z])`, "gi");
+    for (const match of text.matchAll(re)) {
+      if (match.index !== undefined) {
+        fn(match.index);
+      }
+    }
+    return;
+  }
+  const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // 「劳动合同」不得命中「劳动合同法」。
+  const re = new RegExp(`${escaped}(?!法)`, "g");
+  for (const match of text.matchAll(re)) {
+    if (match.index !== undefined) {
+      fn(match.index);
+    }
+  }
+}
+
+function aliasMatches(text: string, alias: string): boolean {
+  let found = false;
+  forEachAliasHit(text, alias, () => {
+    found = true;
+  });
+  return found;
+}
+
+function hasSubstantiveAliasHit(text: string, alias: string): boolean {
+  let substantive = false;
+  forEachAliasHit(text, alias, (index) => {
+    if (substantive) {
+      return;
+    }
+    const before = text.slice(Math.max(0, index - 16), index);
+    const namesAnotherContract =
+      OTHER_CONTRACT_ALIASES.has(alias) && OTHER_CONTRACT_BEFORE_RE.test(before);
+    if (!PROHIBITION_BEFORE_RE.test(before) && !namesAnotherContract) {
+      substantive = true;
+    }
+  });
+  return substantive;
+}
+
 function countFamilyHits(text: string, pack: WordRevisionPack): number {
   let n = 0;
   for (const alias of pack.aliases) {
-    if (alias.length >= 2 && aliasMatches(text, alias)) {
+    if (alias.length < 2 || WEAK_FAMILY_ALIASES.has(alias)) {
+      continue;
+    }
+    if (hasSubstantiveAliasHit(text, alias)) {
       n += 1;
     }
   }

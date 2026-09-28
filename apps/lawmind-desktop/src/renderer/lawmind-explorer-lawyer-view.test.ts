@@ -31,6 +31,8 @@ describe("lawmind-explorer-lawyer-view", () => {
     expect(shouldShowExplorerFile("workspace", "MEMORY.md")).toBe(false);
     expect(shouldShowExplorerFile("workspace", "assistants.json")).toBe(false);
     expect(shouldShowExplorerFile("workspace", "foo.ts")).toBe(false);
+    expect(shouldShowExplorerFile("project", "canvas-preview.canvas.tsx")).toBe(true);
+    expect(shouldShowExplorerFile("project", "app.tsx")).toBe(false);
     expect(shouldShowExplorerDirectory("workspace", "我的文档")).toBe(true);
     expect(shouldShowExplorerDirectory("workspace", "templates")).toBe(false);
     expect(shouldShowExplorerDirectory("workspace", "cases")).toBe(true);

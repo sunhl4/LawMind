@@ -8,7 +8,7 @@ import type { ChatMsg } from "./lawmind-chat";
 import { parseRequiresActionsFromResponse } from "./lawmind-requires-action";
 import type { ChatSessionListEntry } from "./lawmind-chat-active-storage";
 import type { CarryoverOrigin } from "./LawmindMsgCarryoverNotice";
-import { mapChatSessionListPayload } from "./lawmind-chat-session-list";
+import { mapChatSessionListPayload, mergeChatSessionListRefresh } from "./lawmind-chat-session-list";
 
 export type { ChatMsg } from "./lawmind-chat";
 export type { ChatSessionListEntry } from "./lawmind-chat-active-storage";
@@ -197,7 +197,7 @@ export function useLawmindChatShell(input: {
       if (!mapped) {
         return null;
       }
-      setChatSessionList(mapped);
+      setChatSessionList((prev) => mergeChatSessionListRefresh(prev, mapped));
       return mapped;
     },
     [apiBase],

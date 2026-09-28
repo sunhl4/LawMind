@@ -259,9 +259,9 @@ export function extraToolsForInstruction(
     extrasTools.push("draft_document");
   }
   // 对话框里提交的任务：子工工具本轮就在。派不派、并几支，由这一轮模型判断。
-  // 不另做分类器，不改律师原话。改原件、邮件短路径、函件问答不提供子工。
-  const parentKeepsTheWrite =
-    compiled.pipelineOverride === "tracked_redline" || compiled.capabilityId === "mail.contract";
+  // 不另做分类器，不改律师原话。邮件短路径、函件问答不提供子工。
+  // 改 Word 的回合也提供子工：长且难由模型第一轮并行派去读，父对话落改并导出。
+  const parentKeepsTheWrite = compiled.capabilityId === "mail.contract";
   const chatTask = text.length >= 4 && !isNoTaskUtterance(text) && !isGreetingOnly(text);
   if (chatTask && !parentKeepsTheWrite && !instructionLooksLikeLetterQa(text)) {
     extrasTools.push("draft_worker");

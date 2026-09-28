@@ -8,6 +8,7 @@ node_modules/
 dist/
 **/dist/
 dist-runtime/
+apps/lawmind-desktop/src/renderer/canvas/sandbox-runtime.js
 coverage/
 
 # Gate/CLI 生成的报告（CI 重新生成并作为 artifact 上传；真相源是 fixtures 与源码）

@@ -305,7 +305,12 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             <div className="lm-msg lm-msg-user">{msg.text}</div>
           )
         ) : displayText ? (
-          <LawmindMsgAssistant text={displayText} modelFailure={modelFailure} />
+          <LawmindMsgAssistant
+            text={displayText}
+            modelFailure={modelFailure}
+            apiBase={apiBase}
+            workspaceDir={workspaceDir}
+          />
         ) : null}
         {msg.role === "user" && !gateMessage && (onEditChatMessage || onDeleteChatMessage) ? (
           <div className="lm-msg-actions lm-msg-actions-user">

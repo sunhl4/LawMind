@@ -18,7 +18,7 @@ import { wrapWorldStateSection } from "./world-state.js";
  * Bumped when LawMind core agent *behavior* (system prompt, clarification rules) changes materially.
  * Exposed on GET /api/health as `lawmindAgentBehaviorEpoch` for support and regression notes.
  */
-export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-09-deliverable-voice";
+export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-09-parallel-delivery";
 
 /** Stable split between cacheable prefix and per-session / per-turn suffix. */
 export const LAWMIND_PROMPT_DYNAMIC_BOUNDARY = "---LAWMIND_PROMPT_DYNAMIC_BOUNDARY---";
@@ -855,7 +855,7 @@ ${ctx.todayLog}`);
 - 若仅缺非关键细项，可边产出边用占位符列出待补项
 
 ### 第二步：执行任务
-- **派子工**：律师在对话里提交任务后，在同一次回复里调用 \`draft_worker\` 决定派不派、并几支。\`role\` 用 review（结论和依据）、draft（条款片段）或 explore（只读探查目录）。能拆成互不依赖、且各自要自己连读连查的长任务，就并行多次，\`section\` 必须互不相同。拆不开的长任务只派一个。一两步能做完的短任务不要派，留在本对话。子工看不到本对话。返回的 \`result\` 是这一支的结果，汇总时用它，不要重做子工的过程。律师中途指示进入正在跑的子工的下一轮。要改已交回的一支，传 resume_id 和 follow_up。父会话只保留有界摘要。等齐后先看【并行写稿对照】再 \`draft_document\` 落稿。对照里有各支结论，是否互相矛盾由你判断。不要用子工改原件、导出或外发。
+- **派子工**：律师在对话里提交任务后，在同一次回复里调用 \`draft_worker\` 决定派不派、并几支。\`role\` 用 review（结论和依据）、draft（条款片段）或 explore（只读探查目录）。多份独立合同，或长文里多条互不依赖、各自都要通读的争点，第一轮就并行多次，\`role\` 用 review，\`section\` 必须互不相同。每支只交原句、改后句、待确认。父对话用这些原句 \`apply_surgical_edits\`，再按份 \`render_tracked_draft\`。拆不开的长任务只派一个。一两步能做完的短任务不要派，留在本对话。子工看不到本对话。子工已经读过的全文不要再整份读进本对话；原句对不上时只重读那一处。返回的 \`result\` 是这一支的结果，汇总时用它，不要重做子工的过程。律师中途指示进入正在跑的子工的下一轮。要改已交回的一支，传 resume_id 和 follow_up，不要新开一支重读。配额用尽时用 resume_id 续那一支，不要把过程贴回来，也不要把配额用完当成任务失败。父会话只保留有界摘要。等齐后先看【并行写稿对照】再落改或 \`draft_document\`。对照里有各支结论，是否互相矛盾由你判断。不要用子工改原件、导出或外发。
 **简单任务**（回答问题、查资料、整理信息）：
 - 直接使用 \`search_matter\`、\`search_workspace\`、\`analyze_document\` 等工具
 - **律师提到另一段对话、上周说过、上次那个合同要点、别的对话里的做法**：用 \`search_conversations\`（关键词宜短，1–3 个。query 里的「上周」「昨天」只提高排序；硬切时间用 \`days\` / \`since\`）。命中后用 \`read_conversation\` 读该 \`session_id\`。引用时原样写出 \`hits[].citeAs\`（\`[标题](lm-session:id)\`），律师可点击打开。不要凭记忆编造未检索到的内容或链接；不要把整段历史贴回给律师，只收回需要的要点

@@ -195,6 +195,20 @@ describe("legal guardian verdict parse", () => {
         taskId: "t",
         at: "",
         verdict: "fail",
+        round: 2,
+        maxRounds: 2,
+        gaps: [
+          { code: "guardian_exhausted", message: "独立审稿已 2 轮未过。" },
+          { code: "no_checklist_evidence", message: "检查单为空" },
+          { code: "citation_insufficient_support", message: "只有案件元数据" },
+        ],
+      }),
+    ).toBe(1);
+    expect(
+      nextGuardianRound({
+        taskId: "t",
+        at: "",
+        verdict: "fail",
         round: 1,
         maxRounds: 2,
         skipReason: "unreadable",

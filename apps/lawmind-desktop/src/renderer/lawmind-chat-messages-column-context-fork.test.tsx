@@ -113,6 +113,33 @@ describe("LawmindChatMessagesColumn · 上下文续接接线", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  it("整理和检索收短不出现在对话里，律师主动操作的提示仍在", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindChatMessagesColumn
+          selectedAssistantId="a1"
+          currentMessages={MESSAGES}
+          copiedMessageIndex={null}
+          loading={false}
+          messagesEndRef={{ current: null }}
+          onCopyMessage={vi.fn()}
+          onApplyPrompt={vi.fn()}
+          onSendClarificationMessage={vi.fn()}
+          fileChatPills={[]}
+          contextTaskId={null}
+          streamCompactLabels={[
+            "较早的来回已收成要点，继续办",
+            "较早的检索结果已收短，继续办",
+            "这场对话已整理，继续办",
+            "已另起新对话（已带上整理稿）",
+          ]}
+        />,
+      );
+    });
+    const notices = [...host.querySelectorAll('[data-testid="lm-msg-compact-notice"]')];
+    expect(notices.map((node) => node.textContent)).toEqual(["…已另起新对话（已带上整理稿）"]);
+  });
+
   it("busy 时按钮禁用（不会连点出第二个新会话）", async () => {
     await act(async () => {
       root.render(render({ showSuggestion: true, busy: true, onFork: vi.fn() }));

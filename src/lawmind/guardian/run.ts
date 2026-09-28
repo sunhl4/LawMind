@@ -392,6 +392,8 @@ export async function runLegalGuardian(opts: {
     return record;
   }
 
+  const parseCtx =
+    opts.pack.action === "render_tracked_draft" ? { trackedRedline: true as const } : undefined;
   let raw = "";
   let parsed: ReturnType<typeof parseGuardianVerdict> | undefined;
   /** G2：保留完整聚合结果（含 `itemVerdicts` / `tierConflicts`）用于落盘。 */
@@ -403,7 +405,7 @@ export async function runLegalGuardian(opts: {
     try {
       const draw = asReviewerDraw(
         await caller({
-          system: guardianSystemPrompt(),
+          system: guardianSystemPrompt(parseCtx),
           user: formatGuardianEvidenceUserMessage(opts.pack),
         }),
       );
@@ -426,8 +428,8 @@ export async function runLegalGuardian(opts: {
       break;
     }
     // 先取逐项形状（拿得到 itemVerdicts 才有逐项数据可落盘）；再回退旧形状。
-    aggregate = parseGuardianItemVerdicts(raw, expectedItemIds, machine);
-    parsed = aggregate ?? parseGuardianReviewerJson(raw);
+    aggregate = parseGuardianItemVerdicts(raw, expectedItemIds, machine, parseCtx);
+    parsed = aggregate ?? parseGuardianReviewerJson(raw, parseCtx);
     if (
       !shouldResampleSidecarJson({
         parsed: Boolean(parsed),

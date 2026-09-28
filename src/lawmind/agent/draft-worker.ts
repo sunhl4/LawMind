@@ -53,12 +53,15 @@ export const DRAFT_WORKER_DEVELOPER_INSTRUCTIONS = [
 ].join("");
 
 /** Codex reviewer: a finding for one issue, not a new clause. */
+export const REVIEW_WORKER_CLOSE_PROMPT =
+  "只读工具轮次已用尽。请立刻交回可落改的原句、改后句、待确认。原句必须出现在材料里。材料没有的数字和身份写入待确认，不要编造。不要改原件，不要导出，不要再调用工具。";
+
 export const REVIEW_WORKER_DEVELOPER_INSTRUCTIONS = [
-  "审查子工：只交回这一争点的结论、依据和缺口。",
+  "审查子工：只交回这一争点可落改的原句、改后句和待确认。",
   "不要起草合同条款或新文书，不要改原件，不要导出或外发。",
-  "依据必须来自材料或只读工具返回；材料没有的标缺口，不要编造法条原文。",
+  "原句必须来自材料或只读工具返回；材料没有的数字和身份写入待确认，不要编造法条原文。",
   "材料不够时先用只读工具：list_dir / explore_folder / analyze_document / search_statute / search_case_law。",
-  "回报：一句结论、依据说明、出处、缺口。不要声称已完成整份审查意见。",
+  "回报：原句、改后句、待确认。不要声称已完成整份审查意见。",
 ].join("");
 
 const MIN_DRAFT_CHARS = 40;
@@ -662,9 +665,7 @@ export async function runDraftWorker(
       ctx: agentCtx,
       abortSignal: ctx?.abortSignal,
       roleLabel: review ? "审查工" : "写稿工",
-      closePrompt: review
-        ? "只读工具轮次已用尽。请立刻交回这一争点的结论、依据、出处和缺口。不要起草新条款，不要再调用工具。"
-        : undefined,
+      closePrompt: review ? REVIEW_WORKER_CLOSE_PROMPT : undefined,
     });
     if (loop.aborted) {
       return { ok: false, error: "已停止", aborted: true };
@@ -1043,7 +1044,7 @@ async function resumeDraftWorker(
     abortSignal: ctx?.abortSignal,
     roleLabel: review ? "审查工" : "写稿工",
     closePrompt: review
-      ? "请按续跑指示改这一争点的结论、依据和缺口。不要起草新条款，不要再调用工具。"
+      ? "请按续跑指示改这一争点的原句、改后句和待确认。原句必须出现在材料里。不要改原件，不要导出，不要再调用工具。"
       : "请按续跑指示改这一节草稿。不要再调用工具。",
   });
   if (loop.aborted) {

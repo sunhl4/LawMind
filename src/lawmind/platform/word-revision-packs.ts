@@ -632,7 +632,19 @@ export const MA_WORD_REVISION_PACK: WordRevisionPack = {
 export const LOAN_WORD_REVISION_PACK: WordRevisionPack = {
   id: "loan",
   label: "借款担保",
-  aliases: ["借款", "借贷", "贷款合同", "保证合同", "担保合同", "抵押", "质押", "借条", "还款协议"],
+  aliases: [
+    "借款",
+    "借贷",
+    "借款合同",
+    "借款协议",
+    "贷款合同",
+    "保证合同",
+    "担保合同",
+    "抵押",
+    "质押",
+    "借条",
+    "还款协议",
+  ],
   items: [
     {
       id: "loan.party",
@@ -942,7 +954,7 @@ export const TECH_WORD_REVISION_PACK: WordRevisionPack = {
 export const LEASE_WORD_REVISION_PACK: WordRevisionPack = {
   id: "lease",
   label: "房屋租赁",
-  aliases: ["租赁", "租房", "房屋租赁", "厂房租赁", "商铺租赁", "租赁合同"],
+  aliases: ["租赁", "租房", "租房合同", "房屋租赁", "厂房租赁", "商铺租赁", "租赁合同"],
   items: [
     {
       id: "lease.party",

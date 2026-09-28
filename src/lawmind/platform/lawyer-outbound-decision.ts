@@ -99,7 +99,7 @@ export function isLawyerOutboundDecision(input: LawyerDecisionTicketInput): bool
   if (actionKind === "workflow_blocked") {
     return true;
   }
-  if (kind === "pending_review" || kind === "matter_approval") {
+  if (kind === "pending_review" || kind === "matter_approval" || kind === "word_check") {
     return false;
   }
   if (actionKind === "clarification" || status === "awaiting_clarification") {

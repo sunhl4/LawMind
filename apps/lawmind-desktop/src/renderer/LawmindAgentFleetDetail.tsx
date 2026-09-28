@@ -18,6 +18,7 @@ import {
 } from "../../../../src/lawmind/deliverables/verification-checklist.ts";
 import type { ApprovalDocumentPreview } from "../../../../src/lawmind/platform/tool-approval-diff.ts";
 import { docketRowStatusLabel, docketRowTone } from "./lawmind-fleet-docket";
+import { openContractRevisionForTask } from "./lawmind-open-contract-revision";
 import type { PostApproveExportState } from "./lawmind-post-approve-export";
 import { LawmindFleetPostApproveBar } from "./LawmindFleetPostApproveBar";
 import { LawmindJudgmentEscalationCard } from "./LawmindJudgmentEscalationCard";
@@ -49,8 +50,15 @@ export type LawmindAgentFleetDetailProps = {
   onClearError: () => void;
   busy: boolean;
   primaryLabel: string;
+  /** 待发出：底栏「驳回」只撤这封信，不走工具或案件审批。 */
+  isOutboundSend?: boolean;
+  /** 多选全是待发信时，底栏只批这批信，不跟当前行的签批或授权。 */
+  batchOutbound?: boolean;
   /** Dock secondary for awaiting_approval — 先停在这里 when continue_tools. */
   rejectLabel?: string;
+  /** 多选里不全是待发信时，底部批准/驳回先停用。 */
+  rejectDisabled?: boolean;
+  primaryTitle?: string;
   primaryDisabled: boolean;
   clarifyComplete: boolean;
   onPrimary: () => void;
@@ -117,7 +125,11 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
     onClearError,
     busy,
     primaryLabel,
+    isOutboundSend = false,
+    batchOutbound = false,
     rejectLabel = "驳回",
+    rejectDisabled = false,
+    primaryTitle,
     primaryDisabled,
     clarifyComplete,
     onPrimary,
@@ -223,7 +235,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
           {readingMode && approvalDoc ? (
             <LawmindApprovalDocReader doc={approvalDoc} showTitle={false} />
           ) : (
-            <div className="lm-agents-wb-detail-scroll">
+            <div className="lm-agents-wb-detail-scroll lm-scroll">
               <div
                 className={`lm-agents-wb-detail-inner${
                   current.status === "awaiting_clarification"
@@ -231,7 +243,13 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                     : ""
                 }`}
               >
-                {isDraftReview ? (
+                {current.kind === "word_check" ? (
+                  <div className="lm-agents-wb-block" data-testid="lm-fleet-word-check-hint">
+                    <p>
+                      打开原件，在修订窗口里核对。导出并覆盖审阅稿之后，这一条会从在办消失。
+                    </p>
+                  </div>
+                ) : isDraftReview ? (
                   <div className="lm-agents-wb-block" id="lm-fleet-panel-actions" data-testid="lm-fleet-draft-hint">
                     {deskChecklistLoading ? (
                       <p className="lm-meta" aria-busy="true">
@@ -337,7 +355,39 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
           )}
 
           <footer className="lm-agents-wb-dock">
-            {followOnly && current ? (
+            {batchOutbound ? (
+              <>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-accent"
+                  data-testid="lm-ceremony-primary"
+                  disabled={primaryDisabled}
+                  title={primaryTitle}
+                  onClick={onPrimary}
+                >
+                  {primaryLabel}
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary"
+                  data-testid="lm-fleet-send-reject"
+                  disabled={busy || rejectDisabled}
+                  title={primaryTitle}
+                  onClick={() => onRejectApproval()}
+                >
+                  {rejectLabel}
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost"
+                  data-testid="lm-fleet-dock-snooze"
+                  disabled={busy}
+                  onClick={() => onSnooze()}
+                >
+                  稍后
+                </button>
+              </>
+            ) : followOnly && current ? (
               <>
                 {current.sessionId ? (
                   <button
@@ -422,7 +472,9 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
               type="button"
               className="lm-btn lm-btn-accent"
               data-testid={
-                isDraftReview
+                current.kind === "word_check"
+                  ? "lm-fleet-word-check"
+                  : isDraftReview
                   ? "lm-fleet-draft-approve"
                   : approvalAction?.kind === "continue_tools"
                     ? "lm-continue-tools-approve"
@@ -430,18 +482,38 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
               }
               disabled={primaryDisabled}
               title={
-                current.status === "awaiting_clarification" && !clarifyComplete
+                primaryTitle ??
+                (current.status === "awaiting_clarification" && !clarifyComplete
                   ? "请先填完必填项"
                   : isDraftReview && !deskChecklistComplete
                     ? "请先完成律师必核清单"
-                    : undefined
+                    : undefined)
               }
-              onClick={onPrimary}
+              onClick={() => {
+                if (current.kind === "word_check") {
+                  const taskId = current.taskId?.trim();
+                  if (!taskId || !apiBase) {
+                    onOpenError("无法打开修订窗：缺少任务编号或本地服务未就绪。");
+                    return;
+                  }
+                  void openContractRevisionForTask({
+                    apiBase,
+                    taskId,
+                    workspaceDir,
+                  }).then((result) => {
+                    if (!result.ok) {
+                      onOpenError(result.error);
+                    }
+                  });
+                  return;
+                }
+                onPrimary();
+              }}
             >
               {primaryLabel}
             </button>
             )}
-            {isDraftReview ? (
+            {batchOutbound ? null : isDraftReview ? (
               <>
                 <button
                   type="button"
@@ -490,14 +562,19 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                   </div>
                 </details>
               </>
-            ) : current.status === "awaiting_approval" && approvalAction ? (
+            ) : isOutboundSend || (current.status === "awaiting_approval" && approvalAction) ? (
               <button
                 type="button"
                 className="lm-btn lm-btn-secondary"
                 data-testid={
-                  approvalAction.kind === "continue_tools" ? "lm-continue-tools-stop" : undefined
+                  isOutboundSend
+                    ? "lm-fleet-send-reject"
+                    : approvalAction?.kind === "continue_tools"
+                      ? "lm-continue-tools-stop"
+                      : "lm-fleet-approval-reject"
                 }
-                disabled={busy}
+                disabled={busy || rejectDisabled}
+                title={primaryTitle}
                 onClick={() => onRejectApproval()}
               >
                 {rejectLabel}
@@ -507,7 +584,8 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                 稍后
               </button>
             )}
-            {current.status === "awaiting_approval" &&
+            {!batchOutbound &&
+            current.status === "awaiting_approval" &&
             approvalAction?.kind === "tool_approval" &&
             approvalIsDocWrite &&
             approvalLinkedTaskId &&
@@ -523,7 +601,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                 改稿
               </button>
             ) : null}
-            {current.status === "awaiting_approval" && showArgsEdit ? (
+            {!batchOutbound && current.status === "awaiting_approval" && showArgsEdit ? (
               <button
                 type="button"
                 className="lm-btn lm-btn-ghost"
@@ -540,7 +618,10 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                 {approvalIsDocWrite ? "改参数…" : "改拟稿…"}
               </button>
             ) : null}
-            {!followOnly && current.sessionId && current.status !== "awaiting_clarification" ? (
+            {!batchOutbound &&
+            !followOnly &&
+            current.sessionId &&
+            current.status !== "awaiting_clarification" ? (
               <button
                 type="button"
                 className="lm-btn lm-btn-ghost"

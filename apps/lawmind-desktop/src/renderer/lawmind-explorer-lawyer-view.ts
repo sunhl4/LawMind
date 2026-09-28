@@ -126,6 +126,9 @@ export function isLawyerCasesPath(relPath: string): boolean {
 export const isLawyerWorkspaceMaterialPath = isLawyerCasesPath;
 
 function techExtensionHidden(name: string): boolean {
+  if (name.toLowerCase().endsWith(".canvas.tsx")) {
+    return false;
+  }
   const i = name.lastIndexOf(".");
   if (i <= 0) {
     return false;

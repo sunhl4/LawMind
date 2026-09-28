@@ -8,6 +8,8 @@ import {
 } from "../agent/collaboration/delegation-registry.js";
 import { createSession, saveSession } from "../agent/session.js";
 import { persistDraft } from "../drafts/index.js";
+import { writeRedlineProposal } from "../drafts/redline-proposal.js";
+import { openWordReviewTicket, wordReviewPath } from "../drafts/word-review.js";
 import { buildAgentFleetSummary } from "./build-agent-fleet.js";
 
 describe("buildAgentFleetSummary", () => {
@@ -363,5 +365,69 @@ describe("buildAgentFleetSummary", () => {
     expect(chat?.status).toBe("completed");
     expect(chat?.title).toContain("备忘录");
     expect(chat?.title).not.toBe("New Chat");
+  });
+
+  it("lists one word_check row per open review and skips a from-scratch opinion", async () => {
+    workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-fleet-word-check-"));
+    const reviewAbs = path.join(workspaceDir, "contracts", "服务合同_20260928_01.docx");
+    persistDraft(workspaceDir, {
+      taskId: "rev-1",
+      matterId: "m1",
+      title: "服务合同修订",
+      output: "docx",
+      templateId: "general",
+      summary: "",
+      sections: [{ heading: "正文", body: "改过" }],
+      reviewNotes: [],
+      reviewStatus: "approved",
+      createdAt: "2026-09-28T00:00:00.000Z",
+      outputPath: reviewAbs,
+      contractEdit: { baselineRelativePath: "contracts/服务合同.docx", mode: "surgical" },
+    });
+    writeRedlineProposal(workspaceDir, {
+      taskId: "rev-1",
+      baselineSections: [{ heading: "正文", body: "原文" }],
+      hunks: [
+        {
+          hunkId: "h1",
+          sectionIndex: 0,
+          before: "原文",
+          after: "改过",
+          status: "pending",
+        },
+        {
+          hunkId: "h2",
+          sectionIndex: 0,
+          before: "不要",
+          after: "丢掉",
+          status: "rejected",
+        },
+      ],
+      updatedAt: "2026-09-28T01:00:00.000Z",
+    });
+    expect(openWordReviewTicket({ workspaceDir, taskId: "rev-1", reviewAbs }).opened).toBe(true);
+    fs.rmSync(wordReviewPath(workspaceDir, "rev-1")!);
+    persistDraft(workspaceDir, {
+      taskId: "opinion-1",
+      title: "法律意见书",
+      output: "docx",
+      templateId: "general",
+      summary: "",
+      sections: [{ heading: "意见", body: "从零写的" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: "2026-09-28T00:00:00.000Z",
+      outputPath: path.join(workspaceDir, "artifacts", "意见.docx"),
+    });
+
+    const fleet = await buildAgentFleetSummary({ workspaceDir });
+    const checks = fleet.runs.filter((run) => run.kind === "word_check");
+    expect(checks).toHaveLength(1);
+    expect(checks[0]?.title).toBe("服务合同.docx");
+    expect(checks[0]?.subtitle).toBe("1 处修订 · 待核对");
+    expect(fleet.runs.some((run) => run.kind === "word_check" && run.taskId === "opinion-1")).toBe(
+      false,
+    );
+    expect(fleet.counts.byKind.word_check).toBe(1);
   });
 });

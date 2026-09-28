@@ -82,6 +82,35 @@ export function mergeSideChatSearchRows(
   return [...primary, ...local.filter((r) => !seen.has(r.sessionId))];
 }
 
+const LIVE_CHAT_PLACEHOLDER_TITLE = "新对话";
+
+/**
+ * 当前这场、以及正在办的对话，不因案件筛选或列表还没刷新而从左栏消失。
+ * 点加号后即使目录接口还没带回这条，也先占一行。
+ */
+export function pinLiveSideChatSessions(
+  sessions: readonly SideChatSessionRow[],
+  scoped: readonly SideChatSessionRow[],
+  live: { activeSessionId?: string; runningSessionIds: ReadonlySet<string> },
+): SideChatSessionRow[] {
+  const byId = new Map(sessions.map((row) => [row.sessionId, row]));
+  const visible = [...scoped];
+  const seen = new Set(visible.map((row) => row.sessionId));
+  const ensure = (id: string | undefined) => {
+    const sessionId = id?.trim() ?? "";
+    if (!sessionId || seen.has(sessionId)) {
+      return;
+    }
+    seen.add(sessionId);
+    visible.unshift(byId.get(sessionId) ?? { sessionId, title: LIVE_CHAT_PLACEHOLDER_TITLE });
+  };
+  for (const id of live.runningSessionIds) {
+    ensure(id);
+  }
+  ensure(live.activeSessionId);
+  return visible;
+}
+
 type ContextMenuState = {
   x: number;
   y: number;
@@ -230,7 +259,13 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
     () => filterSideChatSessions(query.trim() ? sessions : scopedSessions, query),
     [query, scopedSessions, sessions],
   );
-  const shown = query.trim() === "" ? scopedSessions : mergeSideChatSearchRows(remoteHits, localMatches);
+  const shown =
+    query.trim() === ""
+      ? pinLiveSideChatSessions(sessions, scopedSessions, {
+          activeSessionId,
+          runningSessionIds,
+        })
+      : mergeSideChatSearchRows(remoteHits, localMatches);
   const shownIds = useMemo(() => shown.map((row) => row.sessionId), [shown]);
   const selection = useChatSessionMultiSelect(shownIds, activeSessionId);
   const showEmpty =
@@ -353,19 +388,42 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
             ▸
           </span>
         </button>
-        <div
-          className="lm-fs-dual-header-body"
-          role="button"
-          tabIndex={0}
-          onClick={() => setSectionOpen((v) => !v)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              setSectionOpen((v) => !v);
-            }
-          }}
-        >
-          <span className="lm-section-label">对话</span>
+        <div className="lm-fs-dual-header-body lm-side-chat-sessions-heading">
+          <span
+            className="lm-section-label"
+            role="button"
+            tabIndex={0}
+            onClick={() => setSectionOpen((v) => !v)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setSectionOpen((v) => !v);
+              }
+            }}
+          >
+            对话
+          </span>
+          {searchOpen ? (
+            <input
+              ref={searchInputRef}
+              className="lm-sidebar-search lm-side-chat-sessions-search"
+              type="search"
+              value={query}
+              placeholder="搜索对话…"
+              aria-label="筛选对话"
+              data-testid="lm-side-chat-search"
+              onChange={(e) => setQuery(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setQuery("");
+                  setRemoteHits(null);
+                }
+              }}
+            />
+          ) : null}
           {runningSessionIds.size > 0 ? (
             <span className="lm-side-chat-running-count" title="这些对话同时在办，互不等待">
               {runningSessionIds.size} 在办
@@ -390,27 +448,6 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
 
       {sectionOpen ? (
         <div className="lm-side-chat-sessions-body">
-          {searchOpen ? (
-            <input
-              ref={searchInputRef}
-              className="lm-sidebar-search lm-side-chat-sessions-search"
-              type="search"
-              value={query}
-              placeholder="搜索对话…"
-              aria-label="筛选对话"
-              data-testid="lm-side-chat-search"
-              onChange={(e) => setQuery(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  setQuery("");
-                  setRemoteHits(null);
-                }
-              }}
-            />
-          ) : null}
           {selection.selectedIds.length > 1 ? (
             <div className="lm-side-chat-session-batch" data-testid="lm-side-chat-session-batch">
               <span>已选 {selection.selectedIds.length}</span>
@@ -459,10 +496,10 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
             {loading && sessions.length === 0 ? (
               <p className="lm-meta lm-side-chat-sessions-empty">加载中…</p>
             ) : null}
-            {!loading && sessions.length === 0 ? (
+            {!loading && shown.length === 0 && sessions.length === 0 ? (
               <p className="lm-meta lm-side-chat-sessions-empty">还没有对话。点 ＋ 新建。</p>
             ) : null}
-            {!loading && !query.trim() && sessions.length > 0 && scopedSessions.length === 0 ? (
+            {!loading && !query.trim() && shown.length === 0 && sessions.length > 0 ? (
               <p className="lm-meta lm-side-chat-sessions-empty">
                 {scopeMatterId ? "这个案件还没有对话。点 ＋ 新建。" : "还没有未归案的对话。"}
               </p>

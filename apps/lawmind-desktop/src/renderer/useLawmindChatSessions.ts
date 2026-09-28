@@ -23,7 +23,12 @@ import {
   persistScopeSessionId,
   readStoredChatListScope,
 } from "./useLawmindChatShell";
-import { mapChatSessionListPayload } from "./lawmind-chat-session-list";
+import {
+  lawyerChatListTitle,
+  mapChatSessionListPayload,
+  mergeChatSessionListRefresh,
+  upsertChatSessionAtFront,
+} from "./lawmind-chat-session-list";
 import {
   chatScopeForMatterId,
   inferInitialChatScope,
@@ -162,7 +167,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           return;
         }
         const mapped = mapChatSessionListPayload(listJ.sessions) ?? [];
-        setChatSessionList(mapped);
+        setChatSessionList((prev) => mergeChatSessionListRefresh(prev, mapped));
         const known = knownChatMatterIdsRef.current;
         const storedAssistantSessionId = getStoredActiveChatSessionId(sessionStoreKey, assistantId);
         const storedScope = readStoredChatListScope(sessionStoreKey);
@@ -460,6 +465,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       const cj = (await readJsonFromResponse(cr)) as {
         ok?: boolean;
         sessionId?: string;
+        title?: string;
         message?: string;
         error?: string;
         code?: string;
@@ -467,12 +473,25 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       if (!cr.ok || !cj.sessionId) {
         throw new Error(sessionCreateErrorMessage(cr.status, cj));
       }
-      await refreshChatSessionListForAssistant(assistantId);
-      noteFocusedChatSessionRef?.current({ assistantId, sessionId: cj.sessionId });
-      persistActiveChatSessionId(chatSessionStoreKey(config.workspaceDir), assistantId, cj.sessionId);
-      setSessionByAssistant((p) => ({ ...p, [assistantId]: cj.sessionId }));
-      await loadSessionMessagesIntoState(assistantId, cj.sessionId, undefined, undefined, (boundMatterId) => {
-        rememberOpenedSession(cj.sessionId!, boundMatterId);
+      const createdId = cj.sessionId;
+      const createdRow: ChatSessionListEntry = {
+        sessionId: createdId,
+        title: lawyerChatListTitle(cj.title),
+        updatedAt: new Date().toISOString(),
+        ...(scope ? { matterId: scope } : {}),
+        assistantId,
+      };
+      // 目录刷新要等接口；左栏先插这一行，不用等本轮办完。
+      setChatSessionList((prev) => upsertChatSessionAtFront(prev, createdRow));
+      noteFocusedChatSessionRef?.current({ assistantId, sessionId: createdId });
+      persistActiveChatSessionId(chatSessionStoreKey(config.workspaceDir), assistantId, createdId);
+      setSessionByAssistant((p) => ({ ...p, [assistantId]: createdId }));
+      const refreshed = await refreshChatSessionListForAssistant(assistantId);
+      if (refreshed && !refreshed.some((row) => row.sessionId === createdId)) {
+        setChatSessionList((prev) => upsertChatSessionAtFront(prev, createdRow));
+      }
+      await loadSessionMessagesIntoState(assistantId, createdId, undefined, undefined, (boundMatterId) => {
+        rememberOpenedSession(createdId, boundMatterId);
       });
     } catch (cause) {
       setError(errorMessage(cause, "新建对话失败"));
@@ -484,6 +503,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
     refreshChatSessionListForAssistant,
     rememberOpenedSession,
     selectedAssistantId,
+    setChatSessionList,
   ]);
 
   const renameChatSession = useCallback(

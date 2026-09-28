@@ -290,6 +290,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
         const result = await h.runTurn(WORD_ADDIN_REDLINE);
         expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("render_tracked_draft")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("draft_worker")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("update_draft")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("render_document")).toBe(false);
         expect(h.request(0).hasAdvertisedTool("prepare_outbound_mail")).toBe(false);

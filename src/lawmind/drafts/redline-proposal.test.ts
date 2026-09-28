@@ -136,10 +136,45 @@ describe("redline-proposal", () => {
     const accepted = resolveRedlineHunk(ws, draft.taskId, hunkId, "accept");
     expect(accepted.ok).toBe(true);
     const again = revisePendingRedlineHunk(ws, draft.taskId, hunkId, "再改");
-    expect(again.ok).toBe(false);
-    if (!again.ok) {
-      expect(again.error).toBe("hunk_not_pending");
+    expect(again.ok).toBe(true);
+    expect(readRedlineProposal(ws, draft.taskId)?.hunks[0]?.after).toBe("再改");
+    expect(readDraft(ws, draft.taskId)?.sections[0]?.body).toBe("再改");
+  });
+
+  it("lets a resolved hunk switch between accept and reject", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-redline-"));
+    dirs.push(ws);
+    const draft: ArtifactDraft = {
+      taskId: "task-redline-switch",
+      title: "Test",
+      output: "markdown",
+      templateId: "default",
+      summary: "s",
+      sections: [{ heading: "Intro", body: "Original" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(ws, draft);
+    resetRedlineBaselineFromDraft(ws, draft.taskId);
+    draft.sections[0].body = "Changed by agent";
+    persistDraft(ws, draft);
+    const gen = generateRedlineProposal(ws, draft.taskId);
+    expect(gen.ok).toBe(true);
+    if (!gen.ok) {
+      return;
     }
+    const hunkId = gen.proposal.hunks[0].hunkId;
+    expect(resolveRedlineHunk(ws, draft.taskId, hunkId, "accept").ok).toBe(true);
+    expect(resolveRedlineHunk(ws, draft.taskId, hunkId, "accept").ok).toBe(true);
+    const rejected = resolveRedlineHunk(ws, draft.taskId, hunkId, "reject");
+    expect(rejected.ok).toBe(true);
+    expect(readRedlineProposal(ws, draft.taskId)?.hunks[0]?.status).toBe("rejected");
+    expect(readDraft(ws, draft.taskId)?.sections[0]?.body).toBe("Original");
+    const acceptedAgain = resolveRedlineHunk(ws, draft.taskId, hunkId, "accept");
+    expect(acceptedAgain.ok).toBe(true);
+    expect(readRedlineProposal(ws, draft.taskId)?.hunks[0]?.status).toBe("accepted");
+    expect(readDraft(ws, draft.taskId)?.sections[0]?.body).toBe("Changed by agent");
   });
 
   it("rewrites one add-in span and rejects the hunk when that change is undone", () => {
@@ -438,6 +473,46 @@ describe("redline-proposal", () => {
     }
     expect(all.resolved).toBe(2);
     expect(readDraft(ws, draft.taskId)?.sections.map((s) => s.body)).toEqual(["a1", "b1"]);
+  });
+
+  it("stamps proposedAfter once and keeps it when the lawyer rewrites after", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-redline-proposed-"));
+    dirs.push(ws);
+    const draft: ArtifactDraft = {
+      taskId: "task-proposed",
+      title: "付款",
+      output: "docx",
+      templateId: "general",
+      summary: "s",
+      sections: [{ heading: "违约金", body: "违约金为合同总额的百分之十。" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(ws, draft);
+    resetBaseline(ws, draft);
+    draft.sections[0].body = "违约金为合同总额的百分之三十。";
+    persistDraft(ws, draft);
+    const gen = generateRedlineProposal(ws, draft.taskId);
+    expect(gen.ok).toBe(true);
+    if (!gen.ok) {
+      return;
+    }
+    const hunk = gen.proposal.hunks[0];
+    expect(hunk?.proposedAfter).toBe("违约金为合同总额的百分之三十。");
+    const revised = revisePendingRedlineHunk(
+      ws,
+      draft.taskId,
+      hunk.hunkId,
+      "违约金为合同总额的百分之五。",
+    );
+    expect(revised.ok).toBe(true);
+    if (!revised.ok) {
+      return;
+    }
+    const next = revised.proposal.hunks[0];
+    expect(next?.after).toBe("违约金为合同总额的百分之五。");
+    expect(next?.proposedAfter).toBe("违约金为合同总额的百分之三十。");
   });
 });
 

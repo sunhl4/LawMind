@@ -15,10 +15,11 @@ import {
 import { usePaneResizePx } from "./use-pane-resize";
 import { apiGetJson } from "./api-client";
 import { useLawyerReviewDesktopNotify } from "./lawmind-lawyer-review-notify";
-import { applyAllUiPrefs } from "./lawmind-ui-prefs";
-
+import { canvasPathsFromMessages } from "./canvas/canvas-paths";
+import { LAWMIND_CANVAS_COMPOSER_EVENT, type CanvasComposerDetail } from "./canvas/host-actions";
 import { resolveOpenableOutputPath, artifactApiRelFromOutput } from "./lawmind-app-utils";
 import { scheduleScrollChatMessagesToLatest } from "./lawmind-chat-scroll";
+import { LAWMIND_PREPARE_WORKSPACE_FILE_EVENT } from "./lawmind-open-contract-revision";
 import {
   LAWMIND_OPEN_CONTRACT_REVISION_EVENT,
   LAWMIND_OPEN_WORKSPACE_FILE_EVENT,
@@ -40,7 +41,10 @@ import {
   lawyerFacingDecisionTotal,
   useRequireSignoffReview,
 } from "./lawmind-review-prefs";
+import { applyAllUiPrefs } from "./lawmind-ui-prefs";
 
+/** Survives a remount in the same page so a just-written canvas is not treated as history. */
+let canvasPathsSeen: Set<string> | null = null;
 
 export function LawmindAppRoot() {
   const [_uiPrefsVersion, setUiPrefsVersion] = useState(0);
@@ -324,6 +328,19 @@ export function LawmindAppRoot() {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onComposer = (event: Event) => {
+      const prompt = (event as CustomEvent<CanvasComposerDetail>).detail?.prompt?.trim() ?? "";
+      if (!prompt) {
+        return;
+      }
+      actions.setMainView("workspace");
+      actions.setInput(prompt);
+      textareaRef.current?.focus();
+    };
+    window.addEventListener(LAWMIND_CANVAS_COMPOSER_EVENT, onComposer);
+    return () => window.removeEventListener(LAWMIND_CANVAS_COMPOSER_EVENT, onComposer);
+  }, [actions]);
   const workflowModelLabel =
     modelCatalog.find((m) => m.id === selectedModelId)?.label ?? selectedModelId;
   useEffect(() => {
@@ -452,8 +469,7 @@ export function LawmindAppRoot() {
     };
     const openRevision = (ev: Event) => {
       const taskId = (ev as CustomEvent<OpenContractRevisionDetail>).detail?.taskId?.trim() ?? "";
-      setMatterCockpitOpen(false);
-      setMainView("workspace");
+      revealEditor();
       const apiBase = config?.apiBase ?? "";
       if (!taskId || !apiBase) {
         return;
@@ -464,16 +480,20 @@ export function LawmindAppRoot() {
       )
         .then((body) => {
           const target = body.draft ? revisionColumnTarget(body.draft, config?.workspaceDir) : null;
-          if (target) {
-            requestOpenWorkspaceFile(target.relPath, target.root);
+          if (!target) {
+            return;
           }
+          requestOpenWorkspaceFile(target.relPath, target.root);
+          window.dispatchEvent(new CustomEvent(LAWMIND_SHOW_WORD_SURFACE_EVENT));
         })
         .catch(() => undefined);
     };
+    window.addEventListener(LAWMIND_PREPARE_WORKSPACE_FILE_EVENT, revealEditor);
     window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, revealEditor);
     window.addEventListener(LAWMIND_SHOW_WORD_SURFACE_EVENT, revealEditor);
     window.addEventListener(LAWMIND_OPEN_CONTRACT_REVISION_EVENT, openRevision);
     return () => {
+      window.removeEventListener(LAWMIND_PREPARE_WORKSPACE_FILE_EVENT, revealEditor);
       window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, revealEditor);
       window.removeEventListener(LAWMIND_SHOW_WORD_SURFACE_EVENT, revealEditor);
       window.removeEventListener(LAWMIND_OPEN_CONTRACT_REVISION_EVENT, openRevision);
@@ -493,6 +513,21 @@ export function LawmindAppRoot() {
     // Jumping in from 在办 / 待我拍板 / notifications must land on latest turn, not task start.
     return scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
   }, [currentMessages, activeChatSessionId]);
+
+  useEffect(() => {
+    const paths = canvasPathsFromMessages(currentMessages);
+    if (!canvasPathsSeen) {
+      canvasPathsSeen = new Set(paths);
+      return;
+    }
+    for (const path of paths) {
+      if (canvasPathsSeen.has(path)) {
+        continue;
+      }
+      canvasPathsSeen.add(path);
+      requestOpenWorkspaceFile(path);
+    }
+  }, [currentMessages]);
 
   /**
    * 文书台 / 在办：不展示全局侧栏（页内自有目录）。

@@ -401,6 +401,7 @@ button.lm-agents-wb-pill:hover {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   border-right: 1px solid var(--border);
   background: color-mix(in srgb, var(--side-bg) 65%, var(--surface));
 }
@@ -411,12 +412,16 @@ button.lm-agents-wb-pill:hover {
   gap: 8px;
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 16px 14px 20px;
 }
 
 /* 折叠分组：案卷目录感 — 左色条 + 标题 + 数量徽标 + 箭头 */
 .lm-agents-wb-group {
+  /* overflow 非 visible 时，flex 项最小高度会变成 0，分组被压扁，滚轮和拖滚动条都没用。 */
+  flex-shrink: 0;
   border-radius: var(--r);
   background: var(--surface);
   border: 1px solid color-mix(in srgb, var(--accent-border) 35%, var(--border));
@@ -613,6 +618,7 @@ button.lm-agents-wb-pill:hover {
   color: inherit;
   cursor: pointer;
   font: inherit;
+  user-select: none;
   transition: background var(--t) var(--ease), border-color var(--t) var(--ease);
 }
 
@@ -633,10 +639,35 @@ button.lm-agents-wb-pill:hover {
   border-color: var(--border);
 }
 
-.lm-agents-wb-row[aria-selected="true"] {
+.lm-agents-wb-row[aria-current="true"] {
   background: var(--surface);
   border-color: color-mix(in srgb, var(--accent-border) 55%, var(--border));
   box-shadow: var(--shadow-xs);
+}
+
+.lm-agents-wb-row[aria-selected="true"]:not([aria-current="true"]) {
+  background: color-mix(in srgb, var(--accent-dim) 45%, transparent);
+  border-color: var(--accent-border);
+}
+
+.lm-agents-wb-batch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent-dim) 55%, var(--surface));
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--text-2);
+}
+
+.lm-agents-wb-batch-count {
+  font-weight: 650;
+  color: var(--text);
 }
 
 .lm-agents-wb-row-kind {
@@ -718,6 +749,7 @@ button.lm-agents-wb-pill:hover {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  flex-shrink: 0;
   gap: 8px;
   padding: 4px 2px 8px;
 }

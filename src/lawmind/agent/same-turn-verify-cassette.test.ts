@@ -250,4 +250,43 @@ describe("same-turn verify cassette", () => {
       },
     );
   });
+
+  it("word revision at the verify cap delivers instead of asking to continue", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("apply_surgical_edits", async (args) => ({
+          ok: true,
+          data: { redlinePending: 0, craftCheck: args.craft_check ?? null, taskId: "t1" },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("apply_surgical_edits", { edits: [{ find: "甲", replace: "甲" }] }),
+        );
+        for (let i = 0; i < 8; i += 1) {
+          h.enqueue(cassetteAssistant("已完成。"));
+        }
+        const result = await h.runTurn("【Word 改稿】\n请按词修订这份合同，继续不澄清");
+        expect(result.turn.status).toBe("completed");
+        expect(result.reply).toContain("待确认");
+        expect(result.reply).not.toContain("点继续");
+        expect(
+          result.turn.requiresAction?.some((action) => action.kind === "continue_tools") ?? false,
+        ).toBe(false);
+      },
+    );
+  });
+
+  it("word revision without an export gets one hidden nudge, then completes", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("先停在这里。"), cassetteAssistant("仍未导出。"));
+        const result = await h.runTurn("【Word 改稿】\n修改合同，继续不澄清");
+        expect(h.request(1).contains("【改稿】")).toBe(true);
+        expect(h.request(1).contains("render_tracked_draft")).toBe(true);
+        expect(result.turn.status).toBe("completed");
+        expect(result.reply).not.toContain("点继续");
+      },
+    );
+  });
 });

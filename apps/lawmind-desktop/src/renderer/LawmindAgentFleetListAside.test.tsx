@@ -115,6 +115,70 @@ describe("LawmindAgentFleetListAside", () => {
     expect(onSelect).toHaveBeenCalledWith("live");
   });
 
+  it("reports shift and ctrl clicks without opening the row", () => {
+    const onSelect = vi.fn();
+    const onPointerSelect = vi.fn();
+    act(() => {
+      root.render(
+        <LawmindAgentFleetListAside
+          docket={{
+            needsYou: [
+              run({ id: "a", kind: "automation_send", status: "awaiting_approval", title: "甲" }),
+              run({ id: "b", kind: "automation_send", status: "awaiting_approval", title: "乙" }),
+            ],
+            inFlight: [],
+            settled: [],
+          }}
+          hiddenInFlight={0}
+          hiddenSettled={0}
+          matterChoices={[]}
+          matterFilter="all"
+          onMatterFilter={() => undefined}
+          onlyNeedsYou
+          onOnlyNeedsYou={() => undefined}
+          selectedId="a"
+          pickedIds={new Set(["a", "b"])}
+          onSelectRun={onSelect}
+          onPointerSelect={onPointerSelect}
+          inFlightOpen={false}
+          settledOpen={false}
+          onToggleBand={() => undefined}
+          pendingTeachCount={0}
+          batch={{
+            count: 2,
+            canSend: true,
+            busy: false,
+            onReject: () => undefined,
+            onApprove: () => undefined,
+            onSnooze: () => undefined,
+          }}
+        />,
+      );
+    });
+    expect(host.textContent).toContain("已选 2");
+    const row = host.querySelector("[data-fleet-run-id='b']");
+    act(() => {
+      row?.dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+    });
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onPointerSelect).toHaveBeenCalledWith(expect.objectContaining({ shiftKey: true }), "b");
+    act(() => {
+      row?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, ctrlKey: true, metaKey: false, shiftKey: false }),
+      );
+    });
+    expect(onPointerSelect).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ctrlKey: true, shiftKey: false }),
+      "b",
+    );
+    expect(host.querySelector("[data-fleet-run-id='b']")?.getAttribute("aria-selected")).toBe(
+      "true",
+    );
+    expect(host.querySelector("[data-fleet-run-id='a']")?.getAttribute("aria-current")).toBe(
+      "true",
+    );
+  });
+
   it("says when nothing needs the lawyer but other work is still open", () => {
     act(() => {
       root.render(

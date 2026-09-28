@@ -300,4 +300,56 @@ describe("word-revision-checklist", () => {
     expect(loaded.items.some((it) => it.id === "pr.pay")).toBe(true);
     fs.rmSync(dir, { recursive: true, force: true });
   });
+
+  it("does not treat boilerplate words as the contract type", () => {
+    const cleaning = resolveWordRevisionChecklist({
+      instruction: "修改合同",
+      documentText:
+        "保洁服务委托合同\n甲方（采购方）委托乙方（供应商）提供保洁服务。不涉及供货与订货。",
+    });
+    expect(cleaning.family).toBeUndefined();
+    expect(
+      formatWordRevisionChecklistBlock({
+        instruction: "修改合同",
+        documentText:
+          "保洁服务委托合同\n甲方（采购方）委托乙方（供应商）提供保洁服务。不涉及供货与订货。",
+      }),
+    ).toContain("未识别合同类型");
+
+    const integrity = resolveWordRevisionChecklist({
+      instruction: "修改合同",
+      documentText: "廉洁合规协议书\n乙方不得对外借款、抵押、质押，不得签订担保合同。",
+    });
+    expect(integrity.family).toBeUndefined();
+
+    const dispatch = resolveWordRevisionChecklist({
+      instruction: "修改合同",
+      documentText:
+        "驾驶员劳务派遣协议\n乙方应与被派遣劳动者签订劳动合同，并遵守《劳动合同法》。双方约定竞业限制。",
+    });
+    expect(dispatch.family).toBeUndefined();
+
+    const nda = resolveWordRevisionChecklist({
+      instruction: "修改合同",
+      documentText: "保密协议\n双方对商业秘密承担保密义务，并约定竞业限制。",
+    });
+    expect(nda.family).toBeUndefined();
+  });
+
+  it("still infers a real procurement or loan contract from its own name", () => {
+    expect(
+      resolveWordRevisionChecklist({
+        instruction: "修改合同",
+        documentText: "采购合同\n供应商按订单供货，价款见附件。",
+      }).family,
+    ).toBe("procurement");
+    expect(
+      resolveWordRevisionChecklist({
+        instruction: "修改合同",
+        documentText: "借款合同\n甲乙双方签订借款合同，出借人向借款人出借资金。",
+      }).family,
+    ).toBe("loan");
+    expect(familyIdFromLabel("借款")).toBe("loan");
+    expect(familyIdFromLabel("供应商")).toBe("procurement");
+  });
 });

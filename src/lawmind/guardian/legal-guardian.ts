@@ -210,6 +210,28 @@ export function guardianBlocksExport(
   return true;
 }
 
+const CHECKLIST_FLOOR_CODES = new Set([
+  "checklist_note",
+  "checklist_not_covered",
+  "checklist_unanswered",
+  "checklist_unknown_item",
+  "guardian_exhausted",
+]);
+
+/**
+ * 收工补导出时，缺口若全是检查单（含未覆盖、缺答），不扣下已经改好的 Word。
+ * 引用对不上、机械核对未过，仍然拦住。
+ */
+export function guardianChecklistGapsOnly(
+  record: Pick<GuardianRecord, "verdict"> & { gaps?: readonly GuardianGap[] },
+): boolean {
+  if (record.verdict !== "fail") {
+    return false;
+  }
+  const gaps = record.gaps ?? [];
+  return gaps.length > 0 && gaps.every((gap) => CHECKLIST_FLOOR_CODES.has(gap.code));
+}
+
 export function buildGuardianEvidencePack(input: {
   draft: ArtifactDraft;
   hunks?: RedlineHunk[];
@@ -438,6 +460,7 @@ function normalizeGuardianVerdict(value: unknown): "pass" | "fail" | undefined {
 
 export function parseGuardianReviewerJson(
   raw: string,
+  ctx?: GuardianParseContext,
 ): { verdict: "pass" | "fail"; gaps: GuardianGap[] } | undefined {
   const slice = extractFirstJsonObject(raw);
   if (!slice) {
@@ -477,10 +500,16 @@ export function parseGuardianReviewerJson(
         : {}),
     });
   }
-  if (verdict === "pass" && gaps.length > 0) {
-    return { verdict: "fail", gaps };
+  const kept = ctx?.trackedRedline
+    ? gaps.filter((gap) => !isStructuralTrackedReviewGap(gap))
+    : gaps;
+  if (verdict === "pass" && kept.length > 0) {
+    return { verdict: "fail", gaps: kept };
   }
-  if (verdict === "fail" && gaps.length === 0) {
+  if (verdict === "fail" && kept.length === 0) {
+    if (ctx?.trackedRedline) {
+      return { verdict: "pass", gaps: [] };
+    }
     return {
       verdict: "fail",
       gaps: [
@@ -491,20 +520,39 @@ export function parseGuardianReviewerJson(
       ],
     };
   }
-  return { verdict, gaps };
+  return { verdict, gaps: kept };
 }
 
-export function guardianSystemPrompt(): string {
-  return [
+export type GuardianParseContext = {
+  /** 修订稿导出。不对题的检查项、审稿层空证据包都不挡住出稿。 */
+  trackedRedline?: boolean;
+};
+
+export function guardianSystemPrompt(ctx?: GuardianParseContext): string {
+  const lines = [
     "你是独立审稿员，不是写者。只根据证据包判断本次交卷是否可过。",
     "硬门禁结果是事实：不要重判跨度长短、空修订条数、引用 ID 是否在 bundle、验收占位符。",
-    "只判残留质量：(1) 实质争点是否被 hunk 或 sections 覆盖，或出现在 writerDeferredClaims；(2) 引用条目是否支撑对应断言；(3) 检查单「停」/必核项是否在正文出现。issues 只是争点树事实，不是覆盖证明。",
-    "证据不足或不确定必须判 not_covered，并写出具体缺口。不得因为写者自称覆盖就算覆盖。不得编造证据包没有的争点。",
-    // P2.2：不再让模型直接下 verdict —— 它逐项下判断，结论由代码聚合。
-    "checklist.items 里每一项都要单独回答，互不影响；没有给出该项证据就判 not_covered。",
-    '只输出一个 JSON 对象，不要分析过程，不要 markdown 围栏：{"items":[{"id":"<checklist item id>","supported":true|false,"note":"可选，中文短句","evidenceRef":"可选"}],"summaryGaps":[{"code":"snake_case","message":"中文缺口","evidenceRef":"可选"}]}',
-    "若证据包里 checklist.items 为空，则只输出 summaryGaps（同样不含 verdict）。",
-  ].join("\n");
+  ];
+  if (ctx?.trackedRedline) {
+    lines.push(
+      "这是修订稿导出。sections 恒为空，覆盖只看 hunks。issues 为空、writerDeferredClaims 为空、checklist.items 为空都不是缺口。",
+      "citations[].usedInHeadings 为空是常态。不得因引用未被标题使用、或只有案件元数据，判未过。",
+      "检查单项说的交易结构在合同和 hunk 里都不存在时，该项 applicable 为 false。这不是未覆盖，不要写 supported:false。",
+      "停项和未经确认的数字：没有改、并写进了 writerDeferredClaims，或者该项本来就不适用，都算已处理。",
+      "summaryGaps 只写还能靠改合同补上的漏改。检查单套不上、证据包是空的，都不要写缺口。",
+      '只输出一个 JSON 对象，不要分析过程，不要 markdown 围栏：{"items":[{"id":"<checklist item id>","applicable":true,"supported":true|false,"note":"可选","evidenceRef":"可选"}],"summaryGaps":[]}',
+      'applicable 为 false 时不要填 supported。checklist.items 为空则输出 {"items":[],"summaryGaps":[]}。',
+    );
+  } else {
+    lines.push(
+      "只判残留质量：(1) 实质争点是否被 hunk 或 sections 覆盖，或出现在 writerDeferredClaims；(2) 引用条目是否支撑对应断言；(3) 检查单「停」/必核项是否在正文出现。issues 只是争点树事实，不是覆盖证明。",
+      "证据不足或不确定必须判 not_covered，并写出具体缺口。不得因为写者自称覆盖就算覆盖。不得编造证据包没有的争点。",
+      "checklist.items 里每一项都要单独回答，互不影响；没有给出该项证据就判 not_covered。",
+      '只输出一个 JSON 对象，不要分析过程，不要 markdown 围栏：{"items":[{"id":"<checklist item id>","supported":true|false,"note":"可选，中文短句","evidenceRef":"可选"}],"summaryGaps":[{"code":"snake_case","message":"中文缺口","evidenceRef":"可选"}]}',
+      "若证据包里 checklist.items 为空，则只输出 summaryGaps（同样不含 verdict）。",
+    );
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -524,6 +572,8 @@ export function guardianSystemPrompt(): string {
 export type GuardianItemVerdict = {
   id: string;
   supported: boolean;
+  /** false：该项交易结构不在本合同里。修订稿上不算未覆盖。 */
+  applicable?: boolean;
   note?: string;
   evidenceRef?: string;
 };
@@ -557,15 +607,97 @@ export type GuardianMachineVerdict = {
   status: "ok" | "unavailable";
 };
 
+const STRUCTURAL_TRACKED_GAP_CODES = new Set([
+  "no_checklist_evidence",
+  "writer_deferred_empty",
+  "issues_empty_no_verification",
+  "citation_insufficient_support",
+  "citation_not_supporting",
+  "citation_not_used",
+  "citations_unused",
+  "unused_citation",
+  "empty_issues",
+  "empty_sections",
+  "empty_checklist",
+  "checklist_empty",
+  "checklist_missing",
+  "sections_empty",
+  "issues_empty",
+  "deferred_empty",
+]);
+
+const OFF_TOPIC_NOTE_RE =
+  /不适用|不对题|不在本(?:合同|协议)|合同本体不含|不属于该|无此交易|非此类合同|未涉及该/;
+
+/** 停项：数字没确认就不要改。这是留给律师填的，不是没改完。 */
+const LAWYER_BLANK_NOTE_RE =
+  /未经确认不得改|单价未经确认|比例未经确认|数字未经确认|尚未确认|待律师确认|待补充|统一社会信用代码/;
+
+/**
+ * 修订稿证据包里本来就是空的那些字段。模型据此写的缺口改不了合同，不得拦住出稿。
+ * `citation_ids_missing` 不在此列：那是引用 ID 确实不在检索快照里。
+ */
+export function isStructuralTrackedReviewGap(gap: { code: string; message: string }): boolean {
+  if (STRUCTURAL_TRACKED_GAP_CODES.has(gap.code)) {
+    return true;
+  }
+  if (/^citation_(not|insufficient|unused)/.test(gap.code)) {
+    return true;
+  }
+  if (/^(no_checklist|writer_deferred|issues_empty|sections_empty)/.test(gap.code)) {
+    return true;
+  }
+  const message = gap.message;
+  if (
+    /检查单(?:项)?(?:为空|是空|未提供|没有)|没有适用的检查单|checklist\.items 为空/.test(message)
+  ) {
+    return true;
+  }
+  if (/writerDeferredClaims 为空|缓办清单为空|未申报缓办/.test(message)) {
+    return true;
+  }
+  if (/争点树为空|issues 为空|sections 为空|正文章节为空/.test(message)) {
+    return true;
+  }
+  if (/usedInHeadings 为空|未被正文引用|只有案件元数据|引用未被使用/.test(message)) {
+    return true;
+  }
+  if (/仅有 hunk|只有修订片段|hunk 不足以认定/.test(message)) {
+    return true;
+  }
+  return false;
+}
+
+function isOffTopicChecklistVerdict(row: GuardianItemVerdict): boolean {
+  if (row.applicable === false) {
+    return true;
+  }
+  return OFF_TOPIC_NOTE_RE.test(row.note ?? "");
+}
+
+function isLawyerBlankChecklistNote(row: GuardianItemVerdict): boolean {
+  return LAWYER_BLANK_NOTE_RE.test(row.note ?? "");
+}
+
+/** 上一轮失败若全是审稿层空包，不占用轮次，也不沿用旧结论。 */
+export function isReviewLayerOnlyFail(gaps: readonly GuardianGap[]): boolean {
+  const blocking = gaps.filter(
+    (gap) => gap.code !== "checklist_note" && gap.code !== "guardian_exhausted",
+  );
+  return blocking.length > 0 && blocking.every((gap) => isStructuralTrackedReviewGap(gap));
+}
+
 /**
  * 确定性聚合规则（唯一真相源，不依赖模型输出 verdict）：
  *
  * 1. 任一 checklist 项 `supported: false` → fail，该项产生一条 gap。
+ *    修订稿上 `applicable: false`，或注明「不对题 / 不适用」，不算未覆盖。
  * 2. 任一 checklist 项**未被回答** → fail（缺答不等于通过）。
  * 3. 任一 checklist 项 `note` 非空但 `supported: true` → 记为可见提示（`checklist_note`），
  *    不因此把总判打成 fail，也不挡导出。未覆盖、缺答、编造项、全文缺口仍 fail。
  * 4. 模型给出证据包里不存在的 item id → fail（防编造）。
  * 5. `summaryGaps` 非空 → fail（全文级缺口）。
+ *    修订稿上，检查单为空、缓办为空、争点树为空、引用未挂到标题，这些审稿层空包不算缺口。
  * 6. 以上都不成立 → pass。
  *
  * 注意第 2 条：**缺答即 fail**，而不是「没提到就当他没说」。
@@ -586,6 +718,8 @@ export function aggregateGuardianItems(input: {
   machineVerdicts?: readonly GuardianMachineVerdict[];
   /** machine 结论是否参与 verdict。`on` 为 true，`shadow` / `off` 为 false。 */
   machineAffectsOutcome?: boolean;
+  /** 修订稿：不对题的检查项与审稿层空证据包不产生拦截缺口。 */
+  trackedRedline?: boolean;
 }): GuardianItemAggregate {
   const expected = input.expectedItemIds.map((id) => id.trim()).filter(Boolean);
   const answered = new Map<string, GuardianItemVerdict>();
@@ -619,6 +753,18 @@ export function aggregateGuardianItems(input: {
       continue;
     }
     if (!row.supported) {
+      if (input.trackedRedline && isOffTopicChecklistVerdict(row)) {
+        continue;
+      }
+      if (input.trackedRedline && isLawyerBlankChecklistNote(row)) {
+        const note = row.note?.trim() ?? "";
+        gaps.push({
+          code: "checklist_note",
+          message: `检查单项「${id}」留待确认：${note}`,
+          ...(row.evidenceRef ? { evidenceRef: row.evidenceRef } : {}),
+        });
+        continue;
+      }
       gaps.push({
         code: "checklist_not_covered",
         message: row.note?.trim()
@@ -709,7 +855,10 @@ export function aggregateGuardianItems(input: {
     }
   }
 
-  gaps.push(...input.summaryGaps);
+  const summaryGaps = input.trackedRedline
+    ? input.summaryGaps.filter((gap) => !isStructuralTrackedReviewGap(gap))
+    : input.summaryGaps;
+  gaps.push(...summaryGaps);
 
   const visible = dedupeGaps(gaps);
   const blocking = visible.filter((gap) => gap.code !== "checklist_note");
@@ -753,9 +902,11 @@ function parseChecklistItems(raw: unknown): GuardianItemVerdict[] {
     }
     // `supported` 必须显式 true 才算通过——缺字段一律按未覆盖（fail-closed）。
     const supported = rec.supported === true;
+    const applicable = rec.applicable === false || rec.applicable === "false" ? false : undefined;
     out.push({
       id,
       supported,
+      ...(applicable === false ? { applicable: false as const } : {}),
       ...(typeof rec.note === "string" && rec.note.trim()
         ? { note: clipGuardianText(rec.note, CLIP_MSG) }
         : {}),
@@ -807,6 +958,7 @@ export function parseGuardianItemVerdicts(
     verdicts: readonly GuardianMachineVerdict[];
     affectsOutcome: boolean;
   },
+  ctx?: GuardianParseContext,
 ): GuardianItemAggregate | undefined {
   const slice = extractFirstJsonObject(raw);
   if (!slice) {
@@ -831,16 +983,26 @@ export function parseGuardianItemVerdicts(
   const items = parseChecklistItems(rec.items);
   const summaryGaps = parseSummaryGaps(rec.summaryGaps);
   const legacyGaps = parseSummaryGaps(rec.gaps);
+  const rawSummary = [...summaryGaps, ...legacyGaps];
   const aggregate = aggregateGuardianItems({
     items,
-    summaryGaps: [...summaryGaps, ...legacyGaps],
+    summaryGaps: rawSummary,
     expectedItemIds,
     machineVerdicts: machine?.verdicts,
     machineAffectsOutcome: machine?.affectsOutcome,
+    ...(ctx?.trackedRedline ? { trackedRedline: true } : {}),
   });
 
   // 一项没答、也没有任何 summaryGaps：形状不合规，交回调用方走重采样/旧解析。
+  // 修订稿上，模型只报了审稿层空包时，滤掉之后就是通过，不再当成读不出结果。
   if (items.length === 0 && aggregate.gaps.length === 0 && expectedItemIds.length > 0) {
+    if (
+      ctx?.trackedRedline &&
+      rawSummary.length > 0 &&
+      rawSummary.every((gap) => isStructuralTrackedReviewGap(gap))
+    ) {
+      return aggregate;
+    }
     return undefined;
   }
   return aggregate;
@@ -881,12 +1043,13 @@ export function parseGuardianVerdict(
     verdicts: readonly GuardianMachineVerdict[];
     affectsOutcome: boolean;
   },
+  ctx?: GuardianParseContext,
 ): { verdict: "pass" | "fail"; gaps: GuardianGap[] } | undefined {
-  const aggregated = parseGuardianItemVerdicts(raw, expectedItemIds, machine);
+  const aggregated = parseGuardianItemVerdicts(raw, expectedItemIds, machine, ctx);
   if (aggregated) {
     return { verdict: aggregated.verdict, gaps: aggregated.gaps };
   }
-  return parseGuardianReviewerJson(raw);
+  return parseGuardianReviewerJson(raw, ctx);
 }
 
 /**
@@ -943,6 +1106,10 @@ export function nextGuardianRound(prior: GuardianRecord | undefined): number {
   // Network / JSON failures must retry the same slot — they are not a coverage miss.
   if (isInfraGuardianFail(prior)) {
     return Math.max(1, prior.round);
+  }
+  // 审稿层空包不是条款没改完。沿用旧的 fail 会把轮次用尽，律师再也拿不到 Word。
+  if (isReviewLayerOnlyFail(prior.gaps)) {
+    return 1;
   }
   return prior.round + 1;
 }

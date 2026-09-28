@@ -241,13 +241,35 @@ export function formatIdenticalToolRepeatStop(opts?: {
   kind?: LawyerRepeatKind;
   /** 这一轮是改原 Word，带修改痕迹的稿还没写到原文件旁边。 */
   trackedDraftMissing?: boolean;
+  /** 改稿回合到顶：写出已有稿，不要求律师回复继续。 */
+  deliverInstead?: boolean;
 }): string {
   const parts = [LAWYER_REPEAT_LEAD[opts?.kind ?? "other"]];
   if (opts?.trackedDraftMissing) {
     parts.push("带修改痕迹的稿子还没有出现在原文件旁边。");
   }
-  parts.push("要继续办理，在这条对话里回复「继续」即可。");
+  if (opts?.deliverInstead) {
+    parts.push(
+      "有新修订的，写在原文件旁边。这一轮没有新修订的，不另出一份。原文里没有的数字和身份留在待确认，不因此整单停下。",
+    );
+  } else {
+    parts.push("要继续办理，在这条对话里回复「继续」即可。");
+  }
   return parts.join("");
+}
+
+/** 改稿回合到了验收或步数阀门。有修订才说写在旁边，没有新修订不声称已经出稿。 */
+export function formatWordRevisionCapStop(): string {
+  return "有新修订的，写在原文件旁边。这一轮没有新修订的，不另出一份。原文里没有的数字和身份留在待确认，不因此整单停下。";
+}
+
+/** 模型收工时还没导出。隐藏续办一次，不无限循环。 */
+export function formatWordRevisionExportNudge(): string {
+  return [
+    "【改稿】这一轮还没有把带修订的 Word 写到原文件旁边。",
+    "子代理交回的原句用 apply_surgical_edits 落上；定位不到的写入 craft_check.deferred。然后 render_tracked_draft。",
+    "不要把子代理已经读过的全文再读进本对话。检查单未覆盖不拦出稿。不要回复已完成。",
+  ].join("\n");
 }
 
 export type CompletedDocumentReread = {
@@ -375,6 +397,7 @@ export async function runModelToolLoop(opts: {
   let identicalToolStreak: IdenticalToolStreak | null = null;
   /** At most one extra sample per turn after a finished Word-revision reread. */
   let documentRereadContinued = false;
+  let wordRevisionExportNudged = false;
 
   const strictUpstreamToolStreaming = resolveStrictUpstreamToolStreaming(opts.hasOnEvent);
   const hardCeiling =
@@ -873,8 +896,13 @@ export async function runModelToolLoop(opts: {
           ),
         });
         if (shouldPauseSameTurnVerify(opts.turn.sameTurnVerify)) {
-          opts.turn.status = "paused";
-          finalReply = formatSameTurnVerifyPaused(opts.turn.sameTurnVerify!);
+          if (opts.ctx.wordRevisionTurn === true) {
+            opts.turn.status = "completed";
+            finalReply = formatWordRevisionCapStop();
+          } else {
+            opts.turn.status = "paused";
+            finalReply = formatSameTurnVerifyPaused(opts.turn.sameTurnVerify!);
+          }
           break;
         }
         const bounce = formatSameTurnCompletionBounce(opts.turn.sameTurnVerify!);
@@ -950,6 +978,22 @@ export async function runModelToolLoop(opts: {
           planOpen,
         });
         break;
+      }
+      if (
+        opts.ctx.wordRevisionTurn === true &&
+        (opts.turn.toolNameCallCounts?.render_tracked_draft ?? 0) === 0 &&
+        !wordRevisionExportNudged
+      ) {
+        wordRevisionExportNudged = true;
+        const nudge = {
+          role: "user" as const,
+          content: formatWordRevisionExportNudge(),
+          timestamp: new Date().toISOString(),
+          hiddenFromLawyer: true,
+        };
+        opts.session.conversationHistory.push(nudge);
+        opts.turn.messages.push(nudge);
+        continue;
       }
       finalReply = assistantMsg.content ?? "";
       opts.turn.status = "completed";
@@ -1082,6 +1126,7 @@ export async function runModelToolLoop(opts: {
             reread != null,
           ),
           trackedDraftMissing,
+          deliverInstead: wordRevision,
         });
         break;
       }
@@ -1107,8 +1152,13 @@ export async function runModelToolLoop(opts: {
             verifyState.issues.map((issue) => issue.code),
           ),
         });
-        opts.turn.status = "paused";
-        finalReply = formatSameTurnVerifyPaused(verifyState);
+        if (opts.ctx.wordRevisionTurn === true) {
+          opts.turn.status = "completed";
+          finalReply = formatWordRevisionCapStop();
+        } else {
+          opts.turn.status = "paused";
+          finalReply = formatSameTurnVerifyPaused(verifyState);
+        }
       } else if (pendingClarificationQuestions.length > 0) {
         opts.turn.status = "awaiting_clarification";
         opts.turn.clarificationQuestions = pendingClarificationQuestions;
@@ -1117,6 +1167,11 @@ export async function runModelToolLoop(opts: {
           pendingClarificationQuestions,
           "已生成带待补充项的正式草稿，但当前轮次已达到办理上限。为完成最终交付，请补充：",
         );
+      } else if (opts.ctx.wordRevisionTurn === true) {
+        opts.turn.status = "completed";
+        const said = assistantMsg.content?.trim();
+        const exported = (opts.turn.toolNameCallCounts?.render_tracked_draft ?? 0) > 0;
+        finalReply = exported && said ? said : formatWordRevisionCapStop();
       } else {
         opts.turn.status = "completed";
         finalReply = assistantMsg.content?.trim() || formatToolBudgetHardStopReply();

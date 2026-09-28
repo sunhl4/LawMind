@@ -20,7 +20,7 @@ export function LawmindApprovalDocReader(props: LawmindApprovalDocReaderProps): 
   }
 
   return (
-    <div className="lm-agents-wb-reader" data-testid="lm-approval-doc-reader">
+    <div className="lm-agents-wb-reader lm-scroll" data-testid="lm-approval-doc-reader">
       <article className="lm-agents-wb-reader-sheet">
         {showTitle ? <h3 className="lm-agents-wb-reader-title">{doc.title}</h3> : null}
         {doc.meta.length > 0 ? (

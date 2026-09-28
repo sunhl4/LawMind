@@ -69,6 +69,11 @@ export type LawmindComposeContextUsageProps = {
   onForkWithCarryover?: () => void | Promise<void>;
   forkBusy?: boolean;
   disabled?: boolean;
+  /**
+   * 回复还在输出。入口可打开；整理和带上文另起要等停稳，
+   * 避免改写或读到半轮历史。
+   */
+  historyLocked?: boolean;
 };
 
 /** 短对话不打扰。变长，或已经整理过，律师才需要这个入口。 */
@@ -152,6 +157,7 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
     onForkWithCarryover,
     forkBusy = false,
     disabled = false,
+    historyLocked = false,
   } = props;
 
   const [open, setOpen] = useState(false);
@@ -258,7 +264,11 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
         aria-label={`${triggerLabel}，打开整理或另开一段`}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title="整理这场对话，或另开一段"
+        title={
+          historyLocked
+            ? "可打开。整理或另起要等这一轮停稳，避免碰到半轮历史"
+            : "整理这场对话，或另开一段"
+        }
         disabled={disabled}
         data-testid="lm-compose-token-bar"
         onClick={() => {
@@ -308,7 +318,8 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                   type="button"
                   className="lm-compose-ctx-usage-action"
                   data-testid="lm-compose-compact-confirm-ok"
-                  disabled={compactBusy || disabled}
+                  disabled={compactBusy || disabled || historyLocked}
+                  title={historyLocked ? "这一轮还在输出，先停稳再整理" : undefined}
                   onClick={confirmAction}
                 >
                   <span className="lm-compose-ctx-usage-action-title">
@@ -333,7 +344,8 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                   type="button"
                   className="lm-compose-ctx-usage-action"
                   data-testid="lm-compose-compact"
-                  disabled={compactBusy || previewBusy || disabled}
+                  disabled={compactBusy || previewBusy || disabled || historyLocked}
+                  title={historyLocked ? "这一轮还在输出，先停稳再整理" : undefined}
                   onClick={() => void beginAction("compact")}
                 >
                   <span className="lm-compose-ctx-usage-action-title">
@@ -347,7 +359,8 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                   type="button"
                   className="lm-compose-ctx-usage-action"
                   data-testid="lm-compose-distill"
-                  disabled={compactBusy || previewBusy || disabled}
+                  disabled={compactBusy || previewBusy || disabled || historyLocked}
+                  title={historyLocked ? "这一轮还在输出，先停稳再整理" : undefined}
                   onClick={() => void beginAction("distill")}
                 >
                   <span className="lm-compose-ctx-usage-action-title">整理并记住要点</span>
@@ -360,7 +373,10 @@ export function LawmindComposeContextUsage(props: LawmindComposeContextUsageProp
                     type="button"
                     className="lm-compose-ctx-usage-action"
                     data-testid="lm-compose-fork-carryover"
-                    disabled={forkBusy || disabled}
+                    disabled={forkBusy || disabled || historyLocked}
+                    title={
+                      historyLocked ? "这一轮还在输出，先停稳再另起，避免读到半轮历史" : undefined
+                    }
                     onClick={() => {
                       setOpen(false);
                       void onForkWithCarryover();

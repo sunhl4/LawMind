@@ -10,6 +10,7 @@ import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "./law
 import { LawmindChatHistorySearch } from "./LawmindChatHistorySearch";
 import { LawmindChatMessageRow } from "./LawmindChatMessageRow";
 import { LawmindChatMessagesVirtualList } from "./LawmindChatMessagesVirtualList";
+import { isAssistantMemoryStatusLabel } from "./lawmind-chat-compact-notice";
 import { LawmindMsgCompactNotice } from "./LawmindMsgCompactNotice";
 import { LawmindMsgCarryoverNotice } from "./LawmindMsgCarryoverNotice";
 import { LawmindContextForkSuggestion, type ChatContextForkProps } from "./LawmindContextForkSuggestion";
@@ -155,11 +156,13 @@ export function LawmindChatMessagesColumn({
       collapseSearch: true,
       groupTools: true,
     });
-    const notices: RenderableChatItem[] = streamCompactLabels.map((label, i) => ({
-      kind: "compact_notice" as const,
-      label,
-      sourceIndex: -1 - i,
-    }));
+    const notices: RenderableChatItem[] = streamCompactLabels
+      .filter((label) => !isAssistantMemoryStatusLabel(label))
+      .map((label, i) => ({
+        kind: "compact_notice" as const,
+        label,
+        sourceIndex: -1 - i,
+      }));
     // 顶部顺序：续接来源（这段对话的起点）→ 过程提示 → 建议卡（可操作，放最近处）。
     const carriedOverFrom = contextFork?.carriedOverFrom ?? null;
     const head: RenderableChatItem[] = [];

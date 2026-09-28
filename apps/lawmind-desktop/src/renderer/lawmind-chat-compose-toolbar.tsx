@@ -163,8 +163,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
             type="button"
             className="lm-btn lm-btn-ghost lm-btn-small"
             data-testid="lm-compose-restore-standard"
-            disabled={loading}
-            title="改回标准权限"
+            title={loading ? "本轮权限不变；改回标准从下一句起生效" : "改回标准权限"}
             onClick={() => {
               writeExecutePermissionMode("standard");
               onPermissionModeChange("standard");
@@ -201,11 +200,12 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
                 value={permissionMode}
                 aria-label="工具权限模式"
                 data-testid="lm-compose-permission-mode"
-                disabled={loading}
                 title={
-                  permissionMode === "readonly"
-                    ? "本回合只出计划，点「开始执行」后再写稿"
-                    : "工具权限：计划模式只出计划，标准/严格才写稿"
+                  loading
+                    ? "本轮权限不变；改选从下一句或新对话起生效"
+                    : permissionMode === "readonly"
+                      ? "本回合只出计划，点「开始执行」后再写稿"
+                      : "工具权限：计划模式只出计划，标准/严格才写稿"
                 }
                 onChange={(e) => onPermissionModeChange(e.target.value as ComposePermissionMode)}
               >
@@ -220,14 +220,16 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
               <select
                 className="lm-compose-select"
                 value={allowWebSearch ? "web" : "local"}
-                disabled={Boolean(webSearchPolicyBlocked) || loading}
+                disabled={Boolean(webSearchPolicyBlocked)}
                 aria-label="联网工具"
                 title={
                   webSearchPolicyBlocked
                     ? "联网已关闭"
-                    : allowWebSearch
-                      ? "已开启：助手可联网搜索"
-                      : "关闭：仅使用工作区、案件记忆与本地工具"
+                    : loading
+                      ? "本轮联网不变；改选从下一句或新对话起生效"
+                      : allowWebSearch
+                        ? "已开启：助手可联网搜索"
+                        : "关闭：仅使用工作区、案件记忆与本地工具"
                 }
                 onChange={(e) => onAllowWebSearchChange(e.target.value === "web")}
               >
@@ -267,14 +269,14 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
           modelContextTokens={
             modelCatalog.find((entry) => entry.id === selectedModelId)?.contextTokens
           }
-          disabled={loading}
+          pendingHint={loading ? "本轮窗口不变；改选从下一句或新对话起生效" : undefined}
         />
         {contextBudget && onCompactContext && onDistillLearning ? (
           <LawmindComposeContextUsage
             budget={contextBudget}
             compactBusy={compactBusy}
             compactHint={compactHint}
-            disabled={loading}
+            historyLocked={loading}
             onCompact={onCompactContext}
             onDistill={onDistillLearning}
             onPreviewCompact={onPreviewCompact}

@@ -29,7 +29,11 @@ export function fleetRunNeedsLawyer(run: AgentRunSummary): boolean {
 
 export function fleetStatusKind(
   status: AgentRunSummary["status"],
-): "review" | "clarify" | "approve" {
+  kind?: AgentRunSummary["kind"],
+): "check" | "review" | "clarify" | "approve" {
+  if (kind === "word_check") {
+    return "check";
+  }
   if (status === "awaiting_clarification") {
     return "clarify";
   }
@@ -40,6 +44,36 @@ export function fleetStatusKind(
 }
 
 /** Dock copy when 在办 hides in-card buttons (`hideActions`). */
+/** 待发出行的 inbox id：优先 queueItemId，否则从 `automation-send:` 前缀拆出。 */
+export function automationSendInboxId(
+  run: { id?: string; queueItemId?: string } | null | undefined,
+): string {
+  const queued = run?.queueItemId?.trim();
+  if (queued) {
+    return queued;
+  }
+  const id = run?.id?.trim() ?? "";
+  const prefix = "automation-send:";
+  return id.startsWith(prefix) ? id.slice(prefix.length) : "";
+}
+
+/** 批量待发信：能发出的 inbox id，以及缺编号的件数。 */
+export function collectOutboundInboxIds(
+  runs: ReadonlyArray<{ id?: string; queueItemId?: string }>,
+): { ids: string[]; missing: number } {
+  const ids: string[] = [];
+  let missing = 0;
+  for (const run of runs) {
+    const id = automationSendInboxId(run);
+    if (id) {
+      ids.push(id);
+    } else {
+      missing += 1;
+    }
+  }
+  return { ids, missing };
+}
+
 export function fleetApprovalDockLabels(
   actionKind?: string,
   trigger?: string,
@@ -74,18 +108,19 @@ export function fleetStatusLabel(status: AgentRunSummary["status"]): string {
   }
 }
 
-export const FLEET_GROUP_ORDER = ["review", "clarify", "approve"] as const;
+export const FLEET_GROUP_ORDER = ["check", "review", "clarify", "approve"] as const;
 
 export type FleetGroupKind = (typeof FLEET_GROUP_ORDER)[number];
 
+const FLEET_GROUP_LABELS: Record<FleetGroupKind, string> = {
+  check: "待核对",
+  review: "待签批",
+  clarify: "待补充",
+  approve: "待拍板",
+};
+
 export function fleetGroupLabel(kind: FleetGroupKind): string {
-  if (kind === "review") {
-    return "待签批";
-  }
-  if (kind === "clarify") {
-    return "待补充";
-  }
-  return "待拍板";
+  return FLEET_GROUP_LABELS[kind];
 }
 
 export type FleetQueueGroup = {
@@ -131,12 +166,13 @@ export function collapseFleetRunsByWork(runs: AgentRunSummary[]): AgentRunSummar
 
 export function groupFleetQueue(runs: AgentRunSummary[]): FleetQueueGroup[] {
   const buckets: Record<FleetGroupKind, AgentRunSummary[]> = {
+    check: [],
     review: [],
     clarify: [],
     approve: [],
   };
   for (const run of collapseFleetRunsByWork(runs)) {
-    buckets[fleetStatusKind(run.status)].push(run);
+    buckets[fleetStatusKind(run.status, run.kind)].push(run);
   }
   return FLEET_GROUP_ORDER.map((kind) => ({
     kind,
