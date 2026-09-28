@@ -8,6 +8,8 @@ import {
 } from "./api-client";
 import { fetchApiJson } from "./api-client-proxy";
 import { fetchChatLiveTurnProgress } from "./lawmind-chat-trace.js";
+import { readActiveWorkbenchWordFile } from "./lawmind-active-word-file";
+import { matterIdOwnedByOpenedFile } from "./lawmind-workspace-file-open";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { DelegationRow } from "./lawmind-app-data";
 import { isActiveDelegation } from "./lawmind-delegation-status";
@@ -136,7 +138,14 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       setChatListScope(scope);
       persistChatListScope(storeKey, scope);
       persistScopeSessionId(storeKey, scope, sessionId);
-      setContextMatterId(scope === null && matterId ? null : matterId);
+      const opened = readActiveWorkbenchWordFile();
+      setContextMatterId(
+        opened
+          ? matterIdOwnedByOpenedFile(opened.relPath, opened.root)
+          : scope === null && matterId
+            ? null
+            : matterId,
+      );
     },
     [config?.workspaceDir, knownChatMatterIdsRef, setContextMatterId],
   );

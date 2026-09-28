@@ -6,10 +6,12 @@ import type http from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildAgentConfig,
+  filterTaskSummaries,
   isLawMindHttpError,
   MAX_JSON_BODY_BYTES,
   readJsonBody,
   safeArtifactPath,
+  type TaskSummaryRow,
 } from "./lawmind-server-helpers.js";
 
 function createRequest(body: string): http.IncomingMessage {
@@ -79,5 +81,17 @@ describe("lawmind-server-helpers", () => {
     );
     expect(safeArtifactPath(ws, "cases/m1/CASE.md")).toBeNull();
     expect(safeArtifactPath(ws, "../etc/passwd")).toBeNull();
+  });
+
+  it("filterTaskSummaries sorts when a task has no updatedAt", () => {
+    const row = (taskId: string, updatedAt: string | undefined): TaskSummaryRow =>
+      ({ taskId, updatedAt, summary: "" }) as TaskSummaryRow;
+    const sorted = filterTaskSummaries(
+      [row("missing", undefined), row("newer", "2026-09-02T00:00:00.000Z")],
+      "",
+      null,
+      null,
+    );
+    expect(sorted.map((item) => item.taskId)).toEqual(["newer", "missing"]);
   });
 });
