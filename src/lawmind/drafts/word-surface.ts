@@ -69,26 +69,85 @@ function decodeXmlEntities(text: string): string {
     .replace(/&apos;/g, "'");
 }
 
-/** Paragraphs in document order. Empty paragraphs are dropped. */
+/**
+ * Paragraphs in document order. Empty paragraphs are dropped.
+ * Start-tag attributes such as `w14:paraId` are not visible text.
+ */
 export function extractDocxParagraphsFromXml(xml: string): string[] {
-  const chunks = xml.split(/<w:p[\s>]/).slice(1);
   const paragraphs: string[] = [];
-  for (const chunk of chunks) {
-    const end = chunk.indexOf("</w:p>");
-    const inner = end >= 0 ? chunk.slice(0, end) : chunk;
-    const text = decodeXmlEntities(
-      inner
-        .replace(/<w:tab[^>]*\/>/g, "\t")
-        .replace(/<w:br[^>]*\/>/g, "\n")
-        .replace(/<[^>]+>/g, ""),
-    )
-      .replace(/\u00a0/g, " ")
-      .trim();
+  let cursor = 0;
+  while (cursor < xml.length) {
+    const start = indexOfWordParagraphOpen(xml, cursor);
+    if (start < 0) {
+      break;
+    }
+    const openEnd = indexOfXmlTagEnd(xml, start);
+    if (openEnd < 0) {
+      break;
+    }
+    if (xml[openEnd - 1] === "/") {
+      cursor = openEnd + 1;
+      continue;
+    }
+    const close = xml.indexOf("</w:p>", openEnd + 1);
+    const innerEnd = close >= 0 ? close : xml.length;
+    const text = paragraphVisibleText(xml.slice(openEnd + 1, innerEnd));
     if (text) {
       paragraphs.push(text);
     }
+    cursor = close >= 0 ? close + "</w:p>".length : xml.length;
   }
   return paragraphs;
+}
+
+/** `<w:p` that starts a paragraph, not `w:pPr` / `w:pict` / similar. */
+function indexOfWordParagraphOpen(xml: string, from: number): number {
+  let cursor = from;
+  while (cursor < xml.length) {
+    const start = xml.indexOf("<w:p", cursor);
+    if (start < 0) {
+      return -1;
+    }
+    const next = xml[start + 4];
+    if (next === ">" || next === "/" || (next !== undefined && /\s/u.test(next))) {
+      return start;
+    }
+    cursor = start + 4;
+  }
+  return -1;
+}
+
+/** Index of the `>` that closes the tag at `from`, respecting quoted attribute values. */
+function indexOfXmlTagEnd(xml: string, from: number): number {
+  let quote: '"' | "'" | null = null;
+  for (let i = from; i < xml.length; i++) {
+    const ch = xml[i];
+    if (quote) {
+      if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === ">") {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function paragraphVisibleText(inner: string): string {
+  return decodeXmlEntities(
+    inner
+      .replace(/<w:tab[^>]*\/>/g, "\t")
+      .replace(/<w:br[^>]*\/>/g, "\n")
+      .replace(/<[^>]+>/g, ""),
+  )
+    .replace(/\u00a0/g, " ")
+    .trim();
 }
 
 export async function readDocxParagraphs(absPath: string): Promise<string[]> {

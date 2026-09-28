@@ -188,4 +188,22 @@ describe("extractDocxParagraphsFromXml", () => {
       `<w:p><w:r><w:t>第二段</w:t></w:r></w:p>`;
     expect(extractDocxParagraphsFromXml(xml)).toEqual(["第一段", "第二段"]);
   });
+
+  it("drops w14:paraId and other start-tag attributes from the visible text", () => {
+    const xml =
+      `<w:p w14:paraId="036DE1E2" w14:textId="77777777"><w:r><w:t></w:t></w:r></w:p>` +
+      `<w:p w14:paraId="6F44A189"><w:r><w:t>914400419100</w:t></w:r></w:p>` +
+      `<w:p w14:paraId="00FAB3B0"/>` +
+      `<w:p w14:paraId="73623348"></w:p>` +
+      `<w:p w14:paraId="32ECBB3D"><w:pPr><w:pStyle w:val="Title"/></w:pPr>` +
+      `<w:r><w:t>保洁服务委托</w:t></w:r><w:r><w:br/></w:r><w:r><w:t>合同</w:t></w:r></w:p>` +
+      `<w:p w14:paraId="6DF1AF61"><w:r><w:t>采购方（甲方）：</w:t></w:r></w:p>` +
+      `<w:p w:title="a>b"><w:r><w:t>3 &gt; 2</w:t></w:r></w:p>`;
+    expect(extractDocxParagraphsFromXml(xml)).toEqual([
+      "914400419100",
+      "保洁服务委托\n合同",
+      "采购方（甲方）：",
+      "3 > 2",
+    ]);
+  });
 });
