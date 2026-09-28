@@ -1,3 +1,5 @@
+import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
+
 /** Cross-surface deep-link: open a workspace-relative path in the file workbench. */
 
 export const LAWMIND_OPEN_WORKSPACE_FILE_EVENT = "lawmind:open-workspace-file";
@@ -12,6 +14,22 @@ export type OpenWorkspaceFileDetail = {
   relPath: string;
   root?: WorkspaceFileRoot;
 };
+
+/**
+ * The case that owns this opened file, or null when the file is not inside a case folder.
+ * Project-root files and canvas files do not belong to whatever case the chat last used.
+ */
+export function matterIdOwnedByOpenedFile(
+  relPath: string,
+  root: WorkspaceFileRoot = "workspace",
+): string | null {
+  if (root !== "workspace") {
+    return null;
+  }
+  const parts = relPath.trim().replace(/\\/g, "/").replace(/^\/+/, "").split("/").filter(Boolean);
+  const id = parts[0] === "cases" ? parts[1]?.trim() ?? "" : "";
+  return id && isValidMatterId(id) ? id : null;
+}
 
 /** Open the contract's revision column instead of the full-document 改稿 desk. */
 export const LAWMIND_OPEN_CONTRACT_REVISION_EVENT = "lawmind:open-contract-revision";

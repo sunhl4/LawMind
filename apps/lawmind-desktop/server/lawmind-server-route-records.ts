@@ -392,7 +392,7 @@ export async function handleRecordRoutes({
         matterId: draft.matterId,
       });
     }
-    items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    items.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
     sendJson(res, 200, { ok: true, items: items.slice(0, 200) }, c);
     return true;
   }

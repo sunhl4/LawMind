@@ -24,10 +24,12 @@ import {
   LAWMIND_OPEN_CONTRACT_REVISION_EVENT,
   LAWMIND_OPEN_WORKSPACE_FILE_EVENT,
   LAWMIND_SHOW_WORD_SURFACE_EVENT,
+  matterIdOwnedByOpenedFile,
   requestOpenContractRevision,
   requestOpenWorkspaceFile,
   revisionColumnTarget,
   type OpenContractRevisionDetail,
+  type OpenWorkspaceFileDetail,
 } from "./lawmind-workspace-file-open";
 import { useLawmindAppRootHandlers } from "./app/useLawmindAppRootHandlers";
 import { useLawmindAppRootLayout } from "./app/useLawmindAppRootLayout";
@@ -488,17 +490,28 @@ export function LawmindAppRoot() {
         })
         .catch(() => undefined);
     };
+    const onOpenFile = (ev: Event) => {
+      revealEditor();
+      const detail = (ev as CustomEvent<OpenWorkspaceFileDetail>).detail;
+      const relPath = detail?.relPath?.trim() ?? "";
+      if (!relPath) {
+        return;
+      }
+      setContextMatterId(
+        matterIdOwnedByOpenedFile(relPath, detail?.root === "project" ? "project" : "workspace"),
+      );
+    };
     window.addEventListener(LAWMIND_PREPARE_WORKSPACE_FILE_EVENT, revealEditor);
-    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, revealEditor);
+    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onOpenFile);
     window.addEventListener(LAWMIND_SHOW_WORD_SURFACE_EVENT, revealEditor);
     window.addEventListener(LAWMIND_OPEN_CONTRACT_REVISION_EVENT, openRevision);
     return () => {
       window.removeEventListener(LAWMIND_PREPARE_WORKSPACE_FILE_EVENT, revealEditor);
-      window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, revealEditor);
+      window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onOpenFile);
       window.removeEventListener(LAWMIND_SHOW_WORD_SURFACE_EVENT, revealEditor);
       window.removeEventListener(LAWMIND_OPEN_CONTRACT_REVISION_EVENT, openRevision);
     };
-  }, [config?.apiBase, config?.workspaceDir, setMainView]);
+  }, [config?.apiBase, config?.workspaceDir, setContextMatterId, setMainView]);
 
   const { width: wsChatColWidth, onResizePointerDown: onWsChatSplitResize } = usePaneResizePx({
     storageKey: "lawmind.ui.wsChatColumnWidth",

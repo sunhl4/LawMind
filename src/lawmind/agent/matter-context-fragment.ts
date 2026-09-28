@@ -53,7 +53,7 @@ export function buildMatterContextFragmentBody(opts: {
 
   const openDeadlines = listDeadlinesForMatter(opts.workspaceDir, matterId)
     .filter((d) => d.status === "open" || d.status === "snoozed")
-    .toSorted((a, b) => a.dueAt.localeCompare(b.dueAt))
+    .toSorted((a, b) => (a.dueAt ?? "").localeCompare(b.dueAt ?? ""))
     .slice(0, MAX_OPEN_DEADLINES);
   if (openDeadlines.length > 0) {
     const lines = openDeadlines.map((d) => {

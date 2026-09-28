@@ -351,7 +351,7 @@ export function buildMatterPulse(
     .slice(0, 8);
   const pulseTasks = openTasks
     .slice()
-    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .toSorted((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))
     .slice(0, 8)
     .map((t) => ({
       taskId: t.taskId,
@@ -361,7 +361,7 @@ export function buildMatterPulse(
     }));
   const pulseDeadlines = openDeadlines
     .slice()
-    .toSorted((a, b) => a.dueAt.localeCompare(b.dueAt))
+    .toSorted((a, b) => (a.dueAt ?? "").localeCompare(b.dueAt ?? ""))
     .slice(0, 10)
     .map((d) => {
       const view = annotateDeskDeadline(d, deadlines);

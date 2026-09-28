@@ -579,5 +579,5 @@ export function filterTaskSummaries(
   if (until !== null) {
     list = list.filter((t) => Date.parse(t.updatedAt) <= until);
   }
-  return list.toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return list.toSorted((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
 }

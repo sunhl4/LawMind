@@ -348,6 +348,9 @@ export function useLawmindAppRootHandlers(input: UseLawmindAppRootHandlersInput)
       setReviewFocusTaskId(taskId);
       if (matterId) {
         setReviewFocusMatterId(matterId);
+      }
+      // 有任务时按即将打开的文件决定对话案件。草稿上的案件号可能不是这份文件。
+      if (matterId && !taskId) {
         setContextMatterId(matterId);
       }
       requestOpenContractRevision(taskId);
