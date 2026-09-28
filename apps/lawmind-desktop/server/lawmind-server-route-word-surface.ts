@@ -10,9 +10,15 @@
  * file. The original is not modified. This preview is not a signed-off final.
  */
 
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { z } from "zod";
 import { exportTrackedSiblingForTask } from "../../../src/lawmind/drafts/export-tracked-sibling.js";
-import { loadWordSurface } from "../../../src/lawmind/drafts/word-surface.js";
+import {
+  loadWordSurface as loadWordSurfaceStatic,
+  type WordSurfaceSnapshot,
+} from "../../../src/lawmind/drafts/word-surface.js";
 import {
   revisePendingRedlineHunk,
   summarizeRedline,
@@ -40,6 +46,53 @@ function parseRoot(raw: string | null): WordBaselineRoot | undefined {
   return undefined;
 }
 
+const wordSurfaceSource = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../src/lawmind/drafts/word-surface.ts",
+);
+
+type LoadWordSurface = typeof loadWordSurfaceStatic;
+
+let liveLoader: { mtimeMs: number; load: LoadWordSurface } | null = null;
+
+/**
+ * Dev preview must follow the extractor on disk. The desktop server process
+ * otherwise keeps the first `import` for its whole life, and the page skips
+ * work when the docx mtime is unchanged — so a source fix never reaches an
+ * already open preview.
+ */
+async function wordSurfaceCodeStamp(): Promise<string> {
+  if (process.env.LAWMIND_PACKAGED === "1") {
+    return "bundled";
+  }
+  try {
+    const st = await fs.stat(wordSurfaceSource);
+    return String(Math.round(st.mtimeMs));
+  } catch {
+    return "bundled";
+  }
+}
+
+async function resolveLoadWordSurface(): Promise<LoadWordSurface> {
+  if (process.env.LAWMIND_PACKAGED === "1") {
+    return loadWordSurfaceStatic;
+  }
+  try {
+    const st = await fs.stat(wordSurfaceSource);
+    const mtimeMs = Math.round(st.mtimeMs);
+    if (liveLoader?.mtimeMs === mtimeMs) {
+      return liveLoader.load;
+    }
+    const imported = (await import(`${pathToFileURL(wordSurfaceSource).href}?mtime=${mtimeMs}`)) as {
+      loadWordSurface: LoadWordSurface;
+    };
+    liveLoader = { mtimeMs, load: imported.loadWordSurface };
+    return imported.loadWordSurface;
+  } catch {
+    return loadWordSurfaceStatic;
+  }
+}
+
 export async function handleWordSurfaceRoutes({
   ctx,
   req,
@@ -59,12 +112,18 @@ export async function handleWordSurfaceRoutes({
     const seenProposalAt = url.searchParams.get("proposalAt");
     const seenFileMtime =
       seenMtimeRaw != null && seenMtimeRaw.trim() !== "" ? Number(seenMtimeRaw) : undefined;
+    const codeStamp = await wordSurfaceCodeStamp();
+    const stampMatches = url.searchParams.get("codeStamp") === codeStamp;
+    const loadWordSurface = await resolveLoadWordSurface();
     const loaded = await loadWordSurface({
       workspaceDir: ctx.workspaceDir,
       projectDir: safeOptionalProjectDir(url.searchParams.get("projectDir")),
       root,
       relPath,
-      ...(seenFileMtime != null && Number.isFinite(seenFileMtime) && seenProposalAt != null
+      ...(stampMatches &&
+      seenFileMtime != null &&
+      Number.isFinite(seenFileMtime) &&
+      seenProposalAt != null
         ? { seenFileMtime, seenProposalAt }
         : {}),
     });
@@ -74,10 +133,11 @@ export async function handleWordSurfaceRoutes({
       return true;
     }
     if ("unchanged" in loaded) {
-      sendJson(res, 200, { ok: true, unchanged: true }, c);
+      sendJson(res, 200, { ok: true, unchanged: true, codeStamp }, c);
       return true;
     }
-    sendJson(res, 200, { ok: true, ...loaded.snapshot }, c);
+    const snapshot: WordSurfaceSnapshot = loaded.snapshot;
+    sendJson(res, 200, { ok: true, ...snapshot, codeStamp }, c);
     return true;
   }
 

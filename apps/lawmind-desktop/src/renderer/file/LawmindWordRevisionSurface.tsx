@@ -24,14 +24,14 @@ export type LawmindWordRevisionSurfaceProps = {
 };
 
 type SurfaceResponse =
-  | ({ ok: true; unchanged: true } & Partial<WordSurfaceSnapshot>)
-  | ({ ok: true; unchanged?: false } & WordSurfaceSnapshot);
+  | ({ ok: true; unchanged: true; codeStamp?: string } & Partial<WordSurfaceSnapshot>)
+  | ({ ok: true; unchanged?: false; codeStamp?: string } & WordSurfaceSnapshot);
 
 function surfaceQuery(
   root: RootKey,
   relPath: string,
   projectDir: string | null | undefined,
-  seen: { fileMtimeMs: number; proposalAt: string } | null,
+  seen: { fileMtimeMs: number; proposalAt: string; codeStamp: string } | null,
 ): string {
   const q = new URLSearchParams({ root, path: relPath });
   if (projectDir?.trim()) {
@@ -40,6 +40,9 @@ function surfaceQuery(
   if (seen) {
     q.set("fileMtime", String(seen.fileMtimeMs));
     q.set("proposalAt", seen.proposalAt);
+    if (seen.codeStamp) {
+      q.set("codeStamp", seen.codeStamp);
+    }
   }
   return `/api/word-surface?${q.toString()}`;
 }
@@ -65,7 +68,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   const [exportNote, setExportNote] = useState<string | null>(null);
   const [exportPath, setExportPath] = useState<string | null>(null);
   const keyRef = useRef("");
-  const seenRef = useRef<{ fileMtimeMs: number; proposalAt: string } | null>(null);
+  const seenRef = useRef<{ fileMtimeMs: number; proposalAt: string; codeStamp: string } | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   const reload = useCallback(async () => {
@@ -79,6 +82,9 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         surfaceQuery(root, relPath, projectDir, seenRef.current),
       );
       if (body.unchanged) {
+        if (seenRef.current && body.codeStamp) {
+          seenRef.current = { ...seenRef.current, codeStamp: body.codeStamp };
+        }
         setLoadError(null);
         return;
       }
@@ -89,6 +95,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         seenRef.current = {
           fileMtimeMs: body.fileMtimeMs ?? 0,
           proposalAt: body.proposalUpdatedAt ?? "",
+          codeStamp: body.codeStamp ?? "",
         };
         setEditing((current) => {
           if (!current) {
@@ -101,6 +108,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         seenRef.current = {
           fileMtimeMs: body.fileMtimeMs ?? seenRef.current?.fileMtimeMs ?? 0,
           proposalAt: body.proposalUpdatedAt ?? "",
+          codeStamp: body.codeStamp ?? seenRef.current?.codeStamp ?? "",
         };
       }
       setLoadError(null);
