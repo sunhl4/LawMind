@@ -265,71 +265,74 @@ repairTranscriptChain(messages)
 
 `repairTranscriptFile` 写完用 `${fp}.repair.tmp` + rename——**修复本身也是原子写**。
 
-## 57.5 Word 版式：为什么这些数字是这样
+## 57.5 Word 版式：三套面
 
-`docx-legal-typography.ts` 的头部注释列了六条设计参考。值得整段读，因为它解释了「为什么是这些值」：
+`docx-legal-typography.ts` 按模板变体选面。全文黑色 `#000000`。字号是 docx 库的 half-points：12pt=24，14pt=28，16pt=32，22pt=44。
+
+| 面               | 变体                              | 谁在用                                                             |
+| ---------------- | --------------------------------- | ------------------------------------------------------------------ |
+| `researchMemo`   | `legalMemo`                       | 法律研究备忘录。全库 Word 默认模板仍是它                           |
+| `researchReport` | `researchReport`                  | 法律调研报告。只在模板解析到 `word/research-report-default` 时使用 |
+| `formal`         | `contractReview` / `demandLetter` | 合同审查、律师函                                                   |
+
+### 备忘录面
+
+文首五行：致、自、日期、事由、保密。主标题 16pt 加粗居中。一级「一、」、二级「（一）」、三级「1、」与正文同为 12pt 加粗，靠编号分层。中文和西文都是宋体（`SimSun`）。两端对齐，首行缩进 480 twips（约两个 12pt 汉字），段后 18 磅，行距最小值 16 磅。A4，四边 2.5 cm。文末右对齐落款日期。没有「审阅备注」。
+
+### 报告面
+
+版式取学位论文正文，去掉封面、英文封面、原创性声明、中英文摘要和「南京大学」页眉。目录保留。样式在 `docx-thesis-styles.ts`。docx 库写不出 `beforeLines` / `firstLineChars`，打包后由 `patchReportThesisDocx` 补进 `styles.xml`。
+
+| 对象             | 字号与对齐                     | 段前 / 段后           | 行距               | 大纲        |
+| ---------------- | ------------------------------ | --------------------- | ------------------ | ----------- |
+| 章标题（主标题） | 16pt 加粗居中，复杂脚本 22pt   | 1 行 / 2 行           | 2 倍（`line=480`） | 1           |
+| 一级「一、」     | 14pt 加粗左对齐，复杂脚本 16pt | 各 1 行               | 1.5 倍             | 2           |
+| 二级「（一）」   | 12pt 加粗左对齐                | 各 13 磅（260 twips） | `line=416`         | 3           |
+| 三级「1、」      | 12pt 加粗左对齐，复杂脚本 14pt | 各 1 行               | 1.5 倍             | 4，不进目录 |
+| 正文 `正文2`     | 小四，两端对齐                 | 各 0.5 行             | 1.5 倍             | —           |
+
+正文首行缩进是 `firstLine=200` 加 `firstLineChars=200`（2 字符），要配合节属性里的行网格（`docGrid` `linePitch=312`）才按字符算。中文宋体，西文与数字 Times New Roman（`REPORT_LATIN_FONT`）。A4；上下 1440 twips（2.54 cm），左右 1800 twips（3.17 cm）；页眉距 851，页脚距 992。页脚居中页码。
+
+目录域是 `TOC \h \o "1-3" \u`。标题「目录」大纲级别 9，不进入目录。条目样式 `toc 1/2/3`：一级 14pt 加粗、行距 1.5 倍、点线右对齐到 8296；二级左缩进 2 字符、12pt；三级左缩进 4 字符、12pt 加粗。文档打开时 `updateFields` 为真，Word 里更新一次域后页码才准。样例：`workspace/templates/word/research-report-default.docx`。
+
+图和表按同一篇论文的实测，只在报告面里从正文生成（`docx-thesis-figures.ts`）：
+
+- 图：正文里的 ` ```lm-chart ` 围栏画成 SVG，宽度约版心 14.66 cm（8306 twips），居中。黑框、刻度在框外，序列用黑、深蓝、深红等深色，字用 Times New Roman / 宋体。题注在图下，`图 1-1 标题`，样式「图表题注」：10.5 pt、单倍行距、段后 0.5 行、不缩进。
+- 表：Markdown 管道表收成三线表。顶线、表头下横线、底线为 1.5 pt（`sz=12`），没有竖线。表心 9 pt、宋体 + Times New Roman，表头加粗，表居中。题注在表上，`表 1-1 标题`，同一题注样式。
+- 题注行若已写成「图 …」「表 …」，沿用原文；否则按出现顺序自动编号。备忘录和合同面不走这套。
+
+### 合同 / 律师函面
+
+中文和西文都是宋体。主标题 22pt。一级 16pt、二级 14pt、三级 12pt。行距 1.5 倍。页边距 1 英寸。文首有文种提示和「成稿日期 · 案件」两行居中元信息。可以写「审阅备注」。
+
+### 导出常量
+
+| 常量                                     | 值                | 用在                                   |
+| ---------------------------------------- | ----------------- | -------------------------------------- |
+| `LEGAL_BODY_FONT` / `LEGAL_HEADING_FONT` | `SimSun`          | 三套面的中文。备忘录和合同的西文也用它 |
+| `LEGAL_LATIN_FONT`                       | `SimSun`          | 备忘录、合同的西文                     |
+| `REPORT_LATIN_FONT`                      | `Times New Roman` | 只有报告面的西文和数字                 |
+| `SZ_BODY`                                | 24                | 12pt                                   |
+| `SZ_H1`                                  | 32                | 16pt。报告章标题；合同一级标题         |
+| `SZ_H2`                                  | 28                | 14pt。报告一级「一、」；合同二级标题   |
+| `SZ_TITLE`                               | 44                | 22pt。合同 / 律师函主标题              |
+| `SZ_SMALL`                               | 21                | 10.5pt。引用行                         |
+| `COLOR_TEXT` / `COLOR_CITATION`          | `000000`          | 正文和「参见」都是黑                   |
+
+`FIRST_LINE_INDENT_TWIPS` 是 480，给备忘录首行缩进（约两个 12pt 汉字，1pt = 20 twips）。`LINE_15` 是 360，即 1.5 倍行距。报告正文的首行缩进不走 480，走样式上的 2 字符。
+
+### 中文标题编号
+
+`classifyChineseHeadingLevel`：
 
 ```text
-- 正文字体：中文宋体（SimSun）12pt（小四），黑色；西文可配合 Times New Roman
-- 标题：黑体（SimHei）区分层级，主标题居中偏大，章节标题加粗
-- 版心：A4 默认，页边距约 1 英寸 / 2.54cm
-- 行距：约 1.5 倍行距，段间适度留白
-- 正文段落：首行左缩进约 2 个汉字宽（常见的「首行缩进两格」）
+免责声明、一、二、…     → 1
+（一）、(1)             → 2
+1、2、                  → 3
+0. / 2.1 / §1.1         → 不认，按正文
 ```
 
-而且诚实说明了这不是硬标准：
-
-```text
-设计参考（行业通用做法，非某一条强制国标）
-```
-
-### 十个导出常量的实际值
-
-| 常量                 | 值                | 对应   | 实际用没用       |
-| -------------------- | ----------------- | ------ | ---------------- |
-| `LEGAL_BODY_FONT`    | `SimSun`          | 宋体   | 是               |
-| `LEGAL_HEADING_FONT` | `SimHei`          | 黑体   | 是               |
-| `LEGAL_LATIN_FONT`   | `Times New Roman` | 西文   | **否（死常量）** |
-| `SZ_BODY`            | **24**            | 12pt   | 是               |
-| `SZ_H1`              | 32                | 16pt   | 是               |
-| `SZ_H2`              | 28                | 14pt   | 是               |
-| `SZ_TITLE`           | 44                | 22pt   | 是               |
-| `SZ_SMALL`           | 21                | 10.5pt | 是               |
-| `COLOR_TEXT`         | `000000`          | 黑     | 是               |
-| `COLOR_CITATION`     | `404040`          | 深灰   | 是               |
-
-**`LEGAL_LATIN_FONT` 定义了但没人用**（`rg LEGAL_LATIN_FONT` 只查到定义那一行）。所以**别以为导出的 Word 会显式设西文字体**——`render-docx.ts` 只设 `font: LEGAL_BODY_FONT`（SimSun），西文走的是 Word 主题默认或 SimSun 自带的西文字形。文件头注释那句「西文**可配合** Times New Roman」是设想，不是现状；要真的设西文字体，得在 `render-docx.ts` 里加 `ascii`/`hAnsi` 属性。
-
-**字号是 half-points**——注释专门写了这个换算：
-
-```text
-docx 字号为 half-points：12pt=24，14pt=28，16pt=32，22pt=44
-```
-
-**这是 docx 库的约定**，不写下来很容易误以为 24 是 24pt。
-
-### 三个非导出的常量
-
-| 常量                      | 值                       | 含义                |
-| ------------------------- | ------------------------ | ------------------- |
-| `FIRST_LINE_INDENT_TWIPS` | **480**                  | 首行缩进 2 个汉字宽 |
-| `LINE_15`                 | **360**                  | 1.5 倍行距          |
-| `PAGE_MARGIN_TWIPS`       | `convertInchesToTwip(1)` | 1 英寸边距          |
-
-**480 twips ≈ 24pt**（1pt = 20 twips），正好是两个 12pt 汉字的宽度。**这个数字是算出来的，不是凑的。**
-
-### 条款与列表的识别
-
-`isListOrClauseLine` 用四条正则判「这行是不是列表/条款」，命中就不加首行缩进（因为已有悬挂缩进）：
-
-```text
-^-\s / ^• / ^\*      ← 符号列表
-^\d+[\s.)．、]        ← 阿拉伯数字
-^[（(][一二三四五六七八九十\d]+[）)]\s+   ← 括号编号
-^[一二三四五六七八九十]+[、.]\s*          ← 中文数字编号
-```
-
-**这四条覆盖了中文法律文书里常见的四种编号写法**。漏了第四种，「一、」开头的段落会被当成普通正文缩进——看起来会别扭。
+备忘录面和报告面都会把正文里命中的行升成对应级标题。报告面升上去之后套上面那张表的字号和段距。符号列表（`-` / `•` / `*`）仍用悬挂缩进，不升成标题。
 
 ### `deliverableTypeHint` 的分支
 
@@ -352,10 +355,12 @@ letter. 开头   → "律师函/函件类 / 工作稿"
 
 ### 引用的两种呈现
 
-| 情况   | 用什么                                                                    |
-| ------ | ------------------------------------------------------------------------- |
-| 有 URL | `paragraphCitationBlockWithLinks`（样式 `Hyperlink`、斜体、深灰、10.5pt） |
-| 无 URL | `paragraphCitationBlock`                                                  |
+| 情况   | 用什么                                                      |
+| ------ | ----------------------------------------------------------- |
+| 有 URL | `paragraphCitationBlockWithLinks`（样式 `Hyperlink`、黑色） |
+| 无 URL | `paragraphCitationBlock`                                    |
+
+斜体只出现在合同 / 律师函面。备忘录和报告的「参见」不斜体。报告的「参见」套正文样式 `正文2`，字号仍是 10.5pt。
 
 前缀固定 `"参见："`，多条之间用 `；` 分隔、末尾 `。`。
 
@@ -394,32 +399,62 @@ letter. 开头   → "律师函/函件类 / 工作稿"
 上传模板那条路会先检查文件在不在：
 
 ```text
-上传的 Word 模板文件不存在或不可读。请在设置中重新登记或恢复模板文件。
+上传的 Word 模板已不再支持。请改用内置模板出稿。
 ```
 
-### 摘要的标题按类型变
+### 摘要节标题
 
-| 类型             | 摘要节标题   |
-| ---------------- | ------------ |
-| `contractReview` | **审查结论** |
-| `demandLetter`   | **核心主张** |
-| 其他             | 摘要         |
+尚无「结论 / 意见」栏目时，草稿摘要才写成一节，避免和正文重复。
 
-**「审查结论」比「摘要」更贴业务**——这是文案上的一处用心。
+| 变体               | 摘要节标题     |
+| ------------------ | -------------- |
+| `contractReview`   | 一、一句话结论 |
+| `demandLetter`     | 一、委托说明   |
+| `researchReport`   | 一、调研结论   |
+| `legalMemo` 及其他 | 一、结论       |
 
-### 文档结构（按顺序）
+合同和律师函总会写出这一节。备忘录和报告只在正文里还没有结论栏目时写。
+
+### 文档结构（按面）
+
+备忘录（`legalMemo`）：
 
 ```text
-① 标题（居中）
-② 元信息行（居中）
-③ H1 摘要 + 摘要正文
-④ 每节：
-     有出处事件 → 用 Word 批注（comment）呈现出处
-     否则 → H2 标题 + 正文行 + 引用块
-⑤ H1「审阅备注」+ 每条备注
+① 致 / 自 / 日期 / 事由 / 保密
+② 主标题
+③ 必要时「一、结论」+ 摘要
+④ 各节（中文编号决定 12pt 标题层级）+ 参见
+⑤ 免责声明（稿内还没有时补「本备忘录…」）
+⑥ 右对齐日期
 ```
 
-**第 ④ 步那个分叉**：开了 `includeProvenance` 时，出处是**Word 批注**而不是正文——这样律师看到的正文是干净的，出处挂在批注里（可关掉）。
+报告（`researchReport`）：
+
+```text
+① 主标题（章标题样式）
+② 「目录」（不进目录）+ TOC 域 + 分页
+③ 必要时「一、调研结论」+ 摘要
+④ 各节（一、 / （一） / 1、 套学位论文标题样式）+ 参见
+⑤ 免责声明（稿内还没有时补「本报告…」）
+```
+
+先写题目，再写目录。目录后面分页，正文从下一页开始。
+
+没有校名页眉，没有封面和摘要页。业务报告（`report.general` 等）免责声明用「初步分析」；其余报告用「初步法律分析」。
+
+合同 / 律师函：
+
+```text
+① 标题
+② 文种提示、成稿日期 · 案件（居中）
+③ 摘要节
+④ 各节 + 参见
+⑤ 有审阅备注时才写「审阅备注」
+```
+
+开了 `includeProvenance` 时，出处是 Word 批注，不写进正文。
+
+主出稿（`engine/rendering.ts`）把 `resolveTemplateForDraft` 的 `variant` 传进渲染。带修订痕迹、又没有合同基线时，非合同稿的 `templateVariant` 仍是空的，会落到备忘录面，即使草稿的模板 ID 已经是调研报告。
 
 ### 文件名
 
@@ -435,9 +470,9 @@ outputFileName 给了 → 用它
 `render-docx-tracked.ts` 是 `artifacts/` 里最复杂的一个。它的头部注释三句：
 
 ```text
-Prefers an uploaded contract baseline `.docx` or binary `.doc` when `draft.contractEdit` is set.
-Binary `.doc` is first-class: an ephemeral working copy may be used only for OpenXML edits
-(never requires the lawyer to convert, and never writes a sibling `.docx` next to the original).
+Prefers an uploaded contract baseline `.docx` when `draft.contractEdit` is set.
+Binary `.doc` is not a revision baseline — stop and ask the lawyer to save as `.docx`
+in Word or WPS before continuing tracked export.
 ```
 
 ### 细节一：officecli 的调用形式
@@ -524,22 +559,17 @@ conversionTool?, conversionFidelity? ("high" | "lossy"), warning?
 
 ### 五种失败码
 
-| 码                        | 什么时候        |
-| ------------------------- | --------------- |
-| `baseline_prepare_failed` | `.doc` 转写失败 |
-| `baseline_missing`        | 要求原件但没有  |
-| `plain_render_failed`     | 退化渲染也失败  |
-| `tracked_apply_failed`    | 落改失败        |
-| `tracked_render_failed`   | 渲染失败        |
+| 码                      | 什么时候                            |
+| ----------------------- | ----------------------------------- |
+| `doc_needs_docx`        | 基线是 `.doc`，须律师另存为 `.docx` |
+| `baseline_missing`      | 要求原件但没有                      |
+| `plain_render_failed`   | 退化渲染也失败                      |
+| `tracked_apply_failed`  | 落改失败                            |
+| `tracked_render_failed` | 渲染失败                            |
 
-### `.doc` 那条有损警告
+### `.doc` 须律师另存
 
-```text
-基线 .doc 仅经 textutil 转写，原有字体/版式/审阅修订可能已丢失；
-请安装 Microsoft Word 或 LibreOffice 后重导以保留原格式。
-```
-
-**它诚实说明「格式丢了」并给出改进办法**（装 Word 或 LibreOffice）。这是第 32 章那条「不确定就说不确定」的例子。
+修订只认 `.docx`。读到二进制 `.doc` 且要出审阅痕迹时停下来，提示律师用 Word 或 WPS 另存为同名 `.docx` 后再继续。正文抽取（`analyze_document` / 索引）仍可读 `.doc`，只是不当成可落修订的原件。
 
 ### 两条「部分成功」的提示
 
@@ -765,7 +795,7 @@ Never mutates the lawyer's original. Never uses task-id / hash suffixes.
 
 兜底文件名 `"合同.docx"`（可用 `fallbackBasename` 覆盖）。
 
-它还有两个正则：`WORD_BASELINE_RE = /\.docx?$/i`（认 `.doc` 与 `.docx`）、`REVISION_STAMP_RE` 与第 57.10 节那个相同。
+它还有两个正则：`WORD_BASELINE_RE = /\.docx?$/i`（路径探测仍认 `.doc` 与 `.docx`；真正落修订前会拒绝 `.doc`）、`REVISION_STAMP_RE` 与第 57.10 节那个相同。
 
 ### `default-output-location.ts`：六级优先级
 
@@ -913,7 +943,7 @@ Packaged desktop apps and `pnpm install` vendor a platform build under
 - **`includeProvenance` 会把出处放进 Word 批注**，不是正文。
 - **修订轨落盘必须从右到左**（lookbehind 锚定）。
 - **多处命中整处回滚**，不做部分成功。
-- **`.doc` 转写是有损的**，且会如实警告。
+- **修订只认 `.docx`**；碰到 `.doc` 先请律师另存，不自动转写。
 - **引擎永远不会自动打开 Word**（`openWord: false`）。
 - **「不会用模板重建」是一条承诺。** 宁可不给稿。
 - **PPT 布局判定顺序不能换**（表格第一、双栏在单栏前）。

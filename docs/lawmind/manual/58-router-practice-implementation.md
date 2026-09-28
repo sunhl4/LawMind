@@ -1030,17 +1030,18 @@ local_counsel → resource_plan → stakeholder_comms → issuance_list
 
 **四级置信度**，而且最后一级明说「不自动消解」——把冲突摆着，不替律师选。
 
-## 58.11 模板：十个内置与占位符
+## 58.11 模板：十一个内置与占位符
 
 `templates/index.ts`（**无头部注释**）管两个来源：内置与上传。
 
 **上传已退役**：路由侧 `POST /api/templates/scan|register|enabled` 与 `DELETE /api/templates/uploaded` 一律 405（`lawmind-server-route-templates.ts`），工具侧 `register_template` / `set_template_enabled` 保留名字但调用一律拒绝（`engine-template-tools.ts`：「保留工具名以免旧会话报『未知工具』」）。下面 `registerUploadedTemplate` 的校验链仍留在代码里，供已上传旧模板的注册表读取与渲染兼容（`resolveTemplateForDraft` 仍会按注册表找旧上传模板），但产品路径已没有入口能调到它。
 
-### 十个内置模板
+### 十一个内置模板
 
 | id                               | 格式 | 标签                     | 变体                | 分类       |
 | -------------------------------- | ---- | ------------------------ | ------------------- | ---------- |
-| `word/legal-memo-default`        | docx | Legal Memo               | `legalMemo`         | internal   |
+| `word/legal-memo-default`        | docx | 法律研究备忘录           | `legalMemo`         | internal   |
+| `word/research-report-default`   | docx | 法律调研报告             | `researchReport`    | internal   |
 | `word/contract-default`          | docx | Contract Review          | `contractReview`    | contracts  |
 | `word/demand-letter-default`     | docx | Demand Letter            | `demandLetter`      | client     |
 | `ppt/client-brief-default`       | pptx | Client Brief             | `clientBrief`       | client     |
@@ -1053,12 +1054,16 @@ local_counsel → resource_plan → stakeholder_comms → issuance_list
 
 四个分类（`BuiltInTemplateCategory`）：`contracts` / `litigation` / `client` / `internal`，注释说是「用于 UI 分组与扩展清单」。
 
-**两种格式的默认模板**：
+**两种格式的默认模板**（找不到 ID 时的回落，不是「所有报告」）：
 
 ```text
 docx → word/legal-memo-default
 pptx → ppt/client-brief-default
 ```
+
+调研报告版式只在解析结果是 `word/research-report-default` 时启用。旧 ID 里只有这两个别名会落到它：`report-general-default`、`report-esg-default`。`document-general-default` 和 `litigation-outline-default` 仍回法律备忘录。
+
+起草时 `keyword-draft.ts` 的 `defaultTemplateId` 把 `report.general`、`report.esg`、`report.learning` 指到调研报告。`report.compliance` 以及备忘录、意见书、普通文书仍是法律备忘录。规格表（第 21 章）里 `report.learning` 的 `defaultTemplateId` 仍写着 `word/legal-memo-default`，和起草函数不一致：从规格抄模板 ID 的路径不会自动换成报告版式。
 
 ### 上传模板的六个校验
 

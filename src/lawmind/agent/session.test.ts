@@ -160,6 +160,25 @@ describe("session title and history helpers", () => {
     ]);
   });
 
+  it("loadSession marks legacy compact digests hiddenFromLawyer", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    s.conversationHistory.push(
+      { role: "user", content: "清理文件", timestamp: new Date().toISOString() },
+      {
+        role: "user",
+        content:
+          "【压缩后上下文锚点】\n- 交付物验收与 render 门禁仍须遵守当前草稿 acceptance 状态。",
+        timestamp: new Date().toISOString(),
+      },
+    );
+    saveSession(ws, s);
+    const loaded = loadSession(ws, s.sessionId);
+    expect(loaded?.conversationHistory[1]?.hiddenFromLawyer).toBe(true);
+    const rows = sessionHistoryToSimpleMessages(loaded!);
+    expect(rows.map((r) => r.text)).toEqual(["清理文件"]);
+  });
+
   it("sessionHistoryToSimpleMessages omits hiddenFromLawyer bounce notes", () => {
     const ws = tmpDir();
     const s = createSession({ workspaceDir: ws, actorId: "a" });
@@ -177,7 +196,7 @@ describe("session title and history helpers", () => {
     expect(rows.map((r) => r.text)).toEqual(["改合同", "已完成。"]);
   });
 
-  it("sessionHistoryToSimpleMessages includes persisted liveTrace", () => {
+  it("sessionHistoryToSimpleMessages keeps the answer and drops the tool-step list", () => {
     const ws = tmpDir();
     const s = createSession({ workspaceDir: ws, actorId: "a" });
     s.conversationHistory.push(
@@ -193,8 +212,8 @@ describe("session title and history helpers", () => {
       },
     );
     const rows = sessionHistoryToSimpleMessages(s);
-    expect(rows[1]?.liveTrace?.active).toBe(false);
-    expect(rows[1]?.liveTrace?.steps[0]?.label).toBe("执行工作流");
+    expect(rows[1]?.text).toBe("done");
+    expect(rows[1]?.liveTrace).toBeUndefined();
   });
 
   it("sessionHistoryToSimpleMessages attaches pendingRequiresAction to last assistant", () => {
@@ -239,7 +258,7 @@ describe("session title and history helpers", () => {
     const rows = sessionHistoryToSimpleMessages(s);
     expect(rows).toHaveLength(2);
     expect(rows[1]?.text).toBe("");
-    expect(rows[1]?.liveTrace?.steps[0]?.label).toBe("写回草稿");
+    expect(rows[1]?.liveTrace).toBeUndefined();
   });
 
   it("deriveModelMessages is the session→LLM projection", () => {
@@ -349,7 +368,58 @@ describe("session title and history helpers", () => {
     const rows = sessionHistoryToSimpleMessages(s);
     expect(rows.map((row) => row.role)).toEqual(["user", "assistant"]);
     expect(rows[0]?.text).toBe("去做下一轮");
-    expect(rows[1]?.text).toBe("本轮先补正文。\n\n草稿写错了，改走合并稿。");
+    expect(rows[1]?.text).toBe("草稿写错了，改走合并稿。");
+  });
+
+  it("sessionHistoryToSimpleMessages strips echoed tool inventory from the answer", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    const now = new Date().toISOString();
+    s.conversationHistory.push(
+      { role: "user", content: "清理文件", timestamp: now },
+      {
+        role: "assistant",
+        content: "清理完成。\n\n### 曾调用工具\nanalyze_document, run_host_command, write_document",
+        timestamp: now,
+      },
+    );
+    const rows = sessionHistoryToSimpleMessages(s);
+    expect(rows[1]?.text).toBe("清理完成。");
+    expect(rows[1]?.text).not.toContain("曾调用工具");
+  });
+
+  it("sessionHistoryToSimpleMessages shows only the prose after the last tool round", () => {
+    const ws = tmpDir();
+    const s = createSession({ workspaceDir: ws, actorId: "a" });
+    const now = new Date().toISOString();
+    s.conversationHistory.push(
+      { role: "user", content: "清理文件", timestamp: now },
+      {
+        role: "assistant",
+        content: "先盘清家底再动手。",
+        timestamp: now,
+        toolCalls: [{ id: "c1", name: "write_document", arguments: {} }],
+      },
+      {
+        role: "tool",
+        content: "",
+        timestamp: now,
+        toolCallResponses: [{ toolCallId: "c1", name: "write_document", result: { ok: true } }],
+      },
+      { role: "assistant", content: "先把完整清单读全，再分类。", timestamp: now },
+      {
+        role: "tool",
+        content: "",
+        timestamp: now,
+        toolCallResponses: [{ toolCallId: "c2", name: "run_host_command", result: { ok: true } }],
+      },
+      { role: "assistant", content: "清理完成。不需要的已集中到待删除。", timestamp: now },
+    );
+    const rows = sessionHistoryToSimpleMessages(s);
+    expect(rows.map((row) => row.role)).toEqual(["user", "assistant"]);
+    expect(rows[1]?.text).toBe("清理完成。不需要的已集中到待删除。");
+    expect(rows[1]?.text).not.toContain("先盘清家底");
+    expect(rows[1]?.liveTrace).toBeUndefined();
   });
 
   it("sessionHistoryToSimpleMessages does not merge a later question into the previous answer", () => {

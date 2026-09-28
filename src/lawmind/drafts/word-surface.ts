@@ -240,6 +240,10 @@ export async function loadWordSurface(params: {
   | { ok: false; error: string }
 > {
   const relPath = params.relPath.trim().replace(/\\/g, "/");
+  if (/\.doc$/i.test(relPath) && !/\.docx$/i.test(relPath)) {
+    const { DOC_NEEDS_DOCX_MESSAGE } = await import("../mail/doc-revision-gate.js");
+    return { ok: false, error: DOC_NEEDS_DOCX_MESSAGE };
+  }
   if (!/\.docx$/i.test(relPath)) {
     return { ok: false, error: "not_docx" };
   }

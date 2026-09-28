@@ -37,7 +37,7 @@ export type UseLawmindAppSidebarPropsInput = {
   onSelectChatSession?: (sessionId: string) => void | Promise<void>;
   onCreateNewChatSession?: () => void | Promise<void>;
   onRenameChatSession?: (sessionId: string, title: string) => void | Promise<void>;
-  onDeleteChatSession?: (sessionId: string) => void | Promise<void>;
+  onDeleteChatSession?: (sessionId: string | readonly string[]) => void | Promise<void>;
   onCreateMatter?: () => void;
 };
 

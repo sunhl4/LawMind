@@ -1,13 +1,22 @@
 /**
  * Contract-attachment classification for mail review automations.
- * Word baselines (.docx / .doc) are first-class for surgical edit + tracked export.
- * Other formats use the opinion (analyze_document) path.
+ * Only `.docx` is ready for surgical edit + tracked export.
+ * Binary `.doc` must be saved as `.docx` by the lawyer before redline.
+ * Other formats use the opinion (analyze_document) path, or a converter for wps/rtf/odt.
  */
 
-export type ContractAttachmentKind = "tracked_word" | "convertible_word" | "analyzable" | "other";
+export type ContractAttachmentKind =
+  | "tracked_word"
+  | "legacy_doc"
+  | "convertible_word"
+  | "analyzable"
+  | "other";
 
-/** First-class Word baselines — .docx and binary .doc (no conversion required). */
-const TRACKED_WORD_RE = /\.docx?$/i;
+/** Ready for tracked redline — OpenXML `.docx` only. */
+const TRACKED_WORD_RE = /\.docx$/i;
+
+/** Word 97–2003 binary — readable as text, not a revision baseline. */
+const LEGACY_DOC_RE = /\.doc$/i;
 
 /** Alternate word-like formats that may need a converter for tracked export. */
 const CONVERTIBLE_WORD_RE = /\.(wps|rtf|odt)$/i;
@@ -27,9 +36,11 @@ export function classifyContractAttachment(nameOrPath: string): ContractAttachme
   if (!ext) {
     return "other";
   }
-  // `.docx` and `.doc` both match TRACKED_WORD_RE (`\.docx?$`).
   if (TRACKED_WORD_RE.test(ext)) {
     return "tracked_word";
+  }
+  if (LEGACY_DOC_RE.test(ext)) {
+    return "legacy_doc";
   }
   if (CONVERTIBLE_WORD_RE.test(ext)) {
     return "convertible_word";

@@ -108,6 +108,22 @@ describe("contract-edit-baseline", () => {
     expect(paths).toContain("uploads/甲方协议.docx");
   });
 
+  it("does not stamp binary .doc as a revision baseline", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-baseline-doc-"));
+    dirs.push(ws);
+    const rel = "uploads/旧稿.doc";
+    fs.mkdirSync(path.join(ws, "uploads"), { recursive: true });
+    fs.writeFileSync(path.join(ws, rel), Buffer.from([0xd0, 0xcf, 0x11, 0xe0]));
+    const stamped = stampContractEditBaselineIfNeeded({
+      workspaceDir: ws,
+      draft: minimalDraft({
+        contractEdit: { baselineRelativePath: rel, mode: "surgical" },
+      }),
+      instruction: `审查 \`${rel}\``,
+    });
+    expect(stamped.contractEdit).toBeUndefined();
+  });
+
   it("stamps contractEdit from a compose Word pin without a path in the instruction", async () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-baseline-pin-"));
     dirs.push(ws);

@@ -71,7 +71,6 @@ import { pinDroppedChatFiles } from "./lawmind-file-drop-context";
 import { pinPastedChatImages } from "./lawmind-chat-paste-images";
 import { useChatFileDropTarget } from "./useChatFileDropTarget";
 
-export { hasChatDiagnostics } from "./lawmind-chat";
 import {
   LawmindChatMessagesColumn,
   type LawmindChatMessagesColumnProps,

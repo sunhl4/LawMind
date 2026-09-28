@@ -151,6 +151,241 @@ describe("renderDocxWithOptions", () => {
     expect(documentXml).not.toContain("commentRangeStart");
   });
 
+  it("renders the default research memo without AI workbench sections", async () => {
+    const result = await renderDocxWithOptions(
+      makeDraft({
+        title: "竞业限制补偿",
+        audience: "甲公司",
+        createdAt: "2026-04-24T00:00:00.000Z",
+        summary: "补偿标准可能低于法定下限。",
+        sections: [
+          {
+            heading: "二、事实概要",
+            body: "（一）已知事实\n劳动者于离职时签署竞业协议。\n1、协议约定补偿按月支付。",
+            citations: [],
+          },
+          { heading: "三、法律分析", body: "需结合当地司法实践判断。", citations: [] },
+        ],
+        reviewNotes: ["内部备注不应出现在报告里"],
+      }),
+      outputDir,
+      {},
+    );
+    expect(result.ok).toBe(true);
+    const data = await fs.readFile(result.outputPath!);
+    const zip = await JSZip.loadAsync(data);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    expect(documentXml).toContain("SimSun");
+    expect(documentXml).toContain('w:val="000000"');
+    expect(documentXml).toContain("致：甲公司");
+    expect(documentXml).toContain("自：");
+    expect(documentXml).toContain("2026 年 4 月 24 日");
+    expect(documentXml).toContain("关于竞业限制补偿的法律备忘录");
+    expect(documentXml).toContain("一、结论");
+    expect(documentXml).toContain("二、事实概要");
+    expect(documentXml).toContain("（一）已知事实");
+    expect(documentXml).toContain("1、协议约定补偿按月支付。");
+    expect(documentXml).toContain("免责声明");
+    expect(documentXml).not.toContain("检索/研究策略");
+    expect(documentXml).not.toContain("可靠性");
+    expect(documentXml).not.toContain("{{");
+    expect(documentXml).not.toContain("审阅备注");
+    expect(documentXml).not.toContain("内部备注不应出现在报告里");
+    expect(documentXml).not.toContain("SimHei");
+  });
+
+  it("renders research reports in thesis body style without school front matter", async () => {
+    const result = await renderDocxWithOptions(
+      makeDraft({
+        title: "关于竞业限制补偿标准的法律调研报告",
+        templateId: "word/research-report-default",
+        audience: "甲公司",
+        createdAt: "2026-04-24T00:00:00.000Z",
+        summary: "补偿标准可能低于法定下限。",
+        sections: [
+          {
+            heading: "二、委托事项与背景",
+            body: "（一）委托问题\n客户询问竞业限制补偿的法定下限。\n1、协议约定按月支付。",
+            citations: [],
+          },
+        ],
+        reviewNotes: ["内部备注不应出现在报告里"],
+      }),
+      outputDir,
+      { templateVariant: "researchReport" },
+    );
+    expect(result.ok).toBe(true);
+    const data = await fs.readFile(result.outputPath!);
+    const zip = await JSZip.loadAsync(data);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    const stylesXml = await zip.file("word/styles.xml")?.async("string");
+    const footerXml = await zip.file("word/footer1.xml")?.async("string");
+    const settingsXml = await zip.file("word/settings.xml")?.async("string");
+    expect(documentXml).toContain("SimSun");
+    expect(documentXml).toContain("Times New Roman");
+    expect(documentXml).toContain('w:val="32"');
+    expect(documentXml).toContain('w:val="28"');
+    expect(documentXml).toContain('w:top="1440"');
+    expect(documentXml).toContain('w:left="1800"');
+    expect(documentXml).toContain('w:right="1800"');
+    expect(documentXml).toContain('w:linePitch="312"');
+    expect(documentXml).toContain("目录");
+    const titleAt = documentXml.indexOf("关于竞业限制补偿标准的法律调研报告");
+    const tocHeadingAt = documentXml.indexOf(">目录</w:t>");
+    expect(titleAt).toBeGreaterThan(0);
+    expect(tocHeadingAt).toBeGreaterThan(titleAt);
+    expect(documentXml).toContain("TOC \\h \\o &quot;1-3&quot; \\u");
+    expect(documentXml).toContain('w:pos="8296"');
+    expect(stylesXml).toContain('w:beforeLines="100"');
+    expect(stylesXml).toContain('w:afterLines="200"');
+    expect(stylesXml).toContain('w:beforeLines="50"');
+    expect(stylesXml).toContain('w:firstLineChars="200"');
+    expect(stylesXml).toContain('w:line="416"');
+    expect(stylesXml).toContain('w:line="480"');
+    expect(stylesXml).toContain('w:leader="dot"');
+    expect(stylesXml).toContain('w:leftChars="200"');
+    expect(stylesXml).toContain('w:outlineLvl w:val="9"');
+    expect(settingsXml).toContain("updateFields");
+    expect(documentXml).toContain("关于竞业限制补偿标准的法律调研报告");
+    expect(documentXml).toContain("二、委托事项与背景");
+    expect(documentXml).toContain("（一）委托问题");
+    expect(documentXml).toContain("1、协议约定按月支付。");
+    expect(documentXml).toContain("一、调研结论");
+    expect(documentXml).toContain("本报告系基于");
+    expect(documentXml).not.toContain("南京大学");
+    expect(documentXml).not.toContain("致：");
+    expect(documentXml).not.toContain("博士学位论文");
+    expect(documentXml).not.toContain("审阅备注");
+    expect(documentXml).not.toContain("内部备注不应出现在报告里");
+    expect(footerXml).toBeDefined();
+    expect(footerXml).toContain("PAGE");
+  });
+
+  it("lays out report charts and tables like the thesis", async () => {
+    const result = await renderDocxWithOptions(
+      makeDraft({
+        title: "关于补偿标准的法律调研报告",
+        summary: "",
+        sections: [
+          {
+            heading: "四、法律分析",
+            body: [
+              "各地口径不同。",
+              "表 补偿对照",
+              "| 地区 | 月补偿 |",
+              "| --- | --- |",
+              "| 甲市 | 30 |",
+              "",
+              "```lm-chart",
+              JSON.stringify({
+                title: "补偿对比",
+                type: "bar",
+                categories: ["甲市", "乙市"],
+                series: [{ name: "月补偿", values: [30, 20] }],
+              }),
+              "```",
+            ].join("\n"),
+            citations: [],
+          },
+        ],
+      }),
+      outputDir,
+      { templateVariant: "researchReport" },
+    );
+    expect(result.ok).toBe(true);
+    const zip = await JSZip.loadAsync(await fs.readFile(result.outputPath!));
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    const stylesXml = await zip.file("word/styles.xml")?.async("string");
+    expect(documentXml).toContain("表 1-1 补偿对照");
+    expect(documentXml).toContain("图 1-1 补偿对比");
+    expect(documentXml).toContain('w:val="single"');
+    expect(documentXml).toContain('w:sz="12"');
+    expect(documentXml).toContain("svgBlip");
+    expect(stylesXml).toContain("图表题注");
+    expect(stylesXml).toContain('w:afterLines="100"');
+    expect(documentXml).not.toContain("南京大学");
+  });
+
+  it("skips de-AI polish for existing-Word contract edits", async () => {
+    const result = await renderDocxWithOptions(
+      makeDraft({
+        title: "合同改稿壳",
+        deliverableType: "report.general",
+        contractEdit: {
+          baselineRelativePath: "contracts/a.docx",
+          mode: "surgical",
+        },
+        sections: [
+          {
+            heading: "四、法律分析",
+            body: "自：LawMind 法律助理\n保留闭环用语。",
+            citations: [],
+          },
+        ],
+      }),
+      outputDir,
+      { applyDeliverableDeai: false },
+    );
+    expect(result.ok).toBe(true);
+    const data = await fs.readFile(result.outputPath!);
+    const zip = await JSZip.loadAsync(data);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    // 原 Word 路径：不改栏目名、不扫套话。
+    expect(documentXml).toContain("四、法律分析");
+    expect(documentXml).toContain("闭环");
+  });
+
+  it("applies default de-AI polish before writing Word", async () => {
+    const result = await renderDocxWithOptions(
+      makeDraft({
+        title: "项目进度",
+        deliverableType: "report.general",
+        audience: "甲公司",
+        createdAt: "2026-09-28T00:00:00.000Z",
+        summary: "总之，按期推进。",
+        sections: [
+          { heading: "0. 检索/研究策略", body: "关键词：进度", citations: [] },
+          {
+            heading: "四、法律分析",
+            body: "自：LawMind 法律助理\n希望这对你有帮助。进度正常。",
+            citations: [],
+          },
+        ],
+      }),
+      outputDir,
+      {},
+    );
+    expect(result.ok).toBe(true);
+    const data = await fs.readFile(result.outputPath!);
+    const zip = await JSZip.loadAsync(data);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    expect(documentXml).toContain("四、分析");
+    expect(documentXml).not.toContain("法律分析");
+    expect(documentXml).not.toContain("LawMind");
+    expect(documentXml).not.toContain("检索/研究策略");
+    expect(documentXml).not.toContain("希望这对你有帮助");
+    expect(documentXml).toContain("自：");
+  });
+
+  it("keeps contract review on Songti black with formal sizes", async () => {
+    const result = await renderDocxWithOptions(
+      makeDraft({ deliverableType: "contract.general" }),
+      outputDir,
+      {
+        templateVariant: "contractReview",
+      },
+    );
+    expect(result.ok).toBe(true);
+    const data = await fs.readFile(result.outputPath!);
+    const zip = await JSZip.loadAsync(data);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    expect(documentXml).toContain("SimSun");
+    expect(documentXml).toContain("一、一句话结论");
+    expect(documentXml).not.toContain("SimHei");
+    expect(documentXml).not.toContain("楷体_GB2312");
+    expect(documentXml).not.toContain("免责声明");
+  });
+
   it("renders see-also citations with urls as clickable hyperlinks", async () => {
     const draft = makeDraft({
       sections: [

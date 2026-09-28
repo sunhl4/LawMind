@@ -892,6 +892,7 @@
   padding: 6px 8px;
   cursor: pointer;
   font: inherit;
+  user-select: none;
   transition: background var(--t) var(--ease), border-color var(--t) var(--ease);
 }
 
@@ -904,6 +905,27 @@
   background: color-mix(in srgb, var(--accent-dim) 85%, var(--surface));
   border-color: var(--accent-border);
   box-shadow: inset 0 1px 0 var(--inset-highlight);
+}
+
+.lm-side-chat-session-row.is-selected:not(.is-active) {
+  background: color-mix(in srgb, var(--accent-dim) 45%, transparent);
+  border-color: var(--accent-border);
+}
+
+.lm-side-chat-session-batch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 4px;
+  padding: 2px 4px 2px 8px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--text-2);
+}
+
+.lm-side-chat-session-batch-delete {
+  color: var(--danger);
 }
 
 .lm-side-chat-session-row:focus-visible {
@@ -1243,6 +1265,18 @@ button.lm-side-chat-session-forked-btn {
   background: rgba(255, 255, 255, 0.075);
   border-color: var(--accent-border);
   box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.lm-chat-session-tab-wrap.is-selected:not(.lm-chat-session-tab-wrap-active) {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent-border);
+}
+
+.lm-chat-session-tab-batch-delete {
+  height: 22px;
+  padding: 0 8px;
+  color: var(--danger);
+  flex-shrink: 0;
 }
 
 .lm-chat-session-tab {

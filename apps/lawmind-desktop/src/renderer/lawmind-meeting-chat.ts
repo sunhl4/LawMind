@@ -1,5 +1,4 @@
 // TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
-import type { MemorySourceLayer } from "../../../../src/lawmind/memory/memory-source-types.ts";
 import type { ClarificationQuestion } from "../../../../src/lawmind/types.ts";
 import {
   ApiRequestError,
@@ -80,7 +79,6 @@ type MeetingChatResponse = {
   reply?: string;
   status?: string;
   clarificationQuestions?: ClarificationQuestion[];
-  memorySources?: MemorySourceLayer[];
   toolCallSequence?: string[];
   runtimeHints?: unknown;
 };
@@ -130,7 +128,6 @@ export async function sendMeetingChatTurn(args: {
       body as ApiErrorJson,
     );
   }
-  const memorySources = Array.isArray(body.memorySources) ? body.memorySources : undefined;
   const clarificationQuestions = Array.isArray(body.clarificationQuestions)
     ? body.clarificationQuestions.filter(
         (item): item is ClarificationQuestion =>
@@ -152,7 +149,6 @@ export async function sendMeetingChatTurn(args: {
       text: body.reply || "(empty)",
       ...(typeof body.status === "string" && body.status.trim() ? { status: body.status } : {}),
       ...(clarificationQuestions.length > 0 ? { clarificationQuestions } : {}),
-      ...(memorySources && memorySources.length > 0 ? { memorySources } : {}),
       ...(toolCallSequence.length > 0 ? { toolCallSequence } : {}),
       ...(runtimeHints ? { runtimeHints } : {}),
     },

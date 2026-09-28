@@ -401,9 +401,11 @@ function defaultTemplateId(intent: TaskIntent): string {
   if (
     intent.deliverableType === "report.esg" ||
     intent.deliverableType === "report.general" ||
-    intent.deliverableType === "report.compliance" ||
     intent.deliverableType === "report.learning"
   ) {
+    return "word/research-report-default";
+  }
+  if (intent.deliverableType === "report.compliance") {
     return "word/legal-memo-default";
   }
   return "word/legal-memo-default";

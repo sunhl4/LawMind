@@ -1,10 +1,14 @@
 import { isEmptyChartSpec, type ChartSpec } from "./chart-spec.js";
 
-const W = 640;
-const H = 360;
-const PAD = { t: 28, r: 20, b: 56, l: 56 };
+/** 版心宽约 14.66 cm，按 96 dpi 约 554 px。图横放，题注由 Word 写在图下，不画进图里。 */
+export const THESIS_CHART_WIDTH = 720;
+export const THESIS_CHART_HEIGHT = 400;
+const W = THESIS_CHART_WIDTH;
+const H = THESIS_CHART_HEIGHT;
+const PAD = { t: 28, r: 24, b: 64, l: 64 };
 
-const PALETTE = ["#3d5a80", "#ee6c4d", "#98c1d9", "#293241", "#e0fbfc", "#b08968"];
+/** 论文插图：黑框、深色可区分序列，不用浅色装饰色。 */
+const PALETTE = ["#000000", "#1f4e79", "#c00000", "#548235", "#7030a0", "#c65911"];
 
 function esc(text: string): string {
   return text
@@ -57,16 +61,15 @@ function axis(
 ): string {
   const ticks = 4;
   const parts = [
-    `<line class="lm-chart-axis" x1="${box.x}" y1="${box.y}" x2="${box.x}" y2="${box.y + box.h}"/>`,
-    `<line class="lm-chart-axis" x1="${box.x}" y1="${box.y + box.h}" x2="${box.x + box.w}" y2="${box.y + box.h}"/>`,
+    `<rect class="lm-chart-frame" x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" fill="#ffffff" stroke="#000000" stroke-width="1.15"/>`,
   ];
   for (let i = 0; i <= ticks; i++) {
     const t = i / ticks;
     const y = box.y + box.h - t * box.h;
     const label = (max * t).toFixed(max >= 100 ? 0 : 1);
     parts.push(
-      `<line class="lm-chart-grid" x1="${box.x}" y1="${y}" x2="${box.x + box.w}" y2="${y}"/>`,
-      `<text class="lm-chart-tick" x="${box.x - 6}" y="${y + 3}" text-anchor="end">${label}</text>`,
+      `<line class="lm-chart-tickmark" x1="${box.x - 4}" y1="${y}" x2="${box.x}" y2="${y}" stroke="#000000" stroke-width="1"/>`,
+      `<text class="lm-chart-tick" x="${box.x - 8}" y="${y + 4}" text-anchor="end">${label}</text>`,
     );
   }
   const n = cats.length || 1;
@@ -93,7 +96,6 @@ function renderBar(spec: ChartSpec): string {
       const y = box.y + box.h - h;
       parts.push(
         `<rect class="lm-chart-bar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${PALETTE[si % PALETTE.length]}"/>`,
-        `<text class="lm-chart-value" x="${(x + barW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="middle">${v}</text>`,
       );
     });
   });
@@ -117,11 +119,6 @@ function renderStacked(spec: ChartSpec): string {
       parts.push(
         `<rect class="lm-chart-bar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${PALETTE[si % PALETTE.length]}"/>`,
       );
-      if (v > 0) {
-        parts.push(
-          `<text class="lm-chart-value" x="${(x + barW / 2).toFixed(1)}" y="${(y + h / 2 + 3).toFixed(1)}" text-anchor="middle">${v}</text>`,
-        );
-      }
       acc += h;
     });
   }
@@ -140,12 +137,11 @@ function renderLine(spec: ChartSpec): string {
       return { x, y, v };
     });
     parts.push(
-      `<polyline class="lm-chart-line" fill="none" stroke="${PALETTE[si % PALETTE.length]}" stroke-width="2" points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}"/>`,
+      `<polyline class="lm-chart-line" fill="none" stroke="${PALETTE[si % PALETTE.length]}" stroke-width="1.6" points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}"/>`,
     );
     for (const p of pts) {
       parts.push(
-        `<circle class="lm-chart-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="${PALETTE[si % PALETTE.length]}"/>`,
-        `<text class="lm-chart-value" x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}" text-anchor="middle">${p.v}</text>`,
+        `<circle class="lm-chart-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3" fill="${PALETTE[si % PALETTE.length]}" stroke="#ffffff" stroke-width="0.6"/>`,
       );
     }
   });
@@ -203,5 +199,5 @@ export function renderChartSvg(spec: ChartSpec): string {
     ? `<text class="lm-chart-unit" x="${PAD.l}" y="16">${esc(spec.unit)}</text>`
     : "";
   const body = spec.type === "pie" || isEmptyChartSpec(spec) ? inner : `${inner}${legend(spec)}`;
-  return `<svg class="lm-chart-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(spec.title)}">${unit}${body}</svg>`;
+  return `<svg class="lm-chart-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(spec.title)}" font-family="Times New Roman, SimSun, Songti SC, serif" font-size="13" fill="#000000"><style>text{font-family:"Times New Roman",SimSun,"Songti SC",serif;fill:#000000}</style>${unit}${body}</svg>`;
 }

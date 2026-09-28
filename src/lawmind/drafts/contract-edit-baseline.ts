@@ -1,7 +1,7 @@
 /**
- * Auto-wire contract body edit baseline (uploaded .docx / .doc) onto ArtifactDraft.
+ * Auto-wire contract body edit baseline (uploaded `.docx`) onto ArtifactDraft.
  * Stamps contractEdit; optionally seeds paragraph sections from the baseline file.
- * Binary `.doc` is first-class — no conversion required.
+ * Binary `.doc` is not a revision baseline — the lawyer must save as `.docx` first.
  */
 
 import fs from "node:fs";
@@ -10,6 +10,7 @@ import {
   resolveWordBaselineAbs,
   type WordBaselineRoot,
 } from "../artifacts/word-revision-delivery.js";
+import { DOC_NEEDS_DOCX_MESSAGE, isBinaryWordDocBaseline } from "../mail/doc-revision-gate.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { resolveWorkspaceRelativePath } from "../runtime/workspace-path.js";
 import type { ArtifactDraft, ResearchBundle } from "../types.js";
@@ -17,12 +18,11 @@ import { appendProvenanceEvent, createProvenanceEvent } from "./provenance.js";
 import { withContractEditBaseline } from "./redline-proposal.js";
 import { buildContractBodySectionsFromText } from "./surgical-diff.js";
 
-/** `.docx` or binary `.doc` (not `.docm`). */
+/** Tracked redline baseline — `.docx` only (not `.doc` / `.docm`). */
 const WORD_BASELINE_RE = /\.docx$/i;
-const WORD_DOC_RE = /\.doc$/i;
 
 function isWordBaselinePath(rel: string): boolean {
-  return WORD_BASELINE_RE.test(rel) || WORD_DOC_RE.test(rel);
+  return WORD_BASELINE_RE.test(rel);
 }
 
 /** Normalize to workspace-relative posix path; reject absolute / escape attempts. */
@@ -37,7 +37,7 @@ export function normalizeWorkspaceRelativePath(
   return resolved.rel;
 }
 
-/** Return relative path if file exists under workspace and is .docx or .doc. */
+/** Return relative path if file exists under workspace and is `.docx`. */
 export function resolveExistingDocxRelativePath(
   workspaceDir: string,
   raw: string,
@@ -76,12 +76,16 @@ export function resolveExistingWordBaseline(params: {
   if (!found) {
     return undefined;
   }
+  if (isBinaryWordDocBaseline(found.rel)) {
+    return undefined;
+  }
   return { rel: found.rel, root: found.root };
 }
 
 /**
- * Pull likely workspace-relative Word baseline paths (.docx / .doc) from free text
- * (chat pins, clarification, instructions).
+ * Pull likely workspace-relative Word paths (`.docx` / `.doc`) from free text
+ * (chat pins, clarification, instructions). Callers that stamp a revision
+ * baseline must still refuse `.doc`.
  */
 export function extractDocxRelativePathsFromText(text: string): string[] {
   if (!text.trim()) {
@@ -102,7 +106,8 @@ export function extractDocxRelativePathsFromText(text: string): string[] {
     let m: RegExpExecArray | null;
     while ((m = re.exec(text)) !== null) {
       const cand = (m[1] ?? "").trim().replace(/\\/g, "/");
-      if (cand && isWordBaselinePath(cand)) {
+      // Keep `.doc` in the extract set so callers can stop and ask for Save As.
+      if (cand && /\.docx?$/i.test(cand)) {
         found.add(cand);
       }
     }
@@ -249,10 +254,15 @@ export function stampContractEditBaselineIfNeeded(params: {
   const { draft } = params;
   const preferredRoot = draft.contractEdit?.baselineRoot;
   if (draft.contractEdit?.baselineRelativePath?.trim()) {
+    const existingRel = draft.contractEdit.baselineRelativePath.trim();
+    if (isBinaryWordDocBaseline(existingRel)) {
+      const { contractEdit: _drop, ...rest } = draft;
+      return rest;
+    }
     const existing = resolveExistingWordBaseline({
       workspaceDir: params.workspaceDir,
       projectDir: params.projectDir,
-      raw: draft.contractEdit.baselineRelativePath,
+      raw: existingRel,
       preferredRoot,
       pins: params.pins,
     });
@@ -331,13 +341,14 @@ export async function seedDraftSectionsFromContractBaseline(params: {
   }
   try {
     let text = "";
-    if (WORD_DOC_RE.test(rel) && !WORD_BASELINE_RE.test(rel)) {
-      const { readBinaryWordDocText } = await import("../mail/read-word-binary.js");
-      text = await readBinaryWordDocText(abs);
-    } else {
-      const { readDocxText } = await import("../agent/tools/legal/ingest-helpers.js");
-      text = await readDocxText(abs);
+    if (isBinaryWordDocBaseline(rel)) {
+      return {
+        draft: params.draft,
+        warning: DOC_NEEDS_DOCX_MESSAGE,
+      };
     }
+    const { readDocxText } = await import("../agent/tools/legal/ingest-helpers.js");
+    text = await readDocxText(abs);
     if (!text.trim()) {
       return {
         draft: params.draft,

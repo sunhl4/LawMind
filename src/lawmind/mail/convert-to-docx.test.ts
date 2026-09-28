@@ -48,4 +48,19 @@ describe("ensureDocxForAttachment", () => {
       expect(fs.existsSync(path.join(ws, r.relativePath))).toBe(true);
     }
   });
+
+  it("refuses binary .doc and asks the lawyer to save as .docx", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-conv-"));
+    const rel = "cases/m1/mail/attachments/a/legacy.doc";
+    const abs = path.join(ws, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    // OLE compound signature — not OOXML
+    fs.writeFileSync(abs, Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
+    const r = await ensureDocxForAttachment(ws, rel);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toMatch(/另存为同名的 \.docx/);
+    }
+    expect(fs.existsSync(path.join(ws, rel.replace(/\.doc$/i, ".docx")))).toBe(false);
+  });
 });

@@ -200,7 +200,7 @@ describe("renderDocxWithTrackedChanges", () => {
     expect(renderDocxWithOptions).toHaveBeenCalledWith(
       expect.objectContaining({ taskId: "task-3" }),
       "/tmp",
-      expect.objectContaining({ includeProvenance: true }),
+      expect.objectContaining({ includeProvenance: true, applyDeliverableDeai: false }),
     );
   });
 });

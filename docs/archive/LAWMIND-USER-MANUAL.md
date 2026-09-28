@@ -619,8 +619,9 @@ LawMind 不复制 Harvey 等企业云台的部署形态，但在**可核对来�
 | `clarificationQuestions`         | 待澄清问题数组（若有则触发 Clarify–Execute 后续门禁）                                                                                                       |
 | `taskId`                         | 此处为 **`result.turn.turnId`**（回合级标识；勿与引擎任务 JSON 混淆）                                                                                       |
 | `taskTitle`                      | 由用户 `message` 推导的短标题                                                                                                                               |
-| `memorySources`                  | `buildAgentMemorySourceReport` 结构化来源                                                                                                                   |
 | `runtimeHints`                   | 仅当 `includeTurnDiagnostics === true` **或** Edition 为 **firm / private_deploy** 时附带：`lawmindRouterMode`、`lawmindReasoningMode`、`toolCallsExecuted` |
+
+对话成功响应**不再**附带 `memorySources`（档案体检见 `GET /api/memory/sources`、草稿详情与案件认知；对话气泡不挂引用清单）。
 
 **会议室模式**：`meetingMode && matterId` 时，在返回前 **`appendTeamMeetingLinesSync`** 写入用户行（原始 `message`）与助手行（含 `assistantId` / `displayName` / `taskId` / `sessionId`）。
 

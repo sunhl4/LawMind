@@ -520,16 +520,28 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
   );
 
   const deleteChatSession = useCallback(
-    async (sessionId: string) => {
+    async (target: string | readonly string[]) => {
       if (!config?.apiBase) {
         return;
       }
-      const row = chatSessionListRef.current.find((item) => item.sessionId === sessionId);
-      const assistantId = row?.assistantId?.trim() || selectedAssistantId;
+      const ids: string[] = [];
+      const seen = new Set<string>();
+      for (const raw of typeof target === "string" ? [target] : target) {
+        const sessionId = raw.trim();
+        if (!sessionId || seen.has(sessionId)) {
+          continue;
+        }
+        seen.add(sessionId);
+        ids.push(sessionId);
+      }
+      if (ids.length === 0) {
+        return;
+      }
+      const count = ids.length;
       const sessionStoreKey = chatSessionStoreKey(config.workspaceDir);
       if (
         !(await confirmDialog({
-          title: "确定删除此对话？",
+          title: count === 1 ? "确定删除此对话？" : `确定删除这 ${count} 条对话？`,
           body: "将移除会话记录、回合与实时进度；已签批或已导出的草稿不会自动删除。",
           confirmLabel: "删除",
           tone: "danger",
@@ -538,55 +550,104 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         return;
       }
       const cascadeRelated = await confirmDialog({
-        title: "是否同时清理本对话关联内容？",
-        body: "· 委派子会话与委派记录\n· 尚未签批、且未导出的草稿与任务\n\n选「取消」则只删除对话本身；关联草稿仍可在改稿 / 在办中单独删除。",
+        title: count === 1 ? "是否同时清理本对话关联内容？" : `是否同时清理这 ${count} 条对话的关联内容？`,
+        body:
+          count === 1
+            ? "· 委派子会话与委派记录\n· 尚未签批、且未导出的草稿与任务\n\n选「取消」则只删除对话本身；关联草稿仍可在改稿 / 在办中单独删除。"
+            : "· 委派子会话与委派记录\n· 尚未签批、且未导出的草稿与任务\n\n选「取消」则只删除这些对话本身；关联草稿仍可在改稿 / 在办中单独删除。",
         confirmLabel: "同时清理",
         cancelLabel: "仅删对话",
         tone: "danger",
       });
       setError(null);
-      abortLiveChatSessionRef?.current(sessionId);
-      try {
-        const r = await fetchApi(
-          `${config.apiBase}/api/sessions/delete`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              sessionId,
-              assistantId,
-              cascadeDelegations: cascadeRelated,
-              cascadeUnapprovedDrafts: cascadeRelated,
-            }),
-          },
-          { tag: "chat-sessions:delete" },
-        );
-        const j = (await readJsonFromResponse(r)) as { ok?: boolean; message?: string };
-        if (!r.ok || j.ok === false) {
-          throw new Error(typeof j.message === "string" ? j.message : "delete failed");
+      const apiBase = config.apiBase;
+      const deletedIds: string[] = [];
+      let failure: unknown = null;
+      for (const sessionId of ids) {
+        const row = chatSessionListRef.current.find((item) => item.sessionId === sessionId);
+        const assistantId = row?.assistantId?.trim() || selectedAssistantId;
+        abortLiveChatSessionRef?.current(sessionId);
+        try {
+          const r = await fetchApi(
+            `${apiBase}/api/sessions/delete`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                sessionId,
+                assistantId,
+                cascadeDelegations: cascadeRelated,
+                cascadeUnapprovedDrafts: cascadeRelated,
+              }),
+            },
+            { tag: "chat-sessions:delete" },
+          );
+          const j = (await readJsonFromResponse(r)) as { ok?: boolean; message?: string };
+          if (!r.ok || j.ok === false) {
+            throw new Error(typeof j.message === "string" ? j.message : "delete failed");
+          }
+          clearPlanHandoff(sessionId);
+          void deleteSessionPlanHandoff(apiBase, sessionId);
+          deletedIds.push(sessionId);
+          setChatSessionList((prev) => prev.filter((item) => item.sessionId !== sessionId));
+        } catch (cause) {
+          failure = cause;
+          break;
         }
-        clearPlanHandoff(sessionId);
-        void deleteSessionPlanHandoff(config.apiBase, sessionId);
-        const wasActive = sessionByAssistant[assistantId] === sessionId
-          || sessionByAssistant[selectedAssistantId] === sessionId;
-        setChatSessionList((prev) => prev.filter((item) => item.sessionId !== sessionId));
-        const list = await refreshChatSessionListForAssistant(assistantId);
+      }
+      if (deletedIds.length === 0) {
+        if (failure) {
+          setError(errorMessage(failure, "删除对话失败"));
+        }
+        return;
+      }
+      const deleted = new Set(deletedIds);
+      const selectedOpen = sessionByAssistant[selectedAssistantId];
+      const openAssistantId =
+        selectedOpen && deleted.has(selectedOpen)
+          ? selectedAssistantId
+          : Object.entries(sessionByAssistant).find(([, sessionId]) =>
+              Boolean(sessionId && deleted.has(sessionId)),
+            )?.[0];
+      // Drop every assistant mapping that still points at a deleted conversation.
+      setSessionByAssistant((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [assistantId, sessionId] of Object.entries(prev)) {
+          if (sessionId && deleted.has(sessionId)) {
+            next[assistantId] = undefined;
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+      setMessagesByAssistant?.((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [assistantId, sessionId] of Object.entries(sessionByAssistant)) {
+          if (sessionId && deleted.has(sessionId)) {
+            next[assistantId] = [];
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+      try {
+        const list = await refreshChatSessionListForAssistant(selectedAssistantId);
+        if (!openAssistantId) {
+          return;
+        }
         const scope = chatListScopeRef.current;
         const remaining = (list ?? []).filter((item) =>
           isSessionInChatScope(item, scope, knownChatMatterIdsRef.current),
         );
-        if (!wasActive) {
-          return;
-        }
         const next = remaining[0];
         if (!next) {
-          noteFocusedChatSessionRef?.current({ assistantId, sessionId: undefined });
-          setSessionByAssistant((prev) => ({ ...prev, [assistantId]: undefined }));
-          setMessagesByAssistant?.((prev) => ({ ...prev, [assistantId]: [] }));
+          noteFocusedChatSessionRef?.current({ assistantId: openAssistantId, sessionId: undefined });
           setContextMatterId(scope);
           return;
         }
-        const nextAssistantId = next.assistantId?.trim() || assistantId;
+        const nextAssistantId = next.assistantId?.trim() || openAssistantId;
         noteFocusedChatSessionRef?.current({
           assistantId: nextAssistantId,
           sessionId: next.sessionId,
@@ -606,7 +667,11 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           },
         );
       } catch (cause) {
-        setError(errorMessage(cause, "删除对话失败"));
+        failure = failure ?? cause;
+      } finally {
+        if (failure) {
+          setError(errorMessage(failure, "删除对话失败"));
+        }
       }
     },
     [
@@ -617,6 +682,14 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       selectedAssistantId,
       sessionByAssistant,
       setChatSessionList,
+      setMessagesByAssistant,
+      setSessionByAssistant,
+      setSelectedAssistantId,
+      setContextMatterId,
+      knownChatMatterIdsRef,
+      noteFocusedChatSessionRef,
+      abortLiveChatSessionRef,
+      rememberOpenedSession,
     ],
   );
 

@@ -83,3 +83,8 @@ export {
 } from "./mail-contract-formats.js";
 export { ensureDocxForAttachment, type ConvertToDocxResult } from "./convert-to-docx.js";
 export { readBinaryWordDocText, isBinaryWordDocPath } from "./read-word-binary.js";
+export {
+  DOC_NEEDS_DOCX_CODE,
+  DOC_NEEDS_DOCX_MESSAGE,
+  isBinaryWordDocBaseline,
+} from "./doc-revision-gate.js";

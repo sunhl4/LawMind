@@ -46,16 +46,6 @@ describe("lawmind-chat", () => {
               reason: "核心商务条款缺失",
             },
           ],
-          memorySources: [
-            {
-              id: "matter_memory",
-              label: "案件记忆",
-              relativePath: "matters/matter-1/MEMORY.md",
-              exists: true,
-              charCount: 120,
-              inAgentSystemPrompt: false,
-            },
-          ],
           toolCallSequence: ["search_cases", "", 3, "draft_memo"],
           runtimeHints: {
             lawmindRouterMode: "model",
@@ -91,16 +81,6 @@ describe("lawmind-chat", () => {
             key: "rent_and_deposit",
             question: "请补充租金、押金和支付周期。",
             reason: "核心商务条款缺失",
-          },
-        ],
-        memorySources: [
-          {
-            id: "matter_memory",
-            label: "案件记忆",
-            relativePath: "matters/matter-1/MEMORY.md",
-            exists: true,
-            charCount: 120,
-            inAgentSystemPrompt: false,
           },
         ],
         toolCallSequence: ["search_cases", "draft_memo"],

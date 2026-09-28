@@ -354,7 +354,7 @@ describe("lawyer-automations", () => {
     expect(built.workflowInstruction).not.toContain("## 禁止");
   });
 
-  it("materializeMailContractReviewBaselines keeps .doc as first-class baseline", async () => {
+  it("materializeMailContractReviewBaselines stops on .doc until lawyer saves as .docx", async () => {
     const { buildMailContractReviewSummary, materializeMailContractReviewBaselines } =
       await import("./lawyer-automations.js");
     const ws = tmpWs();
@@ -375,15 +375,15 @@ describe("lawyer-automations", () => {
       },
     ];
     const drafted = buildMailContractReviewSummary(messages, matterId);
-    expect(drafted.attachmentRefs[0]?.kind).toBe("tracked_word");
+    expect(drafted.attachmentRefs[0]?.kind).toBe("legacy_doc");
     const built = await materializeMailContractReviewBaselines(ws, messages, matterId, drafted);
-    expect(built.reviewMode).toBe("tracked");
-    expect(built.preferredBaselinePath).toBe(`cases/${matterId}/${relMatter}`);
-    expect(built.preferredBaselinePath).toMatch(/\.doc$/i);
-    expect(built.workflowInstruction).toContain("render_tracked_draft");
-    // Must not force a sibling .docx conversion for the lawyer-facing baseline.
+    expect(built.reviewMode).toBe("opinion");
+    expect(built.preferredBaselinePath).toBeUndefined();
+    expect(built.preferredSourcePath).toBe(`cases/${matterId}/${relMatter}`);
+    expect(built.convertNote).toMatch(/另存为同名的 \.docx/);
+    expect(built.workflowInstruction).not.toContain("render_tracked_draft");
     expect(
-      fs.existsSync(path.join(ws, built.preferredBaselinePath!.replace(/\.doc$/i, ".docx"))),
+      fs.existsSync(path.join(ws, `cases/${matterId}/${relMatter}`.replace(/\.doc$/i, ".docx"))),
     ).toBe(false);
   });
 

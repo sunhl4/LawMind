@@ -30,6 +30,7 @@ describe("system prompt sections", () => {
     const ids = listSystemPromptSectionCatalog().map((s) => s.id);
     expect(ids).toContain("identity_principles");
     expect(ids).toContain("autonomous_workflow");
+    expect(ids).toContain("deliverable_voice");
     expect(ids).toContain("available_tools");
     expect(ids).toContain("safety_boundaries");
 
@@ -38,8 +39,10 @@ describe("system prompt sections", () => {
     );
     expect(assembled).toContain("identity_principles");
     expect(assembled).toContain("autonomous_workflow");
+    expect(assembled).toContain("deliverable_voice");
     expect(assembled).toContain("available_tools");
     expect(assembled).toContain("safety_boundaries");
+    expect(buildSystemPrompt(minimalCtx)).toContain("交件口吻");
   });
 
   it("buildSystemPromptWithMeta keeps assembled text identical and toggles optional ids", () => {

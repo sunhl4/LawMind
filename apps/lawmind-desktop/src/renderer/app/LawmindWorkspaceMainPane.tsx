@@ -39,7 +39,7 @@ export type LawmindWorkspaceMainPaneProps = {
   onSelectChatSession: (id: string) => void | Promise<void>;
   onCreateNewChatSession: () => void | Promise<void>;
   onRenameChatSession: (id: string, title: string) => void | Promise<void>;
-  onDeleteChatSession: (id: string) => void | Promise<void>;
+  onDeleteChatSession: (id: string | readonly string[]) => void | Promise<void>;
   config: AppConfig | null;
   currentMessages: ChatMsg[];
   copiedMessageIndex: number | null;

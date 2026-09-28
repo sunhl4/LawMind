@@ -1,4 +1,5 @@
-import { apiSendJson } from "./api-client";
+import type { TranscriptBubble } from "../../../../src/lawmind/agent/resolve-transcript-cut.ts";
+import { apiGetJson, apiSendJson } from "./api-client";
 import type { ChatMsg } from "./lawmind-chat";
 
 export type SessionMutateMode = "truncate" | "delete_pair";
@@ -9,6 +10,34 @@ export type SessionMutateResponse = {
   removedCount?: number;
   messages?: Array<{ role: string; text?: string; content?: string }>;
 };
+
+export async function fetchSessionBubbles(
+  apiBase: string,
+  sessionId: string,
+  assistantId: string,
+): Promise<TranscriptBubble[]> {
+  const j = await apiGetJson<{
+    ok?: boolean;
+    messages?: Array<{ role: string; text?: string; content?: string }>;
+  }>(
+    apiBase,
+    `/api/sessions/${encodeURIComponent(sessionId)}?assistantId=${encodeURIComponent(assistantId)}`,
+  );
+  if (!j.ok || !Array.isArray(j.messages)) {
+    throw new Error("读取对话失败");
+  }
+  return j.messages
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .map((message) => ({
+      role: message.role as TranscriptBubble["role"],
+      text:
+        typeof message.text === "string"
+          ? message.text
+          : typeof message.content === "string"
+            ? message.content
+            : "",
+    }));
+}
 
 export async function mutateSessionMessages(
   apiBase: string,

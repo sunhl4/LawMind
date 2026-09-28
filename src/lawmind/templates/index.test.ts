@@ -40,8 +40,12 @@ describe("template registry", () => {
   it("exposes built-in templates with category and resolves built-in IDs", async () => {
     const builtIn = listBuiltInTemplates();
     expect(builtIn.some((t) => t.id === "word/legal-memo-default")).toBe(true);
+    expect(builtIn.some((t) => t.id === "word/research-report-default")).toBe(true);
     const memo = builtIn.find((t) => t.id === "word/legal-memo-default");
     expect(memo?.category).toBe("internal");
+    const report = builtIn.find((t) => t.id === "word/research-report-default");
+    expect(report?.label).toBe("法律调研报告");
+    expect(report?.variant).toBe("researchReport");
     const contract = builtIn.find((t) => t.id === "word/contract-default");
     expect(contract?.category).toBe("contracts");
 
@@ -52,6 +56,14 @@ describe("template registry", () => {
     expect(resolved.source).toBe("built-in");
     expect(resolved.variant).toBe("contractReview");
     expect(templateResolvedPin(resolved)).toBe("built-in:word/contract-default");
+
+    const reportAlias = await resolveTemplateForDraft({
+      workspaceDir,
+      draft: buildDraft({ templateId: "report-general-default" }),
+    });
+    expect(reportAlias.source).toBe("built-in");
+    expect(reportAlias.resolvedId).toBe("word/research-report-default");
+    expect(reportAlias.variant).toBe("researchReport");
   });
 
   it("registers uploaded template and resolves to uploaded source", async () => {

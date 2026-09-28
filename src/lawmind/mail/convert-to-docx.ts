@@ -1,14 +1,13 @@
 /**
- * Convert alternate Word-like attachments (wps/rtf/odt) or prepare an ephemeral
- * OpenXML working copy from binary `.doc` for tooling that only speaks OOXML.
+ * Convert alternate Word-like attachments (wps/rtf/odt) for OpenXML tooling.
  *
- * Converter preference (fidelity for fonts / layout / existing revisions):
- *   1. Microsoft Word via AppleScript (macOS) — preserves revisions/comments/styles
+ * Binary `.doc` is not auto-converted for revision. Lawyers save as `.docx` in
+ * Word or WPS. Misnamed OOXML (zip bytes with a `.doc` name) is copied as-is.
+ *
+ * Converter preference for wps/rtf/odt:
+ *   1. Microsoft Word via AppleScript (macOS)
  *   2. LibreOffice `soffice` when available
- *   3. macOS `textutil` — **lossy** last resort (strips revisions & most formatting)
- *
- * Product rule: binary `.doc` is a first-class baseline for lawyers — callers must
- * not require them to convert. This helper is for engine-internal working copies.
+ *   3. macOS `textutil` — **lossy** last resort
  */
 
 import { createHash } from "node:crypto";
@@ -17,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { buildMinimalChildEnv, runSafeCommand } from "../platform/safe-command.js";
 import { resolveWorkspaceRelativePath } from "../runtime/workspace-path.js";
+import { DOC_NEEDS_DOCX_MESSAGE } from "./doc-revision-gate.js";
 import { classifyContractAttachment } from "./mail-contract-formats.js";
 
 export type ConvertToDocxTool = "msword" | "soffice" | "textutil" | "zip-copy" | "existing";
@@ -269,7 +269,8 @@ async function convertWithSoffice(absIn: string, absOut: string): Promise<boolea
 
 /**
  * Ensure a workspace-relative attachment has a .docx form suitable for tracked redlines.
- * No-op when already .docx. For convertible formats, writes a sibling `.docx` when a tool works.
+ * No-op when already .docx. Binary `.doc` is not converted — lawyer saves as `.docx`.
+ * Misnamed OOXML and wps/rtf/odt may still materialize a sibling `.docx`.
  */
 export async function ensureDocxForAttachment(
   workspaceDir: string,
@@ -286,13 +287,27 @@ export async function ensureDocxForAttachment(
   }
 
   const kind = classifyContractAttachment(rel);
-  if (kind === "tracked_word" && /\.docx$/i.test(rel)) {
+  if (kind === "tracked_word") {
     return { ok: true, relativePath: rel, converted: false, fidelity: "high" };
   }
-  // Binary .doc and wps/rtf/odt may be materialized to .docx for OpenXML-only tools.
-  const canMaterialize =
-    kind === "convertible_word" || (kind === "tracked_word" && /\.doc$/i.test(rel));
-  if (!canMaterialize) {
+
+  const isLegacyDoc = kind === "legacy_doc" || (/\.doc$/i.test(rel) && !/\.docx$/i.test(rel));
+  // Misnamed OOXML: copy bytes to .docx
+  if (isLegacyDoc && looksLikeZipDocx(absIn)) {
+    const outRel = siblingDocxRelative(rel);
+    const resolvedOut = resolveWorkspaceRelativePath(workspaceDir, outRel);
+    if (!resolvedOut.ok) {
+      return { ok: false, error: "path_escape" };
+    }
+    fs.mkdirSync(path.dirname(resolvedOut.abs), { recursive: true });
+    fs.copyFileSync(absIn, resolvedOut.abs);
+    return { ok: true, relativePath: outRel, converted: true, tool: "zip-copy", fidelity: "high" };
+  }
+  if (isLegacyDoc) {
+    return { ok: false, error: DOC_NEEDS_DOCX_MESSAGE };
+  }
+
+  if (kind !== "convertible_word") {
     return { ok: false, error: "not_convertible" };
   }
 
@@ -303,40 +318,23 @@ export async function ensureDocxForAttachment(
   }
   const absOut = resolvedOut.abs;
 
-  // Prefer re-converting when an existing sibling was produced by lossy textutil
-  // (small / no revisions). Callers that need a guaranteed high-fidelity copy should
-  // pass a fresh temp dir (ephemeralDocxWorkingCopy) so this branch is skipped.
   if (fs.existsSync(absOut) && fs.statSync(absOut).size > 0) {
     return { ok: true, relativePath: outRel, converted: false, tool: "existing", fidelity: "high" };
   }
 
-  // Misnamed OOXML: copy bytes to .docx
-  if (looksLikeZipDocx(absIn)) {
-    fs.mkdirSync(path.dirname(absOut), { recursive: true });
-    fs.copyFileSync(absIn, absOut);
-    return { ok: true, relativePath: outRel, converted: true, tool: "zip-copy", fidelity: "high" };
-  }
-
   fs.mkdirSync(path.dirname(absOut), { recursive: true });
 
-  const isBinaryDoc = /\.doc$/i.test(rel) && !/\.docx$/i.test(rel);
   const wordInstalled = microsoftWordAppExists();
-
-  // 1) Microsoft Word — required for preserving 国浩-style revisions/comments/fonts.
-  // Retry once: first launch / automation permission prompts can flake.
   if (await convertWithMicrosoftWord(absIn, absOut)) {
     return { ok: true, relativePath: outRel, converted: true, tool: "msword", fidelity: "high" };
   }
   if (wordInstalled && (await convertWithMicrosoftWord(absIn, absOut))) {
     return { ok: true, relativePath: outRel, converted: true, tool: "msword", fidelity: "high" };
   }
-  // 2) LibreOffice
   if (await convertWithSoffice(absIn, absOut)) {
     return { ok: true, relativePath: outRel, converted: true, tool: "soffice", fidelity: "high" };
   }
-  // 3) textutil — strips revisions & formatting. Never use for binary .doc when Word is
-  // installed (that path previously shipped unreadable shells that looked "successful").
-  if (!(isBinaryDoc && wordInstalled) && (await convertWithTextutil(absIn, absOut))) {
+  if (await convertWithTextutil(absIn, absOut)) {
     return {
       ok: true,
       relativePath: outRel,
@@ -352,18 +350,11 @@ export async function ensureDocxForAttachment(
   } catch {
     /* ignore */
   }
-  if (isBinaryDoc && wordInstalled) {
-    return {
-      ok: false,
-      error:
-        "convert_failed（已检测到 Microsoft Word，但高保真 .doc→.docx 失败；请在「系统设置 → 隐私与安全性 → 自动化」允许 LawMind/终端控制 Word 后重试。不会使用 textutil 有损转写，以免丢失原字体与审阅修订）",
-    };
-  }
   return {
     ok: false,
     error:
       process.platform === "darwin"
-        ? "convert_failed（本机 Microsoft Word / LibreOffice / textutil 均未能生成审阅工作副本；无需律师先转格式）"
-        : "convert_failed（本机缺少 LibreOffice/soffice，无法生成审阅工作副本；无需律师先转格式）",
+        ? "convert_failed（本机 Microsoft Word / LibreOffice / textutil 均未能生成审阅工作副本）"
+        : "convert_failed（本机缺少 LibreOffice/soffice，无法生成审阅工作副本）",
   };
 }

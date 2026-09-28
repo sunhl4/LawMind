@@ -477,11 +477,7 @@ export function MatterCognitionPanel(props: MatterCognitionPanelProps) {
         ) : null}
         {!cognitionLoading && cognitionDraft ? (
           <div className="lm-matter-cognition-panels">
-            <LawmindMemorySourcesPanel
-              layers={cognitionMemorySources}
-              variant="workbench"
-              defaultOpen={false}
-            />
+            <LawmindMemorySourcesPanel layers={cognitionMemorySources} defaultOpen={false} />
             {cognitionReasoningMarkdown ? (
               <LawmindReasoningCollapsible
                 markdown={cognitionReasoningMarkdown}

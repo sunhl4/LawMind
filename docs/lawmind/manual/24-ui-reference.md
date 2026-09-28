@@ -124,11 +124,11 @@
 
 ### 记忆来源
 
-| 组件                            | 作用                             |
-| ------------------------------- | -------------------------------- |
-| `LawmindMemorySourcesPanel.tsx` | 记忆来源面板（对话和审核台共用） |
+| 组件                            | 作用                                                |
+| ------------------------------- | --------------------------------------------------- |
+| `LawmindMemorySourcesPanel.tsx` | 记忆档案体检面板（审核台 / 案件认知；不挂对话气泡） |
 
-它显示每一层记忆的字符数和**是否进了提示词**（第 6 章那个区分）。
+它显示每一层记忆档案是否在磁盘上、设计上能否进主说明（第 6 章那个区分）。不表示「本回答引用了哪些材料」。
 
 ## 24.3 工作台（`desk`）
 
@@ -321,7 +321,7 @@
 | `MemoryInspector.tsx`              | 待确认建议队列（默认动作：确认 / 改写）           |
 | `matter/MatterMemoryInspector.tsx` | 案件范围复用同一组件                              |
 | `LawmindMemoryTruthSources.tsx`    | 真相源面板（读 `GET /api/memory/sources` + 预览） |
-| `LawmindMemorySourcesPanel.tsx`    | 来源面板                                          |
+| `LawmindMemorySourcesPanel.tsx`    | 档案体检面板（审核台 / 认知；不挂对话）           |
 
 `MemoryInspector` 的作用域：简单模式三个（律师 / 案件 / 律所），高级里八个全展开（第 6 章）。
 

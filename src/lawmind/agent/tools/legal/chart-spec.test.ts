@@ -30,6 +30,11 @@ describe("chart spec", () => {
     const svg = renderChartSvg(parsed.spec);
     expect(svg).toContain("<svg");
     expect(svg).toContain("lm-chart-svg");
+    expect(svg).toContain("Times New Roman");
+    expect(svg).not.toContain("#ee6c4d");
+    if (type !== "pie") {
+      expect(svg).toContain("lm-chart-frame");
+    }
   });
 
   it("rejects too many categories", () => {

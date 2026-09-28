@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { appendTranscriptLines } from "../adapters/session-transcript/index.js";
+import { isCompactSyntheticUserMessage } from "./compact-insert.js";
 import { projectLawyerChatBubbles } from "./lawyer-chat-projection.js";
 import {
   formatRemainingTokensNote,
@@ -189,7 +190,18 @@ export function loadSession(workspaceDir: string, sessionId: string): AgentSessi
   const filePath = sessionFilePath(workspaceDir, sessionId);
   try {
     const raw = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(raw) as AgentSession;
+    const session = JSON.parse(raw) as AgentSession;
+    // Older sessions wrote compact digests without the flag; keep them model-only.
+    for (const msg of session.conversationHistory ?? []) {
+      if (
+        msg.role === "user" &&
+        !msg.hiddenFromLawyer &&
+        isCompactSyntheticUserMessage(msg.content ?? "")
+      ) {
+        msg.hiddenFromLawyer = true;
+      }
+    }
+    return session;
   } catch {
     return undefined;
   }
@@ -412,7 +424,7 @@ export function maybeUpdateSessionTitleFromInstruction(
 
 /**
  * 桌面气泡：律师打的一句对应一个回答窗口。
- * 压缩锚点、反弹备注不出现；同一句之后的多轮助手正文合成一个窗口。
+ * 压缩锚点、反弹备注不出现；工具轮里的过程话不进窗口，只留最后那段正文。
  */
 export function sessionHistoryToSimpleMessages(session: AgentSession): Array<{
   role: "user" | "assistant";

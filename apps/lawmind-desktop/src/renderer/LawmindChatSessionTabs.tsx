@@ -9,6 +9,12 @@ import {
   type ReactNode,
 } from "react";
 import { useRunningChatSessionIds } from "./lawmind-live-turns";
+import {
+  chatSessionDeleteLabel,
+  chatSessionListKeyAction,
+  resolveChatSessionContextTarget,
+  useChatSessionMultiSelect,
+} from "./lawmind-chat-session-selection";
 
 export type LawmindChatSessionTab = {
   sessionId: string;
@@ -22,12 +28,26 @@ export type LawmindChatSessionTabsProps = {
   onSelect: (sessionId: string) => void | Promise<void>;
   onNewChat: () => void | Promise<void>;
   onRename: (sessionId: string, title: string) => void | Promise<void>;
-  onDelete: (sessionId: string) => void | Promise<void>;
+  onDelete: (sessionId: string | readonly string[]) => void | Promise<void>;
   /** Right-side tools (history, filters) — keeps one chrome row. */
   trailing?: ReactNode;
 };
 
-type ContextMenuState = { x: number; y: number; sessionId: string; title: string };
+type ContextMenuState = {
+  x: number;
+  y: number;
+  sessionId: string;
+  title: string;
+  actionIds: string[];
+};
+
+function deleteTarget(ids: readonly string[]): string | readonly string[] {
+  return ids.length === 1 ? (ids[0] ?? "") : ids;
+}
+
+function eventTargetIsField(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+}
 
 function PlusIcon() {
   return (
@@ -65,6 +85,18 @@ export function LawmindChatSessionTabs({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const runningSessionIds = useRunningChatSessionIds();
+  const orderedIds = sessions.map((row) => row.sessionId);
+  const selection = useChatSessionMultiSelect(orderedIds, activeSessionId);
+
+  const deleteSessions = useCallback(
+    (ids: readonly string[]) => {
+      if (ids.length === 0) {
+        return;
+      }
+      void onDelete(deleteTarget(ids));
+    },
+    [onDelete],
+  );
 
   useEffect(() => {
     if (!editingId) {
@@ -151,10 +183,21 @@ export function LawmindChatSessionTabs({
     (e: ReactMouseEvent, s: LawmindChatSessionTab) => {
       e.preventDefault();
       e.stopPropagation();
-      void onSelect(s.sessionId);
-      setContextMenu({ x: e.clientX, y: e.clientY, sessionId: s.sessionId, title: s.title });
+      selection.markContextMenu();
+      const target = resolveChatSessionContextTarget(selection.selectedIds, s.sessionId);
+      if (target.replaceSelection) {
+        selection.selectOnly(s.sessionId);
+        void onSelect(s.sessionId);
+      }
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        sessionId: s.sessionId,
+        title: s.title,
+        actionIds: target.actionIds,
+      });
     },
-    [onSelect],
+    [onSelect, selection],
   );
 
   const handleTabKeyDown = useCallback(
@@ -185,13 +228,46 @@ export function LawmindChatSessionTabs({
   );
 
   return (
-    <div className="lm-chat-session-tabs" role="tablist" aria-label="对话" id={tabListId}>
+    <div
+      className="lm-chat-session-tabs"
+      role="tablist"
+      aria-label="对话"
+      id={tabListId}
+      title="Shift 连选，Ctrl 或 ⌘ 加选"
+      onKeyDown={(e) => {
+        const action = chatSessionListKeyAction(
+          {
+            key: e.key,
+            metaKey: e.metaKey,
+            ctrlKey: e.ctrlKey,
+            altKey: e.altKey,
+            shiftKey: e.shiftKey,
+            targetIsField: eventTargetIsField(e.target),
+          },
+          selection.selectedIds.length,
+        );
+        if (action === "none") {
+          return;
+        }
+        e.preventDefault();
+        if (action === "select-all") {
+          selection.selectAll();
+          return;
+        }
+        if (action === "collapse") {
+          selection.collapseTo(activeSessionId);
+          return;
+        }
+        deleteSessions(selection.selectedIds);
+      }}
+    >
       <div ref={scrollRef} className="lm-chat-session-tabs-scroll">
         {loading && sessions.length === 0 ? (
           <span className="lm-chat-session-tabs-hint">加载中…</span>
         ) : null}
         {sessions.map((s) => {
           const active = s.sessionId === activeSessionId;
+          const selected = selection.selectedSet.has(s.sessionId);
           const running = runningSessionIds.has(s.sessionId);
           if (editingId === s.sessionId) {
             return (
@@ -220,7 +296,7 @@ export function LawmindChatSessionTabs({
           return (
             <div
               key={s.sessionId}
-              className={`lm-chat-session-tab-wrap ${active ? "lm-chat-session-tab-wrap-active" : ""}`}
+              className={`lm-chat-session-tab-wrap${active ? " lm-chat-session-tab-wrap-active" : ""}${selected ? " is-selected" : ""}`}
               data-session-tab={s.sessionId}
               onContextMenuCapture={(e) => openTabContextMenu(e, s)}
             >
@@ -240,7 +316,18 @@ export function LawmindChatSessionTabs({
                 }
                 tabIndex={active ? 0 : -1}
                 onKeyDown={(event) => handleTabKeyDown(event, s.sessionId)}
-                onClick={() => void onSelect(s.sessionId)}
+                onClick={(e) => {
+                  if (selection.consumeSuppressedClick()) {
+                    return;
+                  }
+                  if (e.shiftKey) {
+                    e.preventDefault();
+                  }
+                  const next = selection.applyPointer(e, s.sessionId);
+                  if (next.open) {
+                    void onSelect(s.sessionId);
+                  }
+                }}
               >
                 <span className="lm-chat-session-tab-label">{s.title}</span>
               </button>
@@ -248,6 +335,16 @@ export function LawmindChatSessionTabs({
           );
         })}
       </div>
+      {selection.selectedIds.length > 1 ? (
+        <button
+          type="button"
+          className="lm-btn lm-btn-ghost lm-btn-small lm-chat-session-tab-batch-delete"
+          data-testid="lm-chat-session-tab-batch-delete"
+          onClick={() => deleteSessions(selection.selectedIds)}
+        >
+          删除 {selection.selectedIds.length}
+        </button>
+      ) : null}
       <button
         type="button"
         className="lm-chat-session-tab-new"
@@ -278,27 +375,29 @@ export function LawmindChatSessionTabs({
           }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <button
-            type="button"
-            role="menuitem"
-            className="lm-chat-session-tab-menu-item"
-            onClick={() => {
-              startRename(contextMenu.sessionId, contextMenu.title);
-              setContextMenu(null);
-            }}
-          >
-            重命名
-          </button>
+          {contextMenu.actionIds.length === 1 ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="lm-chat-session-tab-menu-item"
+              onClick={() => {
+                startRename(contextMenu.sessionId, contextMenu.title);
+                setContextMenu(null);
+              }}
+            >
+              重命名
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"
             className="lm-chat-session-tab-menu-item lm-chat-session-tab-menu-item-danger"
             onClick={() => {
               setContextMenu(null);
-              void onDelete(contextMenu.sessionId);
+              deleteSessions(contextMenu.actionIds);
             }}
           >
-            删除
+            {chatSessionDeleteLabel(contextMenu.actionIds.length)}
           </button>
         </div>
       ) : null}

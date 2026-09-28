@@ -1,6 +1,5 @@
 // TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { MemorySourceLayer } from "../../../../src/lawmind/memory/memory-source-types.ts";
 import type { ClarificationQuestion } from "../../../../src/lawmind/types.ts";
 import type { GateDecision, TaskExecutionState } from "../../../../src/lawmind/platform/contracts.ts";
 import type { LawMindRequiresAction } from "../../../../src/lawmind/platform/requires-action.ts";
@@ -131,7 +130,7 @@ export type ChatMsg = {
   text: string;
   status?: string;
   clarificationQuestions?: ClarificationQuestion[];
-  memorySources?: MemorySourceLayer[];
+  /** Tool names from this turn (preprocess / tool grouping only; not shown under bubbles). */
   toolCallSequence?: string[];
   /** Present on assistant messages when the server included turn diagnostics. */
   runtimeHints?: ChatRuntimeHints;
@@ -199,14 +198,6 @@ export function lastAssistantRuntimeHints(messages: ChatMsg[]): ChatRuntimeHints
   return null;
 }
 
-export function hasChatDiagnostics(message: ChatMsg): boolean {
-  return (
-    (message.memorySources?.length ?? 0) > 0 ||
-    (message.toolCallSequence?.length ?? 0) > 0 ||
-    message.runtimeHints != null
-  );
-}
-
 export function getPendingClarificationState(messages: ChatMsg[]): PendingClarificationState {
   if (messages.length === 0) {
     return { pending: false, count: 0, assistantMessageIndex: -1 };
@@ -263,7 +254,6 @@ type ChatResponse = {
   executionState?: TaskExecutionState;
   gateDecisions?: GateDecision[];
   clarificationQuestions?: ClarificationQuestion[];
-  memorySources?: MemorySourceLayer[];
   toolCallSequence?: string[];
   toolCalls?: number;
   runtimeHints?: unknown;
@@ -662,7 +652,6 @@ function buildChatTurnResult(body: ChatResponse): {
   sessionId?: string;
   assistantMessage: ChatMsg;
 } {
-  const memorySources = Array.isArray(body.memorySources) ? body.memorySources : undefined;
   const clarificationQuestions = Array.isArray(body.clarificationQuestions)
     ? body.clarificationQuestions.filter(
         (item): item is ClarificationQuestion =>
@@ -696,7 +685,6 @@ function buildChatTurnResult(body: ChatResponse): {
       ...(body.executionState ? { executionState: body.executionState } : {}),
       ...(Array.isArray(body.gateDecisions) ? { gateDecisions: body.gateDecisions } : {}),
       ...(clarificationQuestions.length > 0 ? { clarificationQuestions } : {}),
-      ...(memorySources && memorySources.length > 0 ? { memorySources } : {}),
       ...(toolCallSequence.length > 0 ? { toolCallSequence } : {}),
       ...(runtimeHints ? { runtimeHints } : {}),
       ...(requiresAction.length > 0 ? { requiresAction } : {}),

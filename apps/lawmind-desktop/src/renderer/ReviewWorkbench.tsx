@@ -27,7 +27,7 @@ import { apiGetJson, errorMessage, messageFromOkFalseBody } from "./api-client";
 import type { DraftContentPatchBody } from "./lawmind-api-request-types.ts";
 import { apiPatchDraftContent } from "./lawmind-api-routes.ts";
 import { useEdition } from "./use-edition";
-import { LM_PANE_MIN_WIDTH_PX } from "./lawmind-panel-layout";
+import { LM_PANE_MAX_WIDTH_PX, LM_PANE_MIN_WIDTH_PX } from "./lawmind-panel-layout";
 import {
   hasVisibleReviewPaneAfter,
   lastVisibleReviewPaneId,
@@ -159,14 +159,14 @@ export function ReviewWorkbench(props: Props) {
     storageKey: "lawmind.ui.reviewWorkbenchMetaWidth",
     defaultWidth: 272,
     min: LM_PANE_MIN_WIDTH_PX,
-    max: 400,
+    max: LM_PANE_MAX_WIDTH_PX,
   });
 
   const { width: reviewEditorWidth, onResizePointerDown: onReviewEditorResize } = usePaneResizePx({
     storageKey: "lawmind.ui.reviewWorkbenchEditorWidth",
     defaultWidth: 340,
     min: LM_PANE_MIN_WIDTH_PX,
-    max: 480,
+    max: LM_PANE_MAX_WIDTH_PX,
   });
 
   useEffect(() => {

@@ -2,7 +2,12 @@
  * @vitest-environment jsdom
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { clampSidebarWidthPx, readStoredBool } from "./lawmind-panel-layout";
+import {
+  clampInnerSplitWidthPx,
+  clampSidebarWidthPx,
+  LM_PANE_MAX_WIDTH_PX,
+  readStoredBool,
+} from "./lawmind-panel-layout";
 
 function mockStorage(): Storage {
   const map = new Map<string, string>();
@@ -37,6 +42,14 @@ describe("lawmind-panel-layout", () => {
 
   it("clampSidebarWidthPx respects bounds", () => {
     expect(clampSidebarWidthPx(100)).toBeGreaterThanOrEqual(160);
-    expect(clampSidebarWidthPx(9999)).toBeLessThanOrEqual(560);
+    expect(clampSidebarWidthPx(9999)).toBeLessThanOrEqual(LM_PANE_MAX_WIDTH_PX);
+  });
+
+  it("lets the sidebar and the inner split travel well past the old 560px cap on a desktop window", () => {
+    vi.stubGlobal("window", { innerWidth: 1280 });
+    expect(clampSidebarWidthPx(9999)).toBe(960);
+    expect(clampSidebarWidthPx(700)).toBe(700);
+    expect(clampInnerSplitWidthPx(9999)).toBe(793);
+    expect(clampInnerSplitWidthPx(640)).toBe(640);
   });
 });

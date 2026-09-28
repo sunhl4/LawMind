@@ -2,8 +2,9 @@
  * Lawyer transcript: one typed utterance, one answer window.
  *
  * Model history keeps every round (tool calls, compact anchors, bounce notes).
- * The desktop bubbles do not: synthetic user notes stay off-screen, and the
- * assistant texts of a single user turn share one window.
+ * The desktop bubbles do not. Synthetic user notes stay off-screen. Status
+ * lines the model writes before the next tool stay in history for the model;
+ * the lawyer sees the prose that follows the last tool round, in one bubble.
  */
 
 import { isCompactSyntheticUserMessage } from "./compact-insert.js";
@@ -29,6 +30,21 @@ function lawyerTypedText(msg: AgentMessage): string {
   return (msg.content ?? "").trim();
 }
 
+/**
+ * Drop digest inventory the model may echo. Lawyers see the answer; tool lists
+ * stay in `cases/.../compact-digest.md` for developers.
+ */
+export function scrubLawyerFacingAssistantText(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return "";
+  }
+  return trimmed
+    .replace(/\n*###\s*曾调用工具\s*\n[\s\S]*?(?=\n###\s|\s*$)/g, "")
+    .replace(/\n*###\s*压缩前引用\s*\n[\s\S]*?(?=\n###\s|\s*$)/g, "")
+    .trim();
+}
+
 /** A user row the lawyer actually sent. Compact anchors and bounce notes are not. */
 export function isLawyerTypedUserMessage(msg: AgentMessage): boolean {
   if (msg.role !== "user" || msg.hiddenFromLawyer) {
@@ -48,21 +64,36 @@ function assistantContributesToBubble(msg: AgentMessage): boolean {
   return text.length > 0 || (msg.liveTrace?.steps?.length ?? 0) > 0 || msg.turnPlan != null;
 }
 
-function mergeLiveTraces(messages: AgentMessage[]): PersistedChatLiveTrace | undefined {
-  const traces = messages.flatMap((msg) => (msg.liveTrace ? [msg.liveTrace] : []));
-  if (traces.length === 0) {
-    return undefined;
-  }
-  let currentRound: number | undefined;
-  for (const trace of traces) {
-    if (trace.currentRound != null) {
-      currentRound = trace.currentRound;
+/**
+ * Prose after the last tool round. Narration that sits on a tool call is process,
+ * same as Codex keeping tool rounds in the model transcript and showing one answer.
+ */
+function lawyerAnswerText(
+  history: readonly AgentMessage[],
+  visible: Array<{ msg: AgentMessage; index: number }>,
+): string {
+  let lastToolRound = -1;
+  for (let i = 0; i < visible.length; i += 1) {
+    const row = visible[i];
+    const next = visible[i + 1];
+    if (!row) {
+      continue;
+    }
+    const calledTools = (row.msg.toolCalls?.length ?? 0) > 0;
+    const toolBeforeNext = next
+      ? history.slice(row.index + 1, next.index).some((msg) => msg?.role === "tool")
+      : false;
+    if (calledTools || toolBeforeNext) {
+      lastToolRound = i;
     }
   }
-  return {
-    steps: traces.flatMap((trace) => trace.steps),
-    ...(currentRound != null ? { currentRound } : {}),
-  };
+  return scrubLawyerFacingAssistantText(
+    visible
+      .slice(lastToolRound + 1)
+      .map((row) => (row.msg.content ?? "").trim())
+      .filter((text) => text.length > 0)
+      .join("\n\n"),
+  );
 }
 
 /** Stop before the next user row so a compact note sitting in front of it is kept for the model. */
@@ -102,9 +133,6 @@ export function projectLawyerChatBubbles(history: readonly AgentMessage[]): Lawy
     if (!first || !last) {
       return;
     }
-    const texts = visible
-      .map((row) => (row.msg.content ?? "").trim())
-      .filter((text) => text.length > 0);
     let executionState: AgentMessage["executionState"];
     let turnPlan: AgentMessage["turnPlan"];
     for (const row of visible) {
@@ -115,13 +143,11 @@ export function projectLawyerChatBubbles(history: readonly AgentMessage[]): Lawy
         turnPlan = row.msg.turnPlan;
       }
     }
-    const liveTrace = mergeLiveTraces(visible.map((row) => row.msg));
     bubbles.push({
       role: "assistant",
-      text: texts.join("\n\n"),
+      text: lawyerAnswerText(history, visible),
       historyIndex: first.index,
       historyEndExclusive: assistantSpanEnd(history, last.index, nextBoundary),
-      ...(liveTrace ? { liveTrace } : {}),
       ...(executionState ? { executionState } : {}),
       ...(turnPlan ? { turnPlan } : {}),
     });

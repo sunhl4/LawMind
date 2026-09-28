@@ -7,17 +7,11 @@ import {
   type LawMindRequiresAction,
   type LawMindRequiresActionDecision,
 } from "./lawmind-requires-action";
-import { LawmindChatExecutionTrace } from "./LawmindChatExecutionTrace";
-import { LawmindChatThoughtPanel } from "./LawmindChatThoughtPanel";
 import { LawmindTurnPlanCard } from "./LawmindTurnPlanCard";
-import { partitionActivityForThoughtView } from "./lawmind-chat-thought-view.js";
-import { resolveMessageActivity } from "./lawmind-chat-activity.js";
 import { isIcloudDownloadChoice, LawmindClarificationForm } from "./LawmindClarificationForm";
-import { LawmindMemorySourcesPanel } from "./LawmindMemorySourcesPanel";
 import { LawmindMsgAssistant } from "./LawmindMsgAssistant";
 import { LawmindMsgWorkflowApproval } from "./LawmindMsgWorkflowApproval";
-import { renderLegalMarkdown } from "./lawmind-chat-markdown";
-import { hasChatDiagnostics, type ChatMsg, type PendingClarificationState } from "./lawmind-chat";
+import { type ChatMsg, type PendingClarificationState } from "./lawmind-chat";
 import { formatLawyerGateChip, parseLawyerGateMessage } from "./lawmind-gate-message";
 import {
   isClarificationShortConfirm,
@@ -109,44 +103,15 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
   const [editDraft, setEditDraft] = useState(msg.text ?? "");
   const [mutateBusy, setMutateBusy] = useState(false);
 
-  const activityBlocks = msg.role === "assistant" ? resolveMessageActivity(msg) : [];
   const modelFailure = msg.role === "assistant" && msg.failureKind === "model";
-  const showActivityFeed =
-    msg.role === "assistant" && !modelFailure && (activityBlocks.length > 0 || msg.activityActive);
-  const showToolTracePref =
-    typeof localStorage !== "undefined" &&
-    (() => {
-      try {
-        return localStorage.getItem("lawmind.ui.showToolTrace.v1") === "1";
-      } catch {
-        return false;
-      }
-    })();
-  const showLegacyTrace =
+  // One question, one answer. While this turn is still running, keep process
+  // and interim narration off the thread — lawyers see the finished bubble.
+  const turnInFlight =
     msg.role === "assistant" &&
     !modelFailure &&
-    !showActivityFeed &&
-    Boolean(msg.liveTrace?.steps.length || msg.liveTrace?.active || msg.executionState);
-  const streamingThought = loading && index === lastAssistantIndex && Boolean(msg.activityActive);
-  const thoughtParts = partitionActivityForThoughtView(activityBlocks, {
-    finalText: msg.text,
-    streaming: streamingThought,
-  });
-  const showThoughtPanel =
-    showActivityFeed &&
-    (streamingThought ||
-      thoughtParts.tools.length > 0 ||
-      Boolean(thoughtParts.reasoningMarkdown.trim()));
-  const displayText = showThoughtPanel
-    ? thoughtParts.answerText
-    : msg.text?.trim() ||
-      (showActivityFeed
-        ? activityBlocks
-            .filter((b) => b.kind === "text")
-            .map((b) => b.content)
-            .join("\n\n")
-            .trim()
-        : "");
+    index === lastAssistantIndex &&
+    (Boolean(msg.activityActive) || loading);
+  const displayText = turnInFlight ? "" : (msg.text?.trim() ?? "");
   const linkedTaskId =
     contextTaskId?.trim() || msg.executionState?.linkedTaskId?.trim() || undefined;
 
@@ -170,6 +135,21 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
   };
   const gateMessage =
     msg.role === "user" ? parseLawyerGateMessage(msg.text ?? "") : null;
+  const assistantHasChrome =
+    msg.role === "assistant" &&
+    (turnInFlight ||
+      Boolean(displayText) ||
+      workflowPending ||
+      Boolean(msg.turnPlan) ||
+      chatDecisionActions.length > 0 ||
+      shouldShowClarifyCard(msg) ||
+      Boolean(msg.authorityGapNotice) ||
+      Boolean(msg.demoCorpusNotice) ||
+      (msg.researchNextActions?.length ?? 0) > 0 ||
+      Boolean(index === lastAssistantIndex && linkedTaskId));
+  if (msg.role === "assistant" && !assistantHasChrome) {
+    return null;
+  }
 
   return (
     <div
@@ -208,25 +188,9 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             onStartExecuteFromPlan={planEditable ? onStartExecuteFromPlan : undefined}
           />
         ) : null}
-        {showThoughtPanel ? (
-          <div className="lm-msg lm-msg-ai lm-msg-thought">
-            <LawmindChatThoughtPanel
-              tools={thoughtParts.tools}
-              reasoningMarkdown={thoughtParts.reasoningMarkdown}
-              streaming={streamingThought}
-              defaultExpanded={showToolTracePref}
-              renderMarkdown={renderLegalMarkdown}
-            />
-          </div>
-        ) : null}
-        {showLegacyTrace ? (
-          <div className="lm-msg lm-msg-ai lm-msg-thought">
-            <LawmindChatExecutionTrace
-              trace={msg.liveTrace}
-              executionState={msg.executionState}
-              compact={!showToolTracePref && index !== lastAssistantIndex}
-              mode={index === lastAssistantIndex || showToolTracePref ? "timeline" : "steps"}
-            />
+        {turnInFlight ? (
+          <div className="lm-chat-working" data-testid="lm-chat-working" role="status">
+            正在办理…
           </div>
         ) : null}
         {msg.role === "assistant" && msg.authorityGapNotice ? (
@@ -340,14 +304,8 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
           ) : (
             <div className="lm-msg lm-msg-user">{msg.text}</div>
           )
-        ) : showThoughtPanel ? (
-          displayText ? (
-            <LawmindMsgAssistant text={displayText} className="lm-msg-answer" />
-          ) : null
-        ) : !showLegacyTrace ? (
-          <LawmindMsgAssistant text={displayText} modelFailure={modelFailure} />
         ) : displayText ? (
-          <LawmindMsgAssistant text={displayText} className="lm-msg-answer" />
+          <LawmindMsgAssistant text={displayText} modelFailure={modelFailure} />
         ) : null}
         {msg.role === "user" && !gateMessage && (onEditChatMessage || onDeleteChatMessage) ? (
           <div className="lm-msg-actions lm-msg-actions-user">
@@ -393,7 +351,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             ) : null}
           </div>
         ) : null}
-        {msg.role === "assistant" && (
+        {msg.role === "assistant" && displayText ? (
           <div className="lm-msg-actions">
             <button
               type="button"
@@ -429,7 +387,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
               </button>
             ) : null}
           </div>
-        )}
+        ) : null}
         {msg.role === "assistant" &&
         index === lastAssistantIndex &&
         chatDecisionActions.length > 0 &&
@@ -571,13 +529,6 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
               );
             })()}
           </div>
-        )}
-        {msg.role === "assistant" && hasChatDiagnostics(msg) && (
-          <LawmindMemorySourcesPanel
-            layers={msg.memorySources ?? []}
-            toolCallSequence={msg.toolCallSequence}
-            variant="chat"
-          />
         )}
         {msg.role === "assistant" &&
         index === lastAssistantIndex &&

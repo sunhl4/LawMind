@@ -159,6 +159,25 @@ describe("loadWordSurface", () => {
     });
     expect(again).toEqual({ ok: true, unchanged: true });
   });
+
+  it("stops on .doc and asks the lawyer to save as .docx", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-word-surface-doc-"));
+    dirs.push(ws);
+    const rel = "cases/m/旧稿.doc";
+    const abs = path.join(ws, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, "plain");
+    const loaded = await loadWordSurface({
+      workspaceDir: ws,
+      root: "workspace",
+      relPath: rel,
+    });
+    expect(loaded.ok).toBe(false);
+    if (!loaded.ok) {
+      expect(loaded.error).toMatch(/另存为同名的 \.docx/);
+    }
+    expect(fs.existsSync(path.join(ws, "cases/m/旧稿.docx"))).toBe(false);
+  });
 });
 
 describe("extractDocxParagraphsFromXml", () => {

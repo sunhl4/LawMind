@@ -1,288 +1,170 @@
 /**
- * 记忆来源面板 — 对话 / 审核台共用，符合常见「上下文 / Sources」信息架构。
- * 对话模式可在折叠上方展示摘要 chip（记忆 + 按调用顺序的工具步骤）。
+ * 记忆档案体检面板 — 审核台 / 案件认知用。
+ * 不挂在对话气泡下（对齐 Codex / Cursor：回答只留正文）。
+ * 展示的是「这些档案在不在 / 设计上能否进主说明」，不是「本回答引用了哪些材料」。
  */
 
 import { useId, useState } from "react";
 import type { MemorySourceLayer } from "../../../../src/lawmind/memory/memory-source-types.ts";
-import { toolDisplayNameZh } from "../../../../src/lawmind/platform/requires-action.ts";
 import { lawmindDocUrl } from "./lawmind-public-urls.js";
 
 const LAWMIND_USER_MANUAL = lawmindDocUrl("archive/LAWMIND-USER-MANUAL");
 
 type Props = {
   layers: MemorySourceLayer[];
-  /** 对话：默认折叠；审核台：默认展开 */
-  variant?: "chat" | "workbench";
+  /** 默认折叠；审核台可传 true */
   defaultOpen?: boolean;
-  /** 本轮工具调用顺序（与 /api/chat 的 toolCallSequence 一致，一步一条） */
-  toolCallSequence?: string[];
 };
 
 function summarize(layers: MemorySourceLayer[]) {
-  const inPrompt = layers.filter((l) => l.inAgentSystemPrompt).length;
+  const promptSlots = layers.filter((l) => l.inAgentSystemPrompt).length;
   const present = layers.filter((l) => l.exists).length;
+  const missing = layers.filter((l) => !l.exists).length;
   const engineClient = layers.filter((l) => l.activeForEngine).length;
-  return { inPrompt, present, total: layers.length, engineClient };
+  return { promptSlots, present, missing, total: layers.length, engineClient };
 }
 
-function clientProfileChipText(layers: MemorySourceLayer[]): { text: string; title: string } {
-  const row = layers.find((l) => l.activeForEngine);
-  if (!row) {
-    return { text: "已用客户档案", title: "本段对话已按您指定的客户长期档案作答" };
+function promptSlotLabel(layer: MemorySourceLayer): string {
+  if (layer.inAgentSystemPrompt) {
+    return layer.exists ? "可进主说明" : "未建（本可进主说明）";
   }
-  const norm = row.relativePath.replace(/\\/g, "/");
-  const m = /clients\/([^/]+)\//.exec(norm);
-  if (m) {
-    return {
-      text: `客户档案：${m[1]}`,
-      title: `本段对话引用的客户档案：${m[1]}`,
-    };
-  }
-  if (row.id === "client_profile_root" || norm.endsWith("CLIENT_PROFILE.md")) {
-    return {
-      text: "客户档案：默认",
-      title: "使用工作区里默认的客户总档案",
-    };
-  }
-  return { text: "已用客户档案", title: "本段对话已按您指定的客户长期档案作答" };
-}
-
-function ChatChipStrip(props: {
-  layers: MemorySourceLayer[];
-  toolCallSequence: string[];
-  /** 对话里用短句、少术语；审核台可保留更密的标签 */
-  plain: boolean;
-}) {
-  const { layers, toolCallSequence, plain } = props;
-  const s = summarize(layers);
-  const profileChip = clientProfileChipText(layers);
-  const hasMem = layers.length > 0;
-  const hasTools = toolCallSequence.length > 0;
-  if (!hasMem && !hasTools) {
-    return null;
-  }
-  return (
-    <div className="lm-context-chip-strip" aria-label="本回答参考摘要">
-      {hasMem && (
-        <>
-          <span className="lm-context-chip lm-context-chip--memory" title="本次回答纳入考虑的资料类数">
-            {plain ? `${s.total} 类材料` : `${s.total} 层记忆`}
-          </span>
-          <span
-            className="lm-context-chip lm-context-chip--memory lm-context-chip--accent"
-            title={plain ? "已把这部分写进给助手的总说明" : "已进入本助手主说明"}
-          >
-            {plain ? `${s.inPrompt} 已写入说明` : `${s.inPrompt} 已记住`}
-          </span>
-          {s.engineClient > 0 ? (
-            <span
-              className="lm-context-chip lm-context-chip--memory lm-context-chip--engine"
-              title={profileChip.title}
-            >
-              {profileChip.text}
-            </span>
-          ) : null}
-          <span className="lm-context-chip lm-context-chip--memory" title="在电脑上找到对应文件">
-            {plain ? `${s.present} 个已找到` : `${s.present} 文件在盘`}
-          </span>
-        </>
-      )}
-      {hasTools && !plain && (
-        <ul className="lm-context-tool-steps" aria-label="工具调用顺序">
-          {toolCallSequence.map((name, i) => {
-            const label = toolDisplayNameZh(name);
-            return (
-              <li key={`${i}-${name}`} className="lm-context-tool-step">
-                <span
-                  className="lm-context-chip lm-context-chip--tool"
-                  title={label}
-                  aria-label={`第 ${i + 1} 步：${label}`}
-                >
-                  <span className="lm-context-chip-step-num" aria-hidden>
-                    {i + 1}
-                  </span>
-                  <span className="lm-context-chip-tool-name">{label}</span>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {hasTools && plain ? (
-        <span
-          className="lm-context-chip lm-context-chip--tool lm-context-chip--plain-steps"
-          title={toolCallSequence.map((name) => toolDisplayNameZh(name)).join(" → ")}
-        >
-          {toolCallSequence.length} 个处理步骤
-        </span>
-      ) : null}
-    </div>
-  );
+  return "仅检索/引擎";
 }
 
 export function LawmindMemorySourcesPanel(props: Props) {
-  const { layers, variant = "chat", defaultOpen, toolCallSequence = [] } = props;
+  const { layers, defaultOpen = false } = props;
   const summary = summarize(layers);
   const panelId = useId();
-  const [open, setOpen] = useState(
-    defaultOpen !== undefined ? defaultOpen : variant === "workbench",
-  );
+  const [open, setOpen] = useState(defaultOpen);
 
-  const hasMemoryTable = layers.length > 0;
-  const hasTools = toolCallSequence.length > 0;
-  if (!hasMemoryTable && !hasTools) {
+  if (layers.length === 0) {
     return null;
   }
-  const hasMissingFile = layers.some((l) => !l.exists);
 
-  const plain = variant === "chat";
-  const showChatStrip = variant === "chat" && (hasMemoryTable || hasTools);
-  const showWorkbenchBadges = variant === "workbench";
-
-  const sectionLabel = plain
-    ? hasMemoryTable
-      ? "本回答引用的材料"
-      : "本回答的处理步骤"
-    : hasMemoryTable
-      ? hasTools
-        ? "本轮记忆、上下文与工具调用"
-        : "本轮记忆与上下文来源"
-      : "本轮工具调用";
+  const hasMissingFile = summary.missing > 0;
 
   return (
-    <section className={`lm-context-panel lm-context-panel--${variant}`} aria-label={sectionLabel}>
-      {showChatStrip && <ChatChipStrip layers={layers} toolCallSequence={toolCallSequence} plain />}
-
-      {hasMemoryTable && (
-        <>
-          <button
-            type="button"
-            className={`lm-context-panel-trigger ${showChatStrip ? "lm-context-panel-trigger--chat-compact" : ""}`}
-            aria-expanded={open}
-            aria-controls={panelId}
-            id={`${panelId}-trigger`}
-            onClick={() => setOpen((v) => !v)}
-          >
-            <span className="lm-context-panel-title">
-              {plain ? "本回答引用了哪些材料" : "上下文来源"}
-            </span>
-            {showWorkbenchBadges && (
-              <span className="lm-context-panel-badges" aria-hidden>
-                <span className="lm-badge-soft">{summary.total} 层</span>
-                <span className="lm-badge-soft lm-badge-soft--accent">{summary.inPrompt} 已记住</span>
-                {summary.engineClient > 0 ? (
-                  <span className="lm-badge-soft lm-badge-soft--engine">客户画像·本回合</span>
-                ) : null}
-                <span className="lm-badge-soft">{summary.present} 文件存在</span>
-              </span>
-            )}
-            <span
-              className={`lm-context-panel-chevron ${open ? "lm-context-panel-chevron--open" : ""}`}
-              aria-hidden
-            >
-              ›
-            </span>
-          </button>
-          <div
-            id={panelId}
-            hidden={!open}
-            className="lm-context-panel-body"
-            role="region"
-            aria-labelledby={`${panelId}-trigger`}
-          >
-            <div className="lm-context-table-wrap lm-context-table-wrap--responsive">
-              <table className="lm-context-table">
-                <thead>
-                  <tr>
-                    <th scope="col">{plain ? "哪一类" : "来源"}</th>
-                    <th scope="col">{plain ? "位置" : "路径"}</th>
-                    <th scope="col">状态</th>
-                    <th scope="col">{plain ? "总说明" : "提示词"}</th>
-                    <th
-                      scope="col"
+    <section className="lm-context-panel lm-context-panel--workbench" aria-label="这些档案在不在">
+      <button
+        type="button"
+        className="lm-context-panel-trigger"
+        aria-expanded={open}
+        aria-controls={panelId}
+        id={`${panelId}-trigger`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="lm-context-panel-title">这些档案在不在</span>
+        <span className="lm-context-panel-badges" aria-hidden>
+          <span className="lm-badge-soft">{summary.total} 层</span>
+          <span className="lm-badge-soft">{summary.present} 已存在</span>
+          {summary.missing > 0 ? (
+            <span className="lm-badge-soft lm-badge-soft--accent">{summary.missing} 未建</span>
+          ) : null}
+          {summary.engineClient > 0 ? (
+            <span className="lm-badge-soft lm-badge-soft--engine">客户画像·本回合</span>
+          ) : null}
+        </span>
+        <span
+          className={`lm-context-panel-chevron ${open ? "lm-context-panel-chevron--open" : ""}`}
+          aria-hidden
+        >
+          ›
+        </span>
+      </button>
+      <div
+        id={panelId}
+        hidden={!open}
+        className="lm-context-panel-body"
+        role="region"
+        aria-labelledby={`${panelId}-trigger`}
+      >
+        <p className="lm-context-missing-hint">
+          这是工作区记忆档案清单，不是某条回答的引用列表。文件未建时不会进入本轮主说明。
+        </p>
+        <div className="lm-context-table-wrap lm-context-table-wrap--responsive">
+          <table className="lm-context-table">
+            <thead>
+              <tr>
+                <th scope="col">档案</th>
+                <th scope="col">路径</th>
+                <th scope="col">磁盘</th>
+                <th scope="col">主说明</th>
+                <th scope="col">本回合客户</th>
+              </tr>
+            </thead>
+            <tbody>
+              {layers.map((m) => (
+                <tr
+                  key={`${m.id}::${m.relativePath}`}
+                  className={m.activeForEngine ? "lm-context-tr--engine" : undefined}
+                >
+                  <td data-label="档案">
+                    <div className="lm-context-label-stack">
+                      <span className="lm-context-cell-label">{m.label}</span>
+                      {m.hint ? (
+                        <span className="lm-context-cell-sublabel" title={m.hint}>
+                          {m.hint}
+                        </span>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td data-label="路径">
+                    <code className="lm-context-path" title={m.relativePath}>
+                      {m.relativePath}
+                    </code>
+                  </td>
+                  <td data-label="磁盘">
+                    <span className={m.exists ? "lm-pill lm-pill--ok" : "lm-pill lm-pill--muted"}>
+                      {m.exists ? "已存在" : "未建"}
+                    </span>
+                  </td>
+                  <td data-label="主说明">
+                    <span
+                      className={
+                        m.inAgentSystemPrompt && m.exists
+                          ? "lm-pill lm-pill--accent"
+                          : "lm-pill lm-pill--muted"
+                      }
+                      title={
+                        m.inAgentSystemPrompt
+                          ? m.exists
+                            ? "有正文时会进本助手主说明（指纹窗口，非整文件）"
+                            : "设计上可进主说明，但文件未建或为空则本轮不会写入"
+                          : "供检索或引擎使用，默认不整段写入主说明"
+                      }
                     >
-                      {plain ? "本段" : "本回合"}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {layers.map((m) => (
-                    <tr
-                      key={`${m.id}::${m.relativePath}`}
-                      className={m.activeForEngine ? "lm-context-tr--engine" : undefined}
+                      {promptSlotLabel(m)}
+                    </span>
+                  </td>
+                  <td data-label="本回合客户">
+                    <span
+                      className={
+                        m.activeForEngine ? "lm-pill lm-pill--engine" : "lm-pill lm-pill--muted"
+                      }
+                      title={
+                        m.activeForEngine
+                          ? "本回合客户画像：与引擎与检索使用的文件一致"
+                          : undefined
+                      }
                     >
-                      <td data-label={plain ? "哪一类" : "来源"}>
-                        <div className="lm-context-label-stack">
-                          <span className="lm-context-cell-label">{m.label}</span>
-                          {m.hint ? (
-                            <span className="lm-context-cell-sublabel" title={m.hint}>
-                              {m.hint}
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td data-label={plain ? "位置" : "路径"}>
-                        <code className="lm-context-path" title={m.relativePath}>
-                          {m.relativePath}
-                        </code>
-                      </td>
-                      <td data-label="状态">
-                        <span className={m.exists ? "lm-pill lm-pill--ok" : "lm-pill lm-pill--muted"}>
-                          {m.exists ? "已存在" : "缺失"}
-                        </span>
-                      </td>
-                      <td data-label={plain ? "总说明" : "提示词"}>
-                        <span
-                          className={
-                            m.inAgentSystemPrompt ? "lm-pill lm-pill--accent" : "lm-pill lm-pill--muted"
-                          }
-                        >
-                          {m.inAgentSystemPrompt ? "已记住" : "未记住"}
-                        </span>
-                      </td>
-                      <td data-label={plain ? "本段" : "本回合"}>
-                        <span
-                          className={
-                            m.activeForEngine ? "lm-pill lm-pill--engine" : "lm-pill lm-pill--muted"
-                          }
-                          title={
-                            m.activeForEngine ? (plain ? "本段回答按此条客户信息" : "本回合客户画像：与引擎与检索使用的文件一致") : undefined
-                          }
-                        >
-                          {m.activeForEngine ? "生效" : "—"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {hasMissingFile ? (
-              <p className="lm-context-missing-hint">
-                {plain
-                  ? "若有「未找到」：请在工作区里建好文件，并确认已选对「材料」文件夹和案件。"
-                  : "若有行显示为「缺失」，请检查工作区是否已建立对应文件、项目目录与案件是否选对。说明见"}{" "}
-                {!plain ? (
-                  <>
-                    <a className="lm-link-inline" href={LAWMIND_USER_MANUAL} target="_blank" rel="noreferrer">
-                      LawMind 用户手册
-                    </a>
-                    。
-                  </>
-                ) : (
-                  <>
-                    {" "}
-                    <a className="lm-link-inline" href={LAWMIND_USER_MANUAL} target="_blank" rel="noreferrer">
-                      查看说明
-                    </a>
-                  </>
-                )}
-              </p>
-            ) : null}
-          </div>
-        </>
-      )}
+                      {m.activeForEngine ? "生效" : "—"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {hasMissingFile ? (
+          <p className="lm-context-missing-hint">
+            有「未建」时：在工作区建好对应文件，并确认材料文件夹与案件选对。说明见{" "}
+            <a className="lm-link-inline" href={LAWMIND_USER_MANUAL} target="_blank" rel="noreferrer">
+              LawMind 用户手册
+            </a>
+            。
+          </p>
+        ) : null}
+      </div>
     </section>
   );
 }

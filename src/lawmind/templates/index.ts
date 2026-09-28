@@ -50,8 +50,15 @@ const BUILT_IN_TEMPLATES: BuiltInTemplateSpec[] = [
   {
     id: "word/legal-memo-default",
     format: "docx",
-    label: "Legal Memo",
+    label: "法律研究备忘录",
     variant: "legalMemo",
+    category: "internal",
+  },
+  {
+    id: "word/research-report-default",
+    format: "docx",
+    label: "法律调研报告",
+    variant: "researchReport",
     category: "internal",
   },
   {
@@ -124,6 +131,20 @@ const DEFAULT_BUILT_IN_BY_FORMAT: Record<TemplateFormat, string> = {
   pptx: "ppt/client-brief-default",
 };
 
+/**
+ * 交付规格里仍有一批旧模板 ID（无 `word/` 前缀）。解析时落到现有内置版式，避免「找不到模板」。
+ */
+const BUILT_IN_ALIASES: Record<string, string> = {
+  "report-general-default": "word/research-report-default",
+  "document-general-default": "word/legal-memo-default",
+  "review-contract-default": "word/contract-default",
+  "letter-demand-default": "word/demand-letter-default",
+  "contract-general-default": "word/contract-default",
+  "contract-rental-default": "word/contract-default",
+  "litigation-outline-default": "word/legal-memo-default",
+  "report-esg-default": "word/research-report-default",
+};
+
 export function listBuiltInTemplates(): BuiltInTemplateSpec[] {
   return [...BUILT_IN_TEMPLATES];
 }
@@ -175,7 +196,16 @@ function toTemplateFormatFromDraft(draft: ArtifactDraft): TemplateFormat {
 }
 
 function findBuiltIn(id: string): BuiltInTemplateSpec | undefined {
-  return BUILT_IN_TEMPLATES.find((item) => item.id === id);
+  const resolvedId = BUILT_IN_ALIASES[id] ?? id;
+  const hit = BUILT_IN_TEMPLATES.find((item) => item.id === resolvedId);
+  if (!hit) {
+    return undefined;
+  }
+  // 别名请求时仍返回真实内置 id，便于 pin / UI 一致。
+  if (resolvedId !== id) {
+    return { ...hit };
+  }
+  return hit;
 }
 
 function normalizePlaceholderMap(input: Record<string, string>): Record<string, string> {

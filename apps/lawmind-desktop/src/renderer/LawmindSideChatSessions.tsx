@@ -21,6 +21,12 @@ import {
 } from "./lawmind-chat-search-focus";
 import { isSafeLmSessionId } from "./lawmind-session-link";
 import { useRunningChatSessionIds } from "./lawmind-live-turns";
+import {
+  chatSessionDeleteLabel,
+  chatSessionListKeyAction,
+  resolveChatSessionContextTarget,
+  useChatSessionMultiSelect,
+} from "./lawmind-chat-session-selection";
 
 export type SideChatSessionRow = {
   sessionId: string;
@@ -48,7 +54,7 @@ export type LawmindSideChatSessionsProps = {
   onSelect: (sessionId: string) => void | Promise<void>;
   onNewChat: () => void | Promise<void>;
   onRename: (sessionId: string, title: string) => void | Promise<void>;
-  onDelete: (sessionId: string) => void | Promise<void>;
+  onDelete: (sessionId: string | readonly string[]) => void | Promise<void>;
 };
 
 export function filterSideChatSessions(
@@ -76,7 +82,21 @@ export function mergeSideChatSearchRows(
   return [...primary, ...local.filter((r) => !seen.has(r.sessionId))];
 }
 
-type ContextMenuState = { x: number; y: number; sessionId: string; title: string };
+type ContextMenuState = {
+  x: number;
+  y: number;
+  sessionId: string;
+  title: string;
+  actionIds: string[];
+};
+
+function deleteTarget(ids: readonly string[]): string | readonly string[] {
+  return ids.length === 1 ? (ids[0] ?? "") : ids;
+}
+
+function eventTargetIsField(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+}
 
 /**
  * Left-rail chat list (Cursor-style): third sidebar section under 工作区 / 案件材料.
@@ -211,6 +231,8 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
     [query, scopedSessions, sessions],
   );
   const shown = query.trim() === "" ? scopedSessions : mergeSideChatSearchRows(remoteHits, localMatches);
+  const shownIds = useMemo(() => shown.map((row) => row.sessionId), [shown]);
+  const selection = useChatSessionMultiSelect(shownIds, activeSessionId);
   const showEmpty =
     query.trim().length > 0 && shown.length === 0 && sessions.length > 0 && !remotePending;
 
@@ -289,10 +311,31 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
     (e: ReactMouseEvent, row: SideChatSessionRow) => {
       e.preventDefault();
       e.stopPropagation();
-      void onSelect(row.sessionId);
-      setContextMenu({ x: e.clientX, y: e.clientY, sessionId: row.sessionId, title: row.title });
+      selection.markContextMenu();
+      const target = resolveChatSessionContextTarget(selection.selectedIds, row.sessionId);
+      if (target.replaceSelection) {
+        selection.selectOnly(row.sessionId);
+        void onSelect(row.sessionId);
+      }
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        sessionId: row.sessionId,
+        title: row.title,
+        actionIds: target.actionIds,
+      });
     },
-    [onSelect],
+    [onSelect, selection],
+  );
+
+  const deleteSessions = useCallback(
+    (ids: readonly string[]) => {
+      if (ids.length === 0) {
+        return;
+      }
+      void onDelete(deleteTarget(ids));
+    },
+    [onDelete],
   );
 
   return (
@@ -368,7 +411,51 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
               }}
             />
           ) : null}
-          <div className="lm-side-chat-sessions-list lm-scroll" role="listbox" aria-label="对话列表">
+          {selection.selectedIds.length > 1 ? (
+            <div className="lm-side-chat-session-batch" data-testid="lm-side-chat-session-batch">
+              <span>已选 {selection.selectedIds.length}</span>
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-small lm-side-chat-session-batch-delete"
+                onClick={() => deleteSessions(selection.selectedIds)}
+              >
+                删除
+              </button>
+            </div>
+          ) : null}
+          <div
+            className="lm-side-chat-sessions-list lm-scroll"
+            role="listbox"
+            aria-multiselectable="true"
+            aria-label="对话列表"
+            title="Shift 连选，Ctrl 或 ⌘ 加选"
+            onKeyDown={(e) => {
+              const action = chatSessionListKeyAction(
+                {
+                  key: e.key,
+                  metaKey: e.metaKey,
+                  ctrlKey: e.ctrlKey,
+                  altKey: e.altKey,
+                  shiftKey: e.shiftKey,
+                  targetIsField: eventTargetIsField(e.target),
+                },
+                selection.selectedIds.length,
+              );
+              if (action === "none") {
+                return;
+              }
+              e.preventDefault();
+              if (action === "select-all") {
+                selection.selectAll();
+                return;
+              }
+              if (action === "collapse") {
+                selection.collapseTo(activeSessionId);
+                return;
+              }
+              deleteSessions(selection.selectedIds);
+            }}
+          >
             {loading && sessions.length === 0 ? (
               <p className="lm-meta lm-side-chat-sessions-empty">加载中…</p>
             ) : null}
@@ -385,6 +472,7 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
             ) : null}
             {shown.map((row) => {
               const active = row.sessionId === activeSessionId;
+              const selected = selection.selectedSet.has(row.sessionId);
               const running = runningSessionIds.has(row.sessionId);
               const assistantLabel = row.assistantId
                 ? assistantDisplayById?.[row.assistantId]?.trim() || row.assistantId
@@ -426,20 +514,31 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
                 <div
                   key={row.sessionId}
                   role="option"
-                  className={`lm-side-chat-session-row${active ? " is-active" : ""}${running ? " is-running" : ""}`}
+                  className={`lm-side-chat-session-row${active ? " is-active" : ""}${selected ? " is-selected" : ""}${running ? " is-running" : ""}`}
                   data-testid={`lm-side-chat-session-${row.sessionId}`}
-                  aria-selected={active}
+                  aria-selected={selected}
+                  aria-current={active ? "true" : undefined}
                   tabIndex={0}
                   aria-label={running ? `${row.title}，执行中` : row.title}
                   title={running ? `${row.title} · 执行中` : row.title}
-                  onClick={() => {
-                    void onSelect(row.sessionId);
+                  onClick={(e) => {
+                    if (selection.consumeSuppressedClick()) {
+                      return;
+                    }
+                    if (e.shiftKey) {
+                      e.preventDefault();
+                    }
+                    const next = selection.applyPointer(e, row.sessionId);
+                    if (next.open) {
+                      void onSelect(row.sessionId);
+                    }
                   }}
                   onKeyDown={(e) => {
                     if (e.key !== "Enter" && e.key !== " ") {
                       return;
                     }
                     e.preventDefault();
+                    selection.selectOnly(row.sessionId);
                     void onSelect(row.sessionId);
                   }}
                   onContextMenu={(e) => openContextMenu(e, row)}
@@ -494,27 +593,29 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
           }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <button
-            type="button"
-            role="menuitem"
-            className="lm-chat-session-tab-menu-item"
-            onClick={() => {
-              startRename(contextMenu.sessionId, contextMenu.title);
-              setContextMenu(null);
-            }}
-          >
-            重命名
-          </button>
+          {contextMenu.actionIds.length === 1 ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="lm-chat-session-tab-menu-item"
+              onClick={() => {
+                startRename(contextMenu.sessionId, contextMenu.title);
+                setContextMenu(null);
+              }}
+            >
+              重命名
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"
             className="lm-chat-session-tab-menu-item lm-chat-session-tab-menu-item-danger"
             onClick={() => {
-              void onDelete(contextMenu.sessionId);
+              deleteSessions(contextMenu.actionIds);
               setContextMenu(null);
             }}
           >
-            删除
+            {chatSessionDeleteLabel(contextMenu.actionIds.length)}
           </button>
         </div>
       ) : null}

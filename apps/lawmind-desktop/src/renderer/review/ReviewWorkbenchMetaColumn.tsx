@@ -588,7 +588,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
               </div>
             )}
             {memorySources && memorySources.length > 0 ? (
-              <LawmindMemorySourcesPanel layers={memorySources} variant="workbench" />
+              <LawmindMemorySourcesPanel layers={memorySources} defaultOpen />
             ) : null}
             {reasoningMarkdown?.trim() ? (
               <>

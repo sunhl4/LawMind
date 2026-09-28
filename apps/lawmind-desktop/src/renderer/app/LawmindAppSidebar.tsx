@@ -46,7 +46,7 @@ export type LawmindAppSidebarProps = {
   onSelectChatSession?: (sessionId: string) => void | Promise<void>;
   onCreateNewChatSession?: () => void | Promise<void>;
   onRenameChatSession?: (sessionId: string, title: string) => void | Promise<void>;
-  onDeleteChatSession?: (sessionId: string) => void | Promise<void>;
+  onDeleteChatSession?: (sessionId: string | readonly string[]) => void | Promise<void>;
   /** Opens create-matter dialog from the matter list (no-FS / empty list). */
   onCreateMatter?: () => void;
 };

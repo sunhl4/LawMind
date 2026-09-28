@@ -438,6 +438,13 @@
   box-shadow: var(--shadow-xs);
 }
 
+.lm-chat-working {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+  padding: 4px 0 8px;
+}
+
 /* Thought / trace stays quiet — not a second card. */
 .lm-msg-ai.lm-msg-thought {
   padding: 2px 0 10px;

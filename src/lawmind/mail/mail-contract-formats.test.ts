@@ -7,11 +7,11 @@ import {
 } from "./mail-contract-formats.js";
 
 describe("mail-contract-formats", () => {
-  it("treats .doc and .docx as first-class tracked Word baselines", () => {
+  it("treats only .docx as a tracked Word baseline", () => {
     expect(classifyContractAttachment("a.docx")).toBe("tracked_word");
-    expect(classifyContractAttachment("a.doc")).toBe("tracked_word");
-    expect(isTrackedWordAttachment("合同.doc")).toBe(true);
+    expect(classifyContractAttachment("a.doc")).toBe("legacy_doc");
     expect(isTrackedWordAttachment("合同.docx")).toBe(true);
+    expect(isTrackedWordAttachment("合同.doc")).toBe(false);
   });
 
   it("classifies other formats", () => {
@@ -23,6 +23,7 @@ describe("mail-contract-formats", () => {
 
   it("flags reviewable and image helpers", () => {
     expect(isReviewableContractAttachment("合同.pdf")).toBe(true);
+    expect(isReviewableContractAttachment("旧稿.doc")).toBe(true);
     expect(isMailImageAttachment("a.jpg")).toBe(true);
     expect(isMailImageAttachment("a.pdf")).toBe(false);
   });

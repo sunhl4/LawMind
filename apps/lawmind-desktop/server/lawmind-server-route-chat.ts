@@ -19,11 +19,6 @@ import { parsePermissionMode } from "../../../src/lawmind/agent/permission-mode.
 import type { AgentConfig, AgentTurn, ToolCallResult } from "../../../src/lawmind/agent/types.js";
 import { parseContextPins } from "../../../src/lawmind/platform/compose-context-pin.js";
 import {
-  buildAgentMemorySourceReport,
-  loadMemoryContext,
-  toEngineClientMemorySnapshot,
-} from "../../../src/lawmind/memory/index.js";
-import {
   isAdhocMeetingMatterId,
   parseOptionalMatterId,
 } from "../../../src/lawmind/cases/index.js";
@@ -623,15 +618,8 @@ export async function handleChatRoute({
       newSession: !hadSession,
       turn: true,
     });
-    const engineMem =
-      result.memoryContext ??
-      (await loadMemoryContext(workspaceDir, { matterId: caseMemoryMatterId }));
-    const memorySources = await buildAgentMemorySourceReport(workspaceDir, {
-      matterId: caseMemoryMatterId,
-      assistantId: profile.assistantId,
-      lawMindRoot,
-      engineMemory: toEngineClientMemorySnapshot(engineMem),
-    });
+    // 对话气泡不再挂记忆来源清单（对齐 Codex/Cursor）。档案体检走审核台 / 案件认知 /
+    // GET /api/memory/sources，勿在每轮 /api/chat 末尾扫盘拼 memorySources。
     const policyForEdition: LawMindWorkspacePolicy | null = policyState.loaded
       ? (policyState.policy as LawMindWorkspacePolicy)
       : null;
@@ -652,7 +640,6 @@ export async function handleChatRoute({
       clarificationQuestions: result.turn.clarificationQuestions,
       taskId: result.turn.turnId,
       taskTitle: deriveInstructionTitle(message),
-      memorySources,
       inboxKind: classifySessionInbox("chat"),
     };
     if (PLATFORM_CONTRACTS_V1) {

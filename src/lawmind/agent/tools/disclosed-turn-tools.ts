@@ -135,7 +135,7 @@ export function pinsIncludeWord(pins: ComposeContextPin[] | undefined): boolean 
     if (pin.pinKind !== "file" || pin.kind !== "file") {
       return false;
     }
-    return /\.docx?$/i.test(pin.relPath);
+    return /\.docx$/i.test(pin.relPath);
   });
 }
 

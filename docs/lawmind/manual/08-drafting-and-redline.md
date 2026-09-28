@@ -246,7 +246,7 @@ export const MIN_TRACKED_RENDER_HUNKS = 1;
 
 导出走 `src/lawmind/artifacts/render-docx-tracked.ts`，用随包的 officecli 落修订轨。三条路径：
 
-**路径一：有上传的原合同**（`contract_file`）。这是合同审阅的正常路径：拷一份原件的副本，在副本上落改，输出到源文件同目录。**原件一个字节都不动**。源码注释明确：「never writes a sibling .docx next to the original」——不会在原件旁边生成一个转换过的 .docx。
+**路径一：有上传的原合同**（`contract_file`，须为 `.docx`）。这是合同审阅的正常路径：拷一份原件的副本，在副本上落改，输出到源文件同目录（`原名_日期_01.docx`）。**原件一个字节都不动**。
 
 **路径二：没有原件**（`rendered_draft`）。从草稿渲染一份，然后落改。这条路径会退化（`degraded`），因为排版是重新生成的。
 
@@ -257,16 +257,19 @@ export const MIN_TRACKED_RENDER_HUNKS = 1;
 
 也就是说，未审的稿子可以出个草稿看，但被驳回的稿子不许出。
 
-### 二进制 .doc 是一等公民
+版式由模板变体决定，细节在第 57.5 节。主出稿会带上解析出的变体：
 
-这条挺少见：老的 `.doc` 格式不需要先转成 `.docx`。代码里能直接处理。但转写会经过 `textutil`，会丢格式，所以会带一条警告：
+- `word/legal-memo-default`：法律研究备忘录。找不到模板时的 Word 默认也是它。
+- `word/research-report-default`：调研 / 研究 / ESG 报告用的学位论文正文版式。`report.learning` 只在对话起草函数里指向它，规格表仍写备忘录。
+- `word/contract-default`、`word/demand-letter-default`：合同审查和律师函。
 
-```text
-基线 .doc 仅经 textutil 转写，原有字体/版式/审阅修订可能已丢失；
-请安装 Microsoft Word 或 LibreOffice 后重导以保留原格式。
-```
+路径二在没有合同基线时重新渲染再落修订。非合同稿这里不传报告变体，会按备忘录面拼一版，再往上叠修订。
 
-诚实地告诉你格式丢了，而不是假装没丢。
+### 修订只认 .docx；.doc 须律师另存
+
+二进制 `.doc` 可以抽正文（`analyze_document` / 索引），但**不能**当作审阅痕迹基线。要在原稿上出修订时，引擎停下来，请律师用 Word 或 WPS 另存为同名 `.docx` 后再继续。不会自动 `textutil` / LibreOffice / 随包转换器去猜版式。
+
+邮件短路径遇到 `.doc` 时同样不写审阅痕迹：先走意见书级审查，并在说明里提示另存后再交办「按原稿改稿」。
 
 ## 8.10 落盘为什么必须从右到左
 
@@ -782,7 +785,7 @@ revision_not_persisted: 助手未将修订写入 drafts 文件，请查看对话
 | 草稿持久化         | `src/lawmind/drafts/index.ts`                                                                                                                                                                                                 |
 | 渲染               | `src/lawmind/artifacts/render-docx.ts`、`render-docx-tracked.ts`、`render-pptx.ts`                                                                                                                                            |
 | 输出位置与命名     | `src/lawmind/artifacts/default-output-location.ts`、`matter-word-delivery.ts`、`word-revision-delivery.ts`、`named-user-place.ts`                                                                                             |
-| 排版               | `src/lawmind/artifacts/docx-legal-typography.ts`                                                                                                                                                                              |
+| 排版               | `src/lawmind/artifacts/docx-legal-typography.ts`、`docx-thesis-styles.ts`（报告面的段距、目录、行网格）、`docx-thesis-figures.ts`（报告面的三线表与图）                                                                       |
 | officecli 定位     | `src/lawmind/artifacts/officecli-bin.ts`                                                                                                                                                                                      |
 | Word 改稿锁定      | `src/lawmind/platform/word-revision-instruction.ts`、`word-revision-core.ts`、`word-revision-checklist.ts`                                                                                                                    |
 | Word 插件          | `src/lawmind/integrations/word-addin/`（`review-requests.ts`、`auto-run.ts`、`attach-result.ts`、`addin-assets.ts`）、`apps/lawmind-desktop/server/lawmind-server-word-addin-runner.ts`、`lawmind-server-route-word-addin.ts` |

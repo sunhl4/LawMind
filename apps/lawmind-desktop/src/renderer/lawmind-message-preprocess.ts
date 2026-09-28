@@ -3,6 +3,8 @@
  * Normalizes, reorders clarification, collapses search results, groups tools, brief filter.
  */
 
+import { isCompactSyntheticUserMessage } from "../../../../src/lawmind/agent/compact-insert.ts";
+import { scrubLawyerFacingAssistantText } from "../../../../src/lawmind/agent/lawyer-chat-projection.ts";
 import type { ChatMsg } from "./lawmind-chat";
 import { getPendingClarificationState } from "./lawmind-chat";
 import type { CarryoverOrigin } from "./LawmindMsgCarryoverNotice";
@@ -32,7 +34,27 @@ const DELIVERABLE_MARKERS = [
 ];
 
 function normalizeMessages(messages: ChatMsg[]): Array<{ message: ChatMsg; sourceIndex: number }> {
-  return messages.map((message, sourceIndex) => ({ message, sourceIndex }));
+  const out: Array<{ message: ChatMsg; sourceIndex: number }> = [];
+  for (let sourceIndex = 0; sourceIndex < messages.length; sourceIndex += 1) {
+    const message = messages[sourceIndex];
+    if (!message) {
+      continue;
+    }
+    // Compact digests / anchors are model context, not lawyer turns.
+    if (message.role === "user" && isCompactSyntheticUserMessage(message.text ?? "")) {
+      continue;
+    }
+    if (message.role === "assistant") {
+      const text = scrubLawyerFacingAssistantText(message.text ?? "");
+      out.push({
+        message: text === (message.text ?? "").trim() ? message : { ...message, text },
+        sourceIndex,
+      });
+      continue;
+    }
+    out.push({ message, sourceIndex });
+  }
+  return out;
 }
 
 function promoteClarification(
@@ -195,6 +217,76 @@ function filterBriefDeliverables(items: RenderableChatItem[]): RenderableChatIte
   });
 }
 
+function lastAssistantText(items: Array<Extract<RenderableChatItem, { kind: "message" }>>): string {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const text = items[i]?.message.text?.trim() ?? "";
+    if (text) {
+      return items[i]?.message.text ?? "";
+    }
+  }
+  return "";
+}
+
+/**
+ * One typed question can leave several assistant rows (a status line per tool round).
+ * The thread shows the latest answer once. Process stays off this surface.
+ */
+function collapseAssistantRuns(items: RenderableChatItem[]): RenderableChatItem[] {
+  const out: RenderableChatItem[] = [];
+  let buf: Array<Extract<RenderableChatItem, { kind: "message" }>> = [];
+
+  const flush = (): void => {
+    if (buf.length === 0) {
+      return;
+    }
+    const last = buf[buf.length - 1];
+    if (!last) {
+      buf = [];
+      return;
+    }
+    const streaming = buf.some((item) => item.message.activityActive);
+    const text = lastAssistantText(buf);
+    out.push({
+      kind: "message",
+      sourceIndex: last.sourceIndex,
+      message: {
+        ...last.message,
+        text,
+        liveTrace: undefined,
+        activity: streaming ? last.message.activity : undefined,
+        activityActive: streaming ? true : undefined,
+      },
+    });
+    buf = [];
+  };
+
+  for (const item of items) {
+    if (item.kind === "tool_group") {
+      for (let i = 0; i < item.messages.length; i += 1) {
+        const message = item.messages[i];
+        const sourceIndex = item.sourceIndices[i];
+        if (!message || sourceIndex == null) {
+          continue;
+        }
+        buf.push({ kind: "message", message, sourceIndex });
+      }
+      continue;
+    }
+    if (
+      item.kind === "message" &&
+      item.message.role === "assistant" &&
+      item.message.failureKind !== "model"
+    ) {
+      buf.push(item);
+      continue;
+    }
+    flush();
+    out.push(item);
+  }
+  flush();
+  return out;
+}
+
 export function preprocessChatMessages(
   messages: ChatMsg[],
   opts: PreprocessOptions = {},
@@ -206,6 +298,7 @@ export function preprocessChatMessages(
   rows = promoteClarification(rows);
   let items = collapseSearchResults(rows, collapseSearch);
   items = groupToolActivities(items, groupTools);
+  items = collapseAssistantRuns(items);
   if (opts.briefOnly) {
     items = filterBriefDeliverables(items);
   }

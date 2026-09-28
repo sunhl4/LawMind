@@ -119,7 +119,7 @@ export type UseLawmindMainBodyContentPropsInput = {
   selectChatSession: (sessionId: string, assistantIdOverride?: string) => void | Promise<void>;
   createNewChatSession: () => void | Promise<void>;
   renameChatSession: (sessionId: string, title: string) => void | Promise<void>;
-  deleteChatSession: (sessionId: string) => void | Promise<void>;
+  deleteChatSession: (sessionId: string | readonly string[]) => void | Promise<void>;
   currentMessages: ChatMsg[];
   copiedMessageIndex: number | null;
   messagesEndRef: RefObject<HTMLDivElement | null>;

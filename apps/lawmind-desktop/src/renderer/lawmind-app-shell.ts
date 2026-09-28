@@ -436,11 +436,24 @@ export function useLawmindAppShell() {
     onStreamCompactBoundary: (info) => {
       const dropped =
         typeof info.droppedMessageCount === "number" ? info.droppedMessageCount : 0;
-      const label = info.overflowPrune
+      // Lawyers only get a quiet status line. Digest body stays on disk for developers
+      // (`cases/<matter>/compact-digest.md`); turn on diagnostics in settings to see the path.
+      let label = info.overflowPrune
         ? "较早的检索结果已收短，继续办"
         : dropped > 0
           ? "较早的来回已收成要点，继续办"
           : "这场对话已整理，继续办";
+      try {
+        if (
+          typeof localStorage !== "undefined" &&
+          localStorage.getItem("lawmind.includeTurnDiagnostics") === "1" &&
+          contextMatterId?.trim()
+        ) {
+          label = `${label}（开发者：cases/${contextMatterId.trim()}/compact-digest.md）`;
+        }
+      } catch {
+        /* ignore */
+      }
       setStreamCompactNoticesByAssistant((prev) => ({
         ...prev,
         [selectedAssistantId]: [...(prev[selectedAssistantId] ?? []), label],

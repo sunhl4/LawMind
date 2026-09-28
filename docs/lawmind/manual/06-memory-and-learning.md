@@ -67,7 +67,7 @@
 
 这层区分是有意的：偏好更像「人设」，每轮都要在；通用知识更像「可检索的资料」，需要时靠检索命中。
 
-你在界面上能直接看到这个区分：`GET /api/memory/sources` 返回每一层的 `{ id, label, relativePath, exists, charCount, inAgentSystemPrompt, hint }`，`LawmindMemorySourcesPanel.tsx` 把它渲染成「来源面板」。
+你在界面上能直接看到这个区分：`GET /api/memory/sources` 返回每一层的 `{ id, label, relativePath, exists, charCount, inAgentSystemPrompt, hint }`；审核台与案件认知用 `LawmindMemorySourcesPanel.tsx` 渲染成「这些档案在不在」（档案体检，不是某条回答的引用列表）。对话气泡不挂此面板（对齐 Codex / Cursor）。
 
 每个进提示词的层都有字符上限，定义在 `prompt-windows.ts` 的 `PROMPT_WINDOW`。**这里有个容易看错的地方：每层通常有两个数，只有小的那个真的进提示词。**
 

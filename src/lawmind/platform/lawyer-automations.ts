@@ -8,11 +8,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { withExclusiveFileLock, writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { ensureDocxForAttachment } from "../mail/convert-to-docx.js";
+import { DOC_NEEDS_DOCX_MESSAGE } from "../mail/doc-revision-gate.js";
 import { sanitizeMailMessageIdForPath } from "../mail/imap-client.js";
 import {
   classifyContractAttachment,
   isReviewableContractAttachment,
-  isTrackedWordAttachment,
   type ContractAttachmentKind,
 } from "../mail/mail-contract-formats.js";
 import { eventIntervalOpen, validateEventTrigger } from "./automation-event-trigger.js";
@@ -894,13 +894,15 @@ export type MailContractReviewBuild = {
   attachmentRefs: MailContractAttachmentRef[];
   reviewMode: MailContractReviewMode;
   /**
-   * Workspace-relative Word path (.doc/.docx) for contract_edit_baseline_path.
+   * Workspace-relative Word path (`.docx`) for contract_edit_baseline_path.
    */
   preferredBaselinePath?: string;
   /** Original preferred attachment (any supported format). */
   preferredSourcePath?: string;
   /** Reply hint from newest message with a contract attachment. */
   replyToEmail?: string;
+  /** Lawyer-facing note when conversion or a manual `.docx` save is required. */
+  convertNote?: string;
   workflowInstruction: string;
 };
 
@@ -920,6 +922,7 @@ function pickPreferredContractRef(
   return (
     refs.find((r) => r.kind === "tracked_word") ??
     refs.find((r) => r.kind === "convertible_word") ??
+    refs.find((r) => r.kind === "legacy_doc") ??
     refs.find((r) => r.kind === "analyzable") ??
     refs[0]
   );
@@ -1065,12 +1068,14 @@ function finalizeMailContractReviewBuild(
 
   const kindLabel = (k: ContractAttachmentKind) =>
     k === "tracked_word"
-      ? "Word(.doc/.docx)"
-      : k === "convertible_word"
-        ? "其他文字格式(wps/rtf/odt)"
-        : k === "analyzable"
-          ? "PDF/图片/文本"
-          : "其他";
+      ? "Word(.docx)"
+      : k === "legacy_doc"
+        ? "旧版 Word(.doc，需另存为 .docx 才能出修订)"
+        : k === "convertible_word"
+          ? "其他文字格式(wps/rtf/odt)"
+          : k === "analyzable"
+            ? "PDF/图片/文本"
+            : "其他";
 
   const modeLine =
     reviewMode === "tracked"
@@ -1117,6 +1122,7 @@ function finalizeMailContractReviewBuild(
     preferredBaselinePath,
     preferredSourcePath,
     replyToEmail,
+    convertNote: overrides?.convertNote,
     workflowInstruction,
   };
 }
@@ -1206,15 +1212,20 @@ export async function materializeMailContractReviewBaselines(
     return built;
   }
 
-  // .doc / .docx are first-class baselines — no conversion step.
-  if (
-    isTrackedWordAttachment(preferred.workspaceRelativePath) ||
-    preferred.kind === "tracked_word"
-  ) {
+  // Only `.docx` is a tracked baseline. Binary `.doc` waits for the lawyer to save as `.docx`.
+  if (preferred.kind === "tracked_word") {
     return finalizeMailContractReviewBuild(matterId, messages, built.attachmentRefs, {
       reviewMode: "tracked",
       preferredBaselinePath: preferred.workspaceRelativePath,
       preferredSourcePath: preferred.workspaceRelativePath,
+    });
+  }
+
+  if (preferred.kind === "legacy_doc") {
+    return finalizeMailContractReviewBuild(matterId, messages, built.attachmentRefs, {
+      reviewMode: "opinion",
+      preferredSourcePath: preferred.workspaceRelativePath,
+      convertNote: `${DOC_NEEDS_DOCX_MESSAGE} 另存完成后请再交办「按原稿改稿」；当前先按正文做意见书级审查，不写审阅痕迹。`,
     });
   }
 

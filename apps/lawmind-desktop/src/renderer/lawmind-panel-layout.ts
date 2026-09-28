@@ -1,7 +1,10 @@
 /** Unified LawMind panel sizing (Cursor-like split constraints). */
 
 export const LM_PANE_MIN_WIDTH_PX = 240;
-export const LM_PANE_MAX_WIDTH_PX = 560;
+/** 绝对上限。视口还会再留一截给旁边那一栏，见 clampSidebarWidthPx / clampInnerSplitWidthPx。 */
+export const LM_PANE_MAX_WIDTH_PX = 960;
+/** 拖左栏时，主区至少留下的宽度。 */
+export const LM_SIDEBAR_NEIGHBOR_RESERVE_PX = 280;
 
 /** Slim Cursor-style compose: textarea + one toolbar row; chrome above is optional. */
 export const LM_CHAT_COMPOSE_MIN_HEIGHT_PX = 108;
@@ -37,7 +40,7 @@ export function clampPaneWidthPx(width: number, min = LM_PANE_MIN_WIDTH_PX, max 
 
 /**
  * 应用壳 **左侧栏总宽**（材料树 + 侧栏栈）：窄窗口时允许小于 LM_PANE_MIN_WIDTH_PX，
- * 并把上限钉在视口比例内，避免主区被挤到无法操作。
+ * 上限放到视口减去中栏保底宽度，避免主区被挤到无法操作。
  */
 export function clampSidebarWidthPx(
   width: number,
@@ -47,8 +50,11 @@ export function clampSidebarWidthPx(
   try {
     if (typeof window !== "undefined" && Number.isFinite(window.innerWidth)) {
       const vw = window.innerWidth;
-      const minResponsive = Math.max(LM_PANE_RESPONSIVE_FLOOR_PX, Math.min(min, Math.floor(vw * 0.3)));
-      const maxResponsive = Math.min(max, Math.max(minResponsive + 40, Math.floor(vw * 0.5)));
+      const minResponsive = Math.max(LM_PANE_RESPONSIVE_FLOOR_PX, Math.min(min, Math.floor(vw * 0.22)));
+      const maxResponsive = Math.min(
+        max,
+        Math.max(minResponsive + 48, vw - LM_SIDEBAR_NEIGHBOR_RESERVE_PX),
+      );
       return Math.min(maxResponsive, Math.max(minResponsive, Math.round(width)));
     }
   } catch {
@@ -69,8 +75,9 @@ export function clampInnerSplitWidthPx(
   try {
     if (typeof window !== "undefined" && Number.isFinite(window.innerWidth)) {
       const vw = window.innerWidth;
-      const minResponsive = Math.max(LM_PANE_RESPONSIVE_FLOOR_PX, Math.min(min, Math.floor(vw * 0.26)));
-      const maxResponsive = Math.min(max, Math.max(minResponsive + 48, Math.floor(vw * 0.46)));
+      const minResponsive = Math.max(LM_PANE_RESPONSIVE_FLOOR_PX, Math.min(min, Math.floor(vw * 0.2)));
+      // 对话列在分隔条右侧。上限按视口比例放宽，同时给左侧编辑区留出可操作宽度。
+      const maxResponsive = Math.min(max, Math.max(minResponsive + 48, Math.floor(vw * 0.62)));
       return Math.min(maxResponsive, Math.max(minResponsive, Math.round(width)));
     }
   } catch {

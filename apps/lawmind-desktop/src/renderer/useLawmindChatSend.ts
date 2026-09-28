@@ -30,7 +30,6 @@ import {
   MODEL_NOT_VERIFIED_HINT,
 } from "./lawmind-model-verify";
 import { resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
-import { confirmDialog } from "./lawmind-confirm-dialog";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { LawmindHealthState } from "./lawmind-app-shell";
 import type { FileChatContextItem } from "./lawmind-app-shell";
@@ -73,7 +72,12 @@ import {
   FORK_CONTINUE_WORK_MESSAGE,
   parseForkContinueRequest,
 } from "../../../../src/lawmind/agent/fork-continue-request.ts";
-import { abortSessionTurn, mutateSessionMessages } from "./lawmind-chat-message-mutate";
+import { planTranscriptMutate } from "../../../../src/lawmind/agent/resolve-transcript-cut.ts";
+import {
+  abortSessionTurn,
+  fetchSessionBubbles,
+  mutateSessionMessages,
+} from "./lawmind-chat-message-mutate";
 import {
   clientHasLiveTurn,
   focusedSessionHasLiveTurn,
@@ -176,6 +180,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
     modelCatalog,
     sessionByAssistant,
     setSessionByAssistant,
+    messagesByAssistant,
     setMessagesByAssistant,
     contextMatterId,
     contextTaskId,
@@ -368,10 +373,42 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       if (!sessionId) {
         return;
       }
+      const clientMessages = messagesByAssistant[selectedAssistantId] ?? [];
       try {
         setError(null);
+        const serverMessages = await fetchSessionBubbles(
+          config.apiBase,
+          sessionId,
+          selectedAssistantId,
+        );
+        const plan = planTranscriptMutate({
+          mode: "delete_pair",
+          clientMessages: clientMessages.map((message) => ({
+            role: message.role,
+            text: message.text ?? "",
+          })),
+          clientIndex: uiIndex,
+          serverMessages,
+        });
+        if (plan.action === "missing") {
+          setError("找不到这条消息，无法删除。");
+          return;
+        }
+        if (plan.action === "local") {
+          let end = uiIndex + 1;
+          if (clientMessages[uiIndex]?.role === "user") {
+            while (end < clientMessages.length && clientMessages[end]?.role === "assistant") {
+              end += 1;
+            }
+          }
+          applyMutatedMessages(
+            selectedAssistantId,
+            clientMessages.filter((_, index) => index < uiIndex || index >= end),
+          );
+          return;
+        }
         const { messages } = await mutateSessionMessages(config.apiBase, sessionId, {
-          uiIndex,
+          uiIndex: plan.uiIndex,
           mode: "delete_pair",
         });
         applyMutatedMessages(selectedAssistantId, messages);
@@ -384,6 +421,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       applyMutatedMessages,
       config?.apiBase,
       loading,
+      messagesByAssistant,
       refreshChatSessionListForAssistant,
       selectedAssistantId,
       sessionByAssistant,
@@ -398,6 +436,8 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         fromQueue?: boolean;
         background?: { assistantId: string; sessionId: string };
         forkHop?: boolean;
+        /** Replace the open transcript before appending this send (edit-resend). */
+        seedMessages?: ChatMsg[];
       },
     ) => {
       const text = rawText.trim();
@@ -591,7 +631,11 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       let drainKey = turnQueueKey;
       if (!turn.uiDetached) {
         setMessagesByAssistant((previous) => {
-          const next = appendChatMessage(previous, assistantId, { role: "user", text });
+          const base =
+            opts2?.seedMessages != null
+              ? { ...previous, [assistantId]: opts2.seedMessages }
+              : previous;
+          const next = appendChatMessage(base, assistantId, { role: "user", text });
           const withPlaceholder = appendChatMessage(next, assistantId, {
             role: "assistant",
             text: "",
@@ -1070,24 +1114,46 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       if (!sessionId) {
         return;
       }
-      // F2: warn that truncate drops later turns including tool evidence.
-      const ok = await confirmDialog({
-        title: "编辑并重发将截断该条之后的对话（含工具调用与结果证据）。确定继续？",
-        confirmLabel: "继续",
-        tone: "danger",
-      });
-      if (!ok) {
-        return;
-      }
+      const clientMessages = messagesByAssistant[selectedAssistantId] ?? [];
       try {
         setError(null);
-        const { messages } = await mutateSessionMessages(config.apiBase, sessionId, {
-          uiIndex,
+        // Screen index drifts after a failed call (local error bubble) or compact.
+        // Align to the saved utterance, then truncate and send again.
+        const serverMessages = await fetchSessionBubbles(
+          config.apiBase,
+          sessionId,
+          selectedAssistantId,
+        );
+        const plan = planTranscriptMutate({
           mode: "truncate",
+          clientMessages: clientMessages.map((message) => ({
+            role: message.role,
+            text: message.text ?? "",
+          })),
+          clientIndex: uiIndex,
+          serverMessages,
         });
-        applyMutatedMessages(selectedAssistantId, messages);
-        await refreshChatSessionListForAssistant(selectedAssistantId);
-        await sendChatMessage(text);
+        if (plan.action === "missing") {
+          setError("找不到这条消息，无法从这里重发。");
+          return;
+        }
+        let seed: ChatMsg[];
+        if (plan.action === "mutate") {
+          const mutated = await mutateSessionMessages(config.apiBase, sessionId, {
+            uiIndex: plan.uiIndex,
+            mode: "truncate",
+          });
+          seed = mutated.messages;
+        } else {
+          seed = clientMessages.slice(0, uiIndex);
+        }
+        applyMutatedMessages(selectedAssistantId, seed);
+        await sendChatMessage(text, { seedMessages: seed });
+        try {
+          await refreshChatSessionListForAssistant(selectedAssistantId);
+        } catch {
+          /* list refresh must not hide a resend that already started */
+        }
       } catch (cause) {
         setError(errorMessage(cause, "修改失败"));
       }
@@ -1096,6 +1162,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       applyMutatedMessages,
       config?.apiBase,
       loading,
+      messagesByAssistant,
       refreshChatSessionListForAssistant,
       selectedAssistantId,
       sendChatMessage,

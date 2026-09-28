@@ -56,6 +56,23 @@ export function readStoredPaneHeight(
   }
 }
 
+export type PaneResizeEdge = "leading" | "trailing";
+
+/**
+ * 水平分隔条跟手。
+ * `leading`：被调宽度的那一列在分隔条左侧（左栏）。鼠标往右，列变宽。
+ * `trailing`：被调宽度的那一列在分隔条右侧（对话列）。鼠标往右，列变窄，分隔条才跟着走。
+ */
+export function nextPaneWidthPx(
+  startWidth: number,
+  startClientX: number,
+  clientX: number,
+  edge: PaneResizeEdge = "leading",
+): number {
+  const delta = clientX - startClientX;
+  return edge === "trailing" ? startWidth - delta : startWidth + delta;
+}
+
 type UsePaneResizePxOpts = {
   storageKey: string;
   defaultWidth: number;
@@ -63,6 +80,8 @@ type UsePaneResizePxOpts = {
   max: number;
   /** `shellSidebar`：应用左栏总宽；默认 `innerSplit`：主区内分栏（对话、案件/审核列表、材料轨等） */
   widthRole?: PaneWidthRole;
+  /** 分隔条相对被调宽度那一列的位置。对话列在分隔条右侧，用 `trailing`。 */
+  edge?: PaneResizeEdge;
 };
 
 /**
@@ -72,7 +91,7 @@ export function usePaneResizePx(opts: UsePaneResizePxOpts): {
   width: number;
   onResizePointerDown: (e: ReactPointerEvent) => void;
 } {
-  const { storageKey, defaultWidth, min, max, widthRole = "innerSplit" } = opts;
+  const { storageKey, defaultWidth, min, max, widthRole = "innerSplit", edge = "leading" } = opts;
   const clampW = useMemo(
     () =>
       widthRole === "shellSidebar"
@@ -105,7 +124,7 @@ export function usePaneResizePx(opts: UsePaneResizePxOpts): {
       let last = startW;
 
       const onMove = (ev: PointerEvent) => {
-        const next = clampW(startW + (ev.clientX - startX));
+        const next = clampW(nextPaneWidthPx(startW, startX, ev.clientX, edge));
         last = next;
         setWidth(next);
       };
@@ -115,7 +134,7 @@ export function usePaneResizePx(opts: UsePaneResizePxOpts): {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onUp);
-        const next = clampW(startW + (ev.clientX - startX));
+        const next = clampW(nextPaneWidthPx(startW, startX, ev.clientX, edge));
         last = next;
         setWidth(next);
         try {
@@ -129,7 +148,7 @@ export function usePaneResizePx(opts: UsePaneResizePxOpts): {
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onUp);
     },
-    [clampW, storageKey, width],
+    [clampW, edge, storageKey, width],
   );
 
   return { width, onResizePointerDown };

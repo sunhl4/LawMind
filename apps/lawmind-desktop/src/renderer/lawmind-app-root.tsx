@@ -485,6 +485,8 @@ export function LawmindAppRoot() {
     defaultWidth: 380,
     min: LM_PANE_MIN_WIDTH_PX,
     max: LM_PANE_MAX_WIDTH_PX,
+    // 对话列在分隔条右侧。往右拖必须让这一列变窄，分隔条才跟着鼠标走。
+    edge: "trailing",
   });
 
   useEffect(() => {

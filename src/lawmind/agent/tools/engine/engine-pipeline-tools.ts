@@ -18,6 +18,10 @@ import {
   isOpinionMemoDelivery,
   resolveTurnDeliveryIntent,
 } from "../../../intent/delivery-intent.js";
+import {
+  DOC_NEEDS_DOCX_MESSAGE,
+  isBinaryWordDocBaseline,
+} from "../../../mail/doc-revision-gate.js";
 import { isOutlineGatedDeliverable } from "../../../reasoning/research-draft-gates.js";
 import { outlineLooksApproved } from "../../../research/outline-hitl.js";
 import { readResearchOutline } from "../../../research/outline-store.js";
@@ -309,7 +313,7 @@ export const updateDraft: AgentTool = {
       contract_edit_baseline_path: {
         type: "string",
         description:
-          "原合同相对工作区路径（.doc 或 .docx，无需先转格式），用于带修订 Word 导出基线",
+          "原合同相对工作区路径（.docx；若是 .doc，请律师先另存为同名 .docx），用于带修订 Word 导出基线",
       },
       contract_edit_mode: {
         type: "string",
@@ -387,6 +391,9 @@ export const updateDraft: AgentTool = {
         "contract_edit_baseline_path",
         512,
       );
+      if (baselinePath && isBinaryWordDocBaseline(baselinePath)) {
+        return { ok: false, error: DOC_NEEDS_DOCX_MESSAGE, data: { code: "doc_needs_docx" } };
+      }
       const modeRaw = asOptionalString(params.contract_edit_mode, "contract_edit_mode", 32);
       const editMode =
         modeRaw === "section"
@@ -629,7 +636,7 @@ export const draftDocument: AgentTool = {
       contract_edit_baseline_path: {
         type: "string",
         description:
-          "原合同相对工作区或项目根的路径（.doc 或 .docx，无需先转格式）；合同改稿时写入 contractEdit 基线并尽量按段落切正文",
+          "原合同相对工作区或项目根的路径（.docx；若是 .doc，请律师先另存为同名 .docx）；合同改稿时写入 contractEdit 基线并尽量按段落切正文",
       },
       contract_review_edits: {
         type: "array",
@@ -659,6 +666,9 @@ export const draftDocument: AgentTool = {
         "contract_edit_baseline_path",
         512,
       );
+      if (baselinePath && isBinaryWordDocBaseline(baselinePath)) {
+        return { ok: false, error: DOC_NEEDS_DOCX_MESSAGE, data: { code: "doc_needs_docx" } };
+      }
       const reuseTaskId =
         asOptionalString(params.task_id, "task_id", 128) ?? (ctx.linkedTaskId?.trim() || undefined);
 

@@ -183,4 +183,52 @@ describe("LawmindSideChatSessions", () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith("new");
   });
+
+  it("supports Ctrl multi-select and batch delete without opening each row", async () => {
+    const onSelect = vi.fn();
+    const onDelete = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindSideChatSessions
+          sessions={[
+            { sessionId: "a", title: "采购合同审查" },
+            { sessionId: "b", title: "劳动仲裁" },
+            { sessionId: "c", title: "竞业限制" },
+          ]}
+          activeSessionId="a"
+          onSelect={onSelect}
+          onNewChat={() => undefined}
+          onRename={async () => undefined}
+          onDelete={onDelete}
+        />,
+      );
+    });
+    const rowA = host.querySelector('[data-testid="lm-side-chat-session-a"]') as HTMLElement;
+    const rowC = host.querySelector('[data-testid="lm-side-chat-session-c"]') as HTMLElement;
+    await act(async () => {
+      rowC.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, ctrlKey: true, metaKey: false }),
+      );
+    });
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="lm-side-chat-session-batch"]')?.textContent).toContain(
+      "已选 2",
+    );
+    await act(async () => {
+      rowA.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, shiftKey: true, ctrlKey: false, metaKey: false }),
+      );
+    });
+    // Shift from the Ctrl-click anchor (c) back to a covers the full list.
+    expect(host.querySelector('[data-testid="lm-side-chat-session-batch"]')?.textContent).toContain(
+      "已选 3",
+    );
+    const deleteBtn = host.querySelector(
+      '[data-testid="lm-side-chat-session-batch"] button',
+    ) as HTMLButtonElement;
+    await act(async () => {
+      deleteBtn.click();
+    });
+    expect(onDelete).toHaveBeenCalledWith(["a", "b", "c"]);
+  });
 });

@@ -300,7 +300,7 @@ const REPORT_GENERAL_SPEC: DeliverableSpec = {
   type: "report.general",
   displayName: "研究报告 / 专项报告",
   description: "研究报告、白皮书、尽职调查等长文报告；结构因题材而异，验收以建议项为主。",
-  defaultTemplateId: "report-general-default",
+  defaultTemplateId: "word/research-report-default",
   defaultOutput: "docx",
   defaultRiskLevel: "low",
   requiredSections: [

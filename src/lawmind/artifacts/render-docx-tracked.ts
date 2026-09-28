@@ -1,9 +1,7 @@
 /**
  * Export Word with tracked changes via officecli (bundled with LawMind).
- * Prefers an uploaded contract baseline `.docx` or binary `.doc` when
- * `draft.contractEdit` is set. Binary `.doc` is first-class: an ephemeral
- * working copy may be used only for OpenXML edits (never requires the lawyer
- * to convert, and never writes a sibling `.docx` next to the original).
+ * Prefers an uploaded contract baseline `.docx` when `draft.contractEdit` is set.
+ * Binary `.doc` is not a revision baseline — stop and ask the lawyer to save as `.docx`.
  *
  * Tracked changes use modern officecli:
  *   `set <file> /body --find … --replace … --prop revision.author=…`
@@ -23,6 +21,11 @@ import {
   formatOfficeCliFindArg,
   toTrackedFindReplace,
 } from "../drafts/surgical-diff.js";
+import {
+  DOC_NEEDS_DOCX_CODE,
+  DOC_NEEDS_DOCX_MESSAGE,
+  isBinaryWordDocBaseline,
+} from "../mail/doc-revision-gate.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { buildMinimalChildEnv, runSafeCommand } from "../platform/safe-command.js";
 import { resolveWordRevisionAuthor } from "../policy/word-revision-author.js";
@@ -43,8 +46,7 @@ export type TrackedDocxRenderResult =
       baselineSource: "contract_file" | "rendered_draft";
       /**
        * True when proposals were requested but officecli could not apply tracked changes
-       * (durable plain / draft-body copy only), or when .doc→docx conversion was lossy
-       * (textutil stripped original revisions/fonts). Callers must surface this.
+       * (durable plain / draft-body copy only). Callers must surface this.
        */
       degraded?: boolean;
       /** Number of redline hunks successfully applied via officecli find/replace. */
@@ -53,9 +55,7 @@ export type TrackedDocxRenderResult =
       appliedOps?: number;
       /** 因「夹着没改的文字」被自动拆成多段最短改动的 hunk 数。 */
       minimalSplitHunks?: number;
-      /** Converter used for binary .doc baselines (msword preserves revisions/fonts). */
       conversionTool?: string;
-      /** high = Word/LibreOffice/native docx; lossy = textutil shell. */
       conversionFidelity?: "high" | "lossy";
       warning?: string;
     }
@@ -122,63 +122,13 @@ function resolveContractBaselineAbsPath(
     return undefined;
   }
   const abs = resolved.abs;
-  if (!/\.docx$/i.test(abs) && !/\.doc$/i.test(abs)) {
+  if (!/\.docx$/i.test(abs) && !isBinaryWordDocBaseline(abs)) {
     return undefined;
   }
   if (!fsSync.existsSync(abs)) {
     return undefined;
   }
   return abs;
-}
-
-async function ephemeralDocxWorkingCopy(absDocPath: string): Promise<{
-  docxPath: string;
-  workDir: string;
-  conversionTool?: string;
-  conversionFidelity?: "high" | "lossy";
-}> {
-  const { ensureDocxForAttachment, tryReadHighFidelityDocxCache, writeHighFidelityDocxCache } =
-    await import("../mail/convert-to-docx.js");
-  const os = await import("node:os");
-  // Temp workspace only — never write a converted sibling next to the lawyer's original .doc.
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "lm-doc-work-"));
-  const leaf = path.basename(absDocPath);
-  const tmpIn = path.join(tmpRoot, leaf);
-  await fs.copyFile(absDocPath, tmpIn);
-
-  // Fast path: reuse prior Microsoft Word / LibreOffice conversion for this .doc fingerprint.
-  const cached = tryReadHighFidelityDocxCache(absDocPath);
-  if (cached) {
-    const outName = leaf.replace(/\.doc$/i, ".docx");
-    const outAbs = path.join(tmpRoot, outName);
-    await fs.copyFile(cached.docxPath, outAbs);
-    return {
-      docxPath: outAbs,
-      workDir: tmpRoot,
-      conversionTool: cached.tool,
-      conversionFidelity: "high",
-    };
-  }
-
-  const converted = await ensureDocxForAttachment(tmpRoot, leaf);
-  if (!converted.ok) {
-    try {
-      await fs.rm(tmpRoot, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-    throw new Error(converted.error);
-  }
-  const docxPath = path.join(tmpRoot, converted.relativePath);
-  if (converted.fidelity === "high" && converted.tool && converted.tool !== "existing") {
-    writeHighFidelityDocxCache(absDocPath, docxPath, converted.tool);
-  }
-  return {
-    docxPath,
-    workDir: tmpRoot,
-    conversionTool: converted.tool,
-    conversionFidelity: converted.fidelity,
-  };
 }
 
 function actionableHunks(proposals: RedlineHunk[]): RedlineHunk[] {
@@ -581,32 +531,19 @@ export async function renderDocxWithTrackedChanges(params: {
   );
   let inputPath: string;
   let baselineSource: "contract_file" | "rendered_draft";
-  let conversionTool: string | undefined;
   let conversionFidelity: "high" | "lossy" | undefined;
 
-  let ephemeralWorkDir: string | undefined;
   if (baselineAbs) {
-    if (/\.doc$/i.test(baselineAbs) && !/\.docx$/i.test(baselineAbs)) {
-      try {
-        const prepared = await ephemeralDocxWorkingCopy(baselineAbs);
-        inputPath = prepared.docxPath;
-        ephemeralWorkDir = prepared.workDir;
-        conversionTool = prepared.conversionTool;
-        conversionFidelity = prepared.conversionFidelity;
-        baselineSource = "contract_file";
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return {
-          ok: false,
-          error: `doc_baseline_prepare_failed:${msg}`,
-          code: "baseline_prepare_failed",
-        };
-      }
-    } else {
-      inputPath = baselineAbs;
-      baselineSource = "contract_file";
-      conversionFidelity = "high";
+    if (isBinaryWordDocBaseline(baselineAbs)) {
+      return {
+        ok: false,
+        error: DOC_NEEDS_DOCX_MESSAGE,
+        code: DOC_NEEDS_DOCX_CODE,
+      };
     }
+    inputPath = baselineAbs;
+    baselineSource = "contract_file";
+    conversionFidelity = "high";
   } else {
     if (
       params.requireContractBaseline ||
@@ -621,6 +558,8 @@ export async function renderDocxWithTrackedChanges(params: {
     const plain = await renderDocxWithOptions(params.draft, params.outputDir, {
       templateVariant: params.templateVariant,
       includeProvenance: params.includeProvenance,
+      // 审阅痕迹路径：即使临时拼壳也不走交件去 AI 味。
+      applyDeliverableDeai: false,
     });
     if (!plain.outputPath) {
       return { ok: false, error: "plain_render_failed", code: "plain_render_failed" };
@@ -662,7 +601,6 @@ export async function renderDocxWithTrackedChanges(params: {
           })),
           plainPath: inputPath,
           baselineSource,
-          conversionTool,
           conversionFidelity,
           outputFileName: deliverableName,
           applyResult: applyResult
@@ -683,28 +621,12 @@ export async function renderDocxWithTrackedChanges(params: {
     );
   await writeManifest();
 
-  const cleanupEphemeral = async () => {
-    if (!ephemeralWorkDir) {
-      return;
-    }
-    try {
-      await fs.rm(ephemeralWorkDir, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-  };
-
   const hunks = actionableHunks(params.proposals);
   const hadProposals = hunks.length > 0;
-  const lossyConversion = conversionFidelity === "lossy";
-  const conversionWarning = lossyConversion
-    ? "基线 .doc 仅经 textutil 转写，原有字体/版式/审阅修订可能已丢失；请安装 Microsoft Word 或 LibreOffice 后重导以保留原格式。"
-    : undefined;
 
   const withConversionMeta = (
     result: Extract<TrackedDocxRenderResult, { ok: true }>,
   ): Extract<TrackedDocxRenderResult, { ok: true }> => {
-    const warning = [conversionWarning, result.warning].filter(Boolean).join("；") || undefined;
     if (result.outputPath) {
       const exportEvent = createProvenanceEvent("export", "system", {
         sourceId: result.outputPath,
@@ -717,10 +639,8 @@ export async function renderDocxWithTrackedChanges(params: {
     }
     return {
       ...result,
-      conversionTool,
       conversionFidelity,
-      degraded: result.degraded || lossyConversion || undefined,
-      warning,
+      warning: result.warning,
     };
   };
 
@@ -740,6 +660,7 @@ export async function renderDocxWithTrackedChanges(params: {
         const rendered = await renderDocxWithOptions(draftForFallback, params.outputDir, {
           templateVariant: params.templateVariant,
           includeProvenance: params.includeProvenance,
+          applyDeliverableDeai: false,
         });
         if (rendered.ok && rendered.outputPath) {
           if (path.resolve(rendered.outputPath) !== path.resolve(dest)) {
@@ -770,7 +691,7 @@ export async function renderDocxWithTrackedChanges(params: {
         return {
           ok: false,
           error: hadProposals
-            ? "审阅痕迹写入失败，且未能生成可读的备用稿（请确认本机 Microsoft Word / LibreOffice / officecli 可用；无需律师先转格式）"
+            ? "审阅痕迹写入失败，且未能生成可读的备用稿（请确认本机 officecli 可用；基线须为 .docx）"
             : "导出失败，且未能生成可读的备用稿",
           code: "tracked_render_failed",
         };
@@ -912,7 +833,5 @@ export async function renderDocxWithTrackedChanges(params: {
       return await failTrackedApply(err instanceof Error ? err.message : String(err));
     }
     return await buildPlainFallback();
-  } finally {
-    await cleanupEphemeral();
   }
 }
