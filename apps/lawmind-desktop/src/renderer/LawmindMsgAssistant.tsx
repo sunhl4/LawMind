@@ -9,6 +9,7 @@ type Props = {
   className?: string;
   apiBase?: string;
   workspaceDir?: string;
+  onOpenDraft?: (taskId: string) => void;
   onOpenError?: (message: string) => void;
 };
 
@@ -18,6 +19,7 @@ export function LawmindMsgAssistant({
   className,
   apiBase,
   workspaceDir,
+  onOpenDraft,
   onOpenError,
 }: Props): ReactNode {
   if (!text.trim()) {
@@ -28,7 +30,14 @@ export function LawmindMsgAssistant({
     <div
       className={`lm-msg lm-msg-ai${modelFailure ? " lm-msg-model-failure" : ""}${className ? ` ${className}` : ""}`}
     >
-      {body ? renderLegalMarkdown(body) : null}
+      {body
+        ? renderLegalMarkdown(body, {
+            apiBase,
+            workspaceDir,
+            onOpenDraft,
+            onOpenError,
+          })
+        : null}
       {taskIds.map((taskId) => (
         <button
           key={taskId}

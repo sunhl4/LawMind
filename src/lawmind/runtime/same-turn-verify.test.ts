@@ -138,7 +138,9 @@ describe("same-turn verify", () => {
     const bounce = formatSameTurnCompletionBounce({ red: true, issues, bounceCount: 0 });
     expect(bounce).toContain("已停");
     expect(bounce).not.toContain("请立即调用 apply_surgical_edits");
-    expect(bounce).toContain("交给律师");
+    expect(bounce).toContain("收口三句");
+    expect(bounce).not.toContain("[guardian_fail]");
+    expect(bounce).not.toContain("交给律师");
 
     // 终态：本轮不再反弹（旧行为会一边引用「不要继续改稿」一边催再交 apply_surgical_edits）
     expect(shouldBounceSameTurnCompletion({ red: true, issues, bounceCount: 0 })).toBe(false);

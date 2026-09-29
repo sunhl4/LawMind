@@ -10,7 +10,26 @@ import {
   isMarkdownTableBlockStart,
   type TableColumnAlign,
 } from "./lawmind-chat-markdown-table";
+import { openContractRevisionForTask } from "./lawmind-open-contract-revision";
 import { requestOpenChatSession } from "./lawmind-open-chat-session-bus";
+
+export type LegalMarkdownContext = {
+  apiBase?: string;
+  workspaceDir?: string;
+  onOpenDraft?: (taskId: string) => void;
+  onOpenError?: (message: string) => void;
+};
+
+function openStatuteUrl(url: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (window.lawmindDesktop?.openExternal) {
+    void window.lawmindDesktop.openExternal(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
 
 function columnAlignStyle(align: TableColumnAlign): CSSProperties | undefined {
   return align ? { textAlign: align } : undefined;
@@ -36,10 +55,15 @@ export function LegalMath(props: { tex: string; display?: boolean }): ReactNode 
   );
 }
 
-export function renderInlineLegalMarkdown(text: string): ReactNode[] {
+export function renderInlineLegalMarkdown(
+  text: string,
+  ctx?: LegalMarkdownContext,
+): ReactNode[] {
   return tokenizeInlineLegalMarkdown(text).map((token, tokenIndex) => {
     if (token.kind === "bold") {
-      return <strong key={`strong-${tokenIndex}`}>{renderInlineLegalMarkdown(token.value)}</strong>;
+      return (
+        <strong key={`strong-${tokenIndex}`}>{renderInlineLegalMarkdown(token.value, ctx)}</strong>
+      );
     }
     if (token.kind === "code") {
       return (
@@ -65,6 +89,52 @@ export function renderInlineLegalMarkdown(text: string): ReactNode[] {
               ...(token.assistantId ? { assistantId: token.assistantId } : {}),
             })
           }
+        >
+          {token.label}
+        </button>
+      );
+    }
+    if (token.kind === "draft_link") {
+      return (
+        <button
+          key={`draft-${tokenIndex}`}
+          type="button"
+          className="lm-md-session-link"
+          data-testid="lm-md-draft-link"
+          title={token.label}
+          onClick={() => {
+            if (ctx?.onOpenDraft) {
+              ctx.onOpenDraft(token.taskId);
+              return;
+            }
+            if (!ctx?.apiBase?.trim()) {
+              ctx?.onOpenError?.("请从对话打开这份稿。");
+              return;
+            }
+            void openContractRevisionForTask({
+              apiBase: ctx.apiBase,
+              taskId: token.taskId,
+              workspaceDir: ctx.workspaceDir,
+            }).then((result) => {
+              if (!result.ok) {
+                ctx.onOpenError?.(result.error);
+              }
+            });
+          }}
+        >
+          {token.label}
+        </button>
+      );
+    }
+    if (token.kind === "statute_link") {
+      return (
+        <button
+          key={`statute-${tokenIndex}`}
+          type="button"
+          className="lm-md-session-link"
+          data-testid="lm-md-statute-link"
+          title={token.label}
+          onClick={() => openStatuteUrl(token.url)}
         >
           {token.label}
         </button>
@@ -99,7 +169,7 @@ function consumeFence(
   return { lang, body, next: lines.length };
 }
 
-export function renderLegalMarkdown(text: string): ReactNode {
+export function renderLegalMarkdown(text: string, ctx?: LegalMarkdownContext): ReactNode {
   const lines = text.split("\n");
   const blocks: ReactNode[] = [];
   let index = 0;
@@ -150,7 +220,7 @@ export function renderLegalMarkdown(text: string): ReactNode {
     if (h1) {
       blocks.push(
         <div key={`h1-${index}`} className="lm-md-h1">
-          {renderInlineLegalMarkdown(h1[1])}
+          {renderInlineLegalMarkdown(h1[1], ctx)}
         </div>,
       );
       index += 1;
@@ -161,7 +231,7 @@ export function renderLegalMarkdown(text: string): ReactNode {
     if (h2) {
       blocks.push(
         <div key={`h2-${index}`} className="lm-md-h2">
-          {renderInlineLegalMarkdown(h2[1])}
+          {renderInlineLegalMarkdown(h2[1], ctx)}
         </div>,
       );
       index += 1;
@@ -181,7 +251,7 @@ export function renderLegalMarkdown(text: string): ReactNode {
       blocks.push(
         <blockquote key={`bq-${index}`} className="lm-md-quote">
           {quoteLines.map((ql, qi) => (
-            <div key={`bq-line-${qi}`}>{renderInlineLegalMarkdown(ql)}</div>
+            <div key={`bq-line-${qi}`}>{renderInlineLegalMarkdown(ql, ctx)}</div>
           ))}
         </blockquote>,
       );
@@ -201,7 +271,7 @@ export function renderLegalMarkdown(text: string): ReactNode {
                 <tr>
                   {(head ?? []).map((cell, ci) => (
                     <th key={`th-${ci}`} style={columnAlignStyle(table.alignments[ci])}>
-                      {renderInlineLegalMarkdown(cell)}
+                      {renderInlineLegalMarkdown(cell, ctx)}
                     </th>
                   ))}
                 </tr>
@@ -211,7 +281,7 @@ export function renderLegalMarkdown(text: string): ReactNode {
                   <tr key={`tr-${ri}`}>
                     {row.map((cell, ci) => (
                       <td key={`td-${ri}-${ci}`} style={columnAlignStyle(table.alignments[ci])}>
-                        {renderInlineLegalMarkdown(cell)}
+                        {renderInlineLegalMarkdown(cell, ctx)}
                       </td>
                     ))}
                   </tr>
@@ -233,7 +303,7 @@ export function renderLegalMarkdown(text: string): ReactNode {
           break;
         }
         items.push(
-          <li key={`ul-item-${index}`}>{renderInlineLegalMarkdown(bulletMatch[1])}</li>,
+          <li key={`ul-item-${index}`}>{renderInlineLegalMarkdown(bulletMatch[1], ctx)}</li>,
         );
         index += 1;
       }
@@ -254,7 +324,7 @@ export function renderLegalMarkdown(text: string): ReactNode {
           break;
         }
         items.push(
-          <li key={`ol-item-${index}`}>{renderInlineLegalMarkdown(orderedMatch[1])}</li>,
+          <li key={`ol-item-${index}`}>{renderInlineLegalMarkdown(orderedMatch[1], ctx)}</li>,
         );
         index += 1;
       }
@@ -268,7 +338,7 @@ export function renderLegalMarkdown(text: string): ReactNode {
 
     blocks.push(
       <div key={`p-${index}`} className="lm-md-p">
-        {renderInlineLegalMarkdown(line)}
+        {renderInlineLegalMarkdown(line, ctx)}
       </div>,
     );
     index += 1;

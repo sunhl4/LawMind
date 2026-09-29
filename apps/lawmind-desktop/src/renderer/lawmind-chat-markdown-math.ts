@@ -1,4 +1,5 @@
 import katex from "katex";
+import { tryConsumeLawyerChatLink } from "../../../../src/lawmind/sources/lawyer-chat-link.ts";
 import { tryConsumeLmSessionMarkdown } from "./lawmind-session-link";
 
 export type InlineMarkdownToken =
@@ -6,7 +7,9 @@ export type InlineMarkdownToken =
   | { kind: "bold"; value: string }
   | { kind: "code"; value: string }
   | { kind: "math"; tex: string; display: boolean }
-  | { kind: "session_link"; label: string; sessionId: string; assistantId?: string };
+  | { kind: "session_link"; label: string; sessionId: string; assistantId?: string }
+  | { kind: "draft_link"; label: string; taskId: string }
+  | { kind: "statute_link"; label: string; url: string };
 
 const KATEX_OPTIONS = {
   throwOnError: false,
@@ -164,6 +167,27 @@ export function tokenizeInlineLegalMarkdown(text: string): InlineMarkdownToken[]
             : {}),
         });
         index = sessionLink.next;
+        continue;
+      }
+      const lawyerLink = tryConsumeLawyerChatLink(text, index);
+      if (lawyerLink) {
+        flush();
+        if (lawyerLink.link.kind === "draft") {
+          tokens.push({
+            kind: "draft_link",
+            label: lawyerLink.link.label,
+            taskId: lawyerLink.link.taskId,
+          });
+        } else if (lawyerLink.link.kind === "statute") {
+          tokens.push({
+            kind: "statute_link",
+            label: lawyerLink.link.label,
+            url: lawyerLink.link.url,
+          });
+        } else {
+          tokens.push({ kind: "text", value: lawyerLink.link.label });
+        }
+        index = lawyerLink.next;
         continue;
       }
     }

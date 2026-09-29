@@ -23,6 +23,8 @@ import { collapseSameTurnVerifyHistoryForTurnEnd } from "../runtime/same-turn-ve
 import { persistAgentInstructionTask } from "../tasks/index.js";
 import type { ClarificationQuestion } from "../types.js";
 import { markWorkNeedsLawyer } from "../work/store.js";
+import { collectRetrievedAnchors } from "./lawyer-close-anchors.js";
+import { constrainLawyerVisibleReply } from "./lawyer-close.js";
 import { attachPersistedLiveTraceToLastAssistant } from "./live-turn-progress.js";
 import { inspectPersistedSessionHistoryAlignment } from "./session-history-alignment.js";
 import {
@@ -33,6 +35,26 @@ import {
 } from "./session.js";
 import { buildClarificationReply, type RunTurnEvent } from "./turn-orchestrator-events.js";
 import type { AgentMessage, AgentSession, AgentTurn } from "./types.js";
+
+function rewriteTrailingAssistantReply(
+  messages: AgentMessage[],
+  anchors: ReturnType<typeof collectRetrievedAnchors>,
+): void {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i];
+    if (!msg || msg.role !== "assistant" || msg.hiddenFromLawyer || msg.toolCalls?.length) {
+      continue;
+    }
+    if (!msg.content?.trim()) {
+      continue;
+    }
+    const next = constrainLawyerVisibleReply(msg.content, anchors);
+    if (next !== msg.content) {
+      msg.content = next;
+    }
+    return;
+  }
+}
 
 function auditSessionHistoryAlignment(
   workspaceDir: string,
@@ -167,6 +189,11 @@ export function finalizeAgentTurn(opts: {
     memory,
     ensureLiveProgressFinished,
   } = shared;
+
+  const anchors = collectRetrievedAnchors(turn.messages);
+  finalReply = constrainLawyerVisibleReply(finalReply, anchors);
+  rewriteTrailingAssistantReply(session.conversationHistory, anchors);
+  rewriteTrailingAssistantReply(turn.messages, anchors);
 
   collapseSameTurnVerifyHistoryForTurnEnd(session, turn);
 

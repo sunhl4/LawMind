@@ -310,6 +310,9 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             modelFailure={modelFailure}
             apiBase={apiBase}
             workspaceDir={workspaceDir}
+            onOpenDraft={
+              onOpenReview ? (taskId) => onOpenReview({ taskId }) : undefined
+            }
           />
         ) : null}
         {msg.role === "user" && !gateMessage && (onEditChatMessage || onDeleteChatMessage) ? (

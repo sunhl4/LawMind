@@ -9,6 +9,7 @@
  * 供轮次收尾（置待律师 + 生成待办卡片）与自动化防重派共用。
  */
 
+import { lawyerVisibleGaps } from "../agent/lawyer-close.js";
 import type { GateDecision } from "./contracts.js";
 
 export type GateStopSignal = {
@@ -78,15 +79,20 @@ export function detectGateStop(input: {
   };
 }
 
-/** 待办卡片正文：把缺口原样给律师，不要把工程师码当结论。 */
+/** 待办卡片：稿还在、意见在对话里。核对过程不进卡片。 */
 export function formatGateStopSummary(signal: GateStopSignal): string {
-  const lines = ["验证器已把本件停下（继续为过审改稿没有意义），缺口需要您处置："];
-  for (const gap of signal.gaps ?? []) {
-    lines.push(`- ${gap}`);
+  const lines = [
+    "稿还在草稿里，没有出 Word，也没有外发。",
+    "意见和法条在对话里，点条款名可看原文，点文书标题可打开稿。",
+  ];
+  const visible = lawyerVisibleGaps(signal.gaps ?? []);
+  if (visible.length > 0) {
+    lines.push("", "请您定：");
+    for (const gap of visible) {
+      lines.push(`- ${gap}`);
+    }
+  } else {
+    lines.push("若对话里列了需要您定的事，回复那几项即可。");
   }
-  if ((signal.gaps ?? []).length === 0 && signal.reason) {
-    lines.push(`- ${signal.reason}`);
-  }
-  lines.push("", "处置后可以让我接着改，或另出意见书。");
   return lines.join("\n");
 }

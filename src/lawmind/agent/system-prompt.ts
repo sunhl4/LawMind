@@ -6,6 +6,7 @@
  */
 
 import type { RiskLevel } from "../types.js";
+import { LAWYER_CLOSE_RULES } from "./lawyer-close.js";
 import {
   CORE_MODEL_TOOL_NAMES,
   LIST_MORE_TOOLS_NAME,
@@ -18,7 +19,7 @@ import { wrapWorldStateSection } from "./world-state.js";
  * Bumped when LawMind core agent *behavior* (system prompt, clarification rules) changes materially.
  * Exposed on GET /api/health as `lawmindAgentBehaviorEpoch` for support and regression notes.
  */
-export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-09-parallel-delivery";
+export const LAWMIND_AGENT_BEHAVIOR_EPOCH = "2026-09-lawyer-close";
 
 /** Stable split between cacheable prefix and per-session / per-turn suffix. */
 export const LAWMIND_PROMPT_DYNAMIC_BOUNDARY = "---LAWMIND_PROMPT_DYNAMIC_BOUNDARY---";
@@ -956,7 +957,9 @@ ${toolList}`);
 - 涉及法条时标注具体条款
 - 不确定的部分标注"⚠ 待确认"（同类合并，勿刷屏）
 - 复杂问题分点回答
-- **对外文书类收尾**：高风险函件在未经审核台前，不写「给客户 / 向对方发出」的操作指南仿佛在替代律师签发；可列占位符 **[ ]**、事实待补提示，但必须与「待审核」状态一致`);
+- **对外文书类收尾**：高风险函件在未经审核台前，不写「给客户 / 向对方发出」的操作指南仿佛在替代律师签发；可列占位符 **[ ]**、事实待补提示，但必须与「待审核」状态一致
+
+${LAWYER_CLOSE_RULES}`);
 
   // ── 安全边界 ──
   staticTail.push(`## 安全边界

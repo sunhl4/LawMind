@@ -90,4 +90,38 @@ describe("renderLegalMarkdown tables and math", () => {
     expect(link?.textContent).toBe("采购合同审查");
     expect(host.textContent).not.toContain("lm-session:");
   });
+
+  it("renders draft and statute jumps, and leaves a random link as text", async () => {
+    const opened: string[] = [];
+    const drafts: string[] = [];
+    const previous = window.open;
+    window.open = ((url: string) => {
+      opened.push(url);
+      return null;
+    }) as typeof window.open;
+    await act(async () => {
+      root.render(
+        <div>
+          {renderLegalMarkdown(
+            "稿 [派遣协议](lm-draft:task-9)。意见见 [《劳动合同法》第63条](https://flk.npc.gov.cn/a)。[点此登录](https://evil.example/x)",
+            { onOpenDraft: (taskId) => drafts.push(taskId) },
+          )}
+        </div>,
+      );
+    });
+    const draft = host.querySelector("[data-testid='lm-md-draft-link']");
+    const statute = host.querySelector("[data-testid='lm-md-statute-link']");
+    expect(draft?.textContent).toBe("派遣协议");
+    expect(statute?.textContent).toBe("《劳动合同法》第63条");
+    expect(host.textContent).toContain("点此登录");
+    expect(host.textContent).not.toContain("evil.example");
+    expect(host.textContent).not.toContain("lm-draft:");
+    await act(async () => {
+      draft?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      statute?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    window.open = previous;
+    expect(drafts).toEqual(["task-9"]);
+    expect(opened.some((url) => url.includes("flk.npc.gov.cn"))).toBe(true);
+  });
 });
