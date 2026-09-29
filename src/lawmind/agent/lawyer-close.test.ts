@@ -39,6 +39,9 @@ describe("lawyer close", () => {
     expect(LAWYER_CLOSE_RULES).not.toContain("lm-close");
     expect(buildSystemPrompt(ctx)).toContain("收口三句");
     expect(readBuiltinSkillMarkdown("delivery-language")).toContain("lm-draft:");
+    expect(readBuiltinSkillMarkdown("delivery-language")).toContain(".canvas.tsx");
+    expect(readBuiltinSkillMarkdown("delivery-language")).toContain("不要用画布代替法条");
+    expect(LAWYER_CLOSE_RULES).toContain("不要用画布代替法条");
     expect(readBuiltinSkillMarkdown("delivery-language")).not.toContain("lm-close");
   });
 

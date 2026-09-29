@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   filterExplorerEntries,
   isLawyerCasesPath,
+  lawyerCanvasTitle,
   pathHasHiddenSegment,
   shouldShowExplorerDirectory,
   shouldShowExplorerFile,
@@ -32,6 +33,8 @@ describe("lawmind-explorer-lawyer-view", () => {
     expect(shouldShowExplorerFile("workspace", "assistants.json")).toBe(false);
     expect(shouldShowExplorerFile("workspace", "foo.ts")).toBe(false);
     expect(shouldShowExplorerFile("project", "canvas-preview.canvas.tsx")).toBe(true);
+    expect(lawyerCanvasTitle("核对-task-1.canvas.tsx")).toBe("核对-task-1");
+    expect(lawyerCanvasTitle("合同.docx")).toBe("合同.docx");
     expect(shouldShowExplorerFile("project", "app.tsx")).toBe(false);
     expect(shouldShowExplorerDirectory("workspace", "我的文档")).toBe(true);
     expect(shouldShowExplorerDirectory("workspace", "templates")).toBe(false);

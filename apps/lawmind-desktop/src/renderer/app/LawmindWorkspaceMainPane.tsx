@@ -1,6 +1,4 @@
-import React, { useCallback, useEffect, useState, type RefObject } from "react";
-import { LawmindAcceptanceSheet } from "../LawmindAcceptanceSheet";
-import { useAcceptancePaneStore } from "../stores/acceptance-pane-store";
+import React, { useCallback, useState, type RefObject } from "react";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { ChatSessionListEntry } from "../lawmind-chat-active-storage";
 import { LawmindChatSessionTabs } from "../LawmindChatSessionTabs";
@@ -195,10 +193,6 @@ function LawmindWorkspaceMainPaneImpl({
   const { selectedAssistantId, activeChatSessionId } = useLawmindChatSessionContext();
   const chatSessionId = activeChatSessionId;
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
-  const [sheetActive, setSheetActive] = useState(false);
-  const [sheetAvailable, setSheetAvailable] = useState(false);
-  const setAcceptancePane = useAcceptancePaneStore((state) => state.setPane);
-  const openAcceptanceSheet = useAcceptancePaneStore((state) => state.openSheet);
   const openNeedsDecisionDesk = onOpenNeedsDecisionDesk ?? onOpenActionHub;
   const openAgentsWorkflows = onOpenAgentsWorkflows ?? onOpenWorkflowLibrary;
   const fileChatPills = fileChatContextItems.map((it) => ({
@@ -207,16 +201,8 @@ function LawmindWorkspaceMainPaneImpl({
     ...formatFileChatContextPill(it),
   }));
   const truthPills = composeTruthPins.map((pin) => formatTruthPinChip(pin));
-  const showMiddle = sheetActive || (canUseFilesystemBridge && wsShowEditor);
+  const showMiddle = canUseFilesystemBridge && wsShowEditor;
   const bothWorkspacePanesHidden = !wsShowChat && !showMiddle;
-
-  useEffect(() => {
-    setAcceptancePane({ covering: sheetActive, available: sheetAvailable });
-  }, [setAcceptancePane, sheetActive, sheetAvailable]);
-
-  useEffect(() => {
-    return () => setAcceptancePane({ covering: false, available: false });
-  }, [setAcceptancePane]);
 
   const handleDroppedChatFiles = useCallback(
     async (dt: DataTransfer) => {
@@ -280,27 +266,11 @@ function LawmindWorkspaceMainPaneImpl({
             overflow: "hidden",
           }}
         >
-          <LawmindAcceptanceSheet
-            apiBase={config?.apiBase}
-            sessionId={chatSessionId}
-            taskId={contextTaskId}
-            loading={loading}
-            messageCount={currentMessages.length}
-            onActive={setSheetActive}
-            onAvailable={setSheetAvailable}
-            onOpenReview={onOpenReview}
-            onTooStrong={(text) => {
-              const prior = input.trim();
-              onInputChange(prior ? `${prior}\n\n${text}` : text);
-              textareaRef.current?.focus();
-            }}
-            onYieldToEditor={canUseFilesystemBridge ? onShowEditorPane : undefined}
-          />
           {canUseFilesystemBridge ? (
             <div
               ref={setFileEditorHost}
               style={{
-                display: sheetActive ? "none" : "flex",
+                display: "flex",
                 flexDirection: "column",
                 flex: "1 1 0%",
                 minHeight: 0,
@@ -314,7 +284,7 @@ function LawmindWorkspaceMainPaneImpl({
             className="lm-split-handle lm-split-handle-vertical"
             role="separator"
             aria-orientation="vertical"
-            aria-label={sheetActive ? "调整核对与对话区宽度" : "调整编辑器与对话区宽度"}
+            aria-label="调整编辑器与对话区宽度"
             title="拖动调整对话区宽度"
             onPointerDown={onWsChatSplitResize}
           />
@@ -337,19 +307,6 @@ function LawmindWorkspaceMainPaneImpl({
               </div>
             ) : null}
             <div className="lm-chat-workspace lm-chat-workspace-messages-only">
-              {sheetAvailable && !sheetActive ? (
-                <div className="lm-acceptance-reopen-row">
-                  <span>核对已收起</span>
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-ghost lm-btn-sm"
-                    data-testid="lm-acceptance-reopen"
-                    onClick={() => openAcceptanceSheet()}
-                  >
-                    打开核对
-                  </button>
-                </div>
-              ) : null}
               {!chatSessionsInSidebar ? (
                 <LawmindChatSessionTabs
                   sessions={chatSessionList.map((row) => ({

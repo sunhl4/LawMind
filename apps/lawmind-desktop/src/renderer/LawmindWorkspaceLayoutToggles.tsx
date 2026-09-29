@@ -4,8 +4,6 @@ type Props = {
   wsShowChat: boolean;
   canUseFilesystemBridge: boolean;
   matterCockpitOpen: boolean;
-  /** 核对纸正占着中栏，编辑区开关应改口为「显示文件」。 */
-  editorCoveredBySheet?: boolean;
   onToggleSidebar: () => void;
   onToggleEditor: () => void;
   onToggleChat: () => void;
@@ -18,7 +16,6 @@ export function LawmindWorkspaceLayoutToggles(props: Props) {
     wsShowChat,
     canUseFilesystemBridge,
     matterCockpitOpen,
-    editorCoveredBySheet = false,
     onToggleSidebar,
     onToggleEditor,
     onToggleChat,
@@ -43,22 +40,18 @@ export function LawmindWorkspaceLayoutToggles(props: Props) {
       </button>
       <button
         type="button"
-        className={`lm-panel-toggle ${wsShowEditor && !editorCoveredBySheet ? "" : "lm-panel-toggle-off"}`}
-        aria-pressed={wsShowEditor && !editorCoveredBySheet}
-        aria-label={
-          editorCoveredBySheet ? "显示文件" : wsShowEditor ? "隐藏编辑区" : "显示编辑区"
-        }
+        className={`lm-panel-toggle ${wsShowEditor ? "" : "lm-panel-toggle-off"}`}
+        aria-pressed={wsShowEditor}
+        aria-label={wsShowEditor ? "隐藏编辑区" : "显示编辑区"}
         disabled={!canUseFilesystemBridge || matterCockpitOpen}
         title={
           matterCockpitOpen
             ? "案件工作台模式下请返回对话"
             : !canUseFilesystemBridge
               ? "请先连接工作区"
-              : editorCoveredBySheet
-                ? "核对正占着中栏。显示文件"
-                : wsShowEditor
-                  ? "隐藏编辑区"
-                  : "显示编辑区"
+              : wsShowEditor
+                ? "隐藏编辑区"
+                : "显示编辑区"
         }
         onClick={onToggleEditor}
       >

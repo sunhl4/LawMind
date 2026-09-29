@@ -188,10 +188,13 @@ export function hasLawmindDesktopBridge(): boolean {
 | `stores/`       | 10     | 域 store + 选择器 + README                                               |
 | `insights/`     | 4      | 案件层面的洞察组件（转发自 `insights/`）                                 |
 | `file/`         | 12     | 文件工作台                                                               |
+| `canvas/`       | —      | 画布：`cursor/canvas` 组件、沙箱编译、类型检查、编辑区预览               |
 | `styles/`       | —      | CSS 模块（由同步脚本内联进 `styles.css`）                                |
 | `vendor/katex/` | —      | 随包的 KaTeX（聊天里的数学公式）                                         |
 
 **`app/` 是唯一有「成对 hook」模式的地方**（因为壳的 props 最多、最需要收窄）。`matter/` 与 `review/` 用的是普通的「组件 + `use*` hook」写法（比如 `useMatterDetail`、`useReviewWorkbenchData`）。
+
+`canvas/` 把 `.canvas.tsx` 放在对话旁边的中间栏预览。点回复里的链接才打开，并保持对话栏；不会按最新一条回复自动打开。材料树和预览标题用去掉 `.canvas.tsx` 的短名（`lawyerCanvasTitle`），磁盘文件名不变。预览上的「导出网页」写出旁边的 `.canvas.html`。`compile-canvas.ts` 把源码编进沙箱（不能访问网络，只能从 `cursor/canvas` 导入）。`typecheck-canvas.ts` 再对同一份源码做类型检查：没导入的组件、按钮取值、图表字段对不上时，中间栏显示 `Canvas check`，不渲染。文本和画布源码按 `:行` 选中那一行（`lawmind-workspace-file-open.ts` 的 `offsetForLine`）；Word 仍整份打开。画布里「接着问」走 `requestCanvasComposer`：把这份画布钉进当前对话，输入框开头是可点的相对路径。中间栏不再渲染核对纸；`acceptance-canvas.ts` 只保留给引擎侧生成分析画布源码用。
 
 2026-09 这轮新进的顶层组件（都遵循上面的老模式，不另起炉灶）：
 

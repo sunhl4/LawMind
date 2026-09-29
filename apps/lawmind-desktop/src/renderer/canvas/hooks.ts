@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { workspacePathTarget } from "../../../../../src/lawmind/sources/lawyer-chat-link.ts";
 import { requestOpenChatSession } from "../lawmind-open-chat-session-bus";
 import { requestOpenWorkspaceFile } from "../lawmind-workspace-file-open";
 import { requestCanvasComposer } from "./host-actions";
@@ -111,11 +112,22 @@ export function useCanvasAction(): (action: CanvasAction) => void {
   return useCallback((action: CanvasAction) => {
     const framed = window.parent !== window;
     if (action.type === "openFile") {
-      if (framed) {
-        window.parent.postMessage({ source: "lawmind-canvas", type: "openFile", path: action.path }, "*");
+      const target = workspacePathTarget(action.path);
+      const path = target?.path;
+      if (!path) {
         return;
       }
-      requestOpenWorkspaceFile(action.path);
+      const line = action.selection?.startLineNumber ?? target?.line;
+      const column = action.selection?.startColumn ?? target?.column;
+      const at = line ? { line, ...(column ? { column } : {}) } : undefined;
+      if (framed) {
+        window.parent.postMessage(
+          { source: "lawmind-canvas", type: "openFile", path, ...at },
+          "*",
+        );
+        return;
+      }
+      requestOpenWorkspaceFile(path, "workspace", at);
       return;
     }
     if (action.type === "newComposerChat") {

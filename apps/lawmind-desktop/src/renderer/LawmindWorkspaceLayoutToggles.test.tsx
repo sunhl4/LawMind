@@ -43,23 +43,22 @@ describe("LawmindWorkspaceLayoutToggles", () => {
     expect(host.querySelector('[aria-label*="对话区"]')).not.toBeNull();
   });
 
-  it("names the middle toggle 显示文件 while the acceptance sheet covers the editor", async () => {
+  it("names the middle toggle 显示编辑区 when the editor is hidden", async () => {
     await act(async () => {
       root.render(
         <LawmindWorkspaceLayoutToggles
           sidebarCollapsed={false}
-          wsShowEditor
+          wsShowEditor={false}
           wsShowChat
           canUseFilesystemBridge
           matterCockpitOpen={false}
-          editorCoveredBySheet
           onToggleSidebar={vi.fn()}
           onToggleEditor={vi.fn()}
           onToggleChat={vi.fn()}
         />,
       );
     });
-    const toggle = host.querySelector('[aria-label="显示文件"]');
+    const toggle = host.querySelector('[aria-label="显示编辑区"]');
     expect(toggle).not.toBeNull();
     expect(toggle?.getAttribute("aria-pressed")).toBe("false");
   });

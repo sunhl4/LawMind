@@ -5,7 +5,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLawmindAppHeaderProps } from "./useLawmindAppHeaderProps";
-import { useAcceptancePaneStore } from "../stores/acceptance-pane-store";
 import { resetSettingsPanelStoreForTest, useSettingsPanelStore } from "../stores/settings-panel-store";
 
 function headerInput(): Parameters<typeof useLawmindAppHeaderProps>[0] {
@@ -47,7 +46,6 @@ describe("useLawmindAppHeaderProps", () => {
     document.body.appendChild(host);
     root = createRoot(host);
     resetSettingsPanelStoreForTest();
-    useAcceptancePaneStore.getState().resetForTest();
   });
 
   afterEach(() => {
@@ -100,8 +98,7 @@ describe("useLawmindAppHeaderProps", () => {
     ).toBe(false);
   });
 
-  it("reveals the file instead of hiding the editor while the sheet covers it", async () => {
-    useAcceptancePaneStore.getState().setPane({ covering: true, available: true });
+  it("toggles the editor pane on and off", async () => {
     const setWsShowEditor = vi.fn();
     let toggle: (() => void) | undefined;
 
@@ -117,7 +114,9 @@ describe("useLawmindAppHeaderProps", () => {
     await act(async () => {
       toggle?.();
     });
-    expect(setWsShowEditor).toHaveBeenCalledWith(true);
-    expect(useAcceptancePaneStore.getState().revealEditorNonce).toBe(1);
+    expect(setWsShowEditor).toHaveBeenCalledTimes(1);
+    const updater = setWsShowEditor.mock.calls[0]?.[0];
+    expect(typeof updater).toBe("function");
+    expect((updater as (v: boolean) => boolean)(true)).toBe(false);
   });
 });

@@ -16,7 +16,6 @@ import {
 } from "../lawmind-gate-display";
 import { ALL_REVIEW_LABELS } from "../../../../../src/lawmind/review-labels.ts";
 import { LawmindAcceptanceGate } from "../LawmindAcceptanceGate";
-import { LawmindAcceptanceMarkStrip } from "../LawmindAcceptanceMarkStrip";
 import { LawmindCitationBanner } from "../LawmindCitationBanner";
 import { LawmindVerificationChecklist } from "../LawmindVerificationChecklist";
 import { LawmindReviewCampaignPanel } from "../LawmindReviewCampaignPanel";
@@ -252,8 +251,6 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           但**读不到时照样说话**（故障不得冒充「没有」）。
         */}
         <LawmindJudgmentEscalationCard apiBase={apiBase} taskId={selectedTaskId} variant="inline" />
-
-        <LawmindAcceptanceMarkStrip apiBase={apiBase} taskId={selectedTaskId} />
 
         <div id="lm-review-citation-banner">
           <LawmindCitationBanner

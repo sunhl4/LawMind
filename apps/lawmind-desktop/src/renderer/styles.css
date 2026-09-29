@@ -8,7 +8,6 @@
 @import "./styles/animations.css";
 @import "./styles/controls.css";
 @import "./styles/lawyer-workbench.css";
-@import "./styles/acceptance-sheet.css";
 
 .lm-skip-nav {
   position: absolute;

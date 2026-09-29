@@ -8,7 +8,7 @@ import {
 } from "./file-workbench-types";
 import { isProtectedWorkspacePath, keyOf, getDirname, getFileIcon } from "./file-workbench-fs";
 import { matterIdFromWorkspaceCasesRelPath, isWorkspaceCaseSubdirRootRelPath } from "../lawmind-cases-path";
-import { filterExplorerEntries } from "../lawmind-explorer-lawyer-view";
+import { filterExplorerEntries, lawyerCanvasTitle } from "../lawmind-explorer-lawyer-view";
 import { encodeLawmindFsDrag, LAWMID_FS_DRAG_MIME } from "../lawmind-file-drag";
 
 /** 在某一父目录下按名称排除顶级项（工作区根不重复展示 `cases/`） */
@@ -239,7 +239,7 @@ export function FileWorkbenchTree({
           onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, root, path: entry.path, kind: "file", isRoot: false }); }}
         >
           <span className="lm-fs-icon">{getFileIcon(entry.name, "file")}</span>
-          <span className="lm-fs-name">{entry.name}</span>
+          <span className="lm-fs-name">{lawyerCanvasTitle(entry.name)}</span>
           {isProtected && <span className="lm-fs-lock">🔒</span>}
         </button>,
       );

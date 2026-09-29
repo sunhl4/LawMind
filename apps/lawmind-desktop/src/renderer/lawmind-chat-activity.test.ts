@@ -35,6 +35,24 @@ describe("lawmind-chat-activity", () => {
     }
   });
 
+  it("keeps a Chinese canvas path in the tool record without opening it", () => {
+    let blocks = startActivityTool(createEmptyActivity(), {
+      toolCallId: "tc-cn",
+      toolName: "write_file",
+      args: { path: "canvas/核对-task-1.canvas.tsx" },
+    });
+    blocks = endActivityTool(blocks, {
+      toolCallId: "tc-cn",
+      toolName: "write_file",
+      ok: true,
+      resultPreview: "已写入",
+    });
+    expect(blocks[0]?.kind).toBe("tool");
+    if (blocks[0]?.kind === "tool") {
+      expect(blocks[0].detail).toContain("canvas/核对-task-1.canvas.tsx");
+    }
+  });
+
   it("keeps a canvas path from tool args when the result preview omits it", () => {
     let blocks = startActivityTool(createEmptyActivity(), {
       toolCallId: "tc-canvas",

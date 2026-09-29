@@ -1,6 +1,0 @@
-/* 对话中栏的图。核对纸本身走 canvas 宿主，不再用这层卡片皮肤。 */
-
-.lm-acceptance-chart .lm-analysis-chart-svg svg {
-  width: 100%;
-  height: auto;
-}

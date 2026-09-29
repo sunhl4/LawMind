@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLawmindAppShell } from "./lawmind-app-shell";
 import { useSettingsPanelStore } from "./stores/settings-panel-store";
-import { useAcceptancePaneStore } from "./stores/acceptance-pane-store";
 import type { AgentsDeskTab } from "./lawmind-agents-desk";
 import { useActionSummaryQuery } from "./lawmind-query-hooks";
 import { useLawmindRecordsDeskMatters, RECORDS_DESK_UNLINKED } from "./lawmind-records-desk-state";
@@ -15,19 +14,20 @@ import {
 import { usePaneResizePx } from "./use-pane-resize";
 import { apiGetJson } from "./api-client";
 import { useLawyerReviewDesktopNotify } from "./lawmind-lawyer-review-notify";
-import { canvasPathsFromMessages } from "./canvas/canvas-paths";
-import { LAWMIND_CANVAS_COMPOSER_EVENT, type CanvasComposerDetail } from "./canvas/host-actions";
+import {
+  canvasComposerDraft,
+  LAWMIND_CANVAS_COMPOSER_EVENT,
+  type CanvasComposerDetail,
+} from "./canvas/host-actions";
 import { resolveOpenableOutputPath, artifactApiRelFromOutput } from "./lawmind-app-utils";
 import { scheduleScrollChatMessagesToLatest } from "./lawmind-chat-scroll";
-import { LAWMIND_PREPARE_WORKSPACE_FILE_EVENT } from "./lawmind-open-contract-revision";
+import { LAWMIND_PREPARE_WORKSPACE_FILE_EVENT, openContractRevisionForTask } from "./lawmind-open-contract-revision";
 import {
   LAWMIND_OPEN_CONTRACT_REVISION_EVENT,
   LAWMIND_OPEN_WORKSPACE_FILE_EVENT,
   LAWMIND_SHOW_WORD_SURFACE_EVENT,
   matterIdOwnedByOpenedFile,
   requestOpenContractRevision,
-  requestOpenWorkspaceFile,
-  revisionColumnTarget,
   type OpenContractRevisionDetail,
   type OpenWorkspaceFileDetail,
 } from "./lawmind-workspace-file-open";
@@ -44,9 +44,6 @@ import {
   useRequireSignoffReview,
 } from "./lawmind-review-prefs";
 import { applyAllUiPrefs } from "./lawmind-ui-prefs";
-
-/** Survives a remount in the same page so a just-written canvas is not treated as history. */
-let canvasPathsSeen: Set<string> | null = null;
 
 export function LawmindAppRoot() {
   const [_uiPrefsVersion, setUiPrefsVersion] = useState(0);
@@ -332,12 +329,20 @@ export function LawmindAppRoot() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onComposer = (event: Event) => {
-      const prompt = (event as CustomEvent<CanvasComposerDetail>).detail?.prompt?.trim() ?? "";
+      const detail = (event as CustomEvent<CanvasComposerDetail>).detail;
+      const prompt = detail?.prompt?.trim() ?? "";
       if (!prompt) {
         return;
       }
       actions.setMainView("workspace");
-      actions.setInput(prompt);
+      if (detail?.canvasPath) {
+        actions.addFileToChatContext({
+          root: detail.root === "project" ? "project" : "workspace",
+          relPath: detail.canvasPath,
+          kind: "file",
+        });
+      }
+      actions.setInput(canvasComposerDraft(prompt, detail?.canvasPath));
       textareaRef.current?.focus();
     };
     window.addEventListener(LAWMIND_CANVAS_COMPOSER_EVENT, onComposer);
@@ -467,33 +472,26 @@ export function LawmindAppRoot() {
       setMatterCockpitOpen(false);
       setMainView("workspace");
       setWsShowEditor(true);
-      useAcceptancePaneStore.getState().revealEditor();
     };
     const openRevision = (ev: Event) => {
       const taskId = (ev as CustomEvent<OpenContractRevisionDetail>).detail?.taskId?.trim() ?? "";
-      revealEditor();
-      const apiBase = config?.apiBase ?? "";
-      if (!taskId || !apiBase) {
-        return;
-      }
-      void apiGetJson<{ ok?: boolean; draft?: Parameters<typeof revisionColumnTarget>[0] }>(
-        apiBase,
-        `/api/drafts/${encodeURIComponent(taskId)}`,
-      )
-        .then((body) => {
-          const target = body.draft ? revisionColumnTarget(body.draft, config?.workspaceDir) : null;
-          if (!target) {
-            return;
-          }
-          requestOpenWorkspaceFile(target.relPath, target.root);
-          window.dispatchEvent(new CustomEvent(LAWMIND_SHOW_WORD_SURFACE_EVENT));
-        })
-        .catch(() => undefined);
+      void openContractRevisionForTask({
+        apiBase: config?.apiBase ?? "",
+        taskId,
+        workspaceDir: config?.workspaceDir,
+      }).then((result) => {
+        if (!result.ok) {
+          setError(result.error);
+        }
+      });
     };
     const onOpenFile = (ev: Event) => {
-      revealEditor();
       const detail = (ev as CustomEvent<OpenWorkspaceFileDetail>).detail;
       const relPath = detail?.relPath?.trim() ?? "";
+      if (/\.canvas\.tsx$/i.test(relPath)) {
+        setWsShowChat(true);
+      }
+      revealEditor();
       if (!relPath) {
         return;
       }
@@ -511,7 +509,7 @@ export function LawmindAppRoot() {
       window.removeEventListener(LAWMIND_SHOW_WORD_SURFACE_EVENT, revealEditor);
       window.removeEventListener(LAWMIND_OPEN_CONTRACT_REVISION_EVENT, openRevision);
     };
-  }, [config?.apiBase, config?.workspaceDir, setContextMatterId, setMainView]);
+  }, [config?.apiBase, config?.workspaceDir, setContextMatterId, setError, setMainView, setWsShowChat]);
 
   const { width: wsChatColWidth, onResizePointerDown: onWsChatSplitResize } = usePaneResizePx({
     storageKey: "lawmind.ui.wsChatColumnWidth",
@@ -526,21 +524,6 @@ export function LawmindAppRoot() {
     // Jumping in from 在办 / 待我拍板 / notifications must land on latest turn, not task start.
     return scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
   }, [currentMessages, activeChatSessionId]);
-
-  useEffect(() => {
-    const paths = canvasPathsFromMessages(currentMessages);
-    if (!canvasPathsSeen) {
-      canvasPathsSeen = new Set(paths);
-      return;
-    }
-    for (const path of paths) {
-      if (canvasPathsSeen.has(path)) {
-        continue;
-      }
-      canvasPathsSeen.add(path);
-      requestOpenWorkspaceFile(path);
-    }
-  }, [currentMessages]);
 
   /**
    * 文书台 / 在办：不展示全局侧栏（页内自有目录）。

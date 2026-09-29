@@ -8,6 +8,12 @@ describe("canvasPathsInText", () => {
     ]);
   });
 
+  it("recognizes a Chinese canvas file name", () => {
+    expect(canvasPathsInText("见 canvas/核对-task-1.canvas.tsx。")).toEqual([
+      "canvas/核对-task-1.canvas.tsx",
+    ]);
+  });
+
   it("reads a canvas path from the latest assistant tool detail", () => {
     expect(
       canvasPathsFromMessages([

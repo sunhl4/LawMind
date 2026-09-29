@@ -4,8 +4,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
+import { LAWMIND_OPEN_WORKSPACE_FILE_EVENT } from "../lawmind-workspace-file-open";
 import { CanvasHost } from "./CanvasHost";
-import { Button, H1, Pill, Stack, Table } from "./primitives";
+import { Button, H1, Link, Pill, Stack, Table } from "./primitives";
 
 describe("canvas primitives", () => {
   let host: HTMLDivElement;
@@ -61,5 +62,32 @@ describe("canvas primitives", () => {
     expect(pill?.textContent).toBe("已记录 2");
     expect(pill?.style.width).toBe("fit-content");
     expect(pill?.style.alignSelf).toBe("flex-start");
+  });
+
+  it("opens a workspace canvas from a link and ignores a path outside the workspace", () => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    const opened: string[] = [];
+    const onFile = (ev: Event) => {
+      opened.push((ev as CustomEvent<{ relPath?: string }>).detail?.relPath ?? "");
+    };
+    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+    act(() => {
+      root.render(
+        <CanvasHost>
+          <Link href="canvas/核对.canvas.tsx">费用核对</Link>
+          <Link href="../secret.docx">越界</Link>
+        </CanvasHost>,
+      );
+    });
+    const links = [...host.querySelectorAll("a")];
+    act(() => {
+      links[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      links[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+    expect(links[0]?.textContent).toBe("费用核对");
+    expect(opened).toEqual(["canvas/核对.canvas.tsx"]);
   });
 });

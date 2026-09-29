@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { buildReadinessSnapshot } from "../lawmind-readiness";
-import { useAcceptancePaneStore } from "../stores/acceptance-pane-store";
 import type { HealthPayload } from "../lawmind-app-data";
 import type { LawmindMainView } from "../lawmind-main-view";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
@@ -45,8 +44,6 @@ export type UseLawmindAppHeaderPropsInput = {
 export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): LawmindAppHeaderProps {
   const reviewPaneVisibility = useReviewPaneVisibilityStore((s) => s.visibility);
   const toggleReviewPane = useReviewPaneVisibilityStore((s) => s.togglePane);
-  const editorCoveredBySheet = useAcceptancePaneStore((s) => s.covering);
-  const revealEditor = useAcceptancePaneStore((s) => s.revealEditor);
   const showSettings = useSettingsPanelStore((s) => s.open);
   const setShowSettings = useSettingsPanelStore((s) => s.setSettingsPanel);
 
@@ -111,15 +108,9 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       wsShowEditor,
       wsShowChat,
       canUseFilesystemBridge,
-      editorCoveredBySheet,
       onToggleSidebar: () => setSidebarCollapsed((v) => !v),
       onToggleEditor: () => {
         if (!canUseFilesystemBridge || matterCockpitOpen) {
-          return;
-        }
-        if (editorCoveredBySheet) {
-          revealEditor();
-          setWsShowEditor(true);
           return;
         }
         setWsShowEditor((v) => !v);
@@ -179,8 +170,6 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       setSidebarCollapsed,
       wsShowEditor,
       setWsShowEditor,
-      editorCoveredBySheet,
-      revealEditor,
       wsShowChat,
       setWsShowChat,
       canUseFilesystemBridge,

@@ -130,7 +130,7 @@ export function formatSameTurnVerifyError(issues: SameTurnVerifyIssue[]): string
     return [
       `${SAME_TURN_VERIFY_USER_PREFIX}已停。不要再改稿、不要再导出、不要改审稿措辞。`,
       "用你自己的句子按「收口三句」写给律师：稿在哪、意见、请您定。不要改成 JSON 或表格，不要复述本条验收信息。",
-      "知道任务编号时，标题写成 [文书标题](lm-draft:任务编号)。法条写成 [《法律名称》第N条](工具返回的 https)，嵌在意见句里；没有地址就写原文待核，不要编。核对单套错合同类型时不要写。",
+      "知道任务编号时，标题写成 [文书标题](lm-draft:任务编号)。工作区文件写成 [短标题](相对路径)。法条写成 [《法律名称》第N条](工具返回的 https)，嵌在意见句里；没有地址就写原文待核，不要编。核对单套错合同类型时不要写。",
     ].join("\n");
   }
   const next = issues.find((i) => i.nextTool)?.nextTool ?? "apply_surgical_edits";

@@ -1,5 +1,9 @@
 import katex from "katex";
-import { tryConsumeLawyerChatLink } from "../../../../src/lawmind/sources/lawyer-chat-link.ts";
+import {
+  tryConsumeBareChatTarget,
+  tryConsumeLawyerChatLink,
+  type LawyerChatLink,
+} from "../../../../src/lawmind/sources/lawyer-chat-link.ts";
 import { tryConsumeLmSessionMarkdown } from "./lawmind-session-link";
 
 export type InlineMarkdownToken =
@@ -9,7 +13,8 @@ export type InlineMarkdownToken =
   | { kind: "math"; tex: string; display: boolean }
   | { kind: "session_link"; label: string; sessionId: string; assistantId?: string }
   | { kind: "draft_link"; label: string; taskId: string }
-  | { kind: "statute_link"; label: string; url: string };
+  | { kind: "web_link"; label: string; url: string }
+  | { kind: "file_link"; label: string; path: string; canvas: boolean; line?: number; column?: number };
 
 const KATEX_OPTIONS = {
   throwOnError: false,
@@ -172,24 +177,18 @@ export function tokenizeInlineLegalMarkdown(text: string): InlineMarkdownToken[]
       const lawyerLink = tryConsumeLawyerChatLink(text, index);
       if (lawyerLink) {
         flush();
-        if (lawyerLink.link.kind === "draft") {
-          tokens.push({
-            kind: "draft_link",
-            label: lawyerLink.link.label,
-            taskId: lawyerLink.link.taskId,
-          });
-        } else if (lawyerLink.link.kind === "statute") {
-          tokens.push({
-            kind: "statute_link",
-            label: lawyerLink.link.label,
-            url: lawyerLink.link.url,
-          });
-        } else {
-          tokens.push({ kind: "text", value: lawyerLink.link.label });
-        }
+        tokens.push(tokenFromLawyerLink(lawyerLink.link));
         index = lawyerLink.next;
         continue;
       }
+    }
+
+    const bare = tryConsumeBareChatTarget(text, index);
+    if (bare && bare.link.kind !== "plain") {
+      flush();
+      tokens.push(tokenFromLawyerLink(bare.link));
+      index = bare.next;
+      continue;
     }
 
     buffer += text[index];
@@ -198,6 +197,26 @@ export function tokenizeInlineLegalMarkdown(text: string): InlineMarkdownToken[]
 
   flush();
   return tokens;
+}
+
+function tokenFromLawyerLink(link: LawyerChatLink): InlineMarkdownToken {
+  if (link.kind === "draft") {
+    return { kind: "draft_link", label: link.label, taskId: link.taskId };
+  }
+  if (link.kind === "web") {
+    return { kind: "web_link", label: link.label, url: link.url };
+  }
+  if (link.kind === "file") {
+    return {
+      kind: "file_link",
+      label: link.label,
+      path: link.path,
+      canvas: link.canvas,
+      ...(link.line ? { line: link.line } : {}),
+      ...(link.column ? { column: link.column } : {}),
+    };
+  }
+  return { kind: "text", value: link.label };
 }
 
 function trySingleDollarMath(

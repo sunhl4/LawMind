@@ -8,6 +8,9 @@ import {
   buildAcceptanceSheet,
   relativeMaterialPath,
   tooStrongInstruction,
+  acceptanceDecisionClaims,
+  acceptanceAsideCount,
+  showAcceptanceClaim,
 } from "./model.js";
 
 function bundle(overrides: Partial<ResearchBundle> = {}): ResearchBundle {
@@ -89,6 +92,60 @@ describe("buildAcceptanceSheet", () => {
     });
     expect(sheet?.claims[0]?.locator).toContain("第 8.2 条");
     expect(sheet?.claims[0]?.quote).toContain("百分之二十");
+  });
+
+  it("drops a pasted statute and a chapter title instead of repeating them", () => {
+    const article =
+      "第二十八条 劳务派遣协议除上述应当载明的内容外，协议中亦可载明以下事项：（一）权利义务；（二）聘用程序。";
+    const sheet = buildAcceptanceSheet({
+      taskId: "task-1",
+      bundle: bundle({
+        sources: [
+          {
+            id: "src-1",
+            title: "劳务派遣暂行规定",
+            kind: "statute",
+            citation: "第三章",
+            excerpt: "第三章 劳动合同、劳务派遣协议的订立和履行",
+            url: "notes/暂行规定.pdf",
+          },
+          {
+            id: "src-2",
+            title: "上海律师办理劳务派遣合同纠纷案件业务操作指引",
+            kind: "book",
+            citation: "第二十八条",
+            excerpt: article,
+            url: "notes/指引.pdf",
+          },
+        ],
+        claims: [
+          {
+            text: "第三章 劳动合同、劳务派遣协议的订立和履行",
+            sourceIds: ["src-1"],
+            confidence: 0.55,
+            model: "legal",
+          },
+          {
+            text: article,
+            sourceIds: ["src-2"],
+            confidence: 0.55,
+            model: "legal",
+            pin: { article: "第二十八条", quote: article },
+          },
+          {
+            text: "协议还应单独约定争议解决方式。",
+            sourceIds: ["src-2"],
+            confidence: 0.8,
+            model: "legal",
+            pin: { article: "第二十八条", quote: "（四）违约责任及争议解决方式" },
+          },
+        ],
+      }),
+      draft,
+    });
+    expect(sheet?.claims.map((claim) => claim.text)).toEqual(["协议还应单独约定争议解决方式。"]);
+    expect(sheet?.claims[0]?.quote).toBe("（四）违约责任及争议解决方式");
+    expect(sheet?.claims[0]?.confidenceLabel).toBe("高");
   });
 
   it("opens a file path without a scheme and labels the page", () => {
@@ -227,6 +284,40 @@ describe("buildAcceptanceSheet", () => {
     expect(text).toContain("改弱");
     expect(text).toContain("不要补充没有依据");
     expect(text).toContain("百分之二十");
+  });
+
+  it("uses the article as the position when the draft heading is 结论", () => {
+    const sheet = buildAcceptanceSheet({
+      taskId: "task-1",
+      bundle: bundle({ claims: [] }),
+      draft: {
+        ...draft,
+        sections: [
+          {
+            heading: "结论",
+            body: "违约金应当写成可调整的数额。",
+            citations: ["src-1"],
+          },
+        ],
+      },
+    });
+    expect(sheet?.claims[0]?.locator).toBe("第 8.2 条");
+    expect(sheet?.claims[0]?.quote).toContain("百分之二十");
+    expect(acceptanceDecisionClaims(sheet!)).toHaveLength(1);
+  });
+
+  it("counts gaps and charts as aside items, not as sentences to accept", () => {
+    const sheet = buildAcceptanceSheet({
+      taskId: "task-1",
+      bundle: bundle({ claims: [], riskFlags: ["比例可能仍过高"], missingItems: ["未见损失证据"] }),
+      draft: { ...draft, summary: "" },
+    });
+    expect(acceptanceDecisionClaims(sheet!)).toEqual([]);
+    expect(acceptanceAsideCount(sheet!)).toBe(2);
+    expect(showAcceptanceClaim({ text: "第二十八条全文。", quote: "第二十八条全文。" })).toBe(
+      false,
+    );
+    expect(showAcceptanceClaim({ text: "应当单独约定争议解决。", quote: undefined })).toBe(true);
   });
 
   it("pins a chart that names a file and drops one that does not", () => {

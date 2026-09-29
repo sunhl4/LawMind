@@ -214,6 +214,82 @@ export function sourceView(source: ResearchSource, pinPage?: string): Acceptance
   };
 }
 
+function compactPassage(value: string): string {
+  return value.replace(/\s+/g, "").replace(/[，。；、：:（）()《》「」""''、]/g, "");
+}
+
+/** 两段话是不是同一段。短引文嵌在长结论里不算重复。 */
+export function samePassage(left: string, right: string): boolean {
+  const a = compactPassage(left);
+  const b = compactPassage(right);
+  if (!a || !b) {
+    return false;
+  }
+  if (a === b) {
+    return true;
+  }
+  const [shorter, longer] = a.length < b.length ? [a, b] : [b, a];
+  if (shorter.length < 12) {
+    return false;
+  }
+  return longer.includes(shorter) && shorter.length / longer.length >= 0.85;
+}
+
+/** 章节名，或没有更短的不同原文时，不拿来让律师采信。 */
+export function showAcceptanceClaim(claim: Pick<AcceptanceClaimView, "text" | "quote">): boolean {
+  if (isTitleNotConclusion(claim.text) || isPlaceholderConclusion(claim.text)) {
+    return false;
+  }
+  const quote = claim.quote?.trim();
+  if (quote && samePassage(claim.text, quote)) {
+    return false;
+  }
+  return true;
+}
+
+const GENERIC_LOCATOR = /^(结论|意见|分析|法律分析|摘要|概述|说明|要点|综述)$/;
+
+function usableLocator(value: string | undefined): string | undefined {
+  const text = value?.trim();
+  if (!text || GENERIC_LOCATOR.test(text)) {
+    return undefined;
+  }
+  return text;
+}
+
+/** 章节名、节名，不是要律师采信的判断。 */
+function isTitleNotConclusion(text: string): boolean {
+  const line = text.replace(/\s+/g, " ").trim();
+  if (!line || line.length > 80 || /[。！？]/.test(line)) {
+    return false;
+  }
+  return /^第[0-9０-９一二三四五六七八九十百千]+[章节]/.test(line);
+}
+
+function isPlaceholderConclusion(text: string): boolean {
+  const line = text.replace(/\s+/g, "");
+  return /^(见检索|见上|见下文|同上|略|待补充|暂无)/.test(line);
+}
+
+/** 会铺开中间栏的判断。顺序上先是会写进稿子的句子。 */
+export function acceptanceDecisionClaims(
+  sheet: Pick<AcceptanceSheet, "claims">,
+): AcceptanceClaimView[] {
+  return sheet.claims.filter((claim) => claim.mark !== "removed" && showAcceptanceClaim(claim));
+}
+
+/** 缺口、风险、表、图。没有判断时不铺开，只在对话里留一行。 */
+export function acceptanceAsideCount(
+  sheet: Pick<AcceptanceSheet, "gaps" | "risks" | "table" | "charts">,
+): number {
+  return (
+    sheet.gaps.length +
+    sheet.risks.length +
+    (sheet.table && sheet.table.rows.length > 0 ? 1 : 0) +
+    (sheet.charts?.length ?? 0)
+  );
+}
+
 function locatorLine(claim: ResearchClaim, sources: AcceptanceSourceView[]): string | undefined {
   const pin = claim.pin;
   const parts = [pin?.article, pin?.clause, pageLabel(pin?.page)]
@@ -256,12 +332,23 @@ function claimView(
     return sourceView(source, pin);
   });
   const id = acceptanceClaimId(text, sourceIds);
-  const quote = claim.pin?.quote?.trim() || views.find((source) => source.excerpt)?.excerpt;
+  const excerpt = views.find((source) => source.excerpt)?.excerpt?.trim();
+  if (
+    isTitleNotConclusion(text) ||
+    isPlaceholderConclusion(text) ||
+    (excerpt && samePassage(excerpt, text))
+  ) {
+    return undefined;
+  }
+  const pinQuote = claim.pin?.quote?.trim();
+  const quote =
+    (pinQuote && !samePassage(pinQuote, text) ? pinQuote : undefined) ||
+    (excerpt && !samePassage(excerpt, text) ? excerpt : undefined);
   return {
     id,
     text,
     ...(assessed ? { confidenceLabel: confidenceLabel(claim.confidence) } : {}),
-    locator: locatorLine(claim, views),
+    locator: usableLocator(locatorLine(claim, views)),
     quote: quote?.trim() || undefined,
     sources: views,
     mark: marks[id] ?? null,
@@ -290,7 +377,8 @@ function sectionClaims(
       false,
     );
     if (view && !out.some((claim) => claim.id === view.id)) {
-      out.push({ ...view, locator: section.heading.trim() || view.locator });
+      const locator = usableLocator(section.heading) || view.locator;
+      out.push(locator ? { ...view, locator } : view);
     }
   }
   return out;
@@ -388,15 +476,16 @@ export function buildAcceptanceSheet(input: {
   const marks = input.marks ?? {};
   const sources = input.bundle?.sources ?? [];
   const sourcesById = new Map(sources.map((source) => [source.id, source]));
+  const fromSections = input.draft ? sectionClaims(input.draft, sourcesById, marks) : [];
   const fromBundle = (input.bundle?.claims ?? [])
     .map((claim) => claimView(claim, sourcesById, marks, true))
     .filter((claim): claim is AcceptanceClaimView => Boolean(claim));
-  const claims =
-    fromBundle.length > 0
-      ? fromBundle
-      : input.draft
-        ? sectionClaims(input.draft, sourcesById, marks)
-        : [];
+  const claims = [...fromSections];
+  for (const claim of fromBundle) {
+    if (!claims.some((existing) => existing.id === claim.id)) {
+      claims.push(claim);
+    }
+  }
   const gaps = (input.bundle?.missingItems ?? [])
     .map((item) => item.trim())
     .filter(Boolean)

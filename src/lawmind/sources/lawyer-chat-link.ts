@@ -1,17 +1,25 @@
 /**
- * 对话里给律师点的两种链接。
+ * 对话里给律师点的链接。
  *
  * - `[文书标题](lm-draft:<taskId>)` 打开这份稿
- * - `[《法律名称》第N条](https://…)` 打开检索到的法条原文
+ * - `[短标题](https://…)` 或句子里的公网地址，用系统浏览器打开
+ * - `[短标题](相对路径)` 或句子里的工作区文件，在编辑区打开；`.canvas.tsx` 就是画布
  *
- * 不另写一份法条文稿，也不做画布：画布读不到权威库，第二份稿会和意见脱节。
- * 点不开的地址（非 https、本机、私网，或看不出是法条）只留标题，不变成按钮。
+ * 内网、带账号密码的地址、磁盘绝对路径和 `..` 只留文字，不变成按钮。
  */
 
 export type LawyerChatLink =
   | { kind: "draft"; label: string; taskId: string }
-  | { kind: "statute"; label: string; url: string }
+  | { kind: "web"; label: string; url: string }
+  | { kind: "file"; label: string; path: string; canvas: boolean; line?: number; column?: number }
   | { kind: "plain"; label: string };
+
+/** 对话里自动变成按钮的文件后缀。画布是其中的 `.canvas.tsx`。 */
+const CHAT_FILE_EXT =
+  /\.(?:canvas\.tsx|docx|doc|pdf|xlsx|xls|pptx|ppt|md|txt|csv|json|html|png|jpe?g|webp|gif)$/i;
+
+const BARE_FILE_RE =
+  /^((?:[^\s/\\[\]()<>"'`，。；：、]+\/)*[^\s/\\[\]()<>"'`，。；：、]+\.(?:canvas\.tsx|docx|doc|pdf|xlsx|xls|pptx|ppt|md|txt|csv|json|html|png|jpe?g|webp|gif))(?::\d{1,6})?(?::\d{1,6})?/iu;
 
 const LABEL_MAX = 200;
 const TASK_ID_RE = /^[A-Za-z0-9._-]{1,80}$/;
@@ -78,24 +86,110 @@ function hostLooksLegal(host: string): boolean {
   );
 }
 
-/** https 原文，且要么标题像法条，要么主机是法规站点。否则返回 null。 */
-export function statuteJumpUrl(href: string, label: string): string | null {
+/** 公网 http(s)。内网、本机、带账号密码的地址返回 null。 */
+export function publicWebUrl(href: string): string | null {
   let url: URL;
   try {
     url = new URL(href.trim());
   } catch {
     return null;
   }
-  if (url.protocol !== "https:" || url.username || url.password) {
+  if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password) {
     return null;
   }
   if (isPrivateOrLocalHost(url.hostname)) {
     return null;
   }
-  if (!labelLooksLikeCite(label) && !hostLooksLegal(url.hostname)) {
+  return url.toString();
+}
+
+export type WorkspacePathTarget = {
+  path: string;
+  line?: number;
+  column?: number;
+};
+
+const LINE_SUFFIX = /:(\d{1,6})(?::(\d{1,6}))?$/;
+
+/**
+ * 工作区相对路径。末尾的 `:行` / `:行:列` 单独返回。
+ * 绝对路径、盘符、`file:` 和其他 scheme、`..` 都拒绝。
+ */
+export function workspacePathTarget(href: string): WorkspacePathTarget | null {
+  let raw = href.trim().replace(/\\/g, "/");
+  if (!raw || raw.length > 300) {
     return null;
   }
-  return url.toString();
+  for (let i = 0; i < raw.length; i += 1) {
+    if (raw.charCodeAt(i) < 32) {
+      return null;
+    }
+  }
+  raw = raw.replace(/^\.\//, "");
+  let line: number | undefined;
+  let column: number | undefined;
+  const suffix = LINE_SUFFIX.exec(raw);
+  if (suffix) {
+    const parsedLine = Number(suffix[1]);
+    const parsedColumn = suffix[2] ? Number(suffix[2]) : undefined;
+    if (parsedLine >= 1 && parsedLine <= 100_000) {
+      line = parsedLine;
+      raw = raw.slice(0, suffix.index);
+      if (parsedColumn && parsedColumn >= 1 && parsedColumn <= 10_000) {
+        column = parsedColumn;
+      }
+    }
+  }
+  if (!raw || raw.startsWith("/") || raw.includes(":") || /\s/.test(raw)) {
+    return null;
+  }
+  const parts = raw.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    return null;
+  }
+  return {
+    path: parts.join("/"),
+    ...(line ? { line } : {}),
+    ...(column ? { column } : {}),
+  };
+}
+
+export function safeWorkspaceRelativePath(href: string): string | null {
+  return workspacePathTarget(href)?.path ?? null;
+}
+
+/** 对话里可以点开的工作区文件。后缀不在名单里就不是链接。 */
+export function workspaceChatFile(
+  href: string,
+): { path: string; canvas: boolean; line?: number; column?: number } | null {
+  const target = workspacePathTarget(href);
+  if (!target || !CHAT_FILE_EXT.test(target.path)) {
+    return null;
+  }
+  return {
+    path: target.path,
+    canvas: /\.canvas\.tsx$/i.test(target.path),
+    ...(target.line ? { line: target.line } : {}),
+    ...(target.column ? { column: target.column } : {}),
+  };
+}
+
+/** https 原文，且要么标题像法条，要么主机是法规站点。否则返回 null。 */
+export function statuteJumpUrl(href: string, label: string): string | null {
+  const url = publicWebUrl(href);
+  if (!url?.startsWith("https:")) {
+    return null;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (!labelLooksLikeCite(label) && !hostLooksLegal(parsed.hostname)) {
+    return null;
+  }
+  return url;
 }
 
 export function tryConsumeLawyerChatLink(
@@ -132,13 +226,86 @@ export function tryConsumeLawyerChatLink(
     return { link: { kind: "draft", label, taskId }, next };
   }
 
-  if (/^https:\/\//i.test(href)) {
-    const url = statuteJumpUrl(href, label);
+  if (/^https?:\/\//i.test(href)) {
+    const url = publicWebUrl(href);
     if (!url) {
       return { link: { kind: "plain", label }, next };
     }
-    return { link: { kind: "statute", label, url }, next };
+    return { link: { kind: "web", label, url }, next };
+  }
+
+  const file = workspaceChatFile(href);
+  if (file) {
+    return {
+      link: {
+        kind: "file",
+        label,
+        path: file.path,
+        canvas: file.canvas,
+        ...(file.line ? { line: file.line } : {}),
+        ...(file.column ? { column: file.column } : {}),
+      },
+      next,
+    };
+  }
+
+  if (/^(javascript|data|file|vbscript):/i.test(href)) {
+    return { link: { kind: "plain", label }, next };
   }
 
   return null;
+}
+
+function boundaryBefore(text: string, start: number): boolean {
+  if (start <= 0) {
+    return true;
+  }
+  const prev = text[start - 1] ?? "";
+  if (/\p{Script=Han}/u.test(prev)) {
+    return true;
+  }
+  return !/[\p{L}\p{N}_./-]/u.test(prev);
+}
+
+/** 句子里没写成 Markdown 的公网地址和工作区文件。点不开的不吃掉原文。 */
+export function tryConsumeBareChatTarget(
+  text: string,
+  start: number,
+): { link: LawyerChatLink; next: number } | null {
+  if (!boundaryBefore(text, start)) {
+    return null;
+  }
+  const rest = text.slice(start);
+  if (/^https?:\/\//i.test(rest)) {
+    const matched = /^https?:\/\/[^\s<>[\]"'`，。；、]+/iu.exec(rest);
+    if (!matched?.[0]) {
+      return null;
+    }
+    const body = matched[0].replace(/[.,;:!?。，、；：）】》>)}\]]+$/u, "");
+    const url = publicWebUrl(body);
+    if (!url) {
+      return null;
+    }
+    return { link: { kind: "web", label: body, url }, next: start + body.length };
+  }
+  const fileMatch = BARE_FILE_RE.exec(rest);
+  const raw = fileMatch?.[0];
+  if (!raw) {
+    return null;
+  }
+  const file = workspaceChatFile(raw);
+  if (!file) {
+    return null;
+  }
+  return {
+    link: {
+      kind: "file",
+      label: raw,
+      path: file.path,
+      canvas: file.canvas,
+      ...(file.line ? { line: file.line } : {}),
+      ...(file.column ? { column: file.column } : {}),
+    },
+    next: start + raw.length,
+  };
 }

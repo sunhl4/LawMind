@@ -125,6 +125,13 @@ export function isLawyerCasesPath(relPath: string): boolean {
 /** @deprecated 使用 isLawyerCasesPath；保留别名以免旧引用断裂。 */
 export const isLawyerWorkspaceMaterialPath = isLawyerCasesPath;
 
+/** 材料树和画布顶栏给律师看的名字。磁盘文件名仍以 `.canvas.tsx` 结尾。 */
+export function lawyerCanvasTitle(name: string): string {
+  const trimmed = name.trim();
+  const short = trimmed.replace(/\.canvas\.tsx$/i, "");
+  return short || trimmed;
+}
+
 function techExtensionHidden(name: string): boolean {
   if (name.toLowerCase().endsWith(".canvas.tsx")) {
     return false;

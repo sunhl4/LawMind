@@ -2,14 +2,22 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import sandboxRuntime from "./sandbox-runtime.js?raw";
 import { requestOpenChatSession } from "../lawmind-open-chat-session-bus";
 import { requestOpenWorkspaceFile } from "../lawmind-workspace-file-open";
-import { canvasDataPath, canvasFileStateKey, canvasHtmlPath, compileCanvasSource } from "./compile-canvas";
+import {
+  canvasDataPath,
+  canvasFileStateKey,
+  canvasHtmlPath,
+  compileCanvasSource,
+  type CanvasDiagnostic,
+} from "./compile-canvas";
 import {
   LAWMIND_CANVAS_EXPORT_EVENT,
   LAWMIND_CANVAS_EXPORT_RESULT_EVENT,
+  openLawyerHref,
   requestCanvasComposer,
   type CanvasExportDetail,
   type CanvasExportResultDetail,
 } from "./host-actions";
+import { workspacePathTarget } from "../../../../../src/lawmind/sources/lawyer-chat-link.ts";
 import { describeFsWriteFailure } from "../file/fs-write-error";
 
 type Props = {
@@ -78,6 +86,30 @@ export function CanvasFileView({ root, path, source }: Props) {
   }, [source]);
 
   const compiled = useMemo(() => compileCanvasSource(debounced), [debounced]);
+  const [typeDiagnostics, setTypeDiagnostics] = useState<CanvasDiagnostic[]>([]);
+  const [typedFor, setTypedFor] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    void import("./typecheck-canvas")
+      .then((mod) => {
+        if (cancelled) {
+          return;
+        }
+        setTypeDiagnostics(mod.typecheckCanvasSource(debounced));
+        setTypedFor(debounced);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTypeDiagnostics([]);
+          setTypedFor(debounced);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debounced]);
+  const typeReady = typedFor === debounced;
+  const typeErrors = typeReady ? typeDiagnostics : [];
   const stateIdentity = `${root}:${path}`;
   const [fileState, setFileState] = useState(() => readFileState(root, path));
   const [loadedFor, setLoadedFor] = useState(stateIdentity);
@@ -134,6 +166,9 @@ export function CanvasFileView({ root, path, source }: Props) {
         key?: string;
         value?: string;
         path?: string;
+        href?: string;
+        line?: number;
+        column?: number;
         prompt?: string;
         agentId?: string;
       };
@@ -151,11 +186,24 @@ export function CanvasFileView({ root, path, source }: Props) {
           });
         }
       }
-      if (data.type === "openFile" && data.path && !data.path.split(/[/\\]/).includes("..")) {
-        requestOpenWorkspaceFile(data.path);
+      if (data.type === "openFile" && typeof data.path === "string") {
+        const target = workspacePathTarget(data.path);
+        const path = target?.path;
+        if (path) {
+          const line = typeof data.line === "number" ? data.line : target?.line;
+          const column = typeof data.column === "number" ? data.column : target?.column;
+          const fileRoot = root === "project" ? "project" : "workspace";
+          requestOpenWorkspaceFile(path, fileRoot, {
+            ...(line ? { line } : {}),
+            ...(column ? { column } : {}),
+          });
+        }
+      }
+      if (data.type === "openHref" && typeof data.href === "string") {
+        openLawyerHref(data.href, root === "project" ? "project" : "workspace");
       }
       if (data.type === "composer" && typeof data.prompt === "string") {
-        requestCanvasComposer(data.prompt);
+        requestCanvasComposer(data.prompt, { root, path });
       }
       if (data.type === "openAgent" && typeof data.agentId === "string") {
         requestOpenChatSession({ sessionId: data.agentId, title: data.agentId });
@@ -193,12 +241,13 @@ export function CanvasFileView({ root, path, source }: Props) {
     return () => window.removeEventListener(LAWMIND_CANVAS_EXPORT_EVENT, onExport);
   }, [compiled, path, root, srcDoc]);
 
-  if (!compiled.ok) {
+  const checkDiagnostics = !compiled.ok ? compiled.diagnostics : typeErrors;
+  if (checkDiagnostics.length > 0) {
     return (
       <div style={{ padding: 16, color: "var(--text)", fontSize: 13, lineHeight: 1.5 }} role="alert">
         <div style={{ fontWeight: 590, marginBottom: 8 }}>Canvas check</div>
         <ul style={{ margin: 0, paddingLeft: 18 }}>
-          {compiled.diagnostics.map((item) => (
+          {checkDiagnostics.map((item) => (
             <li key={`${item.line}:${item.column}:${item.message}`}>
               {item.line}:{item.column} {item.message}
             </li>

@@ -49,6 +49,28 @@ export default function Page() {
     }
   });
 
+  it("rejects a component that was not imported and allows a local one", () => {
+    const missing = compileCanvasSource(`import { Stack } from "cursor/canvas";
+export default function Page() {
+  return <Stack><Missing /></Stack>;
+}
+`);
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) {
+      expect(missing.diagnostics[0]?.message).toContain("Missing");
+      expect(missing.diagnostics[0]?.line).toBe(3);
+    }
+    const local = compileCanvasSource(`import { Stack, Text } from "cursor/canvas";
+function Fee() {
+  return <Text>1</Text>;
+}
+export default function Page() {
+  return <Stack><Fee /></Stack>;
+}
+`);
+    expect(local.ok).toBe(true);
+  });
+
   it("places sidecar state beside the canvas file", () => {
     expect(canvasDataPath("notes/brief.canvas.tsx")).toBe("notes/brief.canvas.data.json");
     expect(canvasDataPath("../secret.canvas.tsx")).toBeNull();

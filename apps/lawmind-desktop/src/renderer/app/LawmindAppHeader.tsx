@@ -27,8 +27,6 @@ export type LawmindAppHeaderProps = {
   wsShowEditor: boolean;
   wsShowChat: boolean;
   canUseFilesystemBridge: boolean;
-  /** 核对纸正占着中栏时，编辑区开关改为「显示文件」。 */
-  editorCoveredBySheet?: boolean;
   onToggleSidebar: () => void;
   onToggleEditor: () => void;
   onToggleChat: () => void;
@@ -69,7 +67,6 @@ function LawmindAppHeaderImpl({
   wsShowEditor,
   wsShowChat,
   canUseFilesystemBridge,
-  editorCoveredBySheet = false,
   onToggleSidebar,
   onToggleEditor,
   onToggleChat,
@@ -318,7 +315,6 @@ function LawmindAppHeaderImpl({
                         wsShowChat={wsShowChat}
                         canUseFilesystemBridge={canUseFilesystemBridge}
                         matterCockpitOpen={matterCockpitOpen}
-                        editorCoveredBySheet={editorCoveredBySheet}
                         onToggleSidebar={onToggleSidebar}
                         onToggleEditor={onToggleEditor}
                         onToggleChat={onToggleChat}

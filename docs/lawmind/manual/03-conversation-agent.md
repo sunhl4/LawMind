@@ -19,6 +19,11 @@
 - **直接说事**：不需要先选办件。意图由编译器判定，状态条只显示一行「本轮按××处理」。
 - **钉选上下文**：可以用 `@` 钉文件、把文件拖进输入框、或把截图粘贴进对话框（粘贴即钉选）。钉选内容通过 `contextPins` 进入本轮，并可在回合中途补钉（见 3.9 的 `pendingContextPins`）。中途补钉最多 16 份，满了保留最新钉上的，较早的会被取代并提示。
 - **开会话**：会话标签页（`LawmindChatSessionTabs.tsx`）、全局侧栏历史（`LawmindSideChatSessions.tsx`）、对话主区里的会话历史（`LawmindSessionHistorySidebar.tsx`）。当前这条对话里查找是 `LawmindChatHistorySearch.tsx`（`⌘F`）；换一条会话可以在输入框打 `/chats`。跨对话检索由 `search_conversations` / `read_conversation` 工具完成，命中以 `lm-session:` 链接触达那条对话。
+- **回复里的链接**（`lawyer-chat-link.ts`，渲染在 `lawmind-chat-markdown.tsx`）：点一下就打开，不把地址留给律师复制。
+  - `[文书标题](lm-draft:任务编号)` 打开这份稿。
+  - `[标题](lm-session:会话)` 打开另一段对话。
+  - `[短标题](https://…)`，或句子里直接写出的公网地址，用系统浏览器打开。内网、localhost、带账号密码的地址只留文字。
+  - `[短标题](工作区相对路径)`，或句子里的相对路径，在中间栏打开，对话保持开着。后缀包括 docx、pdf、xlsx、md、txt、图片，以及 `.canvas.tsx`（画布）。路径末尾的 `:行` 或 `:行:列` 会在文本或画布源码里选中那一行。磁盘绝对路径、`..` 和 `file:` 不打开。回复里提到画布不会自己跳开，要点链接。费用对照、时间轴、多份合同比较可以出画布；不要用画布代替法条。法条依据写在对话正文里，可点开查原文；不要另开中间栏核对纸。
 - **看过程**：思考面板（`LawmindChatThoughtPanel.tsx`）与执行轨迹（`LawmindChatExecutionTrace.tsx`）折叠展示工具调用与中间结论；正式的进度在「在办」，对话线程不堆过程芯片、短路径按钮或步骤拍板卡。
 - **切换模型 / 权限 / 检索**：输入框工具栏（`lawmind-chat-compose-toolbar.tsx`）提供模型选择、权限模式与检索开关。对话还短时不显示用量；变长或已经整理过，才出现「这场对话」（`LawmindComposeContextUsage.tsx`），让律师整理或另开一段。模型窗口和用量桶不进律师面。
 - **对话长度三档**：同一工具栏里的档位选择（`LawmindSettingsConversationLength.tsx`，testid `lm-compose-context-length`）：200K / 500K / 1M，默认 200K。这是本轮硬天花板 = min(模型自己的窗口, 所选档)。历史整理、蒸馏帽和写进历史的单条工具回包另按 200K 质量带封顶（`historyNominalTokens`），不随 500K / 1M 把整理推迟。写 `PATCH /api/policy/workspace` 的 `conversationLength`；旧策略值 `daily` / `dossier` 读出时自动迁移成 200K / 1M（`src/lawmind/agent/context-preset.ts`）。

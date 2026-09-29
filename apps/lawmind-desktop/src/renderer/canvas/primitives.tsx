@@ -6,6 +6,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { openLawyerHref } from "./host-actions";
 import { canvasRadius, canvasTypography, type CanvasTokens } from "./tokens";
 import { useCanvasTheme } from "./theme";
 
@@ -219,6 +220,18 @@ export function Link(props: { children?: ReactNode; href: string; style?: CSSPro
         { color: theme.text.link, textDecoration: "underline", textUnderlineOffset: 2 },
         props.style,
       )}
+      onClick={(event) => {
+        event.preventDefault();
+        const href = props.href.trim();
+        if (!href) {
+          return;
+        }
+        if (window.parent !== window) {
+          window.parent.postMessage({ source: "lawmind-canvas", type: "openHref", href }, "*");
+          return;
+        }
+        openLawyerHref(href);
+      }}
     >
       {props.children}
     </a>

@@ -174,6 +174,22 @@ export function compileCanvasSource(source: string): CanvasCompileResult {
   if (/\bimport\s/.test(body)) {
     return fail("还有不能用的 import。", { line: 1, column: 1 });
   }
+  const declared = new Set(names);
+  for (const match of source.matchAll(/(?:function|class|const|let|var)\s+([A-Z][A-Za-z0-9]*)\b/g)) {
+    if (match[1]) {
+      declared.add(match[1]);
+    }
+  }
+  const tagRe = /(?:^|[^A-Za-z0-9_$.])<([A-Z][A-Za-z0-9]*)\b/g;
+  for (;;) {
+    const tag = tagRe.exec(source);
+    if (!tag?.[1] || tag.index === undefined) {
+      break;
+    }
+    if (!declared.has(tag[1])) {
+      return fail(`画布里用了没有导入的组件 ${tag[1]}。`, lineColAt(source, tag.index + tag[0].lastIndexOf(tag[1])));
+    }
+  }
   const defaults = body.match(/export\s+default\b/g) ?? [];
   if (defaults.length !== 1) {
     return fail("画布需要恰好一个 export default。", { line: 1, column: 1 });

@@ -1,7 +1,8 @@
-import { useEffect, useState, type Dispatch, SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, SetStateAction } from "react";
 import { type RootKey, type OpenFileTab } from "./file-workbench-types";
 import { getFileIcon } from "./file-workbench-fs";
 import { isContractReviewCandidatePath } from "../lawmind-file-chat-context";
+import { lawyerCanvasTitle } from "../lawmind-explorer-lawyer-view";
 import { LawmindWordRevisionSurface } from "./LawmindWordRevisionSurface";
 import { CanvasFileView } from "../canvas/CanvasFileView";
 import { useLawmindCanvasKind } from "../canvas/theme";
@@ -10,6 +11,12 @@ import {
   requestCanvasExport,
   type CanvasExportResultDetail,
 } from "../canvas/host-actions";
+import {
+  consumePendingRevealFileLine,
+  LAWMIND_REVEAL_FILE_LINE_EVENT,
+  offsetForLine,
+  type RevealFileLineDetail,
+} from "../lawmind-workspace-file-open";
 
 export type FileWorkbenchEditorPaneProps = {
   tabs: OpenFileTab[];
@@ -62,6 +69,9 @@ export function FileWorkbenchEditorPane({
 }: FileWorkbenchEditorPaneProps) {
   const canvasFile = Boolean(activeTab && /\.canvas\.tsx$/i.test(activeTab.path));
   const [canvasSource, setCanvasSource] = useState(false);
+  const sourceRef = useRef<HTMLTextAreaElement>(null);
+  const appliedReveal = useRef("");
+  const [lineReveal, setLineReveal] = useState<RevealFileLineDetail | null>(null);
   const canvasKind = useLawmindCanvasKind();
   const canvasPreview = canvasFile && !canvasSource;
   const canvasBg = canvasKind === "dark" ? "#181818" : "#FCFCFC";
@@ -76,12 +86,55 @@ export function FileWorkbenchEditorPane({
     setCanvasExportNote(null);
   }
   useEffect(() => {
+    const apply = (detail: RevealFileLineDetail | null) => {
+      if (detail?.line) {
+        setLineReveal(detail);
+      }
+    };
+    apply(consumePendingRevealFileLine());
+    const onReveal = (event: Event) => {
+      const detail = (event as CustomEvent<RevealFileLineDetail>).detail ?? null;
+      consumePendingRevealFileLine();
+      apply(detail);
+    };
+    window.addEventListener(LAWMIND_REVEAL_FILE_LINE_EVENT, onReveal);
+    return () => window.removeEventListener(LAWMIND_REVEAL_FILE_LINE_EVENT, onReveal);
+  }, []);
+
+  useEffect(() => {
+    if (!lineReveal || !activeTab) {
+      return;
+    }
+    if (activeTab.root !== lineReveal.root || activeTab.path !== lineReveal.relPath) {
+      return;
+    }
+    const revealKey = `${lineReveal.root}|${lineReveal.relPath}|${lineReveal.line}|${lineReveal.column}`;
+    if (canvasFile && !canvasSource) {
+      if (appliedReveal.current.startsWith(revealKey)) {
+        return;
+      }
+      setCanvasSource(true);
+      return;
+    }
+    const area = sourceRef.current;
+    if (!area || appliedReveal.current === revealKey) {
+      return;
+    }
+    appliedReveal.current = revealKey;
+    const range = offsetForLine(activeTab.content, lineReveal.line, lineReveal.column);
+    area.focus();
+    area.setSelectionRange(range.start, range.end);
+    const lineHeight = Number.parseFloat(getComputedStyle(area).lineHeight) || 20;
+    area.scrollTop = Math.max(0, (lineReveal.line - 3) * lineHeight);
+  }, [activeTab, canvasFile, canvasSource, lineReveal]);
+
+  useEffect(() => {
     const onResult = (event: Event) => {
       const detail = (event as CustomEvent<CanvasExportResultDetail>).detail;
       if (!detail || !activeTab || detail.root !== activeTab.root || detail.path !== activeTab.path) {
         return;
       }
-      setCanvasExportNote(detail.ok ? "已导出" : detail.message);
+      setCanvasExportNote(detail.ok ? "已导出网页" : detail.message);
       if (detail.ok && detail.htmlPath) {
         void doShowInFolder(activeTab.root, detail.htmlPath);
       }
@@ -168,7 +221,7 @@ export function FileWorkbenchEditorPane({
               }}
             >
               <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {activeTab.name}
+                {lawyerCanvasTitle(activeTab.name)}
                 {canvasExportNote ? ` · ${canvasExportNote}` : ""}
               </span>
               <span style={{ display: "flex", gap: 12, flexShrink: 0 }}>
@@ -186,7 +239,7 @@ export function FileWorkbenchEditorPane({
                     padding: 0,
                   }}
                 >
-                  导出
+                  导出网页
                 </button>
                 <button
                   type="button"
@@ -264,6 +317,7 @@ export function FileWorkbenchEditorPane({
             <CanvasFileView root={activeTab.root} path={activeTab.path} source={activeTab.content} />
           ) : (
             <textarea
+              ref={sourceRef}
               className="lm-editor-textarea"
               value={activeTab.content}
               onChange={(e) => updateActiveContent(e.target.value)}

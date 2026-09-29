@@ -13,7 +13,54 @@ export type OpenWorkspaceFileDetail = {
   /** Workspace-relative path (e.g. cases/<matter>/foo.docx). */
   relPath: string;
   root?: WorkspaceFileRoot;
+  /** 1-based line to show in the text editor. Office files ignore this. */
+  line?: number;
+  column?: number;
 };
+
+export type RevealFileLineDetail = {
+  root: WorkspaceFileRoot;
+  relPath: string;
+  line: number;
+  column: number;
+};
+
+export const LAWMIND_REVEAL_FILE_LINE_EVENT = "lawmind:reveal-file-line";
+
+let pendingReveal: RevealFileLineDetail | null = null;
+
+function clampedLine(value: number | undefined): number | null {
+  if (!value || !Number.isInteger(value) || value < 1 || value > 100_000) {
+    return null;
+  }
+  return value;
+}
+
+export function offsetForLine(text: string, line: number, column = 1): { start: number; end: number } {
+  const lines = text.split("\n");
+  const index = Math.min(Math.max(line, 1), Math.max(lines.length, 1)) - 1;
+  let start = 0;
+  for (let i = 0; i < index; i += 1) {
+    start += (lines[i]?.length ?? 0) + 1;
+  }
+  const lineText = lines[index] ?? "";
+  const col = Math.min(Math.max(column, 1), lineText.length + 1);
+  return { start: start + col - 1, end: start + lineText.length };
+}
+
+export function requestRevealFileLine(detail: RevealFileLineDetail): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  pendingReveal = detail;
+  window.dispatchEvent(new CustomEvent<RevealFileLineDetail>(LAWMIND_REVEAL_FILE_LINE_EVENT, { detail }));
+}
+
+export function consumePendingRevealFileLine(): RevealFileLineDetail | null {
+  const pending = pendingReveal;
+  pendingReveal = null;
+  return pending;
+}
 
 /**
  * The case that owns this opened file, or null when the file is not inside a case folder.
@@ -44,17 +91,30 @@ export type OpenContractRevisionDetail = {
  */
 let pendingOpen: { relPath: string; root: WorkspaceFileRoot } | null = null;
 
-export function requestOpenWorkspaceFile(relPath: string, root: WorkspaceFileRoot = "workspace"): void {
+export function requestOpenWorkspaceFile(
+  relPath: string,
+  root: WorkspaceFileRoot = "workspace",
+  at?: { line?: number; column?: number },
+): void {
   const path = relPath.trim().replace(/^[/\\]+/, "");
   if (!path || typeof window === "undefined") {
     return;
   }
+  const line = clampedLine(at?.line);
+  const column = line ? (clampedLine(at?.column) ?? 1) : null;
   pendingOpen = { relPath: path, root };
   window.dispatchEvent(
     new CustomEvent<OpenWorkspaceFileDetail>(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, {
-      detail: { relPath: path, root },
+      detail: {
+        relPath: path,
+        root,
+        ...(line ? { line, column: column ?? 1 } : {}),
+      },
     }),
   );
+  if (line) {
+    requestRevealFileLine({ root, relPath: path, line, column: column ?? 1 });
+  }
 }
 
 /** 取走并清空待消费路径（事件处理或挂载消费时调用）。 */

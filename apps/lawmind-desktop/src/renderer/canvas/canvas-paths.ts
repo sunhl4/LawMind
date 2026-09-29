@@ -1,6 +1,6 @@
 import type { ChatMsg } from "../lawmind-chat";
 
-const CANVAS_PATH = /(?:^|[\s"'`(])((?:[\w.-]+\/)*[\w.-]+\.canvas\.tsx)\b/g;
+const CANVAS_PATH = /(?:^|[\s"'`(])((?:[\p{L}\p{N}_.-]+\/)*[\p{L}\p{N}_.-]+\.canvas\.tsx)\b/gu;
 
 export function canvasPathsInText(text: string): string[] {
   const out: string[] = [];

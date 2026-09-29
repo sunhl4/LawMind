@@ -1,17 +1,13 @@
 import { expect, test } from "@playwright/test";
 import {
-  e2eMockApiBase,
-  e2eScopeHeaders,
   gotoShell,
   installE2eBrowserPrefs,
   openWorkspaceChat,
 } from "./e2e-helpers";
 
 test.describe("LawMind workspace chat", () => {
-  let scopeId = "";
-
   test.beforeEach(async ({ page }) => {
-    ({ scopeId } = await installE2eBrowserPrefs(page));
+    await installE2eBrowserPrefs(page);
   });
 
   test("initial workspace shows scenario cards, compose toolbar, and model picker", async ({ page }) => {
@@ -58,21 +54,5 @@ test.describe("LawMind workspace chat", () => {
       el.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
     });
     await expect(page.getByRole("region", { name: "本回合上下文" })).toContainText("nda.docx");
-  });
-
-  test("核对纸在对话里打开，改弱要求放进输入框", async ({ page }) => {
-    const res = await page.request.post(`${e2eMockApiBase()}/__e2e__/acceptance-sheet`, {
-      headers: e2eScopeHeaders(scopeId),
-      data: { open: true },
-    });
-    expect(res.ok()).toBe(true);
-    await gotoShell(page);
-    await openWorkspaceChat(page);
-    await expect(page.getByTestId("lm-acceptance-sheet")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText("违约金为合同总额的百分之二十。")).toBeVisible();
-    await expect(page.getByText("未见实际损失")).toBeVisible();
-    await page.getByTestId("lm-acceptance-weaken").click();
-    await expect(page.getByText("已放到输入框，改完再发送。")).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "消息输入" })).toHaveValue(/改弱/);
   });
 });

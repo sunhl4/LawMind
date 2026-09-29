@@ -10,8 +10,10 @@ import {
   isMarkdownTableBlockStart,
   type TableColumnAlign,
 } from "./lawmind-chat-markdown-table";
+import { openLawyerExternalUrl } from "./canvas/host-actions";
 import { openContractRevisionForTask } from "./lawmind-open-contract-revision";
 import { requestOpenChatSession } from "./lawmind-open-chat-session-bus";
+import { requestOpenWorkspaceFile } from "./lawmind-workspace-file-open";
 
 export type LegalMarkdownContext = {
   apiBase?: string;
@@ -19,17 +21,6 @@ export type LegalMarkdownContext = {
   onOpenDraft?: (taskId: string) => void;
   onOpenError?: (message: string) => void;
 };
-
-function openStatuteUrl(url: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  if (window.lawmindDesktop?.openExternal) {
-    void window.lawmindDesktop.openExternal(url);
-    return;
-  }
-  window.open(url, "_blank", "noopener,noreferrer");
-}
 
 function columnAlignStyle(align: TableColumnAlign): CSSProperties | undefined {
   return align ? { textAlign: align } : undefined;
@@ -126,15 +117,34 @@ export function renderInlineLegalMarkdown(
         </button>
       );
     }
-    if (token.kind === "statute_link") {
+    if (token.kind === "web_link") {
       return (
         <button
-          key={`statute-${tokenIndex}`}
+          key={`web-${tokenIndex}`}
           type="button"
           className="lm-md-session-link"
-          data-testid="lm-md-statute-link"
-          title={token.label}
-          onClick={() => openStatuteUrl(token.url)}
+          data-testid="lm-md-web-link"
+          title={token.url}
+          onClick={() => openLawyerExternalUrl(token.url)}
+        >
+          {token.label}
+        </button>
+      );
+    }
+    if (token.kind === "file_link") {
+      return (
+        <button
+          key={`file-${tokenIndex}`}
+          type="button"
+          className="lm-md-session-link"
+          data-testid={token.canvas ? "lm-md-canvas-link" : "lm-md-file-link"}
+          title={token.path}
+          onClick={() =>
+            requestOpenWorkspaceFile(token.path, "workspace", {
+              ...(token.line ? { line: token.line } : {}),
+              ...(token.column ? { column: token.column } : {}),
+            })
+          }
         >
           {token.label}
         </button>

@@ -138,7 +138,39 @@ export function renderAcceptanceCanvas(sheet: AcceptanceSheet): string {
   const data = embedCanvasJson(acceptanceCanvasPayload(sheet));
   return `import { BarChart, Button, Callout, Card, CardBody, CardHeader, H1, H2, LineChart, PieChart, Pill, Row, Stack, Stat, Table, Text, useCanvasAction } from "cursor/canvas";
 
-const sheet = ${data};
+const sheet: {
+  title: string;
+  summary?: string;
+  claimCount: number;
+  gapCount: number;
+  removedCount: number;
+  hasDraft: boolean;
+  claims: Array<{
+    id: string;
+    locator: string;
+    text: string;
+    mark: string | null;
+    confidenceLabel?: string;
+    quote?: string;
+    sources: Array<{ id: string; label: string; relPath?: string }>;
+  }>;
+  gaps: string[];
+  table?: {
+    title: string;
+    headers: string[];
+    rows: string[][];
+    rowTone: Array<"success" | "danger" | "warning" | "info" | "neutral" | null>;
+  };
+  charts: Array<{
+    title: string;
+    kind: string;
+    categories: string[];
+    series: Array<{ name: string; data: number[] }>;
+    unit?: string;
+    notes?: string;
+    sourcePath: string;
+  }>;
+} = ${data};
 
 function markPill(mark) {
   if (mark === "accepted") {

@@ -4,6 +4,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { LAWMIND_OPEN_WORKSPACE_FILE_EVENT } from "./lawmind-workspace-file-open";
 import { renderLegalMarkdown } from "./lawmind-chat-markdown";
 
 describe("renderLegalMarkdown tables and math", () => {
@@ -91,37 +92,61 @@ describe("renderLegalMarkdown tables and math", () => {
     expect(host.textContent).not.toContain("lm-session:");
   });
 
-  it("renders draft and statute jumps, and leaves a random link as text", async () => {
+  it("renders draft, web, file, and canvas jumps", async () => {
     const opened: string[] = [];
     const drafts: string[] = [];
+    const files: Array<{ relPath?: string; line?: number }> = [];
     const previous = window.open;
     window.open = ((url: string) => {
       opened.push(url);
       return null;
     }) as typeof window.open;
+    const onFile = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ relPath?: string; line?: number }>).detail;
+      files.push({
+        relPath: detail?.relPath,
+        ...(detail?.line ? { line: detail.line } : {}),
+      });
+    };
+    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
     await act(async () => {
       root.render(
         <div>
           {renderLegalMarkdown(
-            "稿 [派遣协议](lm-draft:task-9)。意见见 [《劳动合同法》第63条](https://flk.npc.gov.cn/a)。[点此登录](https://evil.example/x)",
+            "稿 [派遣协议](lm-draft:task-9)。意见见 [《劳动合同法》第63条](https://flk.npc.gov.cn/a)。另见 [裁判文书](https://wenshu.court.gov.cn/a) 和 [费用核对](canvas/核对.canvas.tsx)。文件在 cases/m/派遣协议.docx:8。内网 [后台](https://127.0.0.1/a) 不能点。`notes/secret.docx` 在代码里。",
             { onOpenDraft: (taskId) => drafts.push(taskId) },
           )}
         </div>,
       );
     });
     const draft = host.querySelector("[data-testid='lm-md-draft-link']");
-    const statute = host.querySelector("[data-testid='lm-md-statute-link']");
+    const webs = [...host.querySelectorAll("[data-testid='lm-md-web-link']")];
+    const canvas = host.querySelector("[data-testid='lm-md-canvas-link']");
+    const file = host.querySelector("[data-testid='lm-md-file-link']");
     expect(draft?.textContent).toBe("派遣协议");
-    expect(statute?.textContent).toBe("《劳动合同法》第63条");
-    expect(host.textContent).toContain("点此登录");
-    expect(host.textContent).not.toContain("evil.example");
+    expect(webs.map((node) => node.textContent)).toEqual([
+      "《劳动合同法》第63条",
+      "裁判文书",
+    ]);
+    expect(canvas?.textContent).toBe("费用核对");
+    expect(file?.textContent).toBe("cases/m/派遣协议.docx:8");
+    expect(host.textContent).toContain("后台");
+    expect(host.textContent).not.toContain("127.0.0.1");
     expect(host.textContent).not.toContain("lm-draft:");
+    expect(host.querySelector("code")?.textContent).toBe("notes/secret.docx");
     await act(async () => {
       draft?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      statute?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      webs[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      canvas?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      file?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
+    window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
     window.open = previous;
     expect(drafts).toEqual(["task-9"]);
     expect(opened.some((url) => url.includes("flk.npc.gov.cn"))).toBe(true);
+    expect(files).toEqual([
+      { relPath: "canvas/核对.canvas.tsx" },
+      { relPath: "cases/m/派遣协议.docx", line: 8 },
+    ]);
   });
 });
