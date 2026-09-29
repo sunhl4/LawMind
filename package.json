@@ -107,14 +107,14 @@
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
     "@types/mailparser": "^3.4.6",
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.3",
     "@types/nodemailer": "^8.0.1",
     "@vitest/coverage-v8": "^4.1.10",
     "esbuild": "^0.28.2",
-    "oxfmt": "0.68.0",
-    "oxlint": "1.83.0",
+    "oxfmt": "0.70.0",
+    "oxlint": "1.85.0",
     "oxlint-tsgolint": "0.22.1",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   },
