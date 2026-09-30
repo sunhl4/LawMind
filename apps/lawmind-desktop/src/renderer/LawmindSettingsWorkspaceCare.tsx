@@ -37,6 +37,8 @@ export function LawmindSettingsWorkspaceCare({ apiBase }: Props): ReactNode {
     : 0;
   const searchIndex = health?.doctor?.searchIndex;
   const searchNeedsRebuild = searchIndex?.ready === false || searchIndex?.stale === true;
+  const executionLines =
+    health?.executionSurface?.lines ?? health?.doctor?.executionSurface?.lines ?? [];
 
   async function rebuild(): Promise<void> {
     if (!apiBase) {
@@ -90,6 +92,24 @@ export function LawmindSettingsWorkspaceCare({ apiBase }: Props): ReactNode {
 
   return (
     <>
+      {executionLines.length > 0 ? (
+        <div
+          className="lm-settings-group lm-settings-surface"
+          data-testid="lm-workspace-execution-surface"
+        >
+          <div className="lm-settings-row">
+            <span className="lm-settings-key">本机哪些不能丢</span>
+          </div>
+          <ul className="lm-callout-body" data-testid="lm-workspace-execution-lines">
+            {executionLines.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          <p className="lm-settings-caption">
+            卷宗、会话、草稿和常设工作要备份；索引和后台状态可重建；密钥不在工作区文件夹里。
+          </p>
+        </div>
+      ) : null}
       {searchNeedsRebuild ? (
         <div className="lm-settings-group lm-settings-surface" id="lawmind-settings-search-index" data-testid="lm-workspace-search">
           <div className="lm-settings-row">

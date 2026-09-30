@@ -85,4 +85,33 @@ describe("LawmindSettingsWorkspaceCare", () => {
     expect(host.textContent).not.toContain("重建查找");
     expect(host.textContent).not.toContain("重新整理");
   });
+
+  it("shows execution-surface inventory when health returns lines", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            executionSurface: {
+              lines: [
+                "执行面：持久 6 项（卷宗/会话/草稿/常设工作等）不可当缓存清。",
+                "执行面：凭据 3 项在工作区外或加密文件，助手不得当普通材料读。",
+              ],
+            },
+            doctor: { searchIndex: { ready: true, stale: false }, matterConsistency: { ok: true } },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+    await act(async () => {
+      root.render(<LawmindSettingsWorkspaceCare apiBase="http://127.0.0.1:8765" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(host.querySelector("[data-testid='lm-workspace-execution-surface']")).toBeTruthy();
+    expect(host.textContent).toContain("本机哪些不能丢");
+    expect(host.textContent).toContain("不可当缓存清");
+  });
 });

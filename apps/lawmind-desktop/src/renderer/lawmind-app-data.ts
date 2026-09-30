@@ -80,6 +80,12 @@ export type HealthPayload = {
     until?: string;
     byModel?: Array<{ model: string; entries: number; totalTokens: number }>;
   };
+  /** 本机执行面清单（持久 / 可重建 / 凭据），与 Doctor 同源。 */
+  executionSurface?: {
+    lines?: string[];
+  };
+  /** 动作级审前：off | shadow | on（默认 off）。 */
+  actionPreReviewMode?: "off" | "shadow" | "on";
   doctor?: {
     taskCount?: number;
     draftCount?: number;
@@ -105,6 +111,7 @@ export type HealthPayload = {
       signals?: Array<{ id: string; label: string; severity: string }>;
     };
     usageSummary?: HealthPayload["usageSummary"];
+    executionSurface?: HealthPayload["executionSurface"];
     integrations?: {
       connectors?: Array<{
         id: string;
