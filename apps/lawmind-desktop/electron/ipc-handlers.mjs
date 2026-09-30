@@ -142,6 +142,9 @@ export function registerIpcHandlers(deps) {
       const openSettingsOnClick = payload?.openSettingsOnClick === true;
       const openReviewOnClick = payload?.openReviewOnClick === true;
       const openChatOnClick = payload?.openChatOnClick === true;
+      const settingsSectionRaw =
+        typeof payload?.settingsSection === "string" ? payload.settingsSection.trim() : "";
+      const settingsSection = settingsSectionRaw === "workspace" ? "workspace" : "collaboration";
       const chatAssistantId =
         typeof payload?.chatAssistantId === "string" ? payload.chatAssistantId.trim() : "";
       const chatSessionId =
@@ -163,7 +166,10 @@ export function registerIpcHandlers(deps) {
             w.show();
             w.focus();
             w.webContents.send("lawmind:notification-click", {
-              reason: "open_settings_collaboration",
+              reason:
+                settingsSection === "workspace"
+                  ? "open_settings_workspace"
+                  : "open_settings_collaboration",
             });
           }
         });

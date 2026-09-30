@@ -14,6 +14,7 @@ import {
 import { usePaneResizePx } from "./use-pane-resize";
 import { apiGetJson } from "./api-client";
 import { useLawyerReviewDesktopNotify } from "./lawmind-lawyer-review-notify";
+import { useDaemonIncidentNotify } from "./lawmind-daemon-incident-notify";
 import {
   canvasComposerDraft,
   LAWMIND_CANVAS_COMPOSER_EVENT,
@@ -412,6 +413,10 @@ export function LawmindAppRoot() {
         }
         return;
       }
+      if (payload?.reason === "open_settings_workspace") {
+        useSettingsPanelStore.getState().setSettingsPanel(true, "workspace");
+        return;
+      }
       if (payload?.reason !== "open_settings_collaboration") {
         return;
       }
@@ -431,6 +436,11 @@ export function LawmindAppRoot() {
   useLawyerReviewDesktopNotify({
     tasks,
     history,
+    enabled: typeof window !== "undefined" && Boolean(window.lawmindDesktop?.showNotification),
+  });
+
+  useDaemonIncidentNotify({
+    apiBase: config?.apiBase ?? "",
     enabled: typeof window !== "undefined" && Boolean(window.lawmindDesktop?.showNotification),
   });
 

@@ -471,6 +471,16 @@ export function summarizeDaemonForLawyer(
   return { headline, details };
 }
 
+/**
+ * F6：要不要主动打扰律师（OS 通知 / 启动置顶）。
+ * 比 recap 更窄——自动恢复（restartCount>0）进回执，但不弹通知。
+ */
+export function shouldNotifyDaemonIncident(
+  status: Pick<LawmindDaemonStatus, "supervisionGaveUp" | "heartbeatStale">,
+): boolean {
+  return Boolean(status.supervisionGaveUp) || Boolean(status.heartbeatStale);
+}
+
 function parseExitCode(detail: string | undefined): number | undefined {
   if (!detail) {
     return undefined;

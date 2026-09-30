@@ -52,6 +52,8 @@ declare global {
         body?: string;
         /** When true, clicking the OS notification focuses the app and opens settings (see onNotificationClick). */
         openSettingsOnClick?: boolean;
+        /** 与 `openSettingsOnClick` 配合：默认 collaboration；workspace = 关桌面后继续办件回执。 */
+        settingsSection?: "workspace" | "collaboration";
         /** When true, focuses the app and opens the review workbench (see onNotificationClick `open_review`). */
         openReviewOnClick?: boolean;
         /** When true, focuses the app and switches to工作台对话（见 onNotificationClick `open_workspace_chat`）。 */

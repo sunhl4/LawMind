@@ -23,6 +23,7 @@ import {
   releaseDaemonLock,
   setDaemonEnabled,
   stopDaemonProcess,
+  shouldNotifyDaemonIncident,
   summarizeDaemonForLawyer,
 } from "./lawmind-daemon.js";
 
@@ -316,5 +317,19 @@ describe("summarizeDaemonForLawyer", () => {
     setDaemonEnabled(ws, true);
     markDaemonExit(ws, { exitClass: "stopped" });
     expect(summarizeDaemonForLawyer(getDaemonStatus(ws))).toBeNull();
+  });
+});
+
+describe("shouldNotifyDaemonIncident", () => {
+  it("notifies on give-up and heartbeat stale, not on quiet auto-recovery alone", () => {
+    expect(shouldNotifyDaemonIncident({ supervisionGaveUp: true, heartbeatStale: false })).toBe(
+      true,
+    );
+    expect(shouldNotifyDaemonIncident({ supervisionGaveUp: false, heartbeatStale: true })).toBe(
+      true,
+    );
+    expect(shouldNotifyDaemonIncident({ supervisionGaveUp: false, heartbeatStale: false })).toBe(
+      false,
+    );
   });
 });
