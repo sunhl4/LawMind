@@ -6,11 +6,27 @@ export type BuildDecisionHeaderInput = {
   title: string;
   lint: Pick<LegalLintReport, "blockerCount" | "warningCount" | "summaryZh"> & {
     findings?: Array<{ severity?: string; message?: string }>;
+    /** 规则崩溃记 skipped，与「核对通过」区分。 */
+    failedRules?: string[];
   };
   selfRevise?: SelfReviseSummary | null;
   riskLevel?: DeliveryRiskLevel;
   /** G3：判定主体覆盖（不传即不写该字段，不编 0）。 */
   judgmentCoverage?: JudgmentCoverageSummary;
+  /** E7：未能核验信号；不传则不写第五段。 */
+  unverified?: UnverifiedSignals | null;
+};
+
+/**
+ * 未能核验信号三态（对齐 reasoning skippedChecks / Guardian present）：
+ * - skipped：有意图核对但跳过了
+ * - pending：知道没核完（待定夺、无快照等）
+ * - unread：读失败，不得冒充「没有」
+ */
+export type UnverifiedSignals = {
+  skipped?: string[];
+  pending?: string[];
+  unread?: string[];
 };
 
 function titleLabel(title: string): string {
@@ -62,8 +78,102 @@ function riskLine(lint: BuildDecisionHeaderInput["lint"], riskLevel?: DeliveryRi
   return `机械核对未见已知缺陷。${honest}`;
 }
 
+function cleanParts(list: string[] | undefined): string[] {
+  return (list ?? []).map((s) => s.trim()).filter(Boolean);
+}
+
 /**
- * Lawyer-facing decision header: 改了什么 / 为什么 / 风险 / 可直接用或需定夺.
+ * 律师面第五段。无信号 → `undefined`（真的没有）；有 unread → 必须说「读不到」。
+ */
+export function formatUnverifiedSection(
+  signals: UnverifiedSignals | null | undefined,
+): string | undefined {
+  if (!signals) {
+    return undefined;
+  }
+  const unread = cleanParts(signals.unread);
+  const skipped = cleanParts(signals.skipped);
+  const pending = cleanParts(signals.pending);
+  if (unread.length === 0 && skipped.length === 0 && pending.length === 0) {
+    return undefined;
+  }
+  const parts: string[] = [];
+  if (unread.length > 0) {
+    parts.push(
+      `有 ${unread.length} 处读不到（${unread.slice(0, 3).join("、")}${unread.length > 3 ? "…" : ""}）`,
+    );
+  }
+  if (skipped.length > 0) {
+    parts.push(
+      `有 ${skipped.length} 处未核完（${skipped.slice(0, 3).join("、")}${skipped.length > 3 ? "…" : ""}）`,
+    );
+  }
+  if (pending.length > 0) {
+    parts.push(`还有待决：${pending.slice(0, 4).join("；")}${pending.length > 4 ? "…" : ""}`);
+  }
+  return `${parts.join("。")}。`;
+}
+
+/** 从改稿台手头信号拼装 UnverifiedSignals（不编造 0）。 */
+export function collectUnverifiedSignals(input: {
+  lint?: BuildDecisionHeaderInput["lint"] | null;
+  reasoningSkippedChecks?: string[] | null;
+  citation?: { checked: boolean; reason?: string; ok?: boolean } | null;
+  guardian?: { verdict?: string; skipReason?: string; gaps?: unknown[] } | null;
+  guardianUnread?: boolean;
+}): UnverifiedSignals | undefined {
+  const skipped: string[] = [];
+  const pending: string[] = [];
+  const unread: string[] = [];
+
+  const failed = input.lint?.failedRules ?? [];
+  for (const rule of failed) {
+    const id = rule.trim();
+    if (id) {
+      skipped.push(`机械核对规则 ${id}`);
+    }
+  }
+
+  for (const check of input.reasoningSkippedChecks ?? []) {
+    const id = check.trim();
+    if (!id) {
+      continue;
+    }
+    if (id === "structure:*") {
+      skipped.push("论证结构（无推理图）");
+    } else if (id === "authorities_cited_in_body") {
+      skipped.push("正文权威引用核对");
+    } else {
+      skipped.push(id);
+    }
+  }
+
+  const citation = input.citation;
+  if (citation && !citation.checked) {
+    pending.push("引用未核（无检索快照）");
+  } else if (citation && citation.checked && citation.ok === false) {
+    pending.push("引用完整性未通过");
+  }
+
+  if (input.guardianUnread) {
+    unread.push("独立审稿结果");
+  } else if (input.guardian?.verdict === "skipped") {
+    const reason = input.guardian.skipReason?.trim();
+    skipped.push(reason ? `独立审稿：${reason}` : "独立审稿未跑完");
+  }
+
+  if (skipped.length === 0 && pending.length === 0 && unread.length === 0) {
+    return undefined;
+  }
+  return {
+    ...(skipped.length ? { skipped } : {}),
+    ...(pending.length ? { pending } : {}),
+    ...(unread.length ? { unread } : {}),
+  };
+}
+
+/**
+ * Lawyer-facing decision header: 改了什么 / 为什么 / 风险 / 未能核验 / 可直接用或需定夺.
  * Honest when lint still has blockers.
  */
 export function buildDecisionHeader(input: BuildDecisionHeaderInput): DecisionHeader {
@@ -77,12 +187,15 @@ export function buildDecisionHeader(input: BuildDecisionHeaderInput): DecisionHe
     input.riskLevel === "high" ||
     input.riskLevel === "medium";
 
+  const unverified = formatUnverifiedSection(input.unverified ?? undefined);
+
   return {
     changed: changedLine(input.title, input.selfRevise),
     why: whyLine(input.selfRevise),
     risk: riskLine(input.lint, input.riskLevel),
     ready: needsDecision ? "needs_decision" : "usable",
     ...(input.judgmentCoverage ? { judgmentCoverage: input.judgmentCoverage } : {}),
+    ...(unverified ? { unverified } : {}),
   };
 }
 
@@ -115,7 +228,10 @@ export function formatJudgmentCoverage(
   return `${parts.join("，")}。`;
 }
 
-/** Prefer a persisted draft header; otherwise derive from title + lint. */
+/**
+ * Prefer a persisted draft header for the four core lines; always overlay
+ * live `unverified` / `judgmentCoverage` so改稿台第五段不会被旧四段头吃掉。
+ */
 export function resolveDecisionHeader(input: {
   persisted?: unknown;
   title: string;
@@ -123,11 +239,23 @@ export function resolveDecisionHeader(input: {
   selfRevise?: SelfReviseSummary | null;
   riskLevel?: DeliveryRiskLevel;
   judgmentCoverage?: JudgmentCoverageSummary;
+  unverified?: UnverifiedSignals | null;
 }): DecisionHeader {
-  if (isDecisionHeader(input.persisted)) {
-    return input.persisted;
+  const built = buildDecisionHeader(input);
+  if (!isDecisionHeader(input.persisted)) {
+    return built;
   }
-  return buildDecisionHeader(input);
+  const base = input.persisted;
+  const next: DecisionHeader = { ...base };
+  if (built.unverified) {
+    next.unverified = built.unverified;
+  } else {
+    delete next.unverified;
+  }
+  if (input.judgmentCoverage) {
+    next.judgmentCoverage = input.judgmentCoverage;
+  }
+  return next;
 }
 
 export { isDecisionHeader };

@@ -29,6 +29,12 @@ export type DecisionHeader = {
    * **不写 `0`**，因为「没有核对项」与「核对了 0 项」不是一回事。
    */
   judgmentCoverage?: JudgmentCoverageSummary;
+  /**
+   * 未能核验 / 未决（借鉴评审 E7）。
+   * 缺省 `undefined` = 真的没有未核项；**禁止**用空串冒充「已全部核验」。
+   * 「读不到」与「没有」必须用不同文案（见 `formatUnverifiedSection`）。
+   */
+  unverified?: string;
 };
 
 /** G3：判定主体覆盖摘要。三个计数都是「本次实际发生的判定数」。 */

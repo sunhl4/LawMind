@@ -22,6 +22,11 @@ export function LawmindDecisionHeader(props: Props): ReactNode {
       <p className="lm-callout-body">改了什么：{header.changed}</p>
       <p className="lm-callout-body">为什么：{header.why}</p>
       <p className="lm-callout-body">风险：{header.risk}</p>
+      {header.unverified?.trim() ? (
+        <p className="lm-callout-body" data-testid="lm-decision-header-unverified">
+          未能核验：{header.unverified.trim()}
+        </p>
+      ) : null}
       {coverage ? (
         <p className="lm-callout-body" data-testid="lm-decision-header-coverage">
           {coverage}

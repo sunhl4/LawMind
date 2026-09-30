@@ -31,7 +31,10 @@ import { useReviewLintPreview } from "./review-lint-preview";
 import { LawmindReviewSelfCheckSummary } from "../LawmindReviewSelfCheckSummary";
 import { LawmindDecisionHeader } from "../LawmindDecisionHeader";
 import { LawmindJudgmentEscalationCard } from "../LawmindJudgmentEscalationCard";
-import { resolveDecisionHeader } from "../../../../../src/lawmind/delivery/decision-header.ts";
+import {
+  collectUnverifiedSignals,
+  resolveDecisionHeader,
+} from "../../../../../src/lawmind/delivery/decision-header.ts";
 import { LawmindMemorySourcesPanel } from "../LawmindMemorySourcesPanel";
 import { LawmindRedlinePanel } from "../LawmindRedlinePanel";
 import { internalIdsTitle, pathBasename } from "../display-ids";
@@ -180,6 +183,19 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
 
   const reviewPending = (detail.reviewStatus ?? "pending") === "pending";
   const { lintReport, selfRevisePreview } = useReviewLintPreview(detail);
+  const unverified = collectUnverifiedSignals({
+    lint: lintReport,
+    reasoningSkippedChecks: reasoningReport?.skippedChecks ?? null,
+    citation: citationIntegrity
+      ? citationIntegrity.checked
+        ? { checked: true, ok: citationIntegrity.ok }
+        : { checked: false, reason: citationIntegrity.reason }
+      : null,
+    guardian,
+    // guardian==null 在改稿台可能是「还没拉」而不是「读失败」；只有明确 skipped 才进段。
+    // 读失败由 LawmindJudgmentEscalationCard 单独出声，避免决策头误报。
+    guardianUnread: false,
+  });
   const decisionHeader = resolveDecisionHeader({
     persisted: detail.decisionHeader,
     title: detail.title,
@@ -193,6 +209,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           residualSummaries: selfRevisePreview.residual.map((r) => r.message),
         }
       : null,
+    unverified,
   });
 
   return (

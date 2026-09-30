@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildDecisionHeader, resolveDecisionHeader } from "./decision-header.js";
+import {
+  buildDecisionHeader,
+  collectUnverifiedSignals,
+  formatUnverifiedSection,
+  resolveDecisionHeader,
+} from "./decision-header.js";
 
 const cleanLint = {
   blockerCount: 0,
@@ -86,7 +91,27 @@ describe("resolveDecisionHeader", () => {
       title: "忽略",
       lint: { blockerCount: 4, warningCount: 0, summaryZh: "x" },
     });
-    expect(h).toEqual(persisted);
+    expect(h.changed).toBe(persisted.changed);
+    expect(h.why).toBe(persisted.why);
+    expect(h.risk).toBe(persisted.risk);
+    expect(h.ready).toBe(persisted.ready);
+  });
+
+  it("overlays unverified onto a persisted four-line header", () => {
+    const persisted = {
+      changed: "只改了送达地址",
+      why: "与原合同对齐",
+      risk: "低",
+      ready: "usable" as const,
+    };
+    const h = resolveDecisionHeader({
+      persisted,
+      title: "忽略",
+      lint: cleanLint,
+      unverified: { pending: ["引用未核（无检索快照）"] },
+    });
+    expect(h.changed).toBe(persisted.changed);
+    expect(h.unverified).toContain("引用未核");
   });
 
   it("falls back to the builder when persisted is incomplete", () => {
@@ -97,5 +122,30 @@ describe("resolveDecisionHeader", () => {
     });
     expect(h.ready).toBe("needs_decision");
     expect(h.changed).toContain("顾问合同");
+  });
+});
+
+describe("formatUnverifiedSection / collectUnverifiedSignals", () => {
+  it("omits the section when there is nothing to report", () => {
+    expect(formatUnverifiedSection(undefined)).toBeUndefined();
+    expect(formatUnverifiedSection({ skipped: [], pending: [] })).toBeUndefined();
+    expect(collectUnverifiedSignals({})).toBeUndefined();
+  });
+
+  it("distinguishes unread from pending", () => {
+    expect(
+      formatUnverifiedSection({ unread: ["独立审稿结果"], pending: ["引用未核（无检索快照）"] }),
+    ).toMatch(/读不到[\s\S]*待决/);
+  });
+
+  it("collects reasoning skips and citation gaps", () => {
+    const signals = collectUnverifiedSignals({
+      reasoningSkippedChecks: ["structure:*"],
+      citation: { checked: false, reason: "no_research_snapshot" },
+      guardian: { verdict: "skipped", skipReason: "配额用尽" },
+    });
+    expect(signals?.skipped?.some((s) => s.includes("论证结构"))).toBe(true);
+    expect(signals?.skipped?.some((s) => s.includes("独立审稿"))).toBe(true);
+    expect(signals?.pending).toContain("引用未核（无检索快照）");
   });
 });
