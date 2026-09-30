@@ -276,12 +276,9 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
     apiBase,
     matterId,
     matterOptions: matterOptionsProp = [],
-    onOpenNeedsDecisionDesk,
-    onOpenActionHub,
     hideTitleChrome = false,
     assistantId,
   } = props;
-  const openNeedsDecisionDesk = onOpenNeedsDecisionDesk ?? onOpenActionHub;
   const { selectedAutomationId, setSelectedAutomationId } = useLawmindAutomationsNavContext();
   const [presets, setPresets] = useState<Preset[]>([]);
   const [automations, setAutomations] = useState<Automation[]>([]);
@@ -591,7 +588,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       });
       await refresh({ quiet: true });
       setError(null);
-      setSuccess("已开始办。要发出去的，到「待我拍板」。");
+      setSuccess("已开始办。要发出去的，在工作台该案的「现在」里批准。");
     } catch (e) {
       setError(errorMessage(e, "触发失败"));
     } finally {
@@ -690,19 +687,8 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
         <header className="lm-automations-header">
           <div>
             <h2 className="lm-agent-fleet-title">自动办件</h2>
-            <p className="lm-meta">选一件事，定多久办一次。要发出去的，到「待我拍板」。</p>
+            <p className="lm-meta">选一件事，定多久办一次。要发出去的，在工作台该案的「现在」里批准。</p>
           </div>
-          {openNeedsDecisionDesk ? (
-            <div className="lm-automations-header-actions">
-              <button
-                type="button"
-                className="lm-btn lm-btn-secondary lm-btn-sm"
-                onClick={() => openNeedsDecisionDesk()}
-              >
-                去在办处理
-              </button>
-            </div>
-          ) : null}
         </header>
       )}
 

@@ -5,8 +5,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Layout iron-laws for 律师工作台.
- * Regression: dock crushed `.lm-lawyer-cockpit` to height 0
- * so users only saw 快捷入口 and thought cases were missing.
+ * Regression: the case list must not collapse to height 0.
  */
 const cssPath = join(dirname(fileURLToPath(import.meta.url)), "lawyer-workbench.css");
 
@@ -35,31 +34,30 @@ describe("lawyer-workbench layout iron-laws", () => {
     expect(rules).not.toMatch(/overflow:\s*hidden/);
   });
 
-  it("cockpit never shrinks below a visible floor", () => {
+  it("case list never shrinks below a visible floor and is not a side rail", () => {
     const rules = topLevelBlock(css, ".lm-lawyer-cockpit");
+    expect(rules).toMatch(/display:\s*flex/);
+    expect(rules).toMatch(/flex-direction:\s*column/);
     expect(rules).toMatch(/flex:\s*1\s+0\s+auto/);
     expect(rules).toMatch(/min-height:\s*320px/);
     expect(rules).not.toMatch(/(?:^|[^-])min-height:\s*0\s*;/m);
-    expect(rules).toMatch(/grid-template-columns:\s*280px minmax\(0, 1fr\)/);
+    expect(rules).not.toMatch(/grid-template-columns:\s*280px/);
   });
 
-  it("matter pulse stays a compact row, never a 2×2 card wall", () => {
-    const pulse = topLevelBlock(css, ".lm-pulse-bar");
-    expect(pulse).toMatch(/display:\s*flex/);
-    expect(pulse).not.toMatch(/grid-template-columns:\s*repeat\(4/);
-    const body = mediaBody(css, "max-width:\\s*1200px");
-    expect(body).not.toMatch(/\.lm-pulse-bar\s*\{[^}]*grid-template-columns:\s*1fr\s+1fr/);
+  it("matter now is a vertical stack, never a card wall", () => {
+    const now = css.match(/\.lm-matter-now,\s*\n\.lm-matter-volume,\s*\n\.lm-matter-archive\s*\{([^}]*)\}/);
+    expect(now, "missing .lm-matter-now group").toBeTruthy();
+    const body = now?.[1] ?? "";
+    expect(body).toMatch(/display:\s*flex/);
+    expect(body).toMatch(/flex-direction:\s*column/);
+    expect(body).not.toMatch(/grid-template-columns:\s*repeat\(4/);
   });
 
-  it("≤1200px keeps the case rail beside the stage", () => {
-    const body = mediaBody(css, "max-width:\\s*1200px");
-    expect(body).not.toMatch(/\.lm-lawyer-cockpit\s*,/);
-    expect(body).not.toMatch(/\.lm-lawyer-cockpit\s*\{[^}]*grid-template-columns:\s*1fr/);
-  });
-
-  it("phone-narrow stacks cockpit with the case rail first", () => {
-    const body = mediaBody(css, "max-width:\\s*860px");
-    expect(body).toMatch(/\.lm-lawyer-cockpit\s*\{[^}]*grid-template-columns:\s*1fr/);
-    expect(body).toMatch(/\.lm-desk-col--matters\s*\{\s*order:\s*-1/);
+  it("narrow windows do not put the case list back in a side rail", () => {
+    const wide = mediaBody(css, "max-width:\\s*1200px");
+    expect(wide).not.toMatch(/\.lm-lawyer-cockpit\s*\{[^}]*grid-template-columns:\s*280px/);
+    const phone = mediaBody(css, "max-width:\\s*860px");
+    expect(phone).not.toMatch(/grid-template-columns:\s*280px/);
+    expect(phone).not.toMatch(/\.lm-desk-col--matters\s*\{\s*order:\s*-1/);
   });
 });

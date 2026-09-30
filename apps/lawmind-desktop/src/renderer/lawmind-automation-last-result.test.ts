@@ -16,7 +16,7 @@ describe("formatAutomationLastResultForLawyer", () => {
   it("collapses a mail-contract dump into one lawyer line", () => {
     const line = formatAutomationLastResultForLawyer(dump);
     expect(line).toContain("1 份合同");
-    expect(line).toContain("待我拍板");
+    expect(line).toContain("工作台");
     expect(line).not.toMatch(/mail-contract-redline|191c0555|cases\//);
   });
 

@@ -1,28 +1,24 @@
 /**
- * 工作台：今日计划、案件门类、期限与谈话摘要。律师打开 LawMind 先看这里。
+ * 工作台：早上扫案卷，打开一卷看这一案的档案。干活仍在对话，看稿用 WPS。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage, fetchApi } from "./api-client";
-import { requestOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
 import { triggerBrowserDownload } from "./review/review-workbench-helpers";
 import { type ExtractedLegalEvent } from "../../../../src/lawmind/desk/legal-event-extract.ts";
 import {
-  actionSortRank,
-  countKind,
   deadlineSourceCopy,
   eventKindLabel,
-  formatClock,
   formatDeskDate,
   formatDueShort,
   formatMaterialBytes,
   formatTimelineDay,
-  hearingCountdown,
-  isCarriedPlan,
   isOverdue,
-  mailSourceRef,
+  matterHotLine,
+  matterMatchesListFilter,
   materialDisplayPath,
-  matterStatusZh,
-  planCardMeta,
+  urgencyListRank,
+  type DeskListFilter,
+  type MatterUrgencyInput,
 } from "./lawmind-lawyer-desk-format";
 import { MATTER_KIND_LABELS, type MatterKind } from "../../../../src/lawmind/desk/matter-kind.ts";
 import { acceptanceFeeView } from "./matter/litigation-fee-view";
@@ -34,6 +30,14 @@ import {
   type MatterParty,
 } from "../../../../src/lawmind/desk/matter-parties.ts";
 import { LawmindDaemonRecap } from "./LawmindDaemonRecap";
+import { openDeliverableInWps } from "./canvas/host-actions";
+import { LawmindDeskOutboundList } from "./LawmindDeskOutboundList";
+import {
+  outboundCountByMatter,
+  pendingOutboundItems,
+  type DeskOutboundItem,
+} from "./lawmind-desk-outbound";
+import { loadActionSummary } from "./lawmind-requires-action";
 import { LawmindMatterPartiesEditor, LawmindMatterPartyCards } from "./LawmindMatterPartiesEditor";
 import { MatterReplicaPanel } from "./matter/MatterReplicaPanel";
 import { pinDroppedChatFiles } from "./lawmind-file-drop-context";
@@ -186,8 +190,6 @@ type MatterPulseView = {
   intakeConfirmedAt?: string;
 };
 
-type MatterPaneId = "overview" | "deadlines" | "volume";
-
 export type LawmindLawyerWorkbenchProps = {
   apiBase: string;
   /** Folder name from the live desktop workspace — shown so the empty desk is not mistaken for “no cases”. */
@@ -206,7 +208,7 @@ export type LawmindLawyerWorkbenchProps = {
   onReconnectLocalService?: () => void | Promise<void>;
   localServiceReconnecting?: boolean;
   /** Open 本案卷宗 when bumped from header / sidebar / deep link. */
-  deskMatterFocus?: { id: string; n: number } | null;
+  deskMatterFocus?: { id: string; n: number; pane?: "docs" } | null;
 };
 
 const KIND_FILTERS: Array<{ id: "all" | MatterKind; label: string }> = [
@@ -310,23 +312,18 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     matterRefreshVersion = 0,
     onSelectMatter,
     onGoToChat,
-    onOpenNeedsDecision,
     onCreateMatter,
     onDeleteMatter,
-    onOpenReview,
     onShowArtifact,
     onReconnectLocalService,
     localServiceReconnecting,
     deskMatterFocus,
   } = props;
   const [kind, setKind] = useState<"all" | MatterKind>("all");
-  const [matterPane, setMatterPane] = useState<MatterPaneId>("overview");
-  const [volumeSide, setVolumeSide] = useState<"materials" | "docs">("materials");
-  const [, setTalkOpen] = useState(false);
+  const [listFilter, setListFilter] = useState<DeskListFilter>("all");
   const [today, setToday] = useState<TodaySnapshot | null>(null);
   const [replicaFeed, setReplicaFeed] = useState<DeskReplicaFeedItem[]>([]);
   const [matters, setMatters] = useState<DeskMatterRow[]>([]);
-  const [planDraft, setPlanDraft] = useState("");
   const [deadlines, setDeadlines] = useState<DeadlineRow[]>([]);
   const [brief, setBrief] = useState<IntakeBriefView | null>(null);
   const [similar, setSimilar] = useState<SimilarHit[]>([]);
@@ -351,15 +348,18 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
   const [partyDrafts, setPartyDrafts] = useState<MatterParty[]>([]);
   const [causeOfAction, setCauseOfAction] = useState("");
   const [pulse, setPulse] = useState<MatterPulseView | null>(null);
+  const [outboundItems, setOutboundItems] = useState<DeskOutboundItem[]>([]);
   const [matterKind, setMatterKind] = useState<MatterKind>("general");
-  const [desk, setDesk] = useState<"cockpit" | "matter">("cockpit");
+  const [view, setView] = useState<"list" | "matter">("list");
   const [openedMatterId, setOpenedMatterId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [scrollNow, setScrollNow] = useState(false);
+  const archiveDetailsRef = useRef<HTMLDetailsElement>(null);
   const autoReconnectRef = useRef(false);
   const reconnectRef = useRef(onReconnectLocalService);
   reconnectRef.current = onReconnectLocalService;
 
-  const viewingId = desk === "matter" ? (openedMatterId ?? selectedMatterId) : null;
+  const viewingId = view === "matter" ? (openedMatterId ?? selectedMatterId) : null;
   const selected = useMemo(() => {
     if (!viewingId) {
       return null;
@@ -374,27 +374,51 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
   const acceptanceFee = useMemo(() => acceptanceFeeView(docket.claimAmount), [docket.claimAmount]);
 
   const todayItems = today?.items ?? [];
-  const actionItems = todayItems.filter((item) => item.kind === "plan" || item.kind === "mail" || item.kind === "approval");
-  const deadlineItems = todayItems.filter((item) => item.kind === "deadline");
-  const mailOpen = countKind(todayItems, "mail", true);
-  const deadlineOpen = countKind(todayItems, "deadline", true);
-  const approvalOpen = countKind(todayItems, "approval", true);
-  const actionOpen = actionItems.filter((item) => !item.done).length;
-  const progressDone = today?.progress?.done ?? 0;
-  const progressTotal = today?.progress?.total ?? 0;
-  const openDeadlines = deadlines.filter((d) => d.status === "open" || d.status === "snoozed").length;
   const q = query.trim().toLowerCase();
-  const todayDate = today?.date;
   const matches = (text: string) => !q || text.toLowerCase().includes(q);
-  const shownActions = actionItems
-    .filter((item) => matches(item.title))
-    .toSorted((a, b) => actionSortRank(a, todayDate) - actionSortRank(b, todayDate));
-  const shownDeadlines = deadlineItems.filter((item) => matches(item.title));
+  const outboundCounts = outboundCountByMatter(outboundItems);
+  const matterOutbound = viewingId
+    ? outboundItems.filter((item) => item.matterId === viewingId)
+    : [];
   const unreadMatterIds = new Set(
     todayItems
       .filter((item) => item.kind === "mail" && !item.done && item.matterId)
       .map((item) => item.matterId as string),
   );
+  const overdueMatterIds = new Set(
+    todayItems
+      .filter((item) => item.kind === "deadline" && !item.done && item.matterId && isOverdue(item.dueAt))
+      .map((item) => item.matterId as string),
+  );
+  const daysUntilDeadlineFor = (matterId: string): number | null => {
+    const soon = todayItems
+      .filter(
+        (item) =>
+          item.kind === "deadline" &&
+          !item.done &&
+          item.matterId === matterId &&
+          item.dueAt &&
+          !isOverdue(item.dueAt),
+      )
+      .map((item) => {
+        const due = new Date(item.dueAt as string);
+        if (Number.isNaN(due.getTime())) {
+          return null;
+        }
+        return Math.ceil((due.getTime() - Date.now()) / 86_400_000);
+      })
+      .filter((days): days is number => days !== null && days >= 0 && days <= 7)
+      .toSorted((a, b) => a - b);
+    return soon[0] ?? null;
+  };
+  const urgencyOf = (row: DeskMatterRow): MatterUrgencyInput => ({
+    status: row.status,
+    daysUntilHearing: row.daysUntilHearing,
+    outboundCount: outboundCounts.get(row.matterId) ?? 0,
+    unreplied: unreadMatterIds.has(row.matterId),
+    overdueDeadline: overdueMatterIds.has(row.matterId),
+    daysUntilDeadline: daysUntilDeadlineFor(row.matterId),
+  });
   const shownMatters = matters
     .filter(
       (row) =>
@@ -403,22 +427,20 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
         matches(row.docket?.caseNo ?? "") ||
         matches(row.docket?.court ?? ""),
     )
+    .filter((row) => matterMatchesListFilter(listFilter, urgencyOf(row)))
     .slice()
-    .toSorted((a, b) => {
-      const rank = (row: DeskMatterRow) => {
-        if (row.status === "closed" || row.status === "delivered") {
-          return 800;
-        }
-        if (typeof row.daysUntilHearing === "number" && row.daysUntilHearing <= 7) {
-          return row.daysUntilHearing;
-        }
-        return 120;
-      };
-      return rank(a) - rank(b);
-    });
-  const nextHearingRow = shownMatters.find(
-    (row) => typeof row.daysUntilHearing === "number" && row.daysUntilHearing >= 0,
-  );
+    .toSorted((a, b) => urgencyListRank(urgencyOf(a)) - urgencyListRank(urgencyOf(b)));
+  const overdueCount = todayItems.filter(
+    (item) => item.kind === "deadline" && !item.done && isOverdue(item.dueAt),
+  ).length;
+  const unrepliedCount = todayItems.filter((item) => item.kind === "mail" && !item.done).length;
+  const urgencyChips: Array<{ id: Exclude<DeskListFilter, "all">; label: string }> = [
+    ...(outboundItems.length > 0
+      ? [{ id: "outbound" as const, label: `${outboundItems.length} 封待发出` }]
+      : []),
+    ...(overdueCount > 0 ? [{ id: "overdue" as const, label: `${overdueCount} 个期限已过` }] : []),
+    ...(unrepliedCount > 0 ? [{ id: "unreplied" as const, label: `${unrepliedCount} 封未回` }] : []),
+  ];
 
   const reloadToday = useCallback(async () => {
     const j = await apiGetJson<{ ok?: boolean; today?: TodaySnapshot }>(apiBase, "/api/desk/today");
@@ -445,6 +467,15 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     }
   }, [apiBase, kind]);
 
+  const reloadOutbound = useCallback(async () => {
+    try {
+      const summary = await loadActionSummary(apiBase);
+      setOutboundItems(pendingOutboundItems(summary));
+    } catch {
+      setOutboundItems([]);
+    }
+  }, [apiBase]);
+
   const reloadPulse = useCallback(async () => {
     if (!viewingId) {
       return;
@@ -458,7 +489,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([reloadToday(), reloadMatters()])
+    void Promise.all([reloadToday(), reloadMatters(), reloadOutbound()])
       .then(() => {
         if (!cancelled) {
           setErr(null);
@@ -481,7 +512,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
       });
     const onVis = () => {
       if (document.visibilityState === "visible") {
-        void Promise.all([reloadToday(), reloadMatters()])
+        void Promise.all([reloadToday(), reloadMatters(), reloadOutbound()])
           .then(() => {
             if (!cancelled) {
               setErr(null);
@@ -495,7 +526,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
       cancelled = true;
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [reloadToday, reloadMatters]);
+  }, [reloadToday, reloadMatters, reloadOutbound]);
 
   useEffect(() => {
     if (matterRefreshVersion <= 0) {
@@ -585,65 +616,25 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     };
   }, [apiBase, viewingId, selected?.title, selected?.clientId, selected?.docket, selected?.matterKind]);
 
-  const addPlan = async () => {
-    const text = planDraft.trim();
-    if (!text) {
-      return;
-    }
-    const lines = text
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean);
-    if (lines.length === 0) {
-      return;
-    }
-    setBusy(true);
-    setErr(null);
-    try {
-      const j = await apiSendJson<{ ok?: boolean; today?: TodaySnapshot }, { texts: string[] }>(
-        apiBase,
-        "/api/desk/plan",
-        "POST",
-        { texts: lines },
-      );
-      if (j.today) {
-        setToday(j.today);
-      }
-      setPlanDraft("");
-    } catch (e) {
-      setErr(errorMessage(e, "保存计划失败"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const togglePlan = async (item: TodayItem) => {
-    if (item.kind !== "plan") {
-      return;
-    }
-    try {
-      const j = await apiSendJson<{ ok?: boolean; today?: TodaySnapshot }, { done: boolean; date?: string }>(
-        apiBase,
-        `/api/desk/plan/items/${encodeURIComponent(item.id)}`,
-        "PATCH",
-        {
-          done: !item.done,
-          ...(item.originDate ? { date: item.originDate } : {}),
-        },
-      );
-      if (j.today) {
-        setToday(j.today);
-      }
-    } catch (e) {
-      setErr(errorMessage(e, "更新计划失败"));
-    }
-  };
-
-  const openMatter = (matterId: string, pane: MatterPaneId = "overview") => {
+  const openMatter = (matterId: string, opts?: { scrollNow?: boolean }) => {
     setOpenedMatterId(matterId);
-    setMatterPane(pane);
-    setDesk("matter");
+    setView("matter");
+    setScrollNow(Boolean(opts?.scrollNow));
     onSelectMatter(matterId);
+  };
+
+  const backToList = () => {
+    setView("list");
+    setScrollNow(false);
+  };
+
+  const revealArchive = (anchorId: string) => {
+    if (archiveDetailsRef.current) {
+      archiveDetailsRef.current.open = true;
+    }
+    window.requestAnimationFrame(() => {
+      document.getElementById(anchorId)?.scrollIntoView({ block: "nearest" });
+    });
   };
 
   useEffect(() => {
@@ -651,10 +642,27 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     if (!mid) {
       return;
     }
-    openMatter(mid);
+    openMatter(mid, { scrollNow: deskMatterFocus?.pane === "docs" });
     // openMatter closes over setters; nonce forces re-open of the same matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional focus bump
   }, [deskMatterFocus?.id, deskMatterFocus?.n]);
+
+  useEffect(() => {
+    if (view !== "matter" || !scrollNow) {
+      return;
+    }
+    const node = document.querySelector('[data-testid="lm-matter-now"]');
+    if (!node) {
+      if (pulse) {
+        setScrollNow(false);
+      }
+      return;
+    }
+    if (typeof node.scrollIntoView === "function") {
+      node.scrollIntoView({ block: "start" });
+    }
+    setScrollNow(false);
+  }, [view, scrollNow, viewingId, pulse, outboundItems, deadlines]);
 
   // 材料全文检索：命中带文件与段落号，可直接打开定位。
   const runMaterialsSearch = async () => {
@@ -686,57 +694,6 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
       .filter(Boolean)
       .join("\n");
     onGoToChat({ matterId: viewingId ?? undefined, prompt });
-  };
-
-  const activateTodayItem = (item: TodayItem) => {
-    if (item.kind === "plan") {
-      void togglePlan(item);
-      return;
-    }
-    if (item.kind === "mail") {
-      if (item.matterId) {
-        openMatter(item.matterId);
-        onGoToChat({
-          matterId: item.matterId,
-          prompt: `请根据本案待回复「${item.title}」起草今日回信，先出草稿，不要发送。`,
-        });
-        return;
-      }
-      onGoToChat({
-        prompt: `请根据待回复「${item.title}」起草今日回信，先出草稿，不要发送。`,
-      });
-      return;
-    }
-    if (item.kind === "deadline" && item.matterId) {
-      openMatter(item.matterId, "deadlines");
-      return;
-    }
-    if (item.kind === "approval") {
-      if (item.matterId) {
-        onSelectMatter(item.matterId);
-      }
-      onOpenNeedsDecision?.(item.matterId);
-    }
-  };
-
-  const markMailReplied = async (item: TodayItem) => {
-    const sourceRef = mailSourceRef(item);
-    if (!sourceRef) {
-      return;
-    }
-    try {
-      const j = await apiSendJson<
-        { ok?: boolean; today?: TodaySnapshot },
-        { source: "mail"; sourceRef: string }
-      >(apiBase, "/api/desk/plan/source-done", "POST", { source: "mail", sourceRef });
-      if (j.today) {
-        setToday(j.today);
-      } else {
-        await reloadToday();
-      }
-    } catch (e) {
-      setErr(errorMessage(e, "标记已回失败"));
-    }
   };
 
   const completeDeadline = async (deadlineId: string) => {
@@ -876,12 +833,11 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     [apiBase, viewingId, workspaceDir],
   );
 
-  const deadlinesDrop = useChatFileDropTarget(
-    matterPane === "deadlines" ? extractFromDroppedFile : undefined,
-    { stopPropagation: true },
-  );
+  const deadlinesDrop = useChatFileDropTarget(viewingId ? extractFromDroppedFile : undefined, {
+    stopPropagation: true,
+  });
   const talkDrop = useChatFileDropTarget(
-    matterPane === "overview" && (selected?.matterKind === "litigation" || matterKind === "litigation")
+    viewingId && (selected?.matterKind === "litigation" || matterKind === "litigation")
       ? talkFromDroppedFile
       : undefined,
     { stopPropagation: true },
@@ -1036,23 +992,8 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     }
   };
 
-  const carriedOpen = actionItems.filter((item) => isCarriedPlan(item, todayDate) && !item.done).length;
-  const carryOmitted = today?.carryOmitted ?? 0;
-  const progressLabel =
-    progressTotal === 0
-      ? "今天还没有事项"
-      : [
-          `今日进度 ${progressDone}/${progressTotal}`,
-          carriedOpen > 0 ? `含 ${carriedOpen} 项未结` : "",
-          carryOmitted > 0 ? `另有 ${carryOmitted} 项更早的计划未带上` : "",
-        ]
-          .filter(Boolean)
-          .join(" · ");
   const workspaceLabel =
     workspaceDir?.split(/[\\/]/).filter(Boolean).pop()?.trim() || "";
-  const contractCount = matters.filter((row) => row.matterKind === "contract").length;
-  const litigationCount = matters.filter((row) => row.matterKind === "litigation").length;
-  const preferredMatterId = selectedMatterId?.trim() || viewingId || null;
   const artifactPathLooksOpenable = (label: string) => {
     const t = label.trim();
     if (!t) {
@@ -1060,1222 +1001,800 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     }
     return /[\\/]/.test(t) || /\.(docx?|pdf|txt|md|xlsx?|pptx?)$/i.test(t);
   };
-  const matterCaption = (matterId?: string) => {
-    const row = matterId ? matters.find((item) => item.matterId === matterId) : undefined;
-    if (!row) {
-      return "";
+  const isOfficePath = (label: string) => /\.(docx?|xlsx?|pptx?|pdf)$/i.test(label.trim());
+  const openVolumeFile = (label: string) => {
+    const path = label.trim();
+    if (!path) {
+      return;
     }
-    return [row.title, row.docket?.caseNo].filter(Boolean).join(" · ");
+    if (isOfficePath(path)) {
+      void openDeliverableInWps(path);
+      return;
+    }
+    if (onShowArtifact && artifactPathLooksOpenable(path)) {
+      onShowArtifact(path);
+    }
   };
-
-  const caseRail = (
-    <aside className="lm-desk-col lm-desk-col--matters lm-desk-rail" aria-label="案件">
-      <div className="lm-desk-col-head">
-        <div className="lm-desk-col-copy">
-          <p className="lm-desk-col-label">案件</p>
-          <div className="lm-desk-col-value">
-            {shownMatters.length}
-            <span className="lm-desk-col-unit">件</span>
-          </div>
-          <p className="lm-desk-col-delta">
-            {contractCount} 合同 · {litigationCount} 诉讼
-          </p>
-        </div>
-        <span className="lm-desk-ico" aria-hidden>
-          <DeskGlyph name="folder" />
-        </span>
-      </div>
-      <div className="lm-desk-rail-today-wrap">
-        <button
-          type="button"
-          className={`lm-desk-rail-today${desk === "cockpit" ? " is-current" : ""}`}
-          aria-current={desk === "cockpit" ? "page" : undefined}
-          onClick={() => setDesk("cockpit")}
-        >
-          今日
-        </button>
-      </div>
-      <div className="lm-desk-filters" role="tablist" aria-label="工作门类">
-        {KIND_FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            role="tab"
-            aria-selected={kind === f.id}
-            aria-controls="lm-lawyer-matter-list"
-            className={`lm-desk-seg ${kind === f.id ? "is-active" : ""}`}
-            onClick={() => setKind(f.id)}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-      <div className="lm-desk-body">
-        <div className="lm-desk-scroll">
-          {shownMatters.length === 0 ? (
-            <div className="lm-lawyer-empty" data-testid="lm-lawyer-matter-empty">
-              <p className="lm-lawyer-empty-title">还没有案件</p>
-              <p>先建一卷，期限和谈话会跟在后面。</p>
-              {onCreateMatter ? (
-                <button type="button" className="lm-btn lm-btn-sm" onClick={onCreateMatter}>
-                  新建案件
-                </button>
-              ) : null}
-            </div>
-          ) : (
-            <ul className="lm-desk-list" id="lm-lawyer-matter-list" role="tabpanel">
-              {shownMatters.map((row) => {
-                const isCurrent = desk === "matter" && preferredMatterId === row.matterId;
-                const hot =
-                  typeof row.daysUntilHearing === "number" && row.daysUntilHearing <= 3;
-                return (
-                  <li key={row.matterId}>
-                    <button
-                      type="button"
-                      className={`lm-matter-card${isCurrent ? " is-current" : ""}`}
-                      aria-current={isCurrent ? "true" : undefined}
-                      onClick={() => openMatter(row.matterId)}
-                    >
-                      <span className="lm-matter-card-body">
-                        <strong>{row.title}</strong>
-                        <span className="lm-matter-card-meta">
-                          <span className="lm-kind" data-kind={row.matterKind}>
-                            {row.matterKindLabel}
-                          </span>
-                          {row.docket?.caseNo ? <span>{row.docket.caseNo}</span> : null}
-                          {hearingCountdown(row.daysUntilHearing) ? (
-                            <span className={`lm-matter-count${hot ? " is-hot" : ""}`}>
-                              {hearingCountdown(row.daysUntilHearing)}
-                            </span>
-                          ) : null}
-                          {unreadMatterIds.has(row.matterId) ? <span>未回</span> : null}
-                        </span>
-                      </span>
-                      <span className="lm-matter-card-chev" aria-hidden>
-                        →
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      </div>
-    </aside>
+  const recentDeadlines = deadlines
+    .filter((row) => (row.status === "open" || row.status === "snoozed") && row.released !== false)
+    .filter((row) => {
+      if (isOverdue(row.dueAt)) {
+        return true;
+      }
+      const due = new Date(row.dueAt);
+      if (Number.isNaN(due.getTime())) {
+        return false;
+      }
+      const days = Math.ceil((due.getTime() - Date.now()) / 86_400_000);
+      return days >= 0 && days <= 7;
+    })
+    .slice()
+    .toSorted((a, b) => a.dueAt.localeCompare(b.dueAt))
+    .slice(0, 3);
+  const unrepliedMail = (pulse?.mail ?? []).filter(
+    (msg) => msg.label === "needs_reply" || msg.label === "court",
   );
+  const showNow = matterOutbound.length > 0 || unrepliedMail.length > 0 || recentDeadlines.length > 0;
+  const documentPaths = new Set(
+    (pulse?.documents ?? [])
+      .map((doc) => doc.outputPath)
+      .filter((path): path is string => Boolean(path)),
+  );
+  const materialPaths = new Set((pulse?.materials ?? []).map((file) => file.relPath));
+  const restFiles = (pulse?.files ?? []).filter(
+    (file) => !documentPaths.has(file.label) && !materialPaths.has(file.label),
+  );
+  const volumeEmpty =
+    (pulse?.materials ?? []).length === 0 &&
+    (pulse?.documents ?? []).length === 0 &&
+    restFiles.length === 0;
+
+  const openFileButton = (path: string) => {
+    if (!isOfficePath(path) && !(onShowArtifact && artifactPathLooksOpenable(path))) {
+      return null;
+    }
+    return (
+      <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => openVolumeFile(path)}>
+        {isOfficePath(path) ? "用 WPS 打开" : "打开"}
+      </button>
+    );
+  };
 
   return (
     <section className="lm-lawyer-workbench" data-testid="lm-lawyer-workbench" aria-label="工作台">
-          <header className="lm-lawyer-top">
-            <div className="lm-lawyer-top-title">
-              <p className="lm-lawyer-kicker" data-testid="lm-lawyer-desk-kicker">
-                {today?.date ? formatDeskDate(today.date) : "今日"}
-                {workspaceLabel ? ` · ${workspaceLabel}` : ""}
-                {` · ${matters.length} 个案件`}
-              </p>
-              <h1>工作台</h1>
-            </div>
-            <div className="lm-lawyer-top-tools">
-              <div className="lm-lawyer-search">
-                <span className="lm-lawyer-search-ico" aria-hidden>
-                  <DeskGlyph name="search" />
-                </span>
-                <input
-                  className="lm-input"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="筛选本案、期限、待办…"
-                  aria-label="筛选工作台"
-                />
-                {query.trim() ? (
+      <header className="lm-lawyer-top">
+        <div className="lm-lawyer-top-title">
+          <p className="lm-lawyer-kicker" data-testid="lm-lawyer-desk-kicker">
+            {today?.date ? formatDeskDate(today.date) : "案卷"}
+            {workspaceLabel ? ` · ${workspaceLabel}` : ""}
+            {` · ${matters.length} 个案件`}
+          </p>
+          <h1>工作台</h1>
+        </div>
+        <div className="lm-lawyer-top-tools">
+          <div className="lm-lawyer-search">
+            <span className="lm-lawyer-search-ico" aria-hidden>
+              <DeskGlyph name="search" />
+            </span>
+            <input
+              className="lm-input"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="筛选案名、案号…"
+              aria-label="筛选案卷"
+            />
+            {query.trim() ? (
+              <button
+                type="button"
+                className="lm-lawyer-search-clear"
+                aria-label="清除筛选"
+                onClick={() => setQuery("")}
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
+          <div className="lm-lawyer-top-actions">
+            {view === "matter" ? (
+              <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={backToList}>
+                全部案卷
+              </button>
+            ) : null}
+            {onCreateMatter ? (
+              <button type="button" className="lm-btn lm-btn-sm" onClick={onCreateMatter}>
+                新建案件
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </header>
+
+      <DeskServiceAlert
+        err={err}
+        onReconnect={onReconnectLocalService}
+        reconnecting={localServiceReconnecting}
+      />
+
+      <div className="lm-lawyer-cockpit" data-testid="lm-lawyer-cockpit">
+        {view === "list" ? (
+          <div className="lm-desk-case-list" aria-label="案件">
+            <LawmindDaemonRecap apiBase={apiBase} />
+            {replicaFeed.length > 0 ? (
+              <div className="lm-desk-replica-note" data-testid="lm-desk-replica-feed">
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost lm-btn-sm"
+                  onClick={() => openMatter(replicaFeed[0]?.matterId ?? "")}
+                >
+                  {`协作新材料 ${replicaFeed.length} 条 · ${replicaFeed[0]?.title ?? ""}`}
+                </button>
+                {replicaFeed[0]?.kind === "material.put" ? (
                   <button
                     type="button"
-                    className="lm-lawyer-search-clear"
-                    aria-label="清除筛选"
-                    onClick={() => setQuery("")}
+                    className="lm-btn lm-btn-sm lm-btn-secondary"
+                    data-testid={`lm-desk-replica-organize-${replicaFeed[0].opId}`}
+                    onClick={() => {
+                      const pathHint = replicaFeed[0]?.relPath ? `（路径 ${replicaFeed[0].relPath}）` : "";
+                      onGoToChat({
+                        matterId: replicaFeed[0]?.matterId,
+                        prompt: `请把协作同步来的新材料整理入卷${pathHint}：核对文件名、建议归入 materials 子目录，并更新本案要点。只整理本案材料，不要改无关案件。`,
+                      });
+                    }}
                   >
-                    ×
+                    整理入卷
                   </button>
                 ) : null}
               </div>
-              <div className="lm-lawyer-top-actions">
-                {onCreateMatter ? (
+            ) : null}
+            {urgencyChips.length > 0 ? (
+              <div className="lm-desk-urgency-strip" data-testid="lm-desk-urgency-strip" aria-label="跨案紧急事项">
+                {urgencyChips.map((chip) => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    className={`lm-desk-urgency-chip${listFilter === chip.id ? " is-active" : ""}`}
+                    aria-pressed={listFilter === chip.id}
+                    onClick={() => setListFilter((current) => (current === chip.id ? "all" : chip.id))}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <div className="lm-desk-filters" aria-label="工作门类">
+              {KIND_FILTERS.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  aria-pressed={kind === f.id}
+                  className={`lm-desk-seg ${kind === f.id ? "is-active" : ""}`}
+                  onClick={() => setKind(f.id)}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            {shownMatters.length === 0 ? (
+              <div className="lm-lawyer-empty" data-testid="lm-lawyer-matter-empty">
+                <p className="lm-lawyer-empty-title">
+                  {listFilter === "all" ? "还没有案件" : "没有这类案子"}
+                </p>
+                <p>
+                  {listFilter === "all"
+                    ? "先建一卷。期限、来信和待发出会跟在案名旁边。"
+                    : "换一个条件，或回到全部案卷。"}
+                </p>
+                {listFilter !== "all" ? (
+                  <button type="button" className="lm-btn lm-btn-sm" onClick={() => setListFilter("all")}>
+                    全部案卷
+                  </button>
+                ) : onCreateMatter ? (
                   <button type="button" className="lm-btn lm-btn-sm" onClick={onCreateMatter}>
                     新建案件
                   </button>
                 ) : null}
               </div>
-            </div>
-          </header>
-
-          <DeskServiceAlert
-            err={err}
-            onReconnect={onReconnectLocalService}
-            reconnecting={localServiceReconnecting}
-          />
-
-          <div className="lm-lawyer-cockpit" data-testid="lm-lawyer-cockpit">
-            {caseRail}
-            {desk === "cockpit" ? (
-              <div className="lm-desk-stage">
-          {replicaFeed.length > 0 ? (
-            <section
-              className="lm-desk-replica-feed"
-              aria-label="协作新材料"
-              data-testid="lm-desk-replica-feed"
-            >
-              <p className="lm-desk-col-label">协作新材料</p>
-              <ul className="lm-desk-list">
-                {replicaFeed.slice(0, 6).map((item) => (
-                  <li key={item.opId}>
-                    <div className="lm-desk-card lm-desk-replica-feed-row">
+            ) : (
+              <ul className="lm-desk-list" id="lm-lawyer-matter-list">
+                {shownMatters.map((row) => {
+                  const hot = matterHotLine(urgencyOf(row));
+                  return (
+                    <li key={row.matterId}>
                       <button
                         type="button"
-                        className="lm-desk-card--link"
-                        onClick={() => {
-                          setVolumeSide("materials");
-                          openMatter(item.matterId, "volume");
-                        }}
+                        className="lm-matter-card"
+                        data-testid="lm-matter-row"
+                        onClick={() => openMatter(row.matterId)}
                       >
-                        <div className="lm-desk-card-copy">
-                          <p className="lm-desk-card-title">{item.title}</p>
-                          <p className="lm-desk-card-meta">
-                            {item.matterTitle ?? item.matterId} · {item.actorName} ·{" "}
-                            {item.createdAt.slice(0, 16).replace("T", " ")}
-                          </p>
-                        </div>
+                        <span className="lm-matter-card-body">
+                          <strong>{row.title}</strong>
+                          {hot ? (
+                            <span className="lm-matter-hotline" data-testid="lm-matter-hotline">
+                              {hot}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="lm-matter-card-chev" aria-hidden>
+                          →
+                        </span>
                       </button>
-                      {item.kind === "material.put" ? (
-                        <button
-                          type="button"
-                          className="lm-btn lm-btn-sm lm-btn-secondary"
-                          data-testid={`lm-desk-replica-organize-${item.opId}`}
-                          onClick={() => {
-                            const pathHint = item.relPath ? `（路径 ${item.relPath}）` : "";
-                            onGoToChat({
-                              matterId: item.matterId,
-                              prompt: `请把协作同步来的新材料整理入卷${pathHint}：核对文件名、建议归入 materials 子目录，并更新本案要点。只整理本案材料，不要改无关案件。`,
-                            });
-                          }}
-                        >
-                          整理入卷
-                        </button>
-                      ) : null}
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
-            </section>
-          ) : null}
-
-            <section className={`lm-desk-col lm-desk-col--act${approvalOpen > 0 ? " has-hot" : ""}`} aria-label="今日">
-              <div className="lm-desk-col-head">
-                <div className="lm-desk-col-copy">
-                  <p className="lm-desk-col-label">今日</p>
-                  <div className="lm-desk-col-value">
-                    <span data-testid="lm-lawyer-today-progress">{actionOpen}</span>
-                    <span className="lm-desk-col-unit">项</span>
-                  </div>
-                  <p className="lm-desk-col-delta">
-                    {progressLabel}
-                    {" · "}
-                    <span data-testid="lm-lawyer-stat-mail">{mailOpen}</span>
-                    {" 封未回"}
+            )}
+          </div>
+        ) : !selected ? (
+          <div className="lm-lawyer-empty">
+            <p className="lm-lawyer-empty-title">选一个案件</p>
+            <button type="button" className="lm-btn lm-btn-sm" onClick={backToList}>
+              全部案卷
+            </button>
+          </div>
+        ) : (
+          <div className="lm-matter-file" data-testid="lm-lawyer-matter-dossier">
+            <header className="lm-matter-hero">
+              <div className="lm-matter-id">
+                <span className="lm-matter-folder" aria-hidden>
+                  <DeskGlyph name="folder" />
+                </span>
+                <div>
+                  <h2>{pulse?.title ?? selected.title}</h2>
+                  <p className="lm-matter-hero-sub">
+                    {[
+                      pulse?.clientId || selected.clientId
+                        ? `客户 ${pulse?.clientId || selected.clientId}`
+                        : "",
+                      pulse?.counterparty ? `对方 ${pulse.counterparty}` : "",
+                      selected.docket?.caseNo ?? "",
+                      selected.docket?.court ?? "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
                 </div>
-                <span className="lm-desk-ico" aria-hidden>
-                  <DeskGlyph name="gavel" />
-                </span>
               </div>
-              <div className="lm-desk-body">
-                <div className="lm-desk-today-alerts">
-                  {approvalOpen > 0 ? (
+              <div className="lm-matter-hero-actions">
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-sm"
+                  onClick={() => onGoToChat({ matterId: selected.matterId })}
+                >
+                  接着办
+                </button>
+                {onDeleteMatter ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost lm-btn-sm"
+                    onClick={() => onDeleteMatter(selected.matterId, pulse?.title ?? selected.title)}
+                  >
+                    删除案件
+                  </button>
+                ) : null}
+              </div>
+            </header>
+
+            {showNow ? (
+              <section className="lm-matter-now" data-testid="lm-matter-now" aria-label="现在">
+                <h3>现在</h3>
+                {matterOutbound.length > 0 ? (
+                  <LawmindDeskOutboundList
+                    apiBase={apiBase}
+                    items={matterOutbound}
+                    onChanged={() => {
+                      void reloadOutbound();
+                    }}
+                  />
+                ) : null}
+                {unrepliedMail.length > 0 ? (
+                  <div>
+                    <h3>未回</h3>
+                    <ul className="lm-lawyer-deadline-list">
+                      {unrepliedMail.map((msg) => (
+                        <li key={msg.id} className="lm-lawyer-deadline-row">
+                          <span className="lm-lawyer-deadline-copy">
+                            <strong>{msg.subject}</strong>
+                            <span className="lm-lawyer-today-meta">
+                              {msg.labelZh} · {msg.from}
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            className="lm-btn lm-btn-sm"
+                            onClick={() =>
+                              onGoToChat({
+                                matterId: selected.matterId,
+                                prompt: `请根据本案待回复「${msg.subject}」起草回信，先出草稿，不要发送。`,
+                              })
+                            }
+                          >
+                            去对话起草
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {recentDeadlines.length > 0 ? (
+                  <div>
+                    <h3>期限</h3>
+                    <ul className="lm-lawyer-deadline-list">
+                      {recentDeadlines.map((row) => (
+                        <li key={row.deadlineId} className="lm-lawyer-deadline-row">
+                          <span className="lm-lawyer-deadline-copy">
+                            <strong>
+                              {eventKindLabel(row.eventKind)} · {row.title}
+                            </strong>
+                            <span className="lm-lawyer-today-meta">
+                              {formatDueShort(row.dueAt)}
+                              {isOverdue(row.dueAt) ? " · 已过" : ""}
+                            </span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                     <button
                       type="button"
-                      className="lm-desk-rail-today is-current"
-                      data-testid="lm-lawyer-stat-stopped"
-                      onClick={() => onOpenNeedsDecision?.()}
+                      className="lm-btn lm-btn-ghost lm-btn-sm"
+                      onClick={() => revealArchive("lm-lawyer-pane-deadlines")}
                     >
-                      停在你这里 {approvalOpen}
+                      全部期限
+                    </button>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
+            <section className="lm-matter-volume" id="lm-matter-volume" data-testid="lm-lawyer-matter-materials" aria-label="卷">
+              <h3>卷</h3>
+              {(pulse?.counts.materialsOmitted ?? 0) > 0 ? (
+                <p className="lm-meta">
+                  这一页列出最近的 {pulse?.counts.materials ?? 0} 份，
+                  {pulse?.counts.materialsSaturated ? "至少还有" : "还有"}
+                  {pulse?.counts.materialsOmitted} 份没列在这里。检索仍会查已编入的正文。
+                </p>
+              ) : null}
+              <div className="lm-lawyer-inline-actions">
+                <input
+                  className="lm-input"
+                  data-testid="lm-materials-search-input"
+                  placeholder="检索材料正文（如：违约金 条款）"
+                  value={materialsQuery}
+                  onChange={(e) => setMaterialsQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      void runMaterialsSearch();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary lm-btn-sm"
+                  data-testid="lm-materials-search-run"
+                  disabled={materialsSearching || !materialsQuery.trim()}
+                  onClick={() => void runMaterialsSearch()}
+                >
+                  {materialsSearching ? "检索中…" : "检索"}
+                </button>
+              </div>
+              {materialsHits !== null ? (
+                materialsHits.length === 0 ? (
+                  <p className="lm-meta">材料正文里没有命中。可换个关键词，或确认材料已放进本案 materials 文件夹。</p>
+                ) : (
+                  <ul className="lm-lawyer-deadline-list" data-testid="lm-materials-search-hits">
+                    {materialsHits.map((hit) => (
+                      <li key={`${hit.relPath}#${hit.page}`} className="lm-lawyer-deadline-row">
+                        <span className="lm-lawyer-deadline-copy">
+                          <strong>
+                            {hit.fileName}（第 {hit.page} 段）
+                          </strong>
+                          <span className="lm-lawyer-today-meta">{hit.snippet}</span>
+                        </span>
+                        {openFileButton(hit.relPath)}
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : null}
+              {volumeEmpty ? <p className="lm-meta">这一卷还没有文件。</p> : null}
+              {(pulse?.materials ?? []).length > 0 ? (
+                <div>
+                  <h3>来件</h3>
+                  <ul className="lm-lawyer-deadline-list">
+                    {(pulse?.materials ?? []).map((file) => (
+                      <li key={file.relPath} className="lm-lawyer-deadline-row">
+                        <span className="lm-lawyer-deadline-copy">
+                          <strong>{materialDisplayPath(file.relPath)}</strong>
+                          <span className="lm-lawyer-today-meta">
+                            {formatMaterialBytes(file.size)}
+                            {file.updatedAt ? ` · ${formatDueShort(file.updatedAt)}` : ""}
+                          </span>
+                        </span>
+                        {openFileButton(file.relPath)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {(pulse?.documents ?? []).length > 0 ? (
+                <div>
+                  <h3>我们写的</h3>
+                  <ul className="lm-lawyer-deadline-list">
+                    {(pulse?.documents ?? []).map((doc) => (
+                      <li key={doc.id} className="lm-lawyer-deadline-row">
+                        <span className="lm-lawyer-deadline-copy">
+                          <strong>{doc.title}</strong>
+                          <span className="lm-lawyer-today-meta">
+                            {doc.status}
+                            {doc.at ? ` · ${formatDueShort(doc.at)}` : ""}
+                          </span>
+                        </span>
+                        {doc.outputPath ? openFileButton(doc.outputPath) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {restFiles.length > 0 ? (
+                <div>
+                  <h3>其余</h3>
+                  <ul className="lm-lawyer-deadline-list">
+                    {restFiles.map((file) => (
+                      <li key={file.label} className="lm-lawyer-deadline-row">
+                        <span className="lm-lawyer-deadline-copy">{file.label}</span>
+                        {openFileButton(file.label)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </section>
+
+            <details className="lm-matter-archive" data-testid="lm-matter-archive" ref={archiveDetailsRef}>
+              <summary>档案</summary>
+              <section className="lm-lawyer-pane" aria-label="当事人" data-testid="lm-lawyer-matter-parties">
+                <h3>当事人</h3>
+                <LawmindMatterPartyCards parties={overviewPartiesFromPulse(pulse)} />
+              </section>
+              <section className="lm-lawyer-pane" id="lm-lawyer-docket-fields" aria-label="案情">
+                <h3>案号与案情</h3>
+                <LawmindMatterPartiesEditor value={partyDrafts} disabled={busy} onChange={setPartyDrafts} />
+                <div className="lm-lawyer-docket-grid">
+                  <label>
+                    门类
+                    <select
+                      className="lm-input"
+                      value={matterKind}
+                      onChange={(e) => setMatterKind(e.target.value as MatterKind)}
+                    >
+                      {(Object.keys(MATTER_KIND_LABELS) as MatterKind[]).map((k) => (
+                        <option key={k} value={k}>
+                          {MATTER_KIND_LABELS[k]}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="lm-field-hint">
+                      案由里的「合同纠纷」仍是诉讼。合同指正在审改协议。顾问和还没定的归其他。
+                    </span>
+                  </label>
+                  <label>
+                    案由
+                    <input
+                      className="lm-input"
+                      value={causeOfAction}
+                      onChange={(e) => setCauseOfAction(e.target.value)}
+                      placeholder="如：房屋租赁合同纠纷"
+                    />
+                  </label>
+                  <label>
+                    案号
+                    <input
+                      className="lm-input"
+                      value={docket.caseNo}
+                      onChange={(e) => setDocket({ ...docket, caseNo: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    法院
+                    <input
+                      className="lm-input"
+                      value={docket.court}
+                      onChange={(e) => setDocket({ ...docket, court: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    审级
+                    <input
+                      className="lm-input"
+                      value={docket.instance}
+                      onChange={(e) => setDocket({ ...docket, instance: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    诉讼地位
+                    <input
+                      className="lm-input"
+                      value={docket.standing}
+                      onChange={(e) => setDocket({ ...docket, standing: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    开庭日
+                    <input
+                      className="lm-input"
+                      value={docket.hearingAt}
+                      onChange={(e) => setDocket({ ...docket, hearingAt: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    标的金额
+                    <input
+                      className="lm-input"
+                      value={docket.claimAmount ?? ""}
+                      onChange={(e) => setDocket({ ...docket, claimAmount: e.target.value })}
+                      placeholder="如：32,100 元（照原文）"
+                    />
+                  </label>
+                </div>
+                <p className="lm-meta">
+                  受理费 {acceptanceFee.value}
+                  {acceptanceFee.hint ? ` ${acceptanceFee.hint}` : ""}
+                </p>
+                <button type="button" className="lm-btn lm-btn-sm" disabled={busy} onClick={() => void saveDocket()}>
+                  保存卷宗
+                </button>
+              </section>
+
+              <section
+                className={`lm-lawyer-pane${deadlinesDrop.active ? " lm-chat-drop-active" : ""}`}
+                id="lm-lawyer-pane-deadlines"
+                data-testid="lm-lawyer-deadlines-drop"
+                aria-label="全部期限"
+                {...deadlinesDrop.dropProps}
+              >
+                <h3>全部期限</h3>
+                <p className="lm-meta">可粘贴文字，或把传票 PDF/图片拖到这里；抽出后仍须确认写入。</p>
+                {deadlines.length === 0 ? (
+                  <p className="lm-meta">还没有期限。把传票或 12368 短信贴到下面，确认后写入。</p>
+                ) : (
+                  <ul className="lm-lawyer-deadline-list">
+                    {deadlines.map((d) => (
+                      <li
+                        key={d.deadlineId}
+                        className={`lm-lawyer-deadline-row${d.status === "completed" ? " is-done" : ""}${d.released === false ? " is-waiting" : ""}`}
+                      >
+                        <span className="lm-lawyer-deadline-copy">
+                          <strong>
+                            {eventKindLabel(d.eventKind)} · {d.title}
+                          </strong>
+                          <span className="lm-lawyer-today-meta">{formatDueShort(d.dueAt)}</span>
+                          <DeadlineSourceBadge row={d} />
+                          <DeadlineWaitingLine row={d} />
+                        </span>
+                        <span className="lm-lawyer-deadline-actions">
+                          {d.eventKind !== "hearing" && d.status !== "completed" ? (
+                            <select
+                              className="lm-input lm-deadline-depends"
+                              aria-label={`前置期限：${d.title}`}
+                              value={d.dependsOnDeadlineId ?? ""}
+                              onChange={(e) => void setDeadlineDependsOn(d.deadlineId, e.target.value)}
+                            >
+                              <option value="">无前置</option>
+                              {deadlines
+                                .filter((row) => row.deadlineId !== d.deadlineId)
+                                .map((row) => (
+                                  <option key={row.deadlineId} value={row.deadlineId}>
+                                    {eventKindLabel(row.eventKind)} · {row.title}
+                                  </option>
+                                ))}
+                            </select>
+                          ) : null}
+                          {d.status === "open" || d.status === "snoozed" ? (
+                            <button
+                              type="button"
+                              className="lm-btn lm-btn-ghost lm-btn-sm"
+                              onClick={() => void completeDeadline(d.deadlineId)}
+                            >
+                              完成
+                            </button>
+                          ) : (
+                            <span className="lm-meta">{d.status === "completed" ? "已完成" : d.status}</span>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {deadlines.length > 0 ? (
+                  <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => void exportIcs()}>
+                    导出日历
+                  </button>
+                ) : null}
+                <textarea
+                  className="lm-input"
+                  rows={3}
+                  value={extractText}
+                  onChange={(e) => setExtractText(e.target.value)}
+                  placeholder="粘贴传票、法院短信或期限告知"
+                  aria-label="抽取期限材料"
+                />
+                <div className="lm-lawyer-inline-actions">
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost lm-btn-sm"
+                    disabled={busy}
+                    onClick={() => void runExtract()}
+                  >
+                    抽出期限
+                  </button>
+                  {extracted.length > 0 ? (
+                    <button type="button" className="lm-btn lm-btn-sm" disabled={busy} onClick={() => void confirmEvents()}>
+                      确认写入（{extracted.length}）
                     </button>
                   ) : null}
-                  <LawmindDaemonRecap apiBase={apiBase} onOpen={() => onOpenNeedsDecision?.()} />
                 </div>
-                <div className="lm-desk-scroll">
-                  {shownActions.filter((item) => item.kind !== "approval").length === 0 ? (
-                    <div className="lm-lawyer-empty">
-                      <p className="lm-lawyer-empty-title">今天还清</p>
-                      <p>在下方写下要办的事。未回的信和临近期限在这一页。未勾完的会留在这里。</p>
-                    </div>
+                {extracted.length > 0 ? (
+                  <ul className="lm-lawyer-extract-preview">
+                    {extracted.map((e, i) => (
+                      <li key={`${e.title}-${i}`}>
+                        {e.title}
+                        {e.dueAt ? ` · ${e.dueAt}` : " · 日期待补"}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
+
+              {selected.matterKind === "litigation" || matterKind === "litigation" ? (
+                <section
+                  className={`lm-lawyer-pane${talkDrop.active ? " lm-chat-drop-active" : ""}`}
+                  id="lm-lawyer-pane-intake"
+                  data-testid="lm-lawyer-talk-drop"
+                  aria-label="谈话记录"
+                  {...talkDrop.dropProps}
+                >
+                  <h3>谈话记录</h3>
+                  <p className="lm-meta">可粘贴谈话，或拖入 PDF/图片；整理后仍须点「写入本案档案」。</p>
+                  <textarea
+                    className="lm-input"
+                    rows={5}
+                    value={talk}
+                    onChange={(e) => setTalk(e.target.value)}
+                    placeholder="粘贴客户谈话记录"
+                    aria-label="谈话记录"
+                    data-testid="lm-lawyer-talk-input"
+                  />
+                  <div className="lm-lawyer-inline-actions">
+                    <button type="button" className="lm-btn lm-btn-sm" disabled={busy} onClick={() => void compileTalk()}>
+                      整理谈话
+                    </button>
+                    {brief && !brief.confirmedAt ? (
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-ghost lm-btn-sm"
+                        disabled={busy}
+                        onClick={() => void confirmIntake()}
+                      >
+                        写入本案档案
+                      </button>
+                    ) : null}
+                  </div>
+                  {brief?.confirmedAt ? <p className="lm-meta">已写入档案 · {formatDueShort(brief.confirmedAt)}</p> : null}
+                  {brief ? <IntakeBriefBlocks brief={brief} onApplyCause={(label) => void applyCause(label)} /> : null}
+                </section>
+              ) : null}
+
+              <section className="lm-lawyer-pane" aria-label="本案进展" data-testid="lm-lawyer-matter-timeline">
+                <h3>本案进展</h3>
+                {(pulse?.timeline ?? []).length === 0 ? (
+                  <p className="lm-meta">期限、来信、出稿和谈话写入后，会按时间出现在这里。</p>
+                ) : (
+                  <div className="lm-timeline lm-matter-timeline lm-scroll">
+                    {(pulse?.timeline ?? []).map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`lm-timeline-row${
+                          (item.kind === "hearing" || item.kind === "deadline") && isOverdue(item.at)
+                            ? " is-overdue"
+                            : ""
+                        }`}
+                        data-testid="lm-lawyer-matter-timeline-item"
+                        onClick={() => {
+                          if (item.kind === "deadline" || item.kind === "hearing") {
+                            revealArchive("lm-lawyer-pane-deadlines");
+                            return;
+                          }
+                          if (item.kind === "intake") {
+                            revealArchive("lm-lawyer-pane-intake");
+                            return;
+                          }
+                          document.getElementById("lm-matter-volume")?.scrollIntoView({ block: "nearest" });
+                        }}
+                      >
+                        <span className="lm-timeline-time">{formatTimelineDay(item.at)}</span>
+                        <span className="lm-timeline-copy">
+                          <span className="lm-desk-card-title">{item.title}</span>
+                          <span className="lm-pri lm-pri--mid">
+                            {item.meta || MATTER_TIMELINE_KIND_ZH[item.kind]}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {similar.length > 0 || (precedents?.hits.length ?? 0) > 0 || standards.length > 0 ? (
+                <section className="lm-lawyer-pane" aria-label="旧案与先例">
+                  <h3>相关旧案</h3>
+                  {similar.length === 0 ? (
+                    <p className="lm-meta">还没有足够接近的旧案。对照只看案由和证据缺口，不会把旧案事实写入本案。</p>
                   ) : (
-                    <ul className="lm-desk-list">
-                      {shownActions
-                        .filter((item) => item.kind !== "approval")
-                        .slice(0, 12)
-                        .map((item) => (
-                        <li key={item.id}>
-                          <article className={`lm-desk-card${item.done ? " is-done" : ""}`}>
-                            <span className={`lm-desk-card-ico lm-desk-card-ico--${item.kind}`} aria-hidden>
-                              <DeskGlyph name={item.kind === "mail" ? "mail" : item.kind === "approval" ? "gavel" : "plus"} />
-                            </span>
-                            <div className="lm-desk-card-copy">
-                              <p className="lm-desk-card-title">{item.title}</p>
-                              <p className="lm-desk-card-meta">
-                                {item.kind === "plan"
-                                  ? planCardMeta(item, todayDate)
-                                  : item.kind === "mail"
-                                    ? "去对话起草回信，不会发出"
-                                    : "去在办签批"}
-                                {matterCaption(item.matterId) ? ` · ${matterCaption(item.matterId)}` : ""}
-                              </p>
-                            </div>
-                            <div className="lm-desk-card-side">
-                              <span
-                                className={`lm-pri${item.kind === "approval" ? " lm-pri--high" : item.kind === "mail" || isCarriedPlan(item, todayDate) ? " lm-pri--mid" : ""}`}
-                              >
-                                {item.kind === "plan"
-                                  ? isCarriedPlan(item, todayDate)
-                                    ? "未结"
-                                    : "计划"
-                                  : item.kind === "mail"
-                                    ? "待回复"
-                                    : "拍板"}
-                              </span>
-                              {item.kind === "plan" ? (
-                                <button
-                                  type="button"
-                                  className={`lm-desk-check${item.done ? " is-on" : ""}`}
-                                  aria-label={
-                                    item.done
-                                      ? "标为未完成"
-                                      : isCarriedPlan(item, todayDate)
-                                        ? "标为完成，未结计划"
-                                        : "标为完成"
-                                  }
-                                  data-testid={
-                                    isCarriedPlan(item, todayDate)
-                                      ? "lm-lawyer-today-item-plan-carried"
-                                      : "lm-lawyer-today-item-plan"
-                                  }
-                                  onClick={() => activateTodayItem(item)}
-                                />
-                              ) : (
-                                <div className="lm-desk-card-ctas">
-                                  <button
-                                    type="button"
-                                    className="lm-desk-card-cta"
-                                    data-testid={`lm-lawyer-today-item-${item.kind}`}
-                                    onClick={() => activateTodayItem(item)}
-                                  >
-                                    {item.kind === "mail" ? "去回复" : "去拍板"}
-                                  </button>
-                                  {item.kind === "mail" && !item.done ? (
-                                    <button
-                                      type="button"
-                                      className="lm-desk-card-cta lm-desk-card-cta--quiet"
-                                      data-testid="lm-lawyer-today-item-mail-done"
-                                      onClick={() => void markMailReplied(item)}
-                                    >
-                                      标为已回
-                                    </button>
-                                  ) : null}
-                                </div>
-                              )}
-                            </div>
-                          </article>
+                    <ul className="lm-lawyer-similar-list">
+                      {similar.map((h) => (
+                        <li key={h.matterId}>
+                          <button type="button" className="lm-lawyer-similar-open" onClick={() => openMatter(h.matterId)}>
+                            <strong>{h.causeOfAction || h.matterId || "相近案件"}</strong>
+                          </button>
+                          {h.snippet ? <p className="lm-meta">{h.snippet}</p> : null}
+                          {h.evidenceHints.length > 0 ? (
+                            <p className="lm-meta">证据缺口对照：{h.evidenceHints.join("；")}</p>
+                          ) : null}
+                          <p className="lm-meta">{h.displayWarning}</p>
                         </li>
                       ))}
                     </ul>
                   )}
-                </div>
-                <div className="lm-desk-compose">
-                  <input
-                    className="lm-input"
-                    value={planDraft}
-                    onChange={(e) => setPlanDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-                        e.preventDefault();
-                        void addPlan();
-                      }
-                    }}
-                    placeholder="今天要办的事，回车加入"
-                    aria-label="今日计划"
-                    data-testid="lm-lawyer-today-plan-input"
-                  />
-                  <button type="button" className="lm-btn lm-btn-sm" disabled={busy} onClick={() => void addPlan()}>
-                    加入
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            <section className={`lm-desk-col lm-desk-col--time${deadlineOpen > 0 ? " has-hot" : ""}`} aria-label="临近期日">
-              <div className="lm-desk-col-head">
-                <div className="lm-desk-col-copy">
-                  <p className="lm-desk-col-label">临近期日</p>
-                  <div className="lm-desk-col-value">
-                    <span data-testid="lm-lawyer-stat-deadline">{deadlineOpen}</span>
-                    <span className="lm-desk-col-unit">项</span>
-                  </div>
-                  <p className="lm-desk-col-delta">{deadlineOpen > 0 ? "已过与七日内" : "七日内没有到期"}</p>
-                </div>
-                <span className="lm-desk-ico" aria-hidden>
-                  <DeskGlyph name="cal" />
-                </span>
-              </div>
-              <div className="lm-desk-body">
-                <div className="lm-desk-scroll">
-                  {shownDeadlines.length === 0 ? (
-                    <div className="lm-lawyer-empty">
-                      <p className="lm-lawyer-empty-title">没有临近期限</p>
-                      <p>
-                        {nextHearingRow
-                          ? `下一场开庭：${nextHearingRow.title}，${hearingCountdown(nextHearingRow.daysUntilHearing) ?? ""}`
-                          : "打开一卷，在期日里贴传票。"}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="lm-timeline">
-                      {shownDeadlines.slice(0, 12).map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className={`lm-timeline-row${isOverdue(item.dueAt) ? " is-overdue" : ""}`}
-                          data-testid="lm-lawyer-today-item-deadline"
-                          onClick={() => activateTodayItem(item)}
-                        >
-                          <span className="lm-timeline-time">{formatClock(item.dueAt)}</span>
-                          <span className="lm-timeline-copy">
-                            <span className="lm-desk-card-title">{item.title}</span>
-                            <span className={`lm-pri${isOverdue(item.dueAt) ? " lm-pri--high" : " lm-pri--mid"}`}>
-                              {isOverdue(item.dueAt) ? "已过" : "期限"}
-                            </span>
-                            <span className="lm-desk-card-meta">
-                              {matterCaption(item.matterId) || formatDueShort(item.dueAt)}
-                            </span>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
-
-              </div>
-      ) : (
-        <div className="lm-matter-file" data-testid="lm-lawyer-matter-dossier">
-          <DeskServiceAlert
-            err={err}
-            onReconnect={onReconnectLocalService}
-            reconnecting={localServiceReconnecting}
-          />
-          {!selected ? (
-            <div className="lm-lawyer-empty">
-              <p className="lm-lawyer-empty-title">选一个案件</p>
-              <p>从今日驾驶舱点进案件后，这里是这一案的卷宗、期限和谈话。</p>
-            </div>
-          ) : (
-            <>
-              <header className="lm-matter-hero">
-                <div className="lm-matter-id">
-                  <span className="lm-matter-folder" aria-hidden>
-                    <DeskGlyph name="folder" />
-                  </span>
-                  <div>
-                    <div className="lm-matter-hero-badges">
-                      <span className="lm-kind" data-kind={selected.matterKind}>
-                        {selected.matterKindLabel}
-                      </span>
-                      <span className="lm-matter-status-pill">
-                        {pulse?.statusLabel ?? matterStatusZh(selected.status)}
-                      </span>
-                    </div>
-                    <h2>{pulse?.title ?? selected.title}</h2>
-                    <p className="lm-matter-hero-sub">
-                      {[
-                        selected.docket?.caseNo || selected.matterId,
-                        selected.docket?.court,
-                        pulse?.clientId || selected.clientId
-                          ? `客户 ${pulse?.clientId || selected.clientId}`
-                          : "",
-                        pulse?.counterparty ? `对方 ${pulse.counterparty}` : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
+                  <h3>可引用先例</h3>
+                  {precedents === null ? (
+                    <p className="lm-meta">正在检索旧案交付物…</p>
+                  ) : !precedents.enabled ? (
+                    <p className="lm-meta">
+                      先例检索还没在这台电脑上打开。打开之后，这里会列出旧案已签批文书里可参照的段落。
                     </p>
-                  </div>
-                </div>
-                <div className="lm-matter-hero-actions">
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-sm"
-                    onClick={() => onGoToChat({ matterId: selected.matterId })}
-                  >
-                    去对话
-                  </button>
-                  {onDeleteMatter ? (
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-ghost lm-btn-sm"
-                      onClick={() => onDeleteMatter(selected.matterId, pulse?.title ?? selected.title)}
-                    >
-                      删除案件
-                    </button>
-                  ) : null}
-                  {(pulse?.counts.approvals ?? 0) > 0 ? (
-                    <button
-                      type="button"
-                      className="lm-btn lm-btn-ghost lm-btn-sm"
-                      onClick={() => onOpenNeedsDecision?.(selected.matterId)}
-                    >
-                      停在你这里 {pulse?.counts.approvals}
-                    </button>
-                  ) : null}
-                </div>
-              </header>
-
-              <div className="lm-pulse-bar" aria-label="本案实时" data-testid="lm-lawyer-pulse-bar">
-                <button
-                  type="button"
-                  className={`lm-pulse-chip${(pulse?.daysUntilHearing ?? 99) <= 7 && pulse?.daysUntilHearing !== null && pulse?.daysUntilHearing !== undefined ? " is-hot" : ""}`}
-                  onClick={() => setMatterPane("deadlines")}
-                >
-                  <span>下一期</span>
-                  <strong>{hearingCountdown(pulse?.daysUntilHearing ?? selected.daysUntilHearing) ?? "未排"}</strong>
-                </button>
-                <button
-                  type="button"
-                  className={`lm-pulse-chip${(pulse?.counts.mail ?? 0) > 0 ? " is-hot" : ""}`}
-                  onClick={() => {
-                    const subject = pulse?.mail?.[0]?.subject;
-                    onGoToChat({
-                      matterId: selected.matterId,
-                      prompt: subject
-                        ? `请根据本案待回复「${subject}」起草回信，先出草稿，不要发送。`
-                        : "请根据本案未回的来信起草回信，先出草稿，不要发送。",
-                    });
-                  }}
-                >
-                  <span>未回</span>
-                  <strong>{pulse?.counts.mail ?? 0}</strong>
-                </button>
-                <button
-                  type="button"
-                  className={`lm-pulse-chip${(pulse?.counts.approvals ?? 0) > 0 ? " is-hot" : ""}`}
-                  onClick={() => onOpenNeedsDecision?.(selected.matterId)}
-                >
-                  <span>停在你这里</span>
-                  <strong>{pulse?.counts.approvals ?? 0}</strong>
-                </button>
-              </div>
-
-              <div className="lm-pane-tabs" role="tablist" aria-label="本案分区">
-                {(
-                  [
-                    { id: "overview", label: "卷宗" },
-                    { id: "deadlines", label: "期日", count: pulse?.counts.deadlines ?? openDeadlines },
-                    { id: "volume", label: "卷内" },
-                  ] as Array<{ id: MatterPaneId; label: string; count?: number }>
-                ).map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    id={`lm-lawyer-tab-${tab.id}`}
-                    aria-selected={matterPane === tab.id}
-                    aria-controls={
-                      tab.id === "volume"
-                        ? volumeSide === "docs"
-                          ? "lm-lawyer-pane-docs"
-                          : "lm-lawyer-pane-materials"
-                        : `lm-lawyer-pane-${tab.id}`
-                    }
-                    className={`lm-pane-tab ${matterPane === tab.id ? "is-active" : ""}`}
-                    onClick={() => setMatterPane(tab.id)}
-                  >
-                    {tab.label}
-                    {tab.count ? <span className="lm-pane-tab-count">{tab.count}</span> : null}
-                  </button>
-                ))}
-              </div>
-
-              <div className="lm-matter-scroll lm-scroll">
-                {matterPane === "overview" ? (
-                  <div className="lm-overview" id="lm-lawyer-pane-overview" role="tabpanel" aria-labelledby="lm-lawyer-tab-overview">
-                    {(pulse?.nextActions ?? []).length > 0 ? (
-                      <section className="lm-overview-card lm-overview-card--next" aria-label="本案下一步">
-                        <h3>本案下一步</h3>
-                        <ul className="lm-overview-next-list">
-                          {(pulse?.nextActions ?? []).slice(0, 6).map((action) => (
-                            <li key={action} className="lm-overview-next-item">
-                              {action}
-                            </li>
-                          ))}
-                        </ul>
-                        <button
-                          type="button"
-                          className="lm-btn lm-btn-sm"
-                          onClick={() =>
-                            onGoToChat({
-                              matterId: selected.matterId,
-                              prompt: `请按本案下一步办理：${(pulse?.nextActions ?? []).slice(0, 4).join("；")}。先出草稿，不要发送。`,
-                            })
-                          }
-                        >
-                          去对话办理
-                        </button>
-                      </section>
-                    ) : null}
-                    <section
-                      className="lm-overview-card lm-overview-card--timeline"
-                      aria-label="本案进展"
-                      data-testid="lm-lawyer-matter-timeline"
-                    >
-                      <h3>本案进展</h3>
-                      {(pulse?.timeline ?? []).length === 0 ? (
-                        <p className="lm-meta">期限、来信、出稿和谈话写入后，会按时间出现在这里。</p>
-                      ) : (
-                        <div className="lm-timeline lm-matter-timeline lm-scroll">
-                          {(pulse?.timeline ?? []).map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              className={`lm-timeline-row${
-                                (item.kind === "hearing" || item.kind === "deadline") &&
-                                isOverdue(item.at)
-                                  ? " is-overdue"
-                                  : ""
-                              }`}
-                              data-testid="lm-lawyer-matter-timeline-item"
-                              onClick={() => {
-                                if (item.kind === "approval") {
-                                  onOpenNeedsDecision?.(selected.matterId);
-                                  return;
-                                }
-                                if (item.kind === "deadline" || item.kind === "hearing") {
-                                  setMatterPane("deadlines");
-                                  return;
-                                }
-                                if (item.kind === "intake") {
-                                  setTalkOpen(true);
-                                  setMatterPane("overview");
-                                  return;
-                                }
-                                setVolumeSide("docs");
-                                setMatterPane("volume");
-                              }}
-                            >
-                              <span className="lm-timeline-time">{formatTimelineDay(item.at)}</span>
-                              <span className="lm-timeline-copy">
-                                <span className="lm-desk-card-title">{item.title}</span>
-                                <span className="lm-pri lm-pri--mid">
-                                  {item.meta || MATTER_TIMELINE_KIND_ZH[item.kind]}
-                                </span>
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </section>
-                    <section
-                      className="lm-overview-card lm-overview-card--parties"
-                      aria-label="当事人"
-                      data-testid="lm-lawyer-matter-parties"
-                    >
-                      <h3>当事人</h3>
-                      <LawmindMatterPartyCards parties={overviewPartiesFromPulse(pulse)} />
-                      <button
-                        type="button"
-                        className="lm-btn lm-btn-ghost lm-btn-sm"
-                        onClick={() => {
-                          setTalkOpen(false);
-                          document.getElementById("lm-lawyer-docket-fields")?.scrollIntoView({ block: "nearest" });
-                        }}
-                      >
-                        编辑当事人
-                      </button>
-                    </section>
-                    <section className="lm-overview-card" aria-label="案件信息">
-                      <h3>案件信息</h3>
-                      <dl className="lm-dl">
-                        <dt>案号</dt>
-                        <dd>{docket.caseNo || "未填"}</dd>
-                        <dt>案由</dt>
-                        <dd>{causeOfAction || pulse?.causeOfAction || "未填"}</dd>
-                        <dt>法院</dt>
-                        <dd>{docket.court || "未填"}</dd>
-                        <dt>开庭</dt>
-                        <dd>
-                          {hearingCountdown(pulse?.daysUntilHearing ?? selected.daysUntilHearing) ||
-                            docket.hearingAt ||
-                            "未排"}
-                        </dd>
-                        <dt>标的金额</dt>
-                        <dd>{docket.claimAmount || "未填"}</dd>
-                        <dt>受理费</dt>
-                        <dd>
-                          <span>{acceptanceFee.value}</span>
-                          {acceptanceFee.hint ? (
-                            <span className="lm-meta"> {acceptanceFee.hint}</span>
-                          ) : null}
-                        </dd>
-                      </dl>
-                      <div className="lm-lawyer-inline-actions">
-                        <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => document.getElementById("lm-lawyer-docket-fields")?.scrollIntoView({ block: "nearest" })}>
-                          编辑卷宗
-                        </button>
-                        <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => setMatterPane("deadlines")}>
-                          贴传票
-                        </button>
-                      </div>
-                    </section>
-                    <section className="lm-overview-card" aria-label="文书清单">
-                      <h3>文书清单</h3>
-                      {(pulse?.documents ?? []).length === 0 ? (
-                        <p className="lm-meta">还没有本案文书。去对话交办出稿后会出现在这里。</p>
-                      ) : (
-                        <ul className="lm-lawyer-deadline-list">
-                          {(pulse?.documents ?? []).slice(0, 6).map((doc) => (
-                            <li key={doc.id} className="lm-doc-row">
-                              <span className="lm-lawyer-deadline-copy">
-                                <strong>{doc.title}</strong>
-                                <span className="lm-lawyer-today-meta">
-                                  {doc.status}
-                                  {doc.at ? ` · ${formatDueShort(doc.at)}` : ""}
-                                </span>
-                              </span>
-                              {onOpenReview && doc.taskId ? (
-                                <button
-                                  type="button"
-                                  className="lm-btn lm-btn-ghost lm-btn-sm"
-                                  onClick={() => onOpenReview({ matterId: selected.matterId, taskId: doc.taskId })}
-                                >
-                                  审查
-                                </button>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      <div className="lm-lawyer-inline-actions">
-                        <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => { setVolumeSide("docs"); setMatterPane("volume"); }}>
-                          查看全部
-                        </button>
-                        <button
-                          type="button"
-                          className="lm-btn lm-btn-sm"
-                          onClick={() =>
-                            onGoToChat({
-                              matterId: selected.matterId,
-                              prompt: "请根据本案卷宗起草下一份需要的文书，先出草稿，不要发送。",
-                            })
-                          }
-                        >
-                          去对话出稿
-                        </button>
-                      </div>
-                    </section>
-                    <div className="lm-lawyer-inline-actions">
-                      <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => setMatterPane("deadlines")}>
-                        全部期日
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-
-                {matterPane === "volume" ? (
-                  <div className="lm-pane-tabs lm-volume-switch" role="tablist" aria-label="卷内">
-                    <button
-                      type="button"
-                      role="tab"
-                      id="lm-lawyer-tab-materials"
-                      aria-selected={volumeSide === "materials"}
-                      className={`lm-pane-tab ${volumeSide === "materials" ? "is-active" : ""}`}
-                      onClick={() => setVolumeSide("materials")}
-                    >
-                      材料
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      id="lm-lawyer-tab-docs"
-                      aria-selected={volumeSide === "docs"}
-                      className={`lm-pane-tab ${volumeSide === "docs" ? "is-active" : ""}`}
-                      onClick={() => setVolumeSide("docs")}
-                    >
-                      文书
-                    </button>
-                  </div>
-                ) : null}
-
-                {matterPane === "volume" && volumeSide === "docs" ? (
-                  <section className="lm-lawyer-pane" id="lm-lawyer-pane-docs" role="tabpanel" aria-labelledby="lm-lawyer-tab-docs">
-                    <h3>文书清单</h3>
-                    {(pulse?.documents ?? []).length === 0 ? (
-                      <p className="lm-meta">还没有本案文书。去对话交办出稿后会出现在这里。</p>
-                    ) : (
-                      <ul className="lm-lawyer-deadline-list">
-                        {(pulse?.documents ?? []).map((doc) => (
-                          <li key={doc.id} className="lm-lawyer-deadline-row">
-                            <span className="lm-lawyer-deadline-copy">
-                              <strong>{doc.title}</strong>
-                              <span className="lm-lawyer-today-meta">
-                                {doc.status}
-                                {doc.at ? ` · ${formatDueShort(doc.at)}` : ""}
-                              </span>
-                            </span>
-                            <span className="lm-lawyer-inline-actions">
-                              {onOpenReview && doc.taskId ? (
-                                <button
-                                  type="button"
-                                  className="lm-btn lm-btn-ghost lm-btn-sm"
-                                  onClick={() => onOpenReview({ matterId: selected.matterId, taskId: doc.taskId })}
-                                >
-                                  去审查
-                                </button>
-                              ) : null}
-                              {onShowArtifact && doc.outputPath ? (
-                                <button
-                                  type="button"
-                                  className="lm-btn lm-btn-ghost lm-btn-sm"
-                                  onClick={() => onShowArtifact(doc.outputPath ?? "")}
-                                >
-                                  打开文件
-                                </button>
-                              ) : null}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <h3>待处理来信</h3>
-                    {(pulse?.mail ?? []).length === 0 ? (
-                      <p className="lm-meta">
-                        没有待回复或法院/合同来件。
-                        <button
-                          type="button"
-                          className="lm-btn lm-btn-ghost lm-btn-sm"
-                          onClick={() => requestOpenAutomationsSettings()}
-                        >
-                          去设置接邮箱
-                        </button>
-                      </p>
-                    ) : (
-                      <ul className="lm-lawyer-deadline-list">
-                        {(pulse?.mail ?? []).map((msg) => (
-                          <li key={msg.id} className="lm-lawyer-deadline-row">
-                            <span className="lm-lawyer-deadline-copy">
-                              <strong>{msg.subject}</strong>
-                              <span className="lm-lawyer-today-meta">
-                                {msg.labelZh} · {msg.from}
-                              </span>
-                            </span>
+                  ) : precedents.hits.length === 0 ? (
+                    <p className="lm-meta">暂无可参照的旧案交付物段落。先例只作案由与写法参照，事实以本案为准。</p>
+                  ) : (
+                    <ul className="lm-lawyer-similar-list" data-testid="lm-precedent-list">
+                      {precedents.hits.map((h, i) => (
+                        <li key={`${h.matterId}-${i}`}>
+                          <strong>{h.citeAs}</strong>
+                          {h.snippet ? <p className="lm-meta">{h.snippet}</p> : null}
+                          <div className="lm-lawyer-inline-actions">
                             <button
                               type="button"
-                              className="lm-btn lm-btn-sm"
-                              onClick={() =>
-                                onGoToChat({
-                                  matterId: selected.matterId,
-                                  prompt: `请根据本案待回复「${msg.subject}」起草回信，先出草稿，不要发送。`,
-                                })
-                              }
+                              className="lm-btn lm-btn-ghost lm-btn-sm"
+                              onClick={() => quotePrecedentToChat(h)}
                             >
-                              去回复
+                              引用到对话
                             </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-                ) : null}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <h3>已套用标准</h3>
+                  {standards.length === 0 ? (
+                    <p className="lm-meta">本案还没有自动套上口径。可在设置里写审查标准，审查合同时会带上。</p>
+                  ) : (
+                    <ul className="lm-lawyer-standards-list">
+                      {standards.map((s) => (
+                        <li key={s.id}>{s.title}</li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              ) : null}
 
-                {matterPane === "volume" && volumeSide === "materials" ? (
-                  <section
-                    className="lm-lawyer-pane"
-                    id="lm-lawyer-pane-materials"
-                    role="tabpanel"
-                    aria-labelledby="lm-lawyer-tab-materials"
-                    data-testid="lm-lawyer-matter-materials"
-                  >
-                    <h3>本案材料</h3>
-                    {(pulse?.counts.materialsOmitted ?? 0) > 0 ? (
-                      <p className="lm-meta">
-                        这一页列出最近的 {pulse?.counts.materials ?? 0} 份，
-                        {pulse?.counts.materialsSaturated ? "至少还有" : "还有"}
-                        {pulse?.counts.materialsOmitted} 份没列在这里。检索仍会查已编入的正文。
-                      </p>
-                    ) : null}
-                    <div className="lm-lawyer-inline-actions" style={{ marginBottom: 8 }}>
-                      <input
-                        className="lm-input"
-                        data-testid="lm-materials-search-input"
-                        placeholder="检索材料正文（如：违约金 条款）"
-                        value={materialsQuery}
-                        onChange={(e) => setMaterialsQuery(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            void runMaterialsSearch();
-                          }
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="lm-btn lm-btn-secondary lm-btn-sm"
-                        data-testid="lm-materials-search-run"
-                        disabled={materialsSearching || !materialsQuery.trim()}
-                        onClick={() => void runMaterialsSearch()}
-                      >
-                        {materialsSearching ? "检索中…" : "检索"}
-                      </button>
-                    </div>
-                    {materialsHits !== null ? (
-                      materialsHits.length === 0 ? (
-                        <p className="lm-meta">材料正文里没有命中。可换个关键词，或确认材料已放进本案 materials 文件夹。</p>
-                      ) : (
-                        <ul className="lm-lawyer-deadline-list" data-testid="lm-materials-search-hits">
-                          {materialsHits.map((h) => (
-                            <li key={`${h.relPath}#${h.page}`} className="lm-lawyer-deadline-row">
-                              <span className="lm-lawyer-deadline-copy">
-                                <strong>{h.fileName}（第 {h.page} 段）</strong>
-                                <span className="lm-lawyer-today-meta">{h.snippet}</span>
-                              </span>
-                              {onShowArtifact && artifactPathLooksOpenable(h.relPath) ? (
-                                <button
-                                  type="button"
-                                  className="lm-btn lm-btn-ghost lm-btn-sm"
-                                  onClick={() => onShowArtifact(h.relPath)}
-                                >
-                                  打开
-                                </button>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ul>
-                      )
-                    ) : null}
-                    {(pulse?.materials ?? []).length === 0 ? (
-                      <p className="lm-meta">
-                        把合同扫描件、证据放进本案 materials 文件夹后会出现在这里。引用进对话仍用侧栏钉选。
-                      </p>
-                    ) : (
-                      <ul className="lm-lawyer-deadline-list">
-                        {(pulse?.materials ?? []).map((file) => (
-                          <li key={file.relPath} className="lm-lawyer-deadline-row">
-                            <span className="lm-lawyer-deadline-copy">
-                              <strong>{materialDisplayPath(file.relPath)}</strong>
-                              <span className="lm-lawyer-today-meta">
-                                {formatMaterialBytes(file.size)}
-                                {file.updatedAt ? ` · ${formatDueShort(file.updatedAt)}` : ""}
-                              </span>
-                            </span>
-                            {onShowArtifact && artifactPathLooksOpenable(file.relPath) ? (
-                              <button
-                                type="button"
-                                className="lm-btn lm-btn-ghost lm-btn-sm"
-                                onClick={() => onShowArtifact(file.relPath)}
-                              >
-                                打开
-                              </button>
-                            ) : null}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <h3>出稿路径</h3>
-                    {(pulse?.files ?? []).length === 0 ? (
-                      <p className="lm-meta">还没有生成产物。对话出稿后路径会出现在这里。</p>
-                    ) : (
-                      <ul className="lm-lawyer-deadline-list">
-                        {(pulse?.files ?? []).map((file) => (
-                          <li key={file.label} className="lm-lawyer-deadline-row">
-                            <span className="lm-lawyer-deadline-copy">{file.label}</span>
-                            {onShowArtifact && artifactPathLooksOpenable(file.label) ? (
-                              <button
-                                type="button"
-                                className="lm-btn lm-btn-ghost lm-btn-sm"
-                                onClick={() => onShowArtifact(file.label)}
-                              >
-                                打开
-                              </button>
-                            ) : null}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-                ) : null}
-
-                {matterPane === "overview" ? (
-                  <details className="lm-matter-collab" data-testid="lm-lawyer-matter-collab">
-                    <summary>邀请同事</summary>
-                    <MatterReplicaPanel apiBase={apiBase} matterId={selected.matterId} />
-                  </details>
-                ) : null}
-
-                {matterPane === "overview" ? (
-                  <section className="lm-lawyer-pane" id="lm-lawyer-docket-fields" aria-label="案情">
-                    <h3>案情</h3>
-                    <LawmindMatterPartiesEditor value={partyDrafts} disabled={busy} onChange={setPartyDrafts} />
-                    <div className="lm-lawyer-docket-grid">
-                      <label>
-                        门类
-                        <select className="lm-input" value={matterKind} onChange={(e) => setMatterKind(e.target.value as MatterKind)}>
-                          {(Object.keys(MATTER_KIND_LABELS) as MatterKind[]).map((k) => (
-                            <option key={k} value={k}>
-                              {MATTER_KIND_LABELS[k]}
-                            </option>
-                          ))}
-                        </select>
-                        <span className="lm-field-hint">
-                          案由里的「合同纠纷」仍是诉讼。合同指正在审改协议。顾问和还没定的归其他。
-                        </span>
-                      </label>
-                      <label>
-                        案由
-                        <input
-                          className="lm-input"
-                          value={causeOfAction}
-                          onChange={(e) => setCauseOfAction(e.target.value)}
-                          placeholder="如：房屋租赁合同纠纷"
-                        />
-                      </label>
-                      <label>
-                        案号
-                        <input className="lm-input" value={docket.caseNo} onChange={(e) => setDocket({ ...docket, caseNo: e.target.value })} />
-                      </label>
-                      <label>
-                        法院
-                        <input className="lm-input" value={docket.court} onChange={(e) => setDocket({ ...docket, court: e.target.value })} />
-                      </label>
-                      <label>
-                        审级
-                        <input className="lm-input" value={docket.instance} onChange={(e) => setDocket({ ...docket, instance: e.target.value })} />
-                      </label>
-                      <label>
-                        诉讼地位
-                        <input className="lm-input" value={docket.standing} onChange={(e) => setDocket({ ...docket, standing: e.target.value })} />
-                      </label>
-                      <label>
-                        开庭日
-                        <input className="lm-input" value={docket.hearingAt} onChange={(e) => setDocket({ ...docket, hearingAt: e.target.value })} />
-                      </label>
-                      <label>
-                        标的金额
-                        <input
-                          className="lm-input"
-                          value={docket.claimAmount ?? ""}
-                          onChange={(e) => setDocket({ ...docket, claimAmount: e.target.value })}
-                          placeholder="如：32,100 元（照原文）"
-                        />
-                      </label>
-                    </div>
-                    <button type="button" className="lm-btn lm-btn-sm" disabled={busy} onClick={() => void saveDocket()}>
-                      保存卷宗
-                    </button>
-                    <p className="lm-meta">材料在卷内。邀请同事在上方。</p>
-                  </section>
-                ) : null}
-
-                {matterPane === "deadlines" ? (
-                  <section
-                    className={`lm-lawyer-pane${deadlinesDrop.active ? " lm-chat-drop-active" : ""}`}
-                    id="lm-lawyer-pane-deadlines"
-                    role="tabpanel"
-                    aria-labelledby="lm-lawyer-tab-deadlines"
-                    data-testid="lm-lawyer-deadlines-drop"
-                    {...deadlinesDrop.dropProps}
-                  >
-                    <h3>期限 / 开庭</h3>
-                    <p className="lm-meta">可粘贴文字，或把传票 PDF/图片拖到这里；抽出后仍须确认写入。</p>
-                    {deadlines.length === 0 ? (
-                      <p className="lm-meta">还没有期限。把传票或 12368 短信贴到下面，确认后写入。</p>
-                    ) : (
-                      <ul className="lm-lawyer-deadline-list">
-                        {deadlines.map((d) => (
-                          <li
-                            key={d.deadlineId}
-                            className={`lm-lawyer-deadline-row${d.status === "completed" ? " is-done" : ""}${d.released === false ? " is-waiting" : ""}`}
-                          >
-                            <span className="lm-lawyer-deadline-copy">
-                              <strong>
-                                {eventKindLabel(d.eventKind)} · {d.title}
-                              </strong>
-                              <span className="lm-lawyer-today-meta">{formatDueShort(d.dueAt)}</span>
-                              <DeadlineSourceBadge row={d} />
-                              <DeadlineWaitingLine row={d} />
-                            </span>
-                            <span className="lm-lawyer-deadline-actions">
-                              {d.eventKind !== "hearing" && d.status !== "completed" ? (
-                                <select
-                                  className="lm-input lm-deadline-depends"
-                                  aria-label={`前置期限：${d.title}`}
-                                  value={d.dependsOnDeadlineId ?? ""}
-                                  onChange={(e) => void setDeadlineDependsOn(d.deadlineId, e.target.value)}
-                                >
-                                  <option value="">无前置</option>
-                                  {deadlines
-                                    .filter((row) => row.deadlineId !== d.deadlineId)
-                                    .map((row) => (
-                                      <option key={row.deadlineId} value={row.deadlineId}>
-                                        {eventKindLabel(row.eventKind)} · {row.title}
-                                      </option>
-                                    ))}
-                                </select>
-                              ) : null}
-                              {d.status === "open" || d.status === "snoozed" ? (
-                                <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => void completeDeadline(d.deadlineId)}>
-                                  完成
-                                </button>
-                              ) : (
-                                <span className="lm-meta">{d.status === "completed" ? "已完成" : d.status}</span>
-                              )}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {deadlines.length > 0 ? (
-                      <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => void exportIcs()}>
-                        导出日历
-                      </button>
-                    ) : null}
-                    <textarea
-                      className="lm-input"
-                      rows={3}
-                      value={extractText}
-                      onChange={(e) => setExtractText(e.target.value)}
-                      placeholder="粘贴传票、法院短信或期限告知"
-                      aria-label="抽取期限材料"
-                    />
-                    <div className="lm-lawyer-inline-actions">
-                      <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" disabled={busy} onClick={() => void runExtract()}>
-                        抽出期限
-                      </button>
-                      {extracted.length > 0 ? (
-                        <button type="button" className="lm-btn lm-btn-sm" disabled={busy} onClick={() => void confirmEvents()}>
-                          确认写入（{extracted.length}）
-                        </button>
-                      ) : null}
-                    </div>
-                    {extracted.length > 0 ? (
-                      <ul className="lm-lawyer-extract-preview">
-                        {extracted.map((e, i) => (
-                          <li key={`${e.title}-${i}`}>
-                            {e.title}
-                            {e.dueAt ? ` · ${e.dueAt}` : " · 日期待补"}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </section>
-                ) : null}
-
-                {matterPane === "overview" && (selected.matterKind === "litigation" || matterKind === "litigation") ? (
-                  <section
-                    className={`lm-lawyer-pane${talkDrop.active ? " lm-chat-drop-active" : ""}`}
-                    id="lm-lawyer-pane-intake"
-                    role="tabpanel"
-                    aria-labelledby="lm-lawyer-tab-intake"
-                    data-testid="lm-lawyer-talk-drop"
-                    {...talkDrop.dropProps}
-                  >
-                    <h3>谈话整理</h3>
-                    <p className="lm-meta">可粘贴谈话，或拖入 PDF/图片；整理后仍须点「写入本案档案」。</p>
-                    <textarea
-                      className="lm-input"
-                      rows={5}
-                      value={talk}
-                      onChange={(e) => setTalk(e.target.value)}
-                      placeholder="粘贴客户谈话记录"
-                      aria-label="谈话记录"
-                      data-testid="lm-lawyer-talk-input"
-                    />
-                    <div className="lm-lawyer-inline-actions">
-                      <button type="button" className="lm-btn lm-btn-sm" disabled={busy} onClick={() => void compileTalk()}>
-                        整理谈话
-                      </button>
-                      {brief && !brief.confirmedAt ? (
-                        <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" disabled={busy} onClick={() => void confirmIntake()}>
-                          写入本案档案
-                        </button>
-                      ) : null}
-                    </div>
-                    {brief?.confirmedAt ? <p className="lm-meta">已写入档案 · {formatDueShort(brief.confirmedAt)}</p> : null}
-                    {brief ? <IntakeBriefBlocks brief={brief} onApplyCause={(label) => void applyCause(label)} /> : null}
-                  </section>
-                ) : null}
-
-                {matterPane === "overview" && (similar.length > 0 || (precedents?.hits.length ?? 0) > 0) ? (
-                  <section className="lm-lawyer-pane" id="lm-lawyer-pane-review" role="tabpanel" aria-labelledby="lm-lawyer-tab-review">
-                    <h3>相关旧案</h3>
-                    {similar.length === 0 ? (
-                      <p className="lm-meta">还没有足够接近的旧案。对照只看案由和证据缺口，不会把旧案事实写入本案。</p>
-                    ) : (
-                      <ul className="lm-lawyer-similar-list">
-                        {similar.map((h) => (
-                          <li key={h.matterId}>
-                            <button
-                              type="button"
-                              className="lm-lawyer-similar-open"
-                              onClick={() => openMatter(h.matterId)}
-                            >
-                              <strong>{h.causeOfAction || h.matterId || "相近案件"}</strong>
-                            </button>
-                            {h.snippet ? <p className="lm-meta">{h.snippet}</p> : null}
-                            {h.evidenceHints.length > 0 ? <p className="lm-meta">证据缺口对照：{h.evidenceHints.join("；")}</p> : null}
-                            <p className="lm-meta">{h.displayWarning}</p>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <h3>可引用先例</h3>
-                    {precedents === null ? (
-                      <p className="lm-meta">正在检索旧案交付物…</p>
-                    ) : !precedents.enabled ? (
-                      <p className="lm-meta">先例检索还没在这台电脑上打开。打开之后，这里会列出旧案已签批文书里可参照的段落。</p>
-                    ) : precedents.hits.length === 0 ? (
-                      <p className="lm-meta">暂无可参照的旧案交付物段落。先例只作案由与写法参照，事实以本案为准。</p>
-                    ) : (
-                      <ul className="lm-lawyer-similar-list" data-testid="lm-precedent-list">
-                        {precedents.hits.map((h, i) => (
-                          <li key={`${h.matterId}-${i}`}>
-                            <strong>{h.citeAs}</strong>
-                            {h.snippet ? <p className="lm-meta">{h.snippet}</p> : null}
-                            <div className="lm-lawyer-inline-actions">
-                              <button
-                                type="button"
-                                className="lm-btn lm-btn-ghost lm-btn-sm"
-                                onClick={() => quotePrecedentToChat(h)}
-                              >
-                                引用到对话
-                              </button>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <h3>已套用标准</h3>
-                    {standards.length === 0 ? (
-                      <p className="lm-meta">本案还没有自动套上口径。可在设置里写审查标准，审查合同时会带上。</p>
-                    ) : (
-                      <ul className="lm-lawyer-standards-list">
-                        {standards.map((s) => (
-                          <li key={s.id}>{s.title}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-                ) : null}
-              </div>
-            </>
-          )}
-        </div>
-            )}
+              <details className="lm-matter-collab" data-testid="lm-lawyer-matter-collab">
+                <summary>邀请同事</summary>
+                <MatterReplicaPanel apiBase={apiBase} matterId={selected.matterId} />
+              </details>
+            </details>
           </div>
+        )}
+      </div>
     </section>
   );
 }
-

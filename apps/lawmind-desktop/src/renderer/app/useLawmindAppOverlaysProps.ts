@@ -1,4 +1,5 @@
 import { useMemo, type RefObject } from "react";
+import { requestOpenCollaborationSettings } from "../lawmind-automations-nav-bus";
 import { useSettingsPanelStore } from "../stores/settings-panel-store";
 import type { AgentsDeskTab } from "../lawmind-agents-desk";
 import type { AssistantEditorDraft } from "../lawmind-assistant-editor";
@@ -197,8 +198,7 @@ export function useLawmindAppOverlaysProps(input: UseLawmindAppOverlaysPropsInpu
       onCloseHelp: () => setShowHelp(false),
       onOpenWorkflowLibrary: config
         ? () => {
-            setAgentsDeskTab("workflows");
-            setMainView("agents");
+            requestOpenCollaborationSettings();
           }
         : undefined,
       onOpenAdvancedSettings: () => {

@@ -15,7 +15,7 @@ export function LawmindOutboundSignoffCallout(): ReactNode {
     >
       <div className="lm-callout-title">此流程会把材料发给别人</div>
       <p className="lm-callout-body">
-        对外发信仍要单独「批准发送」。是否同时开启<strong>签批审阅</strong>？开启后，所有待审稿都会进入「待我拍板」由您通过或驳回（对所有案件生效，不限本流程）。关闭则内部稿直接出结果，您可随时改稿。
+        对外发信仍要单独「批准发送」，在工作台该案的「现在」里。内部稿直接出结果，您可随时改稿。
       </p>
       <label className="lm-outbound-signoff-check">
         <input

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  docxCellWithDirectory,
   publicWebUrl,
   statuteJumpUrl,
   tryConsumeBareChatTarget,
   tryConsumeLawyerChatLink,
+  wpsDeliverableHref,
+  wpsDeliverablePath,
   workspaceChatFile,
 } from "./lawyer-chat-link.js";
 
@@ -40,12 +43,19 @@ describe("lawyer chat links", () => {
       canvas: true,
     });
     expect(tryConsumeLawyerChatLink("[合同](cases/m/派遣协议.docx:12:3)", 0)?.link).toEqual({
-      kind: "file",
+      kind: "wps",
       label: "合同",
       path: "cases/m/派遣协议.docx",
-      canvas: false,
-      line: 12,
-      column: 3,
+    });
+    expect(
+      tryConsumeLawyerChatLink(
+        "[国浩改-26年9月-装饰装修施工合同.docx](非技术相关/采购合同模板/基建工程/国浩改-26年9月-装饰装修施工合同.docx)",
+        0,
+      )?.link,
+    ).toEqual({
+      kind: "wps",
+      label: "国浩改-26年9月-装饰装修施工合同.docx",
+      path: "非技术相关/采购合同模板/基建工程/国浩改-26年9月-装饰装修施工合同.docx",
     });
   });
 
@@ -78,6 +88,20 @@ describe("lawyer chat links", () => {
     expect(statuteJumpUrl("https://www.pkulaw.com/chl/x", "同工同酬")).toContain("pkulaw.com");
   });
 
+  it("opens a deliverable path in WPS and refuses paths outside the workspace", () => {
+    const href = wpsDeliverableHref("cases/m/派遣 协议.docx");
+    expect(href).toBe(`lm-wps:${encodeURIComponent("cases/m/派遣 协议.docx")}`);
+    expect(tryConsumeLawyerChatLink(`[cases/m/派遣 协议.docx](${href})`, 0)?.link).toEqual({
+      kind: "wps",
+      label: "cases/m/派遣 协议.docx",
+      path: "cases/m/派遣 协议.docx",
+    });
+    expect(wpsDeliverablePath("../secret.docx")).toBeNull();
+    expect(wpsDeliverablePath("/tmp/secret.docx")).toBeNull();
+    expect(wpsDeliverablePath("notes/memo.md")).toBeNull();
+    expect(tryConsumeLawyerChatLink("[越界](lm-wps:..%2Fsecret.docx)", 0)?.link.kind).toBe("plain");
+  });
+
   it("picks bare urls and files out of a sentence without eating the punctuation", () => {
     const web = tryConsumeBareChatTarget("见https://flk.npc.gov.cn/a。", 1);
     expect(web?.link).toMatchObject({ kind: "web", url: "https://flk.npc.gov.cn/a" });
@@ -90,5 +114,21 @@ describe("lawyer chat links", () => {
     });
     expect(tryConsumeBareChatTarget("见 https://127.0.0.1/secret", 2)).toBeNull();
     expect(tryConsumeBareChatTarget("不要 ../secret.docx", 3)).toBeNull();
+  });
+
+  it("joins a table filename with the directory column", () => {
+    const cell = docxCellWithDirectory("国浩改-26年9月-装饰装修施工合同.docx", [
+      "国浩改-26年9月-装饰装修施工合同.docx",
+      "非技术相关/采购合同模板/基建工程类合同/",
+    ]);
+    expect(cell).toBe(
+      "[国浩改-26年9月-装饰装修施工合同.docx](非技术相关/采购合同模板/基建工程类合同/国浩改-26年9月-装饰装修施工合同.docx)",
+    );
+    expect(
+      docxCellWithDirectory("租赁合同（物）FB-QT-017_**20260928_01**.docx", [
+        "租赁合同（物）FB-QT-017_**20260928_01**.docx",
+        "非技术相关/采购合同模板/租赁合同/",
+      ]),
+    ).toContain("租赁合同（物）FB-QT-017_20260928_01.docx)");
   });
 });

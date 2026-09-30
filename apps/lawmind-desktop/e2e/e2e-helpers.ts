@@ -145,6 +145,7 @@ export function installE2eDesktopBridge(page: { addInitScript: Page["addInitScri
       fsWrite: async () => ({ ok: false, error: "e2e stub read-only" }),
       showItemInFolder: async () => ({ ok: true }),
       openWithSystem: async () => ({ ok: true }),
+      openWithWps: async () => ({ ok: true }),
       openExternal: async () => undefined,
       showNotification: async () => undefined,
     };
@@ -210,17 +211,14 @@ export async function bootstrapE2ePage(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
 }
 
-/** Open 在办 on the pending draft. Sign-off, 待定夺, and 专案组 live there. */
+/** 打开工作台。审稿不在单独的在办页。 */
 export async function openReviewDraft(page: Page, _taskId = "e2e-draft-1"): Promise<void> {
   await dismissBlockingDialogs(page);
   await leaveSettingsIfOpen(page);
-  const agentsTab = page.getByRole("navigation", { name: "功能模块" }).getByRole("button", {
-    name: "在办",
-    exact: true,
-  });
-  await agentsTab.click();
-  await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole("button", { name: "签批" }).first()).toBeVisible({ timeout: 30_000 });
+  const desk = page.getByRole("navigation", { name: "功能模块" }).getByTestId("lm-tab-desk");
+  await desk.click();
+  await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("lm-tab-agents")).toHaveCount(0);
 }
 
 /** Ensure review meta side pane + advanced section are open (acceptance gate / gate list live there). */
@@ -270,7 +268,6 @@ export async function gotoShell(page: Page): Promise<void> {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.locator(".lm-shell")).toBeVisible({ timeout: 60_000 });
   await dismissBlockingDialogs(page);
-  // 待我拍板 only appears when there are pending decisions (mock returns ≥1).
   await expect(
     page
       .getByRole("navigation", { name: "主导航" })
@@ -278,12 +275,8 @@ export async function gotoShell(page: Page): Promise<void> {
       .or(page.getByTestId("lm-cockpit-nav"))
       .first(),
   ).toBeVisible({ timeout: 30_000 });
-  await expect(
-    page
-      .getByTestId("lm-side-needs-decision")
-      .or(page.getByTestId("lm-side-action-hub"))
-      .first(),
-  ).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("lm-tab-agents")).toHaveCount(0);
+  await expect(page.getByTestId("lm-side-needs-decision")).toHaveCount(0);
   // Wait for mock health (modelConfigured) so readiness strip clears before chat assertions.
   await expect(page.locator(".lm-readiness-strip")).toHaveCount(0, { timeout: 45_000 });
   await expect(
@@ -302,7 +295,7 @@ async function leaveSettingsIfOpen(page: Page): Promise<void> {
   }
 }
 
-/** 「看修订」回到对话，不打开全文改稿台。 */
+/** 对话是干活的地方，不打开全文改稿台。 */
 export async function openReviewWorkbench(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
   await leaveSettingsIfOpen(page);
@@ -310,13 +303,8 @@ export async function openReviewWorkbench(page: Page): Promise<void> {
   const mainNav = page.getByRole("navigation", { name: "功能模块" });
   await expect(mainNav).toBeVisible({ timeout: 30_000 });
   await expect(mainNav.getByTestId("lm-tab-review")).toHaveCount(0);
-  const agentsTab = mainNav.getByRole("button", { name: "在办", exact: true });
-  await agentsTab.click();
-  await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
-  const openRevision = page.getByTestId("lm-agents-open-review");
-  await expect(openRevision).toBeVisible({ timeout: 30_000 });
-  await expect(openRevision).toHaveText("看修订");
-  await openRevision.click();
+  await expect(mainNav.getByTestId("lm-tab-agents")).toHaveCount(0);
+  await mainNav.getByTestId("lm-tab-workspace").click();
   await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
   await expect(
     page.locator("#lawmind-chat-messages-panel").or(page.getByRole("region", { name: "对话消息" })).first(),
@@ -336,7 +324,7 @@ export async function openMatterCockpit(page: Page): Promise<void> {
     await expect(deskTab).toBeVisible({ timeout: 30_000 });
     await deskTab.click({ force: true });
     await expect(deskTab).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
-    const matterCard = page.locator(".lm-desk-col--matters button, .lm-lawyer-matter-row").first();
+    const matterCard = page.locator(".lm-matter-card").first();
     if (await matterCard.isVisible().catch(() => false)) {
       await matterCard.click({ force: true });
     }
@@ -438,12 +426,9 @@ export async function openWorkspaceChat(page: Page): Promise<void> {
   ).toBeVisible({ timeout: 30_000 });
 }
 
-/** 签批在在办，不在全文改稿台。 */
+/** 工作台在，全文改稿台不在。 */
 export async function assertReviewGateList(page: Page): Promise<void> {
   await openReviewDraft(page);
   await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "签批" }).first()).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId("lm-fleet-desk-checklist").or(page.getByText("必核")).first()).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible({ timeout: 30_000 });
 }

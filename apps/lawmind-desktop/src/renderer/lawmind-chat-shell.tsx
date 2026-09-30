@@ -20,6 +20,8 @@ import {
 } from "./lawmind-panel-layout";
 import { usePaneResizeVerticalPx } from "./use-pane-resize";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
+import { LawmindChatOutboundHint } from "./LawmindChatOutboundHint";
+import { requestOpenMatterOutbound } from "./lawmind-desk-outbound";
 import { LawmindIntentStatusBar } from "./LawmindIntentStatusBar";
 import { LawmindChatComposeChrome } from "./lawmind-chat-compose-chrome";
 import { LawmindChatComposeToolbar } from "./lawmind-chat-compose-toolbar";
@@ -41,11 +43,7 @@ import { LawmindComposeContextPicker } from "./LawmindComposeContextPicker";
 import { LawmindComposeTemplateGallery } from "./LawmindComposeTemplateGallery";
 import type { ReviewOpenTarget } from "./LawmindChatReviewSticky";
 import type { FileChatContextItem } from "./lawmind-app-shell";
-import {
-  lawyerFacingDecisionTotal,
-  lawyerFacingQueueScopeHint,
-  useRequireSignoffReview,
-} from "./lawmind-review-prefs";
+import { lawyerFacingDecisionTotal, useRequireSignoffReview } from "./lawmind-review-prefs";
 import {
   encodeFileContextPin,
   type ComposeContextPin,
@@ -548,16 +546,16 @@ export function LawmindChatComposeFooter({
       {
         id: "hub",
         slash: "/hub",
-        label: pendingDecisionTotal > 0 ? `待我拍板 (${pendingDecisionTotal})` : "待我拍板",
-        hint: lawyerFacingQueueScopeHint(requireSignoffReview),
-        run: () => openNeedsDecisionDesk?.(),
-      },
-      {
-        id: "agents",
-        slash: "/agents",
-        label: "在办",
-        hint: "打开在办，先看要你处理的",
-        run: () => openNeedsDecisionDesk?.(),
+        label: "工作台",
+        hint: "打开工作台，待发出跟在案件里",
+        run: () => {
+          const mid = contextMatterId?.trim();
+          if (mid) {
+            requestOpenMatterOutbound(mid);
+            return;
+          }
+          openNeedsDecisionDesk?.();
+        },
       },
       {
         id: "automations",
@@ -996,6 +994,7 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
           }
         }}
       />
+      <LawmindChatOutboundHint apiBase={props.apiBase} matterId={props.contextMatterId} />
       <LawmindChatComposeFooter
         composeExtras={props.composeExtras}
         currentMessages={props.currentMessages}

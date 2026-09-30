@@ -92,15 +92,23 @@ describe("renderLegalMarkdown tables and math", () => {
     expect(host.textContent).not.toContain("lm-session:");
   });
 
-  it("renders draft, web, file, and canvas jumps", async () => {
+  it("renders draft, web, canvas, and opens office files with WPS", async () => {
     const opened: string[] = [];
     const drafts: string[] = [];
     const files: Array<{ relPath?: string; line?: number }> = [];
-    const previous = window.open;
+    const wps: Array<{ root?: string; path?: string }> = [];
+    const previousOpen = window.open;
+    const previousDesktop = window.lawmindDesktop;
     window.open = ((url: string) => {
       opened.push(url);
       return null;
     }) as typeof window.open;
+    window.lawmindDesktop = {
+      openWithWps: async (payload: { root: string; path: string }) => {
+        wps.push(payload);
+        return { ok: true };
+      },
+    } as unknown as Window["lawmindDesktop"];
     const onFile = (ev: Event) => {
       const detail = (ev as CustomEvent<{ relPath?: string; line?: number }>).detail;
       files.push({
@@ -122,14 +130,15 @@ describe("renderLegalMarkdown tables and math", () => {
     const draft = host.querySelector("[data-testid='lm-md-draft-link']");
     const webs = [...host.querySelectorAll("[data-testid='lm-md-web-link']")];
     const canvas = host.querySelector("[data-testid='lm-md-canvas-link']");
-    const file = host.querySelector("[data-testid='lm-md-file-link']");
+    const office = host.querySelector("[data-testid='lm-word-check-open']");
     expect(draft?.textContent).toBe("派遣协议");
     expect(webs.map((node) => node.textContent)).toEqual([
       "《劳动合同法》第63条",
       "裁判文书",
     ]);
     expect(canvas?.textContent).toBe("费用核对");
-    expect(file?.textContent).toBe("cases/m/派遣协议.docx:8");
+    expect(office?.textContent).toBe("cases/m/派遣协议.docx:8");
+    expect(host.querySelector("[data-testid='lm-md-file-link']")).toBeNull();
     expect(host.textContent).toContain("后台");
     expect(host.textContent).not.toContain("127.0.0.1");
     expect(host.textContent).not.toContain("lm-draft:");
@@ -138,15 +147,84 @@ describe("renderLegalMarkdown tables and math", () => {
       draft?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       webs[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       canvas?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      file?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      office?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
-    window.open = previous;
+    window.open = previousOpen;
+    window.lawmindDesktop = previousDesktop;
     expect(drafts).toEqual(["task-9"]);
     expect(opened.some((url) => url.includes("flk.npc.gov.cn"))).toBe(true);
     expect(files).toEqual([
       { relPath: "canvas/核对.canvas.tsx" },
-      { relPath: "cases/m/派遣协议.docx", line: 8 },
+      { relPath: "cases/m/派遣协议.docx" },
     ]);
+    expect(wps).toEqual([]);
+  });
+
+  it("left-clicks a project Word table row into review, and right-click keeps WPS", async () => {
+    const wps: Array<{ root?: string; path?: string }> = [];
+    const files: Array<{ relPath?: string; root?: string }> = [];
+    const previousDesktop = window.lawmindDesktop;
+    window.lawmindDesktop = {
+      openWithWps: async (payload: { root: string; path: string }) => {
+        wps.push(payload);
+        return { ok: true };
+      },
+    } as unknown as Window["lawmindDesktop"];
+    const onFile = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ relPath?: string; root?: string }>).detail;
+      files.push({ relPath: detail?.relPath, root: detail?.root });
+    };
+    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+    const rel = "非技术相关/采购合同模板/基建工程类合同/国浩改-26年9月-装饰装修施工合同.docx";
+    let menuPath = "";
+    await act(async () => {
+      root.render(
+        <div>
+          {renderLegalMarkdown(
+            `| 文件 | 位置 |\n| --- | --- |\n| 国浩改-26年9月-装饰装修施工合同.docx | 非技术相关/采购合同模板/基建工程类合同/ |`,
+            {
+              onReviewFileMenu: (_x, _y, path) => {
+                menuPath = path;
+              },
+            },
+          )}
+        </div>,
+      );
+    });
+    const link = host.querySelector("[data-testid='lm-word-check-open']");
+    expect(link?.textContent).toBe("国浩改-26年9月-装饰装修施工合同.docx");
+    await act(async () => {
+      link?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(files).toEqual([{ relPath: rel, root: "project" }]);
+    expect(wps).toEqual([]);
+    await act(async () => {
+      link?.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 4, clientY: 6 }),
+      );
+    });
+    expect(menuPath).toBe(rel);
+    window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+    window.lawmindDesktop = previousDesktop;
+  });
+
+  it("opens a deliverable Word address in the review surface", async () => {
+    const files: string[] = [];
+    const onFile = (ev: Event) => {
+      files.push((ev as CustomEvent<{ relPath?: string }>).detail?.relPath ?? "");
+    };
+    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+    const href = `lm-wps:${encodeURIComponent("cases/m/函.docx")}`;
+    await act(async () => {
+      root.render(<div>{renderLegalMarkdown(`交付文件\n- [cases/m/函.docx](${href})`)}</div>);
+    });
+    const link = host.querySelector("[data-testid='lm-word-check-open']");
+    expect(link?.textContent).toBe("cases/m/函.docx");
+    await act(async () => {
+      link?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+    expect(files).toEqual(["cases/m/函.docx"]);
   });
 });

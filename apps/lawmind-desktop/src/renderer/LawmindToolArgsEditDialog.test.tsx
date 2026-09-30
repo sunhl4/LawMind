@@ -39,7 +39,7 @@ describe("LawmindToolArgsEditDialog", () => {
       document.body.querySelector('[data-testid="lm-tool-args-edit-doc-redirect"]'),
     ).toBeTruthy();
     expect(document.body.querySelector('[data-size="compact"]')).toBeTruthy();
-    expect(document.body.textContent).toContain("短字段；全文请改稿");
+    expect(document.body.textContent).toContain("短字段；全文在中间栏改");
     expect(
       document.body.querySelector('[data-testid="lm-tool-args-edit-dialog"] h2')?.textContent,
     ).toBe("改参数");

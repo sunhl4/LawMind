@@ -142,7 +142,99 @@ export function hearingCountdown(days: number | null | undefined): string | null
   if (days === 0) {
     return "今天开庭";
   }
+  if (days === 1) {
+    return "明天开庭";
+  }
+  if (days === 2) {
+    return "后天开庭";
+  }
   return `还有 ${days} 天开庭`;
+}
+
+/** 案卷列表顶上可点的过滤。点一下只滤列表，不再另开一栏。 */
+export type DeskListFilter = "all" | "outbound" | "overdue" | "unreplied";
+
+export type MatterUrgencyInput = {
+  status?: string;
+  daysUntilHearing?: number | null;
+  outboundCount: number;
+  unreplied: boolean;
+  overdueDeadline: boolean;
+  /** 未过期、且在 7 天内的最近一条期限。 */
+  daysUntilDeadline?: number | null;
+};
+
+/** 一行案子只留最热的一件事。没有这些，调用方就只显示案名。 */
+export function matterHotLine(input: MatterUrgencyInput): string | null {
+  if (input.overdueDeadline) {
+    return "期限已过";
+  }
+  if (input.outboundCount === 1) {
+    return "有一封待发出";
+  }
+  if (input.outboundCount > 1) {
+    return `${input.outboundCount} 封待发出`;
+  }
+  if (input.unreplied) {
+    return "有来信未回";
+  }
+  if (typeof input.daysUntilHearing === "number" && input.daysUntilHearing <= 7) {
+    return hearingCountdown(input.daysUntilHearing);
+  }
+  const due = input.daysUntilDeadline;
+  if (typeof due === "number" && due >= 0 && due <= 7) {
+    if (due === 0) {
+      return "今天到期";
+    }
+    if (due === 1) {
+      return "明天到期";
+    }
+    if (due === 2) {
+      return "后天到期";
+    }
+    return `还有 ${due} 天到期`;
+  }
+  return null;
+}
+
+/** 越小越靠前。已结案沉底。 */
+export function urgencyListRank(input: MatterUrgencyInput): number {
+  if (input.status === "closed" || input.status === "delivered") {
+    return 800;
+  }
+  if (input.overdueDeadline) {
+    return 0;
+  }
+  if (input.outboundCount > 0) {
+    return 10;
+  }
+  if (input.unreplied) {
+    return 20;
+  }
+  if (typeof input.daysUntilHearing === "number" && input.daysUntilHearing <= 7) {
+    return 30 + Math.max(0, input.daysUntilHearing);
+  }
+  const due = input.daysUntilDeadline;
+  if (typeof due === "number" && due >= 0 && due <= 7) {
+    return 50 + due;
+  }
+  return 120;
+}
+
+export function matterMatchesListFilter(
+  filter: DeskListFilter,
+  input: Pick<MatterUrgencyInput, "outboundCount" | "unreplied" | "overdueDeadline">,
+): boolean {
+  if (filter === "outbound") {
+    return input.outboundCount > 0;
+  }
+  if (filter === "overdue") {
+    return input.overdueDeadline;
+  }
+  if (filter === "unreplied") {
+    return input.unreplied;
+  }
+  return true;
 }
 
 export function formatTimelineDay(at: string): string {

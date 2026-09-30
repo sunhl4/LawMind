@@ -14,9 +14,9 @@ import {
   readRedlineProposal,
   type RedlineHunk,
 } from "./redline-proposal.js";
-import { wordCheckMarker } from "./word-review-marker.js";
+import { reviewFileRel, wordCheckMarker } from "./word-review-marker.js";
 
-export { splitWordCheckMarkers, wordCheckMarker } from "./word-review-marker.js";
+export { reviewFileRel, splitWordCheckMarkers, wordCheckMarker } from "./word-review-marker.js";
 
 export type WordReviewTicket = {
   schemaVersion: 1;
@@ -198,7 +198,7 @@ export function openWordCheckMarker(workspaceDir: string, taskId: string): strin
   if (!ticket || ticket.closedAt) {
     return undefined;
   }
-  return wordCheckMarker(ticket.taskId);
+  return wordCheckMarker(ticket.taskId, reviewFileRel(ticket.baselineRel, ticket.reviewAbs));
 }
 
 export function appendOpenWordCheckMarkers(params: {

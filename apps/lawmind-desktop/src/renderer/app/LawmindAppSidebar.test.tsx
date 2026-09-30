@@ -234,19 +234,12 @@ describe("LawmindAppSidebar", () => {
     expect(host.querySelector(".lm-side-explorer-skeleton")).not.toBeNull();
   });
 
-  it("shows 待我拍板 only when there are pending decisions", async () => {
+  it("does not show 待我拍板 in the sidebar", async () => {
     await act(async () => {
-      root.render(<LawmindAppSidebar {...baseProps({ mainView: "workspace", actionSummaryTotal: 0 })} />);
+      root.render(<LawmindAppSidebar {...baseProps({ mainView: "workspace", actionSummaryTotal: 2 })} />);
     });
     expect(host.querySelector('[data-testid="lm-side-needs-decision"]')).toBeNull();
-
-    await act(async () => {
-      root.render(<LawmindAppSidebar {...baseProps({ mainView: "agents", actionSummaryTotal: 2 })} />);
-    });
-    expect(host.querySelector('[data-testid="lm-side-needs-decision"]')?.textContent).toContain("待我拍板");
-    expect(host.querySelector('[data-testid="lm-side-needs-decision"]')?.textContent).toContain("2");
-    expect(host.querySelector('[data-testid="lm-side-collab-completed"]')).toBeNull();
-    expect(host.textContent).not.toContain("刚办完");
+    expect(host.textContent).not.toContain("待我拍板");
   });
 
   it("shows 对话 session list on workspace when chat handlers are provided", async () => {

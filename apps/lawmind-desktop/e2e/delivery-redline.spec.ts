@@ -17,31 +17,19 @@ test.describe("交付链路：红线 / 审阅稿 / 删除草稿 / 澄清 resume"
     await request.post(`${e2eMockApiBase()}/__e2e__/reset`);
   });
 
-  test("修订不在改稿台，签批在在办", async ({ page }) => {
+  test("修订不在改稿台，顶栏没有在办", async ({ page }) => {
     await gotoShell(page);
     await openReviewDraft(page);
     await expect(page.locator(".lm-review-workbench-root, .lm-review-redline-item")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "签批" }).first()).toBeVisible();
-    await expect(page.getByTestId("lm-fleet-primary-review")).toHaveText("看修订");
+    await expect(page.getByTestId("lm-tab-agents")).toHaveCount(0);
+    await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible();
   });
 
-  test("在办可以丢弃待签批草稿", async ({ page }) => {
+  test("待发出不在单独的在办页", async ({ page }) => {
     await gotoShell(page);
-    const reset = await page.request.post(`${e2eMockApiBase()}/api/drafts/e2e-draft-1/review`, {
-      data: { status: "pending" },
-    });
-    expect(reset.ok()).toBe(true);
     await openReviewDraft(page);
-    await page.getByTestId("lm-fleet-draft-more").locator("summary").click();
-    const deleteBtn = page.getByTestId("lm-fleet-discard-pending-draft");
-    await expect(deleteBtn).toBeVisible({ timeout: 30_000 });
-    const deleteWait = page.waitForResponse(
-      (res) =>
-        res.url().includes("/api/drafts/e2e-draft-1") && res.request().method() === "DELETE",
-    );
-    await deleteBtn.click();
-    await page.getByTestId("lm-confirm-dialog-ok").click();
-    await deleteWait;
+    await expect(page.getByTestId("lm-fleet-discard-pending-draft")).toHaveCount(0);
+    await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible();
   });
 
   test("对话内澄清提交走 /api/chat/resume 并带 clarificationAnswers", async ({ page }) => {

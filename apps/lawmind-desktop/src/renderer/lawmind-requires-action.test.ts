@@ -29,7 +29,7 @@ describe("parseRequiresActionsFromResponse", () => {
 });
 
 describe("chatThreadDecisionActions", () => {
-  it("keeps outbound / clarification and drops continue_tools from the thread", () => {
+  it("keeps continue, outbound, and clarification in the thread", () => {
     const out = chatThreadDecisionActions([
       {
         id: "c1",
@@ -61,7 +61,7 @@ describe("chatThreadDecisionActions", () => {
         createdAt: "2026-01-01T00:00:00.000Z",
       },
     ]);
-    expect(out.map((a) => a.id)).toEqual(["m1"]);
+    expect(out.map((a) => a.id)).toEqual(["c1", "m1"]);
   });
 
   it("keeps a delivery continue card in the thread so 点继续 is a real button", () => {
@@ -88,7 +88,7 @@ describe("chatThreadDecisionActions", () => {
         createdAt: "2026-01-01T00:00:00.000Z",
       },
     ]);
-    expect(out.map((a) => a.id)).toEqual(["delivery"]);
+    expect(out.map((a) => a.id)).toEqual(["budget", "delivery"]);
   });
 
   it("keeps an interrupted-turn card and the gate-stop notice in the thread", () => {
@@ -122,7 +122,6 @@ describe("chatThreadDecisionActions", () => {
         createdAt: "2026-01-01T00:00:00.000Z",
       },
     ]);
-    // 预算卡片仍只进在办；中断卡片与门禁缺口必须留在对话里。
-    expect(out.map((a) => a.id)).toEqual(["interrupted:turn-1", "gate"]);
+    expect(out.map((a) => a.id)).toEqual(["budget", "interrupted:turn-1", "gate"]);
   });
 });

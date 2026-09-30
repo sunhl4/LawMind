@@ -20,29 +20,11 @@ test.describe("审查专案组 (Skills E2)", () => {
     await installE2eBrowserPrefs(page);
   });
 
-  test("在办跑专案组：真实计数 + 角色 Tab + 报告下载", async ({ page }) => {
+  test("专案组不挂在在办页", async ({ page }) => {
     await gotoShell(page);
     await openReviewDraft(page);
     await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
-
-    // 面板必须**不需要先展开折叠区**就能看见：它是跑审查的入口 + 结果看板。
-    const panel = page.getByTestId("lm-review-campaign");
-    await expect(panel).toBeVisible({ timeout: 15_000 });
-
-    await panel.getByTestId("lm-review-campaign-run").click();
-
-    const roles = page.getByTestId("lm-review-campaign-roles");
-    await expect(roles).toBeVisible({ timeout: 15_000 });
-    // mock 给的是标准五角色。
-    await expect(roles.getByRole("tab")).toHaveCount(5, { timeout: 10_000 });
-
-    // 真实核对指标（而不是被移除的启发式分数）。
-    await expect(panel).toContainText("条规则");
-    await expect(panel).toContainText("处问题");
-    await expect(panel).not.toContainText("Safety Score");
-
-    await panel.getByTestId("lm-review-campaign-report-btn").click();
-    await expect(page.getByTestId("lm-review-campaign-report")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("lm-review-campaign-download")).toBeVisible();
+    await expect(page.getByTestId("lm-tab-agents")).toHaveCount(0);
+    await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible();
   });
 });

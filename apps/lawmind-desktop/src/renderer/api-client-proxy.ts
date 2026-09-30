@@ -152,8 +152,8 @@ const CODE_HINTS: Record<string, string> = {
   invalid_matter_id_chat: "当前关联的案件 ID 无效，请清空或更正后再试。",
   session_assistant_mismatch: "该会话属于其他助手，请新开对话或清空会话后重试。",
   approval_already_resolved: "该审批已被处理，请刷新待办后查看最新状态。",
-  model_unavailable: "模型暂时不可用。请检查密钥、账户状态和网络。",
-  model_network_error: "连不上模型服务。请检查服务地址、本机网络，或在设置里验证模型。",
+  model_unavailable: "这一轮没能调用模型。请检查是不是没有网络，或账户是否欠费，然后再试。",
+  model_network_error: "没有网络，连不上模型。请检查本机网络后再试。",
   missing_platform_api_key: "组织提供的模型还没开通。请用连接向导填写自己的密钥，或联系管理员。",
 };
 
@@ -192,7 +192,7 @@ export function userMessageFromApiError(status: number, body: ApiErrorJson): str
     if (joined) {
       return friendlyModelErrorMessage(joined);
     }
-    return CODE_HINTS[code] ?? "模型暂时不可用。请检查密钥、账户状态和网络。";
+    return CODE_HINTS[code] ?? "这一轮没能调用模型。请检查是不是没有网络，或账户是否欠费，然后再试。";
   }
   if (joined && isModelProviderErrorMessage(joined)) {
     return friendlyModelErrorMessage(joined);

@@ -58,14 +58,14 @@ export function formatAutomationLastResultForLawyer(raw: string | undefined): st
 
   if (contracts != null && contracts > 0 && started) {
     return file
-      ? `上次发现 ${contracts} 份合同（${file}），已开始审阅。结果在「待我拍板」。`
-      : `上次发现 ${contracts} 份合同，已开始审阅。结果在「待我拍板」。`;
+      ? `上次发现 ${contracts} 份合同（${file}），已开始审阅。结果在「工作台」。`
+      : `上次发现 ${contracts} 份合同，已开始审阅。结果在「工作台」。`;
   }
   if (contracts != null && contracts > 0) {
-    return `上次发现 ${contracts} 份合同。请到「待我拍板」看。`;
+    return `上次发现 ${contracts} 份合同。请到「工作台」看。`;
   }
   if (started) {
-    return "上次已开始办理。结果在「待我拍板」。";
+    return "上次已开始办理。结果在「工作台」。";
   }
   if (synced === 0) {
     return "上次没有新往来。";
@@ -73,5 +73,5 @@ export function formatAutomationLastResultForLawyer(raw: string | undefined): st
   if (synced != null && synced > 0) {
     return `上次同步了 ${synced} 封邮件。`;
   }
-  return "上次已跑过。结果请到「待我拍板」看。";
+  return "上次已跑过。结果请到「工作台」看。";
 }

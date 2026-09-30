@@ -14,7 +14,8 @@ export type InlineMarkdownToken =
   | { kind: "session_link"; label: string; sessionId: string; assistantId?: string }
   | { kind: "draft_link"; label: string; taskId: string }
   | { kind: "web_link"; label: string; url: string }
-  | { kind: "file_link"; label: string; path: string; canvas: boolean; line?: number; column?: number };
+  | { kind: "file_link"; label: string; path: string; canvas: boolean; line?: number; column?: number }
+  | { kind: "wps_link"; label: string; path: string };
 
 const KATEX_OPTIONS = {
   throwOnError: false,
@@ -215,6 +216,9 @@ function tokenFromLawyerLink(link: LawyerChatLink): InlineMarkdownToken {
       ...(link.line ? { line: link.line } : {}),
       ...(link.column ? { column: link.column } : {}),
     };
+  }
+  if (link.kind === "wps") {
+    return { kind: "wps_link", label: link.label, path: link.path };
   }
   return { kind: "text", value: link.label };
 }

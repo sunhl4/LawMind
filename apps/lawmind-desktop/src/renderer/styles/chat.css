@@ -797,6 +797,14 @@
   margin-top: 4px;
 }
 
+.lm-word-check-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .lm-chat-session-chip,
 .lm-md-session-link {
   display: inline-flex;

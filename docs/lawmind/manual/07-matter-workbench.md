@@ -224,9 +224,9 @@ invalid deliverable transition: A -> B
 
 来源字段会翻译成律师看得懂的中文（`DEADLINE_SOURCE_LABELS`），界面上显示「律师手记」「本案档案」这类，而不是 `manual` 这种枚举。
 
-## 7.6 工作台「今日」：一屏怎么算出来
+## 7.6 工作台「今日」快照：紧急程度怎么算出来
 
-打开工作台，首页是「今日」。它由 `src/lawmind/desk/today-work.ts` 的 `buildTodayWorkSnapshot` 算出来，四块拼在一起：
+律师打开工作台，首页是按紧急程度排的**案卷列表**，不是一屏「今日」。`src/lawmind/desk/today-work.ts` 的 `buildTodayWorkSnapshot` 仍在，用来给列表顶上的紧急条和每一行最热的那一句供数。每日计划的接口还在，工作台不再摆勾选待办。快照由四块拼在一起：
 
 1. **律师自己写的计划**（见 7.7）
 2. **待回复的邮件**（只留 `needs_reply` 和 `court` 两类）

@@ -1,7 +1,6 @@
-/* Lawyer desk: full-bleed cockpit, then one-matter file.
-   Architecture (not a form dump):
-   1) 今日驾驶舱 — 顶栏 + 三栏 KPI + 快捷入口
-   2) 本案卷宗 — 身份 + 状态表 + 下划线分区 + 三栏插件 */
+/* Lawyer desk: case list, then one-matter file.
+   1) 我的案卷 — 紧急条 + 全宽列表
+   2) 这一卷 — 抬头 / 现在 / 卷 / 底 */
 
 .lm-main-desk .lm-main-body {
   padding: 0;
@@ -247,61 +246,128 @@
 }
 
 .lm-lawyer-cockpit {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   align-items: stretch;
+  min-width: 0;
   /*
-   * IRON: cockpit must stay visible. The case rail stays put;
-   * the stage must not collapse to 0 when the window is short.
-   * Parent .lm-lawyer-workbench scrolls instead.
+   * IRON: the case list must stay visible. Parent .lm-lawyer-workbench
+   * scrolls; this column must not collapse to 0 when the window is short.
    */
   flex: 1 0 auto;
   min-height: 320px;
 }
 
-.lm-desk-rail-today-wrap {
-  padding: 10px 12px 0;
+.lm-desk-case-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  width: min(720px, 100%);
+  margin-inline: auto;
 }
 
-.lm-desk-rail-today {
-  appearance: none;
+.lm-desk-urgency-strip {
   display: flex;
-  align-items: center;
-  width: 100%;
-  min-height: 36px;
-  padding: 8px 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lm-desk-urgency-chip {
+  appearance: none;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 999px;
   background: var(--surface-2);
   color: inherit;
   font: inherit;
   font-size: 13px;
-  font-weight: 650;
-  text-align: left;
+  font-weight: 600;
+  padding: 6px 12px;
   cursor: pointer;
 }
 
-.lm-desk-rail-today.is-current {
-  border-color: var(--accent-border);
-  background: color-mix(in srgb, var(--accent-dim) 55%, var(--surface));
+.lm-desk-urgency-chip:hover {
+  border-color: var(--text-2);
 }
 
-.lm-desk-rail-today:focus-visible {
+.lm-desk-urgency-chip.is-active {
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--accent-dim) 45%, var(--surface));
+  color: var(--accent-hover);
+}
+
+.lm-desk-urgency-chip:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
 
-.lm-desk-today-alerts {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 12px 0;
+.lm-matter-hotline {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--text-2);
 }
 
-.lm-desk-today-alerts .lm-desk-rail-today {
+.lm-desk-replica-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.lm-matter-now,
+.lm-matter-volume,
+.lm-matter-archive {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+  padding: 4px 24px 12px;
+}
+
+/* 「现在」是这一案当前要动手的事：一块浅色卡，从卷面里提出来。 */
+.lm-matter-now {
   width: auto;
-  align-self: flex-start;
+  margin: 8px 24px 14px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent-dim) 22%, var(--surface));
+}
+
+.lm-matter-now h3,
+.lm-matter-volume h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.lm-matter-archive {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-matter-archive > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-2);
+}
+
+.lm-matter-archive > summary:hover {
+  color: var(--text);
+}
+
+.lm-matter-archive > summary::marker {
+  color: var(--muted);
 }
 
 .lm-desk-recap-btn {
@@ -314,7 +380,7 @@
 }
 
 .lm-matter-collab {
-  margin: 0 24px 16px;
+  margin: 0 0 16px;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--surface-2);
@@ -327,175 +393,10 @@
   font-weight: 650;
 }
 
-.lm-volume-switch {
-  margin: 0 24px 8px;
-}
-
-.lm-desk-stage {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-  min-height: 320px;
-}
-
-.lm-desk-stage > .lm-desk-col {
-  flex: 1 1 auto;
-  min-height: 220px;
-}
-
-.lm-desk-col {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  background: var(--desk-paper);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  box-shadow: var(--shadow-sm);
-  overflow: hidden;
-}
-
-.lm-desk-col-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid var(--border);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent-dim) 28%, var(--surface)) 0%, var(--surface) 100%);
-}
-
-.lm-desk-col--act .lm-desk-col-head {
-  box-shadow: inset 0 2px 0 var(--accent);
-}
-
-.lm-desk-col--time .lm-desk-col-head {
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--warn-dim) 45%, var(--surface)) 0%, var(--surface) 100%);
-  box-shadow: inset 0 2px 0 var(--warn);
-}
-
-.lm-desk-col--matters .lm-desk-col-head {
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent-cool-dim) 45%, var(--surface)) 0%, var(--surface) 100%);
-  box-shadow: inset 0 2px 0 var(--accent-cool);
-}
-
-.lm-desk-col-copy {
-  min-width: 0;
-}
-
-.lm-desk-col-label {
-  margin: 0 0 4px;
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.lm-desk-replica-feed {
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  border-radius: var(--control-radius, 8px);
-  background: color-mix(in srgb, var(--accent-cool-dim, #dce8f0) 55%, var(--surface, #fff));
-}
-
-.lm-desk-replica-feed .lm-desk-col-label {
-  margin-bottom: 8px;
-}
-
-.lm-desk-card--link {
-  width: 100%;
-  text-align: left;
-  cursor: pointer;
-  border: 0;
-  background: transparent;
-}
-
-.lm-desk-replica-feed-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  justify-content: space-between;
-}
-
-.lm-desk-replica-feed-row .lm-desk-card--link {
-  flex: 1;
-  min-width: 0;
-}
-
-.lm-desk-col-value {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-  font-size: 30px;
-  font-weight: 650;
-  letter-spacing: -0.04em;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
-.lm-desk-col-unit {
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--muted);
-  letter-spacing: 0;
-}
-
-.lm-desk-col-delta {
-  margin: 6px 0 0;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--muted);
-}
-
-.lm-desk-ico {
-  flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  border-radius: 11px;
-  display: grid;
-  place-items: center;
-  background: var(--accent-dim);
-  color: var(--accent);
-}
-
-.lm-desk-col--time .lm-desk-ico {
-  background: var(--warn-dim);
-  color: var(--warn);
-}
-
-.lm-desk-col--matters .lm-desk-ico {
-  background: var(--accent-cool-dim);
-  color: var(--accent-cool);
-}
-
-.lm-desk-col--act.has-hot .lm-desk-col-value {
-  color: var(--danger);
-}
-
-.lm-desk-col--time.has-hot .lm-desk-col-value {
-  color: var(--warn);
-}
-
-.lm-desk-body {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  flex: 1;
-}
-
-.lm-desk-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 12px 14px 14px;
-}
-
 .lm-desk-filters {
   display: flex;
   gap: 4px;
-  margin: 10px 14px 0;
+  margin: 0;
   padding: 4px;
   background: var(--surface-2);
   border-radius: 12px;
@@ -536,69 +437,11 @@
   gap: 10px;
 }
 
-.lm-desk-card {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
-  column-gap: 10px;
-  row-gap: 8px;
-  align-items: start;
-  padding: 12px 12px 12px 12px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--surface);
-  box-shadow: var(--shadow-xs);
-}
-
-.lm-desk-card.is-done {
-  opacity: 0.55;
-}
-
-.lm-desk-card-ico {
-  grid-row: 1 / span 2;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: var(--surface-2);
-  color: var(--text-2);
-}
-
-.lm-desk-card-ico--mail {
-  background: var(--warn-dim);
-  color: var(--warn);
-}
-
-.lm-desk-card-ico--approval {
-  background: var(--danger-dim);
-  color: var(--danger);
-}
-
-.lm-desk-card-copy {
-  min-width: 0;
-}
-
 .lm-desk-card-title {
   margin: 0;
   font-size: 14px;
   font-weight: 650;
   line-height: 1.35;
-}
-
-.lm-desk-card-meta {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--text-2);
-  line-height: 1.4;
-}
-
-.lm-desk-card-side {
-  grid-row: 1 / span 2;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
 }
 
 .lm-pri {
@@ -622,66 +465,6 @@
   background: var(--warn-dim);
   border-color: var(--warn-border);
   color: var(--warn);
-}
-
-.lm-desk-card-cta {
-  appearance: none;
-  margin: 0;
-  padding: 6px 12px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--grad-brand);
-  color: var(--on-brand);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 650;
-  cursor: pointer;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
-}
-
-.lm-desk-card-cta:hover {
-  filter: brightness(1.05);
-}
-
-.lm-desk-card-cta:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.lm-desk-card-ctas {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-}
-
-.lm-desk-card-cta--quiet {
-  background: var(--surface-2);
-  color: var(--text-2);
-  box-shadow: none;
-  border: 1px solid var(--border);
-}
-
-.lm-desk-card-cta--quiet:hover {
-  filter: none;
-  border-color: var(--accent-border);
-  color: var(--accent-hover);
-}
-
-.lm-desk-check {
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  border: 1.5px solid var(--border-strong);
-  background: var(--surface);
-  cursor: pointer;
-}
-
-.lm-desk-check.is-on {
-  background: var(--accent);
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 2px var(--surface);
 }
 
 .lm-timeline {
@@ -799,27 +582,6 @@
   font-weight: 650;
 }
 
-.lm-matter-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-2);
-}
-
-.lm-matter-count {
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-weight: 700;
-  background: var(--accent-dim);
-  color: var(--accent-hover);
-}
-
-.lm-matter-count.is-hot {
-  background: var(--danger-dim);
-  color: var(--danger-text);
-}
-
 .lm-matter-card-chev {
   color: var(--muted);
 }
@@ -846,116 +608,19 @@
   color: var(--warn);
 }
 
-.lm-desk-compose {
-  display: flex;
-  gap: 8px;
-  padding: 10px 12px 12px;
-  border-top: 1px solid var(--border);
-  background: var(--surface-2);
-}
-
-.lm-desk-compose .lm-input {
-  min-height: 36px;
-  height: 36px;
-}
-
-.lm-desk-dock {
-  flex-shrink: 0;
-  margin-top: 12px;
-  padding: 12px 14px 14px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--surface) 88%, var(--surface-2));
-}
-
-.lm-desk-dock-label {
-  margin: 0 0 8px;
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-}
-
-.lm-desk-quick {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.lm-desk-quick-btn {
-  appearance: none;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-height: 0;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--desk-paper);
-  box-shadow: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-
-.lm-desk-quick-btn:hover {
-  border-color: var(--accent-border);
-  background: color-mix(in srgb, var(--accent-dim) 40%, var(--surface));
-}
-
-.lm-desk-quick-btn:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.lm-desk-quick-btn .lm-desk-ico {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-}
-
-.lm-desk-quick-btn strong {
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.lm-desk-quick-desc {
-  font-size: 12px;
-  color: var(--text-2);
-  line-height: 1.35;
-}
-
 .lm-matter-file {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  flex: 1;
+  flex: 1 0 auto;
   min-width: 0;
   background: var(--desk-paper);
   border: 1px solid var(--border);
   border-radius: 20px;
   box-shadow: var(--shadow-sm);
-  overflow: hidden;
-}
-
-.lm-lawyer-back {
-  appearance: none;
-  margin: 10px 24px 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 650;
-  cursor: pointer;
-  align-self: flex-start;
-}
-
-.lm-lawyer-back:hover {
-  text-decoration: underline;
+  overflow: visible;
+  width: min(860px, 100%);
+  margin-inline: auto;
 }
 
 .lm-matter-hero {
@@ -986,24 +651,6 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
-.lm-matter-hero-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-
-.lm-matter-status-pill {
-  display: inline-flex;
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  border: none;
-  background: var(--surface-2);
-  color: var(--text-2);
-}
-
 .lm-matter-hero h2 {
   margin: 0 0 2px;
   font-size: 20px;
@@ -1027,232 +674,10 @@
   flex-shrink: 0;
 }
 
-/* Compact KPI strip — one row, not a 2×2 card wall. */
-.lm-pulse-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: 6px;
-  padding: 0 24px 8px;
-}
-
-.lm-pulse-chip {
-  display: inline-flex;
-  flex-direction: row;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  flex: 1 1 7.5rem;
-  min-width: 0;
-  padding: 6px 11px;
-  border: none;
-  border-radius: var(--r);
-  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
-  text-align: left;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-}
-
-.lm-pulse-chip:hover {
-  background: var(--surface-3, var(--surface-2));
-}
-
-.lm-pulse-chip:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.lm-pulse-chip span {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  letter-spacing: 0.01em;
-}
-
-.lm-pulse-chip strong {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-}
-
-.lm-pulse-chip.is-hot {
-  background: var(--warn-dim);
-}
-
-.lm-pulse-chip.is-hot strong {
-  color: var(--warn);
-}
-
-.lm-pane-tabs {
-  display: flex;
-  gap: 0;
-  margin: 0 24px;
-  padding: 0;
-  background: transparent;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.lm-pane-tab {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 11px 15px 10px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text-2);
-  font: inherit;
-  font-size: 13.5px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  cursor: pointer;
-}
-
-.lm-pane-tab.is-active {
-  background: transparent;
-  color: var(--accent-hover);
-  box-shadow: none;
-  border-bottom-color: var(--accent);
-}
-
-.lm-pane-tab svg {
-  width: 14px;
-  height: 14px;
-}
-
-.lm-pane-tab-count {
-  min-width: 18px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-  text-align: center;
-}
-
-.lm-pane-tab.is-active .lm-pane-tab-count {
-  background: var(--accent-dim);
-  color: var(--accent-hover);
-}
-
-.lm-matter-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-
-.lm-overview {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 16px;
-  padding: 14px 24px 28px;
-  align-content: start;
-}
-
-.lm-overview-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-height: 0;
-  padding: 14px 16px;
-  border: none;
-  border-radius: var(--r-lg);
-  background: color-mix(in srgb, var(--surface-2) 78%, transparent);
-}
-
-.lm-overview-card--next {
-  grid-column: 1 / -1;
-  gap: 14px;
-  padding: 16px 18px 14px;
-  background: color-mix(in srgb, var(--accent-dim) 26%, var(--desk-paper, var(--surface)));
-}
-
-.lm-overview-card--timeline {
-  grid-column: 1 / -1;
-}
-
 .lm-matter-timeline {
   max-height: min(280px, 34vh);
   overflow: auto;
   padding-right: 2px;
-}
-
-.lm-overview-card h3 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-  color: var(--text);
-}
-
-.lm-overview-card--next h3 {
-  font-size: 16px;
-}
-
-.lm-overview-card .lm-btn {
-  margin-top: auto;
-  align-self: flex-start;
-}
-
-.lm-overview-next-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.lm-overview-next-item {
-  position: relative;
-  padding: 11px 14px 11px 15px;
-  border: none;
-  border-radius: var(--r);
-  border-left: 3px solid var(--accent);
-  background: color-mix(in srgb, var(--surface) 62%, transparent);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.5;
-  color: var(--text);
-  letter-spacing: -0.01em;
-}
-
-.lm-overview-stack {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 16px;
-  min-height: 0;
-}
-
-.lm-overview-stack .lm-overview-card {
-  min-height: 0;
-}
-
-.lm-doc-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.lm-doc-row:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-
-.lm-doc-row:first-child {
-  padding-top: 0;
 }
 
 .lm-dl {
@@ -1274,7 +699,7 @@
 }
 
 .lm-lawyer-pane {
-  padding: 14px 24px 28px;
+  padding: 14px 0 20px;
 }
 
 .lm-lawyer-pane h3 {
@@ -1298,10 +723,6 @@
   font-size: 12px;
   font-weight: 500;
   color: var(--text-2);
-}
-
-.lm-overview-card--parties {
-  grid-column: 1 / -1;
 }
 
 .lm-party-cards {
@@ -1593,44 +1014,16 @@
     max-width: none;
   }
 
-  .lm-overview {
-    grid-template-columns: 1fr;
-  }
-
-  .lm-overview-stack {
-    grid-template-columns: 1fr;
-  }
-
-  /* Keep quick entries compact — a 1-col stack was crushing the cockpit to 0 height. */
-  .lm-desk-quick {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .lm-desk-quick-btn {
-    min-height: 0;
-  }
-
   .lm-lawyer-brief {
     grid-template-columns: 1fr;
   }
-
-  .lm-pane-tabs {
-    overflow-x: auto;
-  }
 }
 
-/* Default Electron window is ~1100px. Keep 本案列表 as a column until phone-narrow. */
 @media (max-width: 860px) {
-  .lm-lawyer-cockpit {
-    grid-template-columns: 1fr;
-    overflow: auto;
-  }
-
-  .lm-lawyer-cockpit .lm-desk-col--matters {
-    order: -1;
-  }
-
-  .lm-desk-col {
-    min-height: 300px;
+  .lm-desk-case-list,
+  .lm-matter-now,
+  .lm-matter-volume,
+  .lm-matter-archive {
+    width: 100%;
   }
 }

@@ -1,51 +1,117 @@
 /**
- * Enough of a .docx to preview like the open file: alignment, size, bold,
- * indents, list labels, and tables. Field instructions stay out of the text.
+ * Enough of a .docx to preview like the open file: page size, margins, fonts,
+ * line spacing, indents, list labels, and tables. Field instructions stay out
+ * of the text.
+ *
+ * East Asian Word writes both a twip fallback and a line/character unit
+ * (`beforeLines`, `firstLineChars`). Word on screen uses the line/character
+ * unit. This extractor follows that.
  */
 
 export type WordAlign = "left" | "center" | "right" | "both";
+
+/** `em` is a character unit (chars / 100). `line` is a line unit (lines / 100). */
+export type WordMeasure =
+  | { unit: "px"; value: number }
+  | { unit: "em"; value: number }
+  | { unit: "line"; value: number };
+
+export type WordLineSpacing =
+  | { rule: "auto"; multiple: number }
+  | { rule: "exact"; px: number }
+  | { rule: "atLeast"; px: number };
 
 export type WordRunMark = {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
-  /** CSS pixels, from Word half-points. */
+  /** CSS pixels, from Word half-points at 96dpi. */
   fontSizePx?: number;
   /** `#RRGGBB` from `w:color`, when it is not `auto`. */
   fontColor?: string;
+  /** CSS font-family. Latin and East Asian faces are both listed so the browser can pick per glyph. */
+  fontFamily?: string;
 };
 
 export type WordLayoutRun = { text: string } & WordRunMark;
 
 export type WordLayoutParagraph = {
   align?: WordAlign;
-  indentPx?: number;
-  firstIndentPx?: number;
-  /** No-spacing styles keep cover lines from opening a full paragraph gap. */
-  tight?: boolean;
+  indent?: WordMeasure;
+  firstIndent?: WordMeasure;
+  spaceBefore?: WordMeasure;
+  spaceAfter?: WordMeasure;
+  line?: WordLineSpacing;
+  fontFamily?: string;
   listLabel?: string;
   runs: WordLayoutRun[];
   text: string;
 };
 
+export type WordLayoutCell = {
+  blocks: WordLayoutBlock[];
+  colspan?: number;
+  widthPx?: number;
+  /** Cell text flows top-to-bottom when Word sets `w:textDirection`. */
+  vertical?: boolean;
+  vAlign?: "top" | "center" | "bottom";
+};
+
 export type WordLayoutBlock =
   | ({ kind: "paragraph" } & WordLayoutParagraph)
-  | { kind: "table"; bordered?: boolean; rows: { blocks: WordLayoutBlock[] }[][] };
+  | {
+      kind: "table";
+      bordered?: boolean;
+      /** Explicit `tblW` in dxa. Percent and auto tables omit this and fill the text column. */
+      widthPx?: number;
+      widthPct?: number;
+      colWidthsPx?: number[];
+      rows: WordLayoutCell[][];
+    };
+
+/** Paper box. Width includes margins; the text column is width minus left and right. */
+export type WordPageBox = {
+  widthPx: number;
+  marginTopPx: number;
+  marginRightPx: number;
+  marginBottomPx: number;
+  marginLeftPx: number;
+  fontFamily?: string;
+  fontSizePx?: number;
+};
+
+export type WordLayoutDocument = {
+  page: WordPageBox;
+  blocks: WordLayoutBlock[];
+};
 
 type StyleRaw = {
   basedOn?: string;
   name?: string;
+  type?: string;
   align?: WordAlign;
   fontSizePx?: number;
+  fontFamily?: string;
+  fontColor?: string;
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
-  indentPx?: number;
-  firstIndentPx?: number;
-  tight?: boolean;
+  indent?: WordMeasure;
+  firstIndent?: WordMeasure;
+  spaceBefore?: WordMeasure;
+  spaceAfter?: WordMeasure;
+  line?: WordLineSpacing;
+  /** Table style paints a visible grid when the table itself omits `tblBorders`. */
+  tableBordered?: boolean;
 };
 
-type LevelDef = { start: number; fmt: string; text: string };
+type LevelDef = {
+  start: number;
+  fmt: string;
+  text: string;
+  indent?: WordMeasure;
+  firstIndent?: WordMeasure;
+};
 
 type NumberingModel = {
   abstract: Map<string, Map<number, LevelDef>>;
@@ -79,10 +145,27 @@ export function extractDocxLayout(
   documentXml: string,
   stylesXml = "",
   numberingXml = "",
-): WordLayoutBlock[] {
+): WordLayoutDocument {
   const styles = parseStyles(stylesXml);
+  const defaults = parseDocDefaults(stylesXml);
   const numbering = parseNumbering(numberingXml);
-  return simplifyLayout(walkBlocks(sliceBody(documentXml), styles, numbering));
+  return {
+    page: pageBox(documentXml, defaults),
+    blocks: simplifyLayout(walkBlocks(sliceBody(documentXml), styles, numbering, defaults)),
+  };
+}
+
+/** A4 with 2.54cm margins and 宋体 12pt, when the file has no section or defaults. */
+export function defaultWordPage(): WordPageBox {
+  return {
+    widthPx: twipsToPx(11906),
+    marginTopPx: twipsToPx(1440),
+    marginRightPx: twipsToPx(1440),
+    marginBottomPx: twipsToPx(1440),
+    marginLeftPx: twipsToPx(1440),
+    fontFamily: fontStackFor("SimSun"),
+    fontSizePx: 16,
+  };
 }
 
 /** Borderless one-column frames are cover layout, not grids. Long blank runs are tightened. */
@@ -94,7 +177,13 @@ function simplifyLayout(blocks: WordLayoutBlock[]): WordLayoutBlock[] {
       continue;
     }
     const rows = block.rows.map((row) =>
-      row.map((cell) => ({ blocks: simplifyLayout(cell.blocks) })),
+      row.map((cell) => ({
+        blocks: simplifyLayout(cell.blocks),
+        ...(cell.colspan ? { colspan: cell.colspan } : {}),
+        ...(cell.widthPx != null ? { widthPx: cell.widthPx } : {}),
+        ...(cell.vertical ? { vertical: true } : {}),
+        ...(cell.vAlign ? { vAlign: cell.vAlign } : {}),
+      })),
     );
     if (!block.bordered && rows.every((row) => row.length <= 1)) {
       for (const row of rows) {
@@ -102,7 +191,14 @@ function simplifyLayout(blocks: WordLayoutBlock[]): WordLayoutBlock[] {
       }
       continue;
     }
-    flat.push({ kind: "table", ...(block.bordered ? { bordered: true } : {}), rows });
+    flat.push({
+      kind: "table",
+      ...(block.bordered ? { bordered: true } : {}),
+      ...(block.widthPx != null ? { widthPx: block.widthPx } : {}),
+      ...(block.widthPct != null ? { widthPct: block.widthPct } : {}),
+      ...(block.colWidthsPx ? { colWidthsPx: block.colWidthsPx } : {}),
+      rows,
+    });
   }
   return collapseBlankParagraphs(flat, 2);
 }
@@ -141,6 +237,7 @@ function walkBlocks(
   xml: string,
   styles: Map<string, StyleRaw>,
   numbering: NumberingModel,
+  defaults: StyleRaw,
 ): WordLayoutBlock[] {
   const blocks: WordLayoutBlock[] = [];
   let cursor = 0;
@@ -153,7 +250,7 @@ function walkBlocks(
     const tableFirst = tableAt >= 0 && (paragraphAt < 0 || tableAt < paragraphAt);
     if (tableFirst) {
       const end = indexOfMatchingClose(xml, tableAt, "tbl");
-      blocks.push(parseTable(xml.slice(tableAt, end), styles, numbering));
+      blocks.push(parseTable(xml.slice(tableAt, end), styles, numbering, defaults));
       cursor = end;
       continue;
     }
@@ -167,20 +264,46 @@ function walkBlocks(
     }
     const close = xml.indexOf("</w:p>", openEnd + 1);
     const innerEnd = close >= 0 ? close : xml.length;
-    blocks.push(parseParagraph(xml.slice(openEnd + 1, innerEnd), styles, numbering));
+    blocks.push(parseParagraph(xml.slice(openEnd + 1, innerEnd), styles, numbering, defaults));
     cursor = close >= 0 ? close + "</w:p>".length : xml.length;
   }
   return blocks;
 }
 
-function tableIsBordered(tableXml: string): boolean {
-  const borders = elementInner(elementInner(tableXml, "tblPr"), "tblBorders");
-  if (!borders) {
-    return false;
+function tableIsBordered(tableXml: string, styles: Map<string, StyleRaw>): boolean {
+  const tblPr = elementInner(tableXml, "tblPr");
+  const borders = elementInner(tblPr, "tblBorders");
+  if (borders) {
+    if (bordersHaveStroke(borders)) {
+      return true;
+    }
+    if (bordersFullyNil(borders)) {
+      return false;
+    }
   }
-  return /<w:(?:top|left|bottom|right|insideH|insideV)\b[^>]*w:val="(?!nil|none)[^"]+"/.test(
-    borders,
-  );
+  const styleId = tblPr.match(/<w:tblStyle\b[^>]*w:val="([^"]+)"/)?.[1];
+  if (styleId) {
+    const style = resolveStyle(styleId, styles);
+    if (style.tableBordered) {
+      return true;
+    }
+    const name = (style.name ?? styleId).toLowerCase();
+    if (/grid|表格网格|表网格/.test(name) || /grid/i.test(styleId)) {
+      return true;
+    }
+  }
+  return bordersHaveStroke(tableXml);
+}
+
+const BORDER_EDGE = "top|left|bottom|right|start|end|insideH|insideV";
+
+function bordersHaveStroke(borders: string): boolean {
+  return new RegExp(`<w:(?:${BORDER_EDGE})\\b[^>]*w:val="(?!nil|none)[^"]+"`).test(borders);
+}
+
+function bordersFullyNil(borders: string): boolean {
+  const edges = [...borders.matchAll(/<w:(?:top|left|bottom|right|insideH|insideV)\b[^>]*\/?>/g)];
+  return edges.length > 0 && edges.every((edge) => /w:val="(?:nil|none)"/.test(edge[0] ?? ""));
 }
 
 function trimEdgeRuns(runs: WordLayoutRun[]): WordLayoutRun[] {
@@ -203,9 +326,12 @@ function parseTable(
   tableXml: string,
   styles: Map<string, StyleRaw>,
   numbering: NumberingModel,
+  defaults: StyleRaw,
 ): WordLayoutBlock {
-  const bordered = tableIsBordered(tableXml);
-  const rows: { blocks: WordLayoutBlock[] }[][] = [];
+  const bordered = tableIsBordered(tableXml, styles);
+  const colWidthsPx = gridWidths(tableXml);
+  const width = tableWidth(tableXml);
+  const rows: WordLayoutCell[][] = [];
   const openEnd = indexOfXmlTagEnd(tableXml, 0);
   let cursor = openEnd >= 0 ? openEnd + 1 : 0;
   while (cursor < tableXml.length) {
@@ -214,20 +340,59 @@ function parseTable(
       break;
     }
     const rowEnd = indexOfMatchingClose(tableXml, rowAt, "tr");
-    rows.push(parseRow(tableXml.slice(rowAt, rowEnd), styles, numbering));
+    rows.push(parseRow(tableXml.slice(rowAt, rowEnd), styles, numbering, defaults, colWidthsPx));
     cursor = rowEnd;
   }
-  return { kind: "table", ...(bordered ? { bordered: true } : {}), rows };
+  return {
+    kind: "table",
+    ...(bordered ? { bordered: true } : {}),
+    ...(width?.px != null ? { widthPx: width.px } : {}),
+    ...(width?.pct != null ? { widthPct: width.pct } : {}),
+    ...(colWidthsPx.length > 0 ? { colWidthsPx } : {}),
+    rows,
+  };
+}
+
+function gridWidths(tableXml: string): number[] {
+  const grid = elementInner(tableXml, "tblGrid");
+  const widths: number[] = [];
+  for (const match of grid.matchAll(/<w:gridCol\b[^>]*w:w="(\d+)"/g)) {
+    widths.push(twipsToPx(Number(match[1])));
+  }
+  return widths;
+}
+
+function tableWidth(tableXml: string): { px?: number; pct?: number } | undefined {
+  const tblPr = elementInner(tableXml, "tblPr");
+  const tag = tblPr.match(/<w:tblW\b[^>]*\/?>/)?.[0];
+  if (!tag) {
+    return undefined;
+  }
+  const type = tag.match(/\bw:type="([^"]+)"/)?.[1] ?? "dxa";
+  const value = numberIn(tag, "w:w");
+  if (value == null) {
+    return undefined;
+  }
+  if (type === "pct") {
+    return { pct: value / 50 };
+  }
+  if (type === "dxa") {
+    return { px: twipsToPx(value) };
+  }
+  return undefined;
 }
 
 function parseRow(
   rowXml: string,
   styles: Map<string, StyleRaw>,
   numbering: NumberingModel,
-): { blocks: WordLayoutBlock[] }[] {
-  const cells: { blocks: WordLayoutBlock[] }[] = [];
+  defaults: StyleRaw,
+  colWidthsPx: number[],
+): WordLayoutCell[] {
+  const cells: WordLayoutCell[] = [];
   const openEnd = indexOfXmlTagEnd(rowXml, 0);
   let cursor = openEnd >= 0 ? openEnd + 1 : 0;
+  let col = 0;
   while (cursor < rowXml.length) {
     const cellAt = indexOfWordOpen(rowXml, "tc", cursor);
     if (cellAt < 0) {
@@ -236,20 +401,73 @@ function parseRow(
     const cellEnd = indexOfMatchingClose(rowXml, cellAt, "tc");
     const cellOpen = indexOfXmlTagEnd(rowXml, cellAt);
     const inner = rowXml.slice(cellOpen + 1, cellEnd - "</w:tc>".length);
-    cells.push({ blocks: walkBlocks(inner, styles, numbering) });
+    const tcPr = elementInner(inner, "tcPr");
+    const span = numberAttr(tcPr, "gridSpan") ?? 1;
+    const widthPx = cellWidthPx(tcPr, colWidthsPx, col, span);
+    const vertical = textDirectionVertical(tcPr);
+    const vAlign = vAlignOf(tcPr);
+    cells.push({
+      blocks: walkBlocks(inner, styles, numbering, defaults),
+      ...(span > 1 ? { colspan: span } : {}),
+      ...(widthPx != null ? { widthPx } : {}),
+      ...(vertical ? { vertical: true } : {}),
+      ...(vAlign ? { vAlign } : {}),
+    });
+    col += span;
     cursor = cellEnd;
   }
   return cells;
+}
+
+function textDirectionVertical(tcPr: string): boolean {
+  const val = tcPr.match(/<w:textDirection\b[^>]*w:val="([^"]+)"/)?.[1];
+  if (!val) {
+    return false;
+  }
+  return /^(?:tbRl|btLr|tbLrV|lrTbV|tbRlV|btLrV)$/i.test(val);
+}
+
+function vAlignOf(tcPr: string): "top" | "center" | "bottom" | undefined {
+  const val = tcPr.match(/<w:vAlign\b[^>]*w:val="([^"]+)"/)?.[1];
+  if (val === "top" || val === "center" || val === "bottom") {
+    return val;
+  }
+  return undefined;
+}
+
+function cellWidthPx(
+  tcPr: string,
+  colWidthsPx: number[],
+  col: number,
+  span: number,
+): number | undefined {
+  if (colWidthsPx.length > 0) {
+    const slice = colWidthsPx.slice(col, col + span);
+    if (slice.length > 0) {
+      return twipsRound(slice.reduce((sum, width) => sum + width, 0));
+    }
+  }
+  const tag = tcPr.match(/<w:tcW\b[^>]*\/?>/)?.[0];
+  if (!tag) {
+    return undefined;
+  }
+  const type = tag.match(/\bw:type="([^"]+)"/)?.[1] ?? "dxa";
+  const value = numberIn(tag, "w:w");
+  if (value == null || type === "auto" || type === "pct") {
+    return undefined;
+  }
+  return twipsToPx(value);
 }
 
 function parseParagraph(
   inner: string,
   styles: Map<string, StyleRaw>,
   numbering: NumberingModel,
+  defaults: StyleRaw,
 ): WordLayoutBlock {
   const pPr = elementInner(inner, "pPr");
   const styleId = pPr.match(/<w:pStyle\b[^>]*w:val="([^"]+)"/)?.[1];
-  const resolved = resolveStyle(styleId, styles);
+  const resolved = { ...defaults, ...resolveStyle(styleId, styles) };
   const align = alignOf(pPr) ?? resolved.align;
   const paragraphMark: WordRunMark = {};
   if (resolved.bold) {
@@ -267,27 +485,33 @@ function parseParagraph(
   if (resolved.fontColor) {
     paragraphMark.fontColor = resolved.fontColor;
   }
+  if (resolved.fontFamily) {
+    paragraphMark.fontFamily = resolved.fontFamily;
+  }
   const directMark = markOf(pPr);
   const inherited = { ...paragraphMark, ...directMark };
   const ind = indents(pPr);
+  const numId = pPr.match(/<w:numId\b[^>]*w:val="([^"]+)"/)?.[1];
+  const ilvl = Number(pPr.match(/<w:ilvl\b[^>]*w:val="(\d+)"/)?.[1] ?? "0");
+  const numbered = numId && numId !== "0" ? levelDef(numbering, numId, ilvl) : undefined;
   const runs = trimEdgeRuns(collectRuns(stripFieldInstructions(inner), inherited));
   const text = runs.map((run) => run.text).join("");
-  const numId = pPr.match(/<w:numId\b[^>]*w:val="([^"]+)"/)?.[1];
-  const ilvlRaw = pPr.match(/<w:ilvl\b[^>]*w:val="(\d+)"/)?.[1];
-  const listLabel =
-    numId && numId !== "0"
-      ? listLabelFor(numbering, numId, ilvlRaw ? Number(ilvlRaw) : 0)
-      : undefined;
-  const indentPx = ind.indentPx ?? resolved.indentPx;
-  const firstIndentPx = ind.firstIndentPx ?? resolved.firstIndentPx;
+  const listLabel = numId && numbered ? listLabelFor(numbering, numId, ilvl) : undefined;
+  const spacing = spacingOf(pPr);
+  const indent = ind.indent ?? numbered?.indent ?? resolved.indent;
+  const firstIndent = ind.firstIndent ?? numbered?.firstIndent ?? resolved.firstIndent;
+  const spaceBefore = spacing.spaceBefore ?? resolved.spaceBefore;
+  const spaceAfter = spacing.spaceAfter ?? resolved.spaceAfter;
+  const line = spacing.line ?? resolved.line;
   return {
     kind: "paragraph",
     ...(align ? { align } : {}),
-    ...(indentPx != null ? { indentPx } : {}),
-    ...(firstIndentPx != null ? { firstIndentPx } : {}),
-    ...(resolved.tight || /<w:spacing\b[^>]*w:before="0"[^>]*w:after="0"/.test(pPr)
-      ? { tight: true }
-      : {}),
+    ...(indent ? { indent } : {}),
+    ...(firstIndent ? { firstIndent } : {}),
+    ...(spaceBefore ? { spaceBefore } : {}),
+    ...(spaceAfter ? { spaceAfter } : {}),
+    ...(line ? { line } : {}),
+    ...(inherited.fontFamily ? { fontFamily: inherited.fontFamily } : {}),
     ...(listLabel ? { listLabel } : {}),
     runs,
     text,
@@ -402,27 +626,50 @@ function elementInner(xml: string, name: string): string {
 
 function parseStyles(stylesXml: string): Map<string, StyleRaw> {
   const map = new Map<string, StyleRaw>();
-  const re = /<w:style\b[^>]*w:styleId="([^"]+)"[^>]*>([\s\S]*?)<\/w:style>/g;
+  const re = /<w:style\b([^>]*)>([\s\S]*?)<\/w:style>/g;
   for (const match of stylesXml.matchAll(re)) {
+    const attrs = match[1] ?? "";
+    const styleId = attrs.match(/\bw:styleId="([^"]+)"/)?.[1];
+    if (!styleId) {
+      continue;
+    }
+    const type = attrs.match(/\bw:type="([^"]+)"/)?.[1];
     const body = match[2] ?? "";
     const name = body.match(/<w:name\b[^>]*w:val="([^"]+)"/)?.[1];
     const basedOn = body.match(/<w:basedOn\b[^>]*w:val="([^"]+)"/)?.[1];
     const pPr = elementInner(body, "pPr");
     const rPr = elementInner(body, "rPr");
+    const tblPr = elementInner(body, "tblPr");
     const ind = indents(pPr);
+    const spacing = spacingOf(pPr);
     const mark = markOf(rPr);
-    map.set(match[1] ?? "", {
+    const noSpace = name === "No Spacing" || name === "无间隔";
+    const tableBordered =
+      type === "table" && bordersHaveStroke(elementInner(tblPr, "tblBorders") || tblPr);
+    map.set(styleId, {
       ...(basedOn ? { basedOn } : {}),
       ...(name ? { name } : {}),
+      ...(type ? { type } : {}),
       ...(alignOf(pPr) ? { align: alignOf(pPr) } : {}),
       ...(mark.fontSizePx ? { fontSizePx: mark.fontSizePx } : {}),
+      ...(mark.fontFamily ? { fontFamily: mark.fontFamily } : {}),
+      ...(mark.fontColor ? { fontColor: mark.fontColor } : {}),
       ...(mark.bold ? { bold: true } : {}),
       ...(mark.italic ? { italic: true } : {}),
       ...(mark.underline ? { underline: true } : {}),
-      ...(mark.fontColor ? { fontColor: mark.fontColor } : {}),
-      ...(ind.indentPx != null ? { indentPx: ind.indentPx } : {}),
-      ...(ind.firstIndentPx != null ? { firstIndentPx: ind.firstIndentPx } : {}),
-      ...(name === "No Spacing" || name === "无间隔" ? { tight: true } : {}),
+      ...(ind.indent ? { indent: ind.indent } : {}),
+      ...(ind.firstIndent ? { firstIndent: ind.firstIndent } : {}),
+      ...(spacing.spaceBefore ? { spaceBefore: spacing.spaceBefore } : {}),
+      ...(spacing.spaceAfter ? { spaceAfter: spacing.spaceAfter } : {}),
+      ...(spacing.line ? { line: spacing.line } : {}),
+      ...(tableBordered ? { tableBordered: true } : {}),
+      ...(noSpace
+        ? {
+            spaceBefore: { unit: "px" as const, value: 0 },
+            spaceAfter: { unit: "px" as const, value: 0 },
+            line: spacing.line ?? { rule: "auto" as const, multiple: 1 },
+          }
+        : {}),
     });
   }
   return map;
@@ -446,13 +693,19 @@ function resolveStyle(
     ...base,
     ...(raw.align ? { align: raw.align } : {}),
     ...(raw.fontSizePx ? { fontSizePx: raw.fontSizePx } : {}),
+    ...(raw.fontFamily ? { fontFamily: raw.fontFamily } : {}),
+    ...(raw.fontColor ? { fontColor: raw.fontColor } : {}),
     ...(raw.bold ? { bold: true } : {}),
     ...(raw.italic ? { italic: true } : {}),
     ...(raw.underline ? { underline: true } : {}),
-    ...(raw.fontColor ? { fontColor: raw.fontColor } : {}),
-    ...(raw.indentPx != null ? { indentPx: raw.indentPx } : {}),
-    ...(raw.firstIndentPx != null ? { firstIndentPx: raw.firstIndentPx } : {}),
-    ...(raw.tight ? { tight: true } : {}),
+    ...(raw.indent ? { indent: raw.indent } : {}),
+    ...(raw.firstIndent ? { firstIndent: raw.firstIndent } : {}),
+    ...(raw.spaceBefore ? { spaceBefore: raw.spaceBefore } : {}),
+    ...(raw.spaceAfter ? { spaceAfter: raw.spaceAfter } : {}),
+    ...(raw.line ? { line: raw.line } : {}),
+    ...(raw.tableBordered ? { tableBordered: true } : {}),
+    ...(raw.name ? { name: raw.name } : {}),
+    ...(raw.type ? { type: raw.type } : {}),
   };
 }
 
@@ -470,6 +723,7 @@ function parseNumbering(numberingXml: string): NumberingModel {
         start: numberAttr(body, "start") ?? 1,
         fmt: body.match(/<w:numFmt\b[^>]*w:val="([^"]+)"/)?.[1] ?? "decimal",
         text: decodeXmlEntities(body.match(/<w:lvlText\b[^>]*w:val="([^"]*)"/)?.[1] ?? "%1."),
+        ...indents(elementInner(body, "pPr")),
       });
     }
     abstract.set(match[1] ?? "", levels);
@@ -486,9 +740,13 @@ function parseNumbering(numberingXml: string): NumberingModel {
   return { abstract, num, counters: new Map() };
 }
 
+function levelDef(model: NumberingModel, numId: string, ilvl: number): LevelDef | undefined {
+  return model.abstract.get(model.num.get(numId) ?? "")?.get(ilvl);
+}
+
 function listLabelFor(model: NumberingModel, numId: string, ilvl: number): string {
   const levels = model.abstract.get(model.num.get(numId) ?? "");
-  const lvl = levels?.get(ilvl);
+  const lvl = levelDef(model, numId, ilvl);
   if (!lvl) {
     return "";
   }
@@ -611,6 +869,10 @@ function overlayMark(base: WordRunMark, block: string): WordRunMark {
   if (fontColor) {
     next.fontColor = fontColor;
   }
+  const fontFamily = fontFamilyOf(block);
+  if (fontFamily) {
+    next.fontFamily = fontFamily;
+  }
   return next;
 }
 
@@ -703,24 +965,218 @@ function alignOf(block: string): WordAlign | undefined {
   return undefined;
 }
 
-function indents(block: string): { indentPx?: number; firstIndentPx?: number } {
+function indents(block: string): { indent?: WordMeasure; firstIndent?: WordMeasure } {
   const tag = block.match(/<w:ind\b[^>]*\/?>/)?.[0];
   if (!tag) {
     return {};
   }
-  const left = numberIn(tag, "w:left");
+  const leftChars = numberIn(tag, "w:leftChars");
+  const left = numberIn(tag, "w:left") ?? numberIn(tag, "w:start");
+  const firstChars = numberIn(tag, "w:firstLineChars");
   const first = numberIn(tag, "w:firstLine");
+  const hangingChars = numberIn(tag, "w:hangingChars");
   const hanging = numberIn(tag, "w:hanging");
-  const out: { indentPx?: number; firstIndentPx?: number } = {};
-  if (left != null) {
-    out.indentPx = twipsToPx(left);
+  const out: { indent?: WordMeasure; firstIndent?: WordMeasure } = {};
+  if (leftChars != null && leftChars !== 0) {
+    out.indent = { unit: "em", value: charsToEm(leftChars) };
+  } else if (left != null) {
+    out.indent = { unit: "px", value: twipsToPx(left) };
   }
-  if (hanging != null) {
-    out.firstIndentPx = -twipsToPx(hanging);
+  if (hangingChars != null && hangingChars !== 0) {
+    out.firstIndent = { unit: "em", value: -charsToEm(hangingChars) };
+  } else if (hanging != null) {
+    out.firstIndent = { unit: "px", value: -twipsToPx(hanging) };
+  } else if (firstChars != null) {
+    out.firstIndent = { unit: "em", value: charsToEm(firstChars) };
   } else if (first != null) {
-    out.firstIndentPx = twipsToPx(first);
+    out.firstIndent = { unit: "px", value: twipsToPx(first) };
   }
   return out;
+}
+
+function spacingOf(block: string): {
+  spaceBefore?: WordMeasure;
+  spaceAfter?: WordMeasure;
+  line?: WordLineSpacing;
+} {
+  const tag = block.match(/<w:spacing\b[^>]*\/?>/)?.[0];
+  if (!tag) {
+    return {};
+  }
+  const beforeLines = numberIn(tag, "w:beforeLines");
+  const afterLines = numberIn(tag, "w:afterLines");
+  const before = numberIn(tag, "w:before");
+  const after = numberIn(tag, "w:after");
+  const line = numberIn(tag, "w:line");
+  const rule = tag.match(/\bw:lineRule="([^"]+)"/)?.[1];
+  const out: { spaceBefore?: WordMeasure; spaceAfter?: WordMeasure; line?: WordLineSpacing } = {};
+  if (beforeLines != null) {
+    out.spaceBefore = { unit: "line", value: charsToEm(beforeLines) };
+  } else if (before != null) {
+    out.spaceBefore = { unit: "px", value: twipsToPx(before) };
+  }
+  if (afterLines != null) {
+    out.spaceAfter = { unit: "line", value: charsToEm(afterLines) };
+  } else if (after != null) {
+    out.spaceAfter = { unit: "px", value: twipsToPx(after) };
+  }
+  if (line != null && line > 0) {
+    if (rule === "exact" || rule === "atLeast") {
+      out.line = { rule, px: twipsToPx(line) };
+    } else {
+      out.line = { rule: "auto", multiple: Math.round((line / 240) * 1000) / 1000 };
+    }
+  }
+  return out;
+}
+
+function pageBox(documentXml: string, defaults: StyleRaw): WordPageBox {
+  const base = defaultWordPage();
+  const sect = documentXml.match(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/)?.[0] ?? "";
+  const pgSz = sect.match(/<w:pgSz\b[^>]*\/?>/)?.[0] ?? "";
+  const pgMar = sect.match(/<w:pgMar\b[^>]*\/?>/)?.[0] ?? "";
+  const width = numberIn(pgSz, "w:w");
+  const top = numberIn(pgMar, "w:top");
+  const right = numberIn(pgMar, "w:right");
+  const bottom = numberIn(pgMar, "w:bottom");
+  const left = numberIn(pgMar, "w:left");
+  return {
+    widthPx: width != null ? twipsToPx(width) : base.widthPx,
+    marginTopPx: top != null ? twipsToPx(top) : base.marginTopPx,
+    marginRightPx: right != null ? twipsToPx(right) : base.marginRightPx,
+    marginBottomPx: bottom != null ? twipsToPx(bottom) : base.marginBottomPx,
+    marginLeftPx: left != null ? twipsToPx(left) : base.marginLeftPx,
+    fontFamily: defaults.fontFamily ?? base.fontFamily,
+    fontSizePx: defaults.fontSizePx ?? base.fontSizePx,
+  };
+}
+
+function parseDocDefaults(stylesXml: string): StyleRaw {
+  const block = elementInner(stylesXml, "docDefaults");
+  if (!block) {
+    return {};
+  }
+  const rPr = elementInner(elementInner(block, "rPrDefault"), "rPr");
+  const pPr = elementInner(elementInner(block, "pPrDefault"), "pPr");
+  const mark = markOf(rPr);
+  const ind = indents(pPr);
+  const spacing = spacingOf(pPr);
+  return {
+    ...(alignOf(pPr) ? { align: alignOf(pPr) } : {}),
+    ...(mark.fontSizePx ? { fontSizePx: mark.fontSizePx } : {}),
+    ...(mark.fontFamily ? { fontFamily: mark.fontFamily } : {}),
+    ...(mark.fontColor ? { fontColor: mark.fontColor } : {}),
+    ...(mark.bold ? { bold: true } : {}),
+    ...(mark.italic ? { italic: true } : {}),
+    ...(mark.underline ? { underline: true } : {}),
+    ...(ind.indent ? { indent: ind.indent } : {}),
+    ...(ind.firstIndent ? { firstIndent: ind.firstIndent } : {}),
+    ...(spacing.spaceBefore ? { spaceBefore: spacing.spaceBefore } : {}),
+    ...(spacing.spaceAfter ? { spaceAfter: spacing.spaceAfter } : {}),
+    ...(spacing.line ? { line: spacing.line } : {}),
+  };
+}
+
+function fontFamilyOf(block: string): string | undefined {
+  const tag = block.match(/<w:rFonts\b[^>]*\/?>/)?.[0];
+  if (!tag) {
+    return undefined;
+  }
+  const east = attrIn(tag, "w:eastAsia");
+  const ascii = attrIn(tag, "w:ascii") ?? attrIn(tag, "w:hAnsi");
+  if (!east && !ascii) {
+    return undefined;
+  }
+  if (east && ascii && fontKey(east) === fontKey(ascii)) {
+    return joinFontFaces([east]);
+  }
+  const names = [ascii, east].filter((name): name is string => Boolean(name));
+  return joinFontFaces(names);
+}
+
+function fontKey(name: string): string {
+  return name.replace(/\s+/g, "").toLowerCase();
+}
+
+function joinFontFaces(names: string[]): string {
+  const faces: string[] = [];
+  let generic = "serif";
+  for (const name of names) {
+    const mapped = fontFaces(name);
+    faces.push(mapped.faces);
+    generic = mapped.generic;
+  }
+  return `${faces.join(", ")}, ${generic}`;
+}
+
+function fontFaces(name: string): { faces: string; generic: string } {
+  const parts = name
+    .split(/[;,]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length > 1) {
+    for (const part of parts) {
+      const mapped = mappedFont(fontKey(part));
+      if (mapped) {
+        return mapped;
+      }
+    }
+  }
+  const key = fontKey(name);
+  return (
+    mappedFont(key) ?? {
+      faces: cssFamily(parts[0] ?? name),
+      generic: key === "arial" || key === "calibri" || key === "aptos" ? "sans-serif" : "serif",
+    }
+  );
+}
+
+function mappedFont(key: string): { faces: string; generic: string } | undefined {
+  if (
+    key === "simsun" ||
+    key === "宋体" ||
+    key === "nsimsun" ||
+    key === "新宋体" ||
+    key === "songtisc"
+  ) {
+    return { faces: 'SimSun, "NSimSun", "Songti SC", "STSong", "Noto Serif SC"', generic: "serif" };
+  }
+  if (key === "fangsong" || key === "仿宋" || key === "fangsong_gb2312" || key === "仿宋_gb2312") {
+    return { faces: '"STFangsong", FangSong, "Songti SC"', generic: "serif" };
+  }
+  if (key === "kaiti" || key === "楷体" || key === "kaiti_gb2312") {
+    return { faces: '"Kaiti SC", "STKaiti", KaiTi', generic: "serif" };
+  }
+  if (key === "simhei" || key === "黑体") {
+    return { faces: '"Heiti SC", "STHeiti", SimHei', generic: "sans-serif" };
+  }
+  if (key === "microsoftyahei" || key === "微软雅黑" || key === "dengxian" || key === "等线") {
+    return { faces: '"PingFang SC", "Microsoft YaHei"', generic: "sans-serif" };
+  }
+  if (key === "timesnewroman") {
+    return { faces: '"Times New Roman", Times', generic: "serif" };
+  }
+  return undefined;
+}
+
+function fontStackFor(name: string): string {
+  return joinFontFaces([name]);
+}
+
+function cssFamily(name: string): string {
+  return /[\s,]|[^\u0020-\u007e]/u.test(name) ? `"${name.replace(/"/g, "")}"` : name;
+}
+
+function attrIn(tag: string, attr: string): string | undefined {
+  return tag.match(new RegExp(`${attr}="([^"]*)"`))?.[1] || undefined;
+}
+
+function charsToEm(chars: number): number {
+  return Math.round((chars / 100) * 1000) / 1000;
+}
+
+function twipsRound(px: number): number {
+  return Math.round(px * 10) / 10;
 }
 
 function numberAttr(block: string, tag: string): number | undefined {
@@ -734,7 +1190,7 @@ function numberIn(tag: string, attr: string): number | undefined {
 }
 
 function twipsToPx(twips: number): number {
-  return Math.round(twips / 15);
+  return Math.round((twips / 15) * 10) / 10;
 }
 
 function indexOfWordOpen(xml: string, name: string, from: number): number {

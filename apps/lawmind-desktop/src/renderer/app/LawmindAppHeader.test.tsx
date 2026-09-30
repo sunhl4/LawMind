@@ -96,7 +96,7 @@ describe("LawmindAppHeader", () => {
     });
     expect(host.querySelector('[data-testid="lm-tab-home"]')).toBeNull();
     expect(host.querySelector('[aria-current="page"]')?.textContent).toContain("对话");
-    expect(host.textContent).toContain("在办");
+    expect(host.textContent).not.toContain("在办");
     expect(host.querySelector('[data-testid="lm-tab-review"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-tab-meeting"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-nav-more"]')).toBeNull();
@@ -500,8 +500,8 @@ describe("LawmindAppHeader", () => {
       );
     });
     expect(host.querySelector('[data-testid="lm-tab-collaboration"]')).toBeNull();
-    expect(host.querySelector('[data-testid="lm-tab-agents"]')?.textContent).toContain("在办");
-    expect(host.querySelector('[aria-label="功能模块"]')?.textContent).not.toContain("协作");
+    expect(host.querySelector('[data-testid="lm-tab-agents"]')).toBeNull();
+    expect(host.querySelector('[aria-label="功能模块"]')?.textContent).not.toContain("在办");
   });
 
   it("工作台 tab is primary nav and switches main view", async () => {
@@ -827,11 +827,9 @@ describe("LawmindAppHeader", () => {
         <LawmindAppHeader {...base} mainView="workspace" sidebarCollapsed />,
       );
     });
-    const collapsed = host.querySelector<HTMLButtonElement>('[data-testid="lm-header-needs-decision"]');
-    expect(collapsed?.textContent).toContain("待我拍板");
-    expect(collapsed?.textContent).toContain("3");
-    collapsed?.click();
-    expect(base.onOpenNeedsDecision).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[data-testid="lm-header-needs-decision"]')).toBeNull();
+    expect(host.textContent).not.toContain("待我拍板");
+    expect(host.textContent).not.toContain("在办");
 
     await act(async () => {
       root.render(
@@ -839,14 +837,14 @@ describe("LawmindAppHeader", () => {
       );
     });
     expect(host.querySelector('[data-testid="lm-header-needs-decision"]')).toBeNull();
-    expect(host.querySelector('[data-testid="lm-tab-agents"]')?.textContent?.trim()).toBe("在办");
+    expect(host.querySelector('[data-testid="lm-tab-agents"]')).toBeNull();
 
     await act(async () => {
       root.render(
         <LawmindAppHeader {...base} mainView="desk" sidebarCollapsed={false} needsDecisionTotal={2} />,
       );
     });
-    expect(host.querySelector('[data-testid="lm-header-needs-decision"]')?.textContent).toContain("2");
+    expect(host.querySelector('[data-testid="lm-header-needs-decision"]')).toBeNull();
   });
 
   it("shows weak matter chip when a case is linked", async () => {
@@ -903,7 +901,7 @@ describe("LawmindAppHeader", () => {
     expect(host.querySelector('select[aria-label="选择助手"]')).toBeNull();
     expect(host.querySelector('[aria-label="功能模块"]')?.textContent).toContain("对话");
     expect(host.querySelector('[aria-label="功能模块"]')?.textContent).toContain("工作台");
-    expect(host.querySelector('[aria-label="功能模块"]')?.textContent).toContain("在办");
+    expect(host.querySelector('[aria-label="功能模块"]')?.textContent).not.toContain("在办");
     expect(host.querySelector('[data-testid="lm-tab-desk"]')?.textContent).toContain("工作台");
     expect(host.querySelector('[aria-label="功能模块"]')?.textContent).not.toContain("文书台");
     expect(host.querySelector('[aria-label="功能模块"]')?.textContent).not.toContain("协作");

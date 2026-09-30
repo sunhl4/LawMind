@@ -51,7 +51,7 @@ describe("LawmindOutboundSignoffCallout", () => {
     });
     expect(host.textContent).toContain("此流程会把材料发给别人");
     expect(host.textContent).toContain("签批审阅");
-    expect(host.textContent).toContain("对所有案件生效");
+    expect(host.textContent).toContain("在工作台该案的「现在」里");
     expect(host.textContent).toContain("批准发送");
     const box = host.querySelector(
       '[data-testid="lm-outbound-signoff-check"]',

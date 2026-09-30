@@ -4,6 +4,7 @@ import { checkDesktopUpdates, openDesktopDownloadPage } from "./LawmindSettingsA
 import { LawmindSettingsAssistants } from "./LawmindSettingsAssistants";
 import type { CollabSummaryState } from "./LawmindSettingsCollaboration";
 import { LawmindSettingsCollaborationBrief } from "./LawmindSettingsCollaboration";
+import { LawmindCollaborationDesk } from "./LawmindCollaborationDesk";
 import { LawmindSettingsDisclaimer } from "./LawmindSettingsDisclaimer";
 import { LawmindSettingsEdition } from "./LawmindSettingsEdition";
 import { LawmindSettingsModelRetrieval } from "./LawmindSettingsModelRetrieval";
@@ -14,7 +15,7 @@ import { LawmindSettingsMemory } from "./LawmindSettingsMemory";
 import { LawmindSettingsSkills } from "./LawmindSettingsSkills";
 import { LawmindAutomationsPanel } from "./LawmindAutomationsPanel";
 import type { AppConfig } from "./lawmind-app-bootstrap";
-import type { HealthPayload } from "./lawmind-app-data";
+import type { CollabEvent, DelegationRow, GateHistoryItem, HealthPayload } from "./lawmind-app-data";
 import type { ModelCatalogEntry } from "./lawmind-models-api";
 import type { AssistantRow } from "./lawmind-settings-models.ts";
 import {
@@ -106,6 +107,14 @@ type Props = {
   onClearProject: () => void | Promise<void>;
   onOpenArchiveOrganize?: () => void;
   onOpenCollaborationPage: () => void;
+  delegations?: DelegationRow[];
+  collabEvents?: CollabEvent[];
+  gateHistory?: GateHistoryItem[];
+  formatRelativeTime?: (iso: string) => string;
+  onRefreshCollaboration?: () => void | Promise<void>;
+  onOpenDelegationTargetChat?: (delegation: DelegationRow) => void | Promise<void>;
+  assistantDisplayById?: Record<string, string>;
+  workflowModelLabel?: string;
   onPrefsChange?: () => void;
   /** Automations (settings section) */
   automationMatterId?: string | null;
@@ -580,7 +589,6 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     retrievalLabel,
     retrievalSaving,
     draftWithModelSaving,
-    onClose,
     onOpenNewAssistant,
     onOpenEditAssistant,
     onRemoveAssistant,
@@ -602,7 +610,6 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     onPickProject,
     onClearProject,
     onOpenArchiveOrganize,
-    onOpenCollaborationPage,
     onPrefsChange,
     automationMatterId,
     automationMatterOptions,
@@ -636,16 +643,15 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     case "memory":
       return config ? <LawmindSettingsMemory apiBase={config.apiBase} /> : notReady;
     case "collaboration":
-      return config ? (
-        <LawmindSettingsCollaborationBrief
-          collabSummarySettings={collabSummarySettings}
-          localServiceReconnecting={localServiceReconnecting}
-          onReconnectLocalService={onReconnectLocalService}
-          onOpenCollaborationPage={() => {
-            onClose();
-            onOpenCollaborationPage();
-          }}
-        />
+      return config && collabSummarySettings ? (
+        <>
+          <LawmindSettingsCollaborationBrief
+            collabSummarySettings={collabSummarySettings}
+            localServiceReconnecting={localServiceReconnecting}
+            onReconnectLocalService={onReconnectLocalService}
+          />
+          <SettingsCollaborationDeskHost {...args} />
+        </>
       ) : (
         notReady
       );
@@ -744,4 +750,38 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     default:
       return null;
   }
+}
+
+function SettingsCollaborationDeskHost(props: SectionRenderArgs): ReactNode {
+  const [tab, setTab] = useState<"overview" | "workflows">("overview");
+  if (
+    !props.config ||
+    !props.delegations ||
+    !props.collabEvents ||
+    !props.gateHistory ||
+    !props.formatRelativeTime ||
+    !props.onRefreshCollaboration ||
+    !props.collabSummarySettings
+  ) {
+    return null;
+  }
+  return (
+    <LawmindCollaborationDesk
+      config={props.config}
+      collabSummarySettings={props.collabSummarySettings}
+      selectedAssistantId={props.selectedAssistantId}
+      delegations={props.delegations}
+      collabEvents={props.collabEvents}
+      gateHistory={props.gateHistory}
+      formatRelativeTime={props.formatRelativeTime}
+      onRefreshCollaboration={props.onRefreshCollaboration}
+      onOpenDelegationTargetChat={props.onOpenDelegationTargetChat}
+      deskTab={tab}
+      onDeskTabChange={setTab}
+      assistantDisplayById={props.assistantDisplayById}
+      workflowModelLabel={props.workflowModelLabel}
+      onReconnectLocalService={props.onReconnectLocalService}
+      localServiceReconnecting={props.localServiceReconnecting}
+    />
+  );
 }

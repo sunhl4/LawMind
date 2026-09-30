@@ -75,6 +75,10 @@ const wordSurfaceSource = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../../src/lawmind/drafts/word-surface.ts",
 );
+const wordSurfaceLayoutSource = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../src/lawmind/drafts/word-surface-layout.ts",
+);
 
 type LoadWordSurface = typeof loadWordSurfaceStatic;
 
@@ -91,8 +95,11 @@ async function wordSurfaceCodeStamp(): Promise<string> {
     return "bundled";
   }
   try {
-    const st = await fs.stat(wordSurfaceSource);
-    return String(Math.round(st.mtimeMs));
+    const [surface, layout] = await Promise.all([
+      fs.stat(wordSurfaceSource),
+      fs.stat(wordSurfaceLayoutSource),
+    ]);
+    return String(Math.max(Math.round(surface.mtimeMs), Math.round(layout.mtimeMs)));
   } catch {
     return "bundled";
   }
@@ -103,8 +110,11 @@ async function resolveLoadWordSurface(): Promise<LoadWordSurface> {
     return loadWordSurfaceStatic;
   }
   try {
-    const st = await fs.stat(wordSurfaceSource);
-    const mtimeMs = Math.round(st.mtimeMs);
+    const [surface, layout] = await Promise.all([
+      fs.stat(wordSurfaceSource),
+      fs.stat(wordSurfaceLayoutSource),
+    ]);
+    const mtimeMs = Math.max(Math.round(surface.mtimeMs), Math.round(layout.mtimeMs));
     if (liveLoader?.mtimeMs === mtimeMs) {
       return liveLoader.load;
     }

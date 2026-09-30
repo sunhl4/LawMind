@@ -64,6 +64,7 @@ describe("lawmind-settings-nav", () => {
     expect(firstSettingsNavMatch("沙箱")).toBeUndefined();
     expect(settingsNavItem("assistants")?.label).toBe("助手编制");
     expect(SETTINGS_NAV_GROUPS[1]?.items.map((i) => i.id)).toEqual([
+      "collaboration",
       "automations",
       "memory",
       "assistants",
@@ -74,13 +75,12 @@ describe("lawmind-settings-nav", () => {
     const sidebarIds = SETTINGS_NAV_FLAT.map((item) => item.id);
     expect(sidebarIds).toContain("assistants");
     expect(sidebarIds).not.toContain("roles");
-    expect(sidebarIds).not.toContain("collaboration");
+    expect(sidebarIds).toContain("collaboration");
     expect(sidebarIds).not.toContain("skills");
     expect(sidebarIds).not.toContain("edition");
     expect(sidebarIds).not.toContain("templates");
     expect(SETTINGS_NAV_RETIRED_ITEMS.map((item) => item.id)).toEqual([
       "roles",
-      "collaboration",
       "skills",
       "edition",
       "doctor",
@@ -108,11 +108,11 @@ describe("lawmind-settings-nav", () => {
     expect(firstSettingsNavMatch("新建助手")).toBe("assistants");
   });
 
-  it("search never lands on retired 角色 / 协作", () => {
+  it("search never lands on retired 角色", () => {
     expect(firstSettingsNavMatch("角色", "solo")).not.toBe("roles");
-    expect(firstSettingsNavMatch("协作", "solo")).not.toBe("collaboration");
+    expect(firstSettingsNavMatch("协作", "solo")).toBe("collaboration");
     expect(firstSettingsNavMatch("角色", "firm")).not.toBe("roles");
-    expect(firstSettingsNavMatch("协作", "firm")).not.toBe("collaboration");
+    expect(firstSettingsNavMatch("协作", "firm")).toBe("collaboration");
   });
 
   it("sidebar is one flat list of every lawyer-facing section", () => {
@@ -122,6 +122,7 @@ describe("lawmind-settings-nav", () => {
       "models",
       "workspace",
       "appearance",
+      "collaboration",
       "automations",
       "memory",
       "assistants",
@@ -134,7 +135,7 @@ describe("lawmind-settings-nav", () => {
     expect(ids).not.toContain("templates");
     expect(ids).not.toContain("host");
     expect(ids).not.toContain("roles");
-    expect(ids).not.toContain("collaboration");
+    expect(ids).toContain("collaboration");
     expect(ids).not.toContain("skills");
     expect(ids).not.toContain("edition");
   });
@@ -149,7 +150,7 @@ describe("lawmind-settings-nav", () => {
     const firmIds = settingsNavItemsForEdition("firm").map((item) => item.id);
     expect(firmIds).toEqual(soloIds);
     expect(firmIds).not.toContain("roles");
-    expect(firmIds).not.toContain("collaboration");
+    expect(firmIds).toContain("collaboration");
     expect(firmIds).toContain("assistants");
     expect(firmIds).not.toContain("host");
     expect(firmIds).not.toContain("doctor");

@@ -2,7 +2,7 @@
  * Bus to open Settings sections from deep UI (failure CTA, mail intent, desk standards).
  */
 
-export type SettingsDeepLinkSection = "automations" | "workspace";
+export type SettingsDeepLinkSection = "automations" | "workspace" | "collaboration";
 
 type Listener = (section: SettingsDeepLinkSection) => void;
 
@@ -23,6 +23,11 @@ function requestOpenSettingsSection(section: SettingsDeepLinkSection): void {
 
 export function requestOpenAutomationsSettings(): void {
   requestOpenSettingsSection("automations");
+}
+
+/** 设置里的交出去的活 / 按流程办。 */
+export function requestOpenCollaborationSettings(): void {
+  requestOpenSettingsSection("collaboration");
 }
 
 /** Settings → 工作区（审查标准 / playbook 口径）. */

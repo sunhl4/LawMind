@@ -8,6 +8,7 @@ import { CanvasFileView } from "../canvas/CanvasFileView";
 import { useLawmindCanvasKind } from "../canvas/theme";
 import {
   LAWMIND_CANVAS_EXPORT_RESULT_EVENT,
+  openDeliverableInWps,
   requestCanvasExport,
   type CanvasExportResultDetail,
 } from "../canvas/host-actions";
@@ -396,12 +397,9 @@ export function FileWorkbenchEditorPane({
             onRevealSource={() => void doShowInFolder(officeBlock.root, officeBlock.relPath)}
             onOpenWithSystem={() => {
               setError(null);
-              void window.lawmindDesktop?.openWithSystem({
-                root: officeBlock.root,
-                path: officeBlock.relPath,
-              }).then((r) => {
-                if (r && !r.ok) {
-                  setError(r.error ?? "无法用系统应用打开该文件。");
+              void openDeliverableInWps(officeBlock.relPath, officeBlock.root).then((r) => {
+                if (!r.ok) {
+                  setError(r.error ?? "无法用 WPS 打开该文件。");
                 }
               });
             }}

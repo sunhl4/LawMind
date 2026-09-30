@@ -1,6 +1,9 @@
 import { DEFAULT_ASSISTANT_ID } from "../../../src/lawmind/assistants/constants.js";
-import type { AgentSession } from "../../../src/lawmind/agent/types.js";
-import { isLawyerVisibleChatMessage } from "../../../src/lawmind/agent/types.js";
+import { surfaceModelFailureForLawyer } from "../../../src/lawmind/agent/model-error-message.js";
+import {
+  isLawyerVisibleChatMessage,
+  type AgentSession,
+} from "../../../src/lawmind/agent/types.js";
 import { searchConversations } from "../../../src/lawmind/agent/conversation-search.js";
 import {
   createSession,
@@ -326,7 +329,7 @@ export async function handleRecordRoutes({
         .find((m) => isLawyerVisibleChatMessage(m));
       const preview =
         typeof tail?.content === "string"
-          ? tail.content.replace(/\s+/g, " ").trim().slice(0, 120)
+          ? surfaceModelFailureForLawyer(tail.content).replace(/\s+/g, " ").trim().slice(0, 120)
           : "";
       return {
         sessionId: session.sessionId,

@@ -86,6 +86,12 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
     label: "办案",
     items: [
       {
+        id: "collaboration",
+        label: "协作",
+        description: "交出去的活，以及按流程办",
+        keywords: "collaboration 协作 委派 按流程办",
+      },
+      {
         id: "automations",
         label: "自动办件",
         description: "选一件事，定多久办一次",
@@ -128,12 +134,6 @@ export const SETTINGS_NAV_RETIRED_ITEMS: readonly SettingsNavItem[] = [
     label: "角色说明",
     description: "内置岗位已随默认助手生效",
     keywords: "roles 角色 助手 岗位",
-  },
-  {
-    id: "collaboration",
-    label: "团队工作流",
-    description: "日常入口是顶栏「在办」",
-    keywords: "collaboration 协作 在办 委派 delegation",
   },
   {
     id: "skills",
@@ -231,7 +231,6 @@ export const SETTINGS_NAV_LEGACY_SECTION_IDS: readonly LawmindSettingsSectionId[
   "review-prefs",
   "host",
   "roles",
-  "collaboration",
   "skills",
   "edition",
   "doctor",
@@ -242,7 +241,6 @@ export const SETTINGS_NAV_LEGACY_SECTION_IDS: readonly LawmindSettingsSectionId[
 
 const RETIRED_LAST_SECTION_IDS = new Set<LawmindSettingsSectionId>([
   "roles",
-  "collaboration",
   "skills",
   "edition",
   "doctor",

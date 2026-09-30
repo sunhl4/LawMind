@@ -20,6 +20,7 @@ import {
 import {
   safeOpenExternal,
   safeOpenWithSystem,
+  safeOpenWithWps,
   safeShowItemInFolder,
 } from "./safe-shell-command.mjs";
 import { checkUpdatesWithUi, loadRendererIntoWindow, resolveLawmindDownloadPageUrl } from "./app-menu.mjs";
@@ -1188,6 +1189,22 @@ export function registerIpcHandlers(deps) {
         allowRoot: false,
       });
       return safeOpenWithSystem(absPath, workspaceDir);
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  /** 用 WPS 打开工作区/项目内的交付文件 */
+  ipcMain.handle("lawmind:open-with-wps", async (_evt, payload) => {
+    try {
+      const root = payload?.root;
+      const relPath = payload?.path ?? "";
+      const { absPath } = resolveFsPath(root, relPath, {
+        access: "read",
+        mustExist: true,
+        allowRoot: false,
+      });
+      return safeOpenWithWps(absPath, workspaceDir);
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }

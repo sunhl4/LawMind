@@ -23,6 +23,7 @@ import { collapseSameTurnVerifyHistoryForTurnEnd } from "../runtime/same-turn-ve
 import { persistAgentInstructionTask } from "../tasks/index.js";
 import type { ClarificationQuestion } from "../types.js";
 import { markWorkNeedsLawyer } from "../work/store.js";
+import { appendDeliverableFileLinks } from "./deliverable-chat-links.js";
 import { collectRetrievedAnchors } from "./lawyer-close-anchors.js";
 import { constrainLawyerVisibleReply } from "./lawyer-close.js";
 import { attachPersistedLiveTraceToLastAssistant } from "./live-turn-progress.js";
@@ -35,6 +36,20 @@ import {
 } from "./session.js";
 import { buildClarificationReply, type RunTurnEvent } from "./turn-orchestrator-events.js";
 import type { AgentMessage, AgentSession, AgentTurn } from "./types.js";
+
+function replaceLastLawyerAssistant(messages: AgentMessage[], content: string): void {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i];
+    if (!msg || msg.role !== "assistant" || msg.hiddenFromLawyer || msg.toolCalls?.length) {
+      continue;
+    }
+    if (!msg.content?.trim()) {
+      continue;
+    }
+    msg.content = content;
+    return;
+  }
+}
 
 function rewriteTrailingAssistantReply(
   messages: AgentMessage[],
@@ -228,6 +243,12 @@ export function finalizeAgentTurn(opts: {
     emitEvent({ type: "clarification", questions: turn.clarificationQuestions });
   } else {
     delete session.pendingClarificationKeys;
+  }
+  if (turn.status === "completed") {
+    finalReply = appendDeliverableFileLinks(finalReply, turn.messages, workspaceDir);
+    turn.result = finalReply;
+    replaceLastLawyerAssistant(session.conversationHistory, finalReply);
+    replaceLastLawyerAssistant(turn.messages, finalReply);
   }
   emitEvent({ type: "final", status: turn.status, reply: turn.result ?? "" });
   turn.executionState = {

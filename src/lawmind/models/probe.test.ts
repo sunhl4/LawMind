@@ -40,4 +40,15 @@ describe("formatUpstreamProbeError", () => {
     expect(msg).not.toContain("deepseek-flash");
     expect(msg).not.toContain("http");
   });
+
+  it("says 欠费 for an arrears body instead of the raw JSON", () => {
+    const msg = formatUpstreamProbeError(
+      400,
+      '{"error":{"message":"Access denied, please make sure your account is in good standing","code":"Arrearage"}}',
+      { model: "qwen-plus", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+    );
+    expect(msg).toMatch(/欠费/);
+    expect(msg).not.toContain("Arrearage");
+    expect(msg).not.toContain("http");
+  });
 });

@@ -474,18 +474,14 @@ export function LawmindSettingsCollaboration(props: Props): ReactNode {
 
 type BriefProps = {
   collabSummarySettings: CollabSummaryState;
-  onOpenCollaborationPage: () => void;
   onReconnectLocalService?: () => void | Promise<void>;
   localServiceReconnecting?: boolean;
 };
 
-/**
- * 设置弹窗内的协作摘要与入口（完整 UI 在顶部「在办」）。
- */
+/** 设置里的协作摘要。交出去的活和按流程办挂在同一页。 */
 export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode {
   const {
     collabSummarySettings,
-    onOpenCollaborationPage,
     onReconnectLocalService,
     localServiceReconnecting = false,
   } = props;
@@ -525,15 +521,7 @@ export function LawmindSettingsCollaborationBrief(props: BriefProps): ReactNode 
             {collabSummarySettings.collaborationHint ? (
               <p className="lm-settings-caption">{collabSummarySettings.collaborationHint}</p>
             ) : null}
-            <div className="lm-settings-actions">
-              <button
-                type="button"
-                className="lm-btn lm-btn-accent lm-btn-sm"
-                onClick={() => onOpenCollaborationPage()}
-              >
-                去「在办」处理
-              </button>
-            </div>
+            <p className="lm-settings-caption">交出去的活和按流程办在这一页。</p>
           </>
         )}
       </div>

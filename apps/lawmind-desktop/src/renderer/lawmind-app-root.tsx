@@ -21,6 +21,7 @@ import {
 } from "./canvas/host-actions";
 import { resolveOpenableOutputPath, artifactApiRelFromOutput } from "./lawmind-app-utils";
 import { scheduleScrollChatMessagesToLatest } from "./lawmind-chat-scroll";
+import { LAWMIND_OPEN_MATTER_OUTBOUND } from "./lawmind-desk-outbound";
 import { LAWMIND_PREPARE_WORKSPACE_FILE_EVENT, openContractRevisionForTask } from "./lawmind-open-contract-revision";
 import {
   LAWMIND_OPEN_CONTRACT_REVISION_EVENT,
@@ -133,7 +134,11 @@ export function LawmindAppRoot() {
   ]);
   const [matterImportBusy, setMatterImportBusy] = useState(false);
   const [matterCockpitOpen, setMatterCockpitOpen] = useState(false);
-  const [deskMatterFocus, setDeskMatterFocus] = useState<{ id: string; n: number } | null>(null);
+  const [deskMatterFocus, setDeskMatterFocus] = useState<{
+    id: string;
+    n: number;
+    pane?: "docs";
+  } | null>(null);
   const [createMatterOpen, setCreateMatterOpen] = useState(false);
   const [matterDeleteOpen, setMatterDeleteOpen] = useState<{ matterId: string; label: string } | null>(null);
   const [delegateAssistOpen, setDelegateAssistOpen] = useState(false);
@@ -346,7 +351,20 @@ export function LawmindAppRoot() {
       textareaRef.current?.focus();
     };
     window.addEventListener(LAWMIND_CANVAS_COMPOSER_EVENT, onComposer);
-    return () => window.removeEventListener(LAWMIND_CANVAS_COMPOSER_EVENT, onComposer);
+    const onOutbound = (event: Event) => {
+      const matterId = (event as CustomEvent<{ matterId?: string }>).detail?.matterId?.trim();
+      if (!matterId) {
+        return;
+      }
+      actions.setContextMatterId(matterId);
+      setDeskMatterFocus((prev) => ({ id: matterId, n: (prev?.n ?? 0) + 1, pane: "docs" }));
+      actions.setMainView("desk");
+    };
+    window.addEventListener(LAWMIND_OPEN_MATTER_OUTBOUND, onOutbound);
+    return () => {
+      window.removeEventListener(LAWMIND_CANVAS_COMPOSER_EVENT, onComposer);
+      window.removeEventListener(LAWMIND_OPEN_MATTER_OUTBOUND, onOutbound);
+    };
   }, [actions]);
   const workflowModelLabel =
     modelCatalog.find((m) => m.id === selectedModelId)?.label ?? selectedModelId;
@@ -397,15 +415,7 @@ export function LawmindAppRoot() {
       if (payload?.reason !== "open_settings_collaboration") {
         return;
       }
-      useSettingsPanelStore.getState().setSettingsPanel(false);
-      setAgentsDeskTab("workflows");
-      setMainView("agents");
-      requestAnimationFrame(() => {
-        document.getElementById("lawmind-collaboration-hub")?.scrollIntoView({
-          behavior: "smooth",
-          block: "nearest",
-        });
-      });
+      useSettingsPanelStore.getState().setSettingsPanel(true, "collaboration");
     });
     return () => {
       unsub?.();

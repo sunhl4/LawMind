@@ -51,7 +51,7 @@ describe("LawmindChatDraftStatusBar", () => {
     vi.unstubAllGlobals();
   });
 
-  it("pending draft offers 打开结果", async () => {
+  it("does not offer a signoff desk", async () => {
     await act(async () => {
       root.render(
         <LawmindChatDraftStatusBar
@@ -66,39 +66,8 @@ describe("LawmindChatDraftStatusBar", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(host.querySelector('[data-testid="lm-draft-status-signoff"]')?.textContent).toContain("打开结果");
-    expect(host.querySelector('[data-testid="lm-draft-status-open-review"]')).toBeNull();
-    expect(host.querySelector('[data-testid="lm-draft-status-open-artifact"]')).toBeNull();
-  });
-
-  it("pending draft offers 去签批 when 签批审阅 is on", async () => {
-    localStorage.setItem("lawmind.review.requireSignoffReview", "1");
-    const onOpenNeedsDecisionDesk = vi.fn();
-    const onOpenReview = vi.fn();
-    await act(async () => {
-      root.render(
-        <LawmindChatDraftStatusBar
-          apiBase="http://127.0.0.1:1"
-          linkedTaskId="t1"
-          assistantText="审查意见已拟好。"
-          onOpenReview={onOpenReview}
-          onOpenNeedsDecisionDesk={onOpenNeedsDecisionDesk}
-        />,
-      );
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
-    const btn = host.querySelector('[data-testid="lm-draft-status-signoff"]') as HTMLButtonElement;
-    expect(btn?.textContent).toContain("去签批");
-    await act(async () => {
-      btn.click();
-    });
-    expect(onOpenNeedsDecisionDesk).toHaveBeenCalledWith({
-      taskId: "t1",
-      matterId: "m1",
-      preferStatus: "awaiting_review",
-    });
-    expect(onOpenReview).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="lm-draft-status-signoff"]')).toBeNull();
+    expect(host.textContent ?? "").not.toContain("去签批");
+    expect(host.textContent ?? "").not.toContain("看修订");
   });
 });

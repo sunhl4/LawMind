@@ -1,19 +1,29 @@
+import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const { openPath, showItemInFolder, openExternal } = vi.hoisted(() => ({
+const { openPath, showItemInFolder, openExternal, spawn } = vi.hoisted(() => ({
   openPath: vi.fn(async () => ""),
   showItemInFolder: vi.fn(() => undefined),
   openExternal: vi.fn(async () => undefined),
+  spawn: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
   shell: { openPath, showItemInFolder, openExternal },
 }));
 
-import { safeOpenWithSystem, safeShowItemInFolder, safeOpenExternal, safeShellCommand } from "./safe-shell-command.mjs";
+vi.mock("node:child_process", () => ({ spawn }));
+
+import {
+  safeOpenWithSystem,
+  safeShowItemInFolder,
+  safeOpenExternal,
+  safeOpenWithWps,
+  safeShellCommand,
+} from "./safe-shell-command.mjs";
 
 function parseJsonDetail(raw: unknown): Record<string, unknown> {
   const text = typeof raw === "string" ? raw : JSON.stringify(raw ?? {});
@@ -32,10 +42,48 @@ describe("safe-shell-command", () => {
     openPath.mockReset().mockResolvedValue("");
     showItemInFolder.mockReset().mockImplementation(() => undefined);
     openExternal.mockReset().mockResolvedValue(undefined);
+    spawn.mockReset();
   });
 
   afterEach(() => {
     fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  function wpsChild(code: number, stderrText = ""): EventEmitter {
+    const stderr = new EventEmitter();
+    const child = new EventEmitter();
+    (child as EventEmitter & { stderr: EventEmitter }).stderr = stderr;
+    queueMicrotask(() => {
+      if (stderrText) {
+        stderr.emit("data", stderrText);
+      }
+      child.emit("close", code);
+    });
+    return child;
+  }
+
+  it("opens a workspace file with WPS", async () => {
+    const file = path.join(workspaceDir, "函.docx");
+    fs.writeFileSync(file, "x");
+    spawn.mockImplementation(() => wpsChild(0));
+    const res = await safeOpenWithWps(file, workspaceDir);
+    expect(res.ok).toBe(true);
+    expect(spawn).toHaveBeenCalledWith(
+      "/usr/bin/open",
+      ["-b", "com.kingsoft.wpsoffice.mac", "--", file],
+      { stdio: ["ignore", "ignore", "pipe"] },
+    );
+    expect(openPath).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to another app when WPS is missing", async () => {
+    const file = path.join(workspaceDir, "函.docx");
+    fs.writeFileSync(file, "x");
+    spawn.mockImplementation(() => wpsChild(1, "Unable to find application"));
+    const res = await safeOpenWithWps(file, workspaceDir);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("WPS");
+    expect(openPath).not.toHaveBeenCalled();
   });
 
   it("rejects relative paths", async () => {

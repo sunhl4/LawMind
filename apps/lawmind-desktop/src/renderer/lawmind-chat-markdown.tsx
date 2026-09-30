@@ -10,8 +10,9 @@ import {
   isMarkdownTableBlockStart,
   type TableColumnAlign,
 } from "./lawmind-chat-markdown-table";
-import { openLawyerExternalUrl } from "./canvas/host-actions";
-import { openContractRevisionForTask } from "./lawmind-open-contract-revision";
+import { docxCellWithDirectory } from "../../../../src/lawmind/sources/lawyer-chat-link.ts";
+import { openDeliverableInWps, openLawyerExternalUrl } from "./canvas/host-actions";
+import { openContractRevisionForTask, openDocxInReviewSurface } from "./lawmind-open-contract-revision";
 import { requestOpenChatSession } from "./lawmind-open-chat-session-bus";
 import { requestOpenWorkspaceFile } from "./lawmind-workspace-file-open";
 
@@ -20,6 +21,10 @@ export type LegalMarkdownContext = {
   workspaceDir?: string;
   onOpenDraft?: (taskId: string) => void;
   onOpenError?: (message: string) => void;
+  /** 这份审阅稿的相对路径 → 任务编号。有任务号时左键仍进核对。 */
+  reviewByPath?: ReadonlyMap<string, string>;
+  onOpenReviewTask?: (taskId: string) => void;
+  onReviewFileMenu?: (x: number, y: number, relPath: string) => void;
 };
 
 function columnAlignStyle(align: TableColumnAlign): CSSProperties | undefined {
@@ -126,6 +131,75 @@ export function renderInlineLegalMarkdown(
           data-testid="lm-md-web-link"
           title={token.url}
           onClick={() => openLawyerExternalUrl(token.url)}
+        >
+          {token.label}
+        </button>
+      );
+    }
+    if (token.kind === "wps_link") {
+      const isWord = /\.docx?$/i.test(token.path);
+      if (isWord) {
+        const reviewTaskId = ctx?.reviewByPath?.get(token.path);
+        return (
+          <button
+            key={`wps-${tokenIndex}`}
+            type="button"
+            className="lm-md-session-link"
+            data-testid="lm-word-check-open"
+            title="打开审核。右键可以去本机目录，或用本机应用打开。"
+            onClick={() => {
+              const openReview = (taskId: string) => {
+                if (ctx?.onOpenDraft) {
+                  ctx.onOpenDraft(taskId);
+                  return;
+                }
+                if (!ctx?.apiBase?.trim()) {
+                  return;
+                }
+                void openContractRevisionForTask({
+                  apiBase: ctx.apiBase,
+                  taskId,
+                  workspaceDir: ctx.workspaceDir,
+                });
+              };
+              if (reviewTaskId) {
+                openReview(reviewTaskId);
+                return;
+              }
+              void openDocxInReviewSurface({
+                relPath: token.path,
+                apiBase: ctx?.apiBase,
+                workspaceDir: ctx?.workspaceDir,
+                onTask: (taskId) => openReview(taskId),
+              });
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              ctx?.onReviewFileMenu?.(event.clientX, event.clientY, token.path);
+            }}
+          >
+            {token.label}
+          </button>
+        );
+      }
+      return (
+        <button
+          key={`wps-${tokenIndex}`}
+          type="button"
+          className="lm-md-session-link"
+          data-testid="lm-md-wps-link"
+          title="用本机应用打开。右键可以去本机目录。"
+          onClick={() => {
+            void openDeliverableInWps(token.path).then((result) => {
+              if (!result.ok && result.error) {
+                ctx?.onOpenError?.(result.error);
+              }
+            });
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            ctx?.onReviewFileMenu?.(event.clientX, event.clientY, token.path);
+          }}
         >
           {token.label}
         </button>
@@ -291,7 +365,7 @@ export function renderLegalMarkdown(text: string, ctx?: LegalMarkdownContext): R
                   <tr key={`tr-${ri}`}>
                     {row.map((cell, ci) => (
                       <td key={`td-${ri}-${ci}`} style={columnAlignStyle(table.alignments[ci])}>
-                        {renderInlineLegalMarkdown(cell, ctx)}
+                        {renderInlineLegalMarkdown(docxCellWithDirectory(cell, row), ctx)}
                       </td>
                     ))}
                   </tr>

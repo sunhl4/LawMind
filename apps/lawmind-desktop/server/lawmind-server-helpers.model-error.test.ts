@@ -30,6 +30,8 @@ describe("resolveModelCallHttpError", () => {
     );
     expect(resolved?.code).toBe("model_network_error");
     expect(resolved?.status).toBe(502);
+    expect(resolved?.message).toMatch(/没有网络/);
+    expect(resolved?.message).not.toMatch(/baseUrl|fetch failed/);
   });
 
   it("returns null for unrelated errors", () => {

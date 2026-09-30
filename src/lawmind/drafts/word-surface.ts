@@ -23,11 +23,15 @@ import {
   type RedlineProposal,
 } from "./redline-proposal.js";
 import {
+  defaultWordPage,
   extractDocxLayout,
   layoutPlainTexts,
   type WordAlign,
   type WordLayoutBlock,
   type WordLayoutRun,
+  type WordLineSpacing,
+  type WordMeasure,
+  type WordPageBox,
   type WordRunMark,
 } from "./word-surface-layout.js";
 import { revisionPieces } from "./word-surface-pieces.js";
@@ -51,20 +55,40 @@ export type WordSurfaceSegment = (
 ) &
   WordSurfaceMark;
 
+export type { WordLineSpacing, WordMeasure, WordPageBox } from "./word-surface-layout.js";
+
 export type WordSurfaceParagraph = {
   align?: WordAlign;
-  indentPx?: number;
-  firstIndentPx?: number;
-  tight?: boolean;
+  indent?: WordMeasure;
+  firstIndent?: WordMeasure;
+  spaceBefore?: WordMeasure;
+  spaceAfter?: WordMeasure;
+  line?: WordLineSpacing;
+  fontFamily?: string;
   listLabel?: string;
   /** Docx text before lawyer edits. Control+S compares the paragraph against this. */
   baselineText?: string;
   segments: WordSurfaceSegment[];
 };
 
+export type WordSurfaceCell = {
+  blocks: WordSurfaceBlock[];
+  colspan?: number;
+  widthPx?: number;
+  vertical?: boolean;
+  vAlign?: "top" | "center" | "bottom";
+};
+
 export type WordSurfaceBlock =
   | ({ kind: "paragraph" } & WordSurfaceParagraph)
-  | { kind: "table"; bordered?: boolean; rows: { blocks: WordSurfaceBlock[] }[][] };
+  | {
+      kind: "table";
+      bordered?: boolean;
+      widthPx?: number;
+      widthPct?: number;
+      colWidthsPx?: number[];
+      rows: WordSurfaceCell[][];
+    };
 
 export type WordSurfaceHunkView = {
   hunkId: string;
@@ -89,6 +113,8 @@ export type WordSurfaceSnapshot = {
   /** Reading order, including paragraphs inside tables. */
   paragraphs: WordSurfaceParagraph[];
   hunks: WordSurfaceHunkView[];
+  /** Paper size and the document default face. Absent only on older snapshots. */
+  page?: WordPageBox;
   summary: { pending: number; accepted: number; rejected: number };
   /** File mtime used to skip a repeat unzip. Absent on snapshots built without a file. */
   fileMtimeMs?: number;
@@ -101,17 +127,21 @@ export type WordSurfaceSnapshot = {
  * Start-tag attributes and field instructions are not visible text.
  */
 export function extractDocxParagraphsFromXml(xml: string): string[] {
-  return layoutPlainTexts(extractDocxLayout(xml))
+  return layoutPlainTexts(extractDocxLayout(xml).blocks)
     .map((text) => text.trim())
     .filter(Boolean);
 }
 
 export async function readDocxLayout(absPath: string): Promise<WordLayoutBlock[]> {
+  return (await readDocxDocument(absPath)).blocks;
+}
+
+async function readDocxDocument(absPath: string): Promise<ReturnType<typeof extractDocxLayout>> {
   const buffer = await fs.readFile(absPath);
   const zip = await JSZip.loadAsync(buffer);
   const xml = await zip.file("word/document.xml")?.async("string");
   if (!xml) {
-    return [];
+    return { page: defaultWordPage(), blocks: [] };
   }
   const styles = (await zip.file("word/styles.xml")?.async("string")) ?? "";
   const numbering = (await zip.file("word/numbering.xml")?.async("string")) ?? "";
@@ -216,11 +246,15 @@ export function syncLawyerSurfaceDocument(params: {
       },
     });
   }
-  return replaceLawyerHunks(
+  const res = replaceLawyerHunks(
     params.workspaceDir,
     taskId,
     changed.map((row) => ({ before: row.baseline, after: row.current })),
   );
+  if (!res.ok) {
+    return res;
+  }
+  return { ok: true, taskId, removed: res.removed, updated: res.updated };
 }
 
 export function findDraftForWordFile(
@@ -238,8 +272,13 @@ export function findDraftForWordFile(
   return exact[0];
 }
 
-type PaintableHunk = Pick<RedlineHunk, "hunkId" | "before" | "after" | "rationale"> & {
+type PaintableHunk = Pick<
+  RedlineHunk,
+  "hunkId" | "before" | "after" | "rationale" | "spanStart" | "spanEnd"
+> & {
   color?: number;
+  /** Baseline section body. Offsets are into this string, not a search hit. */
+  sectionBody?: string;
 };
 
 type MarkedAtom = { ch: string; mark: WordSurfaceMark };
@@ -250,7 +289,8 @@ function sameMark(a: WordSurfaceMark, b: WordSurfaceMark): boolean {
     a.italic === b.italic &&
     a.underline === b.underline &&
     a.fontSizePx === b.fontSizePx &&
-    a.fontColor === b.fontColor
+    a.fontColor === b.fontColor &&
+    a.fontFamily === b.fontFamily
   );
 }
 
@@ -271,10 +311,61 @@ function markOfRun(run: WordLayoutRun): WordSurfaceMark {
   if (run.fontColor) {
     mark.fontColor = run.fontColor;
   }
+  if (run.fontFamily) {
+    mark.fontFamily = run.fontFamily;
+  }
   return mark;
 }
 
 export { replaceSingleChange, revisionPieces, type RevisionPiece } from "./word-surface-pieces.js";
+
+/**
+ * Where a hunk sits in this paragraph.
+ * Surgical inserts store an empty `before` and a character offset into the
+ * baseline section. A search for that empty string would hit the start.
+ */
+function spanInText(
+  text: string,
+  hunk: PaintableHunk,
+  start: number,
+  end: number,
+): { start: number; end: number } | null {
+  if (start >= 0 && end >= start && end <= text.length && text.slice(start, end) === hunk.before) {
+    return { start, end };
+  }
+  return null;
+}
+
+function revisionAnchor(text: string, hunk: PaintableHunk): { start: number; end: number } | null {
+  if (
+    hunk.sectionBody != null &&
+    typeof hunk.spanStart === "number" &&
+    typeof hunk.spanEnd === "number"
+  ) {
+    if (hunk.sectionBody === text) {
+      return spanInText(text, hunk, hunk.spanStart, hunk.spanEnd);
+    }
+    // The open file sometimes splits one baseline paragraph. Keep the offset
+    // when this paragraph is a unique slice that still contains the change.
+    if (text.length >= 40) {
+      const at = hunk.sectionBody.indexOf(text);
+      if (at >= 0 && hunk.sectionBody.indexOf(text, at + text.length) < 0) {
+        const shifted = spanInText(text, hunk, hunk.spanStart - at, hunk.spanEnd - at);
+        if (shifted) {
+          return shifted;
+        }
+      }
+    }
+  }
+  if (!hunk.before) {
+    return null;
+  }
+  const start = text.indexOf(hunk.before);
+  if (start < 0) {
+    return null;
+  }
+  return { start, end: start + hunk.before.length };
+}
 
 /** Paint non-overlapping revisions onto one paragraph. First match wins. */
 export function paintPendingRevisions(text: string, hunks: PaintableHunk[]): WordSurfaceSegment[] {
@@ -296,14 +387,11 @@ export function paintFormattedRuns(
   type Span = { start: number; end: number; hunk: PaintableHunk };
   const spans: Span[] = [];
   for (const hunk of hunks) {
-    if (!hunk.before) {
+    const anchored = revisionAnchor(text, hunk);
+    if (!anchored) {
       continue;
     }
-    const start = text.indexOf(hunk.before);
-    if (start < 0) {
-      continue;
-    }
-    const end = start + hunk.before.length;
+    const { start, end } = anchored;
     if (spans.some((span) => start < span.end && end > span.start)) {
       continue;
     }
@@ -416,23 +504,33 @@ function paintLayout(
       return {
         kind: "table",
         ...(block.bordered ? { bordered: true } : {}),
+        ...(block.widthPx != null ? { widthPx: block.widthPx } : {}),
+        ...(block.widthPct != null ? { widthPct: block.widthPct } : {}),
+        ...(block.colWidthsPx ? { colWidthsPx: block.colWidthsPx } : {}),
         rows: block.rows.map((row) =>
-          row.map((cell) => ({ blocks: paintLayout(cell.blocks, hunks, used) })),
+          row.map((cell) => ({
+            blocks: paintLayout(cell.blocks, hunks, used),
+            ...(cell.colspan ? { colspan: cell.colspan } : {}),
+            ...(cell.widthPx != null ? { widthPx: cell.widthPx } : {}),
+            ...(cell.vertical ? { vertical: true } : {}),
+            ...(cell.vAlign ? { vAlign: cell.vAlign } : {}),
+          })),
         ),
       };
     }
-    const mine = hunks.filter(
-      (hunk) => !used.has(hunk.hunkId) && hunk.before && block.text.includes(hunk.before),
-    );
+    const mine = hunks.filter((hunk) => !used.has(hunk.hunkId) && revisionAnchor(block.text, hunk));
     for (const hunk of mine) {
       used.add(hunk.hunkId);
     }
     return {
       kind: "paragraph",
       ...(block.align ? { align: block.align } : {}),
-      ...(block.indentPx != null ? { indentPx: block.indentPx } : {}),
-      ...(block.firstIndentPx != null ? { firstIndentPx: block.firstIndentPx } : {}),
-      ...(block.tight ? { tight: true } : {}),
+      ...(block.indent ? { indent: block.indent } : {}),
+      ...(block.firstIndent ? { firstIndent: block.firstIndent } : {}),
+      ...(block.spaceBefore ? { spaceBefore: block.spaceBefore } : {}),
+      ...(block.spaceAfter ? { spaceAfter: block.spaceAfter } : {}),
+      ...(block.line ? { line: block.line } : {}),
+      ...(block.fontFamily ? { fontFamily: block.fontFamily } : {}),
       ...(block.listLabel ? { listLabel: block.listLabel } : {}),
       ...(block.text ? { baselineText: block.text } : {}),
       segments: paintFormattedRuns(block.runs, mine),
@@ -446,6 +544,7 @@ export function composeWordSurface(params: {
   root: WordBaselineRoot;
   docxParagraphs: string[];
   layout?: WordLayoutBlock[];
+  page?: WordPageBox;
   draft?: ArtifactDraft;
   proposal?: RedlineProposal;
 }): WordSurfaceSnapshot {
@@ -453,9 +552,13 @@ export function composeWordSurface(params: {
     params.layout && params.layout.length > 0
       ? params.layout
       : fallbackLayout(params.docxParagraphs, params.proposal);
+  const sections = params.proposal?.baselineSections ?? [];
   const colored = (params.proposal?.hunks ?? []).map((hunk, index) => ({
     ...hunk,
     color: index % WORD_REVISION_COLOR_COUNT,
+    ...(sections[hunk.sectionIndex]?.body != null
+      ? { sectionBody: sections[hunk.sectionIndex]?.body }
+      : {}),
   }));
   const used = new Set<string>();
   const blocks = paintLayout(source, colored, used);
@@ -489,6 +592,7 @@ export function composeWordSurface(params: {
     updatedAt: params.proposal?.updatedAt ?? params.draft?.createdAt ?? null,
     blocks: paintedBlocks,
     paragraphs: page,
+    page: params.page ?? defaultWordPage(),
     hunks,
     summary: summarizeRedline(params.proposal),
   };
@@ -542,8 +646,11 @@ export async function loadWordSurface(params: {
     return { ok: true, unchanged: true };
   }
   let layout: WordLayoutBlock[] = [];
+  let paper = defaultWordPage();
   try {
-    layout = await readDocxLayout(found.abs);
+    const doc = await readDocxDocument(found.abs);
+    layout = doc.blocks;
+    paper = doc.page;
   } catch {
     return { ok: false, error: "unreadable_docx" };
   }
@@ -553,6 +660,7 @@ export async function loadWordSurface(params: {
     root: found.root,
     docxParagraphs: [],
     layout,
+    page: paper,
     draft,
     proposal,
   });

@@ -7,6 +7,7 @@ import {
 import type { ArtifactDraft } from "../../../../../src/lawmind/types.ts";
 import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { LawmindMainView } from "../lawmind-main-view";
+import { requestOpenCollaborationSettings } from "../lawmind-automations-nav-bus";
 import { requestOpenContractRevision } from "../lawmind-workspace-file-open";
 import type {
   CollabEvent,
@@ -61,8 +62,10 @@ export type UseLawmindMainBodyContentPropsInput = {
   setMainView: (view: LawmindMainView) => void;
   setContextMatterId: (id: string | null) => void;
   setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  deskMatterFocus?: { id: string; n: number } | null;
-  setDeskMatterFocus?: React.Dispatch<React.SetStateAction<{ id: string; n: number } | null>>;
+  deskMatterFocus?: { id: string; n: number; pane?: "docs" } | null;
+  setDeskMatterFocus?: React.Dispatch<
+    React.SetStateAction<{ id: string; n: number; pane?: "docs" } | null>
+  >;
   setSessionByAssistant: React.Dispatch<React.SetStateAction<Record<string, string | undefined>>>;
   setReviewLaunchedFromMatter: (v: boolean) => void;
   setReviewFocusTaskId: (id: string | null) => void;
@@ -369,8 +372,7 @@ export function useLawmindMainBodyContentProps(
       },
       onUseInChat: linkMatterToChat,
       onOpenWorkflowLibrary: () => {
-        setAgentsDeskTab("workflows");
-        setMainView("agents");
+        requestOpenCollaborationSettings();
       },
       onOpenTopLevelMeeting: meetingLinks.onOpenTopLevelMeeting,
       meetingMatterOptions: matterSidebarRows
@@ -399,10 +401,7 @@ export function useLawmindMainBodyContentProps(
       onGoToChat: chatLinks.onGoToChat,
       onOpenAgentsDeskFromReview: () => {
         setMatterCockpitOpen(false);
-        setAgentsDeskFocusTarget(null);
-        setAgentsNeedsDecisionFocus(true);
-        setAgentsDeskTab("active");
-        setMainView("agents");
+        setMainView("workspace");
       },
       onRevisionJobQueued: ({ sessionId, assistantId, taskId }) => {
         void watchBackgroundRevisionSession({ sessionId, assistantId, taskId });
@@ -507,40 +506,24 @@ export function useLawmindMainBodyContentProps(
       onOpenNeedsDecisionDesk: (target?: NeedsDecisionDeskTarget) => {
         setMatterCockpitOpen(false);
         const mid = target?.matterId?.trim();
-        const hasTarget = Boolean(
-          target?.sessionId?.trim() ||
-            target?.taskId?.trim() ||
-            target?.queueItemId?.trim() ||
-            target?.jobId?.trim() ||
-            target?.preferStatus ||
-            mid,
-        );
         if (mid) {
           setContextMatterId(mid);
+          setDeskMatterFocus?.((prev) => ({ id: mid, n: (prev?.n ?? 0) + 1, pane: "docs" }));
+          setMainView("desk");
+          return;
         }
-        setAgentsDeskFocusTarget(hasTarget && target ? target : null);
-        setAgentsNeedsDecisionFocus(true);
-        setAgentsDeskTab("active");
-        setMainView("agents");
+        setMainView("workspace");
       },
       onOpenActionHub: (target?: NeedsDecisionDeskTarget) => {
         setMatterCockpitOpen(false);
         const mid = target?.matterId?.trim();
-        const hasTarget = Boolean(
-          target?.sessionId?.trim() ||
-            target?.taskId?.trim() ||
-            target?.queueItemId?.trim() ||
-            target?.jobId?.trim() ||
-            target?.preferStatus ||
-            mid,
-        );
         if (mid) {
           setContextMatterId(mid);
+          setDeskMatterFocus?.((prev) => ({ id: mid, n: (prev?.n ?? 0) + 1, pane: "docs" }));
+          setMainView("desk");
+          return;
         }
-        setAgentsDeskFocusTarget(hasTarget && target ? target : null);
-        setAgentsNeedsDecisionFocus(true);
-        setAgentsDeskTab("active");
-        setMainView("agents");
+        setMainView("workspace");
       },
       onOpenReviewFromAutomation: (taskId, matterId) => {
         setReviewLaunchedFromMatter(false);
@@ -560,8 +543,7 @@ export function useLawmindMainBodyContentProps(
           setContextMatterId(mid);
         }
         setAgentsWorkflowFocus(mid || jid ? { matterId: mid || undefined, jobId: jid || undefined } : null);
-        setAgentsDeskTab("workflows");
-        setMainView("agents");
+        requestOpenCollaborationSettings();
       },
       composeExtras,
       onCreateMatter: () => setCreateMatterOpen(true),

@@ -138,7 +138,7 @@ export function LawmindMailContractFastLaneCard(props: Props): ReactNode {
         matterId: mid,
         presetId: "mail-contract-review",
       });
-      setSuccess("已启动邮件合同审阅短路径，结果进「待我拍板」。");
+      setSuccess("已启动邮件合同审阅。要发出去的，在工作台该案的「现在」里批准。");
       window.setTimeout(() => onDismiss?.(), 1200);
     } catch (e) {
       setError(errorMessage(e, "启动失败"));

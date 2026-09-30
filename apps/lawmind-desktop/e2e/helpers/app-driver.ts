@@ -214,12 +214,8 @@ export async function openReviewWorkbench(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
   const mainNav = page.getByRole("navigation", { name: "功能模块" });
   await expect(mainNav).toBeVisible({ timeout: 30_000 });
-  const agentsTab = mainNav.getByRole("button", { name: "在办", exact: true });
-  await agentsTab.click({ force: true });
-  await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
-  const openReview = page.getByTestId("lm-agents-open-review");
-  await expect(openReview).toBeVisible({ timeout: 30_000 });
-  await openReview.click();
+  await expect(mainNav.getByTestId("lm-tab-agents")).toHaveCount(0);
+  await mainNav.getByTestId("lm-tab-workspace").click({ force: true });
   await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
   await expect(
     page.locator("#lawmind-chat-messages-panel").or(page.getByRole("region", { name: "对话消息" })).first(),

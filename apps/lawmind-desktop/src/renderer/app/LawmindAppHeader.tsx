@@ -19,7 +19,7 @@ export type LawmindAppHeaderProps = {
   onSetMainView: (view: LawmindMainView) => void;
   onOpenMatterCockpit?: () => void;
   apiBase: string | undefined;
-  /** Clear needs-decision filter when opening plain「在办」. */
+  /** Clear needs-decision filter when opening the workbench. */
   onClearNeedsDecisionFocus?: () => void;
   projectDir: string | null;
   currentMatterLabel: string | null;
@@ -84,19 +84,10 @@ function LawmindAppHeaderImpl({
   onOpenApiWizard,
   onOpenDoctor,
   onVerifyModel,
-  needsDecisionTotal = 0,
-  onOpenNeedsDecision,
 }: LawmindAppHeaderProps) {
   /** Sidebar already hosts the settings gear; keep one gear in the header only when the sidebar is unavailable. */
   const showHeaderSettingsGear =
     sidebarCollapsed || mainView === "review" || mainView === "desk" || mainView === "archive";
-  const sidebarHostsNeedsDecision =
-    !sidebarCollapsed && mainView !== "review" && mainView !== "desk" && mainView !== "archive";
-  const showHeaderNeedsDecision =
-    !settingsOpen &&
-    !sidebarHostsNeedsDecision &&
-    needsDecisionTotal > 0 &&
-    Boolean(onOpenNeedsDecision);
   const showAssistantSwitcher = assistants.length > 1;
   const currentAssistant = assistants.find(
     (assistant) => assistant.assistantId === selectedAssistantId,
@@ -198,22 +189,9 @@ function LawmindAppHeaderImpl({
                     onClearNeedsDecisionFocus?.();
                     onSetMainView("desk");
                   }}
-                  title="今日计划、案件、期限与邮件待回复"
+                  title="案卷与本案档案"
                 >
                   工作台
-                </button>
-                <button
-                  type="button"
-                  className={`lm-tab ${mainView === "agents" ? "active" : ""}`}
-                  aria-current={mainView === "agents" ? "page" : undefined}
-                  data-testid="lm-tab-agents"
-                  onClick={() => {
-                    onClearNeedsDecisionFocus?.();
-                    onSetMainView("agents");
-                  }}
-                  title="要你处理的、正在办的、今天办完的"
-                >
-                  在办
                 </button>
                 {/* 整理资料不占一级 Tab；从设置 → 工作区进入。已打开时显示次级以便定位。 */}
                 {mainView === "archive" ? (
@@ -243,23 +221,6 @@ function LawmindAppHeaderImpl({
                 </button>
               ) : null}
               <div className="lm-header-spacer" aria-hidden />
-              {showHeaderNeedsDecision ? (
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-sm lm-side-needs-decision-btn lm-side-needs-decision-btn--brass"
-                  data-testid="lm-header-needs-decision"
-                  title="打开「在办」处理澄清、签批与待审"
-                  onClick={() => onOpenNeedsDecision?.()}
-                >
-                  <span>待我拍板</span>
-                  <span
-                    className="lm-side-needs-decision-badge"
-                    aria-label={`${needsDecisionTotal} 项待处理`}
-                  >
-                    {needsDecisionTotal > 99 ? "99+" : needsDecisionTotal}
-                  </span>
-                </button>
-              ) : null}
               <div className="lm-main-header-right">
                 {mainView === "workspace" ||
                 mainView === "review" ||

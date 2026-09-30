@@ -78,9 +78,10 @@ describe("律师可见词汇", () => {
       path.join(rendererDir, "app", "LawmindAppHeader.tsx"),
       "utf8",
     );
-    for (const label of ["对话", "工作台", "在办"]) {
+    for (const label of ["对话", "工作台"]) {
       expect(header).toContain(label);
     }
+    expect(header).not.toContain("在办");
     for (const internal of ["守护", "判断分级", "编制"]) {
       expect(header).not.toContain(internal);
     }

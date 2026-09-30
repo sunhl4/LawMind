@@ -110,6 +110,79 @@ describe("composeWordSurface", () => {
     expect(baselinePage).toContain("内付款。");
     expect(fromBaseline.hunks.find((hunk) => hunk.hunkId === "pending-1")?.placed).toBe(true);
   });
+
+  it("paints a surgical insertion at the end of the matching paragraph", () => {
+    const body = "1.2 货物清单及价格见附件1。";
+    const inserted = "货物的名称以附件1为准。";
+    const proposal: RedlineProposal = {
+      taskId: "t-ins",
+      baselineSections: [{ heading: "第 9 段", body }],
+      hunks: [
+        {
+          hunkId: "ins-1",
+          sectionIndex: 0,
+          sectionHeading: "第 9 段",
+          before: "",
+          after: inserted,
+          spanStart: body.length,
+          spanEnd: body.length,
+          status: "pending",
+          granularity: "surgical",
+        },
+      ],
+      updatedAt: "2026-09-28T00:00:00.000Z",
+    };
+    const surface = composeWordSurface({
+      fileName: "合同.docx",
+      relPath: "非技术相关/合同.docx",
+      root: "project",
+      docxParagraphs: [body, "下一条不动。"],
+      draft: { taskId: "t-ins" } as ArtifactDraft,
+      proposal,
+    });
+    expect(surface.hunks.find((hunk) => hunk.hunkId === "ins-1")?.placed).toBe(true);
+    const page = JSON.stringify(surface.paragraphs);
+    expect(page).toContain(body);
+    expect(page).toContain(inserted);
+    expect(page).toContain('"kind":"revision"');
+    expect(page).toContain("下一条不动。");
+  });
+
+  it("keeps an insertion when the open paragraph is a unique slice of the baseline section", () => {
+    const slice =
+      "乙句后半从这里开始，这段要明显长过四十个字，才能算作被拆开的那一节正文，直到句号。";
+    const body = `甲句。${slice}`;
+    const inserted = "补充。";
+    const at = body.indexOf(slice);
+    const proposal: RedlineProposal = {
+      taskId: "t-slice",
+      baselineSections: [{ heading: "第 1 段", body }],
+      hunks: [
+        {
+          hunkId: "ins-slice",
+          sectionIndex: 0,
+          sectionHeading: "第 1 段",
+          before: "",
+          after: inserted,
+          spanStart: at + 2,
+          spanEnd: at + 2,
+          status: "pending",
+          granularity: "surgical",
+        },
+      ],
+      updatedAt: "2026-09-28T00:00:00.000Z",
+    };
+    const surface = composeWordSurface({
+      fileName: "合同.docx",
+      relPath: "合同.docx",
+      root: "project",
+      docxParagraphs: [slice],
+      draft: { taskId: "t-slice" } as ArtifactDraft,
+      proposal,
+    });
+    expect(surface.hunks[0]?.placed).toBe(true);
+    expect(JSON.stringify(surface.paragraphs)).toContain(inserted);
+  });
 });
 
 describe("loadWordSurface", () => {
@@ -370,7 +443,7 @@ describe("formatted word surface", () => {
       relPath: "保洁.docx",
       root: "workspace",
       docxParagraphs: [],
-      layout,
+      layout: layout.blocks,
       proposal: {
         taskId: "t",
         baselineSections: [],
@@ -399,7 +472,8 @@ describe("formatted word surface", () => {
     expect(title?.kind).toBe("paragraph");
     if (title?.kind === "paragraph") {
       expect(title.align).toBe("center");
-      expect(title.tight).toBe(true);
+      expect(title.spaceBefore).toEqual({ unit: "px", value: 0 });
+      expect(title.spaceAfter).toEqual({ unit: "px", value: 0 });
       expect(title.segments[0]).toMatchObject({
         text: "保洁服务委托合同",
         bold: true,
@@ -437,5 +511,160 @@ describe("formatted word surface", () => {
     expect(surface.hunks.find((hunk) => hunk.hunkId === "done")?.color).toBe(0);
     expect(surface.hunks.find((hunk) => hunk.hunkId === "wait")?.color).toBe(1);
     expect(surface.hunks[0]?.hunkId).toBe("wait");
+  });
+
+  it("uses Word's paper, 宋体, line spacing, and character indent", () => {
+    const styles =
+      `<w:styles><w:docDefaults><w:rPrDefault><w:rPr>` +
+      `<w:rFonts w:ascii="Times New Roman" w:eastAsia="SimSun" w:hAnsi="Times New Roman"/>` +
+      `<w:sz w:val="24"/></w:rPr></w:rPrDefault>` +
+      `<w:pPrDefault><w:pPr><w:jc w:val="both"/></w:pPr></w:pPrDefault></w:docDefaults>` +
+      `<w:style w:styleId="BodyText2"><w:name w:val="正文2"/>` +
+      `<w:pPr><w:spacing w:before="50" w:beforeLines="50" w:after="50" w:afterLines="50" w:line="360" w:lineRule="auto"/>` +
+      `<w:ind w:firstLine="200" w:firstLineChars="200"/><w:jc w:val="both"/></w:pPr>` +
+      `<w:rPr><w:rFonts w:ascii="Times New Roman" w:eastAsia="SimSun" w:hAnsi="Times New Roman"/>` +
+      `<w:sz w:val="24"/></w:rPr></w:style></w:styles>`;
+    const xml =
+      `<w:document><w:body>` +
+      `<w:p><w:pPr><w:pStyle w:val="BodyText2"/></w:pPr>` +
+      `<w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:eastAsia="SimSun" w:hAnsi="Times New Roman"/>` +
+      `<w:sz w:val="24"/></w:rPr><w:t>先写结论。</w:t></w:r></w:p>` +
+      `<w:p><w:pPr><w:spacing w:after="360" w:before="0" w:line="320" w:lineRule="atLeast"/>` +
+      `<w:ind w:firstLine="480"/></w:pPr>` +
+      `<w:r><w:rPr><w:rFonts w:ascii="SimSun" w:eastAsia="SimSun" w:hAnsi="SimSun"/>` +
+      `<w:sz w:val="24"/></w:rPr><w:t>一、结论</w:t></w:r></w:p>` +
+      `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/>` +
+      `<w:tblBorders><w:top w:val="single"/></w:tblBorders></w:tblPr>` +
+      `<w:tblGrid><w:gridCol w:w="2400"/><w:gridCol w:w="4800"/></w:tblGrid>` +
+      `<w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr>` +
+      `<w:p><w:r><w:t>签署</w:t></w:r></w:p></w:tc></w:tr></w:tbl>` +
+      `<w:sectPr><w:pgSz w:w="11905" w:h="16837"/>` +
+      `<w:pgMar w:top="1440" w:right="1800" w:bottom="1440" w:left="1800"/></w:sectPr>` +
+      `</w:body></w:document>`;
+    const doc = extractDocxLayout(xml, styles, "");
+    expect(doc.page.widthPx).toBe(793.7);
+    expect(doc.page.marginTopPx).toBe(96);
+    expect(doc.page.marginLeftPx).toBe(120);
+    expect(doc.page.fontFamily).toContain("Times New Roman");
+    expect(doc.page.fontFamily).toContain("Songti SC");
+    expect(doc.page.fontSizePx).toBe(16);
+    const body = doc.blocks[0];
+    expect(body?.kind).toBe("paragraph");
+    if (body?.kind === "paragraph") {
+      expect(body.align).toBe("both");
+      expect(body.firstIndent).toEqual({ unit: "em", value: 2 });
+      expect(body.spaceBefore).toEqual({ unit: "line", value: 0.5 });
+      expect(body.spaceAfter).toEqual({ unit: "line", value: 0.5 });
+      expect(body.line).toEqual({ rule: "auto", multiple: 1.5 });
+      expect(body.runs[0]?.fontFamily).toContain("Times New Roman");
+      expect(body.runs[0]?.fontFamily?.indexOf("Times New Roman")).toBeLessThan(
+        body.runs[0]?.fontFamily?.indexOf("Songti SC") ?? -1,
+      );
+      expect(body.runs[0]?.fontSizePx).toBe(16);
+    }
+    const heading = doc.blocks[1];
+    expect(heading?.kind).toBe("paragraph");
+    if (heading?.kind === "paragraph") {
+      expect(heading.firstIndent).toEqual({ unit: "px", value: 32 });
+      expect(heading.spaceBefore).toEqual({ unit: "px", value: 0 });
+      expect(heading.spaceAfter).toEqual({ unit: "px", value: 24 });
+      expect(heading.line).toEqual({ rule: "atLeast", px: 21.3 });
+      expect(heading.runs[0]?.fontFamily?.startsWith("SimSun")).toBe(true);
+    }
+    const table = doc.blocks[2];
+    expect(table?.kind).toBe("table");
+    if (table?.kind === "table") {
+      expect(table.bordered).toBe(true);
+      expect(table.widthPct).toBe(100);
+      expect(table.colWidthsPx).toEqual([160, 320]);
+      expect(table.rows[0]?.[0]?.colspan).toBe(2);
+      expect(table.rows[0]?.[0]?.widthPx).toBe(480);
+    }
+  });
+
+  it("keeps Table Grid borders and vertical header cells", () => {
+    const styles =
+      `<w:styles><w:style w:type="table" w:styleId="TableGrid">` +
+      `<w:name w:val="Table Grid"/>` +
+      `<w:tblPr><w:tblBorders>` +
+      `<w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/>` +
+      `<w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/>` +
+      `<w:insideH w:val="single" w:sz="4"/><w:insideV w:val="single" w:sz="4"/>` +
+      `</w:tblBorders></w:tblPr></w:style></w:styles>`;
+    const xml =
+      `<w:document><w:body>` +
+      `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/>` +
+      `<w:tblW w:w="5000" w:type="pct"/></w:tblPr>` +
+      `<w:tblGrid><w:gridCol w:w="900"/><w:gridCol w:w="900"/><w:gridCol w:w="3200"/></w:tblGrid>` +
+      `<w:tr>` +
+      `<w:tc><w:tcPr><w:vAlign w:val="center"/></w:tcPr>` +
+      `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>序号</w:t></w:r></w:p></w:tc>` +
+      `<w:tc><w:tcPr><w:textDirection w:val="tbRl"/><w:vAlign w:val="center"/></w:tcPr>` +
+      `<w:p><w:r><w:t>名称</w:t></w:r></w:p></w:tc>` +
+      `<w:tc><w:p><w:r><w:t>配置描述</w:t></w:r></w:p></w:tc>` +
+      `</w:tr>` +
+      `<w:tr>` +
+      `<w:tc><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>1</w:t></w:r></w:p></w:tc>` +
+      `<w:tc><w:p><w:r><w:t></w:t></w:r></w:p></w:tc>` +
+      `<w:tc><w:p><w:r><w:t></w:t></w:r></w:p></w:tc>` +
+      `</w:tr>` +
+      `</w:tbl>` +
+      `</w:body></w:document>`;
+    const doc = extractDocxLayout(xml, styles, "");
+    const table = doc.blocks[0];
+    expect(table?.kind).toBe("table");
+    if (table?.kind === "table") {
+      expect(table.bordered).toBe(true);
+      expect(table.colWidthsPx).toEqual([60, 60, 213.3]);
+      expect(table.rows[0]?.[0]?.vAlign).toBe("center");
+      expect(table.rows[0]?.[1]?.vertical).toBe(true);
+      expect(table.rows[0]?.[1]?.blocks[0]).toMatchObject({
+        kind: "paragraph",
+        text: "名称",
+      });
+      expect(table.rows[1]?.[0]?.blocks[0]).toMatchObject({
+        kind: "paragraph",
+        align: "center",
+        text: "1",
+      });
+    }
+  });
+
+  it("reads a WPS price-list grid: cell borders, 宋体;SimSun, and a two-line header", () => {
+    const xml =
+      `<w:document><w:body>` +
+      `<w:tbl><w:tblPr><w:tblW w:w="9087" w:type="dxa"/><w:tblLayout w:type="fixed"/></w:tblPr>` +
+      `<w:tblGrid><w:gridCol w:w="582"/><w:gridCol w:w="765"/></w:tblGrid>` +
+      `<w:tr><w:tc><w:tcPr><w:tcW w:w="582" w:type="dxa"/>` +
+      `<w:tcBorders><w:top w:val="single" w:sz="12"/><w:start w:val="single" w:sz="12"/>` +
+      `<w:bottom w:val="single" w:sz="12"/><w:end w:val="single" w:sz="12"/></w:tcBorders>` +
+      `<w:vAlign w:val="center"/></w:tcPr>` +
+      `<w:p><w:pPr><w:jc w:val="center"/></w:pPr>` +
+      `<w:r><w:rPr><w:rFonts w:ascii="宋体;SimSun" w:hAnsi="宋体;SimSun"/><w:b/><w:sz w:val="24"/></w:rPr>` +
+      `<w:t>序号</w:t></w:r></w:p></w:tc>` +
+      `<w:tc><w:tcPr><w:tcW w:w="765" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>` +
+      `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>品牌</w:t></w:r></w:p>` +
+      `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>型号</w:t></w:r></w:p></w:tc>` +
+      `</w:tr></w:tbl></w:body></w:document>`;
+    const doc = extractDocxLayout(xml, "", "");
+    const table = doc.blocks[0];
+    expect(table?.kind).toBe("table");
+    if (table?.kind !== "table") {
+      return;
+    }
+    expect(table.bordered).toBe(true);
+    expect(table.widthPx).toBe(605.8);
+    expect(table.colWidthsPx).toEqual([38.8, 51]);
+    const serial = table.rows[0]?.[0]?.blocks[0];
+    expect(serial).toMatchObject({ kind: "paragraph", align: "center", text: "序号" });
+    if (serial?.kind === "paragraph") {
+      expect(serial.runs[0]?.fontFamily?.startsWith("SimSun")).toBe(true);
+      expect(serial.runs[0]?.bold).toBe(true);
+    }
+    const brand = table.rows[0]?.[1]?.blocks.map((block) =>
+      block.kind === "paragraph" ? block.text : "",
+    );
+    expect(brand).toEqual(["品牌", "型号"]);
+    expect(table.rows[0]?.[0]?.vAlign).toBe("center");
   });
 });

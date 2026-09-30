@@ -39,6 +39,7 @@ import {
   resolveContextTuning,
 } from "./context-tuning.js";
 import { applyMidTurnCompact } from "./mid-turn-compact.js";
+import { friendlyModelErrorMessage } from "./model-error-message.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import { claimAndApplyPendingContextPins, appendContextPins } from "./session-context-inject.js";
 import { claimAndApplyPendingSteer } from "./session-context-steer.js";
@@ -519,7 +520,8 @@ export async function runModelToolLoop(opts: {
   const closeOnModelFailure = (err: unknown, roundIndex: number): void => {
     const raw = err instanceof Error ? err.message : String(err);
     const message = raw.trim() || "Model call failed";
-    const reply = `本轮模型调用失败：${message.slice(0, 800)}`;
+    // 律师看到原因（没网、欠费），原始报错只留在 turn.error / 事件里供排查。
+    const reply = friendlyModelErrorMessage(message);
     opts.turn.status = "error";
     opts.turn.error = message.slice(0, 2_000);
     finalReply = reply;

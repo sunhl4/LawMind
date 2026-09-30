@@ -45,6 +45,10 @@
   --wash-strong:       rgba(28, 25, 21, 0.07);
   --inset-highlight:   rgba(255, 255, 255, 0.72);
 
+  /* Word 修订默认色（色 0 的铜棕；按 data-rev-color 在组件上覆写） */
+  --rev-line:          #a67c52;
+  --rev-wash:          rgba(166, 124, 82, 0.18);
+
   /* Semantic — 危险操作用印泥朱，不用糖果粉 */
   --ok:        #1f9d6e;
   --ok-dim:    rgba(31, 157, 110, 0.1);

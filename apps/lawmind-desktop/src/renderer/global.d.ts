@@ -194,6 +194,10 @@ declare global {
         root: "workspace" | "project";
         path: string;
       }) => Promise<{ ok: boolean; error?: string }>;
+      openWithWps: (payload: {
+        root: "workspace" | "project";
+        path: string;
+      }) => Promise<{ ok: boolean; error?: string }>;
       fsList: (payload: {
         root: "workspace" | "project";
         path?: string;

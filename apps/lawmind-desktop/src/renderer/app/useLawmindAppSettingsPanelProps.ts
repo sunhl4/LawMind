@@ -11,7 +11,9 @@ import type { CollabSummaryState } from "../LawmindSettingsCollaboration";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { LawmindMainView } from "../lawmind-main-view";
+import type { CollabEvent, DelegationRow, GateHistoryItem } from "../lawmind-app-data";
 import type { LawmindAppSettingsPanelProps } from "./LawmindAppSettingsPanel";
+import { requestOpenCollaborationSettings } from "../lawmind-automations-nav-bus";
 import { requestOpenWorkspaceFile } from "../lawmind-workspace-file-open";
 
 export type UseLawmindAppSettingsPanelPropsInput = {
@@ -62,6 +64,14 @@ export type UseLawmindAppSettingsPanelPropsInput = {
   matterSidebarRows?: Array<{ matterId?: string | null; title: string }>;
   contextMatterId?: string | null;
   onOpenReviewFromAutomation?: (taskId: string, matterId?: string) => void;
+  delegations?: DelegationRow[];
+  collabEvents?: CollabEvent[];
+  gateHistory?: GateHistoryItem[];
+  formatRelativeTime?: (iso: string) => string;
+  onRefreshCollaboration?: () => void | Promise<void>;
+  onOpenDelegationTargetChat?: (delegation: DelegationRow) => void | Promise<void>;
+  assistantDisplayById?: Record<string, string>;
+  workflowModelLabel?: string;
 };
 
 export function useLawmindAppSettingsPanelProps(
@@ -117,6 +127,14 @@ export function useLawmindAppSettingsPanelProps(
     matterSidebarRows = [],
     contextMatterId = null,
     onOpenReviewFromAutomation,
+    delegations,
+    collabEvents,
+    gateHistory,
+    formatRelativeTime,
+    onRefreshCollaboration,
+    onOpenDelegationTargetChat,
+    assistantDisplayById,
+    workflowModelLabel,
   } = input;
 
   const automationMatterOptions = useMemo(() => {
@@ -187,10 +205,7 @@ export function useLawmindAppSettingsPanelProps(
         setMainView("archive");
       },
       onOpenCollaborationPage: () => {
-        // 「去在办处理」→ 待拍板（领导主入口）；按流程仍可从在办分区进入。
-        setAgentsDeskTab("active");
-        setMainView("agents");
-        setShowSettings(false);
+        requestOpenCollaborationSettings();
       },
       onPrefsChange,
       automationMatterId,
@@ -211,10 +226,14 @@ export function useLawmindAppSettingsPanelProps(
         } else {
           setAgentsDeskFocusTarget?.(null);
         }
-        setAgentsNeedsDecisionFocus?.(true);
-        setAgentsDeskTab("active");
-        setMainView("agents");
+        const mid = target?.matterId?.trim();
         setShowSettings(false);
+        if (mid) {
+          setContextMatterId?.(mid);
+          setMainView("desk");
+          return;
+        }
+        setMainView("desk");
       },
       onOpenAutomationsReview: (taskId, matterId) => {
         setShowSettings(false);
@@ -229,10 +248,16 @@ export function useLawmindAppSettingsPanelProps(
         setAgentsWorkflowFocus?.(
           mid || jid ? { matterId: mid || undefined, jobId: jid || undefined } : null,
         );
-        setAgentsDeskTab("workflows");
-        setMainView("agents");
-        setShowSettings(false);
+        requestOpenCollaborationSettings();
       },
+      delegations,
+      collabEvents,
+      gateHistory,
+      formatRelativeTime,
+      onRefreshCollaboration,
+      onOpenDelegationTargetChat,
+      assistantDisplayById,
+      workflowModelLabel,
       onOpenAutomationsWorkspaceFile: (relPath: string, matterId?: string) => {
         const path = relPath.trim();
         if (!path) {
@@ -292,6 +317,14 @@ export function useLawmindAppSettingsPanelProps(
       setContextMatterId,
       setWsShowEditor,
       setMainView,
+      delegations,
+      collabEvents,
+      gateHistory,
+      formatRelativeTime,
+      onRefreshCollaboration,
+      onOpenDelegationTargetChat,
+      assistantDisplayById,
+      workflowModelLabel,
       onPrefsChange,
       automationMatterId,
       automationMatterOptions,

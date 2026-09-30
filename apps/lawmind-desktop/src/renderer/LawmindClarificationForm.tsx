@@ -521,7 +521,6 @@ export function LawmindClarificationForm(props: LawmindClarificationFormProps): 
     onSubmitAnswers,
     onApplyToInput,
     onSend,
-    onOpenDesk,
   } = props;
 
   const tableId = useId();
@@ -752,17 +751,6 @@ export function LawmindClarificationForm(props: LawmindClarificationFormProps): 
 
         {variant === "chat" ? (
           <>
-            {onOpenDesk ? (
-              <button
-                type="button"
-                className="lm-btn lm-btn-secondary lm-clarify-btn"
-                data-testid="lm-clarify-open-desk"
-                disabled={loading}
-                onClick={onOpenDesk}
-              >
-                去在办补充
-              </button>
-            ) : null}
             {promptSummary && onApplyToInput ? (
               <button
                 type="button"
@@ -795,17 +783,6 @@ export function LawmindClarificationForm(props: LawmindClarificationFormProps): 
               </button>
             ) : null}
           </>
-        ) : null}
-
-        {variant === "compact" && onOpenDesk ? (
-          <button
-            type="button"
-            className="lm-btn lm-btn-ghost lm-clarify-btn"
-            disabled={loading}
-            onClick={onOpenDesk}
-          >
-            改在「在办」填
-          </button>
         ) : null}
 
         <button

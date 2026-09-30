@@ -67,12 +67,13 @@ test.describe("自动办件：interval 创建与「查看流程」深链", () =>
     await expect(page.getByRole("button", { name: "已知悉", exact: true })).toHaveCount(0);
   });
 
-  test("在办「按流程办」可查看运行中任务并显示完成", async ({ page }) => {
+  test("设置里的协作可以查看按流程办", async ({ page }) => {
     await gotoShell(page);
-    await page.getByTestId("lm-tab-agents").click();
-    await expect(page.getByTestId("lm-agents-desk-chrome")).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId("lm-agents-desk-more").locator("summary").click();
-    await page.getByTestId("lm-agents-tab-workflows").click();
+    await page.getByRole("complementary").getByRole("button", { name: "设置" }).click({ timeout: 60_000 });
+    const search = page.getByRole("searchbox", { name: "搜索设置项" });
+    await search.fill("协作");
+    await search.press("Enter");
+    await expect(page.getByText("交出去的活和按流程办在这一页。")).toBeVisible({ timeout: 30_000 });
     const openFlow = page.getByRole("button", { name: "查看进度", exact: true }).first();
     await expect(openFlow).toBeVisible({ timeout: 30_000 });
     await openFlow.click();

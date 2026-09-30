@@ -46,7 +46,7 @@ export function lawyerVisibleGaps(gaps: string[]): string[] {
   return out.slice(0, 6);
 }
 
-const WORD_CHECK_RE = /\[\[word-check:([A-Za-z0-9._-]+)\]\]/g;
+const WORD_CHECK_RE = /\[\[word-check:([A-Za-z0-9._-]+)(?:\|[^\]\s]+)?\]\]/g;
 const CLOSE_FENCE_RE = /```lm-close\s*([\s\S]*?)```/gi;
 
 const closeSchema = z.object({

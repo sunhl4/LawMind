@@ -54,7 +54,7 @@ function riskLabel(risk: RiskLevel): string {
 }
 
 export function LawmindAssignmentCommitmentCard(props: Props): ReactNode {
-  const { apiBase, taskId, onOpenReview, onOpenNeedsDecisionDesk, assistantReply } = props;
+  const { apiBase, taskId, assistantReply } = props;
   const [task, setTask] = useState<AssignmentSummary | null>(null);
   const [prefs, setPrefs] = useState<AppliedPreference[]>([]);
   const [clearBusyId, setClearBusyId] = useState<string | null>(null);
@@ -145,10 +145,6 @@ export function LawmindAssignmentCommitmentCard(props: Props): ReactNode {
 
   const steps = task.executionPlan ?? [];
   const done = steps.filter((step) => step.status === "done" || step.status === "skipped").length;
-  const reviewable =
-    task.reviewStatus === "pending" ||
-    task.reviewStatus === "modified" ||
-    task.status === "drafted";
   const deliverableLabel = lawyerDeliverableTypeLabel(task.deliverableType);
   const audienceLabel = lawyerAudienceLabel(task.audience);
 
@@ -220,37 +216,6 @@ export function LawmindAssignmentCommitmentCard(props: Props): ReactNode {
           </ol>
         </div>
       ) : null}
-      <div className="lm-assignment-actions">
-        {reviewable && (onOpenNeedsDecisionDesk || onOpenReview) ? (
-          <>
-            {onOpenReview ? (
-              <button
-                type="button"
-                className="lm-btn lm-btn-accent lm-btn-sm"
-                data-testid="lm-commitment-signoff"
-                onClick={() => onOpenReview({ taskId, matterId: task.matterId })}
-              >
-                打开结果
-              </button>
-            ) : onOpenNeedsDecisionDesk ? (
-              <button
-                type="button"
-                className="lm-btn lm-btn-accent lm-btn-sm"
-                data-testid="lm-commitment-signoff"
-                onClick={() =>
-                  onOpenNeedsDecisionDesk({
-                    taskId,
-                    matterId: task.matterId,
-                    preferStatus: "awaiting_review",
-                  })
-                }
-              >
-                打开结果
-              </button>
-            ) : null}
-          </>
-        ) : null}
-      </div>
     </section>
   );
 }

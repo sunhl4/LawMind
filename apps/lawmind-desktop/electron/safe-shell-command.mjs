@@ -8,13 +8,17 @@
  *   - 审计 `safe_command` 事件到 workspaceDir/audit/
  *
  * 使用方：renderer 通过 IPC 调用 `lawmind:open-with-system`、
- * `lawmind:show-item-in-folder`、`lawmind:open-external`。
+ * `lawmind:open-with-wps`、`lawmind:show-item-in-folder`、`lawmind:open-external`。
  */
 
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { shell } from "electron";
 import { randomUUID } from "node:crypto";
+
+/** macOS 上的 WPS。只开这一家，不改走系统默认应用。 */
+const WPS_BUNDLE_ID = "com.kingsoft.wpsoffice.mac";
 
 const ALLOWED_OPEN_COMMANDS = new Set([
   "open", // macOS
@@ -149,6 +153,72 @@ export async function safeOpenWithSystem(absPath, workspaceDir) {
     });
     return { ok: false, error: msg };
   }
+}
+
+/**
+ * 用本机 WPS 打开工作区/项目内文件。调用方已做路径根守卫。
+ * 找不到 WPS 时直接失败，不改用别的软件打开。
+ */
+export async function safeOpenWithWps(absPath, workspaceDir) {
+  const auditDir = auditDirFromWorkspace(workspaceDir);
+  const started = Date.now();
+  let normalized;
+  try {
+    normalized = assertAbsolutePath(absPath);
+    if (process.platform !== "darwin") {
+      throw new Error("请先安装 WPS，再用它打开这份文件。");
+    }
+    const err = await launchWps(normalized);
+    const durationMs = Date.now() - started;
+    emitSafeCommandAudit(auditDir, "open_with_wps", [normalized], {
+      exitCode: err ? 1 : 0,
+      error: err || undefined,
+      durationMs,
+    });
+    return { ok: !err, error: err || undefined };
+  } catch (e) {
+    const durationMs = Date.now() - started;
+    const msg = e instanceof Error ? e.message : String(e);
+    emitSafeCommandAudit(auditDir, "open_with_wps", [normalized ?? absPath], {
+      exitCode: 1,
+      error: msg,
+      durationMs,
+    });
+    return { ok: false, error: msg };
+  }
+}
+
+function launchWps(absPath) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn("/usr/bin/open", ["-b", WPS_BUNDLE_ID, "--", absPath], {
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+    } catch (e) {
+      resolve(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    let stderr = "";
+    child.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (err) => {
+      resolve(err instanceof Error ? err.message : String(err));
+    });
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve("");
+        return;
+      }
+      const detail = stderr.trim();
+      if (!detail || /unable to find application/i.test(detail)) {
+        resolve("请先安装 WPS，再用它打开这份文件。");
+        return;
+      }
+      resolve(detail);
+    });
+  });
 }
 
 /**

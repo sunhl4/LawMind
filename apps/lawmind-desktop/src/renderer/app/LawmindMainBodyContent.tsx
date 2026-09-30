@@ -18,11 +18,10 @@ import type { FileChatContextItem } from "../lawmind-file-chat-context";
 import type { TruthSourceContextPin } from "../../../../../src/lawmind/platform/compose-context-pin.ts";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
-import { AgentFleetView } from "./AgentFleetView";
 import { LawmindWorkspaceMainPane } from "./LawmindWorkspaceMainPane";
 import { LawmindWorkspaceBootstrapGate } from "./LawmindWorkspaceBootstrapGate";
 import { pickWorkspaceMainPaneProps } from "./pickWorkspaceMainPaneProps";
-import { pickAgentFleetViewProps, pickLawyerWorkbenchProps } from "./pickMainBodyBranchProps";
+import { pickLawyerWorkbenchProps } from "./pickMainBodyBranchProps";
 import { LawmindArchiveOrganizePage } from "../LawmindArchiveOrganizePage";
 import { LawmindLawyerWorkbench } from "../LawmindLawyerWorkbench";
 import { LawmindErrorBoundary } from "../LawmindErrorBoundary";
@@ -184,7 +183,7 @@ export type LawmindMainBodyContentProps = {
   onRefreshActionSummary?: () => void;
   onChatResumeComplete?: () => void | Promise<void>;
   /** Bump to open 工作台本案卷宗 (same matter can re-open). */
-  deskMatterFocus?: { id: string; n: number } | null;
+  deskMatterFocus?: { id: string; n: number; pane?: "docs" } | null;
 };
 
 export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
@@ -192,9 +191,6 @@ export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
 
   if (mainView === "review") {
     return null;
-  }
-  if (mainView === "agents") {
-    return <AgentFleetView {...pickAgentFleetViewProps(props)} />;
   }
   if (mainView === "archive") {
     if (!props.config?.apiBase) {
@@ -208,7 +204,7 @@ export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
       </LawmindErrorBoundary>
     );
   }
-  if (mainView === "desk") {
+  if (mainView === "desk" || mainView === "agents") {
     if (!props.config) {
       return (
         <LawmindWorkspaceBootstrapGate error={props.error} onOpenApiWizard={props.onOpenApiWizard} />

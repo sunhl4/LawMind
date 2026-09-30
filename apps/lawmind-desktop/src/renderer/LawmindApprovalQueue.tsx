@@ -196,7 +196,7 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
                       className="lm-btn lm-btn-sm"
                       onClick={() => onOpenReview(a.deliverableId ?? "", a.matterId)}
                     >
-                      去在办
+                      打开
                     </button>
                   ) : onOpenReview ? (
                     <button
@@ -204,7 +204,7 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
                       className="lm-btn lm-btn-sm"
                       onClick={() => onOpenReview("", a.matterId)}
                     >
-                      去在办
+                      打开
                     </button>
                   ) : onOpenSession ? (
                     <button

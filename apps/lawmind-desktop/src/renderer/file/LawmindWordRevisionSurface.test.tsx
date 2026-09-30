@@ -75,7 +75,11 @@ describe("LawmindWordRevisionSurface", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(host.textContent).toContain("预览");
+    expect(host.querySelector("[data-testid='lm-word-surface']")).toBeTruthy();
+    const rail = host.querySelector<HTMLElement>(".lm-word-surface-rail");
+    expect(host.querySelector("[data-testid='lm-word-surface-rail-split']")).toBeTruthy();
+    expect(rail?.style.width).toBe("220px");
+    expect(host.textContent).toContain("核对");
     expect(host.textContent).toContain("十日");
     expect(host.textContent).toContain("五日");
     const accept = host.querySelector("[data-testid='lm-word-accept-h1']");
@@ -128,7 +132,12 @@ describe("LawmindWordRevisionSurface", () => {
     expect(textarea).toBeInstanceOf(HTMLTextAreaElement);
     expect((textarea as HTMLTextAreaElement).value).toBe("五");
     await act(async () => {
-      Reflect.set(textarea as HTMLTextAreaElement, "value", "三");
+      // eslint-disable-next-line typescript/unbound-method -- 原型 setter，下一行以 textarea 为 this 调用
+      const nativeSetter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )?.set;
+      nativeSetter?.call(textarea, "三");
       textarea?.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(host.querySelector("[data-word-slot='page'] ins")?.textContent).toBe("三");
@@ -249,6 +258,122 @@ describe("LawmindWordRevisionSurface", () => {
         paragraphs: [{ baseline: "甲方应于十日内付款。", current: "甲方应于五日内付款。" }],
       },
     );
+    root.unmount();
+  });
+
+  it("paints a Word page: paper width, 宋体, and character indent", async () => {
+    apiGetJson.mockResolvedValue({
+      ok: true,
+      ...snapshot,
+      page: {
+        widthPx: 793.7,
+        marginTopPx: 94.5,
+        marginRightPx: 94.5,
+        marginBottomPx: 94.5,
+        marginLeftPx: 94.5,
+        fontFamily: '"Songti SC", "STSong", SimSun, serif',
+        fontSizePx: 16,
+      },
+      paragraphs: [
+        {
+          align: "both" as const,
+          firstIndent: { unit: "em" as const, value: 2 },
+          spaceAfter: { unit: "px" as const, value: 24 },
+          line: { rule: "auto" as const, multiple: 1.5 },
+          fontFamily: '"Songti SC", SimSun, serif',
+          segments: snapshot.paragraphs[0]?.segments ?? [],
+        },
+      ],
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindWordRevisionSurface
+          apiBase="http://127.0.0.1:9"
+          root="workspace"
+          relPath="cases/m/补充协议.docx"
+          fileName="补充协议.docx"
+          onOpenWithSystem={() => undefined}
+          onRevealSource={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const page = host.querySelector(".lm-word-surface-page");
+    expect(page).toBeInstanceOf(HTMLElement);
+    if (!(page instanceof HTMLElement)) {
+      return;
+    }
+    expect(page.style.width).toBe("793.7px");
+    expect(page.style.paddingLeft).toBe("94.5px");
+    expect(page.style.fontSize).toBe("16px");
+    expect(page.style.fontFamily).toContain("Songti SC");
+    const paragraph = host.querySelector(".lm-word-surface-p");
+    expect(paragraph).toBeInstanceOf(HTMLElement);
+    if (!(paragraph instanceof HTMLElement)) {
+      return;
+    }
+    expect(paragraph.style.textAlign).toBe("justify");
+    expect(paragraph.style.textIndent).toBe("2em");
+    expect(paragraph.style.marginBottom).toBe("24px");
+    expect(paragraph.style.lineHeight).toBe("1.5");
+    expect(paragraph.style.fontFamily).toContain("Songti SC");
+    root.unmount();
+  });
+
+  it("right-click offers the folder and WPS, and Control+Z undoes", async () => {
+    apiGetJson.mockResolvedValue({ ok: true, ...snapshot });
+    const reveal = vi.fn();
+    const wps = vi.fn();
+    const commands: string[] = [];
+    const previous = document.execCommand.bind(document);
+    document.execCommand = ((command: string) => {
+      commands.push(command);
+      return true;
+    }) as typeof document.execCommand;
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindWordRevisionSurface
+          apiBase="http://127.0.0.1:9"
+          root="workspace"
+          relPath="cases/m/补充协议.docx"
+          fileName="补充协议.docx"
+          onOpenWithSystem={wps}
+          onRevealSource={reveal}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const desk = host.querySelector(".lm-word-surface-desk");
+    await act(async () => {
+      desk?.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 12, clientY: 18 }),
+      );
+    });
+    const revealButton = host.querySelector<HTMLButtonElement>("[data-testid='lm-word-surface-reveal']");
+    const wpsButton = host.querySelector<HTMLButtonElement>("[data-testid='lm-word-surface-wps']");
+    expect(revealButton?.textContent).toContain("去本机文件所在目录");
+    expect(wpsButton?.textContent).toContain("用本机应用打开");
+    expect(wpsButton?.parentElement?.textContent).not.toContain("删除线");
+    await act(async () => {
+      revealButton?.click();
+    });
+    expect(reveal).toHaveBeenCalledOnce();
+    const box = host.querySelector("[data-baseline]");
+    await act(async () => {
+      box?.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+    });
+    expect(commands).toEqual(["undo"]);
+    document.execCommand = previous;
     root.unmount();
   });
 });

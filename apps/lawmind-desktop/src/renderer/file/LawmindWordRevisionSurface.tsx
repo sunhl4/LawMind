@@ -10,6 +10,9 @@ import {
   revisionPieces,
 } from "../../../../../src/lawmind/drafts/word-surface-pieces.ts";
 import type {
+  WordLineSpacing,
+  WordMeasure,
+  WordPageBox,
   WordSurfaceBlock,
   WordSurfaceHunkView,
   WordSurfaceParagraph,
@@ -17,6 +20,9 @@ import type {
   WordSurfaceSnapshot,
 } from "../../../../../src/lawmind/drafts/word-surface.ts";
 import { apiGetJson, apiSendJson, errorMessage } from "../api-client";
+import { openDeliverableInWps } from "../canvas/host-actions";
+import { openBoundBaselineIfDifferent } from "../lawmind-open-contract-revision";
+import { usePaneResizePx } from "../use-pane-resize";
 
 const POLL_MS = 4_000;
 
@@ -62,6 +68,7 @@ function snapshotKey(snap: WordSurfaceSnapshot): string {
     taskId: snap.taskId,
     updatedAt: snap.updatedAt,
     blocks: snap.blocks,
+    page: snap.page,
     paragraphs: snap.paragraphs,
     hunks: snap.hunks.map((hunk) => [hunk.hunkId, hunk.status, hunk.color, hunk.before, hunk.after, hunk.placed]),
   });
@@ -95,23 +102,74 @@ function markStyle(segment: WordSurfaceSegment, revision: boolean): CSSPropertie
     fontStyle: segment.italic ? "italic" : undefined,
     textDecoration: !revision && segment.underline ? "underline" : undefined,
     fontSize: segment.fontSizePx ? `${segment.fontSizePx}px` : undefined,
+    fontFamily: segment.fontFamily,
     color: revision ? undefined : segment.fontColor,
   };
 }
 
+function measureCss(measure: WordMeasure | undefined, line: WordLineSpacing | undefined): string | undefined {
+  if (!measure) {
+    return undefined;
+  }
+  if (measure.unit === "px") {
+    return `${measure.value}px`;
+  }
+  if (measure.unit === "em") {
+    return `${measure.value}em`;
+  }
+  if (line?.rule === "exact" || line?.rule === "atLeast") {
+    return `${Math.round(measure.value * line.px * 10) / 10}px`;
+  }
+  const multiple = line?.rule === "auto" ? line.multiple : 1;
+  return `${Math.round(measure.value * multiple * 1000) / 1000}em`;
+}
+
+function lineCss(line: WordLineSpacing | undefined): string | undefined {
+  if (!line) {
+    return undefined;
+  }
+  if (line.rule === "auto") {
+    return String(line.multiple);
+  }
+  return `${line.px}px`;
+}
+
 function paragraphStyle(paragraph: WordSurfaceParagraph): CSSProperties {
+  const align = paragraph.align === "both" ? "justify" : paragraph.align;
   return {
-    textAlign: paragraph.align === "both" ? "justify" : paragraph.align,
-    paddingLeft: paragraph.indentPx ? `${paragraph.indentPx}px` : undefined,
-    textIndent:
-      paragraph.listLabel || paragraph.firstIndentPx == null ? undefined : `${paragraph.firstIndentPx}px`,
-    marginBottom: paragraph.tight ? 0 : undefined,
+    textAlign: align,
+    paddingLeft: measureCss(paragraph.indent, paragraph.line),
+    textIndent: measureCss(paragraph.firstIndent, paragraph.line),
+    marginTop: measureCss(paragraph.spaceBefore, paragraph.line),
+    marginBottom: measureCss(paragraph.spaceAfter, paragraph.line),
+    lineHeight: lineCss(paragraph.line),
+    fontFamily: paragraph.fontFamily,
+  };
+}
+
+function pageStyle(page: WordPageBox | undefined): CSSProperties {
+  const box = page ?? {
+    widthPx: 793.7,
+    marginTopPx: 96,
+    marginRightPx: 96,
+    marginBottomPx: 96,
+    marginLeftPx: 96,
+    fontFamily: 'SimSun, "NSimSun", "Songti SC", "STSong", "Noto Serif SC", serif',
+    fontSizePx: 16,
+  };
+  return {
+    width: box.widthPx,
+    paddingTop: box.marginTopPx,
+    paddingRight: box.marginRightPx,
+    paddingBottom: box.marginBottomPx,
+    paddingLeft: box.marginLeftPx,
+    fontFamily: box.fontFamily,
+    fontSize: box.fontSizePx ? `${box.fontSizePx}px` : undefined,
   };
 }
 
 export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProps): ReactNode {
-  const { apiBase, projectDir, root, relPath, fileName, busy = false, onOpenWithSystem, onRevealSource } =
-    props;
+  const { apiBase, projectDir, root, relPath, fileName, busy = false, onRevealSource } = props;
   const [snapshot, setSnapshot] = useState<WordSurfaceSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -123,9 +181,17 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenu | null>(null);
   const keyRef = useRef("");
+  const reboundRef = useRef("");
   const seenRef = useRef<{ fileMtimeMs: number; proposalAt: string; codeStamp: string } | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const editingPlainRef = useRef(false);
+  const { width: railWidth, onResizePointerDown: onRailResize } = usePaneResizePx({
+    storageKey: "lawmind.ui.wordSurfaceRailWidth",
+    defaultWidth: 220,
+    min: 180,
+    max: 480,
+    edge: "trailing",
+  });
 
   const reload = useCallback(async () => {
     if (!apiBase.trim()) {
@@ -146,6 +212,10 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         }
         setLoadError(null);
         return;
+      }
+      if ((body.hunks?.length ?? 0) === 0 && !body.taskId && reboundRef.current !== relPath) {
+        reboundRef.current = relPath;
+        void openBoundBaselineIfDifferent({ apiBase, relPath });
       }
       const nextKey = snapshotKey(body);
       if (nextKey !== keyRef.current) {
@@ -231,14 +301,20 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== "s" || event.altKey || event.shiftKey) {
-        return;
-      }
-      if (!event.ctrlKey && !event.metaKey) {
-        return;
-      }
       const rootNode = rootRef.current;
       if (!rootNode || !(event.target instanceof Node) || !rootNode.contains(event.target)) {
+        return;
+      }
+      if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && key === "z" && !event.altKey) {
+        event.preventDefault();
+        document.execCommand(event.shiftKey ? "redo" : "undo");
+        return;
+      }
+      if (key !== "s" || event.altKey || event.shiftKey || (!event.ctrlKey && !event.metaKey)) {
         return;
       }
       event.preventDefault();
@@ -261,6 +337,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       x: clientX ?? rect.left,
       y: clientY ?? rect.bottom + 6,
       inDeletion: Boolean(el?.closest("del")),
+      fileActions: false,
     });
   };
 
@@ -398,8 +475,8 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
           <span className="lm-word-surface-count">
             {snapshot
               ? pending > 0
-                ? `预览 · ${pending} 处待定`
-                : "预览 · 没有待定修订"
+                ? `核对 · ${pending} 处待定`
+                : "核对 · 没有待定修订"
               : loadError
                 ? "没打开"
                 : "正在打开"}
@@ -418,7 +495,13 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
             type="button"
             className="lm-btn lm-btn-secondary lm-btn-sm"
             disabled={busy}
-            onClick={onOpenWithSystem}
+            onClick={() => {
+              void openDeliverableInWps(relPath).then((result) => {
+                if (!result.ok && result.error) {
+                  setActionError(result.error);
+                }
+              });
+            }}
           >
             用本机应用打开
           </button>
@@ -458,18 +541,26 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         </p>
       ) : null}
       <div className="lm-word-surface-body">
-      <article
-        className="lm-word-surface-page lm-scroll"
-        aria-label={fileName}
+      <div
+        className="lm-word-surface-desk lm-scroll"
         onMouseUp={() => showSelectionMenu()}
         onContextMenu={(event) => {
-          if (!editorTextRange()) {
-            setSelectionMenu(null);
-            return;
-          }
           event.preventDefault();
-          showSelectionMenu(event.clientX, event.clientY);
+          const range = editorTextRange();
+          const anchor = range?.commonAncestorContainer;
+          const el = anchor instanceof Element ? anchor : anchor?.parentElement;
+          setSelectionMenu({
+            x: event.clientX,
+            y: event.clientY,
+            inDeletion: Boolean(el?.closest("del")),
+            fileActions: true,
+          });
         }}
+      >
+      <article
+        className="lm-word-surface-page"
+        style={pageStyle(snapshot?.page)}
+        aria-label={fileName}
       >
           {loadError && !snapshot ? (
             <p className="lm-word-surface-empty">{loadError}</p>
@@ -492,14 +583,29 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
                   editingPlainRef.current = active;
                 },
               },
+              snapshot?.page,
             )
           )}
       </article>
-      <aside className="lm-word-surface-rail lm-scroll" aria-label="修订">
+      </div>
+      <div
+        className="lm-split-handle lm-split-handle-vertical"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整修订栏宽度"
+        title="拖动调整修订栏宽度"
+        data-testid="lm-word-surface-rail-split"
+        onPointerDown={onRailResize}
+      />
+      <aside
+        className="lm-word-surface-rail lm-scroll"
+        aria-label="修订"
+        style={{ width: railWidth, flexBasis: railWidth }}
+      >
           <h2 className="lm-word-surface-rail-title">修订</h2>
           {!snapshot || snapshot.hunks.length === 0 ? (
             <p className="lm-word-surface-empty">
-              这是正文预览，不是 Word 里的修订。对话里的修改会出现在这里。接受之后才能导出旁边的稿；没决定的不会写入。原件不动。
+              右侧是待核对的修订。接受要留下的，再导出覆盖旁边的审阅稿。没决定的不会写入。原件留在原地。
             </p>
           ) : (
             snapshot.hunks.map((hunk) => {
@@ -622,7 +728,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       </div>
       {selectionMenu ? (
         <div
-          className="lm-word-selection-menu"
+          className={`lm-word-selection-menu${selectionMenu.fileActions ? " lm-word-selection-menu-stack" : ""}`}
           style={{ left: selectionMenu.x, top: selectionMenu.y }}
           role="menu"
           onMouseDown={(event) => {
@@ -630,7 +736,36 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
             event.stopPropagation();
           }}
         >
-          {selectionMenu.inDeletion ? (
+          {selectionMenu.fileActions ? (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="lm-word-surface-reveal"
+                onClick={() => {
+                  setSelectionMenu(null);
+                  onRevealSource();
+                }}
+              >
+                去本机文件所在目录
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="lm-word-surface-wps"
+                onClick={() => {
+                  setSelectionMenu(null);
+                  void openDeliverableInWps(relPath).then((result) => {
+                    if (!result.ok && result.error) {
+                      setActionError(result.error);
+                    }
+                  });
+                }}
+              >
+                用本机应用打开
+              </button>
+            </>
+          ) : selectionMenu.inDeletion ? (
             <button type="button" role="menuitem" onClick={unstrikeSelection}>
               取消删除线
             </button>
@@ -653,30 +788,116 @@ type SurfacePaint = {
   onPlainFocus: (active: boolean) => void;
 };
 
-function renderSurfaceBlocks(blocks: WordSurfaceBlock[], paint: SurfacePaint): ReactNode {
-  return blocks.map((block, index) =>
-    block.kind === "table" ? (
+function renderSurfaceBlocks(
+  blocks: WordSurfaceBlock[],
+  paint: SurfacePaint,
+  page?: WordPageBox,
+): ReactNode {
+  return blocks.map((block, index) => {
+    if (block.kind !== "table") {
+      return renderSurfaceParagraph(block, index, paint);
+    }
+    const cols = scaledColWidths(block, page);
+    return (
       <table
         key={index}
         className={`lm-word-surface-table${block.bordered ? " lm-word-surface-table-grid" : ""}`}
+        style={tableStyle(block, page)}
       >
+        {cols ? (
+          <colgroup>
+            {cols.map((width, colIndex) => (
+              <col key={colIndex} style={{ width }} />
+            ))}
+          </colgroup>
+        ) : null}
         <tbody>
           {block.rows.map((row, rowIndex) => (
             <tr key={rowIndex}>
               {row.map((cell, cellIndex) => (
-                <td key={cellIndex}>{renderSurfaceBlocks(cell.blocks, paint)}</td>
+                <td key={cellIndex} colSpan={cell.colspan} style={cellStyle(cell)}>
+                  {renderSurfaceBlocks(cell.blocks, paint, page)}
+                </td>
               ))}
             </tr>
           ))}
         </tbody>
       </table>
-    ) : (
-      renderSurfaceParagraph(block, index, paint)
-    ),
-  );
+    );
+  });
 }
 
-type SelectionMenu = { x: number; y: number; inDeletion: boolean };
+function contentWidthPx(page: WordPageBox | undefined): number | undefined {
+  if (!page) {
+    return undefined;
+  }
+  return Math.max(0, page.widthPx - page.marginLeftPx - page.marginRightPx);
+}
+
+function scaledColWidths(
+  block: Extract<WordSurfaceBlock, { kind: "table" }>,
+  page: WordPageBox | undefined,
+): number[] | undefined {
+  const cols = block.colWidthsPx;
+  if (!cols || cols.length === 0) {
+    return undefined;
+  }
+  if (block.widthPx != null) {
+    return cols;
+  }
+  const target =
+    block.widthPct != null ? ((contentWidthPx(page) ?? 0) * block.widthPct) / 100 : contentWidthPx(page);
+  if (!target || target <= 0) {
+    return cols;
+  }
+  const sum = cols.reduce((total, width) => total + width, 0);
+  if (sum <= 0) {
+    return cols;
+  }
+  const factor = target / sum;
+  return cols.map((width) => Math.round(width * factor * 10) / 10);
+}
+
+function tableStyle(
+  block: Extract<WordSurfaceBlock, { kind: "table" }>,
+  page: WordPageBox | undefined,
+): CSSProperties | undefined {
+  const cols = scaledColWidths(block, page);
+  if (block.widthPx != null) {
+    return { width: block.widthPx, minWidth: block.widthPx };
+  }
+  if (block.widthPct != null) {
+    return { width: `${block.widthPct}%` };
+  }
+  if (cols && cols.length > 0) {
+    return { width: cols.reduce((sum, width) => sum + width, 0) };
+  }
+  return { width: "100%" };
+}
+
+function cellStyle(cell: {
+  widthPx?: number;
+  vertical?: boolean;
+  vAlign?: "top" | "center" | "bottom";
+  colspan?: number;
+}): CSSProperties {
+  const style: CSSProperties = {};
+  if (cell.vAlign) {
+    style.verticalAlign = cell.vAlign;
+  }
+  if (cell.vertical) {
+    style.writingMode = "vertical-rl";
+    style.textOrientation = "upright";
+    style.whiteSpace = "nowrap";
+    style.textAlign = "center";
+  } else {
+    style.wordBreak = "keep-all";
+    style.overflowWrap = "normal";
+  }
+  return style;
+}
+
+type SelectionMenu = { x: number; y: number; inDeletion: boolean; fileActions: boolean };
 
 function editorTextRange(): Range | null {
   const selection = window.getSelection();
@@ -782,7 +1003,7 @@ function renderSurfaceParagraph(paragraph: WordSurfaceParagraph, index: number, 
   return (
     <p
       key={index}
-      className={`lm-word-surface-p${paragraph.tight ? " lm-word-surface-tight" : ""}${blank ? " lm-word-surface-blank" : ""}`}
+      className={`lm-word-surface-p${blank ? " lm-word-surface-blank" : ""}`}
       style={paragraphStyle(paragraph)}
     >
       {paragraph.listLabel ? <span className="lm-word-surface-label">{paragraph.listLabel}</span> : null}

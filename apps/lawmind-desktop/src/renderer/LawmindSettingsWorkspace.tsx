@@ -222,7 +222,7 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
             </span>
           </div>
           <p className="lm-settings-caption">
-            关掉 LawMind 后，已排的自动办件仍在这台电脑上继续。案卷不离开这台电脑。回来只看「在办 / 待我拍板」。
+            关掉 LawMind 后，已排的自动办件仍在这台电脑上继续。案卷不离开这台电脑。待发出在工作台该案的「现在」里。
           </p>
           {daemon?.recap ? (
             // 回执的真相源在服务端（引擎单测覆盖文案）；这里只负责显示，不重新推导「算不算异常」。

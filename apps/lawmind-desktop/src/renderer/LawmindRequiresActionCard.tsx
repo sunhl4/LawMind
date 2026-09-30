@@ -303,67 +303,25 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
           ) : null}
 
           {action.kind === "clarification" ? (
-            clarificationVariant === "hint" ? (
-              <div className="lm-clarify-hint" data-testid="lm-clarify-hint">
-                <p className="lm-meta">
-                  还差 {(action.clarificationQuestions ?? []).length} 项，去在办补充。
-                </p>
-                <ul className="lm-clarify-weak-list">
-                  {(action.clarificationQuestions ?? []).slice(0, 6).map((q) => (
-                    <li key={q.key}>{q.question}</li>
-                  ))}
-                </ul>
-                {onOpenNeedsDecisionDesk ? (
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-accent lm-btn-sm"
-                    data-testid="lm-clarify-open-desk"
-                    disabled={busy}
-                    onClick={() =>
-                      onOpenNeedsDecisionDesk({
-                        sessionId: action.sessionId ?? sessionId,
-                        taskId: action.taskId,
-                        matterId: action.matterId,
-                        preferStatus: "awaiting_clarification",
-                      })
-                    }
-                  >
-                    去在办补充
-                  </button>
-                ) : null}
-              </div>
-            ) : (
-              <LawmindClarificationForm
-                formKey={`${action.id}-${sessionId ?? ""}`}
-                questions={action.clarificationQuestions ?? []}
-                loading={busy}
-                variant={clarificationVariant === "compact" ? "compact" : "desk"}
-                values={clarificationDraft}
-                onValuesChange={(next) => {
-                  for (const [key, value] of Object.entries(next)) {
-                    if ((clarificationDraft?.[key] ?? "") !== value) {
-                      onClarificationDraftChange?.(key, value);
-                    }
+            <LawmindClarificationForm
+              formKey={`${action.id}-${sessionId ?? ""}`}
+              questions={action.clarificationQuestions ?? []}
+              loading={busy}
+              variant={clarificationVariant === "desk" ? "desk" : "compact"}
+              values={clarificationDraft}
+              onValuesChange={(next) => {
+                for (const [key, value] of Object.entries(next)) {
+                  if ((clarificationDraft?.[key] ?? "") !== value) {
+                    onClarificationDraftChange?.(key, value);
                   }
-                }}
-                onSubmitAnswers={
-                  hideActions
-                    ? undefined
-                    : (answers) => void onRespondClarification?.(action, answers)
                 }
-                onOpenDesk={
-                  onOpenNeedsDecisionDesk
-                    ? () =>
-                        onOpenNeedsDecisionDesk({
-                          sessionId: action.sessionId ?? sessionId,
-                          taskId: action.taskId,
-                          matterId: action.matterId,
-                          preferStatus: "awaiting_clarification",
-                        })
-                    : undefined
-                }
-              />
-            )
+              }}
+              onSubmitAnswers={
+                hideActions
+                  ? undefined
+                  : (answers) => void onRespondClarification?.(action, answers)
+              }
+            />
           ) : null}
 
           {action.kind === "continue_tools" && !hideActions ? (
@@ -396,9 +354,23 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
                 className="lm-btn lm-btn-secondary lm-btn-sm"
                 data-testid="lm-workflow-blocked-ack"
                 disabled={busy}
-                onClick={() => void onApproveTool?.(action)}
+                onClick={() => void onRespondClarification?.(action, {})}
               >
                 知道了
+              </button>
+            </div>
+          ) : null}
+
+          {action.kind === "judgment_escalation" && !hideActions ? (
+            <div className="lm-requires-action-actions">
+              <button
+                type="button"
+                className="lm-btn lm-btn-sm"
+                data-testid="lm-judgment-escalation-ack"
+                disabled={busy}
+                onClick={() => void onRespondClarification?.(action, {})}
+              >
+                按这个口径继续
               </button>
             </div>
           ) : null}

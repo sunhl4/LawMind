@@ -13,10 +13,8 @@ import { LawmindMsgAssistant } from "./LawmindMsgAssistant";
 import { LawmindMsgWorkflowApproval } from "./LawmindMsgWorkflowApproval";
 import { type ChatMsg, type PendingClarificationState } from "./lawmind-chat";
 import { formatLawyerGateChip, parseLawyerGateMessage } from "./lawmind-gate-message";
-import {
-  isClarificationShortConfirm,
-  shouldInlineClarificationInChat,
-} from "../../../../src/lawmind/platform/clarification-fields.ts";
+import { surfaceModelFailureForLawyer } from "../../../../src/lawmind/agent/model-error-message.ts";
+import { isClarificationShortConfirm } from "../../../../src/lawmind/platform/clarification-fields.ts";
 import type { NeedsDecisionDeskTarget } from "./lawmind-agents-desk";
 import { confirmDialog } from "./lawmind-confirm-dialog";
 
@@ -111,7 +109,9 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
     !modelFailure &&
     index === lastAssistantIndex &&
     (Boolean(msg.activityActive) || loading);
-  const displayText = turnInFlight ? "" : (msg.text?.trim() ?? "");
+  const visibleText =
+    msg.role === "assistant" ? surfaceModelFailureForLawyer(msg.text ?? "") : (msg.text?.trim() ?? "");
+  const displayText = turnInFlight ? "" : visibleText;
   const linkedTaskId =
     contextTaskId?.trim() || msg.executionState?.linkedTaskId?.trim() || undefined;
 
@@ -124,15 +124,6 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
   const workflowPending = Boolean(workflowAction);
   const chatDecisionActions =
     msg.role === "assistant" ? chatThreadDecisionActions(msg.requiresAction) : [];
-  const clarifyDeskTarget = (): NeedsDecisionDeskTarget => {
-    const clarifyAction = chatDecisionActions.find((a) => a.kind === "clarification");
-    return {
-      sessionId: clarifyAction?.sessionId?.trim() || chatSessionId?.trim() || undefined,
-      taskId: clarifyAction?.taskId?.trim() || linkedTaskId,
-      matterId: clarifyAction?.matterId?.trim() || undefined,
-      preferStatus: "awaiting_clarification",
-    };
-  };
   const gateMessage =
     msg.role === "user" ? parseLawyerGateMessage(msg.text ?? "") : null;
   const assistantHasChrome =
@@ -425,14 +416,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
                   ? (taskId, matterId) => onOpenReview({ taskId, matterId })
                   : undefined
               }
-              clarificationVariant={
-                shouldInlineClarificationInChat(
-                  chatDecisionActions.find((a) => a.kind === "clarification")
-                    ?.clarificationQuestions ?? [],
-                )
-                  ? "compact"
-                  : "hint"
-              }
+              clarificationVariant="compact"
               busy={loading}
             />
           </div>
@@ -452,36 +436,14 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
               const blocking = msg.status === "awaiting_clarification";
               if (blocking && qs.length > 0 && !short) {
                 return (
-                  <>
-                    <div className="lm-clarify-card-title">还差 {qs.length} 项信息</div>
-                    <div className="lm-clarify-card-hint">请到在办补充。</div>
-                    <ul className="lm-clarify-weak-list">
-                      {qs.slice(0, 6).map((q) => (
-                        <li key={q.key}>{q.question}</li>
-                      ))}
-                    </ul>
-                    <div className="lm-clarify-form-actions">
-                      {onOpenNeedsDecisionDesk ? (
-                        <button
-                          type="button"
-                          className="lm-btn lm-btn-accent lm-clarify-btn"
-                          data-testid="lm-clarify-open-desk"
-                          disabled={loading}
-                          onClick={() => onOpenNeedsDecisionDesk(clarifyDeskTarget())}
-                        >
-                          去在办补充
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="lm-btn lm-btn-ghost lm-clarify-btn"
-                        disabled={loading}
-                        onClick={() => onApplyPrompt(qs.map((q, i) => `${i + 1}. ${q.question}`).join("\n"))}
-                      >
-                        把问题列到输入框
-                      </button>
-                    </div>
-                  </>
+                  <LawmindClarificationForm
+                    formKey={`legacy-${index}`}
+                    questions={qs}
+                    loading={loading}
+                    variant="chat"
+                    onApplyToInput={(text) => onApplyPrompt(text)}
+                    onSend={onSendClarificationMessage}
+                  />
                 );
               }
               return (
@@ -492,9 +454,9 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
                   {icloud ? null : (
                   <div className="lm-clarify-card-hint">
                     {blocking && qs.length === 0
-                      ? "请补充说明后发送，或到「在办」处理。"
+                      ? "请在这条对话里补充后发送。"
                       : short
-                        ? "一两项短确认可在此填写；复杂项请到「在办」。"
+                        ? "在这条对话里填完即可。"
                         : "可在大框说明后发送。"}
                   </div>
                   )}
@@ -528,7 +490,6 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
                       }
                       onApplyToInput={onApplyPrompt}
                       onSend={onSendClarificationMessage}
-                      onOpenDesk={() => onOpenNeedsDecisionDesk?.(clarifyDeskTarget())}
                     />
                   ) : (
                     <p className="lm-clarify-card-fallback">请在下方输入并发送。</p>

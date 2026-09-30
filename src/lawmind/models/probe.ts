@@ -1,3 +1,4 @@
+import { friendlyModelErrorMessage } from "../agent/model-error-message.js";
 import type { AgentModelConfig } from "../agent/types.js";
 import { createOutboundProxy } from "../platform/outbound-proxy.js";
 
@@ -48,14 +49,15 @@ export function isModelAuthFailureStatus(status: number, body: string): boolean 
 export function formatUpstreamProbeError(
   status: number,
   body: string,
-  config: Pick<AgentModelConfig, "model" | "baseUrl">,
+  _config: Pick<AgentModelConfig, "model" | "baseUrl">,
 ): string {
-  const attempted = `model="${config.model}" @ ${config.baseUrl}`;
   if (isModelAuthFailureStatus(status, body)) {
     return "密钥无效或已过期。本机存过密钥不等于服务商接受。请到服务商重新生成，再用「连接向导」粘贴。";
   }
-  const snippet = body.trim().slice(0, 280);
-  return snippet ? `HTTP ${status} (${attempted}): ${snippet}` : `HTTP ${status} (${attempted})`;
+  const snippet = body.trim().slice(0, 2_000);
+  return friendlyModelErrorMessage(
+    snippet ? `Model API error ${status}: ${snippet}` : `Model API error ${status}`,
+  );
 }
 
 const probeProxy = createOutboundProxy({ requestTag: "model-probe" });
@@ -104,7 +106,9 @@ export async function probeAgentModel(config: AgentModelConfig): Promise<ModelPr
       return {
         ok: false,
         code: auth ? "invalid_api_key" : "model_api_error",
-        error: auth ? formatUpstreamProbeError(401, bodyErr, config) : bodyErr,
+        error: auth
+          ? formatUpstreamProbeError(401, bodyErr, config)
+          : friendlyModelErrorMessage(bodyErr),
       };
     }
     return {
@@ -114,26 +118,25 @@ export async function probeAgentModel(config: AgentModelConfig): Promise<ModelPr
       baseUrl: config.baseUrl,
     };
   } catch (err) {
-    const latencyMs = Date.now() - started;
-    const message = formatProbeFetchError(err, config, timeoutMs);
+    const message = formatProbeFetchError(err, timeoutMs);
     const code =
       message.includes("超时") || /abort/i.test(message) ? "model_timeout" : "model_network_error";
-    return { ok: false, code, error: `${message} (${latencyMs}ms)` };
+    return { ok: false, code, error: message };
   } finally {
     clearTimeout(timer);
   }
 }
 
-function formatProbeFetchError(err: unknown, config: AgentModelConfig, timeoutMs: number): string {
+function formatProbeFetchError(err: unknown, timeoutMs: number): string {
   if (err instanceof Error && err.name === "AbortError") {
-    return `模型请求超时（${timeoutMs}ms）。请检查网络或在 .env.lawmind 中增大 LAWMIND_AGENT_TIMEOUT_MS 后重启。`;
+    return friendlyModelErrorMessage(`Model request timed out after ${timeoutMs}ms`);
   }
   const cause =
     err instanceof Error && "cause" in err && err.cause instanceof Error ? err.cause.message : "";
   const msg = err instanceof Error ? err.message : String(err);
   const combined = `${msg} ${cause}`.trim();
   if (/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ECONNRESET|certificate|TLS/i.test(combined)) {
-    return `无法连接模型服务（${combined}）。请确认 Base URL：${config.baseUrl}，以及本机网络/代理/防火墙。`;
+    return friendlyModelErrorMessage(`Model network error: ${combined}`);
   }
-  return combined || "模型探测失败";
+  return friendlyModelErrorMessage(combined || "Model call failed");
 }

@@ -56,7 +56,7 @@ describe("LawmindLawyerWorkbench", () => {
     host.remove();
   });
 
-  it("renders 工作台 chrome and today composer", async () => {
+  it("renders the case list without a today cockpit", async () => {
     await act(async () => {
       root.render(
         <LawmindLawyerWorkbench
@@ -75,15 +75,14 @@ describe("LawmindLawyerWorkbench", () => {
       /LawMind · 0 个案件/,
     );
     expect(host.querySelector('[data-testid="lm-lawyer-cockpit"]')).toBeTruthy();
-    expect(host.querySelector(".lm-desk-col--matters")).toBeTruthy();
     expect(host.querySelector('[aria-label="案件"]')).toBeTruthy();
-    expect(host.textContent).toContain("今日");
-    expect(host.textContent).toContain("临近期日");
+    expect(host.textContent).not.toContain("临近期日");
+    expect(host.textContent).not.toContain("今日计划");
     expect(host.textContent).not.toContain("本案动作");
     expect(host.textContent).not.toContain("打开对话");
     expect(host.querySelector(".lm-lawyer-fab")).toBeNull();
-    expect(host.querySelector('[data-testid="lm-lawyer-today-plan-input"]')).toBeTruthy();
-    expect(host.querySelector('[data-testid="lm-lawyer-today-progress"]')?.textContent).toContain("0");
+    expect(host.querySelector('[data-testid="lm-lawyer-today-plan-input"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-desk-urgency-strip"]')).toBeNull();
     expect(host.querySelector('[data-testid="lm-lawyer-matter-empty"]')).toBeTruthy();
   });
 
@@ -114,7 +113,7 @@ describe("LawmindLawyerWorkbench", () => {
     expect(onReconnect).toHaveBeenCalledTimes(2);
   });
 
-  it("groups today items and lets mail jump to the matter", async () => {
+  it("ranks a case by its hottest line and filters from the urgency strip", async () => {
     const onSelectMatter = vi.fn();
     vi.mocked(apiGetJson).mockImplementation(async (_base: string, path: string) => {
       if (path === "/api/desk/today") {
@@ -131,7 +130,7 @@ describe("LawmindLawyerWorkbench", () => {
                 title: "举证期限",
                 done: false,
                 matterId: "m1",
-                dueAt: "2026-09-09T17:00:00",
+                dueAt: "2000-01-01T00:00:00.000Z",
               },
             ],
             progress: { done: 0, total: 3 },
@@ -153,6 +152,15 @@ describe("LawmindLawyerWorkbench", () => {
               daysUntilHearing: 11,
               docket: { caseNo: "（2024）沪01民初1号", court: "上海一中院" },
             },
+            {
+              matterId: "m2",
+              title: "安静顾问",
+              status: "open",
+              matterKind: "general",
+              matterKindLabel: "其他",
+              openDeadlineCount: 0,
+              daysUntilHearing: null,
+            },
           ],
         };
       }
@@ -172,32 +180,35 @@ describe("LawmindLawyerWorkbench", () => {
     });
     await flush();
 
-    expect(host.textContent).toContain("今日进度 0/3");
-    expect(host.textContent).toContain("写代理词");
-    expect(host.textContent).toContain("待回复");
+    expect(host.textContent).not.toContain("今日进度");
+    expect(host.textContent).not.toContain("写代理词");
     expect(host.textContent).toContain("买卖合同纠纷");
-    expect(host.querySelector('[data-testid="lm-lawyer-desk-kicker"]')?.textContent).toMatch(/ws · 1 个案件/);
-    expect(host.querySelector('[data-testid="lm-lawyer-stat-mail"]')?.textContent).toContain("1");
-    expect(host.querySelector('[data-testid="lm-lawyer-progress-board"]')).toBeNull();
-    expect(host.textContent).toContain("还有 11 天开庭");
+    expect(host.querySelector('[data-testid="lm-lawyer-desk-kicker"]')?.textContent).toMatch(/ws · 2 个案件/);
+    expect(host.querySelector('[data-testid="lm-desk-urgency-strip"]')?.textContent).toContain("1 个期限已过");
+    expect(host.querySelector('[data-testid="lm-desk-urgency-strip"]')?.textContent).toContain("1 封未回");
+    const rows = [...host.querySelectorAll('[data-testid="lm-matter-row"]')];
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining("买卖合同纠纷"),
+      expect.stringContaining("安静顾问"),
+    ]);
+    expect(rows[0]?.querySelector('[data-testid="lm-matter-hotline"]')?.textContent).toBe("期限已过");
+    expect(rows[1]?.querySelector('[data-testid="lm-matter-hotline"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-lawyer-today-plan-input"]')).toBeNull();
 
     await act(async () => {
-      host.querySelector<HTMLButtonElement>('[data-testid="lm-lawyer-today-item-mail-done"]')?.click();
+      const chip = [...host.querySelectorAll("button")].find((btn) => btn.textContent === "1 个期限已过");
+      chip?.click();
     });
-    expect(apiSendJson).toHaveBeenCalledWith(
-      "http://127.0.0.1:9",
-      "/api/desk/plan/source-done",
-      "POST",
-      { source: "mail", sourceRef: "msg-1" },
-    );
+    expect(host.textContent).toContain("买卖合同纠纷");
+    expect(host.textContent).not.toContain("安静顾问");
 
     await act(async () => {
-      host.querySelector<HTMLButtonElement>('[data-testid="lm-lawyer-today-item-mail"]')?.click();
+      host.querySelector<HTMLButtonElement>('[data-testid="lm-matter-row"]')?.click();
     });
     expect(onSelectMatter).toHaveBeenCalledWith("m1");
   });
 
-  it("completes a carried plan against its origin date", async () => {
+  it("does not surface daily plans on the case list", async () => {
     vi.mocked(apiGetJson).mockImplementation(async (_base: string, path: string) => {
       if (path === "/api/desk/today") {
         return {
@@ -237,17 +248,10 @@ describe("LawmindLawyerWorkbench", () => {
     });
     await flush();
 
-    expect(host.textContent).toContain("未结 · 自 9月16日");
-    expect(host.textContent).toContain("含 1 项未结");
-    await act(async () => {
-      host.querySelector<HTMLButtonElement>('[data-testid="lm-lawyer-today-item-plan-carried"]')?.click();
-    });
-    expect(apiSendJson).toHaveBeenCalledWith(
-      "http://127.0.0.1:9",
-      "/api/desk/plan/items/p-yest",
-      "PATCH",
-      { done: true, date: "2026-09-16" },
-    );
+    expect(host.textContent).not.toContain("未结 · 自 9月16日");
+    expect(host.textContent).not.toContain("改代理词");
+    expect(host.querySelector('[data-testid="lm-lawyer-today-plan-input"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-desk-urgency-strip"]')?.textContent).toContain("1 封未回");
   });
 
   it("reloads matter list when matterRefreshVersion bumps", async () => {
@@ -361,29 +365,26 @@ describe("LawmindLawyerWorkbench", () => {
     });
     await flush();
     expect(host.textContent).toContain("买卖合同纠纷");
-    expect(host.textContent).toContain("卷宗");
+    expect(host.textContent).toContain("接着办");
     expect(host.querySelector(".lm-matter-file")).toBeTruthy();
-    expect(host.querySelector(".lm-overview")).toBeTruthy();
-    expect(host.querySelector('[aria-label="案件"]')).toBeTruthy();
-    expect(host.querySelector('[aria-label="案件"]')).toBeTruthy();
-    expect(host.querySelector(".lm-status-table")).toBeNull();
-    expect(host.querySelector(".lm-matter-hero-badges")).toBeTruthy();
-    expect(host.querySelector('[data-testid="lm-lawyer-pulse-bar"]')).toBeTruthy();
-    expect(host.textContent).toContain("案件信息");
-    expect(host.textContent).toContain("文书清单");
+    expect(host.querySelector('[data-testid="lm-matter-now"]')).toBeNull();
+    expect(host.querySelector("#lm-lawyer-tab-overview")).toBeNull();
+    expect(host.querySelector("#lm-lawyer-tab-deadlines")).toBeNull();
+    expect(host.querySelector("#lm-lawyer-tab-volume")).toBeNull();
+    expect(host.querySelector("#lm-lawyer-tab-materials")).toBeNull();
+    expect(host.querySelector("#lm-lawyer-tab-docs")).toBeNull();
+    expect(host.textContent).not.toContain("本案下一步");
+    expect(host.textContent).not.toContain("文书清单");
+    expect(host.textContent).toContain("我们写的");
     expect(host.textContent).toContain("起诉状草稿");
-    expect(host.textContent).toContain("乙公司");
-    expect(host.textContent).toContain("本案下一步");
-    expect(host.querySelector(".lm-overview-next-item")).toBeTruthy();
-    expect(host.textContent).toContain("补转账记录");
-    // 下一步应排在案件信息之前（动作优先）
+    expect(host.textContent).toContain("对方 乙公司");
     expect(host.querySelector('[data-testid="lm-lawyer-matter-parties"]')).toBeTruthy();
     expect(host.textContent).toContain("委托人");
     expect(host.querySelector('[data-testid="lm-lawyer-matter-party-card"]')?.textContent).toContain("甲公司");
-    const overview = host.querySelector(".lm-overview")?.textContent ?? "";
-    expect(overview.indexOf("本案下一步")).toBeLessThan(overview.indexOf("本案进展"));
-    expect(overview.indexOf("本案进展")).toBeLessThan(overview.indexOf("当事人"));
-    expect(overview.indexOf("当事人")).toBeLessThan(overview.indexOf("案件信息"));
+    const archive = host.querySelector('[data-testid="lm-matter-archive"]');
+    expect(archive).toBeTruthy();
+    expect(archive?.querySelector("summary")?.textContent).toContain("档案");
+    expect((archive as HTMLDetailsElement).open).toBe(false);
 
     expect(host.querySelector('[data-testid="lm-lawyer-matter-parties-editor"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="lm-lawyer-talk-input"]')).toBeTruthy();
@@ -470,10 +471,6 @@ describe("LawmindLawyerWorkbench", () => {
       host.querySelector<HTMLButtonElement>(".lm-matter-card")?.click();
     });
     await flush();
-    await act(async () => {
-      host.querySelector<HTMLButtonElement>("#lm-lawyer-tab-deadlines")?.click();
-    });
-    await flush();
     expect(host.querySelector('[data-testid="lm-lawyer-deadlines-drop"]')).toBeTruthy();
     const ta = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="抽取期限材料"]');
     expect(ta).toBeTruthy();
@@ -494,7 +491,7 @@ describe("LawmindLawyerWorkbench", () => {
     expect(host.textContent).toMatch(/确认写入/);
   });
 
-  it("shows a read-only matter timeline and a first-class 材料 tab", async () => {
+  it("shows one volume list and keeps the timeline in the archive", async () => {
     vi.mocked(apiGetJson).mockImplementation(async (_base: string, path: string) => {
       if (path === "/api/desk/today") {
         return { ok: true, today: { date: "2026-09-09", items: [], progress: { done: 0, total: 0 } } };
@@ -628,47 +625,32 @@ describe("LawmindLawyerWorkbench", () => {
     });
     await flush();
 
+    expect(host.querySelector('[data-testid="lm-matter-now"]')).toBeTruthy();
+    expect(host.textContent).toContain("去对话起草");
     expect(host.querySelector('[data-testid="lm-lawyer-matter-timeline"]')).toBeTruthy();
     expect(host.textContent).toContain("本案进展");
-    expect(host.textContent).toContain("开庭");
-    expect(host.querySelector("#lm-lawyer-tab-volume")).toBeTruthy();
     expect(host.textContent).toContain("邀请同事");
-    const overview = host.querySelector(".lm-overview")?.textContent ?? "";
-    expect(overview.indexOf("本案进展")).toBeLessThan(overview.indexOf("案件信息"));
-
-    await act(async () => {
-      host.querySelector<HTMLButtonElement>('[data-testid="lm-lawyer-matter-timeline-item"]')?.click();
-    });
-    await flush();
+    expect(host.querySelector("#lm-lawyer-tab-volume")).toBeNull();
     expect(host.querySelector("#lm-lawyer-pane-deadlines")).toBeTruthy();
-    expect(host.textContent).toContain("期限 / 开庭");
+    expect(host.textContent).toContain("全部期限");
     expect(host.textContent).toContain("传票抽取");
     expect(host.textContent).toContain("等「开庭」完成");
     expect(host.querySelector(".lm-deadline-depends")).toBeTruthy();
 
-    await act(async () => {
-      host.querySelector<HTMLButtonElement>("#lm-lawyer-tab-volume")?.click();
-    });
-    await flush();
-    await act(async () => {
-      host.querySelector<HTMLButtonElement>("#lm-lawyer-tab-docs")?.click();
-    });
-    await flush();
-    expect(host.querySelector("#lm-lawyer-pane-docs")?.textContent).not.toContain("本案文件");
-
-    await act(async () => {
-      host.querySelector<HTMLButtonElement>("#lm-lawyer-tab-materials")?.click();
-    });
-    await flush();
     const materials = host.querySelector('[data-testid="lm-lawyer-matter-materials"]');
     expect(materials).toBeTruthy();
+    expect(materials?.textContent).toContain("来件");
     expect(materials?.textContent).toContain("合同.docx");
-    expect(materials?.textContent).toContain("出稿路径");
+    expect(materials?.textContent).toContain("我们写的");
+    expect(materials?.textContent).toContain("起诉状草稿");
+    expect(materials?.textContent).toContain("其余");
     expect(materials?.textContent).toContain("artifacts/起诉状.docx");
-    expect(host.querySelector("#lm-lawyer-tab-overview")).toBeTruthy();
+    const volumeText = materials?.textContent ?? "";
+    expect(volumeText.indexOf("来件")).toBeLessThan(volumeText.indexOf("我们写的"));
+    expect(volumeText.indexOf("我们写的")).toBeLessThan(volumeText.indexOf("其余"));
   });
 
-  it("lets mail without a matter still jump to chat", async () => {
+  it("counts unreplied mail on the strip even when it has no case", async () => {
     const onGoToChat = vi.fn();
     vi.mocked(apiGetJson).mockImplementation(async (_base: string, path: string) => {
       if (path === "/api/desk/today") {
@@ -697,12 +679,9 @@ describe("LawmindLawyerWorkbench", () => {
       );
     });
     await flush();
-    await act(async () => {
-      host.querySelector<HTMLButtonElement>('[data-testid="lm-lawyer-today-item-mail"]')?.click();
-    });
-    expect(onGoToChat).toHaveBeenCalledWith({
-      prompt: expect.stringContaining("询证函"),
-    });
+    expect(host.querySelector('[data-testid="lm-desk-urgency-strip"]')?.textContent).toContain("1 封未回");
+    expect(host.querySelector('[data-testid="lm-lawyer-today-item-mail"]')).toBeNull();
+    expect(onGoToChat).not.toHaveBeenCalled();
   });
 
   it("opens 本案卷宗 from focus even if the list has not loaded the case yet", async () => {
@@ -750,13 +729,96 @@ describe("LawmindLawyerWorkbench", () => {
     await flush();
     expect(host.querySelector('[data-testid="lm-lawyer-matter-dossier"]')).toBeTruthy();
     expect(host.textContent).toContain("新收租赁案");
+    expect(host.textContent).toContain("接着办");
     expect(host.textContent).toContain("案由里的「合同纠纷」仍是诉讼");
     expect(host.textContent).not.toContain("选一个案件");
+    expect(host.querySelector('[data-testid="lm-matter-now"]')).toBeNull();
     const deleteBtn = [...host.querySelectorAll("button")].find((btn) => btn.textContent === "删除案件");
     expect(deleteBtn).toBeTruthy();
     await act(async () => {
       deleteBtn?.click();
     });
     expect(onDeleteMatter).toHaveBeenCalledWith("新收租赁案", "新收租赁案");
+  });
+
+  it("puts outbound at the top of 现在 and opens that block from a docs deep link", async () => {
+    vi.mocked(apiGetJson).mockImplementation(async (_base: string, path: string) => {
+      if (path === "/api/desk/today") {
+        return { ok: true, today: { date: "2026-09-09", items: [], progress: { done: 0, total: 0 } } };
+      }
+      if (path.startsWith("/api/action-summary")) {
+        return {
+          automationInbox: [
+            {
+              id: "in-1",
+              automationId: "a",
+              matterId: "m1",
+              title: "发给对方的函",
+              summary: "",
+              status: "open",
+              createdAt: "2026-09-09T00:00:00.000Z",
+              pendingSend: { to: "wang@example.com", subject: "关于履行", body: "请查收", attachmentRelativePaths: [] },
+            },
+          ],
+        };
+      }
+      if (path.startsWith("/api/desk/matters")) {
+        return {
+          ok: true,
+          matters: [
+            {
+              matterId: "m1",
+              title: "买卖合同纠纷",
+              status: "open",
+              matterKind: "contract",
+              matterKindLabel: "合同",
+              openDeadlineCount: 0,
+            },
+          ],
+        };
+      }
+      if (path.includes("/pulse")) {
+        return {
+          ok: true,
+          pulse: {
+            matterId: "m1",
+            title: "买卖合同纠纷",
+            status: "active",
+            statusLabel: "进行中",
+            counts: { documents: 0, tasks: 0, files: 0, deadlines: 0, mail: 0, approvals: 0 },
+            daysUntilHearing: null,
+            documents: [],
+            tasks: [],
+            files: [],
+            mail: [],
+            nextActions: [],
+          },
+        };
+      }
+      return { ok: true };
+    });
+    await act(async () => {
+      root.render(
+        <LawmindLawyerWorkbench
+          apiBase="http://127.0.0.1:9"
+          selectedMatterId={null}
+          deskMatterFocus={{ id: "m1", n: 1, pane: "docs" }}
+          onSelectMatter={vi.fn()}
+          onGoToChat={vi.fn()}
+        />,
+      );
+    });
+    await flush();
+    await flush();
+    const now = host.querySelector('[data-testid="lm-matter-now"]');
+    expect(now).toBeTruthy();
+    expect(now?.textContent).toContain("待发出");
+    expect(now?.textContent).toContain("wang@example.com");
+    const dossier = host.querySelector('[data-testid="lm-lawyer-matter-dossier"]');
+    const nowIndex = dossier?.innerHTML.indexOf('data-testid="lm-matter-now"') ?? -1;
+    const volumeIndex = dossier?.innerHTML.indexOf('data-testid="lm-lawyer-matter-materials"') ?? -1;
+    expect(nowIndex).toBeGreaterThanOrEqual(0);
+    expect(nowIndex).toBeLessThan(volumeIndex);
+    expect(host.querySelector('[data-testid="lm-matter-hotline"]')).toBeNull();
   });
 });

@@ -43,8 +43,10 @@ export type LawmindAppRootLayoutInput = {
   openReviewFromWorkspace: (target?: { taskId?: string; matterId?: string }) => void;
   matterCockpitOpen: boolean;
   setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  deskMatterFocus: { id: string; n: number } | null;
-  setDeskMatterFocus: React.Dispatch<React.SetStateAction<{ id: string; n: number } | null>>;
+  deskMatterFocus: { id: string; n: number; pane?: "docs" } | null;
+  setDeskMatterFocus: React.Dispatch<
+    React.SetStateAction<{ id: string; n: number; pane?: "docs" } | null>
+  >;
   reviewLaunchedFromMatter: boolean;
   setReviewLaunchedFromMatter: (v: boolean) => void;
   agentsDeskTab: AgentsDeskTab;
@@ -278,17 +280,12 @@ export function useLawmindAppRootLayout(
 
   const openNeedsDecisionInbox = useCallback(() => {
     input.setMatterCockpitOpen(false);
-    input.setAgentsDeskFocusTarget(null);
-    input.setAgentsNeedsDecisionFocus(true);
-    input.setAgentsDeskTab("active");
-    setMainView("agents");
-  }, [
-    input.setAgentsDeskFocusTarget,
-    input.setAgentsDeskTab,
-    input.setAgentsNeedsDecisionFocus,
-    input.setMatterCockpitOpen,
-    setMainView,
-  ]);
+    const mid = contextMatterId?.trim();
+    if (mid) {
+      input.setDeskMatterFocus((prev) => ({ id: mid, n: (prev?.n ?? 0) + 1, pane: "docs" }));
+    }
+    setMainView("desk");
+  }, [contextMatterId, input.setDeskMatterFocus, input.setMatterCockpitOpen, setMainView]);
 
   const headerProps = useLawmindAppHeaderProps({
     mainView,
@@ -550,6 +547,14 @@ export function useLawmindAppRootLayout(
     onPrefsChange: () => input.setUiPrefsVersion((v) => v + 1),
     matterSidebarRows: recordsDeskMatters.sidebarRows,
     contextMatterId,
+    delegations,
+    collabEvents,
+    gateHistory,
+    formatRelativeTime,
+    onRefreshCollaboration: refreshCollaboration,
+    onOpenDelegationTargetChat: openDelegationTargetWorkspaceChat,
+    assistantDisplayById: input.assistantDisplayById,
+    workflowModelLabel: input.workflowModelLabel,
     onOpenReviewFromAutomation: (taskId, matterId) => {
       input.setReviewLaunchedFromMatter(false);
       setReviewFocusTaskId(taskId);

@@ -1799,35 +1799,46 @@ button.lm-side-chat-session-forked-btn {
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  gap: 10px;
+  gap: 0;
 }
 
-.lm-word-surface-page {
+.lm-word-surface-desk {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 28px 36px 40px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.75;
+  background: var(--side-bg);
+  padding: 20px 16px 32px;
+}
+
+.lm-word-surface-page {
+  box-sizing: border-box;
+  width: 793.7px;
+  max-width: none;
+  margin: 0 auto;
+  padding: 96px;
+  background: #fff;
+  color: #000;
+  border: none;
+  border-radius: 0;
+  box-shadow:
+    0 1px 2px rgba(40, 32, 22, 0.12),
+    0 8px 28px rgba(40, 32, 22, 0.08);
+  font-family: SimSun, "NSimSun", "Songti SC", "STSong", "Noto Serif SC", serif;
+  font-size: 16px;
+  line-height: 1.15;
+  line-break: strict;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .lm-word-surface-p {
-  margin: 0 0 0.85em;
+  margin: 0;
   white-space: pre-wrap;
 }
 
-.lm-word-surface-tight {
-  margin-bottom: 0;
-}
-
 .lm-word-surface-blank {
-  min-height: 0.9em;
-  margin: 0;
+  min-height: 1em;
 }
 
 .lm-word-surface-label {
@@ -1861,6 +1872,16 @@ button.lm-side-chat-session-forked-btn {
   background: var(--accent-dim);
 }
 
+.lm-word-selection-menu-stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.lm-word-selection-menu-stack button {
+  text-align: left;
+  white-space: nowrap;
+}
+
 .lm-word-surface-plain {
   cursor: text;
   border-radius: 2px;
@@ -1873,37 +1894,46 @@ button.lm-side-chat-session-forked-btn {
 }
 
 .lm-word-surface-table {
-  width: 100%;
-  margin: 0.4em 0 0.9em;
+  margin: 0 0 0.4em;
   border-collapse: collapse;
   table-layout: fixed;
+  width: 100%;
 }
 
 .lm-word-surface-table td {
-  padding: 4px 8px;
-  vertical-align: top;
+  padding: 1px 2px;
+  vertical-align: middle;
+  word-break: keep-all;
+  overflow-wrap: normal;
 }
 
 .lm-word-surface-table-grid td {
-  border: 1px solid var(--border);
+  border: 1px solid #000;
 }
 
 .lm-word-surface-table .lm-word-surface-p {
-  margin-bottom: 0.35em;
+  margin: 0;
+  line-height: 1.15;
+}
+
+.lm-word-surface-table .lm-word-surface-blank {
+  min-height: 1.15em;
 }
 
 .lm-word-surface-rail {
-  flex: 0 0 300px;
-  width: 300px;
+  flex: 0 0 auto;
+  width: 220px;
+  min-width: 0;
   min-height: 0;
   align-self: stretch;
   overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px 12px 16px;
+  padding: 12px 10px 16px;
   background: var(--surface);
   border-left: 1px solid var(--border);
+  box-sizing: border-box;
 }
 
 .lm-word-surface-rail-title {

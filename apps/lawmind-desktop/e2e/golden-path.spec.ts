@@ -30,23 +30,22 @@ test.describe("LawMind golden path", () => {
     await page.setViewportSize({ width: 1100, height: 780 });
     await page.getByTestId("lm-tab-desk").click();
     await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("lm-lawyer-today-plan-input")).toBeVisible();
-    await expect(page.getByTestId("lm-lawyer-today-item-plan-carried")).toBeVisible();
-    await expect(page.getByText("未结 · 自 1月1日")).toBeVisible();
-    // Cockpit must stay visible at default-ish window sizes (rail + stage, not crushed to 0).
+    await expect(page.getByTestId("lm-lawyer-today-plan-input")).toHaveCount(0);
+    await expect(page.getByText("临近期日")).toHaveCount(0);
+    await expect(page.getByLabel("案件")).toBeVisible();
     const cockpit = page.getByTestId("lm-lawyer-cockpit");
     await expect(cockpit).toBeVisible();
-    await expect(page.getByLabel("案件")).toBeVisible();
     const box = await cockpit.boundingBox();
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(280);
   });
 
-  test("签批在在办，不打开改稿台", async ({ page }) => {
+  test("工作台在，不打开改稿台", async ({ page }) => {
     test.setTimeout(120_000);
     await gotoShell(page);
     await openReviewDraft(page);
     await expect(page.locator(".lm-review-workbench-root")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "签批" }).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("lm-tab-agents")).toHaveCount(0);
+    await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible({ timeout: 30_000 });
   });
 
   test("tool approval card resumes without manual __approved JSON", async ({ page }) => {

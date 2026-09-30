@@ -166,7 +166,6 @@ function LawmindAppSidebarImpl({
   onCloseSettings,
   settingsOpen,
   setFileExplorerHost,
-  actionSummaryTotal,
   matterSidebarRows,
   selectedMatterKey,
   onSelectMatterKey,
@@ -174,7 +173,6 @@ function LawmindAppSidebarImpl({
   matterCockpitOpen,
   mainView,
   apiBase,
-  onOpenNeedsDecisionDesk,
   chatSessions,
   activeChatSessionId,
   chatSessionsLoading,
@@ -341,22 +339,6 @@ function LawmindAppSidebarImpl({
           />
         ) : null}
 
-        {actionSummaryTotal > 0 ? (
-          <div className="lm-side-footer">
-            <button
-              type="button"
-              className="lm-btn lm-btn-sm lm-side-needs-decision-btn lm-side-needs-decision-btn--brass"
-              onClick={onOpenNeedsDecisionDesk}
-              data-testid="lm-side-needs-decision"
-              title="打开「在办」处理澄清、签批与待审"
-            >
-              <span>待我拍板</span>
-              <span className="lm-side-needs-decision-badge" aria-label={`${actionSummaryTotal} 项待处理`}>
-                {actionSummaryTotal > 99 ? "99+" : actionSummaryTotal}
-              </span>
-            </button>
-          </div>
-        ) : null}
       </aside>
       {!sidebarCollapsed ? (
         <div
