@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { legalVerifyMiddleware } from "../runtime/legal-verify-middleware.js";
 import {
+  actionPreReviewMiddleware,
   approvalMiddleware,
   buildDefaultToolPipeline,
   permissionModeMiddleware,
@@ -39,12 +40,13 @@ describe("approval-arbitration", () => {
     expect(decide({})).toBe("ask");
   });
 
-  it("默认管线：deny/block 中间件在审批中间件之前", () => {
+  it("默认管线：deny/block → 动作审前 → 审批", () => {
     const pipe = buildDefaultToolPipeline();
     const idx = (fn: (typeof pipe)[number]) => pipe.indexOf(fn);
     expect(idx(permissionModeMiddleware)).toBeGreaterThanOrEqual(0);
     expect(idx(roleAllowlistMiddleware)).toBeGreaterThan(idx(permissionModeMiddleware));
     expect(idx(legalVerifyMiddleware)).toBeGreaterThan(idx(roleAllowlistMiddleware));
-    expect(idx(approvalMiddleware)).toBeGreaterThan(idx(legalVerifyMiddleware));
+    expect(idx(actionPreReviewMiddleware)).toBeGreaterThan(idx(legalVerifyMiddleware));
+    expect(idx(approvalMiddleware)).toBeGreaterThan(idx(actionPreReviewMiddleware));
   });
 });

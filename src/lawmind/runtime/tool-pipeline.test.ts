@@ -1001,6 +1001,46 @@ describe("tool-pipeline middlewares", () => {
     expect(result.data).toBe("ok");
   });
 
+  it("actionPreReviewMiddleware: shadow records without blocking; on asks for run_host_command", async () => {
+    const { actionPreReviewMiddleware } = await import("./tool-pipeline.js");
+    const { actionPreReviewLogPath } = await import("../platform/action-pre-review.js");
+    const tool: AgentTool = {
+      definition: {
+        name: "run_host_command",
+        description: "host",
+        category: "system",
+        parameters: {},
+      },
+      execute: async () => ({ ok: true, data: "ran" }),
+    };
+    const prev = process.env.LAWMIND_ACTION_PRE_REVIEW;
+    try {
+      process.env.LAWMIND_ACTION_PRE_REVIEW = "shadow";
+      const shadow = await actionPreReviewMiddleware(
+        buildCall(workspaceDir, { tool, toolName: "run_host_command", args: {} }),
+        async () => ({ ok: true, data: "ran" }),
+      );
+      expect(shadow.ok).toBe(true);
+      expect(shadow.approvalRequest).toBeUndefined();
+      const log = await fs.readFile(actionPreReviewLogPath(workspaceDir), "utf8");
+      expect(log).toContain("run_host_command");
+
+      process.env.LAWMIND_ACTION_PRE_REVIEW = "on";
+      const asked = await actionPreReviewMiddleware(
+        buildCall(workspaceDir, { tool, toolName: "run_host_command", args: {} }),
+        async () => ({ ok: true, data: "ran" }),
+      );
+      expect(asked.approvalRequest).toBe(true);
+      expect(asked.ok).toBe(false);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.LAWMIND_ACTION_PRE_REVIEW;
+      } else {
+        process.env.LAWMIND_ACTION_PRE_REVIEW = prev;
+      }
+    }
+  });
+
   it("normalizes write_document path alias before schema validation", async () => {
     const tool: AgentTool = {
       definition: {

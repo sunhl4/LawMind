@@ -1,12 +1,12 @@
 /**
  * 给 `pnpm lawmind:doctor` 和 `pnpm lawmind:ops doctor` 用的同一份巡检。
- * 只报三件不会自己写进律师界面、但会让交办停住或搜不到的事：
- * 会话工具配对、案件投影漂移、检索索引。
+ * 会话工具配对、案件投影漂移、检索索引，外加本机执行面清单（持久 / 可重建 / 凭据）。
  */
 import { checkMatterConsistency } from "../application/matter-consistency.js";
 import { computeSearchIndexFreshness, getSearchIndexStatus } from "../indexing/fts-search.js";
 import { scanSessionHistoryIntegrity } from "../insights/session-history-integrity.js";
 import { listLocalSkills } from "../skills/skill-runtime.js";
+import { buildExecutionSurfaceReport } from "./execution-surface.js";
 
 export type OpsDoctorSnapshot = {
   lines: string[];
@@ -69,6 +69,7 @@ export function formatOpsDoctorSnapshot(input: {
   } else {
     lines.push("索引：就绪。");
   }
+  lines.push(...buildExecutionSurfaceReport().lines);
   return {
     lines,
     projectionDrift: input.repairableDriftCount + input.orphanMatterCount > 0,

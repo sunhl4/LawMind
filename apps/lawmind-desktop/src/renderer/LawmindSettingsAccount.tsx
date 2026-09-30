@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useState, type ReactNode } from "react";
+import { formatUsageSummaryForLawyer } from "../../../../src/lawmind/models/model-usage.ts";
 import { apiGetJson } from "./api-client";
 import { requestFirstRunReopen } from "./lawmind-firstrun-reopen-bus";
 import { LawmindSettingsLicense } from "./LawmindSettingsLicense";
@@ -14,6 +15,12 @@ import {
 } from "./lawmind-settings-models";
 
 type PlatformMode = "proxy" | "platform_key" | "none";
+
+type UsageSummaryPayload = {
+  entries?: number;
+  totalTokens?: number;
+  byTier?: Array<{ tier: string; label: string; entries: number; totalTokens: number }>;
+};
 
 type Props = {
   apiBase?: string;
@@ -54,6 +61,7 @@ export function LawmindSettingsAccount({
   const [license, setLicense] = useState<LawmindSettingsLicenseState | null>(licenseFromParent ?? null);
   const [licensePhase, setLicensePhase] = useState<LicensePhase>(apiBase ? "loading" : "ready");
   const [licenseReload, setLicenseReload] = useState(0);
+  const [usageLabel, setUsageLabel] = useState<string | null>(null);
   const modelLabel = modelName?.trim() || "";
   const source = modelSourceLabel(platformMode, modelConfigured);
 
@@ -61,24 +69,36 @@ export function LawmindSettingsAccount({
     if (!apiBase) {
       setLicense(licenseFromParent ?? null);
       setLicensePhase("ready");
+      setUsageLabel(null);
       return undefined;
     }
     let cancelled = false;
     setLicensePhase("loading");
     void (async () => {
       try {
-        const health = await apiGetJson<{ doctor?: { license?: LawmindSettingsLicenseState | null } }>(
-          apiBase,
-          "/api/health",
-        );
+        const health = await apiGetJson<{
+          doctor?: { license?: LawmindSettingsLicenseState | null };
+          usageSummary?: UsageSummaryPayload;
+        }>(apiBase, "/api/health");
         if (cancelled) {
           return;
         }
         setLicense(health.doctor?.license ?? null);
         setLicensePhase("ready");
+        const usage = health.usageSummary;
+        setUsageLabel(
+          usage
+            ? formatUsageSummaryForLawyer({
+                entries: usage.entries ?? 0,
+                totalTokens: usage.totalTokens ?? 0,
+                byTier: usage.byTier,
+              }, { sinceDays: 30 })
+            : null,
+        );
       } catch {
         if (!cancelled) {
           setLicensePhase("error");
+          setUsageLabel(null);
         }
       }
     })();
@@ -198,12 +218,16 @@ export function LawmindSettingsAccount({
       <section className="lm-settings-group" aria-label="用量">
         <h3 className="lm-settings-subtitle">用量</h3>
         <div className="lm-settings-row">
-          <span className="lm-settings-key">本周期</span>
+          <span className="lm-settings-key">近 30 天</span>
           <span className="lm-settings-val" data-testid="lm-account-usage">
-            尚无记录
+            {usageLabel ?? "尚无记录"}
           </span>
         </div>
-        <p className="lm-settings-caption">订阅按计费周期计。自备密钥的调用不记入套餐。</p>
+        <p className="lm-settings-caption">
+          {usageLabel
+            ? "数字来自本机模型调用账本。订阅套餐开放后，套餐额度会另行列出。"
+            : "订阅按计费周期计。自备密钥的调用记在本机账本，不记入套餐。"}
+        </p>
       </section>
     </div>
   );

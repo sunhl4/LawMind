@@ -35,6 +35,10 @@ import { UPDATE_PLAN_TOOL_NAME } from "../agent/turn-plan-model.js";
 import type { AgentContext, AgentTool, ToolCallResult, ToolDefinition } from "../agent/types.js";
 import { emit } from "../audit/index.js";
 import { resolveHostAccessPolicy } from "../host-access/host-policy.js";
+import {
+  recordActionPreReviewShadow,
+  resolveActionPreReview,
+} from "../platform/action-pre-review.js";
 import { resolveApprovalArbitration } from "../platform/approval-arbitration.js";
 import { withGateCategory } from "../platform/gate-category.js";
 import { toolRequiresLawyerPause } from "../platform/lawyer-outbound-decision.js";
@@ -576,6 +580,51 @@ export const folderExploreGateMiddleware: ToolMiddleware = async (_call, next) =
 const RISK_ORDER: Record<"low" | "medium" | "high", number> = { low: 0, medium: 1, high: 2 };
 
 /**
+ * 动作级审前评审（D1）：默认 off；shadow 只记；on 对本层拥有的高风险本机动作 Ask。
+ * 插在 legalVerify 之后、approval 之前——不得绕过确定性闸，也不替代 send_email 暂停。
+ */
+export const actionPreReviewMiddleware: ToolMiddleware = async (call, next) => {
+  const decision = resolveActionPreReview({
+    toolName: call.toolName,
+    alreadyApproved: call.args.__approved === true,
+  });
+  if (decision.shouldRecord) {
+    try {
+      recordActionPreReviewShadow(call.ctx.workspaceDir, {
+        toolName: call.toolName,
+        mode: decision.mode,
+        recommend: decision.classification.recommend,
+        reasonZh: decision.classification.reasonZh,
+        wouldAsk:
+          decision.classification.ownedByThisLayer &&
+          decision.classification.recommend === "ask" &&
+          call.args.__approved !== true,
+        sessionId: call.ctx.sessionId,
+      });
+    } catch {
+      /* 影子日志失败不得影响办件 */
+    }
+  }
+  if (decision.shouldAsk) {
+    const reason = decision.classification.reasonZh;
+    return {
+      ok: false,
+      error: reason,
+      approvalRequest: true,
+      data: {
+        gateDecision: withGateCategory({
+          gate: "approval_gate",
+          decision: "awaiting_confirmation",
+          reason,
+          category: "safety_hard",
+        }),
+      },
+    };
+  }
+  return next();
+};
+
+/**
  * 危险工具未 `__approved` → 生成统一审批请求（approvalRequest=true），
  * 不返回错误式 retry 提示。系统会把该 turn 置为 awaiting_approval 并在 UI
  * 的「待我拍板」中展示；律师批准后由 resume 路径注入 `__approved` 再执行。
@@ -831,6 +880,7 @@ export function buildDefaultToolPipeline(): ToolMiddleware[] {
     argNormalizeMiddleware,
     argSchemaMiddleware,
     legalVerifyMiddleware,
+    actionPreReviewMiddleware,
     approvalMiddleware,
     auditMiddleware,
     timeoutMiddleware,

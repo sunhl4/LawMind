@@ -48,6 +48,8 @@ import {
   listSystemPromptSectionCatalog,
 } from "../../../src/lawmind/agent/system-prompt.js";
 import { summarizeModelUsage } from "../../../src/lawmind/models/model-usage.js";
+import { resolveActionPreReviewMode } from "../../../src/lawmind/platform/action-pre-review.js";
+import { buildExecutionSurfaceReport } from "../../../src/lawmind/platform/execution-surface.js";
 import { buildIntegrationsHealthSummary } from "../../../src/lawmind/integrations/index.js";
 import { getSearchIndexStatus } from "../../../src/lawmind/indexing/index.js";
 import { computeSearchIndexFreshness } from "../../../src/lawmind/indexing/fts-search.js";
@@ -306,6 +308,8 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
       webSearchNativeAvailable,
       webSearchReady,
       usageSummary,
+      executionSurface: buildExecutionSurfaceReport(),
+      actionPreReviewMode: resolveActionPreReviewMode(),
       doctor: {
         ...doctor,
         nodeVersion: process.version,
@@ -314,6 +318,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
         workspaceStandard: buildWorkspaceStandardReport(workspaceDir),
         sessionHealth: buildWorkspaceSessionHealth(workspaceDir),
         usageSummary,
+        executionSurface: buildExecutionSurfaceReport(),
         integrations: buildIntegrationsHealthSummary(workspaceDir),
         searchIndex: (() => {
           const s = getSearchIndexStatus(workspaceDir);

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  formatUsageSummaryForLawyer,
   mergeUsageSnapshots,
   recordModelUsage,
   summarizeModelUsage,
@@ -79,5 +80,18 @@ describe("model-usage", () => {
         { promptTokens: 2, completionTokens: 0, totalTokens: 2 },
       ),
     ).toEqual({ promptTokens: 3, completionTokens: 1, totalTokens: 4 });
+  });
+
+  it("formatUsageSummaryForLawyer stays silent on empty and never invents currency", () => {
+    expect(formatUsageSummaryForLawyer({ entries: 0, totalTokens: 0 })).toBeNull();
+    const line = formatUsageSummaryForLawyer({
+      entries: 2,
+      totalTokens: 1500,
+      byTier: [{ tier: "general", label: "通用", entries: 2, totalTokens: 1500 }],
+    });
+    expect(line).toContain("2 次");
+    expect(line).toContain("1,500");
+    expect(line).toContain("通用");
+    expect(line).not.toMatch(/¥|\$|元/);
   });
 });

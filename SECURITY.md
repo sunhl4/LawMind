@@ -52,6 +52,7 @@ After the desktop window closes, an optional **same-machine** process tree (`LAW
 - **Scheduled jobs**: `processDueScheduledJobs` claims due jobs with an exclusive file lock (`claimDueScheduledJob`) so desktop and lawmindd cannot double-run the same workflow.
 - **Automations** already use `claimDueAutomation`.
 - **Operating files** (all under `<workspace>/lawmind/`, none of them a trust boundary): `daemon.json` (state incl. heartbeat + exit/recovery bookkeeping), `daemon.pid`, `daemon.lock`, and `daemon.log` (+ one rotated generation, capped at 1 MiB).
+- **Execution-surface inventory** (what persists vs rebuildable vs credential): SSOT is `src/lawmind/platform/execution-surface.ts`; Doctor / `/api/health` only read that catalog. Do not invent a second list in docs that drifts.
 - **`daemon.log` is operational evidence, not proof of anything.** It exists so a lawyer reopening the desktop can see what happened while they were away (`summarizeDaemonForLawyer`), and so a crash has a cause. `GOALS.md` §二 forbids marketing log/trace presence as correctness; treat this file the same way. It must never contain credentials — the supervisor logs exit classes and backoff decisions, not argv or env values.
 
 ## Assistants: what is shared vs isolated
@@ -70,6 +71,7 @@ Hard rules:
 - **Do** keep matter fences and ethics walls as path-level hard gates (tests + broker), never as prompt-only instructions.
 - Concurrent turns for the **same** assistant are serialized (`assistant-turn-gate`) so they do not race the same Word / 法宝 / host session; different assistants may overlap and therefore still share the workspace — schedule carefully.
 - Deleting an assistant removes its sessions and routines, **not** matter deliverables.
+- **Action pre-review** (`LAWMIND_ACTION_PRE_REVIEW=off|shadow|on`, default `off`): shadow-only dual-run logs under `lawmind/decision/action-pre-review.jsonl`; `on` may Ask for `run_host_command` only. It never replaces machine-verifiers, playbook deny, or `send_email` pause.
 
 ## Hardening notes (Electron shell)
 

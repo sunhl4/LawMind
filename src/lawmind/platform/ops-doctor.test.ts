@@ -12,14 +12,16 @@ const quiet = {
 };
 
 describe("formatOpsDoctorSnapshot", () => {
-  it("prints three quiet lines when nothing needs a human", () => {
+  it("prints quiet lines plus execution-surface inventory when nothing needs a human", () => {
     const snap = formatOpsDoctorSnapshot(quiet);
     expect(snap.projectionDrift).toBe(false);
-    expect(snap.lines).toEqual([
+    expect(snap.lines.slice(0, 3)).toEqual([
       "会话：最近 4 个会话的工具调用配对完好。",
       "投影：CASE.md 的结构化字段与 matter.json 一致。",
       "索引：就绪。",
     ]);
+    expect(snap.lines.some((line) => line.startsWith("执行面：持久"))).toBe(true);
+    expect(snap.lines.some((line) => line.startsWith("执行面：凭据"))).toBe(true);
   });
 
   it("does not treat a changed source file as a full rebuild", () => {

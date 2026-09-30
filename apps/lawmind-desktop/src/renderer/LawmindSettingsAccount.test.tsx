@@ -71,6 +71,7 @@ describe("LawmindSettingsAccount", () => {
   it("reads the live license and treats an org platform as the model source", async () => {
     vi.mocked(apiGetJson).mockResolvedValue({
       doctor: { license: { status: "licensed", licensee: "乙所" } },
+      usageSummary: { entries: 0, totalTokens: 0 },
     });
     await act(async () => {
       root.render(
@@ -91,5 +92,29 @@ describe("LawmindSettingsAccount", () => {
     expect(host.querySelector("[data-testid='lm-account-license']")?.textContent).toBe("已激活 · 乙所");
     expect(host.querySelector("[data-testid='lm-account-model-source']")?.textContent).toBe("组织提供");
     expect(host.textContent).toContain("当前模型由组织提供");
+    expect(host.querySelector("[data-testid='lm-account-usage']")?.textContent).toBe("尚无记录");
+  });
+
+  it("renders local model usage from health usageSummary", async () => {
+    vi.mocked(apiGetJson).mockResolvedValue({
+      doctor: { license: { status: "trial", trialDaysLeft: 3 } },
+      usageSummary: {
+        entries: 3,
+        totalTokens: 1200,
+        byTier: [{ tier: "general", label: "通用", entries: 3, totalTokens: 1200 }],
+      },
+    });
+    await act(async () => {
+      root.render(
+        <LawmindSettingsAccount apiBase="http://127.0.0.1:9" onOpenModels={() => {}} />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const usage = host.querySelector("[data-testid='lm-account-usage']")?.textContent ?? "";
+    expect(usage).toContain("3 次");
+    expect(usage).toContain("1,200");
+    expect(usage).not.toMatch(/¥/);
   });
 });
