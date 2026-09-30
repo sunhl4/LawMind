@@ -9,9 +9,56 @@
  * close the cycle).
  *
  * WRITE_TOOLS drives the lawyer_approved_write classification (audit / runtime
- * mode). It does not pause the lawyer. The only mechanical pause is send_email
- * (`toolRequiresLawyerPause`).
+ * mode). It does not pause the lawyer. Mechanical pause tools live in
+ * `IRREVERSIBLE_TOOLS` with disposition `pause`（现仅 `send_email`）。
  */
+
+/** 不可逆动作处置：pause 打断回合；inbox_signoff 另需批准发送；deny_at_source 场景/工具内硬拒。 */
+export type IrreversibleDisposition = "pause" | "inbox_signoff" | "deny_at_source";
+
+/**
+ * 不可逆动作默认集（借鉴评审 D10）。
+ * 运行期暂停仍只认 disposition=`pause`（见 `toolRequiresLawyerPause`）；
+ * 本表给审批卡「影响面」与文档口径共用，避免各处散落硬编码。
+ */
+export const IRREVERSIBLE_TOOLS: Readonly<Record<string, IrreversibleDisposition>> = {
+  send_email: "pause",
+  prepare_outbound_mail: "inbox_signoff",
+  delete_matter: "deny_at_source",
+  render_document: "deny_at_source",
+};
+
+export function irreversibleDisposition(
+  toolName?: string | null,
+): IrreversibleDisposition | undefined {
+  const n = toolName?.trim();
+  return n ? IRREVERSIBLE_TOOLS[n] : undefined;
+}
+
+/** 审批卡「影响面」短句：按工具类别，不 dump 参数。 */
+export function irreversibleImpactLabelZh(toolName?: string | null): string {
+  const n = toolName?.trim() ?? "";
+  const disposition = irreversibleDisposition(n);
+  if (disposition === "pause" || n === "send_email") {
+    return "不可逆外发：批准后会真正发出邮件";
+  }
+  if (disposition === "inbox_signoff" || n === "prepare_outbound_mail") {
+    return "写入待发信：批准发送前不会发出";
+  }
+  if (n === "delete_matter") {
+    return "不可逆删除：会删掉本案卷宗数据";
+  }
+  if (n === "render_document") {
+    return "写入文书文件：可能覆盖或重建文稿";
+  }
+  if (n === "run_host_command") {
+    return "本机命令：可能改动本机文件或状态";
+  }
+  if (n.startsWith("read_host") || n === "import_host_file") {
+    return "读取本机文件：按你选择的授权范围";
+  }
+  return "执行后不能自动撤销已完成的动作";
+}
 
 export const MATTER_SCOPE_REQUIRED = new Set<string>([
   "search_matter",

@@ -4946,6 +4946,30 @@ select option {
   border-radius: var(--radius-md, 8px);
   background: var(--surface-elevated, var(--surface));
 }
+.lm-requires-action-commitment {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface-2, var(--surface));
+  display: grid;
+  gap: 6px;
+}
+.lm-requires-action-commitment-row {
+  display: grid;
+  grid-template-columns: 4.5em 1fr;
+  gap: 8px;
+  align-items: start;
+}
+.lm-requires-action-commitment-row dt {
+  margin: 0;
+  color: var(--text-secondary, var(--muted));
+  font-size: 12px;
+}
+.lm-requires-action-commitment-row dd {
+  margin: 0;
+  font-size: 13px;
+  word-break: break-word;
+}
 .lm-requires-action-title {
   font-weight: 600;
   margin-bottom: 4px;

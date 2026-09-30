@@ -34,11 +34,26 @@ describe("LawmindRequiresActionCard", () => {
       value: { writeText },
     });
     await act(async () => {
-      root.render(<LawmindRequiresActionCard actions={[mailAction()]} />);
+      root.render(
+        <LawmindRequiresActionCard
+          actions={[
+            mailAction({
+              currentValue: "尚未发出",
+              suggestedValue: "收件人：client@example.com",
+              impact: "不可逆外发：批准后会真正发出邮件",
+            }),
+          ]}
+        />,
+      );
     });
     expect(host.querySelector('[data-testid="lm-requires-action-recommendation"]')?.textContent).toContain(
       "建议：先核对收件人再发",
     );
+    expect(host.querySelector('[data-testid="lm-requires-action-current"]')?.textContent).toBe("尚未发出");
+    expect(host.querySelector('[data-testid="lm-requires-action-suggested"]')?.textContent).toContain(
+      "收件人",
+    );
+    expect(host.querySelector('[data-testid="lm-requires-action-impact"]')?.textContent).toContain("外发");
     expect(host.textContent).toContain("批准并继续");
     expect(host.textContent).toContain("暂不办理");
     const copy = host.querySelector(

@@ -75,6 +75,42 @@ function RecommendationLine(props: { text: string }): ReactNode {
   );
 }
 
+/** 审批承诺卡三件套：当前值 / 建议值 / 影响面。缺任一项整块不渲染该行。 */
+function CommitmentTriplet(props: {
+  currentValue?: string;
+  suggestedValue?: string;
+  impact?: string;
+}): ReactNode {
+  const current = props.currentValue?.trim();
+  const suggested = props.suggestedValue?.trim();
+  const impact = props.impact?.trim();
+  if (!current && !suggested && !impact) {
+    return null;
+  }
+  return (
+    <dl className="lm-requires-action-commitment" data-testid="lm-requires-action-commitment">
+      {current ? (
+        <div className="lm-requires-action-commitment-row">
+          <dt>当前值</dt>
+          <dd data-testid="lm-requires-action-current">{current}</dd>
+        </div>
+      ) : null}
+      {suggested ? (
+        <div className="lm-requires-action-commitment-row">
+          <dt>建议值</dt>
+          <dd data-testid="lm-requires-action-suggested">{suggested}</dd>
+        </div>
+      ) : null}
+      {impact ? (
+        <div className="lm-requires-action-commitment-row">
+          <dt>影响面</dt>
+          <dd data-testid="lm-requires-action-impact">{impact}</dd>
+        </div>
+      ) : null}
+    </dl>
+  );
+}
+
 function ToolApprovalActions(props: {
   action: LawMindRequiresAction;
   busy: boolean;
@@ -300,6 +336,13 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
           )}
           {action.recommendation?.trim() ? (
             <RecommendationLine text={action.recommendation.trim()} />
+          ) : null}
+          {action.kind === "tool_approval" ? (
+            <CommitmentTriplet
+              currentValue={action.currentValue}
+              suggestedValue={action.suggestedValue}
+              impact={action.impact}
+            />
           ) : null}
 
           {action.kind === "clarification" ? (

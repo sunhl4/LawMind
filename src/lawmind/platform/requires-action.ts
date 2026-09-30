@@ -3,9 +3,10 @@
  * Aligns with docs/archive/LAWMIND-INTERRUPT-RESUME.md (LangGraph-style human-in-the-loop).
  */
 
+import { irreversibleImpactLabelZh } from "../agent/tool-name-sets.js";
 import type { AgentTurn } from "../agent/types.js";
 import type { ClarificationQuestion } from "../types.js";
-import { extractApprovalDocumentPreview } from "./tool-approval-diff.js";
+import { extractApprovalDocumentPreview, formatToolArgsDiffPreview } from "./tool-approval-diff.js";
 
 export type LawMindRequiresActionKind =
   | "clarification"
@@ -52,6 +53,13 @@ export type LawMindRequiresAction = {
   riskFlags?: string[];
   /** Never true for send_email / outbound. */
   readyToUse?: boolean;
+  /**
+   * 审批承诺卡三件套（借鉴评审 D5）：当前值 / 建议值 / 影响面。
+   * 只对 tool_approval 填充；多数场景无磁盘「当前值」时写明「拟新执行」。
+   */
+  currentValue?: string;
+  suggestedValue?: string;
+  impact?: string;
 };
 
 export type ResumeRequiresActionInput = {
@@ -175,6 +183,33 @@ function outboundMailEscalateFields(
   };
 }
 
+/** 承诺卡三件套：建议值来自参数预览；当前值多数场景无对照；影响面来自不可逆清单。 */
+export function buildApprovalCommitmentFields(
+  toolName: string,
+  toolArgs: Record<string, unknown>,
+): Pick<LawMindRequiresAction, "currentValue" | "suggestedValue" | "impact"> {
+  const lines = formatToolArgsDiffPreview(toolArgs);
+  const suggested =
+    lines
+      .filter((line) => line.key !== "…" && line.kind !== "truncated")
+      .slice(0, 6)
+      .map((line) => `${line.key}：${line.value}`)
+      .join("；") || `拟进行「${toolDisplayNameZh(toolName)}」`;
+
+  let currentValue = "拟新执行，无既有对照值";
+  if (OUTBOUND_MAIL_TOOLS.has(toolName)) {
+    currentValue = "尚未发出";
+  } else if (isHostGrantToolName(toolName)) {
+    currentValue = "尚未读取该本机文件";
+  }
+
+  return {
+    currentValue,
+    suggestedValue: suggested,
+    impact: irreversibleImpactLabelZh(toolName),
+  };
+}
+
 export function toolDisplayNameZh(toolName: string): string {
   const key = toolName.trim();
   if (!key) {
@@ -270,6 +305,7 @@ export function buildToolApprovalAction(input: {
     toolArgs: input.toolArgs,
     decisions: ["approve", "reject"],
     createdAt: new Date().toISOString(),
+    ...buildApprovalCommitmentFields(input.toolName, input.toolArgs),
     ...outboundMailEscalateFields(input.toolName),
   };
 }

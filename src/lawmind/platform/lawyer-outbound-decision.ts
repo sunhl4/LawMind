@@ -3,7 +3,11 @@
  * 内部起草 / 审查 / 改稿直接出结果，律师再改或吩咐再做一轮。
  */
 
+import { irreversibleDisposition, irreversibleImpactLabelZh } from "../agent/tool-name-sets.js";
+
 export const OUTBOUND_TOOL_NAMES = new Set(["send_email", "prepare_outbound_mail"]);
+
+export { irreversibleDisposition, irreversibleImpactLabelZh };
 
 /** 会把材料发给别人的交办模板。 */
 export const OUTBOUND_AUTOMATION_PRESET_IDS = new Set([
@@ -71,9 +75,9 @@ export function workflowTemplateIsOutbound(input: {
   return /prepare_outbound_mail|send_email/.test(blob);
 }
 
-/** 工具门禁：只有真正发信才打断律师。prepare_outbound_mail 只写入待发信，拍板在 inbox。 */
+/** 工具门禁：只有 disposition=`pause` 的不可逆动作才打断律师（现仅 send_email）。 */
 export function toolRequiresLawyerPause(name?: string | null): boolean {
-  return name?.trim() === "send_email";
+  return irreversibleDisposition(name) === "pause";
 }
 
 export type LawyerDecisionTicketInput = {

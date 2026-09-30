@@ -111,7 +111,22 @@ describe("requires-action", () => {
       expect(a.readyToUse).toBe(false);
       expect(a.riskFlags).toContain("outbound");
       expect(a.decisions).toEqual(["approve", "reject"]);
+      expect(a.currentValue).toBe("尚未发出");
+      expect(a.suggestedValue).toContain("收件人");
+      expect(a.impact).toMatch(/外发|待发/);
     }
+  });
+
+  it("fills commitment triplet for every tool_approval", () => {
+    const a = buildToolApprovalAction({
+      sessionId: "s1",
+      toolName: "render_document",
+      toolCallId: "tc1",
+      toolArgs: { task_id: "x" },
+    });
+    expect(a.currentValue).toBe("拟新执行，无既有对照值");
+    expect(a.suggestedValue).toContain("关联事项");
+    expect(a.impact).toContain("文书");
   });
 
   it("does not attach outbound escalate fields to other tools", () => {
