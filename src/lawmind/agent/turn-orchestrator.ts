@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { resolveLiveSessionMatterId } from "../desk/deleted-matters.js";
 import { attachEnabledMcpServers } from "../mcp/mcp-client-bridge.js";
 import { hiddenPolicyToolNames } from "../policy/analysis-scripts.js";
+import { withAssistantTurnGate } from "./assistant-turn-gate.js";
 import { accumulateFactPin } from "./compact-fact-pin.js";
 import { applyCompactReinjectionToSession, selectTaskPinText } from "./compact-reinjection.js";
 import { autoCompactSessionHistory } from "./compact.js";
@@ -127,6 +128,8 @@ export async function runTurn(opts: {
   contextPins?: import("../platform/compose-context-pin.js").ComposeContextPin[];
   /** Internal: caller already holds `withSessionTurnGate` (resume paths). */
   skipSessionTurnGate?: boolean;
+  /** Internal: caller already holds `withAssistantTurnGate` (resume paths). */
+  skipAssistantTurnGate?: boolean;
   /** Kept for resume of already-paused continue_tools cards; new turns never checkpoint. */
   skipToolBudgetCheckpoint?: boolean;
   /** Resume from a checkpoint: keep the prior tool-call count (hard ceiling stays cumulative). */
@@ -134,6 +137,20 @@ export async function runTurn(opts: {
   /** Lawyer-confirmed clarification answers for Guardian evidence this turn. */
   confirmedAnswers?: Record<string, string>;
 }): Promise<{ turn: AgentTurn; reply: string; sessionId: string; memoryContext: MemoryContext }> {
+  if (!opts.skipAssistantTurnGate) {
+    const fromConfig = opts.config.assistantId?.trim();
+    let assistantId = fromConfig || "";
+    if (!assistantId) {
+      const sid = opts.sessionId?.trim();
+      if (sid) {
+        const existing = loadSession(opts.config.workspaceDir, sid);
+        assistantId = existing?.assistantId?.trim() || "";
+      }
+    }
+    return withAssistantTurnGate(opts.config.workspaceDir, assistantId || "default", () =>
+      runTurn({ ...opts, skipAssistantTurnGate: true }),
+    );
+  }
   const existingSessionId = opts.sessionId?.trim();
   if (existingSessionId && !opts.skipSessionTurnGate) {
     return withSessionTurnGate(opts.config.workspaceDir, existingSessionId, () =>

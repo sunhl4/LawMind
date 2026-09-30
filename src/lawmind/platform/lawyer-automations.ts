@@ -39,8 +39,8 @@ export {
 export type AutomationScheduleKind = "daily" | "weekly" | "once" | "interval";
 
 export type AutomationSchedule =
-  | { kind: "daily"; hour: number; minute: number }
-  | { kind: "weekly"; weekday: number; hour: number; minute: number }
+  | { kind: "daily"; hour: number; minute: number; tz?: string }
+  | { kind: "weekly"; weekday: number; hour: number; minute: number; tz?: string }
   | { kind: "once"; runAt: string }
   /** Recurring poll: every N minutes (clamped 5…10080). */
   | { kind: "interval"; everyMinutes: number };
@@ -48,6 +48,129 @@ export type AutomationSchedule =
 /** Min/max for interval schedules (minutes). */
 export const AUTOMATION_INTERVAL_MIN_MINUTES = 5;
 export const AUTOMATION_INTERVAL_MAX_MINUTES = 7 * 24 * 60;
+
+/** IANA 时区是否可被 Intl 识别（无效则 RangeError）。 */
+export function isValidIanaTimeZone(tz: string): boolean {
+  const t = tz.trim();
+  if (!t) {
+    return false;
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: t });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 规范化排期上的可选 `tz`：空串去掉；非法时抛错（API 层译成 400）。
+ * 缺省不写字段 = 本机墙钟（向后兼容）。
+ */
+export function normalizeScheduleTimeZone<T extends AutomationSchedule>(schedule: T): T {
+  if (schedule.kind !== "daily" && schedule.kind !== "weekly") {
+    return schedule;
+  }
+  const raw = schedule.tz?.trim();
+  if (!raw) {
+    if (schedule.kind === "daily") {
+      return { kind: "daily", hour: schedule.hour, minute: schedule.minute } as T;
+    }
+    return {
+      kind: "weekly",
+      weekday: schedule.weekday,
+      hour: schedule.hour,
+      minute: schedule.minute,
+    } as T;
+  }
+  if (!isValidIanaTimeZone(raw)) {
+    throw new Error(`invalid_timezone:${raw}`);
+  }
+  return { ...schedule, tz: raw };
+}
+
+function zonedParts(
+  date: Date,
+  timeZone: string,
+): { year: number; month: number; day: number; hour: number; minute: number; weekday: number } {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    weekday: "short",
+  });
+  const bag: Record<string, string> = {};
+  for (const p of fmt.formatToParts(date)) {
+    if (p.type !== "literal") {
+      bag[p.type] = p.value;
+    }
+  }
+  const weekdayMap: Record<string, number> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+  };
+  return {
+    year: Number(bag.year),
+    month: Number(bag.month),
+    day: Number(bag.day),
+    hour: Number(bag.hour),
+    minute: Number(bag.minute),
+    weekday: weekdayMap[bag.weekday ?? ""] ?? 0,
+  };
+}
+
+/** Offset (ms) such that `utcMs + offset ≈ wall clock in zone` when read as UTC fields. */
+function timeZoneOffsetMs(utcMs: number, timeZone: string): number {
+  const parts = zonedParts(new Date(utcMs), timeZone);
+  const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, 0);
+  return asUtc - utcMs;
+}
+
+/** Convert a civil wall time in `timeZone` to a UTC Date (handles DST with one correction pass). */
+export function wallTimeInTimeZoneToUtc(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  timeZone: string,
+): Date {
+  const guess = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const offset1 = timeZoneOffsetMs(guess, timeZone);
+  let utc = guess - offset1;
+  const offset2 = timeZoneOffsetMs(utc, timeZone);
+  if (offset2 !== offset1) {
+    utc = guess - offset2;
+  }
+  return new Date(utc);
+}
+
+/**
+ * interval 排期一天大约跑几次（向下取整）。
+ * 只做频次可见性，不编造 ¥ / token 单价。
+ */
+export function estimateIntervalRunsPerDay(everyMinutes: number): number {
+  const mins = clampEveryMinutes(everyMinutes);
+  return Math.max(1, Math.floor((24 * 60) / mins));
+}
+
+/** 创建/编辑 interval 时常设工作的频次 × 成本提示（定性，无假定价）。 */
+export function formatAutomationFrequencyCostHint(schedule: AutomationSchedule): string | null {
+  if (schedule.kind !== "interval") {
+    return null;
+  }
+  const n = estimateIntervalRunsPerDay(schedule.everyMinutes);
+  return `约 ${n} 次/天。每次运行都会消耗模型用量；没有新情况也可能空跑。`;
+}
 
 /**
  * 「源数据缺失时怎么办」——routine 六确认之一。
@@ -421,7 +544,7 @@ export function clampEveryMinutes(n: number): number {
   );
 }
 
-/** Next run after `from` for a schedule (local wall clock). */
+/** Next run after `from`. 无 `tz` 时用本机墙钟（旧行为）；daily/weekly 可带 IANA `tz`。 */
 export function computeNextRunAt(schedule: AutomationSchedule, from: Date = new Date()): string {
   if (schedule.kind === "once") {
     const t = Date.parse(schedule.runAt);
@@ -438,6 +561,11 @@ export function computeNextRunAt(schedule: AutomationSchedule, from: Date = new 
 
   const hour = clampHour(schedule.hour);
   const minute = clampMinute(schedule.minute);
+  const tz = schedule.tz?.trim();
+  if (tz && isValidIanaTimeZone(tz)) {
+    return computeNextRunAtInTimeZone(schedule, from, tz, hour, minute);
+  }
+
   const cursor = new Date(from.getTime());
 
   const atLocal = (d: Date): Date => {
@@ -472,6 +600,73 @@ export function computeNextRunAt(schedule: AutomationSchedule, from: Date = new 
   const fallback = new Date(cursor);
   fallback.setDate(fallback.getDate() + 7);
   return atLocal(fallback).toISOString();
+}
+
+function computeNextRunAtInTimeZone(
+  schedule: Extract<AutomationSchedule, { kind: "daily" } | { kind: "weekly" }>,
+  from: Date,
+  tz: string,
+  hour: number,
+  minute: number,
+): string {
+  const fromParts = zonedParts(from, tz);
+  if (schedule.kind === "daily") {
+    let candidate = wallTimeInTimeZoneToUtc(
+      fromParts.year,
+      fromParts.month,
+      fromParts.day,
+      hour,
+      minute,
+      tz,
+    );
+    if (candidate.getTime() <= from.getTime()) {
+      const nextUtc = candidate.getTime() + 36 * 60 * 60 * 1000;
+      const nextParts = zonedParts(new Date(nextUtc), tz);
+      candidate = wallTimeInTimeZoneToUtc(
+        nextParts.year,
+        nextParts.month,
+        nextParts.day,
+        hour,
+        minute,
+        tz,
+      );
+      if (candidate.getTime() <= from.getTime()) {
+        const again = candidate.getTime() + 36 * 60 * 60 * 1000;
+        const againParts = zonedParts(new Date(again), tz);
+        candidate = wallTimeInTimeZoneToUtc(
+          againParts.year,
+          againParts.month,
+          againParts.day,
+          hour,
+          minute,
+          tz,
+        );
+      }
+    }
+    return candidate.toISOString();
+  }
+
+  const targetWeekday = ((schedule.weekday % 7) + 7) % 7;
+  for (let i = 0; i < 14; i += 1) {
+    const probe = new Date(from.getTime() + i * 24 * 60 * 60 * 1000);
+    const parts = zonedParts(probe, tz);
+    if (parts.weekday !== targetWeekday) {
+      continue;
+    }
+    const candidate = wallTimeInTimeZoneToUtc(parts.year, parts.month, parts.day, hour, minute, tz);
+    if (candidate.getTime() > from.getTime()) {
+      return candidate.toISOString();
+    }
+  }
+  const fallbackParts = zonedParts(new Date(from.getTime() + 7 * 24 * 60 * 60 * 1000), tz);
+  return wallTimeInTimeZoneToUtc(
+    fallbackParts.year,
+    fallbackParts.month,
+    fallbackParts.day,
+    hour,
+    minute,
+    tz,
+  ).toISOString();
 }
 
 export function listAutomations(workspaceDir: string): LawyerAutomation[] {
@@ -653,10 +848,12 @@ export function createAutomation(
 ): LawyerAutomation {
   const preset = AUTOMATION_PRESETS.find((p) => p.id === input.presetId) ?? AUTOMATION_PRESETS[4];
   const rawSchedule = input.schedule ?? preset.defaultSchedule;
-  const schedule: AutomationSchedule =
+  const normalized = normalizeScheduleTimeZone(
     rawSchedule.kind === "interval"
-      ? { kind: "interval", everyMinutes: clampEveryMinutes(rawSchedule.everyMinutes) }
-      : rawSchedule;
+      ? { kind: "interval" as const, everyMinutes: clampEveryMinutes(rawSchedule.everyMinutes) }
+      : rawSchedule,
+  );
+  const schedule: AutomationSchedule = normalized;
   const id = randomUUID();
   const notifyEmail =
     sanitizeNotifyEmail(input.notifyEmail) || extractNotifyEmail(input.instruction);

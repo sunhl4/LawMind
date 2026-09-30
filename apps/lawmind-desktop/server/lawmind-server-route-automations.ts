@@ -17,6 +17,7 @@ import {
   saveAutomation,
   saveAutomationInboxItem,
   computeNextRunAt,
+  normalizeScheduleTimeZone,
   type AutomationPresetId,
   type AutomationSchedule,
   writeMatterMailMessage,
@@ -43,12 +44,14 @@ const scheduleSchema = z.discriminatedUnion("kind", [
     kind: z.literal("daily"),
     hour: z.coerce.number().int().min(0).max(23),
     minute: z.coerce.number().int().min(0).max(59),
+    tz: z.string().trim().min(1).max(80).optional(),
   }),
   z.object({
     kind: z.literal("weekly"),
     weekday: z.coerce.number().int().min(0).max(6),
     hour: z.coerce.number().int().min(0).max(23),
     minute: z.coerce.number().int().min(0).max(59),
+    tz: z.string().trim().min(1).max(80).optional(),
   }),
   z.object({
     kind: z.literal("once"),
@@ -59,6 +62,23 @@ const scheduleSchema = z.discriminatedUnion("kind", [
     everyMinutes: z.coerce.number().int().min(5).max(7 * 24 * 60),
   }),
 ]);
+
+function parseAutomationSchedule(
+  raw: AutomationSchedule | undefined,
+): { ok: true; schedule: AutomationSchedule | undefined } | { ok: false; message: string } {
+  if (!raw) {
+    return { ok: true, schedule: undefined };
+  }
+  try {
+    return { ok: true, schedule: normalizeScheduleTimeZone(raw) };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.startsWith("invalid_timezone:")) {
+      return { ok: false, message: "时区无效，请使用 IANA 名称（例如 Asia/Shanghai）。" };
+    }
+    throw err;
+  }
+}
 
 const createSchema = z.object({
   title: z.string().trim().max(200).optional(),
@@ -223,10 +243,15 @@ export async function handleAutomationsRoutes({
       }
       eventTrigger = verdict.trigger;
     }
+    const parsedSchedule = parseAutomationSchedule(body.schedule as AutomationSchedule | undefined);
+    if (!parsedSchedule.ok) {
+      sendJsonError(res, 400, "invalid_timezone", parsedSchedule.message, c);
+      return true;
+    }
     const automation = createAutomation(workspaceDir, {
       ...body,
       presetId: body.presetId as AutomationPresetId,
-      schedule: body.schedule as AutomationSchedule | undefined,
+      schedule: parsedSchedule.schedule,
       eventTrigger,
     });
     sendJson(res, 201, { ok: true, automation }, c);
@@ -249,12 +274,17 @@ export async function handleAutomationsRoutes({
       return true;
     }
     const inferred = inferAutomationFromInstruction(body.instruction);
+    const parsedSchedule = parseAutomationSchedule(body.schedule as AutomationSchedule | undefined);
+    if (!parsedSchedule.ok) {
+      sendJsonError(res, 400, "invalid_timezone", parsedSchedule.message, c);
+      return true;
+    }
     const automation = createAutomation(workspaceDir, {
       matterId: body.matterId,
       presetId: inferred.presetId,
       title: inferred.title,
       instruction: inferred.instruction,
-      schedule: body.schedule as AutomationSchedule | undefined,
+      schedule: parsedSchedule.schedule,
       allowSendEmailAfterApproval:
         body.allowSendEmailAfterApproval ?? inferred.allowSendEmailAfterApproval,
       notifyEmail: body.notifyEmail,
@@ -340,7 +370,14 @@ export async function handleAutomationsRoutes({
         }
         throw err;
       }
-      const schedule = (body.schedule as AutomationSchedule | undefined) ?? existing.schedule;
+      const parsedSchedule = body.schedule
+        ? parseAutomationSchedule(body.schedule as AutomationSchedule)
+        : { ok: true as const, schedule: undefined };
+      if (!parsedSchedule.ok) {
+        sendJsonError(res, 400, "invalid_timezone", parsedSchedule.message, c);
+        return true;
+      }
+      const schedule = parsedSchedule.schedule ?? existing.schedule;
       let nextRunAt = existing.nextRunAt;
       if (body.schedule) {
         nextRunAt = computeNextRunAt(schedule);

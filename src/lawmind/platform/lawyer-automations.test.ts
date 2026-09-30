@@ -9,11 +9,15 @@ import { processDueLawyerAutomations } from "./lawyer-automations-runner.js";
 import {
   computeNextRunAt,
   createAutomation,
+  estimateIntervalRunsPerDay,
   extractNotifyEmail,
+  formatAutomationFrequencyCostHint,
   inferAutomationFromInstruction,
+  isValidIanaTimeZone,
   listOpenAutomationInbox,
   listMatterMailMessages,
   sanitizeNotifyEmail,
+  wallTimeInTimeZoneToUtc,
   writeMatterMailMessage,
   claimDueAutomation,
   listAutomations,
@@ -391,6 +395,62 @@ describe("lawyer-automations", () => {
     const from = new Date("2026-07-18T12:00:00");
     const next = computeNextRunAt({ kind: "weekly", weekday: 1, hour: 9, minute: 0 }, from);
     expect(Date.parse(next)).toBeGreaterThan(from.getTime());
+  });
+
+  it("rejects invalid IANA time zones and accepts America/New_York", () => {
+    expect(isValidIanaTimeZone("Not/AZone")).toBe(false);
+    expect(isValidIanaTimeZone("America/New_York")).toBe(true);
+  });
+
+  it("computeNextRunAt with tz honors America/New_York across DST spring forward", () => {
+    // 2026-03-08 02:00 local springs to 03:00. From 08:00 EDT after the jump,
+    // next daily 09:00 should be same calendar day in New York.
+    const from = new Date("2026-03-08T13:00:00.000Z"); // 09:00 EDT = 13:00Z
+    const next = computeNextRunAt(
+      { kind: "daily", hour: 9, minute: 0, tz: "America/New_York" },
+      from,
+    );
+    // Already past 09:00 on that day → next is 2026-03-09 09:00 EDT = 13:00Z
+    expect(next).toBe("2026-03-09T13:00:00.000Z");
+  });
+
+  it("computeNextRunAt with tz honors America/New_York across DST fall back", () => {
+    // After fall back 2026-11-01, 09:00 EST = 14:00Z.
+    const from = new Date("2026-11-01T15:00:00.000Z"); // after 09:00 EST
+    const next = computeNextRunAt(
+      { kind: "daily", hour: 9, minute: 0, tz: "America/New_York" },
+      from,
+    );
+    expect(next).toBe("2026-11-02T14:00:00.000Z");
+  });
+
+  it("computeNextRunAt without tz keeps local setHours behavior", () => {
+    const from = new Date(2026, 6, 18, 12, 0, 0, 0); // local noon Jul 18
+    const next = computeNextRunAt({ kind: "daily", hour: 9, minute: 0 }, from);
+    const expected = new Date(2026, 6, 19, 9, 0, 0, 0);
+    expect(next).toBe(expected.toISOString());
+  });
+
+  it("wallTimeInTimeZoneToUtc maps New York wall clock through DST", () => {
+    // Pre-spring: 2026-03-07 09:00 EST = 14:00Z
+    expect(wallTimeInTimeZoneToUtc(2026, 3, 7, 9, 0, "America/New_York").toISOString()).toBe(
+      "2026-03-07T14:00:00.000Z",
+    );
+    // Post-spring: 2026-03-09 09:00 EDT = 13:00Z
+    expect(wallTimeInTimeZoneToUtc(2026, 3, 9, 9, 0, "America/New_York").toISOString()).toBe(
+      "2026-03-09T13:00:00.000Z",
+    );
+  });
+
+  it("formatAutomationFrequencyCostHint gives qualitative interval estimate", () => {
+    expect(estimateIntervalRunsPerDay(30)).toBe(48);
+    expect(formatAutomationFrequencyCostHint({ kind: "interval", everyMinutes: 30 })).toContain(
+      "约 48 次/天",
+    );
+    expect(formatAutomationFrequencyCostHint({ kind: "interval", everyMinutes: 30 })).toContain(
+      "空跑",
+    );
+    expect(formatAutomationFrequencyCostHint({ kind: "daily", hour: 9, minute: 0 })).toBeNull();
   });
 
   it("listAutomations / deleteAutomation round-trip", () => {

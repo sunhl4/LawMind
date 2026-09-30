@@ -6,6 +6,7 @@ import type { ResumeRequiresActionInput } from "../../../src/lawmind/platform/re
 import type { RunTurnEvent } from "../../../src/lawmind/agent/index.js";
 import { classifySessionInbox } from "../../../src/lawmind/agent/session-inbox.js";
 import { loadSession } from "../../../src/lawmind/agent/session.js";
+import { isAssistantTurnInProgressError } from "../../../src/lawmind/agent/assistant-turn-gate.js";
 import { isSessionTurnInProgressError } from "../../../src/lawmind/agent/session-turn-gate.js";
 import {
   embedSseEventName,
@@ -213,6 +214,16 @@ async function handleChatResumeRoute({
         409,
         "session_turn_in_progress",
         "该会话已有一轮在执行。请等待完成或中止后再试。",
+        c,
+      );
+      return true;
+    }
+    if (isAssistantTurnInProgressError(err) || msg.startsWith("ASSISTANT_TURN_IN_PROGRESS")) {
+      sendJsonError(
+        res,
+        409,
+        "assistant_turn_in_progress",
+        "这位助手正在办另一件，等它办完再试。",
         c,
       );
       return true;
@@ -700,6 +711,24 @@ export async function handleChatRoute({
         409,
         "session_turn_in_progress",
         "该会话已有一轮在执行。请等待完成或中止后再试。",
+        c,
+      );
+      return true;
+    }
+    if (isAssistantTurnInProgressError(err) || msg.startsWith("ASSISTANT_TURN_IN_PROGRESS")) {
+      if (wantsStream && res.headersSent) {
+        writeStreamError(
+          409,
+          "assistant_turn_in_progress",
+          "这位助手正在办另一件，等它办完再试。",
+        );
+        return true;
+      }
+      sendJsonError(
+        res,
+        409,
+        "assistant_turn_in_progress",
+        "这位助手正在办另一件，等它办完再试。",
         c,
       );
       return true;

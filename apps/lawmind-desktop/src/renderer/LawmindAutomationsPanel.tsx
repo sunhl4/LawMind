@@ -15,11 +15,12 @@ import { formatAutomationLastResultForLawyer } from "./lawmind-automation-last-r
 import { formatRelativeTime } from "./lawmind-app-utils";
 import { confirmDialog } from "./lawmind-confirm-dialog";
 import { draftAutomationConfirmations } from "../../../../src/lawmind/platform/infer-automation-from-instruction.ts";
+import { formatAutomationFrequencyCostHint } from "../../../../src/lawmind/platform/lawyer-automations.ts";
 import { isOutboundAutomationContext } from "../../../../src/lawmind/platform/lawyer-outbound-decision.ts";
 
 type Schedule =
-  | { kind: "daily"; hour: number; minute: number }
-  | { kind: "weekly"; weekday: number; hour: number; minute: number }
+  | { kind: "daily"; hour: number; minute: number; tz?: string }
+  | { kind: "weekly"; weekday: number; hour: number; minute: number; tz?: string }
   | { kind: "once"; runAt: string }
   | { kind: "interval"; everyMinutes: number };
 
@@ -176,6 +177,15 @@ function scheduleLabel(s: Schedule): string {
   return `单次 ${s.runAt.slice(0, 16).replace("T", " ")}`;
 }
 
+function localTimeZone(): string | undefined {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim();
+    return tz || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function buildCreateSchedule(
   mode: ScheduleMode,
   hour: number,
@@ -185,10 +195,13 @@ function buildCreateSchedule(
   if (mode === "interval") {
     return { kind: "interval", everyMinutes: Math.max(5, Math.floor(everyMinutes) || 30) };
   }
+  const tz = localTimeZone();
   if (mode === "weekly") {
-    return { kind: "weekly", weekday: 1, hour, minute };
+    return tz
+      ? { kind: "weekly", weekday: 1, hour, minute, tz }
+      : { kind: "weekly", weekday: 1, hour, minute };
   }
-  return { kind: "daily", hour, minute };
+  return tz ? { kind: "daily", hour, minute, tz } : { kind: "daily", hour, minute };
 }
 
 function looksLikeEmail(raw: string): boolean {
@@ -861,7 +874,14 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
             )}
           </select>
         </div>
-        {scheduleMode === "interval" ? null : (
+        {scheduleMode === "interval" ? (
+          <p className="lm-settings-caption" data-testid="lm-auto-freq-cost-hint">
+            {formatAutomationFrequencyCostHint({
+              kind: "interval",
+              everyMinutes: Math.max(5, Math.floor(everyMinutes) || 30),
+            })}
+          </p>
+        ) : (
           <div className="lm-settings-row">
             <span className="lm-settings-key">几点</span>
             <input

@@ -10,6 +10,7 @@ import {
   type LawMindRequiresAction,
   type ResumeRequiresActionInput,
 } from "../platform/requires-action.js";
+import { normalizeAssistantGateId, withAssistantTurnGate } from "./assistant-turn-gate.js";
 import { settleCollaborationChildTurn } from "./collaboration/settle-child-turn.js";
 import { mergeConfirmedAnswers } from "./confirmed-answers.js";
 import { runTurn } from "./runtime.js";
@@ -122,16 +123,20 @@ export async function resumeTurn(
   input: ResumeRequiresActionInput,
   opts: ResumeTurnOpts,
 ): Promise<ResumeTurnResult> {
-  return withSessionTurnGate(config.workspaceDir, input.sessionId, async () => {
-    const result = await resumeTurnUngated(config, registry, input, opts);
-    settleCollaborationChildTurn({
-      workspaceDir: config.workspaceDir,
-      sessionId: result.sessionId,
-      status: result.turn.status,
-      reply: result.reply,
-    });
-    return result;
-  });
+  const sessionPeek = loadSession(config.workspaceDir, input.sessionId);
+  const assistantId = normalizeAssistantGateId(config.assistantId ?? sessionPeek?.assistantId);
+  return withAssistantTurnGate(config.workspaceDir, assistantId, () =>
+    withSessionTurnGate(config.workspaceDir, input.sessionId, async () => {
+      const result = await resumeTurnUngated(config, registry, input, opts);
+      settleCollaborationChildTurn({
+        workspaceDir: config.workspaceDir,
+        sessionId: result.sessionId,
+        status: result.turn.status,
+        reply: result.reply,
+      });
+      return result;
+    }),
+  );
 }
 
 async function resumeTurnUngated(
@@ -188,6 +193,7 @@ async function resumeTurnUngated(
       onEvent: opts.onEvent,
       liveProgressSessionId: opts.liveProgressSessionId,
       skipSessionTurnGate: true,
+      skipAssistantTurnGate: true,
       confirmedAnswers,
     });
   }
@@ -268,6 +274,7 @@ async function resumeTurnUngated(
         onEvent: opts.onEvent,
         liveProgressSessionId: opts.liveProgressSessionId,
         skipSessionTurnGate: true,
+        skipAssistantTurnGate: true,
       });
     }
   }
@@ -357,6 +364,7 @@ async function resumeTurnUngated(
         onEvent: opts.onEvent,
         liveProgressSessionId: opts.liveProgressSessionId,
         skipSessionTurnGate: true,
+        skipAssistantTurnGate: true,
         skipToolBudgetCheckpoint: true,
         initialToolCallsExecuted: seeded,
       });
@@ -415,16 +423,20 @@ export async function resumePausedTurn(
   sessionId: string,
   opts?: ResumeTurnOpts & { extraInstruction?: string },
 ): Promise<ResumeTurnResult> {
-  return withSessionTurnGate(config.workspaceDir, sessionId, async () => {
-    const result = await resumePausedTurnUngated(config, registry, sessionId, opts);
-    settleCollaborationChildTurn({
-      workspaceDir: config.workspaceDir,
-      sessionId: result.sessionId,
-      status: result.turn.status,
-      reply: result.reply,
-    });
-    return result;
-  });
+  const sessionPeek = loadSession(config.workspaceDir, sessionId);
+  const assistantId = normalizeAssistantGateId(config.assistantId ?? sessionPeek?.assistantId);
+  return withAssistantTurnGate(config.workspaceDir, assistantId, () =>
+    withSessionTurnGate(config.workspaceDir, sessionId, async () => {
+      const result = await resumePausedTurnUngated(config, registry, sessionId, opts);
+      settleCollaborationChildTurn({
+        workspaceDir: config.workspaceDir,
+        sessionId: result.sessionId,
+        status: result.turn.status,
+        reply: result.reply,
+      });
+      return result;
+    }),
+  );
 }
 
 async function resumePausedTurnUngated(
@@ -477,6 +489,7 @@ async function resumePausedTurnUngated(
     onEvent: opts?.onEvent,
     liveProgressSessionId: opts?.liveProgressSessionId,
     skipSessionTurnGate: true,
+    skipAssistantTurnGate: true,
     skipToolBudgetCheckpoint: true,
     initialToolCallsExecuted:
       last.toolCallsExecuted >= resolveToolCallBudgets(config.maxToolCalls).hard

@@ -141,6 +141,51 @@ describe("lawmind-server-route-automations", () => {
     });
   });
 
+  it("POST /api/automations accepts optional IANA tz and rejects invalid tz", async () => {
+    const okRes = mockRes();
+    await handleAutomationsRoutes({
+      ctx,
+      req: mockJsonReq({
+        matterId: "matter-tz-ok",
+        presetId: "renewal-monitor",
+        schedule: { kind: "daily", hour: 9, minute: 0, tz: "Asia/Shanghai" },
+        expectedResult: "一份续签提醒清单",
+        approvalBoundary: "外发前必须问我",
+        missingDataPolicy: "report_failure",
+        notifyPolicy: "on_problem",
+      }),
+      res: okRes,
+      url: new URL("http://127.0.0.1/api/automations"),
+      pathname: "/api/automations",
+      c: {},
+    });
+    expect(okRes.status).toBe(201);
+    expect(okRes.body).toMatchObject({
+      ok: true,
+      automation: { schedule: { kind: "daily", tz: "Asia/Shanghai" } },
+    });
+
+    const badRes = mockRes();
+    await handleAutomationsRoutes({
+      ctx,
+      req: mockJsonReq({
+        matterId: "matter-tz-bad",
+        presetId: "renewal-monitor",
+        schedule: { kind: "daily", hour: 9, minute: 0, tz: "Not/AZone" },
+        expectedResult: "一份续签提醒清单",
+        approvalBoundary: "外发前必须问我",
+        missingDataPolicy: "report_failure",
+        notifyPolicy: "on_problem",
+      }),
+      res: badRes,
+      url: new URL("http://127.0.0.1/api/automations"),
+      pathname: "/api/automations",
+      c: {},
+    });
+    expect(badRes.status).toBe(400);
+    expect(badRes.body).toMatchObject({ ok: false, code: "invalid_timezone" });
+  });
+
   it("GET /api/automations/:id/runs returns history, stats and a promotion verdict", async () => {
     const created = createAutomation(workspaceDir, {
       matterId: "matter-runs",
