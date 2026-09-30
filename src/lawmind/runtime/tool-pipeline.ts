@@ -35,6 +35,7 @@ import { UPDATE_PLAN_TOOL_NAME } from "../agent/turn-plan-model.js";
 import type { AgentContext, AgentTool, ToolCallResult, ToolDefinition } from "../agent/types.js";
 import { emit } from "../audit/index.js";
 import { resolveHostAccessPolicy } from "../host-access/host-policy.js";
+import { resolveApprovalArbitration } from "../platform/approval-arbitration.js";
 import { withGateCategory } from "../platform/gate-category.js";
 import { toolRequiresLawyerPause } from "../platform/lawyer-outbound-decision.js";
 import { IcloudLawyerPrompt } from "./icloud-materialize.js";
@@ -598,7 +599,16 @@ export const approvalMiddleware: ToolMiddleware = async (call, next) => {
       requires = true;
     }
   }
-  if (requires && call.args.__approved !== true) {
+  // Deny/block 已由上游 middleware 处理；此处只仲裁 Ask first vs Allow。
+  // Ask first 命中即停；`__approved` 仅在无 Ask 时放行（见 approval-arbitration.ts）。
+  const askFirst = requires && call.args.__approved !== true;
+  const outcome = resolveApprovalArbitration({
+    denied: false,
+    blocked: false,
+    askFirst,
+    allowAutomatically: call.args.__approved === true || !requires,
+  });
+  if (outcome === "ask") {
     const reason = `操作「${call.toolName}」需要律师在「待我拍板」中确认。`;
     return {
       ok: false,

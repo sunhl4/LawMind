@@ -3,6 +3,7 @@
  * 只认「放弃重试」与「心跳过期」，自动恢复不打扰（对齐 shouldNotifyDaemonIncident）。
  */
 import { useEffect, useRef } from "react";
+import { shouldNotifyDaemonIncident } from "../../../../src/lawmind/platform/lawmind-daemon.ts";
 import { apiGetJson } from "./api-client";
 import type { LawmindDaemonPayload } from "./lawmind-app-data";
 import { useSettingsPanelStore } from "./stores/settings-panel-store";
@@ -36,10 +37,6 @@ function incidentSignature(daemon: LawmindDaemonPayload): string | null {
   return null;
 }
 
-function shouldNotify(daemon: LawmindDaemonPayload | null | undefined): boolean {
-  return Boolean(daemon?.supervisionGaveUp || daemon?.heartbeatStale);
-}
-
 export function useDaemonIncidentNotify(args: {
   apiBase: string;
   enabled: boolean;
@@ -66,7 +63,7 @@ export function useDaemonIncidentNotify(args: {
           return;
         }
         const daemon = payload.daemon;
-        if (!shouldNotify(daemon) || !daemon) {
+        if (!daemon || !shouldNotifyDaemonIncident(daemon)) {
           return;
         }
         const sig = incidentSignature(daemon);
