@@ -276,6 +276,10 @@ function minimalProps(overrides: Partial<LawmindAppRootViewProps> = {}): Lawmind
       onMatterListChanged: noop,
       taskDrawerOpen: false,
       onCloseTaskDrawer: noop,
+      globalSearchOpen: false,
+      setGlobalSearchOpen: noop,
+      globalSearchCommands: [],
+      openMatterDossierFromSearch: noop,
     },
   };
   return { ...base, ...overrides } as LawmindAppRootViewProps;
@@ -313,12 +317,13 @@ describe("LawmindAppRootView", () => {
     expect(host.querySelector(".lm-shell-review")).toBeTruthy();
   });
 
-  it("adds desk shell class on desk mainView", async () => {
+  it("keeps the chat shell when mainView is desk", async () => {
     await act(async () => {
       root.render(<LawmindAppRootView {...minimalProps({ mainView: "desk" })} />);
     });
-    expect(host.querySelector(".lm-shell-desk")).toBeTruthy();
-    expect(host.querySelector(".lm-main-desk")).toBeTruthy();
+    expect(host.querySelector(".lm-shell-desk")).toBeNull();
+    expect(host.querySelector(".lm-main-desk")).toBeNull();
+    expect(host.querySelector(".lm-shell")).toBeTruthy();
   });
 
   it("renders settings inside main body when open", async () => {

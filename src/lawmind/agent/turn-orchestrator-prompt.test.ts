@@ -818,4 +818,77 @@ describe("turn-orchestrator-prompt", () => {
     });
     expect(visiblePrompt(result, session)).toContain("线性栏目");
   });
+
+  it("injects scored relevant memory hits and records alreadySurfaced paths", async () => {
+    await fs.mkdir(path.join(workspaceDir, "memory", "topics"), { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDir, "MEMORY.md"),
+      "- [诉状要点](memory/topics/lit.md) — 诉讼文书写法\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceDir, "memory/topics/lit.md"),
+      "# 诉状要点\n诉讼文书写法与管辖约定。\n",
+      "utf8",
+    );
+    const session: AgentSession = {
+      sessionId: "sess-recall",
+      actorId: "system",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const result = await prepareTurnPromptContext({
+      config: {
+        workspaceDir,
+        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
+      },
+      registry: new ToolRegistry(),
+      session,
+      // scoreEntry matches title/description substring against the full query string.
+      instruction: "诉状",
+      resolvedAssistantId: undefined,
+      linkedTaskIdForCtx: undefined,
+      projectDirResolved: undefined,
+    });
+    expect(visiblePrompt(result, session)).toContain("相关记忆");
+    expect(visiblePrompt(result, session)).toContain("memory/topics/lit.md");
+    expect(session.alreadySurfacedMemoryPaths).toContain("memory/topics/lit.md");
+  });
+
+  it("does not inject zero-score memory noise", async () => {
+    await fs.mkdir(path.join(workspaceDir, "memory", "topics"), { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDir, "MEMORY.md"),
+      "- [天气](memory/topics/weather.md) — 晴天笔记\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceDir, "memory/topics/weather.md"),
+      "# 天气\n晴天\n",
+      "utf8",
+    );
+    const session: AgentSession = {
+      sessionId: "sess-recall-zero",
+      actorId: "system",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await prepareTurnPromptContext({
+      config: {
+        workspaceDir,
+        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
+      },
+      registry: new ToolRegistry(),
+      session,
+      instruction: "zzzzqqqqnonsense_unrelated_query",
+      resolvedAssistantId: undefined,
+      linkedTaskIdForCtx: undefined,
+      projectDirResolved: undefined,
+    });
+    expect(session.alreadySurfacedMemoryPaths ?? []).toEqual([]);
+  });
 });

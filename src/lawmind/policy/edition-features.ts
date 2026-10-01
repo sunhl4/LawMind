@@ -93,6 +93,12 @@ export const EDITION_FEATURES = {
    * Solo off (= advisory); Firm / Private on (= block). Policy `guardianTrackedRedline` overrides.
    */
   guardianTrackedRedlineBlock: { solo: false, firm: true, private_deploy: true },
+  /**
+   * Multi-assistant roster in settings sidebar / day-1 packaging.
+   * Solo off: one parent agent; deep-link to 助手编制 still works for power users.
+   * Firm / Private on: org staffing. See docs/LAWMIND-SINGLE-PARENT-AGENT.md.
+   */
+  multiAssistantRoster: { solo: false, firm: true, private_deploy: true },
 } as const satisfies Record<string, Record<LawMindEdition, boolean>>;
 
 export type EditionFeatureKey = keyof typeof EDITION_FEATURES;

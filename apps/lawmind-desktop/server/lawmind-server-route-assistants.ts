@@ -10,14 +10,18 @@ import { exportAssistantShare } from "../../../src/lawmind/assistants/share-temp
 import { listAutomations } from "../../../src/lawmind/platform/lawyer-automations.js";
 import { listLawyerWorks } from "../../../src/lawmind/work/store.js";
 import { listAssistantProfileSections } from "../../../src/lawmind/assistants/profile-md.js";
+import { assertCanCreateAssistant } from "../../../src/lawmind/assistants/roster.js";
 import {
   deleteAssistant,
   duplicateAssistant,
+  getAssistantById,
   loadAssistantProfiles,
   loadAssistantStats,
   resolveLawMindRoot,
   upsertAssistant,
 } from "../../../src/lawmind/assistants/store.js";
+import { isFeatureEnabled } from "../../../src/lawmind/policy/edition.js";
+import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspace-policy.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
 import {
   assistantDuplicateSchema,
@@ -27,6 +31,33 @@ import {
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import { sendJson } from "./lawmind-server-helpers.js";
 import { isSafeAssistantIdSegment } from "./safe-assistant-id.js";
+
+function allowMultiAssistantRoster(ctx: LawmindRouteContext["ctx"]): boolean {
+  const policy = ctx.policy.loaded ? (ctx.policy.policy as LawMindWorkspacePolicy) : null;
+  return isFeatureEnabled("multiAssistantRoster", { policy });
+}
+
+function guardCreateAssistant(
+  lawMindRoot: string,
+  ctx: LawmindRouteContext["ctx"],
+  res: LawmindRouteContext["res"],
+  c: LawmindRouteContext["c"],
+  existingId?: string,
+): boolean {
+  const profiles = loadAssistantProfiles(lawMindRoot);
+  const updating = Boolean(existingId?.trim() && profiles.some((p) => p.assistantId === existingId));
+  if (updating) {
+    return false;
+  }
+  try {
+    assertCanCreateAssistant(profiles.length, allowMultiAssistantRoster(ctx));
+    return false;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    sendJson(res, 400, { ok: false, error: msg }, c);
+    return true;
+  }
+}
 
 export async function handleAssistantRoutes({
   ctx,
@@ -107,6 +138,9 @@ export async function handleAssistantRoutes({
       sendJson(res, 400, { ok: false, error: "invalid assistant id" }, c);
       return true;
     }
+    if (guardCreateAssistant(lawMindRoot, ctx, res, c, assistantId)) {
+      return true;
+    }
     try {
       const assistant = upsertAssistant(lawMindRoot, {
         assistantId,
@@ -181,6 +215,13 @@ export async function handleAssistantRoutes({
       const id = decodeURIComponent(duplicatePath[1] ?? "");
       if (!isSafeAssistantIdSegment(id)) {
         sendJson(res, 400, { ok: false, error: "invalid assistant id" }, c);
+        return true;
+      }
+      if (!getAssistantById(lawMindRoot, id)) {
+        sendJson(res, 400, { ok: false, error: "助手不存在，请先刷新名册" }, c);
+        return true;
+      }
+      if (guardCreateAssistant(lawMindRoot, ctx, res, c)) {
         return true;
       }
       // body 可选：`readJsonBody` 对空 body 返回 `{}`，而该 schema 的字段都是可选的，

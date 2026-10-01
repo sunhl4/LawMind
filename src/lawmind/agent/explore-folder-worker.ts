@@ -6,6 +6,7 @@
  */
 
 import fs from "node:fs";
+import { buildSubagentMemoryPack } from "../core/work-style-pack.js";
 import { namedBracketFolders } from "../intent/utterance-kind.js";
 import { applyEnvelopeToAgentModelDefaults } from "../models/capability-envelope.js";
 import { resolveLawyerLocalFile } from "../runtime/lawyer-local-file.js";
@@ -397,7 +398,7 @@ export async function runFolderExplorer(
   const loop = await runExploreModelLoop(ctx, model, [
     {
       role: "system",
-      content: exploreSystemPrompt(),
+      content: exploreSystemPrompt(input.goal),
     },
     {
       role: "user",
@@ -459,8 +460,13 @@ export async function runFolderExplorer(
   };
 }
 
-function exploreSystemPrompt(): string {
-  return `${FOLDER_EXPLORER_DEVELOPER_INSTRUCTIONS}优先输出 JSON：{ "candidates": ["相对路径"], "peeks": [{"path":"...","excerpt":"..."}], "summary":"一句摘要" }；也可用【候选】【摘录】【摘要】。`;
+function exploreSystemPrompt(goalHint?: string): string {
+  const pack = buildSubagentMemoryPack({
+    subagentRole: "explore",
+    deliveryHint: goalHint,
+  });
+  const packBlock = pack ? `\n\n${pack}` : "";
+  return `${FOLDER_EXPLORER_DEVELOPER_INSTRUCTIONS}${packBlock}\n优先输出 JSON：{ "candidates": ["相对路径"], "peeks": [{"path":"...","excerpt":"..."}], "summary":"一句摘要" }；也可用【候选】【摘录】【摘要】。`;
 }
 
 async function runExploreModelLoop(

@@ -4,16 +4,20 @@ import { openDeliverableInWps } from "./canvas/host-actions";
 import { confirmDialog } from "./lawmind-confirm-dialog";
 import { notifyOutboundChanged, type DeskOutboundItem } from "./lawmind-desk-outbound";
 import { resumeChatAction } from "./lawmind-requires-action";
+import { isDeskWordPath } from "./desk-volume-file-path";
+import { openDocxInReviewSurface } from "./lawmind-open-contract-revision";
+import { requestOpenWorkspaceFile } from "./lawmind-workspace-file-open";
 
 type Props = {
   apiBase: string;
+  workspaceDir?: string | null;
   items: DeskOutboundItem[];
   onChanged: () => void;
 };
 
 /** 本案还没发出去的信。没有则不占一块空表。 */
 export function LawmindDeskOutboundList(props: Props): ReactNode {
-  const { apiBase, items, onChanged } = props;
+  const { apiBase, workspaceDir, items, onChanged } = props;
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   if (items.length === 0) {
@@ -65,6 +69,22 @@ export function LawmindDeskOutboundList(props: Props): ReactNode {
     }
   };
 
+  const previewAttachment = (path: string) => {
+    const rel = path.trim().replace(/\\/g, "/");
+    if (!rel) {
+      return;
+    }
+    if (isDeskWordPath(rel)) {
+      void openDocxInReviewSurface({
+        relPath: rel,
+        apiBase,
+        workspaceDir: workspaceDir ?? undefined,
+      });
+      return;
+    }
+    requestOpenWorkspaceFile(rel, "workspace");
+  };
+
   return (
     <section aria-label="待发出" data-testid="lm-desk-outbound">
       <h3>待发出</h3>
@@ -82,22 +102,35 @@ export function LawmindDeskOutboundList(props: Props): ReactNode {
                 {[item.to, item.subject].filter(Boolean).join(" · ") || "待发出"}
               </span>
               {item.attachments.length > 0 ? (
-                <span className="lm-lawyer-inline-actions">
+                <span className="lm-lawyer-outbound-attachments">
                   {item.attachments.map((path) => (
-                    <button
-                      key={path}
-                      type="button"
-                      className="lm-btn lm-btn-ghost lm-btn-sm"
-                      onClick={() => {
-                        void openDeliverableInWps(path).then((result) => {
-                          if (!result.ok && result.error) {
-                            setError(result.error);
-                          }
-                        });
-                      }}
-                    >
-                      {path.split("/").pop() || path}
-                    </button>
+                    <span key={path} className="lm-lawyer-deadline-actions">
+                      <span className="lm-meta">{path.split("/").pop() || path}</span>
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-ghost lm-btn-sm"
+                        data-testid="lm-desk-outbound-preview"
+                        title={isDeskWordPath(path) ? "中栏预览，带修订信息" : "中栏预览"}
+                        onClick={() => previewAttachment(path)}
+                      >
+                        {isDeskWordPath(path) ? "预览核对" : "预览"}
+                      </button>
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-ghost lm-btn-sm"
+                        data-testid="lm-desk-outbound-open-app"
+                        title="用本机应用打开"
+                        onClick={() => {
+                          void openDeliverableInWps(path).then((result) => {
+                            if (!result.ok && result.error) {
+                              setError(result.error);
+                            }
+                          });
+                        }}
+                      >
+                        用本机应用打开
+                      </button>
+                    </span>
                   ))}
                 </span>
               ) : null}

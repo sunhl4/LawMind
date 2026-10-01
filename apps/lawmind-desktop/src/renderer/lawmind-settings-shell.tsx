@@ -404,6 +404,7 @@ export function LawmindSettingsPage({
     onSelectAssistantId,
     selectedAssistant,
     selectedAssistantStats,
+    allowMultiAssistantRoster: edition === "firm" || edition === "private_deploy",
     retrievalLabel,
     retrievalSaving,
     draftWithModelSaving,
@@ -571,6 +572,7 @@ export const LawmindSettingsDialog = LawmindSettingsPage;
 type SectionRenderArgs = Omit<Props, "open" | "initialSectionId" | "scrollAnchorId"> & {
   activeSectionId: LawmindSettingsSectionId;
   navigateToSection: (sectionId: LawmindSettingsSectionId) => void;
+  allowMultiAssistantRoster: boolean;
 };
 
 function renderSettingsSection(args: SectionRenderArgs): ReactNode {
@@ -594,6 +596,7 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     onRemoveAssistant,
     onDuplicateAssistant,
     onPatchAssistantRoster,
+    allowMultiAssistantRoster,
     onApplyRetrievalMode,
     onApplyDraftWithModelEnabled,
     npcSaving,
@@ -682,6 +685,7 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
           onRemove={() => void onRemoveAssistant()}
           onDuplicate={() => void onDuplicateAssistant()}
           onPatchRoster={(assistantId, patch) => void onPatchAssistantRoster(assistantId, patch)}
+          allowMultiAssistantRoster={allowMultiAssistantRoster}
         />
       );
     case "models":

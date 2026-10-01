@@ -16,6 +16,7 @@ import {
   type ContractAttachmentKind,
 } from "../mail/mail-contract-formats.js";
 import { eventIntervalOpen, validateEventTrigger } from "./automation-event-trigger.js";
+import { clampEveryMinutes } from "./automation-frequency-hint.js";
 import {
   assertSafeAutomationId,
   automationInboxDir,
@@ -30,6 +31,14 @@ import {
 import { buildMailContractShortPathInstruction } from "./mail-contract-short-path-instruction.js";
 
 export { buildMailContractShortPathInstruction } from "./mail-contract-short-path-instruction.js";
+/** Renderer must import frequency copy from automation-frequency-hint.ts — this file uses node:fs. */
+export {
+  AUTOMATION_INTERVAL_MAX_MINUTES,
+  AUTOMATION_INTERVAL_MIN_MINUTES,
+  clampEveryMinutes,
+  estimateIntervalRunsPerDay,
+  formatAutomationFrequencyCostHint,
+} from "./automation-frequency-hint.js";
 export {
   draftAutomationConfirmations,
   inferAutomationFromInstruction,
@@ -44,10 +53,6 @@ export type AutomationSchedule =
   | { kind: "once"; runAt: string }
   /** Recurring poll: every N minutes (clamped 5…10080). */
   | { kind: "interval"; everyMinutes: number };
-
-/** Min/max for interval schedules (minutes). */
-export const AUTOMATION_INTERVAL_MIN_MINUTES = 5;
-export const AUTOMATION_INTERVAL_MAX_MINUTES = 7 * 24 * 60;
 
 /** IANA 时区是否可被 Intl 识别（无效则 RangeError）。 */
 export function isValidIanaTimeZone(tz: string): boolean {
@@ -152,24 +157,6 @@ export function wallTimeInTimeZoneToUtc(
     utc = guess - offset2;
   }
   return new Date(utc);
-}
-
-/**
- * interval 排期一天大约跑几次（向下取整）。
- * 只做频次可见性，不编造 ¥ / token 单价。
- */
-export function estimateIntervalRunsPerDay(everyMinutes: number): number {
-  const mins = clampEveryMinutes(everyMinutes);
-  return Math.max(1, Math.floor((24 * 60) / mins));
-}
-
-/** 创建/编辑 interval 时常设工作的频次 × 成本提示（定性，无假定价）。 */
-export function formatAutomationFrequencyCostHint(schedule: AutomationSchedule): string | null {
-  if (schedule.kind !== "interval") {
-    return null;
-  }
-  const n = estimateIntervalRunsPerDay(schedule.everyMinutes);
-  return `约 ${n} 次/天。每次运行都会消耗模型用量；没有新情况也可能空跑。`;
 }
 
 /**
@@ -532,16 +519,6 @@ function clampMinute(n: number): number {
     return 0;
   }
   return Math.min(59, Math.max(0, Math.floor(n)));
-}
-
-export function clampEveryMinutes(n: number): number {
-  if (!Number.isFinite(n)) {
-    return 30;
-  }
-  return Math.min(
-    AUTOMATION_INTERVAL_MAX_MINUTES,
-    Math.max(AUTOMATION_INTERVAL_MIN_MINUTES, Math.floor(n)),
-  );
 }
 
 /** Next run after `from`. 无 `tz` 时用本机墙钟（旧行为）；daily/weekly 可带 IANA `tz`。 */

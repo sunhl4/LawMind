@@ -13,7 +13,8 @@ describe("lawyer-outbound-decision", () => {
     expect(isOutboundToolName("send_email")).toBe(true);
     expect(isOutboundToolName("prepare_outbound_mail")).toBe(true);
     expect(isOutboundToolName("draft_document")).toBe(false);
-    expect(toolRequiresLawyerPause("send_email")).toBe(true);
+    // 2026-10-01 起没有 pause 工具：外发写入待发信，回合不中断。
+    expect(toolRequiresLawyerPause("send_email")).toBe(false);
     expect(toolRequiresLawyerPause("prepare_outbound_mail")).toBe(false);
     expect(toolRequiresLawyerPause("render_document")).toBe(false);
     expect(toolRequiresLawyerPause("apply_legal_events")).toBe(false);

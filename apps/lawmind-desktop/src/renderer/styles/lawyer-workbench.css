@@ -19,6 +19,22 @@
   min-height: 0;
 }
 
+.lm-desk-middle {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lm-desk-middle > .lm-lawyer-workbench {
+  --desk-pad: 16px;
+  flex: 1 1 0;
+  min-height: 0;
+  padding-top: 12px;
+}
+
 .lm-archive-page {
   display: flex;
   flex-direction: column;
@@ -586,6 +602,37 @@
   color: var(--muted);
 }
 
+.lm-matter-hotline-link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.lm-matter-hotline-link:hover {
+  color: var(--accent);
+}
+
+.lm-matter-hot-reason {
+  display: block;
+  margin-top: 2px;
+}
+
+.lm-matter-brief {
+  max-width: 860px;
+  margin: 0 auto 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.lm-matter-brief p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
 .lm-kind {
   display: inline-flex;
   padding: 1px 8px;
@@ -841,6 +888,13 @@
   gap: 8px;
   align-items: center;
   flex-shrink: 0;
+}
+
+.lm-lawyer-outbound-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .lm-deadline-source {

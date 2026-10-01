@@ -367,17 +367,6 @@ export function LawmindChatComposeFooter({
     }
   }, [loading, extras.refreshContextBudget]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setCommandOpen(true);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
   // 仅在「切换到另一案件」（含首次挂载）时恢复该案件的暂存草稿；
   // 发送后 input 变空但案件未变，绝不能把暂存回填（会把刚发出的文本弹回输入框）。
   const prevStashMatterRef = useRef<string | null | undefined>(undefined);
@@ -570,12 +559,16 @@ export function LawmindChatComposeFooter({
         label: "记忆库",
         run: () => onOpenMemoryInspector?.(),
       },
-      {
-        id: "delegate",
-        slash: "/delegate",
-        label: "交给其他助手",
-        run: () => onDelegateAssist?.(),
-      },
+      ...(onDelegateAssist
+        ? [
+            {
+              id: "delegate",
+              slash: "/delegate",
+              label: "交给其他助手",
+              run: () => onDelegateAssist(),
+            },
+          ]
+        : []),
       {
         id: "config",
         slash: "/config",

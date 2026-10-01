@@ -218,6 +218,27 @@
   flex-direction: column;
   overflow: hidden;
 }
+
+/* 待发信：交办即终稿后外发只进列表；对话里要一眼能点进批准。 */
+.lm-chat-outbound-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent, #8b6914) 12%, var(--panel, #fff));
+}
+
+.lm-chat-outbound-hint-copy {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  min-width: 0;
+  flex: 1;
+}
 /* 对话：从「文件」页引用的路径（发送时附加给模型） */
 .lm-file-chat-context-bar {
   display: flex;

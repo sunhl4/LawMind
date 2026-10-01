@@ -39,7 +39,7 @@ export function defaultMemoryMarkdown(updatedAt = new Date().toISOString().slice
 
 ## 四、硬红线
 
-- 未批准不得 \`send_email\`。
+- \`send_email\` 只写入本案「待发信」，律师在待发列表批准后才真正发出。
 - 空修订不得导出。
 - 不编造法条或条号。
 - 不删除工作区文件，除非律师明确要求。

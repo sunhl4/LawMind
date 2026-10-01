@@ -30,6 +30,10 @@ test.describe("LawMind golden path", () => {
     await page.setViewportSize({ width: 1100, height: 780 });
     await page.getByTestId("lm-tab-desk").click();
     await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("lm-desk-middle")).toBeVisible();
+    await expect(page.getByTestId("lm-chat-drop-zone")).toBeVisible();
+    await expect(page.locator(".lm-side")).toBeVisible();
+    await expect(page.getByTestId("lm-tab-desk")).toHaveAttribute("aria-current", "page");
     await expect(page.getByTestId("lm-lawyer-today-plan-input")).toHaveCount(0);
     await expect(page.getByText("临近期日")).toHaveCount(0);
     await expect(page.getByLabel("案件")).toBeVisible();

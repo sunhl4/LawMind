@@ -2,7 +2,8 @@
  * 动作级审前评审（借鉴评审 D1）——默认 off；shadow 只记不改行为；on 才多问。
  *
  * 不替代确定性闸（permission / playbook deny / legalVerify / machine-verifiers）。
- * 也不替代 send_email 既有 Ask-first：本层只对「尚未被 pause 覆盖」的高风险本机动作加问。
+ * 2026-10-01 起没有 pause 工具（send_email 改 inbox_signoff 写入待发信）；
+ * 本层只对高风险本机动作（run_host_command）在 on 模式下加问。
  */
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
@@ -33,8 +34,8 @@ export function resolveActionPreReviewMode(
 }
 
 /**
- * 分类：已有 pause（send_email）不算本层「拥有」——避免双卡。
- * on 模式本层加问：run_host_command（本机命令可能改状态）。
+ * 分类：pause 工具已不存在（send_email 2026-10-01 改 inbox_signoff）；保留分支
+ * 仅为语义完整。on 模式本层加问：run_host_command（本机命令可能改状态）。
  */
 export function classifyActionForPreReview(toolName: string): ActionPreReviewClassification {
   const n = toolName.trim();

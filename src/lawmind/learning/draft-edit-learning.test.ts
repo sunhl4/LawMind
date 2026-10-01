@@ -133,6 +133,27 @@ describe("draft-edit-learning", () => {
     expect(created[0]?.targetId).toBe("m-1");
   });
 
+  it("captureParagraphEditLearning records word-surface paragraph pairs", async () => {
+    const { captureParagraphEditLearning } = await import("./draft-edit-learning.js");
+    const { readEditExamples } = await import("./edit-examples.js");
+    const created = await captureParagraphEditLearning({
+      workspaceDir,
+      auditDir,
+      taskId: "t-word",
+      matterId: "m-w",
+      deliverableType: "contract.review",
+      paragraphs: [
+        {
+          before: "甲方应在三十日内付款。",
+          after: "甲方应在收到发票后十五个工作日内付款。",
+        },
+      ],
+    });
+    expect(created.length).toBeGreaterThan(0);
+    const rows = readEditExamples(workspaceDir);
+    expect(rows.some((r) => r.after.includes("十五个工作日"))).toBe(true);
+  });
+
   it("rotates §八 overflow into the archive so the hot file stays bounded", async () => {
     for (let i = 0; i < 8; i += 1) {
       await appendLawyerProfileLearning(workspaceDir, `学习条目 ${i}`, "manual");

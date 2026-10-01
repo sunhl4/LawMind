@@ -67,19 +67,19 @@ describe("lawmind-settings-nav", () => {
       "collaboration",
       "automations",
       "memory",
-      "assistants",
     ]);
   });
 
-  it("does not put 角色 / 协作 / 技能 / 版本 / 文书模板 on the sidebar", () => {
+  it("does not put 角色 / 助手编制 / 技能 / 版本 / 文书模板 on the base sidebar", () => {
     const sidebarIds = SETTINGS_NAV_FLAT.map((item) => item.id);
-    expect(sidebarIds).toContain("assistants");
+    expect(sidebarIds).not.toContain("assistants");
     expect(sidebarIds).not.toContain("roles");
     expect(sidebarIds).toContain("collaboration");
     expect(sidebarIds).not.toContain("skills");
     expect(sidebarIds).not.toContain("edition");
     expect(sidebarIds).not.toContain("templates");
     expect(SETTINGS_NAV_RETIRED_ITEMS.map((item) => item.id)).toEqual([
+      "assistants",
       "roles",
       "skills",
       "edition",
@@ -103,9 +103,11 @@ describe("lawmind-settings-nav", () => {
     expect(firstSettingsNavMatch("账号")).toBe("account");
     expect(firstSettingsNavMatch("订阅")).toBe("account");
     expect(firstSettingsNavMatch("套餐")).toBe("account");
-    expect(firstSettingsNavMatch("助手")).toBe("assistants");
-    expect(firstSettingsNavMatch("编制")).toBe("assistants");
-    expect(firstSettingsNavMatch("新建助手")).toBe("assistants");
+    expect(firstSettingsNavMatch("助手")).toBeUndefined();
+    expect(firstSettingsNavMatch("编制")).toBeUndefined();
+    expect(firstSettingsNavMatch("新建助手")).toBeUndefined();
+    expect(firstSettingsNavMatch("助手", "firm")).toBe("assistants");
+    expect(firstSettingsNavMatch("编制", "firm")).toBe("assistants");
   });
 
   it("search never lands on retired 角色", () => {
@@ -115,9 +117,9 @@ describe("lawmind-settings-nav", () => {
     expect(firstSettingsNavMatch("协作", "firm")).toBe("collaboration");
   });
 
-  it("sidebar is one flat list of every lawyer-facing section", () => {
-    const ids = settingsNavItemsForEdition("solo").map((item) => item.id);
-    expect(ids).toEqual([
+  it("Solo sidebar omits 助手编制; Firm keeps it under 办案", () => {
+    const soloIds = settingsNavItemsForEdition("solo").map((item) => item.id);
+    expect(soloIds).toEqual([
       "account",
       "models",
       "workspace",
@@ -125,19 +127,22 @@ describe("lawmind-settings-nav", () => {
       "collaboration",
       "automations",
       "memory",
-      "assistants",
       "disclaimer",
     ]);
-    expect(ids).not.toContain("app-update");
+    expect(soloIds).not.toContain("assistants");
     expect(settingsNavGroupsForEdition("solo").some((group) => group.id === "more")).toBe(false);
-    expect(ids).not.toContain("doctor");
-    expect(ids).not.toContain("tools");
-    expect(ids).not.toContain("templates");
-    expect(ids).not.toContain("host");
-    expect(ids).not.toContain("roles");
-    expect(ids).toContain("collaboration");
-    expect(ids).not.toContain("skills");
-    expect(ids).not.toContain("edition");
+    expect(soloIds).not.toContain("doctor");
+    expect(soloIds).not.toContain("tools");
+    expect(soloIds).not.toContain("templates");
+    expect(soloIds).not.toContain("host");
+    expect(soloIds).not.toContain("roles");
+    expect(soloIds).toContain("collaboration");
+    expect(soloIds).not.toContain("skills");
+    expect(soloIds).not.toContain("edition");
+
+    const firmIds = settingsNavItemsForEdition("firm").map((item) => item.id);
+    expect(firmIds).toContain("assistants");
+    expect(firmIds.filter((id) => id !== "assistants")).toEqual(soloIds);
   });
 
   it("search never lands on retired 文书模板", () => {
@@ -145,18 +150,18 @@ describe("lawmind-settings-nav", () => {
     expect(firstSettingsNavMatch("pptx")).not.toBe("templates");
   });
 
-  it("Firm uses the same lawyer-facing sidebar as Solo", () => {
+  it("Firm puts 助手编制 on the lawyer-facing sidebar; Solo does not", () => {
     const soloIds = settingsNavItemsForEdition("solo").map((item) => item.id);
     const firmIds = settingsNavItemsForEdition("firm").map((item) => item.id);
-    expect(firmIds).toEqual(soloIds);
+    expect(soloIds).not.toContain("assistants");
+    expect(firmIds).toContain("assistants");
     expect(firmIds).not.toContain("roles");
     expect(firmIds).toContain("collaboration");
-    expect(firmIds).toContain("assistants");
     expect(firmIds).not.toContain("host");
     expect(firmIds).not.toContain("doctor");
   });
 
-  it("keeps 助手编制 when reopening settings from lastSection", () => {
+  it("keeps 助手编制 deep-link when reopening settings from lastSection", () => {
     const store = new Map<string, string>();
     vi.stubGlobal("localStorage", {
       getItem: (k: string) => store.get(k) ?? null,

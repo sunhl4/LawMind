@@ -135,7 +135,8 @@ export type LawmindMainBodyContentProps = {
   onClearTruthPills?: () => void;
   contextTaskId: string | null;
   onOpenReviewFromWorkspace: (target?: { taskId?: string; matterId?: string }) => void;
-  onDelegateAssist: () => void;
+  /** Firm roster only; omitted on Solo so /delegate stays hidden. */
+  onDelegateAssist?: () => void;
   delegateAssistEnabled: boolean;
   revisionBackgroundActive: boolean;
   onResumeRequiresAction: (
@@ -183,11 +184,12 @@ export type LawmindMainBodyContentProps = {
   onRefreshActionSummary?: () => void;
   onChatResumeComplete?: () => void | Promise<void>;
   /** Bump to open 工作台本案卷宗 (same matter can re-open). */
-  deskMatterFocus?: { id: string; n: number; pane?: "docs" } | null;
+  deskMatterFocus?: import("./desk-matter-focus").DeskMatterFocus;
 };
 
 export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
-  const { mainView } = useLawmindShellNavigationContext();
+  const { mainView, matterCockpitOpen } = useLawmindShellNavigationContext();
+  const deskInMiddle = matterCockpitOpen || mainView === "desk";
 
   if (mainView === "review") {
     return null;
@@ -204,7 +206,7 @@ export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
       </LawmindErrorBoundary>
     );
   }
-  if (mainView === "desk" || mainView === "agents") {
+  if (mainView === "agents") {
     if (!props.config) {
       return (
         <LawmindWorkspaceBootstrapGate error={props.error} onOpenApiWizard={props.onOpenApiWizard} />
@@ -212,15 +214,21 @@ export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {
     }
     const deskProps = pickLawyerWorkbenchProps(props);
     return deskProps ? (
-      <LawmindErrorBoundary label="工作台">
+      <LawmindErrorBoundary label="在办">
         <LawmindLawyerWorkbench {...deskProps} />
       </LawmindErrorBoundary>
     ) : null;
   }
-  if (mainView === "workspace" && !props.config) {
+  if ((mainView === "workspace" || mainView === "desk") && !props.config) {
     return (
       <LawmindWorkspaceBootstrapGate error={props.error} onOpenApiWizard={props.onOpenApiWizard} />
     );
   }
-  return <LawmindWorkspaceMainPane {...pickWorkspaceMainPaneProps(props)} />;
+  const deskProps = deskInMiddle ? pickLawyerWorkbenchProps(props) : null;
+  return (
+    <LawmindWorkspaceMainPane
+      {...pickWorkspaceMainPaneProps(props)}
+      deskPane={deskProps}
+    />
+  );
 }

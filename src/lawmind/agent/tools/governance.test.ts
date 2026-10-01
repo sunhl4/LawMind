@@ -22,7 +22,8 @@ describe("tool governance metadata", () => {
     const byName = new Map(listToolGovernanceMetadata(registry).map((item) => [item.name, item]));
     expect(byName.get("add_case_note")?.runtimeMode).toBe("lawyer_approved_write");
     expect(byName.get("add_case_note")?.requiresApproval).toBe(false);
-    expect(byName.get("send_email")?.requiresApproval).toBe(true);
+    // 外发不再要回合中批准：写入待发信即返回，发送由待发列表的「批准发送」完成。
+    expect(byName.get("send_email")?.requiresApproval).toBe(false);
     expect(byName.get("send_email")?.riskLevel).toBe("high");
     expect(byName.get("add_case_note")?.matterScope).toBe("required");
   });

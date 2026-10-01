@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState, type ReactNode } from "react";
-import { formatUsageSummaryForLawyer } from "../../../../src/lawmind/models/model-usage.ts";
+import { formatUsageSummaryForLawyer } from "../../../../src/lawmind/models/model-usage-format.ts";
 import { apiGetJson } from "./api-client";
 import { requestFirstRunReopen } from "./lawmind-firstrun-reopen-bus";
 import { LawmindSettingsLicense } from "./LawmindSettingsLicense";

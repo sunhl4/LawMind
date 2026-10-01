@@ -79,20 +79,19 @@ export function detectGateStop(input: {
   };
 }
 
-/** 待办卡片：稿还在、意见在对话里。核对过程不进卡片。 */
+/** 待办卡片：稿已交付，缺口标【待核实】。核对黑话不进卡片。 */
 export function formatGateStopSummary(signal: GateStopSignal): string {
-  const lines = [
-    "稿还在草稿里，没有出 Word，也没有外发。",
-    "意见和法条在对话里，点条款名可看原文，点文书标题可打开稿。",
-  ];
-  const visible = lawyerVisibleGaps(signal.gaps ?? []);
+  const lines = ["本轮稿已交付。以下验收项本回合未自动改完，可直接在修订里改，或回复我补充："];
+  const visible = lawyerVisibleGaps([
+    ...(signal.gaps ?? []),
+    ...(signal.reason?.trim() ? [signal.reason.trim()] : []),
+  ]);
   if (visible.length > 0) {
-    lines.push("", "请您定：");
     for (const gap of visible) {
-      lines.push(`- ${gap}`);
+      lines.push(`- 【待核实】${gap}`);
     }
   } else {
-    lines.push("若对话里列了需要您定的事，回复那几项即可。");
+    lines.push("- 【待核实】本回合验收未全部改完");
   }
   return lines.join("\n");
 }

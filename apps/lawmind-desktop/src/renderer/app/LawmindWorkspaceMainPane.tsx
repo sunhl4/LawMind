@@ -21,6 +21,8 @@ import type {
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
 import type { ReviewOpenTarget } from "../LawmindChatReviewSticky";
+import type { LawmindLawyerWorkbenchProps } from "../LawmindLawyerWorkbench";
+import { LawmindLawyerWorkbench } from "../LawmindLawyerWorkbench";
 
 export type LawmindWorkspaceMainPaneProps = {
   canUseFilesystemBridge: boolean;
@@ -59,7 +61,8 @@ export type LawmindWorkspaceMainPaneProps = {
   onClearFileChatPills: () => void;
   contextTaskId: string | null;
   onOpenReview: (target?: ReviewOpenTarget) => void;
-  onDelegateAssist: () => void;
+  /** Firm roster only; omitted on Solo so /delegate stays hidden. */
+  onDelegateAssist?: () => void;
   delegateAssistEnabled: boolean;
   revisionBackgroundActive: boolean;
   onResumeRequiresAction: (
@@ -110,6 +113,8 @@ export type LawmindWorkspaceMainPaneProps = {
   showEmptyMatterGuide?: boolean;
   /** When true, session list lives in the left rail — hide top tabs. */
   chatSessionsInSidebar?: boolean;
+  /** 中栏案卷。有值时盖住文件预览，右侧对话仍在。 */
+  deskPane?: LawmindLawyerWorkbenchProps | null;
 };
 
 function LawmindWorkspaceMainPaneImpl({
@@ -189,6 +194,7 @@ function LawmindWorkspaceMainPaneImpl({
   onOpenWorkflowLibrary,
   showEmptyMatterGuide,
   chatSessionsInSidebar = false,
+  deskPane = null,
 }: LawmindWorkspaceMainPaneProps) {
   const { selectedAssistantId, activeChatSessionId } = useLawmindChatSessionContext();
   const chatSessionId = activeChatSessionId;
@@ -201,7 +207,8 @@ function LawmindWorkspaceMainPaneImpl({
     ...formatFileChatContextPill(it),
   }));
   const truthPills = composeTruthPins.map((pin) => formatTruthPinChip(pin));
-  const showMiddle = canUseFilesystemBridge && wsShowEditor;
+  const showDesk = Boolean(deskPane);
+  const showMiddle = showDesk || (canUseFilesystemBridge && wsShowEditor);
   const bothWorkspacePanesHidden = !wsShowChat && !showMiddle;
 
   const handleDroppedChatFiles = useCallback(
@@ -266,11 +273,16 @@ function LawmindWorkspaceMainPaneImpl({
             overflow: "hidden",
           }}
         >
+          {showDesk && deskPane ? (
+            <div className="lm-desk-middle" data-testid="lm-desk-middle">
+              <LawmindLawyerWorkbench {...deskPane} />
+            </div>
+          ) : null}
           {canUseFilesystemBridge ? (
             <div
               ref={setFileEditorHost}
               style={{
-                display: "flex",
+                display: showDesk ? "none" : "flex",
                 flexDirection: "column",
                 flex: "1 1 0%",
                 minHeight: 0,

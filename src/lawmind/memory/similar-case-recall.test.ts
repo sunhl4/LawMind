@@ -38,9 +38,54 @@ describe("similar-case-recall", () => {
       currentMatterId: "beta",
       limit: 2,
       minScore: 0.1,
+      allowCrossMatter: true,
     });
     expect(hits.some((h) => h.matterId === "alpha")).toBe(true);
     expect(formatSimilarCaseRecallBlock(hits)).toContain("相关旧案经验");
+  });
+
+  it("blocks cross-matter recall unless allowCrossMatter or env is set", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-sim-gate-"));
+    dirs.push(ws);
+    fs.mkdirSync(path.join(ws, "cases", "alpha"), { recursive: true });
+    fs.mkdirSync(path.join(ws, "cases", "beta"), { recursive: true });
+    fs.writeFileSync(
+      path.join(ws, "cases", "alpha", "CASE.md"),
+      "# CASE\n\n## 争点\n\n- 股权转让对赌条款争议\n",
+      "utf8",
+    );
+    fs.writeFileSync(
+      path.join(ws, "cases", "beta", "CASE.md"),
+      "# CASE\n\n## 争点\n\n- 房屋租赁押金纠纷\n",
+      "utf8",
+    );
+    const previous = process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH;
+    delete process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH;
+    try {
+      const blocked = await findSimilarCaseMemories({
+        workspaceDir: ws,
+        instruction: "请分析这份股权转让协议的对赌风险",
+        currentMatterId: "beta",
+        limit: 2,
+        minScore: 0.1,
+      });
+      expect(blocked).toEqual([]);
+      process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH = "1";
+      const allowed = await findSimilarCaseMemories({
+        workspaceDir: ws,
+        instruction: "请分析这份股权转让协议的对赌风险",
+        currentMatterId: "beta",
+        limit: 2,
+        minScore: 0.1,
+      });
+      expect(allowed.some((h) => h.matterId === "alpha")).toBe(true);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH;
+      } else {
+        process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH = previous;
+      }
+    }
   });
 
   it("weighted scoring prefers 争点 section over progress noise (Recall@1)", async () => {
@@ -93,6 +138,7 @@ describe("similar-case-recall", () => {
       currentMatterId: "current",
       limit: 2,
       minScore: 0.05,
+      allowCrossMatter: true,
     });
     expect(hits[0]?.matterId).toBe("signal");
     expect(

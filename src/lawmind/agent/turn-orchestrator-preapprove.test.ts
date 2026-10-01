@@ -135,12 +135,12 @@ describe("template-level preApproveToolNames", () => {
     expect(executed).toBe(true);
   });
 
-  it("strict mode: template list does not pre-approve tools outside the list", async () => {
+  it("strict mode: template list does not inject __approved for tools outside the list", async () => {
     const workspaceDir = tmpWorkspace();
     const server = await startCassetteModelServer();
     servers.push(server);
     const registry = new ToolRegistry();
-    let executed = false;
+    let captured: Record<string, unknown> | undefined;
     registry.register({
       definition: {
         name: "send_email",
@@ -149,8 +149,8 @@ describe("template-level preApproveToolNames", () => {
         parameters: {},
         requiresApproval: true,
       },
-      async execute() {
-        executed = true;
+      async execute(args) {
+        captured = args;
         return { ok: true, data: {} };
       },
     });
@@ -163,8 +163,9 @@ describe("template-level preApproveToolNames", () => {
       preApproveToolNames: ["render_tracked_draft", "prepare_outbound_mail"],
     });
 
-    expect(result.turn.status).toBe("awaiting_approval");
-    expect(executed).toBe(false);
+    // 外发不再暂停回合（写待发信）；列表外工具不得被注入 __approved 仍是硬约束。
+    expect(result.turn.status).toBe("completed");
+    expect(captured?.__approved).not.toBe(true);
   });
 
   it("strict mode: name-only list does not inject __approved for apply_surgical_edits", async () => {
@@ -257,7 +258,7 @@ describe("template-level preApproveToolNames", () => {
     const server = await startCassetteModelServer();
     servers.push(server);
     const registry = new ToolRegistry();
-    let executed = false;
+    let captured: Record<string, unknown> | undefined;
     registry.register({
       definition: {
         name: "send_email",
@@ -266,8 +267,8 @@ describe("template-level preApproveToolNames", () => {
         parameters: { to: { type: "string" } },
         requiresApproval: true,
       },
-      async execute() {
-        executed = true;
+      async execute(args) {
+        captured = args;
         return { ok: true, data: {} };
       },
     });
@@ -284,8 +285,11 @@ describe("template-level preApproveToolNames", () => {
       instruction: "请发送邮件",
     });
 
-    expect(result.turn.status).toBe("awaiting_approval");
-    expect(executed).toBe(false);
+    // __approved 是服务端能力位：模型自填副本在 turn 边界剥除。外发不再暂停回合，
+    // 但剥除必须仍然发生——execute 收到的参数里不得带 __approved。
+    expect(result.turn.status).toBe("completed");
+    expect(captured).toBeDefined();
+    expect(captured?.__approved).toBeUndefined();
   });
 
   it("resume pre-approval replaces model args wholesale (no appended keys)", async () => {

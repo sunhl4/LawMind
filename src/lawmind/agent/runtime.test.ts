@@ -63,7 +63,7 @@ describe("runTurn clarification handling", () => {
     await Promise.all(servers.splice(0).map((s) => s.close()));
   });
 
-  it("marks turn as awaiting_clarification when drafting tool returns placeholder questions", async () => {
+  it("draft with placeholder questions completes the turn and lists gaps non-blocking", async () => {
     const workspaceDir = tmpWorkspace();
     const server = await startCassetteModelServer();
     servers.push(server);
@@ -113,14 +113,14 @@ describe("runTurn clarification handling", () => {
       instruction: "请起草一份房屋租赁合同",
     });
 
-    // Soft Ask: intake no longer freezes rental drafts; tools may run.
-    // Tool-returned draft_with_placeholders still pauses for remaining gaps.
-    expect(result.turn.status).toBe("awaiting_clarification");
+    // 端到端口径：带占位的草稿即交付——回合完成，缺口以「待核实」列进回复，
+    // 不进入 awaiting_clarification，也不写 pendingClarificationKeys 冻下一轮。
+    expect(result.turn.status).toBe("completed");
     expect(result.turn.clarificationQuestions?.some((q) => q.key === "rent_and_deposit")).toBe(
       true,
     );
     expect(result.turn.gateDecisions?.some((g) => g.gate === "intake_gate")).toBeFalsy();
-    expect(result.reply).toMatch(/补充|租金|押金/);
+    expect(result.reply).toMatch(/待核实|租金|押金/);
     expect(result.memoryContext).toBeDefined();
     expect(typeof result.memoryContext.profile).toBe("string");
   });
@@ -184,7 +184,8 @@ describe("runTurn clarification handling", () => {
       },
     };
 
-    // Structured intake skips intake-gate; tool may still ask remaining placeholder fields.
+    // Structured intake skips intake-gate; tool may still return placeholder gaps,
+    // which now complete the turn (non-blocking) instead of pausing.
     const first = await runTurn({
       config,
       registry,
@@ -196,7 +197,7 @@ describe("runTurn clarification handling", () => {
 - 租期：2026-01-01 至 2026-12-31
 请起草完整合同。`,
     });
-    expect(first.turn.status).toBe("awaiting_clarification");
+    expect(first.turn.status).toBe("completed");
     expect(first.sessionId).toMatch(/[0-9a-f-]{36}/i);
 
     const reloaded = JSON.parse(
@@ -239,11 +240,12 @@ describe("runTurn strict dangerous tool approval", () => {
     await Promise.all(servers.splice(0).map((s) => s.close()));
   });
 
-  it("awaits approval when strictDangerousToolApproval even if allowDangerousToolsWithoutApproval", async () => {
+  it("strict mode no longer pauses send_email mid-turn; it queues to 待发信 and completes", async () => {
     const workspaceDir = tmpWorkspace();
     const server = await startCassetteModelServer();
     servers.push(server);
     const registry = new ToolRegistry();
+    let ran = false;
     registry.register({
       definition: {
         name: "send_email",
@@ -253,11 +255,12 @@ describe("runTurn strict dangerous tool approval", () => {
         requiresApproval: true,
       },
       async execute() {
+        ran = true;
         return { ok: true, data: { done: true } };
       },
     });
 
-    server.enqueue(cassetteToolCall("send_email"));
+    server.enqueue(cassetteToolCall("send_email"), cassetteAssistant("已写入待发信。"));
 
     const config: AgentConfig = {
       workspaceDir,
@@ -277,7 +280,10 @@ describe("runTurn strict dangerous tool approval", () => {
       instruction: "run risky",
     });
 
-    expect(result.turn.status).toBe("awaiting_approval");
+    // 端到端口径：strict 也不再把回合打成 awaiting_approval——外发进待发清单，
+    // 律师在待发列表批准后才发出；回合照常完成。
+    expect(ran).toBe(true);
+    expect(result.turn.status).toBe("completed");
   });
 
   it("runs send_email when strict is off and allowDangerous bypass is on", async () => {

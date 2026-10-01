@@ -9,20 +9,22 @@
  * close the cycle).
  *
  * WRITE_TOOLS drives the lawyer_approved_write classification (audit / runtime
- * mode). It does not pause the lawyer. Mechanical pause tools live in
- * `IRREVERSIBLE_TOOLS` with disposition `pause`（现仅 `send_email`）。
+ * mode). It does not pause the lawyer. 自 2026-10-01 起没有 disposition `pause`
+ * 的工具：外发一律写入待发清单（inbox_signoff），回合不中断。
  */
 
-/** 不可逆动作处置：pause 打断回合；inbox_signoff 另需批准发送；deny_at_source 场景/工具内硬拒。 */
+/** 不可逆动作处置：pause 打断回合（当前无工具使用）；inbox_signoff 另需批准发送；deny_at_source 场景/工具内硬拒。 */
 export type IrreversibleDisposition = "pause" | "inbox_signoff" | "deny_at_source";
 
 /**
  * 不可逆动作默认集（借鉴评审 D10）。
- * 运行期暂停仍只认 disposition=`pause`（见 `toolRequiresLawyerPause`）；
- * 本表给审批卡「影响面」与文档口径共用，避免各处散落硬编码。
+ * 2026-10-01 起**没有 pause 工具**：外发（send_email）与 prepare_outbound_mail 一样
+ * 只写入本案「待发信」，回合不中断；律师在待发列表点「批准发送」才真正发出
+ * （approve_send 路由直接发送，不恢复回合）。`toolRequiresLawyerPause` 因此恒为
+ * false，保留它只为让审批中间件与风险上限的调用点不必按名特判。
  */
 export const IRREVERSIBLE_TOOLS: Readonly<Record<string, IrreversibleDisposition>> = {
-  send_email: "pause",
+  send_email: "inbox_signoff",
   prepare_outbound_mail: "inbox_signoff",
   delete_matter: "deny_at_source",
   render_document: "deny_at_source",
@@ -39,10 +41,10 @@ export function irreversibleDisposition(
 export function irreversibleImpactLabelZh(toolName?: string | null): string {
   const n = toolName?.trim() ?? "";
   const disposition = irreversibleDisposition(n);
-  if (disposition === "pause" || n === "send_email") {
+  if (disposition === "pause") {
     return "不可逆外发：批准后会真正发出邮件";
   }
-  if (disposition === "inbox_signoff" || n === "prepare_outbound_mail") {
+  if (disposition === "inbox_signoff" || n === "send_email" || n === "prepare_outbound_mail") {
     return "写入待发信：批准发送前不会发出";
   }
   if (n === "delete_matter") {

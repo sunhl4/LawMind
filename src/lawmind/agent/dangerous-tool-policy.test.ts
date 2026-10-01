@@ -63,31 +63,22 @@ describe("dangerous-tool-policy", () => {
     fs.rmSync(ws, { recursive: true, force: true });
   });
 
-  it("only send_email pauses the lawyer; internal production runs through", () => {
-    expect(
-      toolRequiresExplicitApproval({
-        toolName: "send_email",
-        definition: { ...defApproved, name: "send_email" },
-        allowDangerousToolsWithoutApproval: false,
-        strictDangerousToolApproval: false,
-      }),
-    ).toBe(true);
-    expect(
-      toolRequiresExplicitApproval({
-        toolName: "send_email",
-        definition: { ...defApproved, name: "send_email" },
-        allowDangerousToolsWithoutApproval: true,
-        strictDangerousToolApproval: false,
-      }),
-    ).toBe(false);
-    expect(
-      toolRequiresExplicitApproval({
-        toolName: "send_email",
-        definition: { ...defApproved, name: "send_email" },
-        allowDangerousToolsWithoutApproval: true,
-        strictDangerousToolApproval: true,
-      }),
-    ).toBe(true);
+  it("no tool pauses the lawyer mid-turn; outbound mail queues to 待发信 instead", () => {
+    // 2026-10-01 起 send_email  disposition 从 pause 改为 inbox_signoff：
+    // 任何 flag 组合下都不再产生回合中审批暂停；外发写入待发清单，律师在
+    // 待发列表点「批准发送」才真正发出。
+    for (const strict of [false, true]) {
+      for (const allowBypass of [false, true]) {
+        expect(
+          toolRequiresExplicitApproval({
+            toolName: "send_email",
+            definition: { ...defApproved, name: "send_email" },
+            allowDangerousToolsWithoutApproval: allowBypass,
+            strictDangerousToolApproval: strict,
+          }),
+        ).toBe(false);
+      }
+    }
     for (const toolName of [
       "write_document",
       "update_draft",

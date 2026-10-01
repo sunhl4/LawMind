@@ -3,6 +3,9 @@ import { LawmindCreateMatterDialog } from "../LawmindCreateMatterDialog";
 import { LawmindMatterDeleteDialog } from "../LawmindMatterRenameDeleteDialogs";
 import { LawmindDelegateAssistDialog } from "../LawmindDelegateAssistDialog";
 import { LawmindTaskDrawer } from "../LawmindTaskDrawer";
+import { LawmindGlobalSearch } from "../LawmindGlobalSearch";
+import type { CommandPaletteAction } from "../LawmindCommandPalette";
+import type { DeskMatterFocusPane } from "./desk-matter-focus";
 import type { DelegationRow } from "../lawmind-app-data";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
@@ -30,6 +33,10 @@ export type LawmindAppRootDialogsProps = {
   onMatterListChanged: () => void;
   taskDrawerOpen: boolean;
   onCloseTaskDrawer: () => void;
+  globalSearchOpen: boolean;
+  setGlobalSearchOpen: (open: boolean) => void;
+  globalSearchCommands: CommandPaletteAction[];
+  openMatterDossierFromSearch: (matterId: string, pane?: DeskMatterFocusPane) => void;
 };
 
 function LawmindAppRootDialogsImpl({
@@ -55,9 +62,22 @@ function LawmindAppRootDialogsImpl({
   onMatterListChanged,
   taskDrawerOpen,
   onCloseTaskDrawer,
+  globalSearchOpen,
+  setGlobalSearchOpen,
+  globalSearchCommands,
+  openMatterDossierFromSearch,
 }: LawmindAppRootDialogsProps) {
   return (
     <>
+      {apiBase ? (
+        <LawmindGlobalSearch
+          open={globalSearchOpen}
+          onClose={() => setGlobalSearchOpen(false)}
+          apiBase={apiBase}
+          actions={globalSearchCommands}
+          onOpenMatterDossier={openMatterDossierFromSearch}
+        />
+      ) : null}
       {apiBase ? (
         <LawmindDelegateAssistDialog
           open={delegateAssistOpen}

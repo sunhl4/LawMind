@@ -215,12 +215,12 @@ export function createDelegateToRoleTool(opts: {
     definition: {
       name: "delegate_to_role",
       description:
-        "按 Role（岗位）委派子任务。系统会自动选择该 Role 下的可用助手承接，避免你硬编码 assistantId。",
+        "按工作方式（Role）办理子任务。有对应岗位助手时异步委派；没有则返回工作方式包，由本对话或 draft_worker 办理，不要要求律师新建助手。",
       category: "system",
       parameters: {
         role_id: {
           type: "string",
-          description: "目标 Role 的 id，如 contract_review / general_litigation 等",
+          description: "工作方式 id，如 contract_review / general_litigation（不是通讯录人名）",
           required: true,
         },
         task: {
@@ -275,15 +275,28 @@ export function createDelegateToRoleTool(opts: {
       if (!role) {
         return { ok: false, error: `未知 Role：${roleId}` };
       }
+      const fromId = ctx.assistantId ?? "unknown";
       const candidates = findAssistantsByRole(ctx.workspaceDir, role.roleId, ctx.envFile);
-      if (candidates.length === 0) {
+      const target = candidates.find((c) => c.assistantId !== fromId);
+
+      // No separate assistant for this work style → return pack; do not ask lawyer to hire.
+      if (!target) {
+        const { workStylePackFromRole, workStyleFallbackMessage } =
+          await import("../../../core/work-style-pack.js");
+        const pack = workStylePackFromRole(role);
         return {
-          ok: false,
-          error: `当前工作区没有承担「${role.displayName}」(roleId=${role.roleId}) 的助手。请先在设置里添加。`,
+          ok: true,
+          data: {
+            fallback: "work_style_pack",
+            roleId: role.roleId,
+            workStylePack: pack,
+            message: workStyleFallbackMessage(pack),
+            task: brief.brief,
+            matterId,
+            hint: "请按 message 中的工作方式在本对话继续，或调用 draft_worker 开隔离子工。",
+          },
         };
       }
-      const fromId = ctx.assistantId ?? "unknown";
-      const target = candidates.find((c) => c.assistantId !== fromId) ?? candidates[0];
 
       const validationError = validateDelegation({
         fromAssistantId: fromId,
@@ -300,7 +313,7 @@ export function createDelegateToRoleTool(opts: {
         workspaceDir: ctx.workspaceDir,
         fromId,
         toId: target.assistantId,
-        task: `[岗位委派 ${role.displayName}] ${brief.brief}`,
+        task: `[工作方式 ${role.displayName}] ${brief.brief}`,
         matterId,
         priority,
         depth: currentDepth + 1,

@@ -420,34 +420,27 @@ contract_edit_baseline_path=    cases/<id>/mail/attachments/    contextPins
 LawMind 文件页
 ```
 
-### 两个函数共用前四步
+### 单一 Soft Ask 路径（2026-10-01 起）
 
-`resolveIntakeAdvisoryQuestions`（Soft Ask）与 `resolveIntakeClarificationQuestions`（硬闸）**前四步完全一样**：
+`resolveIntakeAdvisoryQuestions` 是唯一的 intake 提问入口（硬闸 `resolveIntakeClarificationQuestions` 已随「交办即终稿」退役）：
 
 ```text
 ① 该跳过 → []
 ② 没有 deliverableType 或没有 questions → []
 ③ 案件记忆已经填过 → []
-④ 是高风险空跑 → 【这里分道】
+④ 返回 questions（一律 Soft Ask，不暂停回合）
 ```
 
-**第 ④ 步是唯一的分岔**：
+**高风险空跑不再分道**：函件 / 诉讼文书且无档案无材料时，问题照样走 advisory 注入；提示词装配层（`turn-orchestrator-prompt.ts`）用 `isHighRiskEmptyRunType` 把 Soft Ask 块升级成「按合理假设起草 + 文中标【待核实】」的指令（见 `router/intake-craft.ts` 的 `formatIntakeSoftAskBlock`）。律师在修订视图改占位，或回一句补充，回合不进入 `awaiting_clarification`。
 
-| 函数     | 高风险空跑时                            |
-| -------- | --------------------------------------- |
-| Soft Ask | 返回 `[]`（**不做软问**，因为要转硬闸） |
-| 硬闸     | 返回 questions（**做硬闸**）            |
-
-**同一份输入，一个负责「不该软问」一个负责「该硬问」**。这样设计的好处是：两个函数可以独立调用，而行为必然互补——不会出现「软问也问、硬闸也问」或者「两个都不问」。
-
-### 高风险空跑的七类白名单
+### 高风险空跑的七类（文案分层，不再硬停）
 
 ```text
 letter.demand  letter.counsel  letter.reply
 litigation.outline  litigation.complaint  litigation.answer  litigation.brief
 ```
 
-**全是「对外文书」**——函件和诉讼文书。因为这几类写错了代价最高（可能直接发出去或提交法院）。
+**全是「对外文书」**——函件和诉讼文书。这几类空跑时 Soft Ask 块升级为「假设起草 + 【待核实】标注」；是否暂停不再按类型决定（一律不停）。
 
 ### 案件记忆「已经填过」的判据
 

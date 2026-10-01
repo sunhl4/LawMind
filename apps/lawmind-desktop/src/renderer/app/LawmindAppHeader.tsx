@@ -14,6 +14,8 @@ export type LawmindAppHeaderProps = {
   assistants: AssistantRow[];
   selectedAssistantId: string;
   onSelectAssistantId: (id: string) => void;
+  /** Firm+ roster packaging. Solo must stay false (single parent agent). */
+  allowMultiAssistantRoster?: boolean;
   matterCockpitOpen: boolean;
   onExitMatterCockpit: () => void;
   onSetMainView: (view: LawmindMainView) => void;
@@ -55,6 +57,7 @@ function LawmindAppHeaderImpl({
   assistants,
   selectedAssistantId,
   onSelectAssistantId,
+  allowMultiAssistantRoster = false,
   matterCockpitOpen,
   onExitMatterCockpit,
   onSetMainView,
@@ -87,8 +90,10 @@ function LawmindAppHeaderImpl({
 }: LawmindAppHeaderProps) {
   /** Sidebar already hosts the settings gear; keep one gear in the header only when the sidebar is unavailable. */
   const showHeaderSettingsGear =
-    sidebarCollapsed || mainView === "review" || mainView === "desk" || mainView === "archive";
-  const showAssistantSwitcher = assistants.length > 1;
+    sidebarCollapsed || mainView === "review" || mainView === "archive";
+  const deskInMiddle = matterCockpitOpen || mainView === "desk";
+  /** Solo: never switch personas. Firm+: only when roster actually has peers. */
+  const showAssistantSwitcher =  allowMultiAssistantRoster && assistants.length > 1;
   const currentAssistant = assistants.find(
     (assistant) => assistant.assistantId === selectedAssistantId,
   );
@@ -98,7 +103,7 @@ function LawmindAppHeaderImpl({
   return (
     <>
       <div
-        className={`lm-main-header lm-main-header-compact${mainView === "review" ? " lm-main-header-review" : ""}${mainView === "desk" ? " lm-main-header-desk" : ""}${settingsOpen ? " lm-main-header-settings" : ""}`}
+        className={`lm-main-header lm-main-header-compact${mainView === "review" ? " lm-main-header-review" : ""}${settingsOpen ? " lm-main-header-settings" : ""}`}
       >
         <div className="lm-main-header-row">
           {settingsOpen ? (
@@ -166,8 +171,8 @@ function LawmindAppHeaderImpl({
               <nav className="lm-tabs lm-main-nav lm-main-nav-compact" aria-label="功能模块">
                 <button
                   type="button"
-                  className={`lm-tab ${mainView === "workspace" && !matterCockpitOpen ? "active" : ""}`}
-                  aria-current={mainView === "workspace" && !matterCockpitOpen ? "page" : undefined}
+                  className={`lm-tab ${mainView === "workspace" && !deskInMiddle ? "active" : ""}`}
+                  aria-current={mainView === "workspace" && !deskInMiddle ? "page" : undefined}
                   data-testid="lm-tab-workspace"
                   onClick={() => {
                     onClearNeedsDecisionFocus?.();
@@ -182,14 +187,14 @@ function LawmindAppHeaderImpl({
                 </button>
                 <button
                   type="button"
-                  className={`lm-tab ${mainView === "desk" ? "active" : ""}`}
-                  aria-current={mainView === "desk" ? "page" : undefined}
+                  className={`lm-tab ${deskInMiddle && (mainView === "workspace" || mainView === "desk") ? "active" : ""}`}
+                  aria-current={deskInMiddle && (mainView === "workspace" || mainView === "desk") ? "page" : undefined}
                   data-testid="lm-tab-desk"
                   onClick={() => {
                     onClearNeedsDecisionFocus?.();
                     onSetMainView("desk");
                   }}
-                  title="案卷与本案档案"
+                  title="在中栏打开案卷，对话留在右侧"
                 >
                   工作台
                 </button>
@@ -222,10 +227,11 @@ function LawmindAppHeaderImpl({
               ) : null}
               <div className="lm-header-spacer" aria-hidden />
               <div className="lm-main-header-right">
-                {mainView === "workspace" ||
-                mainView === "review" ||
-                mainView === "meeting" ||
-                mainView === "agents" ? (
+              {mainView === "workspace" ||
+              mainView === "desk" ||
+              mainView === "review" ||
+              mainView === "meeting" ||
+              mainView === "agents" ? (
                   <div className="lm-main-header-layout-toggles" role="toolbar" aria-label="面板布局">
                     {mainView === "review" ? (
                       <LawmindReviewPaneToggles

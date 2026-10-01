@@ -5,8 +5,8 @@ import {
   instructionLooksLikeFilledIntake,
   instructionRequestsIntakeEscape,
   isHardClarificationKey,
+  isHighRiskEmptyRunType,
   resolveIntakeAdvisoryQuestions,
-  resolveIntakeClarificationQuestions,
   selectHardClarificationKeys,
 } from "./intake-gate.js";
 
@@ -18,12 +18,10 @@ describe("intake-gate", () => {
 - 审查重点：付款与违约
 请按上述交办要点执行。`;
     expect(instructionLooksLikeFilledIntake(prompt)).toBe(true);
-    expect(resolveIntakeClarificationQuestions(prompt)).toEqual([]);
     expect(resolveIntakeAdvisoryQuestions(prompt)).toEqual([]);
   });
 
   it("soft-asks review focus without hard-freezing thin contract review", () => {
-    expect(resolveIntakeClarificationQuestions("请审查这份合同")).toEqual([]);
     const advisory = resolveIntakeAdvisoryQuestions("请审查这份合同");
     expect(advisory.some((q) => q.key === "review_focus" || q.key === "review_materials")).toBe(
       true,
@@ -38,7 +36,6 @@ describe("intake-gate", () => {
       "修改协议，谢谢。",
       "render_tracked_draft",
     ].join("\n");
-    expect(resolveIntakeClarificationQuestions(instruction)).toEqual([]);
     expect(resolveIntakeAdvisoryQuestions(instruction)).toEqual([]);
   });
 
@@ -51,23 +48,24 @@ describe("intake-gate", () => {
   });
 
   it("soft-asks rental draft without hard freeze", () => {
-    expect(resolveIntakeClarificationQuestions("请起草一份租赁合同")).toEqual([]);
     expect(resolveIntakeAdvisoryQuestions("请起草一份租赁合同").length).toBeGreaterThan(0);
   });
 
-  it("hard-gates demand letter without materials", () => {
-    const qs = resolveIntakeClarificationQuestions("请写一份律师函催款");
+  it("demand letter without materials: advisory only, never a hard gate", () => {
+    // 端到端口径：高风险空跑也不再暂停回合；问题走 advisory，模型按假设起草并标【待核实】。
+    const qs = resolveIntakeAdvisoryQuestions("请写一份律师函催款");
     expect(qs.length).toBeGreaterThan(0);
+    expect(isHighRiskEmptyRunType("letter.demand")).toBe(true);
   });
 
-  it("does not pause a generic counsel letter or complaint", () => {
-    expect(resolveIntakeClarificationQuestions("起草一份律师函")).toEqual([]);
-    expect(resolveIntakeClarificationQuestions("写起诉状")).toEqual([]);
+  it("generic counsel letter or complaint: no intake questions when nothing to ask", () => {
+    expect(resolveIntakeAdvisoryQuestions("起草一份律师函")).toEqual([]);
+    expect(resolveIntakeAdvisoryQuestions("写起诉状")).toEqual([]);
   });
 
   it("skips when lawyer requests escape hatch", () => {
     expect(instructionRequestsIntakeEscape("直接做，别再问了")).toBe(true);
-    expect(resolveIntakeClarificationQuestions("请起草一份租赁合同，继续不澄清")).toEqual([]);
+    expect(resolveIntakeAdvisoryQuestions("请起草一份租赁合同，继续不澄清")).toEqual([]);
   });
 
   it("skips when CASE memory already has parties and type", () => {
@@ -84,7 +82,7 @@ describe("intake-gate", () => {
 
   it("respects intakeHeuristicsEnabled=false", () => {
     expect(
-      resolveIntakeClarificationQuestions("请写一份律师函催款", { intakeHeuristicsEnabled: false }),
+      resolveIntakeAdvisoryQuestions("请写一份律师函催款", { intakeHeuristicsEnabled: false }),
     ).toEqual([]);
   });
 
@@ -108,8 +106,8 @@ describe("intake-gate", () => {
     expect(selectHardClarificationKeys(["rent_and_deposit", "addressee"])).toEqual(["addressee"]);
   });
 
-  it("hard-gates litigation outline without materials", () => {
-    const qs = resolveIntakeClarificationQuestions("请写一份起诉状诉讼大纲");
+  it("litigation outline without materials: advisory carries the questions", () => {
+    const qs = resolveIntakeAdvisoryQuestions("请写一份起诉状诉讼大纲");
     expect(qs.length).toBeGreaterThan(0);
   });
 });

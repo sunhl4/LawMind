@@ -167,7 +167,17 @@ export async function findSimilarCaseMemories(opts: {
   currentMatterId?: string;
   limit?: number;
   minScore?: number;
+  /**
+   * Lawyer-initiated desk browse may set true.
+   * Auto prompt injection must omit this and rely on LAWMIND_ALLOW_CROSS_MATTER_SEARCH=1.
+   */
+  allowCrossMatter?: boolean;
 }): Promise<SimilarCaseHit[]> {
+  const crossAllowed =
+    opts.allowCrossMatter === true || process.env.LAWMIND_ALLOW_CROSS_MATTER_SEARCH === "1";
+  if (!crossAllowed) {
+    return [];
+  }
   const queryTokens = tokenizeForRecall(opts.instruction);
   if (queryTokens.length === 0) {
     return [];

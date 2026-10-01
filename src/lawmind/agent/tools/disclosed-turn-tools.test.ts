@@ -356,6 +356,15 @@ x
     expect(names).toContain("list_mail_attachments");
   });
 
+  it("discloses delete_matter when the lawyer asks to delete a matter volume", () => {
+    const names = mergeTurnDisclosedToolNames({
+      session: {},
+      workspaceDir: "/tmp/does-not-need-skills",
+      instruction: "删除这个案件 e2e-skip-first-run-matter",
+    });
+    expect(names).toContain("delete_matter");
+  });
+
   it("discloses update_matter_profile for identity pins", () => {
     const names = mergeTurnDisclosedToolNames({
       session: {},

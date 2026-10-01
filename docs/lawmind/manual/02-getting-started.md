@@ -98,12 +98,13 @@ LawMind 把「应用数据」与「随仓库的开发工作区」刻意分开：
 | 外观       | 浅色或深色、全软件字号，以及审稿是否要您拍板         |
 | 自动办件   | 定时任务与邮箱配置                                   |
 | 记忆库     | 办案沉淀与偏好学习                                   |
-| 助手编制   | 新建、切换与编辑助手                                 |
 | 免责声明   | 使用边界与责任                                       |
 
 版本号和「更新」在设置侧栏底部，不另开一页。本机许可、激活码和开始时的偏好在「账号」。界面出错时弹出说明，可复制后发给帮你看的人。
 
-设置侧栏有「协作」：交出去的活，以及按流程办。已退役、不再出现在侧栏的分区（`SETTINGS_NAV_RETIRED_ITEMS`）：角色说明、作业标准、版本与授权、系统健康、文书模板。日常入口分别是：默认助手、交办时自动带上的内置作业标准（深链只读，不能安装或开关）、设置侧栏底部的版本号、`pnpm lawmind:doctor` 与 `GET /api/health`（原「系统健康」页已拆：Word 连接在设置 → 外观，查找重建与案件档案整理在设置 → 工作区，许可与用量在设置 → 账号）、出稿内置模板。旧深链 id 会自动改道（`lawmind-settings-nav.ts` 的 `readStoredSettingsSection` / `lawmindSettingsSectionFromDomId`）：`review-prefs` → 外观，`host` 与 `doctor` → 工作区，`tools` → 模型与连接，`app-update` → 账号。
+**Solo 默认一位父助手**：设置侧栏不挂「助手编制」（深链仍可开）。**Firm / 私有化**侧栏才显示编制，供组织名册。复杂活由父助手开 `draft_worker` 隔离子工，不必为每个岗位再建人。见 [`docs/LAWMIND-SINGLE-PARENT-AGENT.md`](../../LAWMIND-SINGLE-PARENT-AGENT.md)。
+
+设置侧栏有「协作」：交出去的活，以及按流程办。已退役、不再出现在 Solo 侧栏的分区（`SETTINGS_NAV_RETIRED_ITEMS`）：助手编制、角色说明、作业标准、版本与授权、系统健康、文书模板。日常入口分别是：默认父助手 + 子工、交办时自动带上的内置作业标准（深链只读，不能安装或开关）、设置侧栏底部的版本号、`pnpm lawmind:doctor` 与 `GET /api/health`（原「系统健康」页已拆：Word 连接在设置 → 外观，查找重建与案件档案整理在设置 → 工作区，许可与用量在设置 → 账号）、出稿内置模板。旧深链 id 会自动改道（`lawmind-settings-nav.ts` 的 `readStoredSettingsSection` / `lawmindSettingsSectionFromDomId`）：`review-prefs` → 外观，`host` 与 `doctor` → 工作区，`tools` → 模型与连接，`app-update` → 账号。
 
 ## 2.5 模型与连接配置
 

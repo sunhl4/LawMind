@@ -62,17 +62,18 @@ describe("dangling tool_calls (P0)", () => {
     const registry = new ToolRegistry();
     let mailExecuted = false;
     let writeExecuted = false;
+    // 审批暂停由 execute 返回 approvalRequest 触发（伦理墙 hold 同路径）；
+    // 2026-10-01 起审批中间件不再按工具名暂停 send_email。
     registry.register({
       definition: {
         name: "send_email",
         description: "send mail",
         category: "draft",
         parameters: { to: { type: "string" } },
-        requiresApproval: true,
       },
       async execute() {
         mailExecuted = true;
-        return { ok: true };
+        return { ok: false as const, approvalRequest: true, error: "待律师确认外发。" };
       },
     });
     registry.register({
@@ -96,7 +97,7 @@ describe("dangling tool_calls (P0)", () => {
     });
 
     expect(result.turn.status).toBe("awaiting_approval");
-    expect(mailExecuted).toBe(false);
+    expect(mailExecuted).toBe(true);
     expect(writeExecuted).toBe(false);
 
     // turn 历史：assistant 两个 tool_call 各有配对 tool 消息，第二个是「已跳过」。

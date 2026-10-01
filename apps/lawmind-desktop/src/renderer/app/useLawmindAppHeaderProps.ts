@@ -4,6 +4,7 @@ import type { HealthPayload } from "../lawmind-app-data";
 import type { LawmindMainView } from "../lawmind-main-view";
 import type { ModelCatalogEntry } from "../lawmind-models-api";
 import type { AssistantRow } from "../lawmind-settings-models.ts";
+import { useEdition } from "../use-edition";
 import type { LawmindAppHeaderProps } from "./LawmindAppHeader";
 import { useReviewPaneVisibilityStore } from "../stores/review-pane-visibility-store";
 import { useSettingsPanelStore } from "../stores/settings-panel-store";
@@ -46,6 +47,7 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
   const toggleReviewPane = useReviewPaneVisibilityStore((s) => s.togglePane);
   const showSettings = useSettingsPanelStore((s) => s.open);
   const setShowSettings = useSettingsPanelStore((s) => s.setSettingsPanel);
+  const { features } = useEdition(input.apiBase ?? "");
 
   const {
     mainView,
@@ -86,6 +88,7 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       assistants,
       selectedAssistantId,
       onSelectAssistantId: setSelectedAssistantId,
+      allowMultiAssistantRoster: features.multiAssistantRoster,
       matterCockpitOpen,
       onExitMatterCockpit: () => setMatterCockpitOpen(false),
       onSetMainView: setMainView,
@@ -110,15 +113,18 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       canUseFilesystemBridge,
       onToggleSidebar: () => setSidebarCollapsed((v) => !v),
       onToggleEditor: () => {
-        if (!canUseFilesystemBridge || matterCockpitOpen) {
+        if (!canUseFilesystemBridge) {
+          return;
+        }
+        if (matterCockpitOpen) {
+          setMatterCockpitOpen(false);
+          setWsShowEditor(true);
           return;
         }
         setWsShowEditor((v) => !v);
       },
       onToggleChat: () => {
-        if (!matterCockpitOpen) {
-          setWsShowChat((v) => !v);
-        }
+        setWsShowChat((v) => !v);
       },
       reviewPaneVisibility,
       onToggleReviewPane: toggleReviewPane,
@@ -157,6 +163,7 @@ export function useLawmindAppHeaderProps(input: UseLawmindAppHeaderPropsInput): 
       assistants,
       selectedAssistantId,
       setSelectedAssistantId,
+      features.multiAssistantRoster,
       matterCockpitOpen,
       setMatterCockpitOpen,
       setMainView,

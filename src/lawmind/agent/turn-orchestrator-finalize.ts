@@ -25,7 +25,7 @@ import type { ClarificationQuestion } from "../types.js";
 import { markWorkNeedsLawyer } from "../work/store.js";
 import { appendDeliverableFileLinks } from "./deliverable-chat-links.js";
 import { collectRetrievedAnchors } from "./lawyer-close-anchors.js";
-import { constrainLawyerVisibleReply } from "./lawyer-close.js";
+import { constrainLawyerVisibleReply, lawyerVisibleGaps } from "./lawyer-close.js";
 import { attachPersistedLiveTraceToLastAssistant } from "./live-turn-progress.js";
 import { inspectPersistedSessionHistoryAlignment } from "./session-history-alignment.js";
 import {
@@ -244,6 +244,24 @@ export function finalizeAgentTurn(opts: {
   } else {
     delete session.pendingClarificationKeys;
   }
+
+  // 门禁已判停：本件仍 completed（交办即终稿），缺口写入回复 + 待办卡（非中途打断）。
+  const gateStop = detectGateStop({
+    gateDecisions: turn.gateDecisions,
+    sameTurnVerify: turn.sameTurnVerify,
+  });
+  if (gateStop.stopped && turn.status === "completed") {
+    const visible = lawyerVisibleGaps(gateStop.gaps ?? []);
+    if (visible.length > 0 && !finalReply.includes("【待核实】")) {
+      finalReply = [
+        finalReply.trim(),
+        "",
+        "本轮验收缺口（可直接在修订里改，或回复我补充）：",
+        ...visible.map((gap) => `- 【待核实】${gap}`),
+      ].join("\n");
+    }
+  }
+
   if (turn.status === "completed") {
     finalReply = appendDeliverableFileLinks(finalReply, turn.messages, workspaceDir);
     turn.result = finalReply;
@@ -255,13 +273,6 @@ export function finalizeAgentTurn(opts: {
     ...executionStateFromTurn(turn),
     linkedTaskId: linkedTaskIdForCtx,
   };
-
-  // 门禁已判停：本件转「待律师」，缺口进待办（在办/待拍板可见），
-  // 否则同一份材料会被自动化反复重派、律师也找不到「在等我什么」。
-  const gateStop = detectGateStop({
-    gateDecisions: turn.gateDecisions,
-    sameTurnVerify: turn.sameTurnVerify,
-  });
 
   turn.requiresAction = buildRequiresActionsFromTurn({
     status: turn.status,

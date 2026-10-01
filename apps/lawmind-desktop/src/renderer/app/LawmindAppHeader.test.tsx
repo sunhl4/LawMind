@@ -687,15 +687,15 @@ describe("LawmindAppHeader", () => {
     expect(host.querySelector('[aria-label="面板布局"]')).not.toBeNull();
   });
 
-  it("shows settings gear on 工作台 because the global sidebar is hidden", async () => {
+  it("keeps 工作台 on the chat shell instead of a separate header", async () => {
     await act(async () => {
       root.render(
         <LawmindAppHeader
-          mainView="desk"
+          mainView="workspace"
           assistants={[]}
           selectedAssistantId="a1"
           onSelectAssistantId={vi.fn()}
-          matterCockpitOpen={false}
+          matterCockpitOpen
           onExitMatterCockpit={vi.fn()}
           onSetMainView={vi.fn()}
           apiBase="http://127.0.0.1:8765"
@@ -726,9 +726,11 @@ describe("LawmindAppHeader", () => {
         />,
       );
     });
-    expect(host.querySelector(".lm-main-header-desk")).not.toBeNull();
-    expect(host.querySelector(".lm-main-header-gear-btn")).not.toBeNull();
-    expect(host.querySelector('[aria-label="面板布局"]')).toBeNull();
+    expect(host.querySelector(".lm-main-header-desk")).toBeNull();
+    expect(host.querySelector(".lm-main-header-gear-btn")).toBeNull();
+    expect(host.querySelector('[aria-label="面板布局"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="lm-tab-desk"]')?.getAttribute("aria-current")).toBe("page");
+    expect(host.querySelector('[data-testid="lm-tab-workspace"]')?.getAttribute("aria-current")).toBeNull();
   });
 
   it("shows back button and calls onCloseSettings when settingsOpen", async () => {
@@ -956,11 +958,70 @@ describe("LawmindAppHeader", () => {
     expect(host.querySelector('[data-testid="lm-open-matter-cockpit"]')).toBeNull();
   });
 
+  it("Solo never shows the assistant switcher even when roster has peers", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppHeader
+          mainView="workspace"
+          allowMultiAssistantRoster={false}
+          assistants={[
+            {
+              assistantId: "a1",
+              displayName: "助手 A",
+              introduction: "",
+              createdAt: "",
+              updatedAt: "",
+            },
+            {
+              assistantId: "a2",
+              displayName: "助手 B",
+              introduction: "",
+              createdAt: "",
+              updatedAt: "",
+            },
+          ]}
+          selectedAssistantId="a1"
+          onSelectAssistantId={vi.fn()}
+          matterCockpitOpen={false}
+          onExitMatterCockpit={vi.fn()}
+          onSetMainView={vi.fn()}
+          apiBase="http://127.0.0.1:8765"
+          projectDir={null}
+          currentMatterLabel={null}
+          sidebarCollapsed={false}
+          wsShowEditor
+          wsShowChat
+          canUseFilesystemBridge={false}
+          onToggleSidebar={vi.fn()}
+          onToggleEditor={vi.fn()}
+          onToggleChat={vi.fn()}
+          reviewPaneVisibility={{ meta: true, editor: true, preview: true }}
+          onToggleReviewPane={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onCloseSettings={vi.fn()}
+          settingsOpen={false}
+          showReadinessStrip={false}
+          health={null}
+          workspaceDir="/tmp/ws"
+          localServiceReconnecting={false}
+          modelCatalog={[]}
+          selectedModelId="m1"
+          onOpenApiWizard={vi.fn()}
+          onOpenDoctor={vi.fn()}
+          onVerifyModel={vi.fn()}
+          composeModelQuickTestBusy={false}
+        />,
+      );
+    });
+    expect(host.querySelector('select[aria-label="选择助手"]')).toBeNull();
+  });
+
   it("leaves a hidden assistant out of the daily switcher", async () => {
     await act(async () => {
       root.render(
         <LawmindAppHeader
           mainView="workspace"
+          allowMultiAssistantRoster
           assistants={[
             {
               assistantId: "a1",

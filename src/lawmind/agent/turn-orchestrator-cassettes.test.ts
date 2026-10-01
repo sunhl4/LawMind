@@ -359,25 +359,24 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("intake hard-gate: demand letter does not call the model until the lawyer escapes", async () => {
+  it("intake no longer hard-gates: demand letter drafts on assumptions with 【待核实】 directive in the request", async () => {
     await withTestLawMind(
       (b) => b,
       async (h) => {
+        // 端到端口径：高风险空跑（律师函无档案无材料）不暂停、不追问——
+        // 第一轮请求体必须带「按合理假设起草 + 文中标【待核实】」的 Soft Ask 块。
+        h.enqueue(cassetteAssistant("已按假设起草律师函，文中标了两处【待核实】。"));
         const first = await h.runTurn("请写一份律师函催款");
-        expect(first.turn.status).toBe("awaiting_clarification");
-        expect(h.requests).toHaveLength(0);
-        expect(first.turn.gateDecisions?.some((g) => g.gate === "intake_gate")).toBe(true);
-
-        h.enqueue(cassetteAssistant("按补充继续催款函。"));
-        const second = await h.runTurn("直接做，别再问了。收件人甲公司。");
-        expect(second.turn.status).toBe("completed");
+        expect(first.turn.status).toBe("completed");
         expect(h.requests).toHaveLength(1);
-        expect(h.request(0).contains("直接做")).toBe(true);
+        expect(first.turn.gateDecisions?.some((g) => g.gate === "intake_gate")).toBe(false);
+        expect(h.request(0).contains("待核实")).toBe(true);
+        expect(h.request(0).contains("不要停下等律师回答")).toBe(true);
       },
     );
   });
 
-  it("tool-returned clarification: next request contains the draft tool result, turn pauses", async () => {
+  it("tool-returned clarification: draft with placeholders completes the turn; gaps listed non-blocking", async () => {
     await withTestLawMind(
       (b) =>
         b.withToolExecute("draft_document", async () => ({
@@ -396,12 +395,19 @@ describe("turn-orchestrator cassettes (admission)", () => {
           cassetteAssistant("我已经先生成了一份正式草稿。"),
         );
         const result = await h.runTurn("请起草一份房屋租赁合同，继续不澄清");
-        expect(result.turn.status).toBe("awaiting_clarification");
+        // 端到端口径：草稿带【待核实】占位即交付——回合完成，不进入 awaiting_clarification，
+        // 不写 pendingClarificationKeys（下一轮写工具不冻结），缺口以非阻塞方式列进回复。
+        expect(result.turn.status).toBe("completed");
         expect(h.requests.length).toBeGreaterThanOrEqual(2);
         expect(
           h.request(1).contains("rent_and_deposit") || h.request(1).contains("draft_document"),
         ).toBe(true);
         expect(h.spy?.log.executedNames()).toContain("draft_document");
+        expect(result.turn.clarificationQuestions?.some((q) => q.key === "rent_and_deposit")).toBe(
+          true,
+        );
+        expect(result.reply).toContain("待核实");
+        expect(h.session()?.pendingClarificationKeys ?? []).toEqual([]);
       },
     );
   });
@@ -645,8 +651,9 @@ describe("turn-orchestrator cassettes (admission)", () => {
           matterId: "m-handoff",
         });
 
-        // fail-open 是刻意的（绝不无限循环），但**交接必须诚实**：不假装完成。
-        expect(result.turn.status).toBe("paused");
+        // fail-open 是刻意的（绝不无限循环），交接必须诚实：不挂 continue_tools，也不假装「已完成」。
+        expect(result.turn.status).toBe("completed");
+        expect(result.turn.requiresAction?.some((a) => a.kind === "continue_tools")).toBeFalsy();
         expect(result.reply).toContain("本轮因上下文压力停下");
         expect(result.reply).toContain("本轮已执行");
         // 正确的继续方式必须给出，而不是让律师自己猜。
@@ -880,9 +887,13 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("approval: send_email does not execute; turn awaits 拍板; no extra model round", async () => {
+  it("send_email queues to 待发信 and the turn completes; no mid-turn approval pause", async () => {
     await withTestLawMind(
-      (b) => b,
+      (b) =>
+        b.withToolExecute("send_email", async (args, ctx) => {
+          const { sendEmail } = await import("./tools/legal/mail-tools.js");
+          return sendEmail.execute(args, ctx);
+        }),
       async (h) => {
         h.enqueue(
           cassetteToolCall("send_email", {
@@ -891,14 +902,20 @@ describe("turn-orchestrator cassettes (admission)", () => {
             subject: "函",
             body: "正文",
           }),
-          cassetteAssistant("不该再采样。"),
+          cassetteAssistant("邮件已备好，列入待发信。"),
         );
         const result = await h.runTurn("继续不澄清。把这封函发出去。", { matterId: "m-mail" });
-        expect(result.turn.status).toBe("awaiting_approval");
-        expect(h.spy?.log.executedNames()).not.toContain("send_email");
-        expect(h.requests).toHaveLength(1);
-        expect(h.remainingRounds()).toBe(1);
-        expect(result.turn.pendingToolApproval?.toolName).toBe("send_email");
+        // 端到端口径：外发写入待发清单，回合照常完成；律师在待发列表点「批准发送」
+        // 才真正发出（approve_send 路由直接发送，不恢复回合）。
+        expect(result.turn.status).toBe("completed");
+        expect(h.spy?.log.executedNames()).toContain("send_email");
+        expect(result.turn.pendingToolApproval).toBeUndefined();
+        expect(result.reply).toContain("待发");
+        const { listOpenAutomationInbox } = await import("../platform/lawyer-automations.js");
+        const inbox = listOpenAutomationInbox(h.workspaceDir, "m-mail");
+        const spyCall = h.spy?.log.calls.find((c) => c.name === "send_email");
+        expect(spyCall?.result.ok).toBe(true);
+        expect(inbox.some((item) => item.pendingSend?.to === "a@example.com")).toBe(true);
       },
     );
   });
@@ -1586,7 +1603,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
             },
           });
           expect(result.turn.status).toBe("error");
-          expect(result.reply).toContain("模型调用失败");
+          expect(result.reply).toContain("这一轮没能调用模型");
           expect(events).toContain("model_error");
           expect(events).toContain("final");
           expect(hooks).toContain("model_error");
@@ -2649,7 +2666,10 @@ describe("turn-orchestrator cassettes (admission)", () => {
         );
 
         // 「继续本件」：按稳定 id 找回，原指令进请求体，模型接着办同一件事。
+        // 改稿回合模型收工但还没出痕迹稿 → 隐藏续办一次（export nudge）→ 出稿后收束。
         h.enqueue(cassetteAssistant("接着办：继续按批注落改。"));
+        h.enqueue(cassetteToolCall("render_tracked_draft", { task_id: "task-int" }));
+        h.enqueue(cassetteAssistant("已把带修订的稿写到原文件旁边。"));
         const result = await h.resume({
           sessionId: session.sessionId,
           actionId: "interrupted:turn-interrupted",
@@ -2658,6 +2678,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(result.turn.status).toBe("completed");
         expect(h.request(-1).contains("【从检查点继续】")).toBe(true);
         expect(h.request(-1).contains(original)).toBe(true);
+        expect(h.spy?.log.executedNames()).toContain("render_tracked_draft");
         expect(loadSession(h.workspaceDir, session.sessionId)?.turns[0]?.status).toBe("completed");
       },
     );
@@ -2712,7 +2733,9 @@ describe("turn-orchestrator cassettes (admission)", () => {
 
         // 1) 缺口进律师待办（在办/待拍板可见，点「知道了」即收起）
         const blocked = result.turn.requiresAction?.find((a) => a.kind === "workflow_blocked");
-        expect(blocked?.summary).toContain("需要您处置");
+        expect(blocked?.summary).toContain("本轮稿已交付");
+        expect(blocked?.summary).toContain("【待核实】");
+        expect(blocked?.summary).not.toContain("验证器");
         // 2) 本件状态转「待律师」，不再挂着 running
         expect(findLawyerWork(h.workspaceDir, { sessionId: session.sessionId })?.status).toBe(
           "needs_lawyer",
@@ -2829,15 +2852,19 @@ describe("turn-orchestrator cassettes (admission)", () => {
           data: { hasMore: false, totalChars: 628, content: "甲方将权利义务转让给乙方。" },
         })),
       async (h) => {
+        // 模型收工但没出痕迹稿 → 隐藏续办一次（export nudge）→ 出稿后才收束。
         h.enqueue(same, same, same, same, cassetteAssistant("按已读正文落改。"));
+        h.enqueue(cassetteToolCall("render_tracked_draft", { task_id: "task-wr" }));
+        h.enqueue(cassetteAssistant("已把带修订的稿写到原文件旁边。"));
         const result = await h.runTurn("继续不澄清。请修改这份三方协议.docx，出审阅痕迹修订稿。");
-        expect(h.requests).toHaveLength(5);
+        expect(h.requests).toHaveLength(7);
         expect(
           h.request(3).contains(formatDocumentRereadNudge({ totalChars: 628, wordRevision: true })),
         ).toBe(true);
         expect(h.request(4).contains(formatDocumentRereadContinue({ totalChars: 628 }))).toBe(true);
+        expect(h.request(5).contains("还没有把带修订的 Word")).toBe(true);
         expect(result.turn.status).toBe("completed");
-        expect(result.reply).toContain("按已读正文落改");
+        expect(result.reply).toContain("已把带修订的稿写到原文件旁边");
         expect(result.reply).not.toContain("先停下来");
       },
     );
@@ -2859,7 +2886,8 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(result.turn.status).toBe("completed");
         expect(result.reply).toContain("已经读完");
         expect(result.reply).toContain("原文件旁边");
-        expect(result.reply).toContain("回复「继续」");
+        // 改稿回合到顶直接交付口径：不再要律师回复「继续」。
+        expect(result.reply).toContain("不因此整单停下");
         expect(result.reply).not.toMatch(/[a-z]+_[a-z]+/);
         expect(result.reply).not.toContain("不应再采样");
       },

@@ -141,6 +141,36 @@ describe("redline-proposal", () => {
     expect(readDraft(ws, draft.taskId)?.sections[0]?.body).toBe("再改");
   });
 
+  it("drops a pending hunk when the revision is edited back to the original", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-redline-"));
+    dirs.push(ws);
+    const draft: ArtifactDraft = {
+      taskId: "task-redline-undo-insert",
+      title: "Test",
+      output: "markdown",
+      templateId: "default",
+      summary: "s",
+      sections: [{ heading: "Intro", body: "Original text" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    persistDraft(ws, draft);
+    resetBaseline(ws, draft);
+    draft.sections[0].body = "Original text你好";
+    persistDraft(ws, draft);
+    const gen = generateRedlineProposal(ws, draft.taskId);
+    expect(gen.ok).toBe(true);
+    if (!gen.ok) {
+      return;
+    }
+    const hunkId = gen.proposal.hunks[0].hunkId;
+    const revised = revisePendingRedlineHunk(ws, draft.taskId, hunkId, "Original text");
+    expect(revised.ok).toBe(true);
+    expect(readRedlineProposal(ws, draft.taskId)?.hunks).toEqual([]);
+    expect(readDraft(ws, draft.taskId)?.sections[0]?.body).toBe("Original text");
+  });
+
   it("lets a resolved hunk switch between accept and reject", () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-redline-"));
     dirs.push(ws);

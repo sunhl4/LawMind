@@ -55,7 +55,8 @@ describe("detectGateStop", () => {
     expect(stop.stopped).toBe(true);
     expect(stop.codes).toContain("guardian_fail");
     expect(stop.gaps?.[0]).toContain("交给律师");
-    expect(formatGateStopSummary(stop)).toContain("没有出 Word");
+    expect(formatGateStopSummary(stop)).toContain("本轮稿已交付");
+    expect(formatGateStopSummary(stop)).toContain("【待核实】");
     expect(formatGateStopSummary(stop)).not.toContain("独立审稿");
     expect(formatGateStopSummary(stop)).not.toContain("验证器");
   });

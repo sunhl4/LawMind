@@ -184,3 +184,64 @@ export function draftSectionsOf(draft: Pick<ArtifactDraft, "sections">): Array<{
 }> {
   return draft.sections.map((s) => ({ heading: s.heading, body: s.body }));
 }
+
+/**
+ * Word 修订面 / Control+S 同步：按段落成对写入学习通道。
+ * 不弹确认框；范例静默落盘，偏好候选进设置深处的待确认队列。
+ *
+ * 段落对直接当 delta（不再做公共前缀/后缀裁剪）：修订面已经是「最小改动段」，
+ * 再裁会把「三十」→「十五个工作」裁成过短，范例通道会静默丢掉。
+ */
+export async function captureParagraphEditLearning(params: {
+  workspaceDir: string;
+  auditDir: string;
+  taskId: string;
+  paragraphs: ReadonlyArray<{ before: string; after: string }>;
+  deliverableType?: string;
+  matterId?: string;
+  reviewNote?: string;
+}): Promise<MemoryAdoptionRecord[]> {
+  const deltas: DraftEditDelta[] = [];
+  for (const row of params.paragraphs) {
+    const before = row.before.replace(/\s+/g, " ").trim();
+    const after = row.after.replace(/\s+/g, " ").trim();
+    if (!before || before === after || after.length < MIN_DELTA_CHARS) {
+      continue;
+    }
+    deltas.push({
+      sectionHeading: `修订段 ${deltas.length + 1}`,
+      removed: before,
+      added: after,
+    });
+  }
+  if (deltas.length === 0) {
+    return [];
+  }
+
+  const examples = toEditExamples({
+    taskId: params.taskId,
+    ...(params.matterId ? { matterId: params.matterId } : {}),
+    ...(params.deliverableType ? { deliverableType: params.deliverableType } : {}),
+    ...(params.reviewNote ? { reviewNote: params.reviewNote } : {}),
+    deltas,
+  });
+  recordEditExamples(params.workspaceDir, examples);
+
+  const candidates = formatEditLearningCandidates(deltas);
+  const created: MemoryAdoptionRecord[] = [];
+  const matterId = params.matterId?.trim();
+  for (const candidate of candidates) {
+    const dealSpecific = isDealSpecificLearningText(candidate);
+    const rec = await suggestMemoryAdoption(params.workspaceDir, params.auditDir, {
+      scope: dealSpecific && matterId ? "matter" : "lawyer",
+      kind: dealSpecific && matterId ? "case.progress" : "lawyer.profile_learning",
+      payload: candidate,
+      ...(dealSpecific && matterId ? { targetId: matterId } : {}),
+      sourceTaskId: params.taskId,
+      origin: "lawyer",
+      note: dealSpecific ? "deal_specific" : candidate,
+    });
+    created.push(rec);
+  }
+  return created;
+}

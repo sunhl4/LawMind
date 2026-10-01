@@ -25,9 +25,11 @@ describe("action-pre-review", () => {
     expect(resolveActionPreReviewMode({ LAWMIND_ACTION_PRE_REVIEW: "on" })).toBe("on");
   });
 
-  it("classifies send_email as ask but not owned by this layer", () => {
+  it("classifies send_email as inbox_signoff: allow here, send happens from the 待发 list", () => {
+    // 2026-10-01 起 send_email 只写入待发信（inbox_signoff），本层不问、不记。
     const c = classifyActionForPreReview("send_email");
-    expect(c.recommend).toBe("ask");
+    expect(c.recommend).toBe("allow");
+    expect(c.reasonZh).toContain("待发信");
     expect(c.ownedByThisLayer).toBe(false);
   });
 
@@ -65,7 +67,7 @@ describe("action-pre-review", () => {
         alreadyApproved: false,
         mode: "on",
       }),
-    ).toMatchObject({ shouldAsk: false, shouldRecord: true });
+    ).toMatchObject({ shouldAsk: false, shouldRecord: false });
   });
 
   it("records shadow lines under lawmind/decision/", () => {

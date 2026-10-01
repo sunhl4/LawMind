@@ -17,8 +17,8 @@ import {
   applySameTurnVerifyHistoryCollapse,
   collapseSameTurnVerifyHistoryForTurnEnd,
   formatSameTurnCompletionBounce,
+  formatSameTurnVerifyCapDeliver,
   formatSameTurnVerifyLawyerProgress,
-  formatSameTurnVerifyPaused,
   shouldBounceSameTurnCompletion,
   shouldPauseSameTurnVerify,
 } from "../runtime/same-turn-verify.js";
@@ -880,12 +880,18 @@ export async function runModelToolLoop(opts: {
 
     if (!toolCalls || toolCalls.length === 0) {
       if (pendingClarificationQuestions.length > 0) {
+        // 端到端口径：带占位的草稿已经生成（draft_with_placeholders），缺口标进
+        // 回复与交付物，回合照常完成——律师在修订里改或回一句补充，不再进入
+        // awaiting_clarification，也不写 pendingClarificationKeys（不冻下一轮）。
+        // iCloud 下载提问不走路径这里：工具轮已直接把回合置为 awaiting_clarification。
         finalReply = buildClarificationReply(
           assistantMsg.content ?? "",
           pendingClarificationQuestions,
+          "草稿已生成，以下要点已在文中标【待核实】（可直接在修订里改，或回复我补充）：",
         );
-        opts.turn.status = "awaiting_clarification";
         opts.turn.clarificationQuestions = pendingClarificationQuestions;
+        pendingClarificationQuestions = [];
+        opts.turn.status = "completed";
         break;
       }
       if (shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)) {
@@ -898,13 +904,12 @@ export async function runModelToolLoop(opts: {
           ),
         });
         if (shouldPauseSameTurnVerify(opts.turn.sameTurnVerify)) {
-          if (opts.ctx.wordRevisionTurn === true) {
-            opts.turn.status = "completed";
-            finalReply = formatWordRevisionCapStop();
-          } else {
-            opts.turn.status = "paused";
-            finalReply = formatSameTurnVerifyPaused(opts.turn.sameTurnVerify!);
-          }
+          // Bounce budget exhausted: deliver with gaps — never mid-delivery continue_tools.
+          opts.turn.status = "completed";
+          finalReply =
+            opts.ctx.wordRevisionTurn === true
+              ? formatWordRevisionCapStop()
+              : formatSameTurnVerifyCapDeliver(opts.turn.sameTurnVerify!);
           break;
         }
         const bounce = formatSameTurnCompletionBounce(opts.turn.sameTurnVerify!);
@@ -973,8 +978,8 @@ export async function runModelToolLoop(opts: {
           detail: deferralText.trim().slice(0, 200),
           meta: { bounces: bounces, toolCallsExecuted: opts.turn.toolCallsExecuted },
         });
-        // 回弹用尽的这一轮不再冒充「已完成」的正文：置为 paused，交给律师定夺要不要带上文续办。
-        opts.turn.status = "paused";
+        // 回弹用尽：结构化交接事实交给律师（另起对话续办），不挂 continue_tools 中断卡。
+        opts.turn.status = "completed";
         finalReply = formatContextDeferralHandoff({
           toolCallsExecuted: opts.turn.toolCallsExecuted,
           planOpen,
@@ -1154,21 +1159,21 @@ export async function runModelToolLoop(opts: {
             verifyState.issues.map((issue) => issue.code),
           ),
         });
-        if (opts.ctx.wordRevisionTurn === true) {
-          opts.turn.status = "completed";
-          finalReply = formatWordRevisionCapStop();
-        } else {
-          opts.turn.status = "paused";
-          finalReply = formatSameTurnVerifyPaused(verifyState);
-        }
+        opts.turn.status = "completed";
+        finalReply =
+          opts.ctx.wordRevisionTurn === true
+            ? formatWordRevisionCapStop()
+            : formatSameTurnVerifyCapDeliver(verifyState);
       } else if (pendingClarificationQuestions.length > 0) {
-        opts.turn.status = "awaiting_clarification";
+        // 步数到顶但草稿已带占位：照样交付，缺口列进回复（非阻塞），不暂停。
+        opts.turn.status = "completed";
         opts.turn.clarificationQuestions = pendingClarificationQuestions;
         finalReply = buildClarificationReply(
           assistantMsg.content ?? "",
           pendingClarificationQuestions,
-          "已生成带待补充项的正式草稿，但当前轮次已达到办理上限。为完成最终交付，请补充：",
+          "已生成带【待核实】标注的草稿（本轮步数已到上限）。以下要点可直接在修订里改，或回复我补充：",
         );
+        pendingClarificationQuestions = [];
       } else if (opts.ctx.wordRevisionTurn === true) {
         opts.turn.status = "completed";
         const said = assistantMsg.content?.trim();

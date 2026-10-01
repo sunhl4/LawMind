@@ -218,6 +218,8 @@ export async function openReviewDraft(page: Page, _taskId = "e2e-draft-1"): Prom
   const desk = page.getByRole("navigation", { name: "功能模块" }).getByTestId("lm-tab-desk");
   await desk.click();
   await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("lm-chat-drop-zone")).toBeVisible();
+  await expect(page.locator(".lm-side")).toBeVisible();
   await expect(page.getByTestId("lm-tab-agents")).toHaveCount(0);
 }
 

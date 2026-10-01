@@ -47,6 +47,8 @@ export async function listSimilarCasesForDesk(opts: {
     currentMatterId: opts.matterId,
     limit: 5,
     minScore: 0.12,
+    // Lawyer opened 相关旧案 — intentional browse, not auto prompt inject.
+    allowCrossMatter: true,
   });
   return hits.map((hit) => {
     let causeOfAction: string | undefined;

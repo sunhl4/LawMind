@@ -86,7 +86,7 @@ describe("same-turn verify cassette", () => {
     );
   });
 
-  it("refusing to retry after empty hunk pauses the turn instead of completing", async () => {
+  it("refusing to retry after empty hunk delivers with gaps instead of pausing", async () => {
     const calls: Array<{ pending: number; craft?: unknown }> = [];
     await withTestLawMind(
       (b) =>
@@ -106,20 +106,22 @@ describe("same-turn verify cassette", () => {
         }
         const result = await h.runTurn("请按词修订这份合同，继续不澄清");
         expect(calls).toHaveLength(1);
-        expect(result.turn.status).toBe("paused");
-        expect(result.turn.requiresAction?.some((a) => a.kind === "continue_tools")).toBe(true);
-        expect(result.reply).toContain("点继续，我会接着改完再交给您。");
+        expect(result.turn.status).toBe("completed");
+        expect(result.turn.requiresAction?.some((a) => a.kind === "continue_tools")).toBeFalsy();
+        expect(result.reply).toContain("本轮稿件已交付");
+        expect(result.reply).toContain("【待核实】");
+        expect(result.reply).not.toContain("点继续");
         expect(result.reply).not.toContain(SAME_TURN_VERIFY_USER_PREFIX);
         expect(result.reply).not.toMatch(/^已完成/);
         expect(h.request(1).contains(SAME_TURN_VERIFY_USER_PREFIX)).toBe(true);
-        const paused = h.session();
-        expect(paused).toBeDefined();
+        const delivered = h.session();
+        expect(delivered).toBeDefined();
         expect(
-          paused!.conversationHistory.filter((m) =>
+          delivered!.conversationHistory.filter((m) =>
             m.content.startsWith(SAME_TURN_VERIFY_USER_PREFIX),
           ),
         ).toHaveLength(0);
-        const digests = paused!.conversationHistory.filter((m) =>
+        const digests = delivered!.conversationHistory.filter((m) =>
           m.content.startsWith(SAME_TURN_VERIFY_DIGEST_PREFIX),
         );
         expect(digests).toHaveLength(1);
@@ -230,7 +232,7 @@ describe("same-turn verify cassette", () => {
     );
   });
 
-  it("soft budget while verify is red pauses instead of completing", async () => {
+  it("soft budget while verify is red delivers with gaps instead of pausing", async () => {
     await withTestLawMind(
       (b) =>
         b.withMaxToolCalls(1).withToolExecute("apply_surgical_edits", async () => ({
@@ -243,8 +245,10 @@ describe("same-turn verify cassette", () => {
         );
         h.enqueue(cassetteAssistant("已完成。"));
         const result = await h.runTurn("请按词修订这份合同，继续不澄清");
-        expect(result.turn.status).toBe("paused");
-        expect(result.reply).toContain("点继续，我会接着改完再交给您。");
+        expect(result.turn.status).toBe("completed");
+        expect(result.reply).toContain("本轮稿件已交付");
+        expect(result.reply).toContain("【待核实】");
+        expect(result.reply).not.toContain("点继续");
         expect(result.reply).not.toContain(SAME_TURN_VERIFY_USER_PREFIX);
         expect(result.reply).not.toMatch(/^已完成/);
       },

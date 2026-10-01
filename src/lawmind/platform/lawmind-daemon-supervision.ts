@@ -137,3 +137,11 @@ export function describeDaemonExitForLawyer(
 export function describeDaemonGiveUpForLawyer(reason: string, attempts: number): string {
   return `后台办件连续失败 ${attempts} 次后已停止重试。这段时间的自动办件没有运行，请打开桌面查看日志后再决定是否继续。`;
 }
+
+/** 只认「放弃重试」与「心跳过期」。自动恢复不打扰。 */
+export function shouldNotifyDaemonIncident(status: {
+  supervisionGaveUp?: boolean;
+  heartbeatStale?: boolean;
+}): boolean {
+  return Boolean(status.supervisionGaveUp) || Boolean(status.heartbeatStale);
+}

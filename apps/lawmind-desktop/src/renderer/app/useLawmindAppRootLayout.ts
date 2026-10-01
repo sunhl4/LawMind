@@ -23,6 +23,8 @@ import {
   useLawmindFileWorkbenchHostProps,
 } from "./useLawmindAppRootDialogsProps";
 import { tryClarifyAttachSession } from "../lawmind-clarify-bring-in-bus";
+import type { DeskMatterFocus, DeskMatterFocusPane } from "./desk-matter-focus";
+import type { CommandPaletteAction } from "../LawmindCommandPalette";
 
 type ShellBundle = ReturnType<typeof useLawmindAppShell>;
 type RecordsDesk = ReturnType<typeof useLawmindRecordsDeskMatters>;
@@ -43,10 +45,8 @@ export type LawmindAppRootLayoutInput = {
   openReviewFromWorkspace: (target?: { taskId?: string; matterId?: string }) => void;
   matterCockpitOpen: boolean;
   setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  deskMatterFocus: { id: string; n: number; pane?: "docs" } | null;
-  setDeskMatterFocus: React.Dispatch<
-    React.SetStateAction<{ id: string; n: number; pane?: "docs" } | null>
-  >;
+  deskMatterFocus: DeskMatterFocus;
+  setDeskMatterFocus: React.Dispatch<React.SetStateAction<DeskMatterFocus>>;
   reviewLaunchedFromMatter: boolean;
   setReviewLaunchedFromMatter: (v: boolean) => void;
   agentsDeskTab: AgentsDeskTab;
@@ -102,6 +102,10 @@ export type LawmindAppRootLayoutInput = {
   setMatterDeleteOpen: (value: { matterId: string; label: string } | null) => void;
   taskDrawerOpen: boolean;
   setTaskDrawerOpen: (open: boolean) => void;
+  globalSearchOpen: boolean;
+  setGlobalSearchOpen: (open: boolean) => void;
+  globalSearchCommands: CommandPaletteAction[];
+  openMatterDossierFromSearch: (matterId: string, pane?: DeskMatterFocusPane) => void;
   setUiPrefsVersion: React.Dispatch<React.SetStateAction<number>>;
 };
 
@@ -273,19 +277,17 @@ export function useLawmindAppRootLayout(
     }
     recordsDeskMatters.setSelectedKey(mid);
     setContextMatterId(mid);
-    input.setMatterCockpitOpen(false);
     input.setDeskMatterFocus((prev) => ({ id: mid, n: (prev?.n ?? 0) + 1 }));
     setMainView("desk");
   };
 
   const openNeedsDecisionInbox = useCallback(() => {
-    input.setMatterCockpitOpen(false);
     const mid = contextMatterId?.trim();
     if (mid) {
       input.setDeskMatterFocus((prev) => ({ id: mid, n: (prev?.n ?? 0) + 1, pane: "docs" }));
     }
     setMainView("desk");
-  }, [contextMatterId, input.setDeskMatterFocus, input.setMatterCockpitOpen, setMainView]);
+  }, [contextMatterId, input.setDeskMatterFocus, setMainView]);
 
   const headerProps = useLawmindAppHeaderProps({
     mainView,
@@ -619,7 +621,6 @@ export function useLawmindAppRootLayout(
       return selectChatSession(sessionId);
     },
     onCreateNewChatSession: () => {
-      input.setMatterCockpitOpen(false);
       setMainView("workspace");
       return createNewChatSession();
     },
@@ -650,6 +651,10 @@ export function useLawmindAppRootLayout(
     setContextMatterId,
     taskDrawerOpen: input.taskDrawerOpen,
     setTaskDrawerOpen: input.setTaskDrawerOpen,
+    globalSearchOpen: input.globalSearchOpen,
+    setGlobalSearchOpen: input.setGlobalSearchOpen,
+    globalSearchCommands: input.globalSearchCommands,
+    openMatterDossierFromSearch: input.openMatterDossierFromSearch,
     openNewAssistant,
     openMatterOnDesk,
   });

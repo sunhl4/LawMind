@@ -142,7 +142,9 @@ describe("buildCarryoverDraft", () => {
     expect(draft.migrated.disclosedToolNames).toEqual(["apply_surgical_edits"]);
 
     expect(draft.frame).toContain(CARRYOVER_SEED_MARKER);
-    expect(draft.frame).toContain("待澄清键（仍生效，未答齐前不得起草/渲染）");
+    expect(draft.frame).toContain(
+      "待澄清键（缺口标【待核实】进稿，不因此停写；律师可在修订里改或回一句补充）",
+    );
     expect(draft.frame).toContain("竞业限制补偿标准");
     expect(draft.frame).toContain("己方立场=委托方");
     expect(draft.frame).toContain("进行中 写解除条款");

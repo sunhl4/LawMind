@@ -4,8 +4,11 @@ import type { RootKey } from "../file/file-workbench-types";
 import type { LawmindMainView } from "../lawmind-main-view";
 import { tryClarifyAttachFile } from "../lawmind-clarify-bring-in-bus";
 import { requestContractFastLaneOpen } from "../lawmind-contract-fast-lane-bus";
+import { useEdition } from "../use-edition";
 import type { LawmindAppRootDialogsProps } from "./LawmindAppRootDialogs";
 import type { LawmindFileWorkbenchHostProps } from "./LawmindFileWorkbenchHost";
+import type { CommandPaletteAction } from "../LawmindCommandPalette";
+import type { DeskMatterFocusPane } from "./desk-matter-focus";
 
 export type UseLawmindAppRootDialogsPropsInput = {
   apiBase: string | undefined;
@@ -29,6 +32,10 @@ export type UseLawmindAppRootDialogsPropsInput = {
   setContextMatterId: (id: string | null) => void;
   taskDrawerOpen: boolean;
   setTaskDrawerOpen: (open: boolean) => void;
+  globalSearchOpen: boolean;
+  setGlobalSearchOpen: (open: boolean) => void;
+  globalSearchCommands: CommandPaletteAction[];
+  openMatterDossierFromSearch: (matterId: string, pane?: DeskMatterFocusPane) => void;
   openNewAssistant: () => void;
   /** After create: open 工作台本案卷宗 so the new case is visible immediately. */
   openMatterOnDesk?: (matterId: string) => void;
@@ -37,6 +44,7 @@ export type UseLawmindAppRootDialogsPropsInput = {
 export function useLawmindAppRootDialogsProps(
   input: UseLawmindAppRootDialogsPropsInput,
 ): LawmindAppRootDialogsProps {
+  const { features } = useEdition(input.apiBase ?? "");
   const {
     apiBase,
     delegateAssistOpen,
@@ -59,6 +67,10 @@ export function useLawmindAppRootDialogsProps(
     setContextMatterId,
     taskDrawerOpen,
     setTaskDrawerOpen,
+    globalSearchOpen,
+    setGlobalSearchOpen,
+    globalSearchCommands,
+    openMatterDossierFromSearch,
     openNewAssistant,
     openMatterOnDesk,
   } = input;
@@ -83,10 +95,12 @@ export function useLawmindAppRootDialogsProps(
           body: `已委派给「${toDisplayName}」，完成后会在本对话出现结果。`,
         });
       },
-      onCreateAssistant: () => {
-        setDelegateAssistOpen(false);
-        openNewAssistant();
-      },
+      onCreateAssistant: features.multiAssistantRoster
+        ? () => {
+            setDelegateAssistOpen(false);
+            openNewAssistant();
+          }
+        : undefined,
       createMatterOpen,
       onCloseCreateMatter: () => setCreateMatterOpen(false),
       onCreateMatterSuccess: (mid) => {
@@ -104,6 +118,10 @@ export function useLawmindAppRootDialogsProps(
       onMatterListChanged: () => setMatterRefreshVersion((v) => v + 1),
       taskDrawerOpen,
       onCloseTaskDrawer: () => setTaskDrawerOpen(false),
+      globalSearchOpen,
+      setGlobalSearchOpen,
+      globalSearchCommands,
+      openMatterDossierFromSearch,
     }),
     [
       apiBase,
@@ -127,8 +145,13 @@ export function useLawmindAppRootDialogsProps(
       setContextMatterId,
       taskDrawerOpen,
       setTaskDrawerOpen,
+      globalSearchOpen,
+      setGlobalSearchOpen,
+      globalSearchCommands,
+      openMatterDossierFromSearch,
       openNewAssistant,
       openMatterOnDesk,
+      features.multiAssistantRoster,
     ],
   );
 }

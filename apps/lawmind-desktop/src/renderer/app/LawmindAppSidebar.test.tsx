@@ -186,7 +186,7 @@ describe("LawmindAppSidebar", () => {
     expect(host.querySelector("[data-testid='lm-cockpit-nav']")).toBeNull();
   });
 
-  it("工作台不占用全局侧栏（案件在驾驶舱内）", async () => {
+  it("工作台在中栏时左栏仍是会话，不另铺案件列表", async () => {
     await act(async () => {
       root.render(
         <LawmindAppSidebar
@@ -207,8 +207,7 @@ describe("LawmindAppSidebar", () => {
     });
     expect(host.querySelector(".lm-matter-sidebar-list")).toBeNull();
     expect(host.textContent).not.toContain("借贷案");
-    expect(host.querySelector('[aria-label="材料资源树"]')).toBeNull();
-    expect(host.querySelector('[data-testid="lm-side-chat-sessions"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-side-chat-sessions"]')).toBeTruthy();
   });
 
   it("shows the LawMind mark beside the product name", async () => {

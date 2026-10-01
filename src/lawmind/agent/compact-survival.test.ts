@@ -15,7 +15,7 @@
  *
  * 1. **法条引用**仍在（`### 压缩前引用` 锚点，可跨轮传递）；
  * 2. **律师的原始指令**仍在（要点提取保留律师发言）；
- * 3. **待澄清键**仍以「仍生效」的措辞在场（丢了就等于静默放开起草硬门禁）；
+ * 3. **待澄清键**仍以「缺口标【待核实】进稿」的措辞在场（交办即终稿：不因缺口停写，但键不得静默消失）；
  * 4. **红线重注**在场（规则/交付/工艺约束不因摘要而失效）；
  * 5. 每轮都**真的压缩了**（否则这个测试会退化成「什么都没发生也通过」）。
  */
@@ -129,9 +129,11 @@ function assertInvariants(session: AgentSession, round: number): void {
   expect(text.includes("三方义务分配"), `第 ${round} 轮：任务陈述仅存于嵌套摘要里`).toBe(true);
   expect(
     session.conversationHistory.some(
-      (m) => (m.content ?? "").includes(CLARIFY_KEY) && (m.content ?? "").includes("仍生效"),
+      (m) =>
+        (m.content ?? "").includes(CLARIFY_KEY) &&
+        (m.content ?? "").includes("缺口标【待核实】进稿"),
     ),
-    `第 ${round} 轮：待澄清键失了「仍生效」措辞（等于静默放开起草门禁）`,
+    `第 ${round} 轮：待澄清键失了「缺口标【待核实】」措辞（等于静默丢掉缺口）`,
   ).toBe(true);
   expect(text, `第 ${round} 轮：红线重注丢了`).toContain("压缩后红线重注（仍有效）");
 }

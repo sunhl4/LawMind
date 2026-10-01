@@ -31,15 +31,28 @@ export function revisionPieces(before: string, after: string): RevisionPiece[] {
   return pieces;
 }
 
-/** Edit the one changed fragment without replacing the whole sentence in storage. */
-export function replaceSingleChange(before: string, after: string, nextPiece: string): string {
+/** Edit one changed fragment. The stored sentence keeps the unchanged characters. */
+export function replaceChangeAfter(
+  before: string,
+  after: string,
+  changeIndex: number,
+  nextAfter: string,
+): string {
   const spans = computeMinimalEditSpans(before, after);
-  if (spans.length !== 1) {
-    return nextPiece;
+  if (spans.length === 0) {
+    return nextAfter;
   }
-  const span = spans[0];
+  const span = spans[changeIndex];
   if (!span) {
-    return nextPiece;
+    return after;
   }
-  return before.slice(0, span.spanStart) + nextPiece + before.slice(span.spanEnd);
+  let result = "";
+  let cursor = 0;
+  spans.forEach((item, index) => {
+    result += before.slice(cursor, item.spanStart);
+    result += index === changeIndex ? nextAfter : item.after;
+    cursor = item.spanEnd;
+  });
+  result += before.slice(cursor);
+  return result;
 }

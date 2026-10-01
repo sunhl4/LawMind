@@ -1,6 +1,7 @@
 /**
- * 待拍板口径：只拦「从律师这边发出去」的路径。
- * 内部起草 / 审查 / 改稿直接出结果，律师再改或吩咐再做一轮。
+ * 待拍板口径：外发不再打断回合。
+ * 内部起草 / 审查 / 改稿 / 外发拟稿都直接出结果——外发写入本案「待发信」，
+ * 律师在待发列表核对后点「批准发送」才真正发出；回合一律照常完成。
  */
 
 import { irreversibleDisposition, irreversibleImpactLabelZh } from "../agent/tool-name-sets.js";
@@ -75,7 +76,7 @@ export function workflowTemplateIsOutbound(input: {
   return /prepare_outbound_mail|send_email/.test(blob);
 }
 
-/** 工具门禁：只有 disposition=`pause` 的不可逆动作才打断律师（现仅 send_email）。 */
+/** 工具门禁：自 2026-10-01 起没有 disposition=`pause` 的工具，本函数恒为 false。 */
 export function toolRequiresLawyerPause(name?: string | null): boolean {
   return irreversibleDisposition(name) === "pause";
 }

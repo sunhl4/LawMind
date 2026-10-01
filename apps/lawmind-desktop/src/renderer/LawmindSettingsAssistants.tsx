@@ -27,6 +27,8 @@ type Props = {
   onDuplicate: () => void;
   /** 置顶或从日常切换隐藏。隐藏不删除对话与交付物。 */
   onPatchRoster: (assistantId: string, patch: { pinned?: boolean; hidden?: boolean }) => void;
+  /** Firm+ only. Solo shows single-parent editor (no hire / duplicate / persona grid). */
+  allowMultiAssistantRoster?: boolean;
 };
 
 type ProfileSection = {
@@ -72,8 +74,10 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
     onDuplicate,
     onRemove,
     onPatchRoster,
+    allowMultiAssistantRoster = false,
   } = props;
   const empty = assistants.length === 0;
+  const multi =  allowMultiAssistantRoster;
   const [sections, setSections] = useState<ProfileSection[] | null>(null);
   const [shareNote, setShareNote] = useState<string | null>(null);
   const [rosterQuery, setRosterQuery] = useState("");
@@ -215,6 +219,16 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
   );
 
   const roster = useMemo(() => sortAssistantsForRoster(assistants), [assistants]);
+  const visibleRoster = useMemo(() => {
+    if (multi) {
+      return roster;
+    }
+    const current =
+      roster.find((a) => a.assistantId === selectedAssistantId) ??
+      roster.find((a) => a.assistantId === DEFAULT_ASSISTANT_ID) ??
+      roster[0];
+    return current ? [current] : [];
+  }, [multi, roster, selectedAssistantId]);
 
   const personaHints = useMemo(() => {
     const map = new Map<string, number>();
@@ -230,7 +244,9 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
   return (
     <div className="lm-settings-section lm-assistants-settings" data-testid="lm-settings-assistants">
       <p className="lm-settings-lead">
-        置顶的助手排在前面。隐藏只是不出现在顶栏切换里，对话、案件和交付物都还在。
+        {multi
+          ? "律所可编制多名助手。日常办案仍以一位父助手为主；复杂活优先用隔离子工。置顶排在前面；隐藏只影响顶栏切换。"
+          : "独立律师版只需一位父助手。可改名称与职务说明；复杂活在对话里开子工并行，不必再建人。"}
       </p>
       <label className="lm-assistants-search">
         <span>在名册里找办过的事</span>
@@ -265,12 +281,14 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
         {empty ? (
           <div className="lm-memory-empty lm-memory-empty--compact" role="status">
             <p className="lm-memory-empty__title">还没有助手</p>
-            <p className="lm-memory-empty__desc">点下方业务领域，或「新建助手」开始。</p>
+            <p className="lm-memory-empty__desc">
+              {multi ? "点下方业务领域，或「新建助手」开始。" : "打开应用后会自动就绪一位父助手。"}
+            </p>
           </div>
         ) : (
           <div className="lm-assistants-current">
-            <ul className="lm-assistants-roster" aria-label="助手名册">
-              {roster.map((assistant) => {
+            <ul className="lm-assistants-roster" aria-label={multi ? "助手名册" : "当前父助手"}>
+              {visibleRoster.map((assistant) => {
                 const selected = assistant.assistantId === selectedAssistantId;
                 const pinned = assistant.pinned === true;
                 const hidden = assistant.hidden === true;
@@ -293,36 +311,38 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
                         {roleLabel(assistant)}
                         {" · "}
                         {assistantJobBriefHint(assistant.jobBrief)}
-                        {pinned ? " · 已置顶" : ""}
-                        {hidden ? " · 已从日常切换隐藏" : ""}
+                        {multi && pinned ? " · 已置顶" : ""}
+                        {multi && hidden ? " · 已从日常切换隐藏" : ""}
                       </span>
                     </button>
-                    <div className="lm-assistants-roster__flags">
-                      <button
-                        type="button"
-                        className="lm-assistants-roster__flag"
-                        aria-pressed={pinned}
-                        data-testid={`lm-assistants-pin-${assistant.assistantId}`}
-                        onClick={() =>
-                          onPatchRoster(assistant.assistantId, { pinned: !pinned })
-                        }
-                      >
-                        {pinned ? "取消置顶" : "置顶"}
-                      </button>
-                      {assistant.assistantId === DEFAULT_ASSISTANT_ID ? null : (
+                    {multi ? (
+                      <div className="lm-assistants-roster__flags">
                         <button
                           type="button"
                           className="lm-assistants-roster__flag"
-                          aria-pressed={hidden}
-                          data-testid={`lm-assistants-hide-${assistant.assistantId}`}
+                          aria-pressed={pinned}
+                          data-testid={`lm-assistants-pin-${assistant.assistantId}`}
                           onClick={() =>
-                            onPatchRoster(assistant.assistantId, { hidden: !hidden })
+                            onPatchRoster(assistant.assistantId, { pinned: !pinned })
                           }
                         >
-                          {hidden ? "显示" : "隐藏"}
+                          {pinned ? "取消置顶" : "置顶"}
                         </button>
-                      )}
-                    </div>
+                        {assistant.assistantId === DEFAULT_ASSISTANT_ID ? null : (
+                          <button
+                            type="button"
+                            className="lm-assistants-roster__flag"
+                            aria-pressed={hidden}
+                            data-testid={`lm-assistants-hide-${assistant.assistantId}`}
+                            onClick={() =>
+                              onPatchRoster(assistant.assistantId, { hidden: !hidden })
+                            }
+                          >
+                            {hidden ? "显示" : "隐藏"}
+                          </button>
+                        )}
+                      </div>
+                    ) : null}
                   </li>
                 );
               })}
@@ -374,29 +394,31 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
             ) : null}
 
             <div className="lm-assistants-actions" role="group" aria-label="助手操作">
+              {multi ? (
+                <button
+                  type="button"
+                  className="lm-assistants-action lm-assistants-action--primary"
+                  data-testid="lm-assistants-quick-create"
+                  onClick={() => onOpenNew()}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+                    <path
+                      d="M8 3.25v9.5M3.25 8h9.5"
+                      stroke="currentColor"
+                      strokeWidth="1.75"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  新建助手
+                </button>
+              ) : null}
               <button
                 type="button"
-                className="lm-assistants-action lm-assistants-action--primary"
-                data-testid="lm-assistants-quick-create"
-                onClick={() => onOpenNew()}
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-                  <path
-                    d="M8 3.25v9.5M3.25 8h9.5"
-                    stroke="currentColor"
-                    strokeWidth="1.75"
-                    strokeLinecap="round"
-                  />
-                </svg>
-                新建助手
-              </button>
-              <button
-                type="button"
-                className="lm-assistants-action lm-assistants-action--secondary"
+                className={`lm-assistants-action ${multi ? "lm-assistants-action--secondary" : "lm-assistants-action--primary"}`}
                 data-testid="lm-assistants-advanced-edit"
                 onClick={onOpenEdit}
                 disabled={empty}
-                title="编辑名称、岗位、组织关系与简介"
+                title="编辑名称、职务说明与简介"
               >
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
                   <path
@@ -406,29 +428,33 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
                     strokeLinejoin="round"
                   />
                 </svg>
-                高级编辑
+                {multi ? "高级编辑" : "编辑父助手"}
               </button>
-              <button
-                type="button"
-                className="lm-assistants-action lm-assistants-action--secondary"
-                data-testid="lm-assistants-share"
-                onClick={() => void shareTemplate()}
-                disabled={empty || !apiBase?.trim()}
-                title="导出岗位模板。不含记忆、对话和密钥。对方得到的是独立副本。"
-              >
-                导出岗位模板
-              </button>
-              <button
-                type="button"
-                className="lm-assistants-action lm-assistants-action--secondary"
-                data-testid="lm-assistants-duplicate"
-                onClick={onDuplicate}
-                disabled={empty}
-                title="复制这个助手的岗位与边界（不含它的记忆与用量）；之后可改名用于新范围"
-              >
-                复制
-              </button>
-              {selectedAssistantId !== DEFAULT_ASSISTANT_ID ? (
+              {multi ? (
+                <button
+                  type="button"
+                  className="lm-assistants-action lm-assistants-action--secondary"
+                  data-testid="lm-assistants-share"
+                  onClick={() => void shareTemplate()}
+                  disabled={empty || !apiBase?.trim()}
+                  title="导出岗位模板。不含记忆、对话和密钥。对方得到的是独立副本。"
+                >
+                  导出岗位模板
+                </button>
+              ) : null}
+              {multi ? (
+                <button
+                  type="button"
+                  className="lm-assistants-action lm-assistants-action--secondary"
+                  data-testid="lm-assistants-duplicate"
+                  onClick={onDuplicate}
+                  disabled={empty}
+                  title="复制这个助手的岗位与边界（不含它的记忆与用量）；之后可改名用于新范围"
+                >
+                  复制
+                </button>
+              ) : null}
+              {multi && selectedAssistantId !== DEFAULT_ASSISTANT_ID ? (
                 <button
                   type="button"
                   className="lm-assistants-action lm-assistants-action--danger"
@@ -448,7 +474,7 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
           </div>
         )}
 
-        {empty ? (
+        {empty && multi ? (
           <div className="lm-assistants-actions" role="group" aria-label="助手操作">
             <button
               type="button"
@@ -470,6 +496,7 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
         ) : null}
       </section>
 
+      {multi ? (
       <section className="lm-assistants-block" aria-labelledby="lm-assistants-persona-title">
         <header className="lm-assistants-block__head">
           <h3 id="lm-assistants-persona-title" className="lm-assistants-block__title">
@@ -503,6 +530,7 @@ export function LawmindSettingsAssistants(props: Props): ReactNode {
           })}
         </ul>
       </section>
+      ) : null}
     </div>
   );
 }

@@ -250,6 +250,8 @@ describe("draft-worker", () => {
       content?: string;
     }>;
     expect(messages[0]?.content).toContain("不要起草合同条款");
+    expect(messages[0]?.content).toContain("本轮工作方式");
+    expect(messages[0]?.content).toContain("独立审查");
     expect(messages[1]?.content).toContain("不要写新条款");
     expect(DRAFT_WORKER_DEVELOPER_INSTRUCTIONS).toContain("禁止改原件");
     expect(callModelWithRetry).toHaveBeenCalledTimes(1);

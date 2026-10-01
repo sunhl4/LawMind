@@ -12,10 +12,14 @@ import {
   resolveWordBaselineAbs,
   type WordBaselineRoot,
 } from "../artifacts/word-revision-delivery.js";
+import { readLawyerIdentity } from "../matter-replica/identity.js";
 import type { ArtifactDraft } from "../types.js";
 import { listDrafts, persistDraft, readDraft } from "./index.js";
 import {
   appendLawyerHunk,
+  FORMAT_RATIONALE_PREFIX,
+  LAWYER_SURFACE_RATIONALE,
+  MOVE_RATIONALE,
   readRedlineProposal,
   replaceLawyerHunks,
   summarizeRedline,
@@ -97,10 +101,12 @@ export type WordSurfaceHunkView = {
   status: RedlineHunk["status"];
   rationale?: string;
   sectionHeading?: string;
-  /** Palette index. Does not change when the rail reorders by status. */
+  /** Palette index. Same author keeps the same color. */
   color: number;
   /** False when `before` is not in the open file (still decidable from the rail). */
   placed: boolean;
+  author?: string;
+  revisedAt?: string;
 };
 
 export type WordSurfaceSnapshot = {
@@ -120,6 +126,8 @@ export type WordSurfaceSnapshot = {
   fileMtimeMs?: number;
   /** Proposal `updatedAt`, or empty when there is no proposal. Matches the unchanged check. */
   proposalUpdatedAt?: string;
+  /** Local lawyer display name for rail bylines (falls back to「律师」). */
+  lawyerDisplayName?: string;
 };
 
 /**
@@ -172,6 +180,8 @@ export function recordLawyerSurfaceEdit(params: {
   before: string;
   after: string;
   taskId?: string | null;
+  /** When set, records a format revision even if the words did not change. */
+  format?: "加粗" | "倾斜" | "下划线";
 }): { ok: true; taskId: string; hunkId: string } | { ok: false; error: string } {
   const relPath = params.relPath.trim().replace(/\\/g, "/");
   const bound = findDraftForWordFile(listDrafts(params.workspaceDir), relPath);
@@ -198,7 +208,8 @@ export function recordLawyerSurfaceEdit(params: {
   }
   const appended = appendLawyerHunk(params.workspaceDir, taskId, {
     before: params.before,
-    after: params.after,
+    after: params.format ? params.before : params.after,
+    ...(params.format ? { rationale: `${FORMAT_RATIONALE_PREFIX}${params.format}` } : {}),
   });
   if (!appended.ok) {
     return appended;
@@ -217,6 +228,8 @@ export function syncLawyerSurfaceDocument(params: {
   fileName: string;
   taskId?: string | null;
   paragraphs: { baseline: string; current: string }[];
+  /** Phrases cut in this document and pasted elsewhere. Stored as moves, not plain inserts. */
+  moves?: string[];
 }): { ok: true; taskId: string; removed: number; updated: number } | { ok: false; error: string } {
   const changed = params.paragraphs.filter(
     (row) => row.baseline.trim() && row.baseline !== row.current,
@@ -246,10 +259,15 @@ export function syncLawyerSurfaceDocument(params: {
       },
     });
   }
+  const moves = new Set((params.moves ?? []).filter((text) => text.trim()));
   const res = replaceLawyerHunks(
     params.workspaceDir,
     taskId,
-    changed.map((row) => ({ before: row.baseline, after: row.current })),
+    changed.map((row) => ({
+      before: row.baseline,
+      after: row.current,
+      ...(isMovedEdit(row.baseline, row.current, moves) ? { rationale: MOVE_RATIONALE } : {}),
+    })),
   );
   if (!res.ok) {
     return res;
@@ -317,7 +335,7 @@ function markOfRun(run: WordLayoutRun): WordSurfaceMark {
   return mark;
 }
 
-export { replaceSingleChange, revisionPieces, type RevisionPiece } from "./word-surface-pieces.js";
+export { replaceChangeAfter, revisionPieces, type RevisionPiece } from "./word-surface-pieces.js";
 
 /**
  * Where a hunk sits in this paragraph.
@@ -538,6 +556,46 @@ function paintLayout(
   });
 }
 
+function authorKey(rationale: string | undefined): string {
+  if (
+    rationale === LAWYER_SURFACE_RATIONALE ||
+    rationale === MOVE_RATIONALE ||
+    rationale?.startsWith(FORMAT_RATIONALE_PREFIX)
+  ) {
+    return "lawyer";
+  }
+  const note = rationale?.trim();
+  return note ? `review:${note}` : "review";
+}
+
+function authorLabel(rationale: string | undefined, lawyerDisplayName?: string): string {
+  if (authorKey(rationale) === "lawyer") {
+    const name = lawyerDisplayName?.trim();
+    return name || "律师";
+  }
+  return "审阅";
+}
+
+function authorColors(hunks: { rationale?: string }[]): Map<string, number> {
+  const colors = new Map<string, number>();
+  for (const hunk of hunks) {
+    const key = authorKey(hunk.rationale);
+    if (!colors.has(key)) {
+      colors.set(key, colors.size % WORD_REVISION_COLOR_COUNT);
+    }
+  }
+  return colors;
+}
+
+function isMovedEdit(before: string, after: string, moves: Set<string>): boolean {
+  if (moves.size === 0) {
+    return false;
+  }
+  return revisionPieces(before, after).some(
+    (piece) => piece.kind === "change" && (moves.has(piece.before) || moves.has(piece.after)),
+  );
+}
+
 export function composeWordSurface(params: {
   fileName: string;
   relPath: string;
@@ -547,15 +605,19 @@ export function composeWordSurface(params: {
   page?: WordPageBox;
   draft?: ArtifactDraft;
   proposal?: RedlineProposal;
+  /** Optional override; otherwise read from the workspace identity file. */
+  lawyerDisplayName?: string;
+  workspaceDir?: string;
 }): WordSurfaceSnapshot {
   const source =
     params.layout && params.layout.length > 0
       ? params.layout
       : fallbackLayout(params.docxParagraphs, params.proposal);
   const sections = params.proposal?.baselineSections ?? [];
-  const colored = (params.proposal?.hunks ?? []).map((hunk, index) => ({
+  const colors = authorColors(params.proposal?.hunks ?? []);
+  const colored = (params.proposal?.hunks ?? []).map((hunk) => ({
     ...hunk,
-    color: index % WORD_REVISION_COLOR_COUNT,
+    color: colors.get(authorKey(hunk.rationale)) ?? 0,
     ...(sections[hunk.sectionIndex]?.body != null
       ? { sectionBody: sections[hunk.sectionIndex]?.body }
       : {}),
@@ -568,6 +630,10 @@ export function composeWordSurface(params: {
     accepted: 1,
     rejected: 2,
   };
+  const lawyerDisplayName =
+    params.lawyerDisplayName?.trim() ||
+    (params.workspaceDir ? readLawyerIdentity(params.workspaceDir)?.displayName : undefined) ||
+    undefined;
   const hunks: WordSurfaceHunkView[] = colored
     .toSorted((a, b) => statusRank[a.status] - statusRank[b.status] || a.color - b.color)
     .map((hunk) => ({
@@ -576,6 +642,12 @@ export function composeWordSurface(params: {
       after: hunk.after,
       status: hunk.status,
       color: hunk.color,
+      author: authorLabel(hunk.rationale, lawyerDisplayName),
+      ...(hunk.revisedAt
+        ? { revisedAt: hunk.revisedAt }
+        : params.proposal?.updatedAt
+          ? { revisedAt: params.proposal.updatedAt }
+          : {}),
       ...(hunk.rationale ? { rationale: hunk.rationale } : {}),
       ...(hunk.sectionHeading ? { sectionHeading: hunk.sectionHeading } : {}),
       placed: used.has(hunk.hunkId),
@@ -595,6 +667,7 @@ export function composeWordSurface(params: {
     page: params.page ?? defaultWordPage(),
     hunks,
     summary: summarizeRedline(params.proposal),
+    ...(lawyerDisplayName ? { lawyerDisplayName } : {}),
   };
 }
 
@@ -663,6 +736,7 @@ export async function loadWordSurface(params: {
     page: paper,
     draft,
     proposal,
+    workspaceDir: params.workspaceDir,
   });
   return { ok: true, snapshot: { ...snapshot, fileMtimeMs, proposalUpdatedAt: proposalAt } };
 }

@@ -106,7 +106,7 @@ export function formatCompactReinjectionBlock(opts?: {
   mandatoryRulesActive?: boolean;
   /** 任务锚点（原文，非摘要）。 */
   taskStatement?: string;
-  /** 仍生效的待澄清键：写清「未答齐前不得起草/渲染」，别写成裸键名。 */
+  /** 仍生效的待澄清键：缺口进稿标【待核实】，不因此停写。 */
   pendingClarificationKeys?: readonly string[];
   /** 事实台账（律师原话钉住）：期限 / 硬约束 / 引用 / 金额。 */
   factPin?: readonly import("./compact-fact-pin.js").FactPinItem[];
@@ -121,7 +121,7 @@ export function formatCompactReinjectionBlock(opts?: {
     `- ${rulesHint}`,
     "- 正式交付物须走工具链与审核台；待审核稿不得写成可对外签发。",
     "- 合同改稿遵循 Craft（必要性/形式克制/覆盖完整）；空修订不得导出。",
-    "- 未批准不得 send_email / 危险工具；密钥与假完成硬禁。",
+    "- send_email 只写待发信（律师批准后发出）；密钥与假完成硬禁。",
   ];
   const task = opts?.taskStatement?.trim();
   if (task) {
@@ -133,7 +133,7 @@ export function formatCompactReinjectionBlock(opts?: {
   }
   const keys = (opts?.pendingClarificationKeys ?? []).map((k) => k.trim()).filter(Boolean);
   if (keys.length > 0) {
-    lines.push(`- 待澄清键（仍生效，未答齐前不得起草/渲染）：${keys.join("、")}`);
+    lines.push(`- 待澄清键（缺口标【待核实】进稿，不因此停写）：${keys.join("、")}`);
   }
   const facts = opts?.factPin ?? [];
   if (facts.length > 0) {

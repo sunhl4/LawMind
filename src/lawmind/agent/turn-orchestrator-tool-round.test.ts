@@ -224,17 +224,18 @@ describe("executeToolBatches dangling tool_call pairing", () => {
     const registry = new ToolRegistry();
     let mailExecuted = false;
     let writeExecuted = false;
+    // 审批暂停由 execute 返回 approvalRequest 触发（与伦理墙 hold 同路径）；
+    // 自 2026-10-01 起 send_email 本身不再被审批中间件暂停（写待发信）。
     registry.register({
       definition: {
         name: "send_email",
         description: "send mail",
         category: "draft",
         parameters: {},
-        requiresApproval: true,
       },
       async execute() {
         mailExecuted = true;
-        return { ok: true };
+        return { ok: false as const, approvalRequest: true, error: "待律师确认外发。" };
       },
     });
     registry.register({
@@ -276,7 +277,7 @@ describe("executeToolBatches dangling tool_call pairing", () => {
 
     expect(result.stoppedForApproval).toBe(true);
     expect(turn.status).toBe("awaiting_approval");
-    expect(mailExecuted).toBe(false);
+    expect(mailExecuted).toBe(true);
     expect(writeExecuted).toBe(false);
     // 两个 tool_call 都有配对 tool 消息：第一个是 approvalRequest 结果，第二个是「已跳过」。
     expect(history).toHaveLength(2);
@@ -506,7 +507,7 @@ describe("executeToolBatches permission-mode hard gate", () => {
     expect(turn.gateDecisions?.some((g) => g.gate === "dangerous_tool_gate")).toBe(false);
   });
 
-  it("same-turn soft clarification does not freeze draft tools; hard keys do", async () => {
+  it("same-turn tool-returned clarification never freezes draft tools (gaps go into the deliverable)", async () => {
     const softRegistry = new ToolRegistry();
     let softDraftCalls = 0;
     softRegistry.register({
@@ -609,12 +610,14 @@ describe("executeToolBatches permission-mode hard gate", () => {
         hardHistory.push(msg);
       },
     });
-    expect(hardDraftCalls).toBe(1);
+    // 端到端口径：硬键（addressee 等）也不再冻同轮后续写工具——草稿带【待核实】
+    // 占位照样推进，缺口随交付物给律师，回合完成而非暂停。
+    expect(hardDraftCalls).toBe(2);
+    expect(hardCtx.clarificationBlockingHeavyTools).toBe(false);
     const second = hardHistory
       .flatMap((m) => m.toolCallResponses ?? [])
       .find((r) => r.toolCallId === "h2");
-    expect(second?.result.ok).toBe(false);
-    expect(second?.result.error ?? "").toMatch(/跳过|澄清|拍板/i);
+    expect(second?.result.ok).toBe(true);
   });
 });
 

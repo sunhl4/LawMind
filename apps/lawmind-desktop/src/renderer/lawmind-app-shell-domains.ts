@@ -39,7 +39,16 @@ function rangeStartMs(range: TimeRangeFilter): number | null {
 export function selectStableAssistantId(
   assistants: AssistantRow[],
   previousAssistantId: string,
+  opts?: { singleParent?: boolean },
 ): string {
+  // Solo / single-parent: always the default (or first) — never stick on a legacy peer id.
+  if (opts?.singleParent) {
+    const def = assistants.find((assistant) => assistant.assistantId === DEFAULT_ASSISTANT_ID);
+    if (def) {
+      return DEFAULT_ASSISTANT_ID;
+    }
+    return assistants[0]?.assistantId ?? DEFAULT_ASSISTANT_ID;
+  }
   if (previousAssistantId && assistants.some((assistant) => assistant.assistantId === previousAssistantId)) {
     return previousAssistantId;
   }
@@ -114,6 +123,7 @@ export function useLawmindRecordsDomain(
   setSelectedAssistantId: (assistantId: string | ((previous: string) => string)) => void,
   taskListQuery: string,
   listTimeRange: TimeRangeFilter,
+  opts?: { singleParentRoster?: boolean },
 ) {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -180,8 +190,12 @@ export function useLawmindRecordsDomain(
     if (assistants.length === 0) {
       return;
     }
-    setSelectedAssistantId((previous) => selectStableAssistantId(assistants, previous));
-  }, [assistants, setSelectedAssistantId]);
+    setSelectedAssistantId((previous) =>
+      selectStableAssistantId(assistants, previous, {
+        singleParent: opts?.singleParentRoster === true,
+      }),
+    );
+  }, [assistants, setSelectedAssistantId, opts?.singleParentRoster]);
 
   const filteredTasks = useMemo(
     () => filterTasksForSidebar(tasks, taskListQuery, listTimeRange, selectedAssistantId),

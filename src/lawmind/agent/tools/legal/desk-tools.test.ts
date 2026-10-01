@@ -166,4 +166,16 @@ describe("delete_matter", () => {
     ).toBe(true);
     expect(fs.readFileSync(path.join(ws, "lawmind.policy.json"), "utf8")).toBe("{}\n");
   });
+
+  it("refuses traversal-like matter ids before scanning", async () => {
+    const ws = tmp("lm-desk-del-bad-");
+    const bad = await deleteMatterTool.execute(
+      { matter_id: "../etc", confirm_matter_id: "../etc" },
+      ctx(ws),
+    );
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) {
+      expect(bad.error).toContain("不合法");
+    }
+  });
 });

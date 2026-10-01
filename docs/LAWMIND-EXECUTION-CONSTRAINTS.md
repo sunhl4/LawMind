@@ -116,16 +116,14 @@ pnpm exec vitest run \
 - **手改**：提示词是软的。真拦外发看 `toolRequiresExplicitApproval` 和 `toolRequiresLawyerPause`。
 - **本次**：未改硬政策。
 
-### 10. 未决澄清硬拦 — FIX
+### 10. 未决澄清硬拦 — DROP（2026-10-01）
 
-- **路径**：
+- **路径**（机制保留，仅服务旧会话遗留的 `pendingClarificationKeys`）：
   - 键集合：`src/lawmind/router/intake-gate.ts`（`HARD_CLARIFICATION_KEYS`）
-  - 写入会话：`src/lawmind/agent/turn-orchestrator-finalize.ts`
   - 下一轮拦工具：`src/lawmind/agent/turn-orchestrator.ts` → `src/lawmind/runtime/tool-pipeline.ts`（`clarificationGateMiddleware`）
-  - 提示词：`turn-orchestrator-prompt.ts`「未决澄清要点」
-- **作用**：只有函件收件人/主张、诉讼主体/诉请会跨轮拦住起草。租金、审查重点等不再跨轮硬拦。
-- **手改**：往 `HARD_CLARIFICATION_KEYS` 加键，等于把这类缺口升级成「不答就不能写」。删键则相反。
-- **本次**：实现了「硬拦只留给高风险空跑」。跨轮只持久化硬键；同轮工具返回的软澄清也不再置位 `clarificationBlockingHeavyTools`。
+- **新口径（交办即终稿）**：intake 硬闸与 `tryIntakeClarificationShortcut` 已删除——高风险空跑（律师函/诉讼文书且无档案无材料）不再暂停，Soft Ask 块升级为「按合理假设起草 + 文中标【待核实】」（`intake-craft.ts`）。工具返回的 `draft_with_placeholders` 缺口也不再暂停回合：回合完成、缺口以非阻塞「建议补充」卡给出、不写 `pendingClarificationKeys`；同轮批内也不再因硬键截断后续调用（`outcomeNeedsElicitation` 只认 approval 与 iCloud 下载提问）。
+- **手改**：想恢复某类缺口的硬停，要同时恢复 intake 短路、模型循环两处 pause 点与批内截断，并按 AGENTS.md 补 cassette。
+- **本次**：随「交办即终稿」P0 落地；iCloud 文件未下载到本地仍暂停（真阻塞）。
 
 ### 11. 工作区/本案强制规则 — KEEP
 
@@ -197,18 +195,43 @@ pnpm exec vitest run \
 ### 16b. 同一回合验收（lint / 引用 / craft_check / 空修订） — TIGHTEN
 
 - **路径**：`src/lawmind/runtime/same-turn-verify.ts`；`legal-verify-middleware.ts`；`turn-orchestrator-model-loop.ts`
-- **作用**：「任务完成」= 验证器绿，不是模型说完了。写稿路径上机械 lint blocker（不含定金上限等主观残差）与空修订、缺引用、缺 `craft_check` 一样是 **tool error**。`contractEdit` 基线不跑机械 lint（避免原文旧疵冒充本回合失败）。`prepare_outbound_mail` 在已关联草稿时预检引用/空修订/craft_check/机械 lint。模型说「已完成」时的打回写入 `hiddenFromLawyer` 用户消息，律师气泡看不到；硬工具顶若验收仍红则 **paused**，不标 completed。
-- **手改**：把 `ok` 改回 true 只拦律师，模型会再次假完成。把 bounce 改回可见 user，律师会看到自己没发的验收全文。
-- **本次**：lint 机械项进入同一回合；bounce 不对律师冒充；硬顶红验收改为暂停。独立审稿（Guardian）仍在 `render_tracked_draft`。
-- **2026-09-15 token**：bounce 只服务下一轮采样。验证器绿则从 `conversationHistory` 删除全文；暂停则收成 `【验收缺口】` 一行码。下一会话不再重付 1–3 份验收全文。失败 tool JSON 只在 `error` 保留一份 `【同一回合验收未过】` 全文（`issues[].message` 仍在，供 bounce 重建）；`verify.message` 与 `gateDecision.reason` 不再第三、第四份拷贝。引用类 `ok:true` 的 `data.verify.message` 不变。
+- **作用**：「任务完成」= 验证器绿，不是模型说完了。写稿路径上机械 lint blocker（不含定金上限等主观残差）与空修订、缺引用、缺 `craft_check` 一样是 **tool error**。`contractEdit` 基线不跑机械 lint（避免原文旧疵冒充本回合失败）。`prepare_outbound_mail` 在已关联草稿时预检引用/空修订/craft_check/机械 lint。模型说「已完成」时的打回写入 `hiddenFromLawyer` 用户消息，律师气泡看不到；硬工具顶若验收仍红则 **completed + 【待核实】缺口**（不挂 `continue_tools`，不中途打断律师）。
+- **手改**：把 `ok` 改回 true 只拦律师，模型会再次假完成。把 bounce 改回可见 user，律师会看到自己没发的验收全文。把验收顶改回 `paused`+点继续，等于交办中途再打断律师。
+- **本次**：lint 机械项进入同一回合；bounce 不对律师冒充；硬顶红验收改为交付带缺口。独立审稿（Guardian）仍在 `render_tracked_draft`。
+- **2026-09-15 token**：bounce 只服务下一轮采样。验证器绿则从 `conversationHistory` 删除全文；交付带缺口则收成 `【验收缺口】` 一行码。下一会话不再重付 1–3 份验收全文。失败 tool JSON 只在 `error` 保留一份 `【同一回合验收未过】` 全文（`issues[].message` 仍在，供 bounce 重建）；`verify.message` 与 `gateDecision.reason` 不再第三、第四份拷贝。引用类 `ok:true` 的 `data.verify.message` 不变。
 - **2026-09-15 history cap**：工具结果入史默认 ~1000 **token**（CJK 1 字 ≈ 1 token）。原先 4k **字符** 上限把 3k 汉字当成「还没到 1k token」。`maxChars` 覆盖仍给测试/溢出调用。截断仍保留 `ok`/`error`/`redlinePending`/`gateDecision`。
+- **2026-10-01 交办即终稿**：验收 bounce 用尽与硬顶红验收一律 `completed` + `formatSameTurnVerifyCapDeliver`（【待核实】），不再 `paused`/`continue_tools`。
 
-### 17. 待拍板只拦外发 — KEEP
+### 16c. 相关记忆接回父循环 — TIGHTEN（2026-10-01）
 
-- **路径**：`src/lawmind/agent/dangerous-tool-policy.ts`；`src/lawmind/platform/lawyer-outbound-decision.js`（`toolRequiresLawyerPause`）
-- **作用**：本地写合同/审合同/导出不暂停。`send_email` 要拍板。
-- **手改**：把写文件也加成暂停，Solo 主路径会变难（违反铁律 1）。
-- **本次**：未改。`MEMORY.md` 已按此口径重写。
+- **路径**：`src/lawmind/memory/relevant-recall.ts`；`turn-orchestrator-prompt.ts`（`prepareTurnPromptContext`）
+- **作用**：本轮指令命中的记忆 gist 注入 `memory_hit`；**零分返回 `[]`，禁止「最近文件」兜底**；命中路径写入 `session.alreadySurfacedMemoryPaths` 去重。MEMORY 索引 / topic 头支持 `validUntil:YYYY-MM-DD`（或「有效至」），过期不召回。
+- **手改**：恢复零分兜底 = 把无关笔记塞进提示词。
+
+### 16d. 上下文续接种子与交办即终稿对齐 — TIGHTEN（2026-10-01）
+
+- **路径**：`session-carryover.ts` / `compact.ts` / `compact-reinjection.ts`
+- **作用**：分叉与压缩里的待澄清键措辞改为「缺口标【待核实】进稿，不因此停写」；续接仍带档案/草稿指针与清单。律师继续方式仍是「另起新对话（带上文）」（反弹用尽交接为 `completed` + 结构化事实，不挂 `continue_tools`）。
+- **手改**：改回「未答齐不得起草」等于复活跨轮写冻结文案。
+
+### 16e. 仍允许打断律师的停顿登记册 — KEEP（2026-10-01）
+
+- **路径**：`src/lawmind/product/lawyer-pause-registry.ts`
+- **作用**：交办即终稿后，主路径澄清/验收/外发不再中断。本册枚举**仍允许**的律师面停顿（用户中断、iCloud 未落盘、伦理墙外发、judgment 二选一、Guardian 耗尽知会、遗留 continue_tools），每条写明「模型做不到」假设与消融条件。`workflow_blocked` 已改为 **completed + 【待核实】回复 + 知会卡**（不是中途打断）。
+- **手改**：往册子加种类而不改 cassette = 静默恢复中途打断。
+
+### 16f. 修订面改稿静默学习 — TIGHTEN（2026-10-01）
+
+- **路径**：`src/lawmind/learning/draft-edit-learning.ts`（`captureParagraphEditLearning`）；`apps/lawmind-desktop/server/lawmind-server-route-word-surface.ts`
+- **作用**：律师在 Word 修订面 Control+S / 段落改 / hunk 改写后，静默写入 `edits/edit-examples.jsonl`，偏好候选进设置待确认队列——**不弹「要不要记住」**，不挡交付。
+- **手改**：删掉修订面接线 = 日常改稿只剩文书台 PATCH 才学习。
+
+### 17. 外发不暂停回合：一律写入待发信 — TIGHTEN（2026-10-01）
+
+- **路径**：`src/lawmind/agent/dangerous-tool-policy.ts`；`src/lawmind/platform/lawyer-outbound-decision.js`（`toolRequiresLawyerPause`，现恒为 false）；`src/lawmind/agent/tools/legal/mail-tools.ts`（`send_email` 未批准分支写 automation inbox + outbox）
+- **作用**：本地写合同/审合同/导出不暂停；**外发也不暂停回合**——`send_email` 与 `prepare_outbound_mail` 一样只写入本案「待发信」，律师在待发列表点「批准发送」才真正发出（`/api/automations/inbox/:id/action` 的 `approve_send` 直接发送，不恢复回合）。
+- **手改**：把任何工具加回 `pause`，等于让对话中途重新出现审批卡（违反「交办即终稿」）。
+- **本次**：`send_email` disposition `pause` → `inbox_signoff`；`__approved` 真发分支保留，仅供旧会话遗留的待批准恢复。
 
 ---
 
@@ -272,7 +295,7 @@ pnpm exec vitest run \
 
 - **路径（单一正文）**：`src/lawmind/skills/builtin/intake-required-inputs.md`
 - **注入**：`src/lawmind/router/intake-craft.ts`（`INTAKE_CRAFT_SKILL` 读上面的 md）
-- **作用**：材料齐不冻写；硬澄清只留给高风险空跑。
+- **作用**：材料齐不冻写；空跑也不暂停——高风险空跑的 Soft Ask 块升级为「假设起草 + 文中标【待核实】」（2026-10-01 起，硬澄清退役）。
 - **手改**：改 md 会同时改技能正文和 Soft Ask 块。不要再在 `.ts` 里另写一份。
 
 ### 26. 法律要素提取 — KEEP
@@ -552,7 +575,7 @@ pnpm exec vitest run \
 11. `apply_surgical_edits` 跨度数字只在 `surgical-span-gate.ts` + Craft Skill；工具广告描述是指针，不嵌 12/48。
 12. 已安装工作区里的过期 `MEMORY.md` 库存口径会在加载时改写；架构文档不再写「档案全文进 system」。
 13. 核算/出图/整表走 `run_compute` 后台闭环；成功后对照表和意见进在办。律师只看交件，不审脚本。
-14. 同轮软澄清（如租金缺口）不再冻写工具；硬键（收件人/诉请等）仍冻。
+14. 同轮软澄清（如租金缺口）不再冻写工具；硬键（收件人/诉请等）也不再冻——2026-10-01 起缺口随交付物标【待核实】，回合照常完成（见 §10）。
 15. 能力 `pipelineHint` 改为「未锁时优先工作流」，不再写「必须走 execute_workflow」。
 16. 钉死的邮件/Word 短路径上，`update_draft.sections` 改正文会失败并往 craft 世界状态塞短警告，改走 `apply_surgical_edits`。
 17. 空修订 / 缺 craft_check / 缺引用 / 机械 lint 在导出或外发前是同一回合 tool error；模型说「已完成」不能跳过验证器。
@@ -560,7 +583,7 @@ pnpm exec vitest run \
 19. **上下文用量留在引擎，律师面只在对话变长时开口**（2026-09-25，取代 2026-09-23 的常驻圆环）：短对话不显示用量；变长或已整理过才出现「这场对话」。模型窗口、额度桶和模型 id 不进律师面。`/context-budget` 的分母仍跟 compose 选中的模型（`?modelId=`），切模型即刷新。`replaceDroppedDigestInMessages` 曾只认 `system` 角色而生产插的是 `user`，导致 LLM 摘要静默不生效——已修并加回归。
 20. **另起新对话并带上文**（2026-09-23）：上下文过多时给一次性建议（`lastCompact.midTurn || compactCount >= 2`，同一会话只提示一次），或从用量面板主动触发。律师在对话里要求另起 / 重开 / 新开这场对话并带上文时，桌面在送给模型之前执行同一条 fork（`fork-continue-request.ts`）；回合还在跑则排到结束后，不把这句话塞进 steer。新会话带三段续接种子（状态头 / 对话蒸馏 / 重读指针，合成 user 消息且律师不可见）；**闸门状态迁移**（待澄清键、已确认答案、清单、绑定办件、已披露工具表）与**拦截**（待批准授权 / 升级 / 工作流结论 / 检查点续跑 / 回合在跑 → 409）是本功能的红线。双向指针 `forkedTo` / `carriedOverFrom` + `audit` 的 `session.forked_with_carryover`；`clientNonce` 幂等。见 `src/lawmind/agent/session-carryover.ts`。
 21. **触发口径与预留随窗口**（2026-09-23）：回合内整理用 provider 的 `usage.prompt_tokens` 当天花板；有效窗口的预留按 `min(20k+13k, 窗口×25%)` 封顶（32k 窗口可用从 8k → 24k）。对齐 Codex「阈值/占用都要贴有效窗口」（#40095）。
-22. **上下文压力可度量 + 交接诚实**（2026-09-23）：新增 `context_pressure` 口径与 `GET /api/metrics/context-pressure`（缺来源 → `present:false`、比率 `null`，绝不产出 0；刻意不给 per-turn 比率，理由见模块注释与 `metrics/README.md`）；退让识别放宽到真实变体并用法律正文反例钉住不误伤；反弹用尽后改为 `paused` + 结构化事实交接（不再把模型推诿原文交给律师）。**每个观测口径都要有产出点的端到端断言**——本仓吃过「声明了但永远不写」（`checklist`/`citation_mode` 已删）的亏。
+22. **上下文压力可度量 + 交接诚实**（2026-09-23；2026-10-01 交办即终稿）：新增 `context_pressure` 口径与 `GET /api/metrics/context-pressure`（缺来源 → `present:false`、比率 `null`，绝不产出 0；刻意不给 per-turn 比率，理由见模块注释与 `metrics/README.md`）；退让识别放宽到真实变体并用法律正文反例钉住不误伤；反弹用尽后改为 **completed** + 结构化事实交接（不挂 `continue_tools`，也不把模型推诿原文交给律师）。**每个观测口径都要有产出点的端到端断言**——本仓吃过「声明了但永远不写」（`checklist`/`citation_mode` 已删）的亏。
 23. **压缩生存不变量**（2026-09-23）：`agent/compact-survival.test.ts` 连压 4 次断言引用 / 律师交办 / 待澄清键 / 红线重注仍在。首次运行即抓到真实不对称：压缩路径把待澄清键写成裸键名，而分叉路径写「仍生效，未答齐前不得起草/渲染」——已统一措辞（同一件事两个消费者说不同的话，正是静默失效的温床）。
 24. **上下文调参统一走高级设置，不再散落字面量**（2026-09-23）：上述 18–23 引入的阈值与帽（触发线、预留、省略门槛、摘要额度、台账上限、续接额度、注记线、反弹上限、模型摘要限时限量……）原先写死在各自模块里。现在集中到 `src/lawmind/agent/context-tuning.ts` 的 `resolveContextTuning`。律所策略文件不再接受 `context.*`（写了会在体检里显示未采纳）。开发调参用环境变量 `LAWMIND_CONTEXT_TUNING`（JSON），或在调用处直接传入 policy 对象。三条纪律：**类型不对回落默认 / 越界夹到边界（绝不抛错）**；跨字段不变量在解析处收敛（`digest.minChars ≤ maxChars`、`carryover.seedMinChars ≤ seedMaxChars`、`warnRatio ≤ midTurnCompactTriggerRatio`）；**未配置时逐位等于默认**（行为不变）。**比例类不设业务下界**——只拦非正 / `NaN` / 超大，合法的极小值必须原样生效（曾把下界写成 `0.1`，把「0.02 强制触发」静默改掉）。生效值与「显式写过的键」在 `GET /api/sessions/:id/context-budget` 的 `tuning` / `tuningOverrides` 可见（体检页据此说清「按哪套数字在跑」，而不只是「按默认」）。
 

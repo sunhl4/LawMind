@@ -4,6 +4,7 @@ import {
   collectSameTurnVerifyIssues,
   emptySameTurnVerifyState,
   formatSameTurnCompletionBounce,
+  formatSameTurnVerifyCapDeliver,
   nextSameTurnVerifyState,
   SAME_TURN_VERIFY_BOUNCE_MAX,
   SAME_TURN_VERIFY_USER_PREFIX,
@@ -145,6 +146,28 @@ describe("same-turn verify", () => {
     // 终态：本轮不再反弹（旧行为会一边引用「不要继续改稿」一边催再交 apply_surgical_edits）
     expect(shouldBounceSameTurnCompletion({ red: true, issues, bounceCount: 0 })).toBe(false);
     expect(shouldPauseSameTurnVerify({ red: true, issues, bounceCount: 9 })).toBe(false);
+
+    expect(
+      formatSameTurnVerifyCapDeliver({
+        red: true,
+        issues,
+        bounceCount: SAME_TURN_VERIFY_BOUNCE_MAX,
+      }),
+    ).toContain("本轮稿件已交付");
+    expect(
+      formatSameTurnVerifyCapDeliver({
+        red: true,
+        issues,
+        bounceCount: SAME_TURN_VERIFY_BOUNCE_MAX,
+      }),
+    ).toContain("【待核实】");
+    expect(
+      formatSameTurnVerifyCapDeliver({
+        red: true,
+        issues,
+        bounceCount: SAME_TURN_VERIFY_BOUNCE_MAX,
+      }),
+    ).not.toContain("点继续");
 
     const failed = applySameTurnVerifyFail("render_tracked_draft", {
       ok: false,

@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_ASSISTANT_ID } from "./constants.js";
 import {
   ASSISTANT_ROSTER_LIMIT,
+  assertCanCreateAssistant,
   assistantsForDailySwitcher,
+  SOLO_ROSTER_FULL_MESSAGE,
   sortAssistantsForRoster,
 } from "./roster.js";
 import { duplicateAssistant, loadAssistantProfiles, upsertAssistant } from "./store.js";
@@ -74,6 +76,12 @@ describe("assistant roster pin and hide", () => {
     expect(() => upsertAssistant(root, { displayName: "再一位", introduction: "" })).toThrow(
       /名册已满/,
     );
+  });
+
+  it("solo gate blocks a second assistant while firm allows create", () => {
+    expect(() => assertCanCreateAssistant(1, false)).toThrow(SOLO_ROSTER_FULL_MESSAGE);
+    expect(() => assertCanCreateAssistant(1, true)).not.toThrow();
+    expect(() => assertCanCreateAssistant(0, false)).not.toThrow();
   });
 
   it("keeps hidden assistants out of the daily switcher except the one in use", () => {

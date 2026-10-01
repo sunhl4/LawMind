@@ -312,7 +312,7 @@ export function LawmindChatMessagesColumn({
               ))}
             </div>
             <p className="lm-messages-empty-hint">
-              点一句会填进输入框，改完再发。审合同和记传票要先把文件拖进来。写出的文件用 WPS 打开。待发出在工作台。
+              点一句会填进输入框，改完再发。审合同和记传票要先把文件拖进来。写出的文件用 WPS 打开。待发出会出现在对话下方，点「去批准发送」。
             </p>
             <p
               className="lm-messages-empty-hint"

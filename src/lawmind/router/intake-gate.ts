@@ -1,5 +1,9 @@
 /**
- * Intake clarification: Soft Ask by default; hard-gate only high-risk empty runs.
+ * Intake clarification: Soft Ask only — 不暂停回合。
+ *
+ * 端到端口径（2026-10-01）：高风险空跑（律师函 / 诉讼文书且无档案无材料）也不再
+ * 中断交办；问题全部走 advisory 注入，模型按合理假设起草并在文中标【待核实】。
+ * 律师在修订视图里改占位，或在对话里直接补答，不写「待澄清」状态。
  */
 
 import { isMailContractFastPathInstruction } from "../platform/mail-contract-short-path-instruction.js";
@@ -120,7 +124,8 @@ export function selectHardClarificationKeys(keys: readonly string[] | undefined)
   return (keys ?? []).filter((key) => isHardClarificationKey(key));
 }
 
-function isHighRiskEmptyRunType(type: DeliverableType | undefined): boolean {
+/** 高风险空跑类型：Soft Ask 文案升级为「假设起草 + 待核实标注」，仍不暂停。 */
+export function isHighRiskEmptyRunType(type: DeliverableType | undefined): boolean {
   return (
     type === "letter.demand" ||
     type === "letter.counsel" ||
@@ -147,33 +152,6 @@ export function resolveIntakeAdvisoryQuestions(
     return [];
   }
   if (caseMemoryLooksFilledForIntake(opts?.caseMemory, deliverableType)) {
-    return [];
-  }
-  // High-risk empty runs use hard gate instead (see resolveIntakeClarificationQuestions).
-  if (isHighRiskEmptyRunType(deliverableType)) {
-    return [];
-  }
-  return questions;
-}
-
-/**
- * Hard intake questions that pause the turn (high-risk + no materials only).
- */
-export function resolveIntakeClarificationQuestions(
-  instruction: string,
-  opts?: IntakeGateOptions,
-): ClarificationQuestion[] {
-  if (shouldSkipAllIntake(instruction, opts)) {
-    return [];
-  }
-  const { deliverableType, questions } = collectMetaQuestions(instruction);
-  if (!deliverableType || questions.length === 0) {
-    return [];
-  }
-  if (caseMemoryLooksFilledForIntake(opts?.caseMemory, deliverableType)) {
-    return [];
-  }
-  if (!isHighRiskEmptyRunType(deliverableType)) {
     return [];
   }
   return questions;

@@ -116,7 +116,7 @@ describe("chatThreadDecisionActions", () => {
         id: "gate",
         kind: "workflow_blocked",
         threadId: "t",
-        title: "改稿缺口待您处置",
+        title: "稿件缺口待您过目",
         summary: "独立审稿已 2 轮未过",
         decisions: ["respond"],
         createdAt: "2026-01-01T00:00:00.000Z",

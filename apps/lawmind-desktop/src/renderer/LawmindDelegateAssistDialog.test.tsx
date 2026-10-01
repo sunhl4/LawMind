@@ -54,14 +54,24 @@ describe("LawmindDelegateAssistDialog", () => {
     host.remove();
   });
 
-  it("offers 新建助手 when there are no peers", async () => {
+  it("explains single-parent path when there are no peers", async () => {
+    const onClose = vi.fn();
+    await act(async () => {
+      renderDialog(root, { onClose });
+    });
+    expect(host.textContent).toContain("一位父助手");
+    expect(host.textContent).toContain("子工");
+    expect(host.querySelector('[data-testid="lm-delegate-create-assistant"]')).toBeNull();
+  });
+
+  it("offers firm roster CTA only when onCreateAssistant is provided", async () => {
     const onCreateAssistant = vi.fn();
     const onClose = vi.fn();
     await act(async () => {
       renderDialog(root, { onCreateAssistant, onClose });
     });
-    expect(host.textContent).toContain("还没有其他助手可交接");
     const btn = host.querySelector('[data-testid="lm-delegate-create-assistant"]') as HTMLButtonElement;
+    expect(btn.textContent).toContain("律所编制");
     btn.click();
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onCreateAssistant).toHaveBeenCalledTimes(1);

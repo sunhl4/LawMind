@@ -73,6 +73,23 @@ function createResponseCapture() {
   };
 }
 
+function firmPolicyCtx(
+  workspaceDir: string,
+  envFile: string,
+): LawmindDispatchContext {
+  return {
+    workspaceDir,
+    envFile,
+    userEnvPath: envFile,
+    policy: {
+      loaded: true,
+      path: path.join(workspaceDir, "lawmind.policy.json"),
+      policy: { schemaVersion: 1, edition: "firm" },
+      notes: [],
+    },
+  };
+}
+
 describe("lawmind-server-route-assistants", () => {
   it("returns false for unrelated routes", async () => {
     const ctx: LawmindDispatchContext = {
@@ -206,14 +223,33 @@ describe("lawmind-server-route-assistants", () => {
     expect(saved?.jobBrief?.prohibitions).toBe("外发前必须问我");
   });
 
-  it("POST /api/assistants/:id/duplicate copies the role and its boundaries", async () => {
-    const { workspaceDir: ws, lawMindRoot, envFile } = tmpAssistantTree();
+  it("solo rejects creating a second assistant via POST", async () => {
+    const { workspaceDir, lawMindRoot, envFile } = tmpAssistantTree();
+    const { loadAssistantProfiles } = await import("../../../src/lawmind/assistants/store.js");
+    loadAssistantProfiles(lawMindRoot);
     const ctx: LawmindDispatchContext = {
-      workspaceDir: ws,
+      workspaceDir,
       envFile,
       userEnvPath: envFile,
       policy: { loaded: false },
     };
+    const capture = createResponseCapture();
+    const handled = await handleAssistantRoutes({
+      ctx,
+      req: jsonReq("POST", { displayName: "第二位", introduction: "" }),
+      res: capture.res,
+      url: new URL("http://127.0.0.1/api/assistants"),
+      pathname: "/api/assistants",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(capture.status).toBe(400);
+    expect(String(capture.json().error)).toMatch(/一位父助手/);
+  });
+
+  it("POST /api/assistants/:id/duplicate copies the role and its boundaries", async () => {
+    const { workspaceDir: ws, lawMindRoot, envFile } = tmpAssistantTree();
+    const ctx = firmPolicyCtx(ws, envFile);
     const source = upsertAssistant(lawMindRoot, {
       displayName: "区域甲续签助手",
       introduction: "盯续签",
@@ -241,12 +277,7 @@ describe("lawmind-server-route-assistants", () => {
 
   it("accepts a duplicate with a new name, and an empty body", async () => {
     const { workspaceDir: ws, lawMindRoot, envFile } = tmpAssistantTree();
-    const ctx: LawmindDispatchContext = {
-      workspaceDir: ws,
-      envFile,
-      userEnvPath: envFile,
-      policy: { loaded: false },
-    };
+    const ctx = firmPolicyCtx(ws, envFile);
     const source = upsertAssistant(lawMindRoot, {
       displayName: "区域甲续签助手",
       introduction: "盯续签",

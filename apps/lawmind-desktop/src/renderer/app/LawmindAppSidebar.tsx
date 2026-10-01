@@ -194,21 +194,20 @@ function LawmindAppSidebarImpl({
     return null;
   }
 
-  // 对话 / 会议室 / 在办：有材料树时不再叠案件列表；无材料树时仍用列表作回退。
-  // 工作台不占用全局侧栏，案件只在驾驶舱里。
+  // 对话 / 会议室 / 在办 / 工作台中栏：有材料树时不再叠案件列表。
   const showSideChat =
-    (mainView === "workspace" || mainView === "meeting" || mainView === "agents") &&
+    (mainView === "workspace" || mainView === "desk" || mainView === "meeting" || mainView === "agents") &&
     Boolean(onSelectChatSession) &&
     Boolean(onCreateNewChatSession) &&
     Boolean(onRenameChatSession) &&
     Boolean(onDeleteChatSession);
   const showWorkspaceMatterList =
-    (mainView === "workspace" || mainView === "meeting" || mainView === "agents") &&
+    (mainView === "workspace" || mainView === "desk" || mainView === "meeting" || mainView === "agents") &&
     !showSidebarWorkbenchFiles;
   const showMatterList = showWorkspaceMatterList && !showSideChat;
   const showWorkbenchExplorer =
     showSidebarWorkbenchFiles &&
-    (mainView === "workspace" || mainView === "meeting" || mainView === "agents");
+    (mainView === "workspace" || mainView === "desk" || mainView === "meeting" || mainView === "agents");
 
   const matterListClassName = (() => {
     if (!showMatterList) {

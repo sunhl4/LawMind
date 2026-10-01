@@ -15,12 +15,14 @@ import { resolveComposeModelSelectValue } from "./lawmind-model-picker-utils";
 import { useLawmindDetailDomain, useLawmindRecordsDomain } from "./lawmind-app-shell-domains";
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
 import { DESK_WRITE_TOOL_NAMES } from "../../../../src/lawmind/agent/tool-name-sets.ts";
+import { notifyOutboundChanged } from "./lawmind-desk-outbound";
 import { contextMatterIdAfterCatalogChange } from "./lawmind-chat-scope";
 import { shouldSuggestContextFork } from "./LawmindContextForkSuggestion";
 import {
   dismissForkSuggestion,
   isForkSuggestionDismissed,
 } from "./lawmind-context-fork-pref";
+import { useEdition } from "./use-edition";
 
 /**
  * 幂等 nonce 由渲染端生成：renderer 不得 value-import 引擎模块
@@ -66,6 +68,7 @@ export function useLawmindAppShell() {
     return () => window.removeEventListener(LAWMIND_REPLICA_JOINED_EVENT, onJoined);
   }, []);
   const [config, setConfig] = useState<AppConfig | null>(null);
+  const { features: editionFeatures } = useEdition(config?.apiBase ?? "");
   const [health, setHealth] = useState<LawmindHealthState>(null);
   const [healthPayload, setHealthPayload] = useState<HealthPayload | null>(null);
   const [selectedAssistantId, setSelectedAssistantId] = useState<string>(DEFAULT_ASSISTANT_ID);
@@ -164,6 +167,7 @@ export function useLawmindAppShell() {
     setSelectedAssistantId,
     taskListQuery,
     listTimeRange,
+    { singleParentRoster: !editionFeatures.multiAssistantRoster },
   );
   const detailDomain = useLawmindDetailDomain(config);
 
@@ -450,6 +454,14 @@ export function useLawmindAppShell() {
       // 对话里发生过工作台写穿（卷宗/期限/建案）时，立刻刷新案件管理列表与卷宗视图。
       if (info.toolNames.some((name) => DESK_WRITE_TOOL_NAMES.has(name))) {
         setMatterRefreshVersion((v) => v + 1);
+      }
+      // send_email / prepare_outbound_mail 写入待发信后立刻刷新对话里的「本案有待发出」。
+      if (
+        info.toolNames.some(
+          (name) => name === "send_email" || name === "prepare_outbound_mail",
+        )
+      ) {
+        notifyOutboundChanged();
       }
     },
     loadSessionMessagesIntoState,

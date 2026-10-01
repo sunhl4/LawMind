@@ -115,5 +115,11 @@ describe("policy/edition", () => {
     expect(solo.strictDangerousToolApproval).toBe(false);
     expect(solo.complianceAuditExport).toBe(false);
     expect(solo.securitySbomPanel).toBe(false);
+    expect(solo.multiAssistantRoster).toBe(false);
+  });
+
+  it("firm enables multi-assistant roster packaging", () => {
+    expect(EDITION_FEATURES.multiAssistantRoster.firm).toBe(true);
+    expect(EDITION_FEATURES.multiAssistantRoster.private_deploy).toBe(true);
   });
 });

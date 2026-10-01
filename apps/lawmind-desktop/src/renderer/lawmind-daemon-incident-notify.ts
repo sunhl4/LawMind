@@ -3,7 +3,7 @@
  * 只认「放弃重试」与「心跳过期」，自动恢复不打扰（对齐 shouldNotifyDaemonIncident）。
  */
 import { useEffect, useRef } from "react";
-import { shouldNotifyDaemonIncident } from "../../../../src/lawmind/platform/lawmind-daemon.ts";
+import { shouldNotifyDaemonIncident } from "../../../../src/lawmind/platform/lawmind-daemon-supervision.ts";
 import { apiGetJson } from "./api-client";
 import type { LawmindDaemonPayload } from "./lawmind-app-data";
 import { useSettingsPanelStore } from "./stores/settings-panel-store";

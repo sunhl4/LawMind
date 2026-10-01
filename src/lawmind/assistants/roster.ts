@@ -10,6 +10,12 @@ import { DEFAULT_ASSISTANT_ID } from "./constants.js";
 /** 与策略里「名册要有上限」对齐：再多就开始互相抢注意力。 */
 export const ASSISTANT_ROSTER_LIMIT = 50;
 
+/** Solo / 未开 multiAssistantRoster：只允许一位父助手。 */
+export const SOLO_ASSISTANT_ROSTER_LIMIT = 1;
+
+export const SOLO_ROSTER_FULL_MESSAGE =
+  "独立律师版只需一位父助手。复杂活请在对话里用子工并行；律所协作版才可编制多名助手。";
+
 export type AssistantRosterFlags = {
   assistantId: string;
   displayName: string;
@@ -23,6 +29,14 @@ export function assertAssistantRosterHasRoom(count: number): void {
       `助手名册已满（最多 ${ASSISTANT_ROSTER_LIMIT} 位）。请先删掉不再用的助手，再新建。`,
     );
   }
+}
+
+/** Create/duplicate gate. Updates to an existing id must not call this. */
+export function assertCanCreateAssistant(count: number, allowMultiRoster: boolean): void {
+  if (!allowMultiRoster && count >= SOLO_ASSISTANT_ROSTER_LIMIT) {
+    throw new Error(SOLO_ROSTER_FULL_MESSAGE);
+  }
+  assertAssistantRosterHasRoom(count);
 }
 
 /** 落盘前把非 true 收成缺省，并禁止默认助手处于隐藏。 */

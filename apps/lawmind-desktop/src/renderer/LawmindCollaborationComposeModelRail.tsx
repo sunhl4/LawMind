@@ -36,7 +36,7 @@ export function LawmindCollaborationComposeModelRail(props: LawmindCollabCompose
         <div className="lm-collab-model-rail-copy-block">
           <div className="lm-collab-model-rail-title">多任务共用模型</div>
           <p className="lm-collab-model-rail-lead lm-meta">
-            主对话、委派打开的会话与团队工作流后台任务共用此处所选模型；切换助手会恢复该助手上次使用的模型。
+            主对话、隔离子工与后台工作流任务共用此处所选模型。
           </p>
         </div>
         <label className="lm-compose-bar-field lm-collab-model-rail-picker">

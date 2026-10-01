@@ -4,6 +4,8 @@
  */
 
 import { loadMatter } from "../../../adapters/matter-storage/index.js";
+import { isValidMatterId } from "../../../cases/matter-id.js";
+import { buildMatterDeletePlan } from "../../../desk/delete-matter-plan.js";
 import { deleteMatterVolume } from "../../../desk/delete-matter-volume.js";
 import {
   applyIntakeBrief,
@@ -494,7 +496,7 @@ export const deleteMatterTool: AgentTool = {
   definition: {
     name: "delete_matter",
     description:
-      "删除律师点名的用户卷宗（cases 与 matters 一起删）。只删这一案的用户资料，不能改 LawMind 程序、策略、审计或会话。confirm_matter_id 必须与 matter_id 完全一致。卷里还有材料时必须 delete_materials=true，否则拒绝，避免删错留有材料的那一卷。",
+      "删除律师点名的用户卷宗（cases、matters、副本云同步包）。confirm_matter_id 必须与 matter_id 完全一致。卷里还有材料时必须 delete_materials=true。可先 preview=true 盘点并给出建议保留项，向律师确认后再执行。审计链与已交付/已批准草稿始终保留。",
     category: "matter",
     parameters: {
       matter_id: { type: "string", description: "要删除的案件 ID", required: true },
@@ -503,9 +505,19 @@ export const deleteMatterTool: AgentTool = {
         description: "再写一遍同一个案件 ID，确认没删错卷",
         required: true,
       },
+      preview: {
+        type: "boolean",
+        description: "true 时只返回删除盘点与建议保留项，不执行删除",
+      },
       delete_materials: {
         type: "boolean",
         description: "该卷有材料、来信或交付文件时，律师明确要连这些一起删才传 true",
+      },
+      delete_tasks: { type: "boolean", description: "连同本案历史任务记录一起删" },
+      delete_sessions: { type: "boolean", description: "删除绑定本案的对话（含转写）" },
+      delete_unapproved_drafts: {
+        type: "boolean",
+        description: "删除未批准且未导出的草稿；已交付/已批准的不删",
       },
     },
     requiresApproval: false,
@@ -521,11 +533,34 @@ export const deleteMatterTool: AgentTool = {
         error: "confirm_matter_id 必须与 matter_id 完全一致，未删除。",
       };
     }
+    if (!isValidMatterId(matterId)) {
+      return { ok: false, error: "案件 ID 不合法，未删除。" };
+    }
+    const plan = await buildMatterDeletePlan(ctx.workspaceDir, matterId);
+    if (params.preview === true) {
+      return {
+        ok: true,
+        data: {
+          preview: true,
+          plan,
+          message:
+            plan.warnings.length > 0
+              ? `删除盘点：${plan.warnings.join(" ")} 请向律师确认保留项后再执行。`
+              : "删除盘点已完成。请向律师确认保留项后再执行。",
+        },
+      };
+    }
+    // 级联项必须律师（或对话里明示）传 true；不因 suggested 静默扩大删除面。
     const result = await deleteMatterVolume(ctx.workspaceDir, matterId, {
       requireEmpty: params.delete_materials !== true,
+      deleteTasks: params.delete_tasks === true,
+      deleteSessions: params.delete_sessions === true,
+      deleteUnapprovedDrafts: params.delete_unapproved_drafts === true,
+      excludeSessionId: ctx.sessionId,
+      actorId: ctx.actorId,
     });
     if (!result.ok) {
-      return { ok: false, error: result.error };
+      return { ok: false, error: result.error, data: { plan } };
     }
     const removed = result.removedCaseDir || result.removedMatterDir;
     return {
@@ -535,9 +570,15 @@ export const deleteMatterTool: AgentTool = {
         removed,
         removedCaseDir: result.removedCaseDir,
         removedMatterDir: result.removedMatterDir,
+        removedReplicaCloud: result.removedReplicaCloud,
         userFileCount: result.userFileCount,
+        deletedTasks: result.deletedTasks,
+        deletedSessions: result.deletedSessions,
+        unlinkedSessions: result.unlinkedSessions,
+        deletedDrafts: result.deletedDrafts,
+        keptDrafts: result.keptDrafts,
         message: removed
-          ? `已删除案件「${result.matterId}」的用户卷宗（案件列表与材料目录）。程序、策略和审计未改。`
+          ? `已删除案件「${result.matterId}」的用户卷宗。任务 ${result.deletedTasks}、对话删除 ${result.deletedSessions}、对话解绑 ${result.unlinkedSessions}、草稿 ${result.deletedDrafts}；保留草稿 ${result.keptDrafts}。审计已留痕。`
           : `没有找到案件「${result.matterId}」，未删除任何文件。`,
       },
     };

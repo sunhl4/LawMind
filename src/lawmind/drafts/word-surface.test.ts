@@ -58,6 +58,36 @@ describe("paintPendingRevisions", () => {
 });
 
 describe("composeWordSurface", () => {
+  it("labels lawyer hunks with the local display name", () => {
+    const proposal: RedlineProposal = {
+      taskId: "t-lawyer",
+      baselineSections: [{ heading: "正文", body: "甲方应于五日内付款。" }],
+      hunks: [
+        {
+          hunkId: "l1",
+          sectionIndex: 0,
+          before: "五日",
+          after: "三日",
+          status: "pending",
+          granularity: "surgical",
+          rationale: "律师在正文里改的",
+        },
+      ],
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    };
+    const surface = composeWordSurface({
+      fileName: "补充协议.docx",
+      relPath: "cases/m/补充协议.docx",
+      root: "workspace",
+      docxParagraphs: ["甲方应于五日内付款。"],
+      draft: { taskId: "t-lawyer" } as ArtifactDraft,
+      proposal,
+      lawyerDisplayName: "张三",
+    });
+    expect(surface.lawyerDisplayName).toBe("张三");
+    expect(surface.hunks[0]?.author).toBe("张三");
+  });
+
   it("paints pending hunks onto the open file and falls back to the baseline only when the file is empty", () => {
     const proposal: RedlineProposal = {
       taskId: "t1",
@@ -492,7 +522,7 @@ describe("formatted word surface", () => {
         (segment) => segment.kind === "revision" && segment.hunkId === "wait",
       );
       expect(accepted).toMatchObject({ color: 0, before: "十", after: "五" });
-      expect(pending).toMatchObject({ color: 1, before: "付款", after: "支付" });
+      expect(pending).toMatchObject({ color: 0, before: "付款", after: "支付" });
     }
     const table = surface.blocks[2];
     expect(table?.kind).toBe("table");
@@ -509,7 +539,7 @@ describe("formatted word surface", () => {
       expect(rowText).toEqual(["甲方", "乙方"]);
     }
     expect(surface.hunks.find((hunk) => hunk.hunkId === "done")?.color).toBe(0);
-    expect(surface.hunks.find((hunk) => hunk.hunkId === "wait")?.color).toBe(1);
+    expect(surface.hunks.find((hunk) => hunk.hunkId === "wait")?.color).toBe(0);
     expect(surface.hunks[0]?.hunkId).toBe("wait");
   });
 

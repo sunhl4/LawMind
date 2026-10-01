@@ -557,15 +557,17 @@ describe("tool-pipeline middlewares", () => {
     }
   });
 
-  it("approvalMiddleware demands __approved for send_email", async () => {
+  it("approvalMiddleware no longer pauses send_email (外发写入待发信，回合不中断)", async () => {
+    // 2026-10-01 起 send_email disposition 为 inbox_signoff：审批中间件直通，
+    // 待发队列与「批准发送」动作承担外发控制。
     const tool: AgentTool = {
       definition: { ...baseDef, name: "send_email", requiresApproval: true },
       execute: async () => ({ ok: true }),
     };
     const call = buildCall(workspaceDir, { tool, args: { query: "x" } });
     const result = await approvalMiddleware(call, async () => ({ ok: true }));
-    expect(result.ok).toBe(false);
-    expect(result.approvalRequest).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(result.approvalRequest).toBeUndefined();
   });
 
   it("approvalMiddleware does not pause internal production tools", async () => {
@@ -588,42 +590,22 @@ describe("tool-pipeline middlewares", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("approvalMiddleware enforces riskCeiling only for outbound send", async () => {
+  it("approvalMiddleware riskCeiling no longer pauses outbound send (无 pause 工具)", async () => {
+    // 风险上限的暂停通道只认 disposition=pause；2026-10-01 起没有 pause 工具，
+    // 外发一律写入待发清单，由律师在待发列表批准后才发出。
     const highRiskTool: AgentTool = {
       definition: { ...baseDef, name: "send_email", riskLevel: "high" },
       execute: async () => ({ ok: true }),
     };
-    const blocked = await approvalMiddleware(
+    const queued = await approvalMiddleware(
       buildCall(workspaceDir, {
         tool: highRiskTool,
         policyOverride: { riskCeiling: "medium" },
       }),
       async () => ({ ok: true }),
     );
-    expect(blocked.ok).toBe(false);
-    expect(blocked.approvalRequest).toBe(true);
-
-    // 发信即使风险上限够高也仍要拍板。
-    const stillPaused = await approvalMiddleware(
-      buildCall(workspaceDir, {
-        tool: highRiskTool,
-        policyOverride: { riskCeiling: "high" },
-      }),
-      async () => ({ ok: true }),
-    );
-    expect(stillPaused.ok).toBe(false);
-    expect(stillPaused.approvalRequest).toBe(true);
-
-    // ceiling=medium 但律师已 __approved → 放行。
-    const approved = await approvalMiddleware(
-      buildCall(workspaceDir, {
-        tool: highRiskTool,
-        args: { query: "x", __approved: true },
-        policyOverride: { riskCeiling: "medium" },
-      }),
-      async () => ({ ok: true }),
-    );
-    expect(approved.ok).toBe(true);
+    expect(queued.ok).toBe(true);
+    expect(queued.approvalRequest).toBeUndefined();
 
     // 未设 riskCeiling → 不改变既有行为（只读低风险工具直通）。
     const lowTool: AgentTool = {
@@ -951,8 +933,9 @@ describe("tool-pipeline middlewares", () => {
         args: { to: "opp@firm.cn", subject: "催告", body: "请回复" },
       }),
     );
-    expect(paused.approvalRequest).toBe(true);
-    expect(paused.ok).toBe(false);
+    // 参数合法的 send 不再暂停等批准：直通 execute（由 execute 写入待发信）。
+    expect(paused.approvalRequest).toBeUndefined();
+    expect(paused.ok).toBe(true);
   });
 
   it("does not ask the lawyer to approve a send the recipient gate will reject", async () => {

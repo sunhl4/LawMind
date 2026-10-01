@@ -103,12 +103,6 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
         description: "办案沉淀与偏好学习",
         keywords: "memory 记忆 采纳 adoption 建议 沉淀 习惯 进化 学习",
       },
-      {
-        id: "assistants",
-        label: "助手编制",
-        description: "名册、置顶、隐藏与职务说明书",
-        keywords: "assistant 智能体 岗位 persona 助手 编制 新建助手",
-      },
     ],
   },
   {
@@ -130,9 +124,15 @@ export const SETTINGS_NAV_FLAT: SettingsNavItem[] = SETTINGS_NAV_GROUPS.flatMap(
 /** Retired from the sidebar; still routable so old lastSection / deep links do not crash. */
 export const SETTINGS_NAV_RETIRED_ITEMS: readonly SettingsNavItem[] = [
   {
+    id: "assistants",
+    label: "助手编制",
+    description: "默认一位父助手即可；编制仅律所组织或深链使用",
+    keywords: "assistant 智能体 岗位 persona 助手 编制 新建助手",
+  },
+  {
     id: "roles",
     label: "角色说明",
-    description: "内置岗位已随默认助手生效",
+    description: "岗位已改为工作方式包，随办件与子工生效",
     keywords: "roles 角色 助手 岗位",
   },
   {
@@ -177,12 +177,53 @@ export function filterSettingsNavGroups(query: string): SettingsNavGroup[] {
   })).filter((group) => group.items.length > 0);
 }
 
-/** Sidebar order: every lawyer-facing section, no collapsed “更多设置” bucket. */
+/**
+ * Sidebar for the active edition.
+ * Solo: no 助手编制 (single parent agent — see LAWMIND-SINGLE-PARENT-AGENT).
+ * Firm / private_deploy: 助手编制 appears under 办案 when multiAssistantRoster is on.
+ */
 export function settingsNavGroupsForEdition(
-  _edition: string | undefined,
+  edition: string | undefined,
   query = "",
 ): SettingsNavGroup[] {
-  return filterSettingsNavGroups(query);
+  const groups = filterSettingsNavGroups(query);
+  const ed = (edition ?? "solo").trim().toLowerCase();
+  const showRoster = ed === "firm" || ed === "private_deploy";
+  if (!showRoster) {
+    return groups;
+  }
+  const assistantsItem = SETTINGS_NAV_RETIRED_ITEMS.find((item) => item.id === "assistants");
+  if (!assistantsItem) {
+    return groups;
+  }
+  const q = query.trim().toLowerCase();
+  const assistantsMatchesQuery =
+    !q ||
+    assistantsItem.label.toLowerCase().includes(q) ||
+    assistantsItem.description.toLowerCase().includes(q) ||
+    assistantsItem.keywords.toLowerCase().includes(q);
+  if (!assistantsMatchesQuery) {
+    return groups;
+  }
+
+  const withAssistants = groups.map((group) => {
+    if (group.id !== "practice") {
+      return group;
+    }
+    if (group.items.some((item) => item.id === "assistants")) {
+      return group;
+    }
+    return { ...group, items: [...group.items, assistantsItem] };
+  });
+
+  // Query matched only 助手编制 — practice group may have been filtered out entirely.
+  if (!withAssistants.some((group) => group.id === "practice")) {
+    return [
+      ...withAssistants,
+      { id: "practice", label: "办案", items: [assistantsItem] },
+    ];
+  }
+  return withAssistants;
 }
 
 export function settingsNavItemsForEdition(
@@ -230,6 +271,7 @@ export function lawmindSettingsSectionFromDomId(domId: string): LawmindSettingsS
 export const SETTINGS_NAV_LEGACY_SECTION_IDS: readonly LawmindSettingsSectionId[] = [
   "review-prefs",
   "host",
+  "assistants",
   "roles",
   "skills",
   "edition",

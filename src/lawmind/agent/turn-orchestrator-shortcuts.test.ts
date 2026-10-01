@@ -3,9 +3,7 @@ import type { TurnFinalizeShared } from "./turn-orchestrator-finalize.js";
 import {
   formatPublicWebFactReply,
   tryAutoDeliverableWorkflowShortcut,
-  tryIntakeClarificationShortcut,
   tryPublicWebFactShortcut,
-  wouldIntakeClarify,
 } from "./turn-orchestrator-shortcuts.js";
 import type { AgentContext, AgentSession, AgentTurn } from "./types.js";
 
@@ -54,62 +52,6 @@ function sharedStub(session: AgentSession, turn: AgentTurn): TurnFinalizeShared 
 }
 
 describe("turn-orchestrator-shortcuts", () => {
-  it("wouldIntakeClarify surfaces questions for thin drafting asks", () => {
-    const qs = wouldIntakeClarify("请起草一份合同");
-    expect(Array.isArray(qs)).toBe(true);
-  });
-
-  it("tryIntakeClarificationShortcut returns null when no intake questions", () => {
-    const session = baseSession();
-    const turn = baseTurn();
-    const result = tryIntakeClarificationShortcut({
-      instruction: "今天天气怎么样",
-      session,
-      turn,
-      shared: sharedStub(session, turn),
-      actorId: "system",
-      resolvedAssistantId: "default",
-      modelName: "m",
-    });
-    expect(result).toBeNull();
-  });
-
-  it("tryIntakeClarificationShortcut does not freeze soft-ask drafts (rental)", () => {
-    const session = baseSession();
-    const turn = baseTurn();
-    const instruction = "请起草一份租赁合同";
-    expect(wouldIntakeClarify(instruction).length).toBe(0);
-    const result = tryIntakeClarificationShortcut({
-      instruction,
-      session,
-      turn,
-      shared: sharedStub(session, turn),
-      actorId: "system",
-      resolvedAssistantId: "default",
-      modelName: "m",
-    });
-    expect(result).toBeNull();
-  });
-
-  it("tryIntakeClarificationShortcut hard-gates demand letter without materials", () => {
-    const session = baseSession();
-    const turn = baseTurn();
-    const instruction = "请写一份律师函催款";
-    expect(wouldIntakeClarify(instruction).length).toBeGreaterThan(0);
-    const result = tryIntakeClarificationShortcut({
-      instruction,
-      session,
-      turn,
-      shared: sharedStub(session, turn),
-      actorId: "system",
-      resolvedAssistantId: "default",
-      modelName: "m",
-    });
-    expect(result).not.toBeNull();
-    expect(result?.turn.status).toBe("awaiting_clarification");
-    expect(turn.gateDecisions?.some((g) => g.gate === "intake_gate")).toBe(true);
-  });
-
   it("tryAutoDeliverableWorkflowShortcut returns null when not an auto-wf instruction", async () => {
     const session = baseSession();
     const turn = baseTurn();

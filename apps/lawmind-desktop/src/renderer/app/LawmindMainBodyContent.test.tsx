@@ -154,13 +154,13 @@ describe("LawmindMainBodyContent workspace bootstrap", () => {
     expect(host.querySelector(".lm-workspace-unified")).toBeNull();
   });
 
-  it("renders 工作台 when mainView is desk and config is ready", async () => {
+  it("renders 工作台 in the chat middle column", async () => {
     await act(async () => {
       root.render(
         <LawmindShellProviders
           navigation={{
-            mainView: "desk",
-            matterCockpitOpen: false,
+            mainView: "workspace",
+            matterCockpitOpen: true,
             settingsOpen: false,
           }}
           chatSession={{
@@ -177,5 +177,8 @@ describe("LawmindMainBodyContent workspace bootstrap", () => {
       );
     });
     expect(host.querySelector('[data-testid="lm-lawyer-workbench"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="lm-desk-middle"]')).toBeTruthy();
+    expect(host.querySelector(".lm-workspace-unified")).toBeTruthy();
+    expect(host.querySelector('[data-testid="lm-chat-drop-zone"]')).toBeTruthy();
   });
 });

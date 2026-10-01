@@ -1,7 +1,8 @@
 // TODO(renderer-fetch-proxy): migrate remaining fetch calls to fetchApi / api-client-proxy.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { useLawmindAppShell } from "./lawmind-app-shell";
 import { useSettingsPanelStore } from "./stores/settings-panel-store";
+import { useEdition } from "./use-edition";
 import type { AgentsDeskTab } from "./lawmind-agents-desk";
 import { useActionSummaryQuery } from "./lawmind-query-hooks";
 import { useLawmindRecordsDeskMatters, RECORDS_DESK_UNLINKED } from "./lawmind-records-desk-state";
@@ -23,6 +24,9 @@ import {
 import { resolveOpenableOutputPath, artifactApiRelFromOutput } from "./lawmind-app-utils";
 import { scheduleScrollChatMessagesToLatest } from "./lawmind-chat-scroll";
 import { LAWMIND_OPEN_MATTER_OUTBOUND } from "./lawmind-desk-outbound";
+import type { DeskMatterFocus, DeskMatterFocusPane } from "./app/desk-matter-focus";
+import type { CommandPaletteAction } from "./LawmindCommandPalette";
+import type { LawmindMainView } from "./lawmind-main-view";
 import { LAWMIND_PREPARE_WORKSPACE_FILE_EVENT, openContractRevisionForTask } from "./lawmind-open-contract-revision";
 import {
   LAWMIND_OPEN_CONTRACT_REVISION_EVENT,
@@ -87,7 +91,10 @@ export function LawmindAppRoot() {
     [assistants],
   );
 
+  const { features: editionFeatures } = useEdition(config?.apiBase ?? "");
+
   const delegateAssistEnabled =
+    editionFeatures.multiAssistantRoster &&
     assistants.filter((a) => a.assistantId !== selectedAssistantId).length > 0 &&
     collabSummarySettings?.collaborationEnabled !== false;
 
@@ -135,11 +142,18 @@ export function LawmindAppRoot() {
   ]);
   const [matterImportBusy, setMatterImportBusy] = useState(false);
   const [matterCockpitOpen, setMatterCockpitOpen] = useState(false);
-  const [deskMatterFocus, setDeskMatterFocus] = useState<{
-    id: string;
-    n: number;
-    pane?: "docs";
-  } | null>(null);
+  /**
+   * 「工作台」不是另一页：留在对话，中栏换成案卷。
+   * 赋值在 ws 面板 state 之后；点击时才读 ref，所以可以先传给更早的 handler。
+   */
+  const routeMainViewRef = useRef<(view: SetStateAction<LawmindMainView>) => void>((view) => {
+    actions.setMainView(view);
+  });
+  const setMainView = useCallback((view: SetStateAction<LawmindMainView>) => {
+    routeMainViewRef.current(view);
+  }, []);
+  const [deskMatterFocus, setDeskMatterFocus] = useState<DeskMatterFocus>(null);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [createMatterOpen, setCreateMatterOpen] = useState(false);
   const [matterDeleteOpen, setMatterDeleteOpen] = useState<{ matterId: string; label: string } | null>(null);
   const [delegateAssistOpen, setDelegateAssistOpen] = useState(false);
@@ -252,7 +266,6 @@ export function LawmindAppRoot() {
   }, [config?.apiBase, contextMatterId, matterRefreshVersion, matterLabelById]);
 
   const {
-    setMainView,
     setReviewFocusTaskId,
     setReviewFocusMatterId,
     setReviewFocusStatus,
@@ -308,7 +321,6 @@ export function LawmindAppRoot() {
       }
       recordsDeskMatters.setSelectedKey(mid);
       setContextMatterId(mid);
-      setMatterCockpitOpen(false);
       setDeskMatterFocus((prev) => ({ id: mid, n: (prev?.n ?? 0) + 1 }));
       setMainView("desk");
     },
@@ -359,14 +371,68 @@ export function LawmindAppRoot() {
       }
       actions.setContextMatterId(matterId);
       setDeskMatterFocus((prev) => ({ id: matterId, n: (prev?.n ?? 0) + 1, pane: "docs" }));
-      actions.setMainView("desk");
+      setMainView("desk");
     };
     window.addEventListener(LAWMIND_OPEN_MATTER_OUTBOUND, onOutbound);
     return () => {
       window.removeEventListener(LAWMIND_CANVAS_COMPOSER_EVENT, onComposer);
       window.removeEventListener(LAWMIND_OPEN_MATTER_OUTBOUND, onOutbound);
     };
-  }, [actions]);
+  }, [actions, setMainView]);
+
+  // ⌘K 全局查找挂在根壳：对话、工作台、改稿页都能唤起；再按一次收起。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setGlobalSearchOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // ⌘K 搜索结果 → 档案页，按结果类型滚到「现在 / 卷 / 期限」。
+  const openMatterDossierFromSearch = useCallback(
+    (matterId: string, pane?: DeskMatterFocusPane) => {
+      const mid = matterId.trim();
+      if (!mid) {
+        return;
+      }
+      recordsDeskMatters.setSelectedKey(mid);
+      actions.setContextMatterId(mid);
+      setDeskMatterFocus((prev) => ({ id: mid, n: (prev?.n ?? 0) + 1, pane }));
+      setMainView("desk");
+    },
+    [actions, recordsDeskMatters.setSelectedKey, setMainView],
+  );
+
+  // ⌘K 命令区：只放根壳就能完成的工作面切换与全局入口。
+  const globalSearchCommands = useMemo<CommandPaletteAction[]>(
+    () => [
+      { id: "go-chat", slash: "/chat", label: "对话", run: () => {
+        setMatterCockpitOpen(false);
+        actions.setMainView("workspace");
+      } },
+      { id: "go-desk", slash: "/desk", label: "工作台", run: () => setMainView("desk") },
+      { id: "go-review", slash: "/review", label: "修订", run: () => actions.setMainView("review") },
+      { id: "go-agents", slash: "/agents", label: "在办", run: () => actions.setMainView("agents") },
+      {
+        id: "new-matter",
+        slash: "/new",
+        label: "新建案件",
+        run: () => setCreateMatterOpen(true),
+      },
+      {
+        id: "settings",
+        slash: "/config",
+        label: "设置",
+        run: () => useSettingsPanelStore.getState().setSettingsPanel(true, "workspace"),
+      },
+    ],
+    [actions, setMainView],
+  );
+
   const workflowModelLabel =
     modelCatalog.find((m) => m.id === selectedModelId)?.label ?? selectedModelId;
   useEffect(() => {
@@ -463,6 +529,16 @@ export function LawmindAppRoot() {
   const [wsShowEditor, setWsShowEditor] = useState(() => readStoredBool("lawmind.ui.wsPaneEditor", false));
   const [wsShowChat, setWsShowChat] = useState(() => readStoredBool("lawmind.ui.wsPaneChat", true));
 
+  routeMainViewRef.current = (view) => {
+    if (view === "desk") {
+      actions.setMainView("workspace");
+      setMatterCockpitOpen(true);
+      setWsShowChat(true);
+      return;
+    }
+    actions.setMainView(view);
+  };
+
   useEffect(() => {
     writeStoredBool("lawmind.ui.wsPaneEditor", wsShowEditor);
   }, [wsShowEditor]);
@@ -550,11 +626,11 @@ export function LawmindAppRoot() {
    * 会议室与对话共用全局左栏（材料树 + 会话列表），便于拖入议题材料。
    */
   // 在办与对话共用全局左栏（会话 + 材料树）；审核台、工作台、整理资料全宽无侧栏。
-  const showAppSidebar = mainView !== "review" && mainView !== "desk" && mainView !== "archive";
+  const showAppSidebar = mainView !== "review" && mainView !== "archive";
   const showSidebarWorkbenchFiles =
     canUseFilesystemBridge &&
     showAppSidebar &&
-    (mainView === "workspace" || mainView === "meeting" || mainView === "agents");
+    (mainView === "workspace" || mainView === "desk" || mainView === "meeting" || mainView === "agents");
   const previewArtifact = (outputPath?: string) => {
     if (!config) {
       return;
@@ -583,7 +659,11 @@ export function LawmindAppRoot() {
   };
 
   const layout = useLawmindAppRootLayout({
-    shell: { state, derived, actions },
+    shell: {
+      state,
+      derived,
+      actions: { ...actions, setMainView },
+    },
     recordsDeskMatters,
     assistantDisplayById,
     delegateAssistEnabled,
@@ -646,6 +726,10 @@ export function LawmindAppRoot() {
     setMatterDeleteOpen,
     taskDrawerOpen,
     setTaskDrawerOpen,
+    globalSearchOpen,
+    setGlobalSearchOpen,
+    globalSearchCommands,
+    openMatterDossierFromSearch,
     setUiPrefsVersion,
   });
 

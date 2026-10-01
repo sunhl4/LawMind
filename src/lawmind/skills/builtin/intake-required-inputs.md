@@ -2,7 +2,7 @@
 id: intake-required-inputs
 name: 交办 Intake（Soft Ask）
 version: "1"
-description: 材料齐备时不冻写；高风险空跑才硬澄清；Required Inputs 原则
+description: 材料齐备时不冻写；空跑也不暂停，按假设起草并标【待核实】；Required Inputs 原则
 source: lawmind-builtin
 tags: intake, craft
 ---
@@ -15,7 +15,7 @@ tags: intake, craft
 
 1. **材料优先**：已有合同路径、邮件附件、@钉源或 CASE 主体时，推断立场与重点并执行。
 2. **软问不冻写**：一般缺口写入对话追问即可；只读/检索始终可继续。
-3. **硬澄清仅高风险空跑**：如律师函缺收件人且无任何材料时，才暂停重写工具。
+3. **空跑不暂停**：律师函 / 诉讼文书缺收件人或主体且无任何材料时，也不停下等回答——按合理假设起草，文中标【待核实：…】，回复末尾列出假设；律师在修订里改或回一句补充。
 4. **交办表单优先**：律师已填【交办】结构化表单则不再追问。
 
 ## Required Inputs（按交付物，有则用、无则【待补充】）

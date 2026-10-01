@@ -345,7 +345,9 @@ describe("executeToolBatches approval race", () => {
         pushed.push(msg.toolCallResponses?.[0]?.name ?? "");
       },
     });
-    expect(result.heldForElicitation).toBe(true);
+    // 端到端口径：硬键缺口（addressee）不再截断批——两个结果仍同批发布（barrier），
+    // 但不置 heldForElicitation；缺口随回合完成以「待核实」非阻塞给出。
+    expect(result.heldForElicitation).toBe(false);
     expect(pushed).toEqual(["search_ok", "ask_more"]);
     expect(turn.status).toBe("running");
     expect(result.pendingClarificationQuestions).toHaveLength(1);

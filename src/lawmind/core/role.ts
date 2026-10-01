@@ -1,15 +1,11 @@
 /**
  * Role — W7。
  *
- * 升级 6 个 assistant-presets 为一等业务对象 `Role`。Role 与 Assistant 解耦：
- *   - Assistant 是"具体的助手实例"（profile + 可用工具配置）。
- *   - Role 是"岗位定义"（mission / allowedToolNames / riskCeiling / memoryScope / reviewChecklist）。
+ * Role 是**工作方式包**（mission / checklist / riskCeiling / memoryScope），不是「先雇一个人」。
+ * 产品决策见 `docs/LAWMIND-SINGLE-PARENT-AGENT.md`：Solo 默认一位父助手；子工与办件按 Role 套包。
  *
- * 每个 Assistant 通过 `roleId` 关联到一个 Role；W7 起 ToolPolicy pipeline 与
- * engine drafting 都消费 Role 的字段（allowedToolNames / riskCeiling / allowedDeliverableTypes）。
- *
- * 兼容：Assistant 的 `presetKey` 字段在一个季度内保留；启动时 migration 自动把
- * `presetKey` 推导为 `roleId`（见 `migrateAssistantsToRole`）。
+ * 历史：曾把 6 个 assistant-presets 升为一等对象；Assistant 仍可通过 `roleId` 关联 Role。
+ * ToolPolicy 与 drafting 消费 Role 字段；律师主路径不再要求为每个 Role 创建助手。
  */
 
 import type { AssistantPresetDefinition } from "../agent/assistant-presets.js";

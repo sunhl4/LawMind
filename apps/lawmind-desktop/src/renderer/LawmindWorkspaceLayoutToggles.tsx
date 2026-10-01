@@ -40,15 +40,17 @@ export function LawmindWorkspaceLayoutToggles(props: Props) {
       </button>
       <button
         type="button"
-        className={`lm-panel-toggle ${wsShowEditor ? "" : "lm-panel-toggle-off"}`}
-        aria-pressed={wsShowEditor}
-        aria-label={wsShowEditor ? "隐藏编辑区" : "显示编辑区"}
-        disabled={!canUseFilesystemBridge || matterCockpitOpen}
+        className={`lm-panel-toggle ${wsShowEditor || matterCockpitOpen ? "" : "lm-panel-toggle-off"}`}
+        aria-pressed={wsShowEditor || matterCockpitOpen}
+        aria-label={
+          matterCockpitOpen ? "中栏改回文件预览" : wsShowEditor ? "隐藏编辑区" : "显示编辑区"
+        }
+        disabled={!canUseFilesystemBridge}
         title={
-          matterCockpitOpen
-            ? "案件工作台模式下请返回对话"
-            : !canUseFilesystemBridge
-              ? "请先连接工作区"
+          !canUseFilesystemBridge
+            ? "请先连接工作区"
+            : matterCockpitOpen
+              ? "中栏改回文件预览"
               : wsShowEditor
                 ? "隐藏编辑区"
                 : "显示编辑区"
@@ -67,14 +69,7 @@ export function LawmindWorkspaceLayoutToggles(props: Props) {
         className={`lm-panel-toggle ${!wsShowChat ? "lm-panel-toggle-off" : ""}`}
         aria-pressed={wsShowChat}
         aria-label={wsShowChat ? "隐藏对话区" : "显示对话区"}
-        disabled={matterCockpitOpen}
-        title={
-          matterCockpitOpen
-            ? "案件工作台模式下请返回对话"
-            : wsShowChat
-              ? "隐藏对话区"
-              : "显示对话区"
-        }
+        title={wsShowChat ? "隐藏对话区" : "显示对话区"}
         onClick={onToggleChat}
       >
         <span className="lm-panel-toggle-icon" aria-hidden>

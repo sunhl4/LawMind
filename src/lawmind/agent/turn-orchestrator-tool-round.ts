@@ -10,7 +10,6 @@ import { promoteLegacyUpdateDraftCraftPatch } from "../drafts/legacy-update-draf
 import { recordToolCallEvent } from "../metrics/runtime-events.js";
 import type { GateDecision, GateDecisionKind, GateCategory } from "../platform/contracts.js";
 import { withGateCategory } from "../platform/gate-category.js";
-import { selectHardClarificationKeys } from "../router/intake-gate.js";
 import {
   ICLOUD_DOWNLOAD_CONFIRM_KEY,
   ICLOUD_DOWNLOAD_MANUAL_KEY,
@@ -185,10 +184,12 @@ function outcomeNeedsElicitation(outcome: StagedToolOutcome): boolean {
   if (outcome.approvalRequest) {
     return true;
   }
+  // iCloud 下载提问才截断同批后续调用；draft_with_placeholders 的待核实缺口
+  // （含 addressee 等硬键）不再截断——草稿已带占位，同批后续步骤继续推进。
   if (outcome.clarificationQuestions.some((q) => isIcloudLawyerQuestion(q.key))) {
     return true;
   }
-  return selectHardClarificationKeys(outcome.clarificationQuestions.map((q) => q.key)).length > 0;
+  return false;
 }
 
 export async function executeToolBatches(
@@ -349,11 +350,9 @@ export async function executeToolBatches(
         id: ref.id,
         function: { name: ref.name, arguments: JSON.stringify(ref.arguments) },
       };
-      // 跨轮门禁（orchestrator 依据 hard pendingClarificationKeys 置位）不能被
-      // 本轮重置；同轮工具返回的澄清也只认硬键，软缺口不冻写工具。
-      const hardPending =
-        selectHardClarificationKeys(pendingClarificationQuestions.map((q) => q.key)).length > 0;
-      ctx.clarificationBlockingHeavyTools = ctx.clarificationBlockingHeavyTools || hardPending;
+      // 跨轮门禁（orchestrator 依据 hard pendingClarificationKeys 置位）不能被本轮重置。
+      // 工具返回的待核实缺口不再冻本轮后续写工具（端到端口径：缺口标进交付物，
+      // 回合照常完成）；跨轮门禁只服务旧会话遗留的 pendingClarificationKeys。
       turn.toolCallsExecuted++;
 
       const toolName = tc.function.name;

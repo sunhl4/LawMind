@@ -59,8 +59,9 @@ describe("engine shadow replay (engine-scripted-model)", () => {
       expect(row.engineDraftText.length).toBeGreaterThan(0);
     }
 
-    // 真实澄清门禁至少在一个案子里被触发并按流程放行。
-    expect(report.results.some((row) => row.clarificationTurns > 0)).toBe(true);
+    // 端到端口径（2026-10-01）：澄清不再暂停回合——所有案子零澄清停顿、
+    // 草稿照常产出（缺口以【待核实】进交付物，不再走 awaiting_clarification 放行）。
+    expect(report.results.every((row) => row.clarificationTurns === 0)).toBe(true);
 
     // 真实数字：基于引擎产出的召回（本批 cassette 均写入植入缺陷文本 → 1；
     // 该数字由真实 lint 计算，不是构造保证——见下方反向用例）。

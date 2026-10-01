@@ -15,7 +15,7 @@ import { formatAutomationLastResultForLawyer } from "./lawmind-automation-last-r
 import { formatRelativeTime } from "./lawmind-app-utils";
 import { confirmDialog } from "./lawmind-confirm-dialog";
 import { draftAutomationConfirmations } from "../../../../src/lawmind/platform/infer-automation-from-instruction.ts";
-import { formatAutomationFrequencyCostHint } from "../../../../src/lawmind/platform/lawyer-automations.ts";
+import { formatAutomationFrequencyCostHint } from "../../../../src/lawmind/platform/automation-frequency-hint.ts";
 import { isOutboundAutomationContext } from "../../../../src/lawmind/platform/lawyer-outbound-decision.ts";
 
 type Schedule =

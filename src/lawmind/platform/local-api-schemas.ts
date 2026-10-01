@@ -212,6 +212,11 @@ export type MatterProfilePostRequest = z.infer<typeof matterProfilePostSchema>;
 
 export const matterDeletePostSchema = z.object({
   matterId: trimmedNonEmptyString,
+  /** 连同 cases/<id> 材料与卷宗文件一起删；不勾且卷内有文件时拒绝。 */
+  deleteMaterials: z.boolean().optional(),
+  deleteTasks: z.boolean().optional(),
+  deleteSessions: z.boolean().optional(),
+  deleteUnapprovedDrafts: z.boolean().optional(),
 });
 
 export type MatterDeletePostRequest = z.infer<typeof matterDeletePostSchema>;

@@ -40,6 +40,19 @@ function fileSizeBytes(workspaceDir: string, relativePath: string): number {
   }
 }
 
+function parseValidUntil(blob: string | undefined): string | undefined {
+  if (!blob?.trim()) {
+    return undefined;
+  }
+  // MEMORY.md 索引行：`— 说明 validUntil:2026-12-31` 或 `有效至 2026-12-31`
+  const iso = /\bvalidUntil\s*[:=]\s*(\d{4}-\d{2}-\d{2})\b/i.exec(blob);
+  if (iso?.[1]) {
+    return iso[1];
+  }
+  const zh = /有效至\s*(\d{4}-\d{2}-\d{2})/.exec(blob);
+  return zh?.[1];
+}
+
 function parseMemoryIndex(workspaceDir: string): MemoryManifestEntry[] {
   let raw = migrateWorkspaceMemoryMarkdown(workspaceDir).text;
   if (!raw.trim()) {
@@ -68,10 +81,13 @@ function parseMemoryIndex(workspaceDir: string): MemoryManifestEntry[] {
     } catch {
       continue;
     }
+    const description = m[3]?.trim();
+    const validUntil = parseValidUntil(description);
     entries.push({
       relativePath: rel.replace(/\\/g, "/"),
       title: m[1].trim(),
-      description: m[3]?.trim(),
+      ...(description ? { description } : {}),
+      ...(validUntil ? { validUntil } : {}),
       mtimeMs,
       sizeBytes,
     });
@@ -93,10 +109,13 @@ function scanTopicHeaders(workspaceDir: string): MemoryManifestEntry[] {
       const stat = fs.statSync(full);
       const head = fs.readFileSync(full, "utf8").slice(0, 400);
       const titleMatch = /^#\s+(.+)$/m.exec(head);
+      const description = head.split("\n").slice(1, 4).join(" ").trim().slice(0, 120);
+      const validUntil = parseValidUntil(head) ?? parseValidUntil(description);
       out.push({
         relativePath: rel,
         title: titleMatch?.[1]?.trim() ?? name.replace(/\.md$/, ""),
-        description: head.split("\n").slice(1, 4).join(" ").trim().slice(0, 120),
+        ...(description ? { description } : {}),
+        ...(validUntil ? { validUntil } : {}),
         mtimeMs: stat.mtimeMs,
         sizeBytes: stat.size,
       });
@@ -197,10 +216,9 @@ function scoreEntry(
   if ((entry.description ?? "").toLowerCase().includes(q)) {
     score += 2;
   }
-  if (matterId) {
-    if (entry.relativePath.includes(`cases/${matterId}/`)) {
-      score += 5;
-    }
+  if (matterId && entry.relativePath.includes(`cases/${matterId}/`)) {
+    score += 5;
+    // Only the active matter's CASE.md gets the extra boost — never other matters'.
     if (entry.relativePath.endsWith("CASE.md")) {
       score += 4;
     }
@@ -347,23 +365,30 @@ export async function findRelevantMemoriesForTurn(opts: {
     })
     .slice(0, MAX_RECALL);
 
-  if (ranked.length === 0 && manifest.length > 0) {
-    const fallback = manifest
-      .toSorted((a, b) => {
-        if (recallPrefs.preferSmallFiles) {
-          const aSize = a.sizeBytes ?? Number.MAX_SAFE_INTEGER;
-          const bSize = b.sizeBytes ?? Number.MAX_SAFE_INTEGER;
-          if (aSize !== bSize) {
-            return aSize - bSize;
-          }
-        }
-        return b.mtimeMs - a.mtimeMs;
-      })
-      .slice(0, Math.min(3, MAX_RECALL));
-    return fallback.map((e) => toRecallHit(opts.workspaceDir, e.relativePath, e.mtimeMs, e.title));
+  if (ranked.length === 0) {
+    // Zero-score: inject nothing. Do not fall back to "recent files" noise
+    // (docs/LAWMIND-SINGLE-PARENT-AGENT.md L1; LAWMIND-MEMORY-LONGTERM-REVIEW).
+    return [];
   }
 
   return ranked.map((r) =>
     toRecallHit(opts.workspaceDir, r.e.relativePath, r.e.mtimeMs, r.e.title),
   );
+}
+
+/** Compact prompt block for scored hits. Caller must not call when hits is empty. */
+export function formatRelevantMemoryHitsForPrompt(hits: readonly MemoryRecallHit[]): string {
+  const lines = hits
+    .filter((h) => h.relativePath.trim())
+    .map((h) => {
+      const title = h.title.trim() || h.relativePath;
+      const gist = h.gist.trim();
+      return gist
+        ? `- **${title}** (\`${h.relativePath}\`)：${gist}`
+        : `- **${title}** (\`${h.relativePath}\`)`;
+    });
+  if (lines.length === 0) {
+    return "";
+  }
+  return ["## 相关记忆（按本轮指令检索；零分不注入）", "", ...lines].join("\n");
 }

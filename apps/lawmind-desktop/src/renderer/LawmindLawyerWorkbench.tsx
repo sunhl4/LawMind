@@ -1,5 +1,5 @@
 /**
- * 工作台：早上扫案卷，打开一卷看这一案的档案。干活仍在对话，看稿用 WPS。
+ * 工作台：对话页中栏里的案卷。左边是目录，右边是对话。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage, fetchApi } from "./api-client";
@@ -43,6 +43,26 @@ import { MatterReplicaPanel } from "./matter/MatterReplicaPanel";
 import { pinDroppedChatFiles } from "./lawmind-file-drop-context";
 import { useChatFileDropTarget } from "./useChatFileDropTarget";
 import { DeskGlyph, IntakeBriefBlocks, type IntakeBriefView } from "./desk-workbench-bits";
+import {
+  deskMatterPaneSelector,
+  matterHotPaneTarget,
+  type DeskMatterFocus,
+  type DeskMatterFocusPane,
+} from "./app/desk-matter-focus";
+import { LawmindMatterBrief } from "./LawmindMatterBrief";
+import { useMatterHotlineReasons } from "./useMatterHotlineReasons";
+import { useMatterDocumentMeta } from "./useMatterDocumentMeta";
+import {
+  isDeskNativeOfficePath,
+  isDeskPreviewablePath,
+  isDeskWordPath,
+  resolveDeskVolumeWorkspacePath,
+} from "./desk-volume-file-path";
+import { openDocxInReviewSurface } from "./lawmind-open-contract-revision";
+import {
+  requestOpenContractRevision,
+  requestOpenWorkspaceFile,
+} from "./lawmind-workspace-file-open";
 
 type TodayItemKind = "plan" | "mail" | "deadline" | "approval";
 
@@ -208,7 +228,7 @@ export type LawmindLawyerWorkbenchProps = {
   onReconnectLocalService?: () => void | Promise<void>;
   localServiceReconnecting?: boolean;
   /** Open 本案卷宗 when bumped from header / sidebar / deep link. */
-  deskMatterFocus?: { id: string; n: number; pane?: "docs" } | null;
+  deskMatterFocus?: DeskMatterFocus;
 };
 
 const KIND_FILTERS: Array<{ id: "all" | MatterKind; label: string }> = [
@@ -314,6 +334,8 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     onGoToChat,
     onCreateMatter,
     onDeleteMatter,
+    onOpenNeedsDecision,
+    onOpenReview,
     onShowArtifact,
     onReconnectLocalService,
     localServiceReconnecting,
@@ -353,7 +375,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
   const [view, setView] = useState<"list" | "matter">("list");
   const [openedMatterId, setOpenedMatterId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [scrollNow, setScrollNow] = useState(false);
+  const [scrollPane, setScrollPane] = useState<DeskMatterFocusPane | null>(null);
   const archiveDetailsRef = useRef<HTMLDetailsElement>(null);
   const autoReconnectRef = useRef(false);
   const reconnectRef = useRef(onReconnectLocalService);
@@ -430,6 +452,16 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     .filter((row) => matterMatchesListFilter(listFilter, urgencyOf(row)))
     .slice()
     .toSorted((a, b) => urgencyListRank(urgencyOf(a)) - urgencyListRank(urgencyOf(b)));
+  const hotlineRows = shownMatters.map((row) => {
+    const u = urgencyOf(row);
+    return {
+      matterId: row.matterId,
+      title: row.title,
+      urgency: u,
+      hot: matterHotLine(u),
+    };
+  });
+  const hotlineReasons = useMatterHotlineReasons(apiBase, hotlineRows);
   const overdueCount = todayItems.filter(
     (item) => item.kind === "deadline" && !item.done && isOverdue(item.dueAt),
   ).length;
@@ -616,16 +648,16 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     };
   }, [apiBase, viewingId, selected?.title, selected?.clientId, selected?.docket, selected?.matterKind]);
 
-  const openMatter = (matterId: string, opts?: { scrollNow?: boolean }) => {
+  const openMatter = (matterId: string, opts?: { scrollPane?: DeskMatterFocusPane }) => {
     setOpenedMatterId(matterId);
     setView("matter");
-    setScrollNow(Boolean(opts?.scrollNow));
+    setScrollPane(opts?.scrollPane ?? null);
     onSelectMatter(matterId);
   };
 
   const backToList = () => {
     setView("list");
-    setScrollNow(false);
+    setScrollPane(null);
   };
 
   const revealArchive = (anchorId: string) => {
@@ -642,27 +674,33 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     if (!mid) {
       return;
     }
-    openMatter(mid, { scrollNow: deskMatterFocus?.pane === "docs" });
+    openMatter(mid, { scrollPane: deskMatterFocus?.pane ?? undefined });
     // openMatter closes over setters; nonce forces re-open of the same matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional focus bump
-  }, [deskMatterFocus?.id, deskMatterFocus?.n]);
+  }, [deskMatterFocus?.id, deskMatterFocus?.n, deskMatterFocus?.pane]);
 
   useEffect(() => {
-    if (view !== "matter" || !scrollNow) {
+    if (view !== "matter" || !scrollPane) {
       return;
     }
-    const node = document.querySelector('[data-testid="lm-matter-now"]');
+    if (scrollPane === "deadlines") {
+      revealArchive("lm-lawyer-pane-deadlines");
+      setScrollPane(null);
+      return;
+    }
+    const selector = deskMatterPaneSelector(scrollPane);
+    const node = document.querySelector(selector);
     if (!node) {
       if (pulse) {
-        setScrollNow(false);
+        setScrollPane(null);
       }
       return;
     }
     if (typeof node.scrollIntoView === "function") {
       node.scrollIntoView({ block: "start" });
     }
-    setScrollNow(false);
-  }, [view, scrollNow, viewingId, pulse, outboundItems, deadlines]);
+    setScrollPane(null);
+  }, [view, scrollPane, viewingId, pulse, outboundItems, deadlines]);
 
   // 材料全文检索：命中带文件与段落号，可直接打开定位。
   const runMaterialsSearch = async () => {
@@ -994,26 +1032,69 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
 
   const workspaceLabel =
     workspaceDir?.split(/[\\/]/).filter(Boolean).pop()?.trim() || "";
-  const artifactPathLooksOpenable = (label: string) => {
-    const t = label.trim();
-    if (!t) {
-      return false;
+  const volumeWorkspacePath = (label: string) =>
+    resolveDeskVolumeWorkspacePath(viewingId, label, workspaceDir);
+  /** 中栏预览：Word 带修订信息；文本进编辑器。有 taskId 时走核对深链。 */
+  const previewVolumeFile = (opts: { path?: string; taskId?: string; line?: number }) => {
+    const taskId = opts.taskId?.trim();
+    if (taskId) {
+      if (onOpenReview && viewingId) {
+        onOpenReview({ matterId: viewingId, taskId });
+        return;
+      }
+      requestOpenContractRevision(taskId);
+      return;
     }
-    return /[\\/]/.test(t) || /\.(docx?|pdf|txt|md|xlsx?|pptx?)$/i.test(t);
+    const path = opts.path?.trim() ?? "";
+    const wsPath = path ? volumeWorkspacePath(path) : null;
+    if (!wsPath) {
+      return;
+    }
+    if (isDeskWordPath(wsPath)) {
+      void openDocxInReviewSurface({
+        relPath: wsPath,
+        apiBase,
+        workspaceDir: workspaceDir ?? undefined,
+        onTask: onOpenReview && viewingId
+          ? (tid) => onOpenReview({ matterId: viewingId, taskId: tid })
+          : undefined,
+      });
+      return;
+    }
+    requestOpenWorkspaceFile(
+      wsPath,
+      "workspace",
+      opts.line && opts.line > 0 ? { line: opts.line } : undefined,
+    );
   };
-  const isOfficePath = (label: string) => /\.(docx?|xlsx?|pptx?|pdf)$/i.test(label.trim());
-  const openVolumeFile = (label: string) => {
-    const path = label.trim();
-    if (!path) {
+  const openVolumeFileInApp = (label: string) => {
+    const wsPath = volumeWorkspacePath(label);
+    if (!wsPath) {
+      setErr("打不开这份文件。");
       return;
     }
-    if (isOfficePath(path)) {
-      void openDeliverableInWps(path);
+    if (isDeskNativeOfficePath(wsPath)) {
+      void openDeliverableInWps(wsPath).then((result) => {
+        if (!result.ok && result.error) {
+          setErr(result.error);
+        }
+      });
       return;
     }
-    if (onShowArtifact && artifactPathLooksOpenable(path)) {
-      onShowArtifact(path);
+    const openWithSystem = typeof window !== "undefined" ? window.lawmindDesktop?.openWithSystem : undefined;
+    if (openWithSystem) {
+      void openWithSystem({ root: "workspace", path: wsPath }).then((result) => {
+        if (result && !result.ok) {
+          setErr(result.error ?? "无法用本机应用打开。");
+        }
+      });
+      return;
     }
+    if (onShowArtifact) {
+      onShowArtifact(wsPath);
+      return;
+    }
+    setErr("现在不能用本机应用打开这份文件。");
   };
   const recentDeadlines = deadlines
     .filter((row) => (row.status === "open" || row.status === "snoozed") && row.released !== false)
@@ -1031,10 +1112,22 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     .slice()
     .toSorted((a, b) => a.dueAt.localeCompare(b.dueAt))
     .slice(0, 3);
+  const outboundAttachments = matterOutbound.flatMap((item) => item.attachments);
+  const docMetaByTask = useMatterDocumentMeta(
+    apiBase,
+    viewingId,
+    pulse?.documents ?? [],
+    outboundAttachments,
+  );
   const unrepliedMail = (pulse?.mail ?? []).filter(
     (msg) => msg.label === "needs_reply" || msg.label === "court",
   );
-  const showNow = matterOutbound.length > 0 || unrepliedMail.length > 0 || recentDeadlines.length > 0;
+  const pendingApprovals = pulse?.counts.approvals ?? 0;
+  const showNow =
+    matterOutbound.length > 0 ||
+    unrepliedMail.length > 0 ||
+    recentDeadlines.length > 0 ||
+    (pendingApprovals > 0 && Boolean(onOpenNeedsDecision));
   const documentPaths = new Set(
     (pulse?.documents ?? [])
       .map((doc) => doc.outputPath)
@@ -1049,14 +1142,47 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     (pulse?.documents ?? []).length === 0 &&
     restFiles.length === 0;
 
-  const openFileButton = (path: string) => {
-    if (!isOfficePath(path) && !(onShowArtifact && artifactPathLooksOpenable(path))) {
+  const volumeFileActions = (opts: {
+    path?: string;
+    taskId?: string;
+    line?: number;
+    testIdPrefix?: string;
+  }) => {
+    const path = opts.path?.trim() ?? "";
+    const taskId = opts.taskId?.trim() ?? "";
+    const canPreview =
+      Boolean(taskId) ||
+      (Boolean(path) && (isDeskWordPath(path) || isDeskPreviewablePath(path)));
+    const canOpenApp = Boolean(path) && (isDeskNativeOfficePath(path) || isDeskPreviewablePath(path));
+    if (!canPreview && !canOpenApp) {
       return null;
     }
+    const prefix = opts.testIdPrefix ?? "lm-volume-file";
     return (
-      <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => openVolumeFile(path)}>
-        {isOfficePath(path) ? "用 WPS 打开" : "打开"}
-      </button>
+      <span className="lm-lawyer-deadline-actions" data-testid={`${prefix}-actions`}>
+        {canPreview ? (
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            data-testid={`${prefix}-preview`}
+            title={isDeskWordPath(path) || taskId ? "中栏预览，带修订信息" : "中栏预览"}
+            onClick={() => previewVolumeFile({ path: path || undefined, taskId: taskId || undefined, line: opts.line })}
+          >
+            {isDeskWordPath(path) || taskId ? "预览核对" : "预览"}
+          </button>
+        ) : null}
+        {canOpenApp ? (
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            data-testid={`${prefix}-open-app`}
+            title="用本机应用打开"
+            onClick={() => openVolumeFileInApp(path)}
+          >
+            用本机应用打开
+          </button>
+        ) : null}
+      </span>
     );
   };
 
@@ -1197,27 +1323,63 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
             ) : (
               <ul className="lm-desk-list" id="lm-lawyer-matter-list">
                 {shownMatters.map((row) => {
-                  const hot = matterHotLine(urgencyOf(row));
+                  const urgency = urgencyOf(row);
+                  const hot = matterHotLine(urgency);
+                  const hotPane = matterHotPaneTarget(urgency);
+                  const reason = hotlineReasons[row.matterId];
                   return (
                     <li key={row.matterId}>
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabIndex={0}
                         className="lm-matter-card"
                         data-testid="lm-matter-row"
                         onClick={() => openMatter(row.matterId)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openMatter(row.matterId);
+                          }
+                        }}
                       >
                         <span className="lm-matter-card-body">
                           <strong>{row.title}</strong>
                           {hot ? (
-                            <span className="lm-matter-hotline" data-testid="lm-matter-hotline">
-                              {hot}
+                            hotPane ? (
+                              <span
+                                role="link"
+                                tabIndex={0}
+                                className="lm-matter-hotline lm-matter-hotline-link"
+                                data-testid="lm-matter-hotline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openMatter(row.matterId, { scrollPane: hotPane });
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.stopPropagation();
+                                    openMatter(row.matterId, { scrollPane: hotPane });
+                                  }
+                                }}
+                              >
+                                {hot}
+                              </span>
+                            ) : (
+                              <span className="lm-matter-hotline" data-testid="lm-matter-hotline">
+                                {hot}
+                              </span>
+                            )
+                          ) : null}
+                          {reason && reason !== hot ? (
+                            <span className="lm-meta lm-matter-hot-reason" data-testid="lm-matter-hot-reason">
+                              {reason}
                             </span>
                           ) : null}
                         </span>
                         <span className="lm-matter-card-chev" aria-hidden>
                           →
                         </span>
-                      </button>
+                      </div>
                     </li>
                   );
                 })}
@@ -1274,17 +1436,41 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
               </div>
             </header>
 
+            <LawmindMatterBrief apiBase={apiBase} matterId={selected.matterId} />
+
             {showNow ? (
               <section className="lm-matter-now" data-testid="lm-matter-now" aria-label="现在">
                 <h3>现在</h3>
                 {matterOutbound.length > 0 ? (
                   <LawmindDeskOutboundList
                     apiBase={apiBase}
+                    workspaceDir={workspaceDir}
                     items={matterOutbound}
                     onChanged={() => {
                       void reloadOutbound();
                     }}
                   />
+                ) : null}
+                {pendingApprovals > 0 && onOpenNeedsDecision ? (
+                  <div>
+                    <h3>待拍板</h3>
+                    <ul className="lm-lawyer-deadline-list">
+                      <li className="lm-lawyer-deadline-row">
+                        <span className="lm-lawyer-deadline-copy">
+                          <strong>{pendingApprovals} 项待你确认</strong>
+                          <span className="lm-lawyer-today-meta">发信、工具调用或其他要拍板的事项</span>
+                        </span>
+                        <button
+                          type="button"
+                          className="lm-btn lm-btn-sm"
+                          data-testid="lm-matter-open-needs-decision"
+                          onClick={() => onOpenNeedsDecision(selected.matterId)}
+                        >
+                          去拍板
+                        </button>
+                      </li>
+                    </ul>
+                  </div>
                 ) : null}
                 {unrepliedMail.length > 0 ? (
                   <div>
@@ -1328,6 +1514,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                             <span className="lm-lawyer-today-meta">
                               {formatDueShort(row.dueAt)}
                               {isOverdue(row.dueAt) ? " · 已过" : ""}
+                              {deadlineSourceCopy(row) ? ` · ${deadlineSourceCopy(row)}` : ""}
                             </span>
                           </span>
                         </li>
@@ -1390,7 +1577,11 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                           </strong>
                           <span className="lm-lawyer-today-meta">{hit.snippet}</span>
                         </span>
-                        {openFileButton(hit.relPath)}
+                        {volumeFileActions({
+                          path: hit.relPath,
+                          line: hit.page,
+                          testIdPrefix: "lm-materials-hit",
+                        })}
                       </li>
                     ))}
                   </ul>
@@ -1410,7 +1601,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                             {file.updatedAt ? ` · ${formatDueShort(file.updatedAt)}` : ""}
                           </span>
                         </span>
-                        {openFileButton(file.relPath)}
+                        {volumeFileActions({ path: file.relPath, testIdPrefix: "lm-materials-file" })}
                       </li>
                     ))}
                   </ul>
@@ -1420,18 +1611,27 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                 <div>
                   <h3>我们写的</h3>
                   <ul className="lm-lawyer-deadline-list">
-                    {(pulse?.documents ?? []).map((doc) => (
-                      <li key={doc.id} className="lm-lawyer-deadline-row">
-                        <span className="lm-lawyer-deadline-copy">
-                          <strong>{doc.title}</strong>
-                          <span className="lm-lawyer-today-meta">
-                            {doc.status}
-                            {doc.at ? ` · ${formatDueShort(doc.at)}` : ""}
+                    {(pulse?.documents ?? []).map((doc) => {
+                      const meta = doc.taskId ? docMetaByTask.get(doc.taskId) : undefined;
+                      return (
+                        <li key={doc.id} className="lm-lawyer-deadline-row">
+                          <span className="lm-lawyer-deadline-copy">
+                            <strong>{doc.title}</strong>
+                            <span className="lm-lawyer-today-meta">
+                              {doc.status}
+                              {doc.at ? ` · ${formatDueShort(doc.at)}` : ""}
+                              {meta?.outboundAttachment ? " · 待发出的附件" : ""}
+                              {meta?.lawyerEditedLabel ? ` · ${meta.lawyerEditedLabel}` : ""}
+                            </span>
                           </span>
-                        </span>
-                        {doc.outputPath ? openFileButton(doc.outputPath) : null}
-                      </li>
-                    ))}
+                          {volumeFileActions({
+                            path: doc.outputPath,
+                            taskId: doc.taskId,
+                            testIdPrefix: "lm-volume-doc",
+                          })}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               ) : null}
@@ -1442,7 +1642,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                     {restFiles.map((file) => (
                       <li key={file.label} className="lm-lawyer-deadline-row">
                         <span className="lm-lawyer-deadline-copy">{file.label}</span>
-                        {openFileButton(file.label)}
+                        {volumeFileActions({ path: file.label, testIdPrefix: "lm-volume-rest" })}
                       </li>
                     ))}
                   </ul>
@@ -1708,6 +1908,17 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                           if (item.kind === "intake") {
                             revealArchive("lm-lawyer-pane-intake");
                             return;
+                          }
+                          if (item.kind === "approval" && onOpenNeedsDecision) {
+                            onOpenNeedsDecision(selected.matterId);
+                            return;
+                          }
+                          if (item.kind === "document" || item.kind === "task") {
+                            const tid = item.id.includes(":") ? item.id.slice(item.id.indexOf(":") + 1) : "";
+                            if (tid) {
+                              previewVolumeFile({ taskId: tid });
+                              return;
+                            }
                           }
                           document.getElementById("lm-matter-volume")?.scrollIntoView({ block: "nearest" });
                         }}

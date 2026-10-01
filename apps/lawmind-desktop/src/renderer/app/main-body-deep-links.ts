@@ -1,6 +1,6 @@
 /**
- * MainBody 深链 handler 工厂（拆自 useLawmindMainBodyContentProps 的 useMemo 主体，
- * 纯提取无行为变化）：review / meeting / chat 三组跳转 handler。
+ * MainBody 深链 handler：review / meeting / chat 跳转。
+ * 去对话时案卷留在中栏，只把右侧对话露出来。
  */
 import type { LawmindMainView } from "../lawmind-main-view";
 import { requestOpenContractRevision } from "../lawmind-workspace-file-open";
@@ -129,6 +129,8 @@ export type ChatDeepLinkDeps = {
   scheduleScrollChatMessagesToLatest: (opts?: { behavior?: ScrollBehavior }) => void;
   setInput: (value: string) => void;
   focusComposer: () => void;
+  /** 案卷已经在中栏时，去对话只露出右侧输入，不把案卷收掉。 */
+  showChatPane?: () => void;
 };
 
 export function buildChatDeepLinkHandlers(deps: ChatDeepLinkDeps) {
@@ -141,6 +143,7 @@ export function buildChatDeepLinkHandlers(deps: ChatDeepLinkDeps) {
     scheduleScrollChatMessagesToLatest,
     setInput,
     focusComposer,
+    showChatPane,
   } = deps;
   return {
     onOpenChatSession: (sessionId: string, matterId?: string, assistantId?: string) => {
@@ -170,7 +173,7 @@ export function buildChatDeepLinkHandlers(deps: ChatDeepLinkDeps) {
       if (matterId?.trim()) {
         setContextMatterId(matterId.trim());
       }
-      setMatterCockpitOpen(false);
+      showChatPane?.();
       setMainView("workspace");
       if (prompt?.trim()) {
         setInput(prompt.trim());

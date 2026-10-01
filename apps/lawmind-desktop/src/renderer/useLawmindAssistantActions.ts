@@ -9,9 +9,11 @@ import { apiDuplicateAssistant, apiPatchAssistant } from "./lawmind-api-routes";
 import { removeAssistantChatState, type ChatMsg } from "./lawmind-chat";
 import { clearStoredActiveChatSessionForAssistant } from "./useLawmindChatShell";
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
+import { SOLO_ROSTER_FULL_MESSAGE } from "../../../../src/lawmind/assistants/roster.ts";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import { errorMessage } from "./api-client";
 import { confirmDialog } from "./lawmind-confirm-dialog";
+import { useEdition } from "./use-edition";
 
 export type UseLawmindAssistantActionsParams = {
   config: AppConfig | null;
@@ -51,18 +53,7 @@ export function useLawmindAssistantActions(params: UseLawmindAssistantActionsPar
     setMessagesByAssistant,
     refreshAssistants,
   } = params;
-
-  const openNewAssistant = useCallback(
-    (presetKey?: string) => {
-      setEditingAssistantId(null);
-      setAssistantDraft(
-        createAssistantDraft("create", presets, undefined, presetKey ? { presetKey } : undefined),
-      );
-      setAsstError(null);
-      setShowAssistantEditor(true);
-    },
-    [presets, setAssistantDraft, setAsstError, setEditingAssistantId, setShowAssistantEditor],
-  );
+  const { features } = useEdition(config?.apiBase ?? "");
 
   const openEditAssistant = useCallback(() => {
     const assistant = assistants.find((entry) => entry.assistantId === selectedAssistantId);
@@ -74,6 +65,32 @@ export function useLawmindAssistantActions(params: UseLawmindAssistantActionsPar
     setAsstError(null);
     setShowAssistantEditor(true);
   }, [assistants, presets, selectedAssistantId, setAssistantDraft, setAsstError, setEditingAssistantId, setShowAssistantEditor]);
+
+  const openNewAssistant = useCallback(
+    (presetKey?: string) => {
+      if (!features.multiAssistantRoster) {
+        // Solo: never open create wizard — edit the current parent instead.
+        setAsstError(SOLO_ROSTER_FULL_MESSAGE);
+        openEditAssistant();
+        return;
+      }
+      setEditingAssistantId(null);
+      setAssistantDraft(
+        createAssistantDraft("create", presets, undefined, presetKey ? { presetKey } : undefined),
+      );
+      setAsstError(null);
+      setShowAssistantEditor(true);
+    },
+    [
+      features.multiAssistantRoster,
+      openEditAssistant,
+      presets,
+      setAssistantDraft,
+      setAsstError,
+      setEditingAssistantId,
+      setShowAssistantEditor,
+    ],
+  );
 
   const saveAssistant = useCallback(
     async (draftOverride?: AssistantEditorDraft) => {

@@ -184,7 +184,7 @@ const LAWYER_PROGRESS: Record<SameTurnVerifyCode, string> = {
   xml_qa_fail: "正在写成审阅稿。",
 };
 
-/** Progress the lawyer may see. No tool names, rule ids, or XML. */
+/** Progress the lawyer may see while bounce is still open. No tool names, rule ids, or XML. */
 export function formatSameTurnVerifyLawyerProgress(codes: string[]): string {
   const lines = [
     ...new Set(codes.filter(isSameTurnVerifyCode).map((code) => LAWYER_PROGRESS[code])),
@@ -192,9 +192,42 @@ export function formatSameTurnVerifyLawyerProgress(codes: string[]): string {
   return lines[0] ?? "正在核对稿件。";
 }
 
+/** Lawyer-facing gap labels when the bounce budget is exhausted (deliver, do not pause). */
+const LAWYER_GAP: Record<SameTurnVerifyCode, string> = {
+  empty_redline: "修改尚未写入正文",
+  craft_check_missing: "改稿说明未齐",
+  citation_integrity: "法条或检索依据未对齐",
+  lint_mechanical: "正文里还有机械验收项未过",
+  guardian_fail: "独立审稿仍有缺口",
+  xml_qa_fail: "审阅稿机械核对未过",
+};
+
+/**
+ * Bounce budget exhausted: hand the draft over with 【待核实】gaps.
+ * Do not ask the lawyer to click continue mid-delivery.
+ */
+export function formatSameTurnVerifyCapDeliver(state: SameTurnVerifyTurnState): string {
+  const gaps = [
+    ...new Set(
+      state.issues
+        .map((issue) => issue.code)
+        .filter(isSameTurnVerifyCode)
+        .map((code) => LAWYER_GAP[code]),
+    ),
+  ];
+  const lines =
+    gaps.length > 0
+      ? gaps.map((gap) => `- 【待核实】${gap}`)
+      : ["- 【待核实】本回合验收未全部改完"];
+  return [
+    "本轮稿件已交付。以下验收项本回合未自动改完，可直接在修订里改，或回复我补充：",
+    ...lines,
+  ].join("\n");
+}
+
+/** @deprecated Use formatSameTurnVerifyCapDeliver — kept for any stale imports during rollout. */
 export function formatSameTurnVerifyPaused(state: SameTurnVerifyTurnState): string {
-  const progress = formatSameTurnVerifyLawyerProgress(state.issues.map((issue) => issue.code));
-  return `${progress}\n点继续，我会接着改完再交给您。`;
+  return formatSameTurnVerifyCapDeliver(state);
 }
 
 /** Minimal history row — avoids importing agent types into this runtime module. */

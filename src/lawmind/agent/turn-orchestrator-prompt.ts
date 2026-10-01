@@ -37,6 +37,10 @@ import {
   profileWithoutAccumulation,
   windowLawyerProfileForPrompt,
 } from "../memory/lawyer-profile-for-prompt.js";
+import {
+  findRelevantMemoriesForTurn,
+  formatRelevantMemoryHitsForPrompt,
+} from "../memory/relevant-recall.js";
 import { resolveCapabilityEnvelope } from "../models/capability-envelope.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import {
@@ -52,11 +56,7 @@ import {
 } from "../reasoning/derived-facts.js";
 import { buildAuthorityCorpusSummary } from "../retrieval/authority-health.js";
 import { isAuthorityLive, isAuthorityOfficialPublic } from "../retrieval/authority-source-tier.js";
-import {
-  deliverableTypeFromInstruction,
-  instructionLooksLikeFilledIntake,
-  resolveIntakeClarificationQuestions,
-} from "../router/intake-gate.js";
+import { deliverableTypeFromInstruction, isHighRiskEmptyRunType } from "../router/intake-gate.js";
 import { buildContextPlan, buildContextPlanMarkdown } from "../runtime/context-plan.js";
 import { resolvePinnedContextSummary, withContractPlaybookPin } from "../runtime/pinned-context.js";
 import { formatStanceHint } from "../stance/inject.js";
@@ -265,20 +265,16 @@ export async function prepareTurnPromptContext(opts: {
 
   const { resolveIntakeAdvisoryQuestions } = await import("../router/intake-gate.js");
   const hasContextPins = Array.isArray(opts.contextPins) && opts.contextPins.length > 0;
-  const intakeHardQs = resolveIntakeClarificationQuestions(instruction, {
-    caseMemory: memory.caseMemory,
-    intakeHeuristicsEnabled: workspacePolicy?.intakeHeuristicsEnabled,
-    hasContextPins,
-  });
   const intakeAdvisoryQs = resolveIntakeAdvisoryQuestions(instruction, {
     caseMemory: memory.caseMemory,
     intakeHeuristicsEnabled: workspacePolicy?.intakeHeuristicsEnabled,
     hasContextPins,
   });
-  const deliverablePipelineNote =
-    intakeHardQs.length === 0 || instructionLooksLikeFilledIntake(instruction)
-      ? buildDeliverablePipelineSystemNote(instruction)
-      : undefined;
+  // 高风险空跑（函件/诉讼文书且无档案）不再硬停：Soft Ask 文案升级为假设起草。
+  const intakeHighRiskEmptyRun =
+    intakeAdvisoryQs.length > 0 &&
+    isHighRiskEmptyRunType(deliverableTypeFromInstruction(instruction));
+  const deliverablePipelineNote = buildDeliverablePipelineSystemNote(instruction);
   const lawyerProfileForSystem = lawyerProfileForPrompt(memory.profile ?? "");
   let kernelMemory = "";
   let kernelReady = false;
@@ -536,6 +532,33 @@ export async function prepareTurnPromptContext(opts: {
       capTokens: promptWindow.dayLogIndexChars,
     });
   }
+  // 相关记忆：零分不注入；命中后写入 alreadySurfaced 避免同会话重复塞同一文件。
+  try {
+    const alreadySurfaced = new Set(session.alreadySurfacedMemoryPaths ?? []);
+    const recentToolNames = Object.keys(session.turns.at(-1)?.toolNameCallCounts ?? {});
+    const recallHits = await findRelevantMemoriesForTurn({
+      workspaceDir: config.workspaceDir,
+      matterId: session.matterId,
+      query: instruction,
+      alreadySurfaced,
+      recentToolNames,
+      policy: workspacePolicy,
+    });
+    const recallBlock = formatRelevantMemoryHitsForPrompt(recallHits);
+    if (recallBlock) {
+      queue("memory_hit", recallBlock, {
+        overflow: { tool: "read_workspace_file", path: "MEMORY.md" },
+        capTokens: promptWindow.retrievalMemoryChars,
+      });
+      const nextSurfaced = [
+        ...(session.alreadySurfacedMemoryPaths ?? []),
+        ...recallHits.map((h) => h.relativePath),
+      ];
+      session.alreadySurfacedMemoryPaths = [...new Set(nextSurfaced)].slice(-40);
+    }
+  } catch (err) {
+    console.error("[lawmind] relevant memory recall failed:", err);
+  }
   if (contextPlanMarkdown.trim()) {
     queue("protocol", `## 上下文计划（ContextPlan）\n\n${contextPlanMarkdown}`);
   }
@@ -632,7 +655,12 @@ export async function prepareTurnPromptContext(opts: {
       await import("../router/intake-craft.js");
     if (intakeAdvisoryQs.length > 0) {
       queue("craft", INTAKE_CRAFT_SKILL);
-      queue("protocol", formatIntakeSoftAskBlock(intakeAdvisoryQs));
+      queue(
+        "protocol",
+        formatIntakeSoftAskBlock(intakeAdvisoryQs, {
+          highRiskEmptyRun: intakeHighRiskEmptyRun,
+        }),
+      );
     }
   } catch {
     /* optional */

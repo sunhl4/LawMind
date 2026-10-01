@@ -24,6 +24,7 @@ function makeProps(over: Partial<PanelProps> = {}): PanelProps {
     onSelectAssistantId: vi.fn(),
     selectedAssistant: ASSISTANT,
     selectedAssistantStats: undefined,
+    allowMultiAssistantRoster: true,
     onOpenNew: vi.fn(),
     onOpenEdit: vi.fn(),
     onRemove: vi.fn(),

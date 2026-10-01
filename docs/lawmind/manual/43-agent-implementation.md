@@ -63,16 +63,16 @@
 
 ### `turn-orchestrator-shortcuts.ts`
 
-导出五个：
+导出四个：
 
-| 符号                                 | 作用                           |
-| ------------------------------------ | ------------------------------ |
-| `tryIntakeClarificationShortcut`     | Intake 澄清捷径                |
-| `wouldIntakeClarify`                 | 只判断、不执行（用于提前决定） |
-| `tryPublicWebFactShortcut`           | 公开网络事实捷径               |
-| `formatPublicWebFactReply`           | 上一条的回复文案               |
-| `tryAutoDeliverableWorkflowShortcut` | 自动交付物工作流捷径           |
-| `TurnRunResult`                      | 类型                           |
+| 符号                                 | 作用                 |
+| ------------------------------------ | -------------------- |
+| `tryPublicWebFactShortcut`           | 公开网络事实捷径     |
+| `formatPublicWebFactReply`           | 上一条的回复文案     |
+| `tryAutoDeliverableWorkflowShortcut` | 自动交付物工作流捷径 |
+| `TurnRunResult`                      | 类型                 |
+
+（intake 澄清捷径 `tryIntakeClarificationShortcut` / `wouldIntakeClarify` 已随「交办即终稿」退役：高风险空跑不再短路暂停，改走 Soft Ask 假设起草，见 `router/intake-gate.ts` 头注。）
 
 **为什么要「捷径」**：有几种请求不需要跑整个循环就能满足（问模型是谁、查个娱乐事实、走一条完全确定的交付物管线）。短路能省掉大量 token。
 

@@ -5,6 +5,7 @@
 
 import { draftWorkerTool } from "../tools/legal/draft-worker-tool.js";
 import { exploreFolderTool } from "../tools/legal/explore-folder-tool.js";
+import { sendEmail } from "../tools/legal/mail-tools.js";
 import { updatePlanTool } from "../tools/legal/update-plan-tool.js";
 import { ToolRegistry } from "../tools/registry.js";
 import type { AgentTool, ToolCallResult, ToolDefinition } from "../types.js";
@@ -46,7 +47,12 @@ const SPY_SPECS: SpySpec[] = [
     riskLevel: "low",
     parameters: updatePlanTool.definition.parameters,
   },
-  { name: "send_email", category: "system", requiresApproval: true, riskLevel: "high" },
+  {
+    name: "send_email",
+    category: "system",
+    riskLevel: "high",
+    parameters: sendEmail.definition.parameters,
+  },
   { name: "prepare_outbound_mail", category: "system", riskLevel: "medium" },
   { name: "read_project_file", category: "search", riskLevel: "low" },
   { name: "list_dir", category: "search", riskLevel: "low" },

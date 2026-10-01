@@ -50,7 +50,8 @@ function unlinkIfExists(filePath: string): boolean {
   return false;
 }
 
-function isDraftProtected(taskId: string, workspaceDir: string): boolean {
+/** 已批准或已导出（有 outputPath）的草稿受保护，任何级联删除都不动。 */
+export function isDraftProtected(taskId: string, workspaceDir: string): boolean {
   const draft = readDraft(workspaceDir, taskId);
   if (!draft) {
     return false;

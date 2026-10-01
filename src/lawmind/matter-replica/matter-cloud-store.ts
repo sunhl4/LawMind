@@ -10,7 +10,8 @@ import type { MaterialsRelayManifest } from "./materials-relay.js";
 import type { ReplicaRelayEnvelope } from "./relay.js";
 import type { MatterMaterialEntry, MatterRecordOp } from "./types.js";
 
-function safeMatterId(matterId: string): string {
+/** 目录名清洗规则同时服务删除级联（replica-cloud 随案清理），勿另造副本。 */
+export function safeMatterId(matterId: string): string {
   return matterId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 128);
 }
 

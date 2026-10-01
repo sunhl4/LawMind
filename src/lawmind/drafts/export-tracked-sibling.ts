@@ -13,6 +13,7 @@ import {
 import { writeVisibleTrackedEdits } from "./docx-visible-revisions.js";
 import { persistDraft, readDraft } from "./index.js";
 import { readRedlineProposal, type RedlineHunk } from "./redline-proposal.js";
+import { qaTrackedDocxXml } from "./tracked-xml-qa.js";
 import { readWordReview } from "./word-review.js";
 
 export const REVIEW_FILE_LOCKED =
@@ -48,7 +49,15 @@ export async function exportTrackedSiblingForTask(params: {
   /** Chat preview: do not write hunks the lawyer has not accepted. */
   acceptedOnly?: boolean;
 }): Promise<
-  | { ok: true; outputPath: string; outputFileName: string; mode: string; degraded: boolean }
+  | {
+      ok: true;
+      outputPath: string;
+      outputFileName: string;
+      mode: string;
+      degraded: boolean;
+      /** Present when the sibling file was checked for native w:ins/w:del. */
+      trackWarning?: string;
+    }
   | { ok: false; error: string; code?: string; status: 400 | 404 | 409 }
 > {
   const draft = readDraft(params.workspaceDir, params.taskId);
@@ -138,13 +147,13 @@ export async function exportTrackedSiblingForTask(params: {
         if (storedXml && storedXml.outputPath !== dest) {
           persistDraft(params.workspaceDir, { ...storedXml, outputPath: dest });
         }
-        return {
-          ok: true,
+        return finishTrackedExport({
           outputPath: dest,
           outputFileName: planned.outputFileName,
           mode: "docx-xml",
           degraded: xml.applied < xml.attempted,
-        };
+          expectedHunks: proposals.length,
+        });
       }
     }
   }
@@ -155,11 +164,54 @@ export async function exportTrackedSiblingForTask(params: {
   if (stored && stored.outputPath !== result.outputPath) {
     persistDraft(params.workspaceDir, { ...stored, outputPath: result.outputPath });
   }
-  return {
-    ok: true,
+  return finishTrackedExport({
     outputPath: result.outputPath,
     outputFileName: planned.outputFileName,
     mode: result.mode,
     degraded: result.degraded === true,
+    expectedHunks: proposals.length,
+  });
+}
+
+async function finishTrackedExport(params: {
+  outputPath: string;
+  outputFileName: string;
+  mode: string;
+  degraded: boolean;
+  expectedHunks: number;
+}): Promise<{
+  ok: true;
+  outputPath: string;
+  outputFileName: string;
+  mode: string;
+  degraded: boolean;
+  trackWarning?: string;
+}> {
+  if (params.expectedHunks <= 0) {
+    return {
+      ok: true,
+      outputPath: params.outputPath,
+      outputFileName: params.outputFileName,
+      mode: params.mode,
+      degraded: params.degraded,
+    };
+  }
+  const qa = await qaTrackedDocxXml(params.outputPath, params.expectedHunks);
+  if (qa.ok) {
+    return {
+      ok: true,
+      outputPath: params.outputPath,
+      outputFileName: params.outputFileName,
+      mode: params.mode,
+      degraded: params.degraded,
+    };
+  }
+  return {
+    ok: true,
+    outputPath: params.outputPath,
+    outputFileName: params.outputFileName,
+    mode: params.mode,
+    degraded: true,
+    ...(qa.warning ? { trackWarning: qa.warning } : {}),
   };
 }

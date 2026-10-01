@@ -90,7 +90,6 @@ import { runModelToolLoop } from "./turn-orchestrator-model-loop.js";
 import { prepareTurnPromptContext, resolveAssistantTooling } from "./turn-orchestrator-prompt.js";
 import {
   tryAutoDeliverableWorkflowShortcut,
-  tryIntakeClarificationShortcut,
   tryPublicWebFactShortcut,
 } from "./turn-orchestrator-shortcuts.js";
 import { freezeTurnContext } from "./turn-step-context.js";
@@ -803,21 +802,6 @@ export async function runTurn(opts: {
     }
 
     const intakePolicy = readWorkspacePolicyFile(config.workspaceDir);
-    const intakeResult = tryIntakeClarificationShortcut({
-      hasContextPins: Array.isArray(opts.contextPins) && opts.contextPins.length > 0,
-      instruction,
-      session,
-      turn,
-      shared: finalizeShared(),
-      actorId,
-      resolvedAssistantId,
-      modelName: config.model.model,
-      caseMemory: memory.caseMemory,
-      intakeHeuristicsEnabled: intakePolicy?.intakeHeuristicsEnabled,
-    });
-    if (intakeResult) {
-      return intakeResult;
-    }
 
     const autoWfResult = await tryAutoDeliverableWorkflowShortcut({
       instruction,

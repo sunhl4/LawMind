@@ -133,22 +133,24 @@ export function LawmindDelegateAssistDialog(props: Props): ReactNode {
           ))}
         </div>
         {peers.length === 0 ? (
-          <div className="lm-callout lm-callout-muted" role="status">
-            <p className="lm-callout-body">还没有其他助手可交接。</p>
+          <div className="lm-callout lm-callout-muted" role="status" data-testid="lm-delegate-no-peers">
+            <p className="lm-callout-body">
+              日常只需一位父助手。复杂、可并行的活请在本对话用子工办理，不必再雇一位助手交接。
+            </p>
             {onCreateAssistant ? (
               <button
                 type="button"
-                className="lm-btn"
+                className="lm-btn lm-btn-secondary"
                 data-testid="lm-delegate-create-assistant"
                 onClick={() => {
                   onClose();
                   onCreateAssistant();
                 }}
               >
-                新建助手
+                律所编制（高级）
               </button>
             ) : (
-              <p className="lm-meta">请先新建助手。</p>
+              <p className="lm-meta">关闭本窗后继续对话即可。</p>
             )}
           </div>
         ) : null}

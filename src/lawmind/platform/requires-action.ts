@@ -412,17 +412,21 @@ export function buildWorkflowBlockedAction(input: {
 }): LawMindRequiresAction {
   const gaps = (input.stop.gaps ?? []).filter((g) => g.trim().length > 0);
   const lines =
-    gaps.length > 0 ? gaps.map((g) => `- ${g}`) : input.stop.reason ? [input.stop.reason] : [];
+    gaps.length > 0
+      ? gaps.map((g) => `- 【待核实】${g}`)
+      : input.stop.reason
+        ? [input.stop.reason]
+        : [];
   return {
     id: newRequiresActionId(),
     kind: "workflow_blocked",
     threadId: buildThreadId(input),
-    title: "改稿缺口待您处置",
+    title: "稿件缺口待您过目",
     summary: [
-      "验证器已把本件停下（继续为过审改稿没有意义），缺口需要您处置：",
+      "本轮稿已交付。以下验收项本回合未自动改完，可直接在修订里改，或回复我补充：",
       ...lines,
       "",
-      "处置后可以让我接着改，或另出意见书。",
+      "点「知道了」收起本条；需要接着改时直接在对话里说即可。",
     ].join("\n"),
     matterId: input.matterId,
     sessionId: input.sessionId,

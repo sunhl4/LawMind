@@ -9,7 +9,7 @@ const rendererRoot = here;
 const entry = path.join(rendererRoot, "main.tsx");
 
 const FORBIDDEN_SPEC_RE =
-  /(?:cases\/index|learning\/suggestion-queue|memory\/index|deliverables\/index|drafts\/index|audit\/hash-chain|agent\/world-state|agent\/turn-plan\.(?:ts|js))/;
+  /(?:cases\/index|learning\/suggestion-queue|memory\/index|deliverables\/index|drafts\/index|audit\/hash-chain|agent\/world-state|agent\/turn-plan\.(?:ts|js)|models\/model-usage\.(?:ts|js)|platform\/lawyer-automations\.(?:ts|js)|platform\/lawmind-daemon\.(?:ts|js))/;
 
 function resolveImport(fromFile: string, spec: string): string | null {
   if (!spec.startsWith(".") && !spec.startsWith("/")) {

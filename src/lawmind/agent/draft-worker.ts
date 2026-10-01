@@ -649,7 +649,13 @@ export async function runDraftWorker(
   const instructions = review
     ? REVIEW_WORKER_DEVELOPER_INSTRUCTIONS
     : DRAFT_WORKER_DEVELOPER_INSTRUCTIONS;
-  const systemContent = `${instructions}${sidecarConstraint}出处必须来自材料或只读工具返回；材料没有的写进缺口。`;
+  const { buildSubagentMemoryPack } = await import("../core/work-style-pack.js");
+  const workStyleBlock = buildSubagentMemoryPack({
+    subagentRole: review ? "review" : "draft",
+    deliveryHint: [input.goal, input.section, input.style].filter(Boolean).join(" "),
+  });
+  const packSuffix = workStyleBlock ? `\n\n${workStyleBlock}` : "";
+  const systemContent = `${instructions}${sidecarConstraint}${packSuffix}\n出处必须来自材料或只读工具返回；材料没有的写进缺口。`;
   const userContent = buildDraftUserPrompt(input, checked.brief, sourceBlock, review);
 
   if (agentCtx) {

@@ -1,34 +1,25 @@
 /**
- * Pre-loop short-circuits for runTurn: intake, public web facts, auto deliverable workflow.
+ * Pre-loop short-circuits for runTurn: public web facts, auto deliverable workflow.
  * Keeps turn-orchestrator focused on session setup and the model/tool loop.
+ *
+ * （intake 硬澄清 shortcut 已退役：高风险空跑也进入模型循环，按假设起草并标
+ * 【待核实】，见 router/intake-gate.ts 头注。）
  */
 
 import type { MemoryContext } from "../memory/index.js";
-import { resolveIntakeClarificationQuestions } from "../router/intake-gate.js";
 import type { ToolCallContext } from "../runtime/tool-pipeline.js";
 import { isPublicWebFactLookup } from "../skills/capability-patterns.js";
 import type { RiskLevel } from "../types.js";
-import type { ClarificationQuestion } from "../types.js";
 import {
   formatDeliverableWorkflowReply,
   shouldAutoRunDeliverableWorkflow,
 } from "./deliverable-pipeline.js";
 import type { executeWorkflow } from "./tools/engine-tools.js";
 import type { ToolRegistry } from "./tools/registry.js";
-import { buildClarificationReply, type RunTurnEvent } from "./turn-orchestrator-events.js";
-import {
-  finalizeAgentTurn,
-  finishShortCircuitTurn,
-  type TurnFinalizeShared,
-} from "./turn-orchestrator-finalize.js";
+import type { RunTurnEvent } from "./turn-orchestrator-events.js";
+import { finishShortCircuitTurn, type TurnFinalizeShared } from "./turn-orchestrator-finalize.js";
 import { getRunToolPipeline } from "./turn-orchestrator-tool-round.js";
-import type {
-  AgentContext,
-  AgentMessage,
-  AgentSession,
-  AgentTurn,
-  ToolCallResult,
-} from "./types.js";
+import type { AgentContext, AgentSession, AgentTurn, ToolCallResult } from "./types.js";
 
 export type TurnRunResult = {
   turn: AgentTurn;
@@ -36,61 +27,6 @@ export type TurnRunResult = {
   sessionId: string;
   memoryContext: MemoryContext;
 };
-
-/**
- * If intake gate needs structured answers, finalize as awaiting_clarification.
- * Returns null when the main model loop should continue.
- */
-export function tryIntakeClarificationShortcut(opts: {
-  instruction: string;
-  session: AgentSession;
-  turn: AgentTurn;
-  shared: TurnFinalizeShared;
-  actorId: string;
-  resolvedAssistantId: string | undefined;
-  modelName: string;
-  caseMemory?: string;
-  intakeHeuristicsEnabled?: boolean;
-  hasContextPins?: boolean;
-}): TurnRunResult | null {
-  const intakeQs = resolveIntakeClarificationQuestions(opts.instruction, {
-    caseMemory: opts.caseMemory,
-    intakeHeuristicsEnabled: opts.intakeHeuristicsEnabled,
-    hasContextPins: opts.hasContextPins,
-  });
-  if (intakeQs.length === 0) {
-    return null;
-  }
-  const reply = buildClarificationReply(
-    "",
-    intakeQs,
-    "为少花几轮聊天、提高交件质量，请先确认以下要点（填完后我会继续执行）：",
-  );
-  const agentMsg: AgentMessage = {
-    role: "assistant",
-    content: reply,
-    timestamp: new Date().toISOString(),
-  };
-  opts.session.conversationHistory.push(agentMsg);
-  opts.turn.messages.push(agentMsg);
-  opts.turn.status = "awaiting_clarification";
-  opts.turn.clarificationQuestions = intakeQs;
-  opts.turn.gateDecisions?.push({
-    gate: "intake_gate",
-    decision: "awaiting_confirmation",
-    reason: "开干前待澄清要点。",
-    category: "safety_hard",
-  });
-  return finalizeAgentTurn({
-    shared: opts.shared,
-    finalReply: reply,
-    pendingClarificationQuestions: intakeQs,
-    turnUsage: undefined,
-    actorId: opts.actorId,
-    resolvedAssistantId: opts.resolvedAssistantId,
-    modelName: opts.modelName,
-  });
-}
 
 type PublicWebHit = { title?: string; url?: string; description?: string };
 
@@ -353,12 +289,4 @@ export async function tryAutoDeliverableWorkflowShortcut(opts: {
     return finishShortCircuitTurn(opts.shared, wfReply);
   }
   return null;
-}
-
-/** Pure helper for tests / docs: whether intake would short-circuit. */
-export function wouldIntakeClarify(
-  instruction: string,
-  opts?: { caseMemory?: string; intakeHeuristicsEnabled?: boolean },
-): ClarificationQuestion[] {
-  return resolveIntakeClarificationQuestions(instruction, opts);
 }

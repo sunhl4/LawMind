@@ -33,6 +33,7 @@ import {
 } from "../../../src/lawmind/cases/index.js";
 import { readTeamRoster, writeTeamRoster } from "../../../src/lawmind/cases/team-roster.js";
 import { isAdhocMeetingMatterId } from "../../../src/lawmind/cases/team-meeting-ids.js";
+import { buildMatterDeletePlan } from "../../../src/lawmind/desk/delete-matter-plan.js";
 import { deleteMatterVolume } from "../../../src/lawmind/desk/delete-matter-volume.js";
 import type { DraftCitationIntegrityView } from "../../../src/lawmind/drafts/index.js";
 import { listDrafts, resolveDraftCitationIntegrity } from "../../../src/lawmind/drafts/index.js";
@@ -866,6 +867,22 @@ export async function handleMatterRoutes({
     return true;
   }
 
+  if (pathname === "/api/matters/delete-plan" && req.method === "GET") {
+    const matterId = url.searchParams.get("matterId")?.trim() ?? "";
+    if (!isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    try {
+      const plan = await buildMatterDeletePlan(workspaceDir, matterId);
+      sendJson(res, 200, { ok: true, plan }, c);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 500, { ok: false, error: msg }, c);
+    }
+    return true;
+  }
+
   if (pathname === "/api/matters/delete" && req.method === "POST") {
     let body;
     try {
@@ -883,7 +900,13 @@ export async function handleMatterRoutes({
       return true;
     }
     try {
-      const deleted = await deleteMatterVolume(workspaceDir, mid);
+      const deleted = await deleteMatterVolume(workspaceDir, mid, {
+        requireEmpty: body.deleteMaterials !== true,
+        deleteTasks: body.deleteTasks === true,
+        deleteSessions: body.deleteSessions === true,
+        deleteUnapprovedDrafts: body.deleteUnapprovedDrafts === true,
+        actorId: resolveDesktopActorId(),
+      });
       if (!deleted.ok) {
         sendJson(res, 400, { ok: false, error: deleted.error }, c);
         return true;
@@ -897,6 +920,13 @@ export async function handleMatterRoutes({
           deletedFromDisk: deleted.removedCaseDir || deleted.removedMatterDir,
           removedCaseDir: deleted.removedCaseDir,
           removedMatterDir: deleted.removedMatterDir,
+          removedReplicaCloud: deleted.removedReplicaCloud,
+          deletedTasks: deleted.deletedTasks,
+          deletedSessions: deleted.deletedSessions,
+          unlinkedSessions: deleted.unlinkedSessions,
+          deletedDrafts: deleted.deletedDrafts,
+          keptDrafts: deleted.keptDrafts,
+          auditEmitted: deleted.auditEmitted,
         },
         c,
       );

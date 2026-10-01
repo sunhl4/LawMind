@@ -14,6 +14,8 @@ test.describe("Lawyer workbench matter dossier", () => {
     await openMatterCockpit(page);
 
     await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("lm-chat-drop-zone")).toBeVisible();
+    await expect(page.locator(".lm-side")).toBeVisible();
   });
 
   test("matter dossier is reachable when a case is opened", async ({ page }) => {

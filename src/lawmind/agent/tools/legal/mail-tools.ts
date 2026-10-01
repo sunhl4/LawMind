@@ -166,7 +166,7 @@ export const sendEmail: AgentTool = {
   definition: {
     name: "send_email",
     description:
-      "向客户或对方发送邮件。必须先获得律师批准（在「待我拍板」中处理，批准后服务端自动放行）。已配置邮箱时走 SMTP/Graph，并归档到本案 mail/sent。可选 attachment_paths（工作区相对路径）。",
+      "拟好邮件并写入本案「待发信」（不真正发出）。调用后回合照常完成，不要等待批准；律师在案件页/待发列表核对后点「批准发送」才会发出。已配置邮箱时批准后走 SMTP/Graph，并归档到本案 mail/sent。可选 attachment_paths（工作区相对路径）。",
     category: "system",
     parameters: {
       matter_id: { type: "string", description: "案件 ID", required: true },
@@ -178,7 +178,6 @@ export const sendEmail: AgentTool = {
         description: "工作区相对路径附件列表（如 artifacts/xxx.tracked.docx）",
       },
     },
-    requiresApproval: true,
     riskLevel: "high",
   },
   async execute(params, ctx) {
@@ -200,6 +199,7 @@ export const sendEmail: AgentTool = {
       }
     }
     // 批准旗标只认服务端注入的布尔 true（模型自填副本已在 turn 边界剥除）。
+    // 仅服务旧会话遗留的「待我拍板」恢复路径；新回合一律走下方待发清单。
     const approved = params.__approved === true;
     const wall = ethicsWallBlocksOutbound(ctx.workspaceDir, matterId);
     if (wall.blocked && !approved) {
@@ -224,10 +224,64 @@ export const sendEmail: AgentTool = {
       attachmentRelativePaths,
     };
     if (!approved) {
-      const queued = queueOutboundMail(ctx.workspaceDir, matterId, payload);
+      // 端到端口径：外发不打断回合。写入交办待发（律师点「批准发送」才发出），
+      // 回合照常完成。真正发送走 /api/automations/inbox/:id/action approve_send。
+      const formattedBody = payload.body;
+      const stamp = classifyOutboundPrivilege({
+        to,
+        subject,
+        body: formattedBody,
+        attachmentPaths: attachmentRelativePaths,
+      });
+      const privilegeNotes = [
+        stamp.audience.warning,
+        stamp.privilege?.message,
+        ...stamp.attachmentFlags,
+      ].filter(Boolean);
+      const item: AutomationInboxItem = {
+        id: randomUUID(),
+        automationId: "chat-send-email-handoff",
+        matterId,
+        title: `待发信：${subject}`,
+        summary: [
+          `待发：${to}`,
+          `主题：${subject}`,
+          attachmentRelativePaths.length
+            ? `附件：${attachmentRelativePaths.join("、")}`
+            : "附件：（无）",
+          ...privilegeNotes.map((n) => `提示：${n}`),
+          "",
+          "律师批准前不会发送。核对后在待发列表点击「批准发送」。",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        status: "open",
+        createdAt: new Date().toISOString(),
+        pendingSend: {
+          to,
+          subject,
+          body: formattedBody,
+          attachmentRelativePaths:
+            attachmentRelativePaths.length > 0 ? attachmentRelativePaths : undefined,
+        },
+      };
+      saveAutomationInboxItem(ctx.workspaceDir, item);
+      const outboxId = queueOutboundMail(ctx.workspaceDir, matterId, payload);
       return {
-        ok: false,
-        error: `发送邮件需律师批准。已写入 outbox/${queued}；请在待我拍板中签批发送，签批后将继续发送。`,
+        ok: true,
+        data: {
+          queued: true,
+          inboxId: item.id,
+          outboxId,
+          matterId,
+          to,
+          subject,
+          attachmentRelativePaths,
+          audience: stamp.audience.kind,
+          ...(privilegeNotes.length ? { privilegeNotes } : {}),
+          message:
+            "已写入本案「待发信」，律师核对后点「批准发送」才会发出。请直接完成本轮回复，不要等待批准。",
+        },
       };
     }
     const sentId = commitOutboundMail(ctx.workspaceDir, matterId, payload);

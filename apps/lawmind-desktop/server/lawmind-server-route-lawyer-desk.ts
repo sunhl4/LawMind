@@ -41,7 +41,12 @@ import { inferClosedContractType } from "../../../src/lawmind/contracts/closed-c
 import { updateMatterProfile } from "../../../src/lawmind/application/services/matter-write-service.js";
 import { parseJsonBodyZod, isInvalidRequestBodyError } from "./lawmind-api-parse.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
-import { sendJson } from "./lawmind-server-helpers.js";
+import {
+  generateMatterBriefParagraph,
+  generateMatterHotlines,
+  matterBriefGroundingHash,
+} from "../../../src/lawmind/desk/matter-brief.js";
+import { buildAgentConfig, isDesktopModelConfigured, sendJson } from "./lawmind-server-helpers.js";
 
 const planPostSchema = z.object({
   texts: z.array(z.string().trim().min(1).max(500)).min(1).max(20),
@@ -510,6 +515,85 @@ export async function handleLawyerDeskRoutes({
     } catch (err) {
       if (isInvalidRequestBodyError(err)) {
         sendJson(res, 400, { ok: false, error: "invalid match" }, c);
+        return true;
+      }
+      throw err;
+    }
+    return true;
+  }
+
+  const briefGet = /^\/api\/matters\/([^/]+)\/brief$/.exec(pathname);
+  if (briefGet && req.method === "GET") {
+    const matterId = requireMatter(decodeURIComponent(briefGet[1] ?? ""), res, c);
+    if (!matterId) {
+      return true;
+    }
+    const hash = matterBriefGroundingHash(workspaceDir, matterId);
+    if (!hash) {
+      sendJson(res, 200, { ok: false, reason: "empty_grounding" }, c);
+      return true;
+    }
+    if (!isDesktopModelConfigured(workspaceDir, ctx.envFile)) {
+      sendJson(res, 200, { ok: false, reason: "model_unconfigured", hash }, c);
+      return true;
+    }
+    const built = buildAgentConfig(workspaceDir, { envFile: ctx.envFile });
+    if (built.error || !built.config.model.apiKey) {
+      sendJson(res, 200, { ok: false, reason: "model_unconfigured", hash }, c);
+      return true;
+    }
+    const result = await generateMatterBriefParagraph({
+      workspaceDir,
+      matterId,
+      model: built.config.model,
+    });
+    if (!result.ok) {
+      sendJson(res, 200, { ok: false, reason: result.reason, hash }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true, text: result.text, hash: result.hash, cached: result.cached }, c);
+    return true;
+  }
+
+  if (pathname === "/api/desk/hotlines" && req.method === "POST") {
+    try {
+      const body = await parseJsonBodyZod(
+        req,
+        z.object({
+          rows: z
+            .array(
+              z.object({
+                matterId: z.string().trim().min(1).max(120),
+                title: z.string().trim().max(200),
+                hot: z.string().trim().min(1).max(120),
+              }),
+            )
+            .min(1)
+            .max(20),
+        }),
+      );
+      if (!isDesktopModelConfigured(workspaceDir, ctx.envFile)) {
+        sendJson(res, 200, { ok: false, reason: "model_unconfigured" }, c);
+        return true;
+      }
+      const built = buildAgentConfig(workspaceDir, { envFile: ctx.envFile });
+      if (built.error || !built.config.model.apiKey) {
+        sendJson(res, 200, { ok: false, reason: "model_unconfigured" }, c);
+        return true;
+      }
+      const result = await generateMatterHotlines({
+        workspaceDir,
+        rows: body.rows,
+        model: built.config.model,
+      });
+      if (!result.ok) {
+        sendJson(res, 200, { ok: false, reason: result.reason }, c);
+        return true;
+      }
+      sendJson(res, 200, { ok: true, lines: result.lines, cached: result.cached }, c);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid hotlines body" }, c);
         return true;
       }
       throw err;

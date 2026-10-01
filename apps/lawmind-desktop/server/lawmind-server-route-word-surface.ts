@@ -3,6 +3,8 @@
  *
  * GET  /api/word-surface?root=&path=&projectDir=&fileMtime=&proposalAt=
  * POST /api/word-surface/hunks/:hunkId/revise   { taskId, after }
+ * POST /api/word-surface/hunks/:hunkId/undo     { taskId }
+ * GET/POST/DELETE /api/word-surface/comments…
  * POST /api/word-surface/export                 { taskId, projectDir? }
  *
  * Export overwrites the sibling tracked .docx already written for this draft.
@@ -23,6 +25,15 @@ import {
   type WordSurfaceSnapshot,
 } from "../../../src/lawmind/drafts/word-surface.js";
 import {
+  addWordSurfaceComment,
+  listWordSurfaceComments,
+  removeWordSurfaceComment,
+  updateWordSurfaceComment,
+} from "../../../src/lawmind/drafts/word-surface-comments.js";
+import { readLawyerIdentity } from "../../../src/lawmind/matter-replica/identity.js";
+import {
+  readRedlineProposal,
+  removePendingLawyerHunk,
   revisePendingRedlineHunk,
   summarizeRedline,
 } from "../../../src/lawmind/drafts/redline-proposal.js";
@@ -31,6 +42,30 @@ import { safeOptionalProjectDir, sendJson } from "./lawmind-server-helpers.js";
 import { isSafeTaskIdSegment } from "./safe-task-id.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import type { WordBaselineRoot } from "../../../src/lawmind/artifacts/word-revision-delivery.js";
+import { readDraft } from "../../../src/lawmind/drafts/index.js";
+
+async function captureWordSurfaceLearning(opts: {
+  workspaceDir: string;
+  taskId: string;
+  paragraphs: ReadonlyArray<{ before: string; after: string }>;
+}): Promise<void> {
+  try {
+    const { captureParagraphEditLearning } = await import(
+      "../../../src/lawmind/learning/draft-edit-learning.js"
+    );
+    const draft = readDraft(opts.workspaceDir, opts.taskId);
+    await captureParagraphEditLearning({
+      workspaceDir: opts.workspaceDir,
+      auditDir: path.join(opts.workspaceDir, "audit"),
+      taskId: opts.taskId,
+      paragraphs: opts.paragraphs,
+      ...(draft?.deliverableType ? { deliverableType: draft.deliverableType } : {}),
+      ...(draft?.matterId ? { matterId: draft.matterId } : {}),
+    });
+  } catch {
+    /* 学习捕获失败不阻断修订保存 */
+  }
+}
 
 const reviseSchema = z.object({
   taskId: z.string().trim().min(1).max(200),
@@ -54,6 +89,7 @@ const syncSchema = z.object({
       }),
     )
     .max(2_000),
+  moves: z.array(z.string().max(2_000)).max(40).optional(),
 });
 
 const lawyerEditSchema = z.object({
@@ -62,6 +98,22 @@ const lawyerEditSchema = z.object({
   projectDir: z.string().optional(),
   before: z.string().max(50_000),
   after: z.string().max(50_000),
+  format: z.enum(["加粗", "倾斜", "下划线"]).optional(),
+});
+
+const undoHunkSchema = z.object({
+  taskId: z.string().trim().min(1).max(200),
+});
+
+const commentCreateSchema = z.object({
+  taskId: z.string().trim().min(1).max(200),
+  anchorText: z.string().trim().min(1).max(2_000),
+  body: z.string().max(8_000).optional(),
+});
+
+const commentUpdateSchema = z.object({
+  taskId: z.string().trim().min(1).max(200),
+  body: z.string().max(8_000),
 });
 
 function parseRoot(raw: string | null): WordBaselineRoot | undefined {
@@ -214,10 +266,21 @@ export async function handleWordSurfaceRoutes({
       fileName: loaded.snapshot.fileName,
       taskId: loaded.snapshot.taskId,
       paragraphs: body.paragraphs,
+      moves: body.moves,
     });
     if (!synced.ok) {
       sendJson(res, 400, { ok: false, error: synced.error }, c);
       return true;
+    }
+    const changedParagraphs = body.paragraphs
+      .filter((row) => row.baseline.trim() && row.baseline !== row.current)
+      .map((row) => ({ before: row.baseline, after: row.current }));
+    if (changedParagraphs.length > 0) {
+      await captureWordSurfaceLearning({
+        workspaceDir: ctx.workspaceDir,
+        taskId: synced.taskId,
+        paragraphs: changedParagraphs,
+      });
     }
     sendJson(res, 200, { ok: true, taskId: synced.taskId, removed: synced.removed, updated: synced.updated }, c);
     return true;
@@ -263,12 +326,137 @@ export async function handleWordSurfaceRoutes({
       before: body.before,
       after: body.after,
       taskId: loaded.snapshot.taskId,
+      ...(body.format ? { format: body.format } : {}),
     });
     if (!recorded.ok) {
       sendJson(res, 400, { ok: false, error: recorded.error }, c);
       return true;
     }
+    await captureWordSurfaceLearning({
+      workspaceDir: ctx.workspaceDir,
+      taskId: recorded.taskId,
+      paragraphs: [{ before: body.before, after: body.after }],
+    });
     sendJson(res, 200, { ok: true, taskId: recorded.taskId, hunkId: recorded.hunkId }, c);
+    return true;
+  }
+
+  const undoMatch = pathname.match(/^\/api\/word-surface\/hunks\/([^/]+)\/undo$/);
+  if (undoMatch && req.method === "POST") {
+    const hunkId = decodeURIComponent(undoMatch[1] ?? "");
+    if (!hunkId || hunkId.length > 200) {
+      sendJson(res, 400, { ok: false, error: "invalid_hunk_id" }, c);
+      return true;
+    }
+    let body: z.infer<typeof undoHunkSchema>;
+    try {
+      body = await parseJsonBodyZod(req, undoHunkSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    if (!isSafeTaskIdSegment(body.taskId)) {
+      sendJson(res, 400, { ok: false, error: "invalid_task_id" }, c);
+      return true;
+    }
+    const removed = removePendingLawyerHunk(ctx.workspaceDir, body.taskId, hunkId);
+    if (!removed.ok) {
+      const status =
+        removed.error === "hunk_not_found" || removed.error === "redline_not_found" ? 404 : 409;
+      sendJson(res, status, { ok: false, error: removed.error }, c);
+      return true;
+    }
+    sendJson(
+      res,
+      200,
+      { ok: true, summary: summarizeRedline(removed.proposal), updatedAt: removed.proposal.updatedAt },
+      c,
+    );
+    return true;
+  }
+
+  if (pathname === "/api/word-surface/comments" && req.method === "GET") {
+    const taskId = (url.searchParams.get("taskId") ?? "").trim();
+    if (!isSafeTaskIdSegment(taskId)) {
+      sendJson(res, 400, { ok: false, error: "invalid_task_id" }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true, comments: listWordSurfaceComments(ctx.workspaceDir, taskId) }, c);
+    return true;
+  }
+
+  if (pathname === "/api/word-surface/comments" && req.method === "POST") {
+    let body: z.infer<typeof commentCreateSchema>;
+    try {
+      body = await parseJsonBodyZod(req, commentCreateSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    if (!isSafeTaskIdSegment(body.taskId)) {
+      sendJson(res, 400, { ok: false, error: "invalid_task_id" }, c);
+      return true;
+    }
+    const author = readLawyerIdentity(ctx.workspaceDir)?.displayName?.trim() || "律师";
+    const added = addWordSurfaceComment(ctx.workspaceDir, {
+      taskId: body.taskId,
+      anchorText: body.anchorText,
+      body: body.body?.trim() || "批注",
+      author,
+    });
+    if (!added.ok) {
+      sendJson(res, 400, { ok: false, error: added.error }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true, comment: added.comment }, c);
+    return true;
+  }
+
+  const commentMatch = pathname.match(/^\/api\/word-surface\/comments\/([^/]+)$/);
+  if (commentMatch && req.method === "POST") {
+    const commentId = decodeURIComponent(commentMatch[1] ?? "");
+    let body: z.infer<typeof commentUpdateSchema>;
+    try {
+      body = await parseJsonBodyZod(req, commentUpdateSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    if (!isSafeTaskIdSegment(body.taskId) || !commentId) {
+      sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+      return true;
+    }
+    const updated = updateWordSurfaceComment(ctx.workspaceDir, body.taskId, commentId, body.body);
+    if (!updated.ok) {
+      sendJson(res, updated.error === "comment_not_found" ? 404 : 400, { ok: false, error: updated.error }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true, comment: updated.comment }, c);
+    return true;
+  }
+
+  if (commentMatch && req.method === "DELETE") {
+    const commentId = decodeURIComponent(commentMatch[1] ?? "");
+    const taskId = (url.searchParams.get("taskId") ?? "").trim();
+    if (!isSafeTaskIdSegment(taskId) || !commentId) {
+      sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+      return true;
+    }
+    const removed = removeWordSurfaceComment(ctx.workspaceDir, taskId, commentId);
+    if (!removed.ok) {
+      sendJson(res, removed.error === "comment_not_found" ? 404 : 400, { ok: false, error: removed.error }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true }, c);
     return true;
   }
 
@@ -293,11 +481,21 @@ export async function handleWordSurfaceRoutes({
       sendJson(res, 400, { ok: false, error: "invalid_task_id" }, c);
       return true;
     }
+    const prior = readRedlineProposal(ctx.workspaceDir, body.taskId)?.hunks.find(
+      (h) => h.hunkId === hunkId,
+    );
     const revised = revisePendingRedlineHunk(ctx.workspaceDir, body.taskId, hunkId, body.after);
     if (!revised.ok) {
       const status = revised.error === "hunk_not_found" || revised.error === "redline_not_found" ? 404 : 409;
       sendJson(res, status, { ok: false, error: revised.error }, c);
       return true;
+    }
+    if (prior && prior.after !== body.after) {
+      await captureWordSurfaceLearning({
+        workspaceDir: ctx.workspaceDir,
+        taskId: body.taskId,
+        paragraphs: [{ before: prior.after || prior.before, after: body.after }],
+      });
     }
     sendJson(
       res,
@@ -343,6 +541,7 @@ export async function handleWordSurfaceRoutes({
             outputFileName: result.outputFileName,
             mode: result.mode,
             degraded: result.degraded,
+            ...(result.trackWarning ? { trackWarning: result.trackWarning } : {}),
           }
         : { ok: false, error: result.error, ...(result.code ? { code: result.code } : {}) },
       c,

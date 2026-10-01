@@ -90,7 +90,7 @@ describe("coordination/delegate", () => {
     expect(result.error).toMatch(/未知 Role/);
   });
 
-  it("delegate_to_role rejects when no candidates exist", async () => {
+  it("delegate_to_role returns work-style pack when no other assistant holds the role", async () => {
     const ws = path.join(tmp, "workspace");
     fs.mkdirSync(ws, { recursive: true });
     upsertAssistant(tmp, {
@@ -107,8 +107,16 @@ describe("coordination/delegate", () => {
       },
       buildContext(ws, "self"),
     );
-    expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/没有承担/);
+    expect(result.ok).toBe(true);
+    const data = result.data as {
+      fallback?: string;
+      message?: string;
+      workStylePack?: { roleId: string };
+    };
+    expect(data.fallback).toBe("work_style_pack");
+    expect(data.workStylePack?.roleId).toBe("contract_review");
+    expect(data.message).toMatch(/不要要求律师新建助手/);
+    expect(data.message).toMatch(/draft_worker/);
   });
 
   it("delegate_task schema has no parent-gate bypass flag", () => {

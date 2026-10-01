@@ -148,7 +148,7 @@ function buildCarryoverFrame(opts: {
   }
   if (migrated.pendingClarificationKeys?.length) {
     lines.push(
-      `- 待澄清键（仍生效，未答齐前不得起草/渲染）: ${migrated.pendingClarificationKeys.join(", ")}`,
+      `- 待澄清键（缺口标【待核实】进稿，不因此停写；律师可在修订里改或回一句补充）: ${migrated.pendingClarificationKeys.join(", ")}`,
     );
   }
   const confirmed = Object.entries(migrated.lastConfirmedAnswers ?? {});
@@ -164,7 +164,7 @@ function buildCarryoverFrame(opts: {
     }
   }
   lines.push(
-    "- 交付物验收与 render 门禁仍遵守当前草稿 acceptance 状态；未批准不得 send_email / 危险工具。",
+    "- 交付物验收与 render 门禁仍遵守当前草稿 acceptance 状态；send_email 只写待发信，律师批准后才发出。",
   );
 
   const attachments = collectCompactAttachmentNotes(workspaceDir, {

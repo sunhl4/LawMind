@@ -37,6 +37,23 @@ describe("lawmind-app-shell-domains", () => {
     expect(selectStableAssistantId(assistants, "asst_b")).toBe("asst_b");
   });
 
+  it("selectStableAssistantId singleParent locks to default when present", () => {
+    const withDefault: AssistantRow[] = [
+      {
+        assistantId: DEFAULT_ASSISTANT_ID,
+        displayName: "默认",
+        introduction: "",
+        presetKey: "p",
+        createdAt: now,
+        updatedAt: now,
+      },
+      ...assistants,
+    ];
+    expect(selectStableAssistantId(withDefault, "asst_b", { singleParent: true })).toBe(
+      DEFAULT_ASSISTANT_ID,
+    );
+  });
+
   it("selectStableAssistantId falls back to first or default", () => {
     expect(selectStableAssistantId(assistants, "gone")).toBe("asst_a");
     expect(selectStableAssistantId([], "gone")).toBe(DEFAULT_ASSISTANT_ID);

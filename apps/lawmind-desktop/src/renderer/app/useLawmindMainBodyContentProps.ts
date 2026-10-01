@@ -62,9 +62,9 @@ export type UseLawmindMainBodyContentPropsInput = {
   setMainView: (view: LawmindMainView) => void;
   setContextMatterId: (id: string | null) => void;
   setMatterCockpitOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  deskMatterFocus?: { id: string; n: number; pane?: "docs" } | null;
+  deskMatterFocus?: import("./desk-matter-focus").DeskMatterFocus;
   setDeskMatterFocus?: React.Dispatch<
-    React.SetStateAction<{ id: string; n: number; pane?: "docs" } | null>
+    React.SetStateAction<import("./desk-matter-focus").DeskMatterFocus>
   >;
   setSessionByAssistant: React.Dispatch<React.SetStateAction<Record<string, string | undefined>>>;
   setReviewLaunchedFromMatter: (v: boolean) => void;
@@ -316,7 +316,6 @@ export function useLawmindMainBodyContentProps(
       }
       recordsDeskMattersSetSelectedKey(mid);
       setContextMatterId(mid);
-      setMatterCockpitOpen(false);
       setDeskMatterFocus?.((prev) => ({ id: mid, n: (prev?.n ?? 0) + 1 }));
       setMainView("desk");
     };
@@ -348,6 +347,7 @@ export function useLawmindMainBodyContentProps(
       scheduleScrollChatMessagesToLatest,
       setInput,
       focusComposer: () => textareaRef.current?.focus(),
+      showChatPane: () => setWsShowChat(true),
     });
     return {
       config,
@@ -484,7 +484,7 @@ export function useLawmindMainBodyContentProps(
       onClearTruthPills: clearComposeTruthPins,
       contextTaskId,
       onOpenReviewFromWorkspace: openReviewFromWorkspace,
-      onDelegateAssist: openDelegateAssist,
+      onDelegateAssist: delegateAssistEnabled ? openDelegateAssist : undefined,
       delegateAssistEnabled,
       revisionBackgroundActive,
       onResumeRequiresAction: handleResumeRequiresAction,
@@ -504,7 +504,6 @@ export function useLawmindMainBodyContentProps(
       cancelQueuedMessage,
       onOpenTaskDrawer: () => setTaskDrawerOpen(true),
       onOpenNeedsDecisionDesk: (target?: NeedsDecisionDeskTarget) => {
-        setMatterCockpitOpen(false);
         const mid = target?.matterId?.trim();
         if (mid) {
           setContextMatterId(mid);
@@ -512,10 +511,10 @@ export function useLawmindMainBodyContentProps(
           setMainView("desk");
           return;
         }
+        setMatterCockpitOpen(false);
         setMainView("workspace");
       },
       onOpenActionHub: (target?: NeedsDecisionDeskTarget) => {
-        setMatterCockpitOpen(false);
         const mid = target?.matterId?.trim();
         if (mid) {
           setContextMatterId(mid);
@@ -523,6 +522,7 @@ export function useLawmindMainBodyContentProps(
           setMainView("desk");
           return;
         }
+        setMatterCockpitOpen(false);
         setMainView("workspace");
       },
       onOpenReviewFromAutomation: (taskId, matterId) => {

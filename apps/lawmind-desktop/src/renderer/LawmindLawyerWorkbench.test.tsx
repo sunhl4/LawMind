@@ -7,6 +7,42 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiGetJson, apiSendJson } from "./api-client";
 import { LawmindLawyerWorkbench } from "./LawmindLawyerWorkbench";
 
+const openDeliverableInWps = vi.fn(async (..._args: unknown[]) => ({ ok: true as const }));
+const openDocxInReviewSurface = vi.fn(async (..._args: unknown[]) => undefined);
+const requestOpenContractRevision = vi.fn((..._args: unknown[]) => undefined);
+const requestOpenWorkspaceFile = vi.fn((..._args: unknown[]) => undefined);
+
+vi.mock("./canvas/host-actions", async () => {
+  const actual = await vi.importActual<typeof import("./canvas/host-actions")>("./canvas/host-actions");
+  return {
+    ...actual,
+    openDeliverableInWps: (...args: unknown[]) => openDeliverableInWps(...args),
+  };
+});
+
+vi.mock("./lawmind-open-contract-revision", async () => {
+  const actual =
+    await vi.importActual<typeof import("./lawmind-open-contract-revision")>(
+      "./lawmind-open-contract-revision",
+    );
+  return {
+    ...actual,
+    openDocxInReviewSurface: (...args: unknown[]) => openDocxInReviewSurface(...args),
+  };
+});
+
+vi.mock("./lawmind-workspace-file-open", async () => {
+  const actual =
+    await vi.importActual<typeof import("./lawmind-workspace-file-open")>(
+      "./lawmind-workspace-file-open",
+    );
+  return {
+    ...actual,
+    requestOpenContractRevision: (...args: unknown[]) => requestOpenContractRevision(...args),
+    requestOpenWorkspaceFile: (...args: unknown[]) => requestOpenWorkspaceFile(...args),
+  };
+});
+
 vi.mock("./api-client", () => ({
   apiGetJson: vi.fn(async (_base: string, path: string) => {
     if (path === "/api/desk/today") {
@@ -15,9 +51,17 @@ vi.mock("./api-client", () => ({
     if (path.startsWith("/api/desk/matters")) {
       return { ok: true, matters: [] };
     }
+    if (path.includes("/brief")) {
+      return { ok: false, reason: "model_unconfigured" };
+    }
     return { ok: true };
   }),
-  apiSendJson: vi.fn(async () => ({ ok: true })),
+  apiSendJson: vi.fn(async (_base: string, path: string) => {
+    if (path === "/api/desk/hotlines") {
+      return { ok: false, reason: "model_unconfigured" };
+    }
+    return { ok: true };
+  }),
   errorMessage: (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback),
   fetchApi: vi.fn(),
 }));
@@ -37,6 +81,10 @@ describe("LawmindLawyerWorkbench", () => {
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
+    openDeliverableInWps.mockClear();
+    openDocxInReviewSurface.mockClear();
+    requestOpenContractRevision.mockClear();
+    requestOpenWorkspaceFile.mockClear();
     vi.mocked(apiGetJson).mockImplementation(async (_base: string, path: string) => {
       if (path === "/api/desk/today") {
         return { ok: true, today: { date: "2026-09-09", items: [], progress: { done: 0, total: 0 } } };
@@ -648,6 +696,108 @@ describe("LawmindLawyerWorkbench", () => {
     const volumeText = materials?.textContent ?? "";
     expect(volumeText.indexOf("来件")).toBeLessThan(volumeText.indexOf("我们写的"));
     expect(volumeText.indexOf("我们写的")).toBeLessThan(volumeText.indexOf("其余"));
+    expect(materials?.textContent).toContain("预览核对");
+    expect(materials?.textContent).toContain("用本机应用打开");
+  });
+
+  it("opens volume files via middle-panel preview or local app", async () => {
+    const onOpenReview = vi.fn();
+    vi.mocked(apiGetJson).mockImplementation(async (_base: string, path: string) => {
+      if (path === "/api/desk/today") {
+        return { ok: true, today: { date: "2026-09-09", items: [], progress: { done: 0, total: 0 } } };
+      }
+      if (path.startsWith("/api/desk/matters")) {
+        return {
+          ok: true,
+          matters: [
+            {
+              matterId: "m1",
+              title: "买卖合同纠纷",
+              status: "open",
+              matterKind: "litigation",
+              matterKindLabel: "诉讼",
+              openDeadlineCount: 0,
+            },
+          ],
+        };
+      }
+      if (path.includes("/pulse")) {
+        return {
+          ok: true,
+          pulse: {
+            title: "买卖合同纠纷",
+            status: "active",
+            statusLabel: "进行中",
+            counts: {
+              documents: 1,
+              tasks: 0,
+              files: 1,
+              deadlines: 0,
+              mail: 0,
+              approvals: 0,
+              materials: 1,
+            },
+            daysUntilHearing: null,
+            documents: [
+              {
+                id: "d1",
+                title: "起诉状草稿",
+                status: "待审核",
+                taskId: "t1",
+                outputPath: "cases/m1/artifacts/起诉状.docx",
+              },
+            ],
+            tasks: [],
+            files: [{ label: "artifacts/起诉状.docx" }],
+            materials: [
+              {
+                relPath: "materials/合同.docx",
+                fileName: "合同.docx",
+                size: 2048,
+                updatedAt: "2026-09-08T10:00:00",
+              },
+            ],
+            mail: [],
+            nextActions: [],
+          },
+        };
+      }
+      return { ok: true };
+    });
+
+    await act(async () => {
+      root.render(
+        <LawmindLawyerWorkbench
+          apiBase="http://127.0.0.1:9"
+          selectedMatterId="m1"
+          onSelectMatter={vi.fn()}
+          onGoToChat={vi.fn()}
+          onOpenReview={onOpenReview}
+        />,
+      );
+    });
+    await flush();
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>(".lm-matter-card")?.click();
+    });
+    await flush();
+
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-testid="lm-volume-doc-preview"]')?.click();
+    });
+    expect(onOpenReview).toHaveBeenCalledWith({ matterId: "m1", taskId: "t1" });
+
+    await act(async () => {
+      host.querySelectorAll<HTMLButtonElement>('[data-testid="lm-materials-file-open-app"]')[0]?.click();
+    });
+    expect(openDeliverableInWps).toHaveBeenCalledWith("cases/m1/materials/合同.docx");
+
+    await act(async () => {
+      host.querySelectorAll<HTMLButtonElement>('[data-testid="lm-materials-file-preview"]')[0]?.click();
+    });
+    expect(openDocxInReviewSurface).toHaveBeenCalledWith(
+      expect.objectContaining({ relPath: "cases/m1/materials/合同.docx" }),
+    );
   });
 
   it("counts unreplied mail on the strip even when it has no case", async () => {
