@@ -7,7 +7,7 @@
   "main": "electron/main.mjs",
   "scripts": {
     "dev": "node ../../scripts/lawmind/apply-desktop-brand.mjs && node scripts/build-canvas-sandbox.mjs && node ../../scripts/lawmind/ensure-desktop-dev-port.mjs && concurrently -k -s first \"vite dev --port 5174\" \"wait-on http-get://127.0.0.1:5174 && electron electron/main.mjs\"",
-    "build:renderer": "vite build",
+    "build:renderer": "node scripts/build-canvas-sandbox.mjs && vite build",
     "bundle:server": "pnpm -w lawmind:bundle:desktop-server",
     "vendor:node": "pnpm -w lawmind:vendor:desktop-node",
     "vendor:officecli": "pnpm -w lawmind:vendor:officecli",

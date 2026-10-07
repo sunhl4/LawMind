@@ -10,6 +10,7 @@ Historical **OpenClaw** upstream release notes were removed when the repository 
 
 - GitHub Release 安装包与当前律师工作台源码对齐；版本号 `apps/lawmind-desktop` → `0.2.2`；标签 `lawmind-desktop-v0.2.2`。
 - 桌面构建工作流修正 shell 中 `${matrix.label}` 无法展开、打包一步都没跑的问题。没有 Developer ID 证书时打 adhoc 包（下载后右键打开）；配了证书的 tag 构建仍要求公证。
+- 打包前生成画布 `sandbox-runtime.js`（该文件不入库），否则生产构建找不到它、安装包出不来。
 
 ### Changes
 
