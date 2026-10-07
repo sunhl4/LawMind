@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -18,6 +19,13 @@ describe("desktop brand", () => {
     expect(brand.appId).toBe("ai.lawmind.desktop");
     expect(LAWMIND_PRODUCT_NAME).toBe("LawMind");
     expect(resolveRuntimeAppIconPath(here)).toBe(path.join(here, "icon.png"));
+  });
+
+  it("ships branding/manifest.json inside the packaged app", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(here, "../package.json"), "utf8")) as {
+      build: { files: string[] };
+    };
+    expect(pkg.build.files).toContain("branding/manifest.json");
   });
 
   it("pins unpackaged userData to the historical Electron folder", () => {
