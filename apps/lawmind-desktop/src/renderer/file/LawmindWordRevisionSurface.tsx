@@ -738,7 +738,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     setPageEpoch((value) => value + 1);
   }, []);
 
-  const focusHunk = useCallback((hunkId: string, slot: "page" | "rail") => {
+  const focusHunk = useCallback((hunkId: string, _slot: "page" | "rail") => {
     setSelectedId(hunkId);
     setOpenIds((current) => {
       const snap = snapshotRef.current;
@@ -758,13 +758,13 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       const page = root?.querySelector(
         `[data-word-hunk="${CSS.escape(hunkId)}"][data-word-slot="page"]`,
       );
-      const rail = root?.querySelector(
-        `[data-word-hunk="${CSS.escape(hunkId)}"][data-word-slot="rail"]`,
-      );
-      const primary = slot === "page" ? page : rail;
-      const other = slot === "page" ? rail : page;
-      primary?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      other?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      if (page) {
+        page.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+        return;
+      }
+      root
+        ?.querySelector(`[data-word-hunk="${CSS.escape(hunkId)}"][data-word-slot="rail"]`)
+        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
   }, []);
 

@@ -1071,11 +1071,22 @@ describe("LawmindWordRevisionSurface", () => {
     expect(host.querySelector("[data-testid='lm-word-track-1']")?.textContent).not.toContain("删除的内容");
     const firstRail = host.querySelector<HTMLElement>("[data-testid='lm-word-track-1']");
     expect(firstRail?.style.top).toBe("0px");
+    const scrolled: Element[] = [];
+    const scrollSpy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(function mockScroll(this: Element) {
+      scrolled.push(this);
+    });
     await act(async () => {
       host
-        .querySelector("[data-word-slot='page'][data-word-hunk='1']")
+        .querySelector("[data-testid='lm-word-fold-1']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => window.requestAnimationFrame(() => resolve(undefined)));
     });
+    scrollSpy.mockRestore();
+    expect(
+      scrolled.some(
+        (node) => node.getAttribute("data-word-slot") === "page" && node.getAttribute("data-word-hunk") === "1",
+      ),
+    ).toBe(true);
     expect(host.querySelector("[data-testid='lm-word-track-1']")?.textContent).toContain("删除的内容");
     expect(host.querySelector("[data-testid='lm-word-track-1']")?.textContent).toContain("十日");
     expect(host.querySelector("[data-testid='lm-word-fold-2']")).toBeNull();
