@@ -159,3 +159,34 @@ export function planAuthoritySave(input) {
     storeApiKey: pasted,
   };
 }
+
+/**
+ * 钥匙串可用时令牌仍只进钥匙串，并在落盘后从 env 抹掉明文。
+ * 新鲜克隆经常没有可用钥匙串（Linux 无密钥环，或 macOS 在窗口出现前
+ * 第一次访问被系统拒绝并缓存为不可用）。这时模型 Key 仍能写入本机配置，
+ * 法宝令牌也写入用户数据目录里的 `.env.lawmind`，否则设置页只能报
+ * 「无法安全保存」而接不上。该文件不在仓库里。
+ *
+ * @param {ReturnType<typeof planAuthoritySave>} plan
+ * @param {{ keychainAvailable?: boolean }} options
+ */
+export function placeAuthorityApiKey(plan, options) {
+  if (!plan?.ok || plan.provider !== "pkulaw") {
+    return plan;
+  }
+  if (options?.keychainAvailable) {
+    return plan;
+  }
+  const pasted = (plan.storeApiKey || "").trim();
+  if (!pasted) {
+    return plan;
+  }
+  return {
+    ...plan,
+    storeApiKey: "",
+    assignments: {
+      ...plan.assignments,
+      [AUTHORITY_API_KEY_ENV]: pasted,
+    },
+  };
+}

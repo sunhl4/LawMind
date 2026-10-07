@@ -4,6 +4,7 @@ import {
   PKULAW_DEFAULT_CASE_ENDPOINT,
   PKULAW_DEFAULT_LAW_ENDPOINT,
   authorityProviderUsesStoredKey,
+  placeAuthorityApiKey,
   planAuthoritySave,
   validateAuthoritySetupUrl,
 } from "./authority-setup.mjs";
@@ -87,6 +88,43 @@ describe("planAuthoritySave", () => {
     );
     const hashed = validateAuthoritySetupUrl(`${PKULAW_DEFAULT_LAW_ENDPOINT}#token`);
     expect(hashed.ok).toBe(false);
+  });
+});
+
+describe("placeAuthorityApiKey", () => {
+  it("keeps the token for the keychain when encryption is available", () => {
+    const plan = planAuthoritySave({ provider: "pkulaw", apiKey: "tok-1" });
+    const placed = placeAuthorityApiKey(plan, { keychainAvailable: true });
+    expect(placed.ok).toBe(true);
+    if (!placed.ok) {
+      return;
+    }
+    expect(placed.storeApiKey).toBe("tok-1");
+    expect(placed.assignments.LAWMIND_AUTHORITY_API_KEY).toBeUndefined();
+  });
+
+  it("writes the token into the user env plan when the keychain cannot take it", () => {
+    const plan = planAuthoritySave({ provider: "pkulaw", apiKey: "tok-fresh-clone" });
+    const placed = placeAuthorityApiKey(plan, { keychainAvailable: false });
+    expect(placed.ok).toBe(true);
+    if (!placed.ok) {
+      return;
+    }
+    expect(placed.storeApiKey).toBe("");
+    expect(placed.assignments.LAWMIND_AUTHORITY_API_KEY).toBe("tok-fresh-clone");
+    expect(placed.assignments.LAWMIND_AUTHORITY_PROVIDER).toBe("pkulaw");
+    expect(placed.removeKeys).not.toContain(AUTHORITY_API_KEY_ENV);
+  });
+
+  it("leaves an already saved env token in place when the field is blank and the keychain is down", () => {
+    const plan = planAuthoritySave({ provider: "pkulaw", hasExistingKey: true });
+    const placed = placeAuthorityApiKey(plan, { keychainAvailable: false });
+    expect(placed.ok).toBe(true);
+    if (!placed.ok) {
+      return;
+    }
+    expect(placed.storeApiKey).toBe("");
+    expect(placed.assignments.LAWMIND_AUTHORITY_API_KEY).toBeUndefined();
   });
 });
 

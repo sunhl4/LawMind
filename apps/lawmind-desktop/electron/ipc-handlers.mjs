@@ -69,6 +69,7 @@ import {
   AUTHORITY_API_KEY_ENV,
   PKULAW_DEFAULT_CASE_ENDPOINT,
   PKULAW_DEFAULT_LAW_ENDPOINT,
+  placeAuthorityApiKey,
   planAuthoritySave,
 } from "./authority-setup.mjs";
 
@@ -709,20 +710,23 @@ export function registerIpcHandlers(deps) {
         chainKey = "";
       }
     }
-    const plan = planAuthoritySave({
-      provider: payload?.provider,
-      lawEndpoint: payload?.lawEndpoint,
-      caseEndpoint: payload?.caseEndpoint,
-      apiKey: payload?.apiKey,
-      hasExistingKey: Boolean(envKey || chainKey),
-    });
+    const plan = placeAuthorityApiKey(
+      planAuthoritySave({
+        provider: payload?.provider,
+        lawEndpoint: payload?.lawEndpoint,
+        caseEndpoint: payload?.caseEndpoint,
+        apiKey: payload?.apiKey,
+        hasExistingKey: Boolean(envKey || chainKey),
+      }),
+      { keychainAvailable: keyVault.isAvailable() },
+    );
     if (!plan.ok) {
       return { ok: false, error: plan.error };
     }
     const removeKeys = [...plan.removeKeys];
-    if (plan.provider === "pkulaw") {
+    if (plan.provider === "pkulaw" && keyVault.isAvailable()) {
       const keyToStore = plan.storeApiKey || chainKey || envKey;
-      if (keyVault.isAvailable()) {
+      if (keyToStore) {
         try {
           const saved = await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.authorityApiKey, keyToStore);
           if (!saved) {
@@ -740,17 +744,18 @@ export function registerIpcHandlers(deps) {
           };
         }
         removeKeys.push(AUTHORITY_API_KEY_ENV);
-      } else if (plan.storeApiKey) {
-        return {
-          ok: false,
-          error: "无法安全保存。请在系统设置里打开钥匙串后再试。",
-          code: "keychain_unavailable",
-        };
       }
     }
     writeMergedLawmindEnv(paths.envFilePath, plan.assignments);
     if (removeKeys.length > 0) {
       writeLawmindEnvWithoutKeys(paths.envFilePath, removeKeys);
+    }
+    if (plan.assignments?.[AUTHORITY_API_KEY_ENV]) {
+      try {
+        fs.chmodSync(paths.envFilePath, 0o600);
+      } catch {
+        /* 某些文件系统不支持 chmod；令牌已经落在用户数据目录 */
+      }
     }
     try {
       await restartBackendInternal();
