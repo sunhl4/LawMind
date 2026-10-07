@@ -4,8 +4,7 @@
  * - `[文书标题](lm-draft:<taskId>)` 打开这份稿
  * - `[短标题](https://…)` 或句子里的公网地址，用系统浏览器打开
  * - `[短标题](相对路径)` 或句子里的工作区文件，在编辑区打开；`.canvas.tsx` 就是画布
- * - Word / Excel / PPT / PDF（及 `.wps` 等）相对路径，用本机 WPS 打开，不进修订面
- * - `[文件地址](lm-wps:编码后的相对路径)` 同样用 WPS 打开
+ * - Word 相对路径 / `lm-wps:`：左键进中栏核对；Excel / PPT / PDF 左键进中栏；右键可去访达或用本机应用打开
  *
  * 内网、带账号密码的地址、磁盘绝对路径和 `..` 只留文字，不变成按钮。
  */
@@ -210,8 +209,14 @@ export function docxCellWithDirectory(cell: string, row: readonly string[]): str
   if (!dir) {
     return cell;
   }
-  const plain = cell.trim().replace(/\*\*/g, "");
-  if (!/^[^\s/]+\.docx$/iu.test(plain)) {
+  // 模型常把文件名包进反引号或加粗；去掉后才能拼成可点的相对路径。
+  const plain = cell
+    .trim()
+    .replace(/^\*+|\*+$/g, "")
+    .replace(/^`+|`+$/g, "")
+    .replace(/\*\*/g, "")
+    .trim();
+  if (!/^[^\s/`]+\.docx$/iu.test(plain)) {
     return cell;
   }
   return `[${plain}](${dir.replace(/\/$/u, "")}/${plain})`;

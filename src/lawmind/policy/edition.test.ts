@@ -21,7 +21,6 @@ describe("policy/edition", () => {
     expect(ctx.features.ethicsWall).toBe(false);
     expect(ctx.features.customDeliverableSpec).toBe(true);
     expect(ctx.features.wordAddinAutoRun).toBe(true);
-    expect(ctx.features.guardianTrackedRedlineBlock).toBe(false);
   });
 
   it("respects LAWMIND_EDITION env when policy is missing", () => {
@@ -32,7 +31,6 @@ describe("policy/edition", () => {
     expect(ctx.features.matterReplicaCollab).toBe(true);
     expect(ctx.features.ethicsWall).toBe(true);
     expect(ctx.features.wordAddinAutoRun).toBe(false);
-    expect(ctx.features.guardianTrackedRedlineBlock).toBe(true);
   });
 
   it("policy file overrides env (case-insensitive edition)", () => {

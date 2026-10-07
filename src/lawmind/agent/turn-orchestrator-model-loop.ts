@@ -38,8 +38,14 @@ import {
   MID_TURN_LLM_DIGEST_TIMEOUT_MS,
   resolveContextTuning,
 } from "./context-tuning.js";
+import { applyProseSyndrome, appendMechanicalNote } from "./factor-state.js";
 import { applyMidTurnCompact } from "./mid-turn-compact.js";
 import { friendlyModelErrorMessage } from "./model-error-message.js";
+import {
+  formatReviewBoardExportBounce,
+  isReviewBoardExportDeferralReply,
+  REVIEW_BOARD_EXPORT_BOUNCE_MAX,
+} from "./review-board-export-deferral.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import { claimAndApplyPendingContextPins, appendContextPins } from "./session-context-inject.js";
 import { claimAndApplyPendingSteer } from "./session-context-steer.js";
@@ -253,8 +259,10 @@ export function formatIdenticalToolRepeatStop(opts?: {
     parts.push(
       "有新修订的，写在原文件旁边。这一轮没有新修订的，不另出一份。原文里没有的数字和身份留在待确认，不因此整单停下。",
     );
+  } else if (opts?.trackedDraftMissing) {
+    parts.push("缺的数字和身份留在待确认。");
   } else {
-    parts.push("要继续办理，在这条对话里回复「继续」即可。");
+    parts.push("已经做好的部分就是这一轮的结果。缺的事实留在文中待确认。");
   }
   return parts.join("");
 }
@@ -399,6 +407,7 @@ export async function runModelToolLoop(opts: {
   /** At most one extra sample per turn after a finished Word-revision reread. */
   let documentRereadContinued = false;
   let wordRevisionExportNudged = false;
+  let reviewBoardExportBounces = 0;
 
   const strictUpstreamToolStreaming = resolveStrictUpstreamToolStreaming(opts.hasOnEvent);
   const hardCeiling =
@@ -852,11 +861,13 @@ export async function runModelToolLoop(opts: {
     const toolCalls = assistantMsg.tool_calls;
 
     const decisionWasQuiet = openAITools.length > 0 && !outputRaised;
-    if (!useUpstreamTokenStream || decisionWasQuiet) {
-      const segment = assistantMsg.content ?? "";
-      if (segment.length > 0) {
-        opts.emitEvent({ type: "delta", roundIndex, text: segment });
+    const emitQuietSegment = (text: string) => {
+      if ((!useUpstreamTokenStream || decisionWasQuiet) && text.length > 0) {
+        opts.emitEvent({ type: "delta", roundIndex, text });
       }
+    };
+    if (toolCalls && toolCalls.length > 0) {
+      emitQuietSegment(assistantMsg.content ?? "");
     }
 
     const agentMsg: AgentMessage = {
@@ -879,6 +890,16 @@ export async function runModelToolLoop(opts: {
     opts.turn.messages.push(agentMsg);
 
     if (!toolCalls || toolCalls.length === 0) {
+      const syndrome = applyProseSyndrome(opts.turn.factorState, assistantMsg.content ?? "");
+      if (syndrome.action === "bounce" || syndrome.action === "deliver") {
+        const voiced = appendMechanicalNote(assistantMsg.content ?? "", opts.turn.factorState);
+        agentMsg.content = voiced;
+        emitQuietSegment(voiced);
+        opts.turn.status = "completed";
+        finalReply = voiced;
+        break;
+      }
+      emitQuietSegment(assistantMsg.content ?? "");
       if (pendingClarificationQuestions.length > 0) {
         // 端到端口径：带占位的草稿已经生成（draft_with_placeholders），缺口标进
         // 回复与交付物，回合照常完成——律师在修订里改或回一句补充，不再进入
@@ -1002,7 +1023,27 @@ export async function runModelToolLoop(opts: {
         opts.turn.messages.push(nudge);
         continue;
       }
-      finalReply = assistantMsg.content ?? "";
+      // 交办即终稿：模型不得以「审核台放行」把出 Word 退回律师。
+      if (
+        isReviewBoardExportDeferralReply(assistantMsg.content ?? "") &&
+        (opts.turn.toolNameCallCounts?.render_tracked_draft ?? 0) === 0 &&
+        reviewBoardExportBounces < REVIEW_BOARD_EXPORT_BOUNCE_MAX
+      ) {
+        reviewBoardExportBounces += 1;
+        agentMsg.hiddenFromLawyer = true;
+        const bounce = {
+          role: "user" as const,
+          content: formatReviewBoardExportBounce(),
+          timestamp: new Date().toISOString(),
+          hiddenFromLawyer: true,
+        };
+        opts.session.conversationHistory.push(bounce);
+        opts.turn.messages.push(bounce);
+        continue;
+      }
+      const voiced = appendMechanicalNote(assistantMsg.content ?? "", opts.turn.factorState);
+      agentMsg.content = voiced;
+      finalReply = voiced;
       opts.turn.status = "completed";
       break;
     }
@@ -1080,6 +1121,10 @@ export async function runModelToolLoop(opts: {
     }
 
     if (opts.turn.status === "awaiting_approval" || opts.turn.status === "awaiting_clarification") {
+      break;
+    }
+    if (opts.turn.status === "completed" && batchResult.finalReply) {
+      finalReply = batchResult.finalReply;
       break;
     }
 

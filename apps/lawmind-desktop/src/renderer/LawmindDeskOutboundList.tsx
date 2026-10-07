@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { apiSendJson, errorMessage } from "./api-client";
-import { openDeliverableInWps } from "./canvas/host-actions";
+import { openDeliverableInWps, revealDeliverableInFolder } from "./canvas/host-actions";
 import { confirmDialog } from "./lawmind-confirm-dialog";
 import { notifyOutboundChanged, type DeskOutboundItem } from "./lawmind-desk-outbound";
 import { resumeChatAction } from "./lawmind-requires-action";
@@ -114,6 +114,21 @@ export function LawmindDeskOutboundList(props: Props): ReactNode {
                         onClick={() => previewAttachment(path)}
                       >
                         {isDeskWordPath(path) ? "预览核对" : "预览"}
+                      </button>
+                      <button
+                        type="button"
+                        className="lm-btn lm-btn-ghost lm-btn-sm"
+                        data-testid="lm-desk-outbound-reveal"
+                        title="在访达中显示"
+                        onClick={() => {
+                          void revealDeliverableInFolder(path).then((result) => {
+                            if (!result.ok && result.error) {
+                              setError(result.error);
+                            }
+                          });
+                        }}
+                      >
+                        在访达中显示
                       </button>
                       <button
                         type="button"

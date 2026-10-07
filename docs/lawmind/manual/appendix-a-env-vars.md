@@ -113,7 +113,6 @@
 | `LAWMIND_KEY_DIR`                                                      | 本机密钥目录，默认 `~/.lawmind/keys`                                                                    |
 | `LAWMIND_PRIVILEGE_SENTINEL`                                           | `0`/`false` 关闭特权提示                                                                                |
 | `LAWMIND_LEGAL_GUARDIAN`                                               | `0`/`false`/`off`/`no` 关闭独立审稿                                                                     |
-| `LAWMIND_GUARDIAN_TRACKED_REDLINE`                                     | `block` / `advisory`（修订稿独立审稿档位）                                                              |
 | `LAWMIND_JUDGMENT_TIERING`                                             | `off` / `shadow` / `on`                                                                                 |
 | `LAWMIND_JUDGMENT_ESCALATION`                                          | `off` / `on`                                                                                            |
 | `LAWMIND_JUDGMENT_ESCALATION_POSTURE`                                  | `advisory` / `block`                                                                                    |

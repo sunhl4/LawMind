@@ -24,7 +24,7 @@ pnpm lawmind:desktop
 ### 安装包（终端用户）
 
 - 从 GitHub Release（工作流 **LawMind desktop build**，tag `lawmind-desktop-v*`）下载对应 OS / 架构的 `LawMind-<version>-<os>-<arch>.<ext>`。
-- 当前打包线版本：**0.2.1**（`apps/lawmind-desktop/package.json`），appId `ai.lawmind.desktop`。
+- 当前打包线版本：**0.2.2**（`apps/lawmind-desktop/package.json`），appId `ai.lawmind.desktop`。
 - macOS 未公证包首次打开需「右键 → 打开」；Windows 有 `.exe`、portable 与 `.zip`；Linux 有 `.AppImage` 与 `.tar.gz`。
 - 自行打包：`pnpm lawmind:desktop:dist`（内部顺序：bundle 本地服务 → vendor Node → vendor officecli → Vite build → electron-builder）。
 
@@ -112,7 +112,7 @@ LawMind 把「应用数据」与「随仓库的开发工作区」刻意分开：
 
 - **对话模型**：`GET /api/models` 读，`PATCH /api/models/default` 写（**没有 POST**）。设置页先显示「待配置 / 待验证 / 已验证」；Key 进系统密钥链，连通性用「验证模型」测，探测走出口代理（`src/lawmind/models/probe.ts`）。
 - **联网**：对话栏打开「联网」后，`web_search` 才进入本回合工具表。公开网页默认用**当前对话模型的厂商检索**（DeepSeek / 通义，与聊天同一套 Key）。关掉「检索与对话共用同一模型」且法律垂类自带厂商联网时，才改走垂类。Brave（`LAWMIND_WEB_SEARCH_API_KEY` 或 `BRAVE_API_KEY`）只是当前模型没有厂商检索时的备用，不是开联网的前提。工作区策略 `allowWebSearch: false` 或 `egressMode: "offline"` 会整轮不注册联网工具。
-- **法源**：NPC（国家法律法规数据库）hybrid 默认开，`LAWMIND_OPEN_LAW_NPC=0` 才关。
+- **法源**：设置 → 模型与连接 →「连接权威库」粘贴自己的北大法宝访问令牌即可。法规地址和案例地址已预填官方网关，令牌进系统钥匙串，不进安装包。未接法宝时走国家法律法规数据库（默认开，`LAWMIND_OPEN_LAW_NPC=0` 才关）。
 - **分开的模型**（设置页「高级」里，Day-1 不必动）：`PATCH /api/models/worker` 的更快模型只用于审稿和长对话摘要，对话里选工具、改稿仍用当前模型；`PATCH /api/models/retrieval` 的 `single` / `dual` 决定法律检索是否另用垂类模型（见第 3 章）。
 
 自定义模型：`/api/models/custom`，密钥走 `lawmind:save-custom-model-key` IPC。MCP 服务器密钥同理（`lawmind:save-mcp-server-secret`）。

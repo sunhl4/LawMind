@@ -71,7 +71,7 @@ export function authorityProviderLabel(id: AuthorityProviderId): string {
     case "open":
       return "开源语料（本地/NPC）";
     case "pkulaw":
-      return "北大法宝（闭源·手动）";
+      return "北大法宝";
     case "lexis":
       return "LexisNexis（闭源·手动）";
     case "generic":

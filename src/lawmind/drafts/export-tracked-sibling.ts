@@ -14,7 +14,7 @@ import { writeVisibleTrackedEdits } from "./docx-visible-revisions.js";
 import { persistDraft, readDraft } from "./index.js";
 import { readRedlineProposal, type RedlineHunk } from "./redline-proposal.js";
 import { qaTrackedDocxXml } from "./tracked-xml-qa.js";
-import { readWordReview } from "./word-review.js";
+import { findOpenWordReviewForBaseline, readWordReview } from "./word-review.js";
 
 export const REVIEW_FILE_LOCKED =
   "审阅稿正被 Word 或 WPS 打开，覆盖没有写成。请先关掉那份稿再导出。这一条仍留在在办。";
@@ -40,6 +40,29 @@ export function selectTrackedExportHunks(
   return hunks.filter((hunk) =>
     acceptedOnly ? hunk.status === "accepted" : hunk.status !== "rejected",
   );
+}
+
+/** Rewrite an already exported sibling from the restored draft. No file yet means wait. */
+export async function refreshTrackedExportIfPresent(params: {
+  workspaceDir: string;
+  taskId: string;
+  projectDir?: string;
+}): Promise<{ refreshed: boolean }> {
+  const draft = readDraft(params.workspaceDir, params.taskId);
+  const output = draft?.outputPath?.trim();
+  if (!output || !fs.existsSync(output)) {
+    return { refreshed: false };
+  }
+  try {
+    const result = await exportTrackedSiblingForTask({
+      workspaceDir: params.workspaceDir,
+      taskId: params.taskId,
+      ...(params.projectDir ? { projectDir: params.projectDir } : {}),
+    });
+    return { refreshed: result.ok };
+  } catch {
+    return { refreshed: false };
+  }
 }
 
 export async function exportTrackedSiblingForTask(params: {
@@ -75,12 +98,19 @@ export async function exportTrackedSiblingForTask(params: {
     };
   }
   const ticket = readWordReview(params.workspaceDir, params.taskId);
+  const baselineRel = draft.contractEdit?.baselineRelativePath?.trim();
+  const sticky =
+    ticket && !ticket.closedAt && ticket.reviewAbs.trim()
+      ? ticket
+      : baselineRel
+        ? findOpenWordReviewForBaseline(params.workspaceDir, baselineRel)
+        : undefined;
   const existingOutputAbs =
-    ticket && !ticket.closedAt && ticket.reviewAbs.trim() ? ticket.reviewAbs : draft.outputPath;
+    sticky && !sticky.closedAt && sticky.reviewAbs.trim() ? sticky.reviewAbs : draft.outputPath;
   const planned = planTrackedWordDelivery({
     workspaceDir: params.workspaceDir,
     projectDir: params.projectDir,
-    baselineRel: draft.contractEdit?.baselineRelativePath,
+    baselineRel,
     baselineRoot: draft.contractEdit?.baselineRoot,
     matterId: draft.matterId,
     fallbackBasename: `${draft.title?.trim() || "合同"}.docx`,

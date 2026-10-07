@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import type { ResearchClaim, ResearchSource } from "../types.js";
 import { DEMO_CORPUS_RISK_FLAG } from "./authority-gap.js";
 import type { RetrievalResult } from "./index.js";
+import { amplifyRetrievalCandidates, retrievalAgreement } from "./retrieval-amplify.js";
 
 export { DEMO_CORPUS_RISK_FLAG };
 
@@ -73,7 +74,13 @@ export function mapHitsToRetrievalResult(rawHits: AuthorityHit[]): RetrievalResu
   const sources: ResearchSource[] = [];
   const claims: ResearchClaim[] = [];
   let anyDemo = false;
-  for (const hit of rawHits.slice(0, 20)) {
+  const ranked = amplifyRetrievalCandidates(rawHits, (hit) =>
+    retrievalAgreement({
+      demo: hit.demo === true,
+      text: [hit.title, hit.citation, hit.excerpt].filter(Boolean).join("\n"),
+    }),
+  );
+  for (const hit of ranked) {
     if (!hit?.title?.trim()) {
       continue;
     }

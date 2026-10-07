@@ -227,4 +227,39 @@ describe("renderLegalMarkdown tables and math", () => {
     window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
     expect(files).toEqual(["cases/m/函.docx"]);
   });
+
+  it("left-clicks a spreadsheet into the middle column, and right-click still offers Finder", async () => {
+    const files: Array<{ relPath?: string; root?: string }> = [];
+    const onFile = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ relPath?: string; root?: string }>).detail;
+      files.push({ relPath: detail?.relPath, root: detail?.root });
+    };
+    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+    let menuPath = "";
+    const href = `lm-wps:${encodeURIComponent("cases/m/费用.xlsx")}`;
+    await act(async () => {
+      root.render(
+        <div>
+          {renderLegalMarkdown(`交付文件\n- [费用.xlsx](${href})`, {
+            onReviewFileMenu: (_x, _y, path) => {
+              menuPath = path;
+            },
+          })}
+        </div>,
+      );
+    });
+    const link = host.querySelector("[data-testid='lm-md-wps-link']");
+    expect(link?.textContent).toBe("费用.xlsx");
+    await act(async () => {
+      link?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(files).toEqual([{ relPath: "cases/m/费用.xlsx", root: "workspace" }]);
+    await act(async () => {
+      link?.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 4, clientY: 6 }),
+      );
+    });
+    expect(menuPath).toBe("cases/m/费用.xlsx");
+    window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+  });
 });

@@ -65,6 +65,12 @@ import {
 
 import { LAWMIND_PRODUCT_NAME, resolveRuntimeAppIconPath } from "./brand.mjs";
 import { inspectWorkspaceVolume } from "./workspace-volume.mjs";
+import {
+  AUTHORITY_API_KEY_ENV,
+  PKULAW_DEFAULT_CASE_ENDPOINT,
+  PKULAW_DEFAULT_LAW_ENDPOINT,
+  planAuthoritySave,
+} from "./authority-setup.mjs";
 
 const electronDir = path.dirname(fileURLToPath(import.meta.url));
 const appIconPath = resolveRuntimeAppIconPath(electronDir);
@@ -655,6 +661,110 @@ export function registerIpcHandlers(deps) {
     return {
       ok: true,
       enabled,
+      apiBase: `http://127.0.0.1:${apiPort}`,
+      apiAuthToken: rendererAuthToken,
+    };
+  });
+
+  ipcMain.handle("lawmind:read-authority-settings", async () => {
+    const paths = lawMindPaths();
+    const vars = fs.existsSync(paths.envFilePath)
+      ? parseEnvAssignments(fs.readFileSync(paths.envFilePath, "utf8"))
+      : {};
+    const providerRaw = String(vars.LAWMIND_AUTHORITY_PROVIDER || "").trim().toLowerCase();
+    const provider =
+      providerRaw === "pkulaw" || providerRaw === "pku" || providerRaw === "法宝" ? "pkulaw" : "open";
+    let chainKey = "";
+    if (keyVault.isAvailable()) {
+      try {
+        chainKey = (await keyVault.readSecret(KEYCHAIN_ACCOUNTS.authorityApiKey)) || "";
+      } catch {
+        chainKey = "";
+      }
+    }
+    const envKey = String(vars.LAWMIND_AUTHORITY_API_KEY || "").trim();
+    return {
+      ok: true,
+      provider,
+      lawEndpoint: String(vars.LAWMIND_AUTHORITY_ENDPOINT || "").trim() || PKULAW_DEFAULT_LAW_ENDPOINT,
+      caseEndpoint:
+        String(vars.LAWMIND_PKULAW_CASE_ENDPOINT || "").trim() || PKULAW_DEFAULT_CASE_ENDPOINT,
+      hasApiKey: Boolean(chainKey || envKey),
+      keychainAvailable: keyVault.isAvailable(),
+    };
+  });
+
+  ipcMain.handle("lawmind:save-authority", async (_evt, payload) => {
+    const paths = lawMindPaths();
+    fs.mkdirSync(paths.lawMindRoot, { recursive: true });
+    const existingVars = fs.existsSync(paths.envFilePath)
+      ? parseEnvAssignments(fs.readFileSync(paths.envFilePath, "utf8"))
+      : {};
+    const envKey = String(existingVars.LAWMIND_AUTHORITY_API_KEY || "").trim();
+    let chainKey = "";
+    if (keyVault.isAvailable()) {
+      try {
+        chainKey = (await keyVault.readSecret(KEYCHAIN_ACCOUNTS.authorityApiKey)) || "";
+      } catch {
+        chainKey = "";
+      }
+    }
+    const plan = planAuthoritySave({
+      provider: payload?.provider,
+      lawEndpoint: payload?.lawEndpoint,
+      caseEndpoint: payload?.caseEndpoint,
+      apiKey: payload?.apiKey,
+      hasExistingKey: Boolean(envKey || chainKey),
+    });
+    if (!plan.ok) {
+      return { ok: false, error: plan.error };
+    }
+    const removeKeys = [...plan.removeKeys];
+    if (plan.provider === "pkulaw") {
+      const keyToStore = plan.storeApiKey || chainKey || envKey;
+      if (keyVault.isAvailable()) {
+        try {
+          const saved = await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.authorityApiKey, keyToStore);
+          if (!saved) {
+            return {
+              ok: false,
+              error: "密钥链写入失败，已取消保存以避免明文落盘。",
+              code: "keychain_write_failed",
+            };
+          }
+        } catch (err) {
+          return {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+            code: "keychain_write_failed",
+          };
+        }
+        removeKeys.push(AUTHORITY_API_KEY_ENV);
+      } else if (plan.storeApiKey) {
+        return {
+          ok: false,
+          error: "无法安全保存。请在系统设置里打开钥匙串后再试。",
+          code: "keychain_unavailable",
+        };
+      }
+    }
+    writeMergedLawmindEnv(paths.envFilePath, plan.assignments);
+    if (removeKeys.length > 0) {
+      writeLawmindEnvWithoutKeys(paths.envFilePath, removeKeys);
+    }
+    try {
+      await restartBackendInternal();
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+        apiBase: `http://127.0.0.1:${apiPort}`,
+        apiAuthToken: rendererAuthToken,
+      };
+    }
+    return {
+      ok: true,
+      provider: plan.provider,
       apiBase: `http://127.0.0.1:${apiPort}`,
       apiAuthToken: rendererAuthToken,
     };

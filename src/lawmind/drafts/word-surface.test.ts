@@ -13,6 +13,7 @@ import {
   extractDocxParagraphsFromXml,
   loadWordSurface,
   paintPendingRevisions,
+  trackCoversHunk,
   recordLawyerSurfaceEdit,
   revisionPieces,
   syncLawyerSurfaceDocument,
@@ -38,8 +39,22 @@ describe("revisionPieces", () => {
     ]);
     expect(painted).toEqual([
       { kind: "text", text: sentence },
-      { kind: "revision", hunkId: "h", before: "", after: "你好" },
+      expect.objectContaining({
+        kind: "tracked",
+        change: "ins",
+        author: "LawMind",
+        text: "你好",
+      }),
     ]);
+  });
+});
+
+describe("trackCoversHunk", () => {
+  it("matches a balloon to the hunk it was painted from", () => {
+    const hunk = { before: "十日", after: "五日" };
+    expect(trackCoversHunk({ change: "del", text: "十" }, hunk)).toBe(true);
+    expect(trackCoversHunk({ change: "ins", text: "五" }, hunk)).toBe(true);
+    expect(trackCoversHunk({ change: "ins", text: "付款" }, hunk)).toBe(false);
   });
 });
 
@@ -50,9 +65,9 @@ describe("paintPendingRevisions", () => {
     ]);
     expect(segments).toEqual([
       { kind: "text", text: "甲方应于" },
-      { kind: "revision", hunkId: "h1", before: "十", after: "五", rationale: "缩短账期" },
-      { kind: "text", text: "日" },
-      { kind: "text", text: "内付款。" },
+      expect.objectContaining({ kind: "tracked", change: "del", author: "LawMind", text: "十" }),
+      expect.objectContaining({ kind: "tracked", change: "ins", author: "LawMind", text: "五" }),
+      { kind: "text", text: "日内付款。" },
     ]);
   });
 });
@@ -86,6 +101,53 @@ describe("composeWordSurface", () => {
     });
     expect(surface.lawyerDisplayName).toBe("张三");
     expect(surface.hunks[0]?.author).toBe("张三");
+  });
+
+  it("attributes engine tracks to 设置 → 修订署名 instead of LawMind", () => {
+    const proposal: RedlineProposal = {
+      taskId: "t-author",
+      baselineSections: [{ heading: "正文", body: "甲方应于十日内付款。" }],
+      hunks: [
+        {
+          hunkId: "h1",
+          sectionIndex: 0,
+          before: "十日",
+          after: "五日",
+          status: "pending",
+          granularity: "surgical",
+          rationale: "缩短账期",
+        },
+      ],
+      updatedAt: "2026-10-07T00:00:00.000Z",
+    };
+    const surface = composeWordSurface({
+      fileName: "补充协议.docx",
+      relPath: "cases/m/补充协议.docx",
+      root: "workspace",
+      docxParagraphs: ["甲方应于十日内付款。"],
+      draft: { taskId: "t-author" } as ArtifactDraft,
+      proposal,
+      wordRevisionAuthor: "国浩-吕盈修",
+    });
+    expect(surface.revisionAuthor).toBe("国浩-吕盈修");
+    expect(surface.hunks[0]?.author).toBe("国浩-吕盈修");
+    expect(surface.tracked?.every((row) => row.author === "国浩-吕盈修")).toBe(true);
+    expect(surface.paragraphs[0]?.segments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "tracked",
+          change: "del",
+          author: "国浩-吕盈修",
+          text: "十",
+        }),
+        expect.objectContaining({
+          kind: "tracked",
+          change: "ins",
+          author: "国浩-吕盈修",
+          text: "五",
+        }),
+      ]),
+    );
   });
 
   it("paints pending hunks onto the open file and falls back to the baseline only when the file is empty", () => {
@@ -174,7 +236,7 @@ describe("composeWordSurface", () => {
     const page = JSON.stringify(surface.paragraphs);
     expect(page).toContain(body);
     expect(page).toContain(inserted);
-    expect(page).toContain('"kind":"revision"');
+    expect(page).toContain('"kind":"tracked"');
     expect(page).toContain("下一条不动。");
   });
 
@@ -276,6 +338,7 @@ describe("loadWordSurface", () => {
     expect(page).toContain("五");
     expect(page).not.toContain("底稿不该盖住打开的文件");
     expect(loaded.snapshot.fileMtimeMs).toEqual(expect.any(Number));
+    expect(loaded.snapshot.revisionAuthor).toBe("LawMind");
     const again = await loadWordSurface({
       workspaceDir: ws,
       root: "workspace",
@@ -284,6 +347,67 @@ describe("loadWordSurface", () => {
       seenProposalAt: "2026-09-27T01:00:00.000Z",
     });
     expect(again).toEqual({ ok: true, unchanged: true });
+  });
+
+  it("attributes pending tracks to 设置 → 修订署名 from the workspace policy", async () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-word-surface-author-"));
+    dirs.push(ws);
+    fs.writeFileSync(
+      path.join(ws, "lawmind.policy.json"),
+      `${JSON.stringify({ schemaVersion: 1, wordRevisionAuthor: "国浩-吕盈修" })}\n`,
+    );
+    const rel = "cases/m/补充协议.docx";
+    const abs = path.join(ws, "cases", "m", "补充协议.docx");
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    const zip = new JSZip();
+    zip.file(
+      "word/document.xml",
+      `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+        `<w:p><w:r><w:t>甲方应于十日内付款。</w:t></w:r></w:p>` +
+        `</w:body></w:document>`,
+    );
+    fs.writeFileSync(abs, await zip.generateAsync({ type: "nodebuffer" }));
+    persistDraft(ws, {
+      taskId: "task-author-1",
+      title: "补充协议",
+      output: "docx",
+      templateId: "word/contract-default",
+      summary: "",
+      sections: [{ heading: "付款", body: "甲方应于十日内付款。" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: "2026-10-07T00:00:00.000Z",
+      contractEdit: { baselineRelativePath: rel, mode: "surgical", baselineRoot: "workspace" },
+    });
+    writeRedlineProposal(ws, {
+      taskId: "task-author-1",
+      baselineSections: [{ heading: "付款", body: "甲方应于十日内付款。" }],
+      hunks: [
+        {
+          hunkId: "h-pay",
+          sectionIndex: 0,
+          sectionHeading: "付款",
+          before: "十日",
+          after: "五日",
+          status: "pending",
+          granularity: "surgical",
+          rationale: "缩短账期",
+        },
+      ],
+      updatedAt: "2026-10-07T01:00:00.000Z",
+    });
+    const loaded = await loadWordSurface({
+      workspaceDir: ws,
+      root: "workspace",
+      relPath: rel,
+    });
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) {
+      return;
+    }
+    expect(loaded.snapshot.revisionAuthor).toBe("国浩-吕盈修");
+    expect(loaded.snapshot.tracked?.every((row) => row.author === "国浩-吕盈修")).toBe(true);
+    expect(JSON.stringify(loaded.snapshot.paragraphs)).toContain("国浩-吕盈修");
   });
 
   it("stops on .doc and asks the lawyer to save as .docx", async () => {
@@ -515,14 +639,28 @@ describe("formatted word surface", () => {
     expect(clause?.kind).toBe("paragraph");
     if (clause?.kind === "paragraph") {
       expect(clause.listLabel).toBe("1.");
-      const accepted = clause.segments.find(
-        (segment) => segment.kind === "revision" && segment.hunkId === "done",
+      expect(clause.segments.map((segment) => segment.text).join("")).toContain("五日");
+      expect(clause.segments.some((segment) => segment.kind === "revision")).toBe(false);
+      const acceptedDel = clause.segments.find(
+        (segment) =>
+          segment.kind === "tracked" && segment.change === "del" && segment.text === "十",
       );
-      const pending = clause.segments.find(
-        (segment) => segment.kind === "revision" && segment.hunkId === "wait",
+      const acceptedIns = clause.segments.find(
+        (segment) =>
+          segment.kind === "tracked" && segment.change === "ins" && segment.text === "五",
       );
-      expect(accepted).toMatchObject({ color: 0, before: "十", after: "五" });
-      expect(pending).toMatchObject({ color: 0, before: "付款", after: "支付" });
+      expect(acceptedDel).toMatchObject({ color: 0, author: "LawMind" });
+      expect(acceptedIns).toMatchObject({ color: 0, author: "LawMind" });
+      const pendingDel = clause.segments.find(
+        (segment) =>
+          segment.kind === "tracked" && segment.change === "del" && segment.text === "付款",
+      );
+      const pendingIns = clause.segments.find(
+        (segment) =>
+          segment.kind === "tracked" && segment.change === "ins" && segment.text === "支付",
+      );
+      expect(pendingDel).toMatchObject({ color: 0, author: "LawMind" });
+      expect(pendingIns).toMatchObject({ color: 0, author: "LawMind" });
     }
     const table = surface.blocks[2];
     expect(table?.kind).toBe("table");
@@ -696,5 +834,107 @@ describe("formatted word surface", () => {
     );
     expect(brand).toEqual(["品牌", "型号"]);
     expect(table.rows[0]?.[0]?.vAlign).toBe("center");
+  });
+
+  it("keeps Word's own insertions and deletions, one color per author", () => {
+    const xml =
+      `<w:document><w:body>` +
+      `<w:p>` +
+      `<w:r><w:t>甲方应于</w:t></w:r>` +
+      `<w:del w:id="1" w:author="李律师" w:date="2026-10-01T00:00:00Z"><w:r><w:delText>十日</w:delText></w:r></w:del>` +
+      `<w:ins w:id="2" w:author="李律师" w:date="2026-10-01T00:00:00Z"><w:r><w:t>五日</w:t></w:r></w:ins>` +
+      `<w:r><w:t>内付款。</w:t></w:r>` +
+      `<w:ins w:id="3" w:author="王律师"><w:r><w:t>逾期支付违约金。</w:t></w:r></w:ins>` +
+      `</w:p>` +
+      `</w:body></w:document>`;
+    const layout = extractDocxLayout(xml);
+    const paragraph = layout.blocks[0];
+    expect(paragraph?.kind).toBe("paragraph");
+    if (paragraph?.kind !== "paragraph") {
+      return;
+    }
+    expect(paragraph.text).toBe("甲方应于五日内付款。逾期支付违约金。");
+    expect(paragraph.runs.map((run) => [run.text, run.track?.kind, run.track?.author])).toEqual([
+      ["甲方应于", undefined, undefined],
+      ["十日", "del", "李律师"],
+      ["五日", "ins", "李律师"],
+      ["内付款。", undefined, undefined],
+      ["逾期支付违约金。", "ins", "王律师"],
+    ]);
+    const surface = composeWordSurface({
+      fileName: "合同.docx",
+      relPath: "合同.docx",
+      root: "workspace",
+      docxParagraphs: [],
+      layout: layout.blocks,
+    });
+    const painted = surface.blocks[0];
+    expect(painted?.kind).toBe("paragraph");
+    if (painted?.kind !== "paragraph") {
+      return;
+    }
+    expect(painted.segments.filter((segment) => segment.kind === "tracked")).toEqual([
+      expect.objectContaining({
+        kind: "tracked",
+        revId: "1",
+        change: "del",
+        author: "李律师",
+        text: "十日",
+        color: 0,
+      }),
+      expect.objectContaining({
+        kind: "tracked",
+        revId: "2",
+        change: "ins",
+        author: "李律师",
+        text: "五日",
+        color: 0,
+      }),
+      expect.objectContaining({
+        kind: "tracked",
+        revId: "3",
+        change: "ins",
+        author: "王律师",
+        text: "逾期支付违约金。",
+        color: 1,
+      }),
+    ]);
+    expect(surface.tracked).toEqual([
+      expect.objectContaining({
+        revId: "1",
+        change: "del",
+        author: "李律师",
+        color: 0,
+        text: "十日",
+      }),
+      expect.objectContaining({
+        revId: "2",
+        change: "ins",
+        author: "李律师",
+        color: 0,
+        text: "五日",
+      }),
+      expect.objectContaining({ revId: "3", change: "ins", author: "王律师", color: 1 }),
+    ]);
+  });
+
+  it("surfaces header and comment tracks with the body", () => {
+    const surface = composeWordSurface({
+      fileName: "补充协议.docx",
+      relPath: "cases/m/补充协议.docx",
+      root: "workspace",
+      docxParagraphs: ["正文"],
+      headerLayout: [
+        {
+          kind: "paragraph",
+          runs: [{ text: "页眉", track: { kind: "ins", id: "7", author: "李律师" } }],
+          text: "页眉",
+        },
+      ],
+      docxComments: [{ commentId: "1", author: "李律师", body: "看这里", anchorText: "正文" }],
+    });
+    expect(surface.headerBlocks?.[0]?.kind).toBe("paragraph");
+    expect(surface.tracked?.some((row) => row.revId === "7" && row.author === "李律师")).toBe(true);
+    expect(surface.docxComments?.[0]?.body).toBe("看这里");
   });
 });

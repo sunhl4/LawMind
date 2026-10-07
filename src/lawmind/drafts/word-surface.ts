@@ -1,20 +1,26 @@
 /**
- * Chat-middle Word preview: the open .docx plus pending redline hunks painted
- * onto that file's paragraphs. Accept / reject stay on the redline proposal.
- * This is a text preview, not Word's revision track and not a final draft.
+ * Chat-middle Word review of the open .docx. The page is the file: native
+ * w:ins / w:del / moves / format marks, by-author colors, and pending redline
+ * hunks materialized as Word tracks under 设置 → 修订署名 (blank = LawMind).
+ * 接受 = 折叠并保留痕迹（导出仍是 Word 修订）；拒绝 = 从正文和导出拿掉。
+ * Save writes this file.
  */
 
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import JSZip from "jszip";
 import {
   resolveWordBaselineAbs,
   type WordBaselineRoot,
 } from "../artifacts/word-revision-delivery.js";
 import { readLawyerIdentity } from "../matter-replica/identity.js";
+import { resolveWordRevisionAuthor } from "../policy/word-revision-author.js";
+import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
 import type { ArtifactDraft } from "../types.js";
 import { listDrafts, persistDraft, readDraft } from "./index.js";
+import { computeMinimalEditSpans } from "./minimal-edit-script.js";
 import {
   appendLawyerHunk,
   FORMAT_RATIONALE_PREFIX,
@@ -26,6 +32,19 @@ import {
   type RedlineHunk,
   type RedlineProposal,
 } from "./redline-proposal.js";
+import { layoutRunsToRevision, loadDocxStories } from "./word-revision/document.js";
+import {
+  collectAuthors,
+  finalOffsetToAll,
+  finalText,
+  makeAuthorClock,
+  maxTrackId,
+  replaceRange,
+  withAcceptedDisposition,
+  WORD_REVISION_COLOR_COUNT,
+} from "./word-revision/index.js";
+import type { WordRevisionRun } from "./word-revision/index.js";
+import type { WordRevisionComment } from "./word-revision/index.js";
 import {
   defaultWordPage,
   extractDocxLayout,
@@ -34,14 +53,19 @@ import {
   type WordLayoutBlock,
   type WordLayoutRun,
   type WordLineSpacing,
+  type WordTrackKind,
   type WordMeasure,
   type WordPageBox,
   type WordRunMark,
 } from "./word-surface-layout.js";
-import { revisionPieces } from "./word-surface-pieces.js";
+import { revisionPieces, trackCoversHunk } from "./word-surface-pieces.js";
 
-/** Stable palette size shared by the page highlight and the right-hand card. */
-export const WORD_REVISION_COLOR_COUNT = 8;
+/**
+ * Word's "by author" cycle: red, blue, green, violet, dark red, teal,
+ * dark yellow, gray. The file does not store a color. The first author in
+ * the document is red, the next blue, then the list repeats.
+ */
+export { WORD_REVISION_COLOR_COUNT, trackCoversHunk };
 
 export type WordSurfaceMark = WordRunMark;
 
@@ -56,8 +80,32 @@ export type WordSurfaceSegment = (
       /** Index into the shared revision palette. Same value as the rail card. */
       color?: number;
     }
+  | {
+      kind: "tracked";
+      revId: string;
+      change: WordTrackKind;
+      author: string;
+      text: string;
+      date?: string;
+      /** Index into Word's by-author palette. Same author, same color. */
+      color: number;
+      format?: string;
+      disposition?: "open" | "accepted";
+    }
 ) &
   WordSurfaceMark;
+
+/** One native revision, merged for the margin balloon. */
+export type WordTrackedView = {
+  revId: string;
+  change: WordTrackKind;
+  author: string;
+  text: string;
+  date?: string;
+  color: number;
+  format?: string;
+  disposition?: "open" | "accepted";
+};
 
 export type { WordLineSpacing, WordMeasure, WordPageBox } from "./word-surface-layout.js";
 
@@ -73,6 +121,9 @@ export type WordSurfaceParagraph = {
   /** Docx text before lawyer edits. Control+S compares the paragraph against this. */
   baselineText?: string;
   segments: WordSurfaceSegment[];
+  /** All-markup runs. The surface composes Word edits against this, not the DOM. */
+  runs?: WordRevisionRun[];
+  pPrInner?: string;
 };
 
 export type WordSurfaceCell = {
@@ -81,6 +132,7 @@ export type WordSurfaceCell = {
   widthPx?: number;
   vertical?: boolean;
   vAlign?: "top" | "center" | "bottom";
+  rowTrack?: WordTrackedView;
 };
 
 export type WordSurfaceBlock =
@@ -119,15 +171,25 @@ export type WordSurfaceSnapshot = {
   /** Reading order, including paragraphs inside tables. */
   paragraphs: WordSurfaceParagraph[];
   hunks: WordSurfaceHunkView[];
+  /** Revisions already in the file, in document order. Absent on older snapshots. */
+  tracked?: WordTrackedView[];
   /** Paper size and the document default face. Absent only on older snapshots. */
   page?: WordPageBox;
   summary: { pending: number; accepted: number; rejected: number };
+  /** Distinct authors in document order, for Word's "specific people" filter. */
+  authors?: string[];
+  headerBlocks?: WordSurfaceBlock[];
+  footerBlocks?: WordSurfaceBlock[];
+  footnoteBlocks?: WordSurfaceBlock[];
+  docxComments?: WordRevisionComment[];
   /** File mtime used to skip a repeat unzip. Absent on snapshots built without a file. */
   fileMtimeMs?: number;
   /** Proposal `updatedAt`, or empty when there is no proposal. Matches the unchanged check. */
   proposalUpdatedAt?: string;
   /** Local lawyer display name for rail bylines (falls back to「律师」). */
   lawyerDisplayName?: string;
+  /** Word 修订署名。设置里写了就用那个名字，否则 LawMind。 */
+  revisionAuthor?: string;
 };
 
 /**
@@ -144,16 +206,39 @@ export async function readDocxLayout(absPath: string): Promise<WordLayoutBlock[]
   return (await readDocxDocument(absPath)).blocks;
 }
 
+async function importDocxLayout(): Promise<{
+  extractDocxLayout: typeof extractDocxLayout;
+  defaultWordPage: typeof defaultWordPage;
+}> {
+  if (process.env.LAWMIND_PACKAGED === "1") {
+    return { extractDocxLayout, defaultWordPage };
+  }
+  try {
+    const layoutPath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "word-surface-layout.ts",
+    );
+    const mtime = Math.round((await fs.stat(layoutPath)).mtimeMs);
+    return (await import(`${pathToFileURL(layoutPath).href}?mtime=${mtime}`)) as {
+      extractDocxLayout: typeof extractDocxLayout;
+      defaultWordPage: typeof defaultWordPage;
+    };
+  } catch {
+    return { extractDocxLayout, defaultWordPage };
+  }
+}
+
 async function readDocxDocument(absPath: string): Promise<ReturnType<typeof extractDocxLayout>> {
+  const layout = await importDocxLayout();
   const buffer = await fs.readFile(absPath);
   const zip = await JSZip.loadAsync(buffer);
   const xml = await zip.file("word/document.xml")?.async("string");
   if (!xml) {
-    return { page: defaultWordPage(), blocks: [] };
+    return { page: layout.defaultWordPage(), blocks: [] };
   }
   const styles = (await zip.file("word/styles.xml")?.async("string")) ?? "";
   const numbering = (await zip.file("word/numbering.xml")?.async("string")) ?? "";
-  return extractDocxLayout(xml, styles, numbering);
+  return layout.extractDocxLayout(xml, styles, numbering);
 }
 
 export async function readDocxParagraphs(absPath: string): Promise<string[]> {
@@ -292,48 +377,12 @@ export function findDraftForWordFile(
 
 type PaintableHunk = Pick<
   RedlineHunk,
-  "hunkId" | "before" | "after" | "rationale" | "spanStart" | "spanEnd"
+  "hunkId" | "before" | "after" | "rationale" | "spanStart" | "spanEnd" | "status"
 > & {
   color?: number;
   /** Baseline section body. Offsets are into this string, not a search hit. */
   sectionBody?: string;
 };
-
-type MarkedAtom = { ch: string; mark: WordSurfaceMark };
-
-function sameMark(a: WordSurfaceMark, b: WordSurfaceMark): boolean {
-  return (
-    a.bold === b.bold &&
-    a.italic === b.italic &&
-    a.underline === b.underline &&
-    a.fontSizePx === b.fontSizePx &&
-    a.fontColor === b.fontColor &&
-    a.fontFamily === b.fontFamily
-  );
-}
-
-function markOfRun(run: WordLayoutRun): WordSurfaceMark {
-  const mark: WordSurfaceMark = {};
-  if (run.bold) {
-    mark.bold = true;
-  }
-  if (run.italic) {
-    mark.italic = true;
-  }
-  if (run.underline) {
-    mark.underline = true;
-  }
-  if (run.fontSizePx) {
-    mark.fontSizePx = run.fontSizePx;
-  }
-  if (run.fontColor) {
-    mark.fontColor = run.fontColor;
-  }
-  if (run.fontFamily) {
-    mark.fontFamily = run.fontFamily;
-  }
-  return mark;
-}
 
 export { replaceChangeAfter, revisionPieces, type RevisionPiece } from "./word-surface-pieces.js";
 
@@ -385,7 +434,7 @@ function revisionAnchor(text: string, hunk: PaintableHunk): { start: number; end
   return { start, end: start + hunk.before.length };
 }
 
-/** Paint non-overlapping revisions onto one paragraph. First match wins. */
+/** Paint pending hunks as Word tracks (修订署名, default LawMind) onto one paragraph. */
 export function paintPendingRevisions(text: string, hunks: PaintableHunk[]): WordSurfaceSegment[] {
   return paintFormattedRuns([{ text }], hunks);
 }
@@ -393,83 +442,77 @@ export function paintPendingRevisions(text: string, hunks: PaintableHunk[]): Wor
 export function paintFormattedRuns(
   runs: WordLayoutRun[],
   hunks: PaintableHunk[],
+  colors: Map<string, number> = new Map(),
+  authorName = resolveWordRevisionAuthor(undefined),
 ): WordSurfaceSegment[] {
-  const atoms: MarkedAtom[] = [];
-  for (const run of runs) {
-    const mark = markOfRun(run);
-    for (const ch of run.text) {
-      atoms.push({ ch, mark });
-    }
+  const revisionRuns = applyHunksAsTracks(layoutRunsToRevision(runs), hunks, authorName);
+  return paintRevisionRuns(revisionRuns, colors);
+}
+
+function applyHunksAsTracks(
+  runs: WordRevisionRun[],
+  hunks: PaintableHunk[],
+  authorName: string,
+): WordRevisionRun[] {
+  if (hunks.length === 0) {
+    return runs;
   }
-  const text = atoms.map((atom) => atom.ch).join("");
-  type Span = { start: number; end: number; hunk: PaintableHunk };
-  const spans: Span[] = [];
+  const clock = makeAuthorClock(authorName, maxTrackId(runs) + 1);
+  let current = runs;
   for (const hunk of hunks) {
-    const anchored = revisionAnchor(text, hunk);
+    if (hunk.status === "rejected") {
+      continue;
+    }
+    const final = finalText(current);
+    const anchored = revisionAnchor(final, hunk);
     if (!anchored) {
       continue;
     }
-    const { start, end } = anchored;
-    if (spans.some((span) => start < span.end && end > span.start)) {
-      continue;
-    }
-    spans.push({ start, end, hunk });
-  }
-  spans.sort((a, b) => a.start - b.start);
-  const out: WordSurfaceSegment[] = [];
-  const pushText = (from: number, to: number) => {
-    let start = from;
-    while (start < to) {
-      let end = start + 1;
-      while (end < to && sameMark(atoms[end]?.mark ?? {}, atoms[start]?.mark ?? {})) {
-        end += 1;
+    const beforeId = maxTrackId(current);
+    if (!hunk.before) {
+      const at = finalOffsetToAll(current, anchored.start);
+      current = replaceRange(current, at, at, hunk.after, clock);
+    } else {
+      const spans = computeMinimalEditSpans(hunk.before, hunk.after);
+      for (const span of spans.toReversed()) {
+        const start = finalOffsetToAll(current, anchored.start + span.spanStart);
+        const end = finalOffsetToAll(current, anchored.start + span.spanEnd);
+        current = replaceRange(current, start, end, span.after, clock);
       }
-      const slice = text.slice(start, end);
-      if (slice) {
-        out.push({ kind: "text", text: slice, ...atoms[start]?.mark });
+    }
+    if (hunk.status === "accepted") {
+      const ids = new Set<string>();
+      for (let id = beforeId + 1; id <= maxTrackId(current); id += 1) {
+        ids.add(String(id));
       }
-      start = end;
+      current = withAcceptedDisposition(current, ids);
     }
-  };
-  let cursor = 0;
-  for (const span of spans) {
-    if (span.start < cursor) {
-      continue;
-    }
-    if (span.start > cursor) {
-      pushText(cursor, span.start);
-    }
-    const pieces = revisionPieces(span.hunk.before, span.hunk.after);
-    const mark = atoms[span.start]?.mark;
-    if (pieces.length === 0) {
-      pushText(span.start, span.end);
-    }
-    for (const piece of pieces) {
-      if (piece.kind === "text") {
-        if (piece.text) {
-          out.push({ kind: "text", text: piece.text, ...mark });
-        }
-        continue;
-      }
-      out.push({
-        kind: "revision",
-        hunkId: span.hunk.hunkId,
-        before: piece.before,
-        after: piece.after,
-        ...(span.hunk.rationale ? { rationale: span.hunk.rationale } : {}),
-        ...(span.hunk.color != null ? { color: span.hunk.color } : {}),
-        ...mark,
-      });
-    }
-    cursor = span.end;
   }
-  if (cursor < text.length) {
-    pushText(cursor, text.length);
-  }
-  if (out.length === 0 && text) {
-    out.push({ kind: "text", text });
-  }
-  return out;
+  return current;
+}
+
+function paintRevisionRuns(
+  runs: WordRevisionRun[],
+  colors: Map<string, number>,
+): WordSurfaceSegment[] {
+  return runs.map((run) => {
+    if (!run.track) {
+      return { kind: "text" as const, text: run.text, ...run.mark };
+    }
+    rememberAuthor(colors, run.track.author);
+    return {
+      kind: "tracked" as const,
+      revId: run.track.id,
+      change: run.track.kind,
+      author: run.track.author,
+      text: run.text,
+      color: colors.get(run.track.author.trim()) ?? 0,
+      ...(run.track.date ? { date: run.track.date } : {}),
+      ...(run.track.format ? { format: run.track.format } : {}),
+      ...(run.track.disposition === "accepted" ? { disposition: "accepted" as const } : {}),
+      ...run.mark,
+    };
+  });
 }
 
 function layoutFromPlain(texts: string[]): WordLayoutBlock[] {
@@ -516,6 +559,8 @@ function paintLayout(
   blocks: WordLayoutBlock[],
   hunks: PaintableHunk[],
   used: Set<string>,
+  colors: Map<string, number>,
+  revisionAuthor: string,
 ): WordSurfaceBlock[] {
   return blocks.map((block) => {
     if (block.kind === "table") {
@@ -526,19 +571,47 @@ function paintLayout(
         ...(block.widthPct != null ? { widthPct: block.widthPct } : {}),
         ...(block.colWidthsPx ? { colWidthsPx: block.colWidthsPx } : {}),
         rows: block.rows.map((row) =>
-          row.map((cell) => ({
-            blocks: paintLayout(cell.blocks, hunks, used),
-            ...(cell.colspan ? { colspan: cell.colspan } : {}),
-            ...(cell.widthPx != null ? { widthPx: cell.widthPx } : {}),
-            ...(cell.vertical ? { vertical: true } : {}),
-            ...(cell.vAlign ? { vAlign: cell.vAlign } : {}),
-          })),
+          row.map((cell) => {
+            if (cell.rowTrack) {
+              rememberAuthor(colors, cell.rowTrack.author);
+            }
+            return {
+              blocks: paintLayout(cell.blocks, hunks, used, colors, revisionAuthor),
+              ...(cell.colspan ? { colspan: cell.colspan } : {}),
+              ...(cell.widthPx != null ? { widthPx: cell.widthPx } : {}),
+              ...(cell.vertical ? { vertical: true } : {}),
+              ...(cell.vAlign ? { vAlign: cell.vAlign } : {}),
+              ...(cell.rowTrack
+                ? {
+                    rowTrack: {
+                      revId: cell.rowTrack.id,
+                      change: cell.rowTrack.kind,
+                      author: cell.rowTrack.author,
+                      text: "",
+                      color: colors.get(cell.rowTrack.author.trim()) ?? 0,
+                      ...(cell.rowTrack.date ? { date: cell.rowTrack.date } : {}),
+                    },
+                  }
+                : {}),
+            };
+          }),
         ),
       };
     }
     const mine = hunks.filter((hunk) => !used.has(hunk.hunkId) && revisionAnchor(block.text, hunk));
     for (const hunk of mine) {
       used.add(hunk.hunkId);
+    }
+    const stamped = block.blockTrack
+      ? block.runs.map((run) => (run.track ? run : { ...run, track: block.blockTrack }))
+      : block.runs;
+    const lawyerHunks = mine.filter((hunk) => authorKey(hunk.rationale) === "lawyer");
+    const reviewHunks = mine.filter((hunk) => authorKey(hunk.rationale) !== "lawyer");
+    let runs = layoutRunsToRevision(stamped);
+    runs = applyHunksAsTracks(runs, reviewHunks, revisionAuthor);
+    runs = applyHunksAsTracks(runs, lawyerHunks, revisionAuthor);
+    for (const author of collectAuthors(runs)) {
+      rememberAuthor(colors, author);
     }
     return {
       kind: "paragraph",
@@ -551,7 +624,9 @@ function paintLayout(
       ...(block.fontFamily ? { fontFamily: block.fontFamily } : {}),
       ...(block.listLabel ? { listLabel: block.listLabel } : {}),
       ...(block.text ? { baselineText: block.text } : {}),
-      segments: paintFormattedRuns(block.runs, mine),
+      ...(block.pPrInner ? { pPrInner: block.pPrInner } : {}),
+      runs,
+      segments: paintRevisionRuns(runs, colors),
     };
   });
 }
@@ -568,23 +643,89 @@ function authorKey(rationale: string | undefined): string {
   return note ? `review:${note}` : "review";
 }
 
-function authorLabel(rationale: string | undefined, lawyerDisplayName?: string): string {
+function authorLabel(
+  rationale: string | undefined,
+  lawyerDisplayName: string | undefined,
+  revisionAuthor: string,
+): string {
   if (authorKey(rationale) === "lawyer") {
     const name = lawyerDisplayName?.trim();
-    return name || "律师";
+    return name || revisionAuthor;
   }
-  return "审阅";
+  return revisionAuthor;
 }
 
-function authorColors(hunks: { rationale?: string }[]): Map<string, number> {
-  const colors = new Map<string, number>();
-  for (const hunk of hunks) {
-    const key = authorKey(hunk.rationale);
-    if (!colors.has(key)) {
-      colors.set(key, colors.size % WORD_REVISION_COLOR_COUNT);
-    }
+function rememberAuthor(colors: Map<string, number>, key: string): void {
+  if (!colors.has(key)) {
+    colors.set(key, colors.size % WORD_REVISION_COLOR_COUNT);
   }
-  return colors;
+}
+
+function collectTrackAuthors(blocks: WordLayoutBlock[], colors: Map<string, number>): void {
+  const visit = (list: WordLayoutBlock[]) => {
+    for (const block of list) {
+      if (block.kind === "paragraph") {
+        for (const run of block.runs) {
+          const author = run.track?.author?.trim();
+          if (author) {
+            rememberAuthor(colors, author);
+          }
+        }
+        continue;
+      }
+      for (const row of block.rows) {
+        for (const cell of row) {
+          visit(cell.blocks);
+        }
+      }
+    }
+  };
+  visit(blocks);
+}
+
+function collectTracked(blocks: WordSurfaceBlock[]): WordTrackedView[] {
+  const out: WordTrackedView[] = [];
+  const visit = (list: WordSurfaceBlock[]) => {
+    for (const block of list) {
+      if (block.kind === "table") {
+        for (const row of block.rows) {
+          const rowMark = row[0]?.rowTrack;
+          if (rowMark && out[out.length - 1]?.revId !== rowMark.revId) {
+            out.push(rowMark);
+          }
+          for (const cell of row) {
+            visit(cell.blocks);
+          }
+        }
+        continue;
+      }
+      let adjacent = false;
+      for (const segment of block.segments) {
+        if (segment.kind !== "tracked") {
+          adjacent = false;
+          continue;
+        }
+        const prev = out[out.length - 1];
+        if (adjacent && prev && prev.revId === segment.revId && prev.change === segment.change) {
+          prev.text += segment.text;
+        } else {
+          out.push({
+            revId: segment.revId,
+            change: segment.change,
+            author: segment.author,
+            text: segment.text,
+            color: segment.color,
+            ...(segment.date ? { date: segment.date } : {}),
+            ...(segment.format ? { format: segment.format } : {}),
+            ...(segment.disposition === "accepted" ? { disposition: "accepted" as const } : {}),
+          });
+        }
+        adjacent = true;
+      }
+    }
+  };
+  visit(blocks);
+  return out;
 }
 
 function isMovedEdit(before: string, after: string, moves: Set<string>): boolean {
@@ -607,33 +748,49 @@ export function composeWordSurface(params: {
   proposal?: RedlineProposal;
   /** Optional override; otherwise read from the workspace identity file. */
   lawyerDisplayName?: string;
+  /** Optional override; otherwise read 设置 → 修订署名. */
+  wordRevisionAuthor?: string;
   workspaceDir?: string;
+  headerLayout?: WordLayoutBlock[];
+  footerLayout?: WordLayoutBlock[];
+  footnoteLayout?: WordLayoutBlock[];
+  docxComments?: WordRevisionComment[];
 }): WordSurfaceSnapshot {
   const source =
     params.layout && params.layout.length > 0
       ? params.layout
       : fallbackLayout(params.docxParagraphs, params.proposal);
   const sections = params.proposal?.baselineSections ?? [];
-  const colors = authorColors(params.proposal?.hunks ?? []);
+  const colors = new Map<string, number>();
+  collectTrackAuthors(source, colors);
+  collectTrackAuthors(params.headerLayout ?? [], colors);
+  collectTrackAuthors(params.footerLayout ?? [], colors);
+  collectTrackAuthors(params.footnoteLayout ?? [], colors);
+  const lawyerDisplayName =
+    params.lawyerDisplayName?.trim() ||
+    (params.workspaceDir ? readLawyerIdentity(params.workspaceDir)?.displayName : undefined) ||
+    undefined;
+  const revisionAuthor = resolveWordRevisionAuthor(
+    params.wordRevisionAuthor ??
+      (params.workspaceDir
+        ? readWorkspacePolicyFile(params.workspaceDir)?.wordRevisionAuthor
+        : undefined),
+  );
   const colored = (params.proposal?.hunks ?? []).map((hunk) => ({
     ...hunk,
-    color: colors.get(authorKey(hunk.rationale)) ?? 0,
+    color: 0,
     ...(sections[hunk.sectionIndex]?.body != null
       ? { sectionBody: sections[hunk.sectionIndex]?.body }
       : {}),
   }));
   const used = new Set<string>();
-  const blocks = paintLayout(source, colored, used);
+  const blocks = paintLayout(source, colored, used, colors, revisionAuthor);
   const paragraphs = flattenParagraphs(blocks);
   const statusRank: Record<RedlineHunk["status"], number> = {
     pending: 0,
     accepted: 1,
     rejected: 2,
   };
-  const lawyerDisplayName =
-    params.lawyerDisplayName?.trim() ||
-    (params.workspaceDir ? readLawyerIdentity(params.workspaceDir)?.displayName : undefined) ||
-    undefined;
   const hunks: WordSurfaceHunkView[] = colored
     .toSorted((a, b) => statusRank[a.status] - statusRank[b.status] || a.color - b.color)
     .map((hunk) => ({
@@ -642,7 +799,7 @@ export function composeWordSurface(params: {
       after: hunk.after,
       status: hunk.status,
       color: hunk.color,
-      author: authorLabel(hunk.rationale, lawyerDisplayName),
+      author: authorLabel(hunk.rationale, lawyerDisplayName, revisionAuthor),
       ...(hunk.revisedAt
         ? { revisedAt: hunk.revisedAt }
         : params.proposal?.updatedAt
@@ -656,6 +813,25 @@ export function composeWordSurface(params: {
     paragraphs.length > 0 ? paragraphs : [{ segments: [{ kind: "text" as const, text: "" }] }];
   const paintedBlocks =
     blocks.length > 0 ? blocks : [{ kind: "paragraph" as const, segments: page[0].segments }];
+  const headerBlocks = params.headerLayout
+    ? paintLayout(params.headerLayout, [], new Set(), colors, revisionAuthor)
+    : undefined;
+  const footerBlocks = params.footerLayout
+    ? paintLayout(params.footerLayout, [], new Set(), colors, revisionAuthor)
+    : undefined;
+  const footnoteBlocks = params.footnoteLayout
+    ? paintLayout(params.footnoteLayout, [], new Set(), colors, revisionAuthor)
+    : undefined;
+  const tracked = [
+    ...collectTracked(headerBlocks ?? []),
+    ...collectTracked(paintedBlocks),
+    ...collectTracked(footnoteBlocks ?? []),
+    ...collectTracked(footerBlocks ?? []),
+  ];
+  const hunkViews = hunks.map((hunk) => ({
+    ...hunk,
+    placed: hunk.placed || tracked.some((row) => trackCoversHunk(row, hunk)),
+  }));
   return {
     fileName: params.fileName,
     relPath: params.relPath,
@@ -665,8 +841,17 @@ export function composeWordSurface(params: {
     blocks: paintedBlocks,
     paragraphs: page,
     page: params.page ?? defaultWordPage(),
-    hunks,
+    hunks: hunkViews,
+    tracked,
+    authors: [...new Set(tracked.map((row) => row.author))],
+    ...(headerBlocks ? { headerBlocks } : {}),
+    ...(footerBlocks ? { footerBlocks } : {}),
+    ...(footnoteBlocks ? { footnoteBlocks } : {}),
+    ...(params.docxComments && params.docxComments.length > 0
+      ? { docxComments: params.docxComments }
+      : {}),
     summary: summarizeRedline(params.proposal),
+    revisionAuthor,
     ...(lawyerDisplayName ? { lawyerDisplayName } : {}),
   };
 }
@@ -720,10 +905,27 @@ export async function loadWordSurface(params: {
   }
   let layout: WordLayoutBlock[] = [];
   let paper = defaultWordPage();
+  let headerLayout: WordLayoutBlock[] = [];
+  let footerLayout: WordLayoutBlock[] = [];
+  let footnoteLayout: WordLayoutBlock[] = [];
+  let docxComments: WordRevisionComment[] = [];
+  let acceptedRevIds: string[] = [];
   try {
-    const doc = await readDocxDocument(found.abs);
-    layout = doc.blocks;
-    paper = doc.page;
+    const stories = await loadDocxStories(found.abs);
+    paper = stories.page;
+    docxComments = stories.comments;
+    acceptedRevIds = stories.acceptedRevIds;
+    for (const story of stories.stories) {
+      if (story.role === "body") {
+        layout = story.blocks;
+      } else if (story.role === "header") {
+        headerLayout = [...headerLayout, ...story.blocks];
+      } else if (story.role === "footer") {
+        footerLayout = [...footerLayout, ...story.blocks];
+      } else {
+        footnoteLayout = [...footnoteLayout, ...story.blocks];
+      }
+    }
   } catch {
     return { ok: false, error: "unreadable_docx" };
   }
@@ -737,6 +939,67 @@ export async function loadWordSurface(params: {
     draft,
     proposal,
     workspaceDir: params.workspaceDir,
+    ...(headerLayout.length > 0 ? { headerLayout } : {}),
+    ...(footerLayout.length > 0 ? { footerLayout } : {}),
+    ...(footnoteLayout.length > 0 ? { footnoteLayout } : {}),
+    ...(docxComments.length > 0 ? { docxComments } : {}),
   });
-  return { ok: true, snapshot: { ...snapshot, fileMtimeMs, proposalUpdatedAt: proposalAt } };
+  return {
+    ok: true,
+    snapshot: {
+      ...applyAcceptedRevisionIds(snapshot, acceptedRevIds),
+      fileMtimeMs,
+      proposalUpdatedAt: proposalAt,
+    },
+  };
+}
+
+function applyAcceptedRevisionIds(
+  snapshot: WordSurfaceSnapshot,
+  ids: readonly string[],
+): WordSurfaceSnapshot {
+  const accepted = new Set(ids);
+  if (accepted.size === 0) {
+    return snapshot;
+  }
+  const stampRuns = (runs: WordRevisionRun[] | undefined) =>
+    runs ? withAcceptedDisposition(runs, accepted) : runs;
+  const stampSegment = (segment: WordSurfaceSegment): WordSurfaceSegment =>
+    segment.kind === "tracked" && accepted.has(segment.revId)
+      ? { ...segment, disposition: "accepted" }
+      : segment;
+  const stampParagraph = (paragraph: WordSurfaceParagraph): WordSurfaceParagraph => ({
+    ...paragraph,
+    ...(paragraph.runs ? { runs: stampRuns(paragraph.runs) } : {}),
+    segments: paragraph.segments.map(stampSegment),
+  });
+  const stampBlocks = (blocks: WordSurfaceBlock[]): WordSurfaceBlock[] =>
+    blocks.map((block) => {
+      if (block.kind === "table") {
+        return {
+          ...block,
+          rows: block.rows.map((row) =>
+            row.map((cell) => ({
+              ...cell,
+              blocks: stampBlocks(cell.blocks),
+              ...(cell.rowTrack && accepted.has(cell.rowTrack.revId)
+                ? { rowTrack: { ...cell.rowTrack, disposition: "accepted" as const } }
+                : {}),
+            })),
+          ),
+        };
+      }
+      return { ...stampParagraph(block), kind: "paragraph" };
+    });
+  return {
+    ...snapshot,
+    paragraphs: snapshot.paragraphs.map(stampParagraph),
+    blocks: stampBlocks(snapshot.blocks),
+    ...(snapshot.headerBlocks ? { headerBlocks: stampBlocks(snapshot.headerBlocks) } : {}),
+    ...(snapshot.footerBlocks ? { footerBlocks: stampBlocks(snapshot.footerBlocks) } : {}),
+    ...(snapshot.footnoteBlocks ? { footnoteBlocks: stampBlocks(snapshot.footnoteBlocks) } : {}),
+    tracked: (snapshot.tracked ?? []).map((row) =>
+      accepted.has(row.revId) ? { ...row, disposition: "accepted" as const } : row,
+    ),
+  };
 }

@@ -183,6 +183,28 @@ declare global {
         apiAuthToken?: string;
         error?: string;
       }>;
+      readAuthoritySettings: () => Promise<{
+        ok: boolean;
+        provider?: "pkulaw" | "open";
+        lawEndpoint?: string;
+        caseEndpoint?: string;
+        hasApiKey?: boolean;
+        keychainAvailable?: boolean;
+        error?: string;
+      }>;
+      saveAuthority: (payload: {
+        provider: "pkulaw" | "open";
+        lawEndpoint?: string;
+        caseEndpoint?: string;
+        apiKey?: string;
+      }) => Promise<{
+        ok: boolean;
+        provider?: "pkulaw" | "open";
+        apiBase?: string;
+        apiAuthToken?: string;
+        code?: string;
+        error?: string;
+      }>;
       setRetrievalMode: (mode: "single" | "dual") => Promise<{
         ok: boolean;
         apiBase?: string;

@@ -54,6 +54,8 @@ const multitask = [
 const engineering = [
   { text: "未来问题", link: "/LAWMIND-FUTURE-ISSUES" },
   { text: "仓库目录结构", link: "/LAWMIND-REPO-LAYOUT" },
+  { text: "前瞻合同：交件即测量", link: "/LAWMIND-FORWARD-AGENT" },
+  { text: "律师向因子内核评测", link: "/LAWMIND-LEGAL-KERNEL-BENCH" },
   { text: "法律编译器路线图", link: "/LAWMIND-LEGAL-COMPILER-ROADMAP" },
   { text: "归档区说明", link: "/archive/README" },
   { text: "三条铁律与改动清单（归档）", link: "/archive/LAWMIND-SIMPLE-RELIABLE-PLAN" },

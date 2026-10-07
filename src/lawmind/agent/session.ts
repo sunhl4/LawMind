@@ -15,6 +15,11 @@ import path from "node:path";
 import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { appendTranscriptLines } from "../adapters/session-transcript/index.js";
 import { isCompactSyntheticUserMessage } from "./compact-insert.js";
+import {
+  projectAssistantProseForSampling,
+  projectToolResultForSampling,
+  renderEngineReadings,
+} from "./factor-state.js";
 import { projectLawyerChatBubbles } from "./lawyer-chat-projection.js";
 import {
   formatRemainingTokensNote,
@@ -798,7 +803,15 @@ export function deriveModelMessagesForSampling(
   session: AgentSession,
   budget?: { used: number; effectiveLimit: number; warnRatio?: number },
 ): ModelChatMessage[] {
-  let messages = withEphemeralTurnContext(deriveModelMessages(session), session.samplingPromptTail);
+  const readings = renderEngineReadings(session.factorState);
+  const tail = [session.samplingPromptTail?.trim(), readings].filter(Boolean).join("\n\n");
+  let messages = withEphemeralTurnContext(
+    projectSamplingAssistantProse(
+      projectSamplingToolResults(deriveModelMessages(session)),
+      session.factorState,
+    ),
+    tail || undefined,
+  );
   if (
     budget &&
     shouldInjectRemainingTokensNote(budget.used, budget.effectiveLimit, budget.warnRatio)
@@ -809,4 +822,28 @@ export function deriveModelMessagesForSampling(
     );
   }
   return messages;
+}
+
+/** Sampling view only. Persisted tool rows stay intact for audit and later turns. */
+function projectSamplingToolResults(messages: ModelChatMessage[]): ModelChatMessage[] {
+  return messages.map((message) => {
+    if (message.role !== "tool" || !message.content) {
+      return message;
+    }
+    const content = projectToolResultForSampling(message.content);
+    return content === message.content ? message : { ...message, content };
+  });
+}
+
+function projectSamplingAssistantProse(
+  messages: ModelChatMessage[],
+  state: AgentSession["factorState"],
+): ModelChatMessage[] {
+  return messages.map((message) => {
+    if (message.role !== "assistant" || !message.content) {
+      return message;
+    }
+    const content = projectAssistantProseForSampling(message.content, state);
+    return content === message.content ? message : { ...message, content };
+  });
 }

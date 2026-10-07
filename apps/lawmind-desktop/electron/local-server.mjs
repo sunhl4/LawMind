@@ -11,6 +11,7 @@ import {
   SERVER_SUPERVISION_DEFAULTS,
   shouldAttemptSupervisedRestart,
 } from "./server-supervision.mjs";
+import { ignoreBrokenPipe, writeChildLog } from "./child-log-forward.mjs";
 import { LAWMIND_PRODUCT_NAME } from "./brand.mjs";
 import { credentialForClient } from "./local-api-credentials.mjs";
 import {
@@ -32,6 +33,7 @@ import {
   inferWizardProviderId,
   writeWizardDefaultModelId,
 } from "./wizard-model-store.mjs";
+import { authorityProviderUsesStoredKey } from "./authority-setup.mjs";
 
 export { defaultModelIdForWizardModel, inferWizardProviderId, writeWizardDefaultModelId };
 
@@ -57,6 +59,8 @@ try {
 export const KEYCHAIN_ACCOUNTS = {
   wizardApiKey: "wizard.default.apiKey",
   webSearchApiKey: "wizard.webSearch.apiKey",
+  /** 北大法宝 / 商业法源访问令牌。注入为 LAWMIND_AUTHORITY_API_KEY。 */
+  authorityApiKey: "authority.pkulaw.apiKey",
   customApiKey: (modelId) => `custom.${String(modelId).replace(/^custom:/, "")}.apiKey`,
   mcpSecret: (serverId) => `mcp.${String(serverId).replace(/[^a-zA-Z0-9_-]/g, "_")}.secret`,
   /** 审计链 HMAC 密钥（hex）：keychain 保管，注入子进程；headless 降级为工作区外 key 文件。 */
@@ -193,6 +197,14 @@ export async function collectSecretsForServerEnv(parsedEnvVars) {
     if (webSearchKey) {
       if (!parsedEnvVars.LAWMIND_WEB_SEARCH_API_KEY) {out.LAWMIND_WEB_SEARCH_API_KEY = webSearchKey;}
       if (!parsedEnvVars.BRAVE_API_KEY) {out.BRAVE_API_KEY = webSearchKey;}
+    }
+    const authorityKey = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.authorityApiKey);
+    if (
+      authorityKey &&
+      !parsedEnvVars.LAWMIND_AUTHORITY_API_KEY &&
+      authorityProviderUsesStoredKey(parsedEnvVars.LAWMIND_AUTHORITY_PROVIDER)
+    ) {
+      out.LAWMIND_AUTHORITY_API_KEY = authorityKey;
     }
     const all = await keyVault.listSecrets();
     for (const entry of all) {
@@ -1055,11 +1067,13 @@ async function startLocalServerOnce(repoRoot, wsDir, envPath, retrievalMode, pro
     });
 
     serverProcess.on("error", reject);
+    ignoreBrokenPipe(process.stdout);
+    ignoreBrokenPipe(process.stderr);
     serverProcess.stderr?.on("data", (d) => {
-      process.stderr.write(d);
+      writeChildLog(process.stderr, d);
     });
     serverProcess.stdout?.on("data", (d) => {
-      process.stdout.write(d);
+      writeChildLog(process.stdout, d);
     });
 
     serverProcess.once("exit", (code) => {
@@ -1091,13 +1105,26 @@ export async function maybeMigrateEnvKeysToKeychain(envPath) {
     return;
   }
   const envKey = (vars.LAWMIND_AGENT_API_KEY || vars.LAWMIND_QWEN_API_KEY || "").trim();
-  if (!envKey) {return;}
-  try {
-    const existing = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.wizardApiKey);
-    if (existing) {return;}
-    await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.wizardApiKey, envKey);
-  } catch {
-    /* env file remains authoritative */
+  if (envKey) {
+    try {
+      const existing = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.wizardApiKey);
+      if (!existing) {
+        await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.wizardApiKey, envKey);
+      }
+    } catch {
+      /* env file remains authoritative */
+    }
+  }
+  const authorityKey = (vars.LAWMIND_AUTHORITY_API_KEY || "").trim();
+  if (authorityKey) {
+    try {
+      const existing = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.authorityApiKey);
+      if (!existing) {
+        await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.authorityApiKey, authorityKey);
+      }
+    } catch {
+      /* env file remains authoritative */
+    }
   }
 }
 

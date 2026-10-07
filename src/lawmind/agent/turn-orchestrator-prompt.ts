@@ -1015,6 +1015,33 @@ export async function prepareTurnPromptContext(opts: {
   }
   const tail = renderPackedFragments(sessionTail).join("").trim();
   session.samplingPromptTail = tail || undefined;
+  const { isWordRevisionTurn } = await import("../platform/word-revision-instruction.js");
+  const {
+    extractSkeletonHeadings,
+    instructionRequestsFreeDraft,
+    rememberBuiltinTemplateSkeleton,
+    rememberSkeleton,
+    selectSkeleton,
+  } = await import("./factor-state.js");
+  const { explicitTemplateId } = await import("./ooxml-skeleton.js");
+  if (!session.factorState) {
+    const { emptyFactorState } = await import("./factor-state.js");
+    session.factorState = emptyFactorState();
+  }
+  rememberSkeleton(session.factorState, extractSkeletonHeadings(instruction));
+  const templateId = explicitTemplateId(instruction);
+  if (templateId) {
+    rememberBuiltinTemplateSkeleton(session.factorState, templateId);
+  }
+  const skeleton = selectSkeleton({
+    revisingDocument:
+      isWordRevisionTurn(instruction) || /contract_edit_baseline_path\s*=/.test(instruction),
+  });
+  if (skeleton.header && instructionRequestsFreeDraft(instruction)) {
+    session.samplingPromptTail = session.samplingPromptTail
+      ? `${session.samplingPromptTail}\n${skeleton.header}`
+      : skeleton.header;
+  }
 
   const existingSystem =
     session.conversationHistory[0]?.role === "system"

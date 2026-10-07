@@ -30,18 +30,210 @@ function lawyerTypedText(msg: AgentMessage): string {
   return (msg.content ?? "").trim();
 }
 
+const OFFICE_PATH_RE = /((?:[^\s`"'<>[\]()]+\/)*[^\s`"'<>[\]()]+\.(?:docx?|xlsx?|pptx?|pdf|wps))/iu;
+
+function officePathBasename(rel: string): string {
+  const parts = rel.replace(/\\/g, "/").split("/");
+  return parts[parts.length - 1] || rel;
+}
+
+/** 反引号里的 Word/表格路径改成可点 Markdown，避免律师只看见灰色代码字。 */
+function linkifyBacktickedOfficePaths(text: string): string {
+  return text.replace(/`([^`\n]+)`/g, (all, inner: string) => {
+    const raw = inner
+      .trim()
+      .replace(/^\*+|\*+$/g, "")
+      .replace(/\*\*/g, "");
+    const match = OFFICE_PATH_RE.exec(raw);
+    if (!match?.[1] || match[1] !== raw) {
+      return all;
+    }
+    const rel = match[1].replace(/\\/g, "/");
+    if (rel.includes("..") || rel.startsWith("/") || rel.includes(":")) {
+      return all;
+    }
+    return `[${officePathBasename(rel)}](${rel})`;
+  });
+}
+
+/** 给律师看的技术旁白：notes 文字稿、修订 manifest、json 路径。历史原文不动。 */
+function isLawyerHiddenTechLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) {
+    return false;
+  }
+  if (/\.redline-manifest\.json\b/i.test(t)) {
+    return true;
+  }
+  if (/\bnotes\//i.test(t)) {
+    return true;
+  }
+  if (/隐藏文件|修订记录，不用管|redline-manifest/i.test(t) && /\.json\b/i.test(t)) {
+    return true;
+  }
+  // 纯 md/json 技术路径行（含表格单元格）；同行若还有 Word 则保留。
+  if (/\.(?:md|json)\b/i.test(t) && !/\.(?:docx?|xlsx?|pptx?|pdf|wps)\b/i.test(t)) {
+    return true;
+  }
+  return false;
+}
+
+function isGfmTableFurniture(line: string): boolean {
+  const t = line.trim();
+  if (!t.includes("|")) {
+    return false;
+  }
+  if (/^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(t)) {
+    return true;
+  }
+  // 文字稿对照表表头
+  if (/文件/.test(t) && /内容/.test(t)) {
+    return true;
+  }
+  return false;
+}
+
+function isNotesInventoryHeading(line: string): boolean {
+  const t = line.trim();
+  if (/文字稿/i.test(t) && (/notes\//i.test(t) || /Markdown/i.test(t))) {
+    return true;
+  }
+  return /^#{0,3}\s*[一二三四五六七八九十百千零〇\d]+[、.．]\s*.*文字稿/.test(t);
+}
+
+/** 丢掉「文字稿 / notes」清单标题及其后的表格、空行，遇到正常句子就停。 */
+function stripNotesInventoryBlocks(text: string): string {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+    if (!isNotesInventoryHeading(line)) {
+      out.push(line);
+      i += 1;
+      continue;
+    }
+    i += 1;
+    while (i < lines.length) {
+      const cur = lines[i] ?? "";
+      const t = cur.trim();
+      if (
+        !t ||
+        isLawyerHiddenTechLine(cur) ||
+        isGfmTableFurniture(cur) ||
+        (t.startsWith("|") && /\.(?:md|json)\b/i.test(t))
+      ) {
+        i += 1;
+        continue;
+      }
+      break;
+    }
+  }
+  return out.join("\n");
+}
+
+function stripEngineMeasurementBlocks(text: string): string {
+  const markers = [
+    "【机械核定】",
+    "【引擎核定】",
+    "【约化因子】",
+    "【骨架起点】",
+    "【因子修复】",
+    "【定义环】",
+    "【引用原文】",
+  ];
+  let next = text;
+  let sawGap = false;
+  for (const marker of markers) {
+    let at = next.indexOf(marker);
+    while (at >= 0) {
+      if (next.slice(at).includes("待核实") || next.slice(at).includes("待确认")) {
+        sawGap = true;
+      }
+      const head = next.slice(0, at).trimEnd();
+      const lines = next.slice(at).split("\n");
+      let i = 1;
+      while (i < lines.length) {
+        const line = lines[i] ?? "";
+        const trimmed = line.trim();
+        if (
+          !trimmed ||
+          /^\s*- /.test(line) ||
+          /^(?:amount|citation|party|negation|defined|clause|redline):/.test(trimmed)
+        ) {
+          i += 1;
+          continue;
+        }
+        break;
+      }
+      const tail = lines.slice(i).join("\n").trim();
+      next = [head, tail].filter(Boolean).join("\n\n");
+      at = next.indexOf(marker);
+    }
+  }
+  next = next
+    .split("\n")
+    .filter(
+      (line) => !/^(?:amount|citation|party|negation|defined|clause|redline):/.test(line.trim()),
+    )
+    .join("\n");
+  if (sawGap && !next.includes("待确认") && !next.includes("待核实")) {
+    const gap = "有几处数字、引用或措辞还对不上材料，已留在文中，请在修订里改。";
+    next = next.trim() ? `${next.trim()}\n\n${gap}` : gap;
+  }
+  return next;
+}
+
 /**
- * Drop digest inventory the model may echo. Lawyers see the answer; tool lists
- * stay in `cases/.../compact-digest.md` for developers.
+ * Drop digest inventory and engineer-facing notes/json pointers the model may echo.
+ * Lawyers see the answer and Word links; tool lists and notes paths stay in history
+ * for the next model turn.
  */
 export function scrubLawyerFacingAssistantText(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) {
     return "";
   }
-  return trimmed
+  let next = stripEngineMeasurementBlocks(trimmed)
     .replace(/\n*###\s*曾调用工具\s*\n[\s\S]*?(?=\n###\s|\s*$)/g, "")
-    .replace(/\n*###\s*压缩前引用\s*\n[\s\S]*?(?=\n###\s|\s*$)/g, "")
+    .replace(/\n*###\s*压缩前引用\s*\n[\s\S]*?(?=\n###\s|\s*$)/g, "");
+
+  next = next.replace(
+    /[（(]另有[^）)]*(?:\.json|redline-manifest|隐藏文件|修订记录)[^）)]*[）)]/g,
+    "",
+  );
+
+  // 推诿「审核台放行才能出 Word」：历史里可能残留，律师面拿掉。
+  next = next
+    .split("\n")
+    .filter(
+      (line) =>
+        !(
+          /审核台/.test(line) &&
+          /放行/.test(line) &&
+          /(?:出\s*Word|导出|出稿|才能出)/i.test(line)
+        ) && !/(?:改稿与导出工具未开|导出工具未开)/.test(line),
+    )
+    .join("\n");
+
+  next = stripNotesInventoryBlocks(next);
+
+  next = next
+    .split("\n")
+    .filter((line) => !isLawyerHiddenTechLine(line))
+    .join("\n");
+
+  next = linkifyBacktickedOfficePaths(next);
+
+  next = next
+    .replace(/，不用再回复继续。/g, "。")
+    .replace(/不用再回复继续。/g, "")
+    .replace(/然后回复「继续」。/g, "")
+    .replace(/请回复「继续」。/g, "");
+
+  return next
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 

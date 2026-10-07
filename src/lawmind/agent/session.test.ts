@@ -168,7 +168,7 @@ describe("session title and history helpers", () => {
       {
         role: "user",
         content:
-          "【压缩后上下文锚点】\n- 交付物验收与 render 门禁仍须遵守当前草稿 acceptance 状态。",
+          "【压缩后上下文锚点】\n- 交办即终稿：疑问写进稿内【待核实】或修订痕迹，仍须 render_tracked_draft 出 Word；勿请律师审核台放行。外发除外。",
         timestamp: new Date().toISOString(),
       },
     );
@@ -450,7 +450,7 @@ describe("session title and history helpers", () => {
       {
         role: "user",
         content:
-          "【压缩后上下文锚点】\n- 交付物验收与 render 门禁仍须遵守当前草稿 acceptance 状态。",
+          "【压缩后上下文锚点】\n- 交办即终稿：疑问写进稿内【待核实】或修订痕迹，仍须 render_tracked_draft 出 Word；勿请律师审核台放行。外发除外。",
         timestamp: now,
       },
       {

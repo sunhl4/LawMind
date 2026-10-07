@@ -111,7 +111,7 @@ describe("deliverable chat links", () => {
     ]);
   });
 
-  it("appends a WPS link once, using the file address as the label", () => {
+  it("appends a WPS link once, using the file name as the label", () => {
     const messages = toolReply([
       {
         toolCallId: "1",
@@ -121,8 +121,38 @@ describe("deliverable chat links", () => {
     ]);
     const first = appendDeliverableFileLinks("稿已写好。", messages, workspaceDir);
     const href = wpsDeliverableHref("cases/m/派遣 协议.docx");
-    expect(first).toBe(`稿已写好。\n\n交付文件\n- [cases/m/派遣 协议.docx](${href})`);
+    expect(first).toBe(`稿已写好。\n\n交付文件\n- [派遣 协议.docx](${href})`);
     expect(appendDeliverableFileLinks(first, messages, workspaceDir)).toBe(first);
     expect(appendDeliverableFileLinks("没有文件。", [], workspaceDir)).toBe("没有文件。");
+  });
+
+  it("relativizes Word paths under projectDir and skips notes", () => {
+    const projectDir = "/tmp/lawmind-case-yx";
+    const docx = path.join(
+      projectDir,
+      "非技术相关/采购合同模板/外协外包类合同/小型施工合同_01.docx",
+    );
+    const messages = toolReply([
+      {
+        toolCallId: "1",
+        name: "render_tracked_draft",
+        result: {
+          ok: true,
+          data: { outputPath: docx, outputRelativePath: docx },
+        },
+      },
+      {
+        toolCallId: "2",
+        name: "write_document",
+        result: { ok: true, data: { filePath: "notes/合同群办理总表.md" } },
+      },
+    ]);
+    expect(collectDeliverablePaths(messages, { workspaceDir, projectDir })).toEqual([
+      "非技术相关/采购合同模板/外协外包类合同/小型施工合同_01.docx",
+    ]);
+    const linked = appendDeliverableFileLinks("已改完。", messages, { workspaceDir, projectDir });
+    const href = wpsDeliverableHref("非技术相关/采购合同模板/外协外包类合同/小型施工合同_01.docx");
+    expect(linked).toContain(`[小型施工合同_01.docx](${href})`);
+    expect(linked).not.toContain("notes/");
   });
 });

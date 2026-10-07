@@ -41,6 +41,8 @@ export type UseLawmindAppSettingsPanelPropsInput = {
   applyDraftWithModelEnabled: (enabled: boolean) => void | Promise<void>;
   npcSaving?: boolean;
   applyOpenLawNpc?: (enabled: boolean) => void | Promise<void>;
+  authoritySaving?: boolean;
+  saveAuthority?: (payload: import("../LawmindAuthoritySetup").AuthoritySavePayload) => Promise<void>;
   reconnectLocalService: () => void | Promise<void>;
   localServiceReconnecting: boolean;
   openApiWizard: () => void;
@@ -104,6 +106,8 @@ export function useLawmindAppSettingsPanelProps(
     applyDraftWithModelEnabled,
     npcSaving,
     applyOpenLawNpc,
+    authoritySaving,
+    saveAuthority,
     reconnectLocalService,
     localServiceReconnecting,
     openApiWizard,
@@ -184,6 +188,8 @@ export function useLawmindAppSettingsPanelProps(
       onApplyDraftWithModelEnabled: applyDraftWithModelEnabled,
       npcSaving: npcSaving ?? false,
       onApplyOpenLawNpc: applyOpenLawNpc,
+      authoritySaving: authoritySaving ?? false,
+      onSaveAuthority: saveAuthority,
       onReconnectLocalService: reconnectLocalService,
       localServiceReconnecting,
       onOpenApiWizard: openApiWizard,

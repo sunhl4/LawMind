@@ -11,8 +11,8 @@ import {
   type TableColumnAlign,
 } from "./lawmind-chat-markdown-table";
 import { docxCellWithDirectory } from "../../../../src/lawmind/sources/lawyer-chat-link.ts";
-import { openDeliverableInWps, openLawyerExternalUrl } from "./canvas/host-actions";
-import { openContractRevisionForTask, openDocxInReviewSurface } from "./lawmind-open-contract-revision";
+import { openLawyerExternalUrl } from "./canvas/host-actions";
+import { openContractRevisionForTask, openDeliverableInMiddleColumn, openDocxInReviewSurface } from "./lawmind-open-contract-revision";
 import { requestOpenChatSession } from "./lawmind-open-chat-session-bus";
 import { requestOpenWorkspaceFile } from "./lawmind-workspace-file-open";
 
@@ -188,13 +188,9 @@ export function renderInlineLegalMarkdown(
           type="button"
           className="lm-md-session-link"
           data-testid="lm-md-wps-link"
-          title="用本机应用打开。右键可以去本机目录。"
+          title="中栏打开。右键可以去本机目录，或用本机应用打开。"
           onClick={() => {
-            void openDeliverableInWps(token.path).then((result) => {
-              if (!result.ok && result.error) {
-                ctx?.onOpenError?.(result.error);
-              }
-            });
+            openDeliverableInMiddleColumn(token.path);
           }}
           onContextMenu={(event) => {
             event.preventDefault();
@@ -212,13 +208,20 @@ export function renderInlineLegalMarkdown(
           type="button"
           className="lm-md-session-link"
           data-testid={token.canvas ? "lm-md-canvas-link" : "lm-md-file-link"}
-          title={token.path}
+          title={token.canvas ? token.path : "中栏打开。右键可以去本机目录。"}
           onClick={() =>
             requestOpenWorkspaceFile(token.path, "workspace", {
               ...(token.line ? { line: token.line } : {}),
               ...(token.column ? { column: token.column } : {}),
             })
           }
+          onContextMenu={(event) => {
+            if (token.canvas) {
+              return;
+            }
+            event.preventDefault();
+            ctx?.onReviewFileMenu?.(event.clientX, event.clientY, token.path);
+          }}
         >
           {token.label}
         </button>

@@ -65,6 +65,23 @@ export type TrackedDocxRenderResult =
 const OFFICECLI_MAX_STDOUT = 256_000;
 const OFFICECLI_MAX_STDERR = 8_000;
 
+/**
+ * 修订清单落点：优先 LawMind 工作区 `cache/redline-manifests/`，
+ * 不写律师 projectDir / 交付同级目录。无 workspace 时（单测临时目录）才旁路到 outputDir。
+ */
+export function resolveRedlineManifestPath(params: {
+  workspaceDir?: string;
+  taskId: string;
+  outputDir: string;
+}): string {
+  const leaf = `.${params.taskId.trim() || "task"}.redline-manifest.json`;
+  const workspace = params.workspaceDir?.trim();
+  if (workspace) {
+    return path.join(workspace, "cache", "redline-manifests", leaf);
+  }
+  return path.join(params.outputDir, leaf);
+}
+
 async function runOfficeCli(
   args: string[],
   timeoutMs = 120_000,
@@ -573,8 +590,13 @@ export async function renderDocxWithTrackedChanges(params: {
     params.outputFileName?.trim() ||
     `${params.draft.taskId}${baselineSource === "contract_file" ? ".contract" : ""}.tracked.docx`;
   const trackedPath = path.join(params.outputDir, deliverableName);
-  // Keep manifests under artifacts-style sidecar next to deliverable (same dir, hidden from lawyer naming).
-  const manifestPath = path.join(params.outputDir, `.${params.draft.taskId}.redline-manifest.json`);
+  // 修订清单进 LawMind 工作区 cache，不进律师案件夹/交付目录（避免 Finder 里一堆 .json）。
+  const manifestPath = resolveRedlineManifestPath({
+    workspaceDir: params.workspaceDir,
+    taskId: params.draft.taskId,
+    outputDir: params.outputDir,
+  });
+  await fs.mkdir(path.dirname(manifestPath), { recursive: true });
   const writeManifest = async (applyResult?: {
     applied: number;
     attempted: number;

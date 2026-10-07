@@ -112,7 +112,7 @@ export async function openDeliverableInWps(
 export async function revealDeliverableInFolder(
   relPath: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const safe = wpsDeliverablePath(relPath);
+  const safe = wpsDeliverablePath(relPath) ?? safeWorkspaceRelativePath(relPath);
   const show = typeof window !== "undefined" ? window.lawmindDesktop?.showItemInFolder : undefined;
   const getConfig = typeof window !== "undefined" ? window.lawmindDesktop?.getConfig : undefined;
   if (!safe || !show || !getConfig) {

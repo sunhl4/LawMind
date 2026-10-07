@@ -551,7 +551,7 @@ export const executeWorkflow: AgentTool = {
           pushWorkflowProgress(
             ctx,
             steps,
-            "提示：生成 .docx 不依赖模型 API。可调用 render_document（approve=true）重试，或在审核台批准后导出。",
+            "提示：生成 .docx 不依赖模型 API。可调用 render_document（approve=true）重试；approve=true 是本条对话盖章，不必等审核台。",
           );
           return {
             ok: false,
@@ -577,12 +577,12 @@ export const executeWorkflow: AgentTool = {
         pushWorkflowProgress(
           ctx,
           steps,
-          `⚠ ${intent.riskLevel === "high" ? "高" : "中"}风险任务，草稿已生成，等待律师审批后渲染。`,
+          `⚠ ${intent.riskLevel === "high" ? "高" : "中"}风险任务，草稿已生成；交办要 Word 则立即渲染，疑问标进稿内。`,
         );
         pushWorkflowProgress(
           ctx,
           steps,
-          "若律师本条对话已要求 Word：请调用 render_document（task_id 见上，approve=true），或在桌面「审核」页签批准后导出。",
+          "若律师本条对话已要求 Word：请调用 render_document（task_id 见上，approve=true）。approve=true 是盖章不是审核台闸门，不要等审核台放行。",
         );
       }
       phaseTimer.mark("review_render", reviewRenderStarted);

@@ -20,12 +20,17 @@ import {
   caseLawDegradedNote,
   resolveCaseLawReadiness,
 } from "../../../retrieval/case-law-readiness.js";
+import {
+  amplifyRetrievalCandidates,
+  retrievalAgreement,
+} from "../../../retrieval/retrieval-amplify.js";
 import { directoryListingToolData, resolveAndListDirectory } from "../../../runtime/list-dir.js";
 import { fenceAgentFilePath } from "../../../runtime/workspace-io-fence.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import { searchLawyerWorks } from "../../../work/search.js";
 import { readConversation, searchConversations } from "../../conversation-search.js";
 import { resolveDocumentPageChars } from "../../document-read-budget.js";
+import type { FactorState } from "../../factor-state.js";
 import type { AgentTool } from "../../types.js";
 import { matterRequiredResult } from "../matter-required.js";
 import {
@@ -636,6 +641,45 @@ export const readProjectFile: AgentTool = {
   },
 };
 
+function amountSignals(state: FactorState | undefined): {
+  groundedAmounts: string[];
+  rejectedAmounts: string[];
+} {
+  const groundedAmounts: string[] = [];
+  const rejectedAmounts: string[] = [];
+  if (!state) {
+    return { groundedAmounts, rejectedAmounts };
+  }
+  for (const factor of state.factors) {
+    if (factor.kind !== "amount") {
+      continue;
+    }
+    for (const outcome of factor.outcomes) {
+      if (outcome.grounded === true && outcome.id.trim()) {
+        groundedAmounts.push(outcome.id.trim());
+      }
+    }
+    if (factor.flag === "conflict" && factor.proposalId?.trim()) {
+      rejectedAmounts.push(factor.proposalId.trim());
+    }
+  }
+  return { groundedAmounts, rejectedAmounts };
+}
+
+function rankSearchHits<
+  T extends { source: string; snippet: string; title?: string; demo?: boolean },
+>(hits: readonly T[], state: FactorState | undefined): T[] {
+  const amounts = amountSignals(state);
+  return amplifyRetrievalCandidates(hits, (hit) =>
+    retrievalAgreement({
+      demo: hit.demo === true,
+      text: [hit.title, hit.source, hit.snippet].filter(Boolean).join("\n"),
+      groundedAmounts: amounts.groundedAmounts,
+      rejectedAmounts: amounts.rejectedAmounts,
+    }),
+  );
+}
+
 const STATUTE_LINE =
   /《[^》]+》|法典|法律适用|第\s*[零一二三四五六七八九十百千0-9]+条|法规|条例|司法解释|刑法|民法|行政诉讼法|公司法|劳动合同法/i;
 
@@ -710,7 +754,10 @@ export const searchStatute: AgentTool = {
       workspaceDir: ctx.workspaceDir,
       searchKind: "law",
     });
-    const merged = [...authority.hits, ...workspaceHits].slice(0, 25);
+    const merged = rankSearchHits(
+      [...authority.hits.map((hit) => ({ ...hit, demo: authority.demoCorpus })), ...workspaceHits],
+      ctx.factorState,
+    );
     const verdict = searchAuthority.mergeStatuteSearchNote({
       live: authority.live,
       providerLabel: authority.providerLabel,
@@ -806,7 +853,10 @@ export const searchCaseLaw: AgentTool = {
       workspaceDir: ctx.workspaceDir,
       searchKind: "case",
     });
-    const merged = [...authority.hits, ...workspaceHits].slice(0, 25);
+    const merged = rankSearchHits(
+      [...authority.hits.map((hit) => ({ ...hit, demo: authority.demoCorpus })), ...workspaceHits],
+      ctx.factorState,
+    );
     const verdict = searchAuthority.mergeStatuteSearchNote({
       live: authority.live,
       providerLabel: authority.providerLabel,

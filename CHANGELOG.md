@@ -4,7 +4,18 @@ All notable changes to this **LawMind-only** repository are tracked here.
 
 Historical **OpenClaw** upstream release notes were removed when the repository was slimmed to LawMind (engine + desktop + docs). For archeology, refer to the former upstream project history if you still have access.
 
-## Unreleased
+## 0.2.2 — 2026-10-07
+
+### Desktop
+
+- GitHub Release 安装包与当前律师工作台源码对齐；版本号 `apps/lawmind-desktop` → `0.2.2`；标签 `lawmind-desktop-v0.2.2`。
+- 桌面构建工作流修正 shell 中 `${matrix.label}` 无法展开、打包一步都没跑的问题。没有 Developer ID 证书时打 adhoc 包（下载后右键打开）；配了证书的 tag 构建仍要求公证。
+
+### Changes
+
+- Desktop / Engine（文书修订面）：Word 修订在桌面里按页查看、边栏与批注，改稿落到修订轨。
+- Desktop（权威库）：本机连接权威源的设置、健康检查与出站清单。
+- Engine（判断层）：factor-state、法律行业基准、检索放大与文书骨架，供交件前对照。
 
 - Engine / Policy（**上下文调参进入高级设置，不再散落字面量**）：第 18–24 条背后的一整套阈值与帽（触发线、预留、就地省略门槛、摘要额度、钉子/台账上限、续接额度、注记线、反弹上限、回合内模型摘要的限时限量……）此前写死在各自模块里——不可调、不可审计、写错值也没人管。现在集中到 **`src/lawmind/agent/context-tuning.ts`** 的 `resolveContextTuning`，全部可由 `lawmind.policy.json` 的 **`context.*`** 覆盖（新增 `context.midTurn.*` / `context.digest.*` / `context.pins.*` / `context.carryover.*`，并补 `warnRatio` / `smallWindowReserveRatio` / `minEffectiveLimitTokens` 等扁平键）。三条纪律：① **类型不对回落默认、越界夹到边界，绝不抛错**（`"0.9"`、`null`、`NaN`、`-1`、`999` 都有确定归宿，不会炸在采样路径上）；② **跨字段不变量**在解析处收敛（`digest.minChars ≤ maxChars`、`carryover.seedMinChars ≤ seedMaxChars`、`warnRatio ≤ midTurnCompactTriggerRatio`）；③ **未配置时逐位等于默认**——`resolveContextTuning(null)` 深等于 `DEFAULT_CONTEXT_TUNING`，行为不变（有回归钉住，含「返回值冻结」）。**比例类键刻意不设业务下界**：只拦非正 / `NaN` / 超大，合法的极小值原样生效——曾把下界写成 `0.1`，于是「把触发线压到 0.02 以强制触发」被**静默**改掉；越界自动修正不该替调用方决定「多小才算合理」（有专门回归钉住 `0.02` / `0.01` 不被改写）。普查时又补上三处此前仍写死的数：`digest.carriedMinChars`（接续稿下限 400）、`digest.taskLineMax`（任务陈述候选 2 条）、`carryover.digestMinChars`（蒸馏正文下限 1000）。**可审计**：`GET /api/sessions/:id/context-budget` 新增 `tuning`（当前生效值）与 `tuningOverrides`（律师**显式写过**的键，含拼错的键——拼错要被发现，而不是静默忽略），体检页据此能说清「按哪套数字在跑」而不只是「按默认」。旧常量名（`TOKEN_BUDGET_WARN_RATIO`、`MID_TURN_COMPACT_MAX`、`FACT_PIN_MAX_ITEMS`、`TASK_PIN_CHAR_CAP`、`CARRYOVER_SEED_CHAR_RATIO` …）保留为默认值的再导出，既有调用方与测试不受影响。准入：`context-tuning.test.ts`（15 例：默认/类型回落/越界夹取/小比例不被改写/不变量/冻结/键清单）+ `context-budget` / `mid-turn-compact` / `compact-fact-pin` / `session-carryover` 各自的「policy 真的改行为」回归 + 路由 `tuning`/`tuningOverrides` 断言 + mock 契约同步。
 - Eval / Engine（**压缩保真度基准 + 事实台账**——把「压缩会不会让模型变笨」变成可测量）：① 新增基准（`evaluation/compaction-fidelity*` + `pnpm lawmind:compaction-fidelity`），问一个具体问题：**连续压缩后还能不能读到关键事实？丢在哪一类、第几轮丢？** 走真实 `autoCompactSessionHistory` + 真实重注、不调模型，所以确定、可进 CI；口径为「critical 全存活 = pass，非 critical 只测量不判失败（测量值本身是诊断信息）」，并把**首丢轮次**与留存体积一并报出。**自证合成语料**（`provenance: synthetic-authored`，报告顶部写明「这不是现场证据」）——真实评测集需律师在真案上标注，那是下一步。② 基准首次运行即抓到两个真缺陷：**期限 / 金额 / 立场 / 未决问题在第 1 轮全部丢失**（只有任务、硬约束、引用活下来）；以及期限模式过松导致填充语被误钉、把真时效挤出上限（Chroma 的 distractor 效应）。③ 修法新增**事实台账**（`agent/compact-fact-pin.ts`）：把**律师原话**里的期限 / 硬约束 / 引用 / 金额**整句原样**钉住，写进重注块 → `system[0]`，与任务钉子同一存活机制（不参与摘要、不被截断、不随压缩层数衰减）。三条原则：**只钉原话**（钉错一条比漏一条更糟——漏了还能重读案卷，钉错就成了系统声称律师这么说过）、**宁缺毋滥**（疑问句不算约束）、**有界**（12 条 / 单条 160 字 / 总量 1200 字，双帽 + 去重 + 优先级 期限>硬约束>引用>金额）。只从律师发言抽（助手写的数字是模型产物），法条引用额外从被丢弃的工具回包召回。**结果：critical 7/7 全存活（此前 5/7）**；非关键项仍会丢，如实报告而不假装都保住了。

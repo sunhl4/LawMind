@@ -43,7 +43,7 @@ describe("resolveAuthorityProvider", () => {
     expect(authorityProviderNeedsEndpoint("generic")).toBe(true);
     expect(authorityProviderNeedsEndpoint("pkulaw")).toBe(true);
     expect(authorityProviderLabel("open")).toMatch(/开源/);
-    expect(authorityProviderLabel("pkulaw")).toMatch(/闭源/);
+    expect(authorityProviderLabel("pkulaw")).toMatch(/法宝/);
     expect(authorityProviderLabel("lexis")).toMatch(/闭源/);
   });
 });

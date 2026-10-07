@@ -690,7 +690,7 @@ export function isJudgmentItemUnlockable(input: {
 
 ### 6.1 三 edition 分档
 
-沿用 `resolveGuardianTrackedRedlinePosture` 的既有先例（**解析顺序一致，避免两处口径漂移**）：policy 显式 → env 显式 → edition 缺省。**未知取值按所在 edition 缺省处理**，不把写错的配置当成硬墙或免检。
+沿用判定分级同一解析顺序（**避免两处口径漂移**）：policy 显式 → env 显式 → edition 缺省。**未知取值按所在 edition 缺省处理**，不把写错的配置当成硬墙或免检。
 
 | edition          | 升级姿态                             | 理由                                       |
 | ---------------- | ------------------------------------ | ------------------------------------------ |

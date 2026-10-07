@@ -429,7 +429,7 @@ export const writeDocument: AgentTool = {
             reason: bypass.reason ?? RESEARCH_WRITE_BYPASS_REFUSAL,
           },
           existingTaskId: bypass.taskId,
-          hint: "请 draft_document（传入 task_id）经证据门禁后，再走审核台导出。",
+          hint: "请 draft_document（传入 task_id）经证据门禁后，再 render_document / render_tracked_draft 导出本机 Word。",
         },
       };
     }

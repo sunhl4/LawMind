@@ -46,8 +46,9 @@ describe("identical tool-call streak", () => {
     expect(identicalToolRepeatDecision(streak)).toBe("stop");
     expect(formatIdenticalToolRepeatNudge().startsWith("【重复调用】")).toBe(true);
     expect(formatIdenticalToolRepeatStop()).toBe(
-      "同一步做了好几次，没有新的进展，所以先停下来。已经做好的结果都还在。要继续办理，在这条对话里回复「继续」即可。",
+      "同一步做了好几次，没有新的进展，所以先停下来。已经做好的结果都还在。已经做好的部分就是这一轮的结果。缺的事实留在文中待确认。",
     );
+    expect(formatIdenticalToolRepeatStop()).not.toContain("继续");
   });
 
   it("resets when the batch changes", () => {
@@ -144,7 +145,8 @@ describe("completed document reread", () => {
     });
     expect(tracked).toContain("已经读完");
     expect(tracked).toContain("原文件旁边");
-    expect(tracked).toContain("回复「继续」");
+    expect(tracked).toContain("待确认");
+    expect(tracked).not.toContain("继续");
     expect(tracked).not.toMatch(/[a-z]+_[a-z]+/);
     expect(tracked).not.toContain("空转");
     const delivered = formatIdenticalToolRepeatStop({
@@ -153,7 +155,7 @@ describe("completed document reread", () => {
       deliverInstead: true,
     });
     expect(delivered).toContain("待确认");
-    expect(delivered).not.toContain("回复「继续」");
+    expect(delivered).not.toContain("继续");
     expect(formatWordRevisionCapStop()).toContain("待确认");
     expect(formatWordRevisionExportNudge()).toContain("render_tracked_draft");
     expect(formatIdenticalToolRepeatStop({ kind: "search" })).toContain("查找");

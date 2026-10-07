@@ -96,8 +96,8 @@ export function resolveTemplateId(raw: unknown): string | undefined {
   if (!candidate) {
     return undefined;
   }
-  if (!TEMPLATE_ID_RE.test(candidate)) {
-    throw new Error("template_id 格式不合法，示例：word/legal-memo-default 或 upload/firm-brief");
+  if (!TEMPLATE_ID_RE.test(candidate) && candidate !== "complaint") {
+    return undefined;
   }
   return candidate;
 }

@@ -154,7 +154,8 @@ describe("buildAuthorityCorpusSummary", () => {
     expect(s.provider).toBe("pkulaw");
     expect(s.providerLabel).toContain("法宝");
     expect(s.message).not.toContain("user:");
-    expect(s.message).toContain("LAWMIND_AUTHORITY_API_KEY");
+    expect(s.message).toContain("还没有访问令牌");
+    expect(s.message).not.toContain("LAWMIND_AUTHORITY_API_KEY");
   });
 
   it("reports authConfigured without exposing the key (generic)", () => {
@@ -164,7 +165,7 @@ describe("buildAuthorityCorpusSummary", () => {
       provider: "generic",
     });
     expect(s.authConfigured).toBe(true);
-    expect(s.message).toContain("Bearer");
+    expect(s.message).toContain("访问令牌已保存");
     expect(JSON.stringify(s)).not.toContain("super-secret-token");
   });
 });

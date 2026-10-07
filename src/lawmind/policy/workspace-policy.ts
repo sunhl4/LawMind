@@ -391,11 +391,6 @@ export type LawMindWorkspacePolicy = {
    */
   autoApproveSandboxWorkflowSteps?: boolean;
   /**
-   * 带修订轨的稿子是否「不过独立审稿就不许导出」。
-   * 缺省 `advisory`（审稿照跑、缺口如实交出，但不阻断导出）；`block` 恢复硬墙。
-   */
-  guardianTrackedRedline?: "block" | "advisory";
-  /**
    * Word 插件「审这份」后由桌面端自动取件并跑审查。
    * 未设时随 edition（`wordAddinAutoRun`：solo 默认开，firm/private 默认关）。
    */

@@ -41,6 +41,30 @@ describe("mapHitsToRetrievalResult", () => {
     expect(r.claims[0]?.pin).toBeUndefined();
   });
 
+  it("ranks a pinned live hit ahead of a leading block of demo hits", () => {
+    const demos = Array.from({ length: 20 }, (_, index) => ({
+      id: `demo-${index}`,
+      title: `演示${index}`,
+      excerpt: "演示摘录",
+      demo: true as const,
+    }));
+    const r = mapHitsToRetrievalResult([
+      ...demos,
+      {
+        id: "live-47",
+        title: "中华人民共和国劳动合同法",
+        kind: "statute",
+        citation: "《劳动合同法》第四十七条",
+        excerpt: "经济补偿按劳动者在本单位工作的年限计算",
+        demo: false,
+      },
+    ]);
+    expect(r.sources[0]?.id).toBe("live-47");
+    expect(r.sources).toHaveLength(20);
+    expect(r.sources.some((source) => source.id === "demo-19")).toBe(false);
+    expect(r.riskFlags).toContain(DEMO_CORPUS_RISK_FLAG);
+  });
+
   it("copies an article or page that the citation already states", () => {
     expect(pinFromCitedText("《民法典》第五百七十七条", "当事人一方不履行合同义务")).toEqual({
       article: "第五百七十七条",

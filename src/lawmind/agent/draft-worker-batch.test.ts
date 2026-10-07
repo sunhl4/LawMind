@@ -77,8 +77,10 @@ describe("buildDraftWorkerJoinIndex", () => {
     ]);
     expect(index).toContain("结论 乙方有权解除");
     expect(index).toContain("结论 乙方无权解除");
-    expect(index).toContain("是否互相矛盾由你判断");
+    expect(index).toContain("共享锚已由引擎融合");
+    expect(index).not.toContain("是否互相矛盾由你判断");
     expect(index).not.toContain("结论冲突");
+    expect(index).not.toContain("【待核实】");
   });
 
   it("keeps conclusions that a word list would have called opposite", () => {
@@ -91,6 +93,78 @@ describe("buildDraftWorkerJoinIndex", () => {
     expect(index).toContain("结论 应当支付违约金");
     expect(index).toContain("结论 该约定无效");
     expect(index).not.toContain("结论冲突");
+    expect(index).not.toContain("【待核实】");
+  });
+
+  it("fuses opposite conclusions that share an anchor", () => {
+    const index = buildDraftWorkerJoinIndex([
+      {
+        section: "解除甲",
+        gaps: [],
+        citations: [],
+        anchor: "clause:解除",
+        conclusion: "乙方有权解除",
+      },
+      {
+        section: "解除乙",
+        gaps: [],
+        citations: [],
+        anchor: "clause:解除",
+        conclusion: "乙方无权解除",
+      },
+    ]);
+    expect(index).toContain("【待核实】clause:解除：乙方有权解除；乙方无权解除");
+    expect(index).not.toContain("是否互相矛盾由你判断");
+  });
+
+  it("keeps one outcome id when the two wordings differ", () => {
+    const index = buildDraftWorkerJoinIndex([
+      {
+        section: "解除甲",
+        gaps: [],
+        citations: [],
+        anchor: "clause:解除",
+        outcomeId: "may_terminate",
+        conclusion: "乙方有权解除",
+        span: "第十五条",
+      },
+      {
+        section: "解除乙",
+        gaps: [],
+        citations: [],
+        anchor: "clause:解除",
+        outcomeId: "may_terminate",
+        conclusion: "乙方可以解除本合同",
+        span: "第十五条",
+      },
+    ]);
+    expect(index).toContain("共享锚 clause:解除：may_terminate");
+    expect(index).not.toContain("【待核实】clause:解除");
+  });
+
+  it("writes 【待核实】 when the same outcome id has contradictory spans", () => {
+    const index = buildDraftWorkerJoinIndex([
+      {
+        section: "解除甲",
+        gaps: [],
+        citations: [],
+        anchor: "clause:解除",
+        outcomeId: "may_terminate",
+        conclusion: "乙方有权解除",
+        span: "乙方有权解除",
+      },
+      {
+        section: "解除乙",
+        gaps: [],
+        citations: [],
+        anchor: "clause:解除",
+        outcomeId: "may_terminate",
+        conclusion: "乙方有权解除",
+        span: "乙方无权解除",
+      },
+    ]);
+    expect(index).toContain("【待核实】clause:解除");
+    expect(index).not.toContain("共享锚 clause:解除：may_terminate");
   });
 
   it("does not invent a conflict from a hedged conclusion", () => {

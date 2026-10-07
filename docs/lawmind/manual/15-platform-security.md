@@ -473,7 +473,6 @@ base64url(payload JSON) + "." + base64url(签名)
 | `matterReplicaCollab`            | ✓    | ✓    | ✓              |
 | `ethicsWall`                     | ✗    | ✓    | ✓              |
 | `wordAddinAutoRun`               | ✓    | ✗    | ✗              |
-| `guardianTrackedRedlineBlock`    | ✗    | ✓    | ✓              |
 
 注意几个产品口径：
 

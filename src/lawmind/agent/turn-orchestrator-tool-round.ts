@@ -32,6 +32,7 @@ import type { ClarificationQuestion } from "../types.js";
 import { resolvePreApprovalInjection } from "./approval-cache-key.js";
 import { conversationSessionRefsFromToolData } from "./conversation-search.js";
 import { attachDraftWorkerJoinIndex, draftWorkerDispatchErrors } from "./draft-worker-batch.js";
+import { consumeRedlineRepair, ingestToolResult } from "./factor-state.js";
 import { presentLawyerToolResult } from "./tool-lawyer-card.js";
 import {
   stringifyToolResultForHistory,
@@ -448,6 +449,9 @@ export async function executeToolBatches(
       // 给子助手设置不超过父剩余的分片上限。maxToolCalls 此处为 hard ceiling。
       ctx.remainingToolCallBudget = Math.max(0, maxToolCalls - turn.toolCallsExecuted);
       const result = await getRunToolPipeline()(callCtx);
+      if (turn.factorState) {
+        ingestToolResult(turn.factorState, toolName, result.data);
+      }
       promoteLegacyUpdateDraftCraftPatch(ctx, result);
       if (toolName === UPDATE_PLAN_TOOL_NAME && result.ok) {
         const plan = promotePendingTurnPlan(ctx, result.data);
@@ -694,6 +698,12 @@ export async function executeToolBatches(
     if (!answeredToolCallIds.has(ref.id)) {
       skipToolAwaitingLawyer(ref);
     }
+  }
+
+  if (turn.status !== "awaiting_approval" && turn.status !== "awaiting_clarification") {
+    // Record the empty-track fact on the ledger. The next sample still sees the
+    // draft and the tool result; it is not retargeted onto a single anchor.
+    consumeRedlineRepair(turn.factorState);
   }
 
   return {

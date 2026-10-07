@@ -477,7 +477,8 @@ describe("execute_workflow", () => {
     expect(data.status).toBe("awaiting_lawyer_review");
 
     const steps = data.steps as string[];
-    expect(steps.some((s) => s.includes("等待律师审批"))).toBe(true);
+    expect(steps.some((s) => s.includes("approve=true"))).toBe(true);
+    expect(steps.some((s) => s.includes("不要等审核台放行"))).toBe(true);
   });
 
   it("refuses high-risk workflow when research is demo-corpus only", async () => {
@@ -1437,7 +1438,7 @@ describe("render_tracked_draft legal Guardian", () => {
     expect((result.data as { code?: string } | undefined)?.code).toBe("baseline_missing");
   });
 
-  it("blocks when the workspace opts into the hard wall via policy", async () => {
+  it("still exports Word when policy opts into the old hard wall (交办即终稿)", async () => {
     const ws = tmpWorkspace();
     const taskId = "task-guardian-block";
     seedGuardianFailCase(ws, taskId);
@@ -1449,14 +1450,9 @@ describe("render_tracked_draft legal Guardian", () => {
     const registry = createLegalToolRegistry();
     const tool = registry.get("render_tracked_draft")!;
     const result = await tool.execute({ task_id: taskId }, makeCtx(ws, "m1", failReviewer));
-    expect(result.ok).toBe(false);
-    expect((result.data as { code?: string } | undefined)?.code).toBe("legal_guardian_fail");
-    expect(result.error).toContain("独立审稿未过");
-    expect(JSON.stringify(result.data)).not.toContain("RAW");
-    expect(
-      (result.data as { guardian?: { gaps?: Array<{ code: string }> } } | undefined)?.guardian
-        ?.gaps?.[0]?.code,
-    ).toBe("coverage_gap");
+    // 带修订轨：审稿缺口随结果交出，不再因 policy block 扣下 Word。
+    expect((result.data as { code?: string } | undefined)?.code).not.toBe("legal_guardian_fail");
+    expect((result.data as { code?: string } | undefined)?.code).toBe("baseline_missing");
   });
 });
 

@@ -86,8 +86,8 @@ describe("LawmindWordRevisionSurface", () => {
     expect(accept).toBeTruthy();
     const exportButton = host.querySelector("[data-testid='lm-word-surface-export']");
     expect(exportButton).toBeInstanceOf(HTMLButtonElement);
-    expect((exportButton as HTMLButtonElement).disabled).toBe(true);
-    expect(exportButton?.textContent).toContain("导出并覆盖审阅稿");
+    expect((exportButton as HTMLButtonElement).disabled).toBe(false);
+    expect(exportButton?.textContent).toContain("另存审阅稿");
     await act(async () => {
       accept?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
@@ -929,6 +929,413 @@ describe("LawmindWordRevisionSurface", () => {
       { taskId: "task-1", after: "日" },
     );
     vi.useRealTimers();
+    root.unmount();
+  });
+
+  it("places the balloon beside the mark instead of stacking it at the top", async () => {
+    apiGetJson.mockResolvedValue({ ok: true, ...snapshot });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindWordRevisionSurface
+          apiBase="http://127.0.0.1:9"
+          root="workspace"
+          relPath="cases/m/补充协议.docx"
+          fileName="补充协议.docx"
+          onOpenWithSystem={() => undefined}
+          onRevealSource={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const page = host.querySelector<HTMLElement>("[data-word-slot='page'][data-word-hunk='h1']");
+    expect(page).toBeTruthy();
+    vi.spyOn(page!, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 480,
+      top: 480,
+      bottom: 500,
+      left: 0,
+      right: 100,
+      width: 100,
+      height: 20,
+      toJSON() {
+        return {};
+      },
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    const rail = host.querySelector<HTMLElement>("[data-word-slot='rail'][data-word-hunk='h1']");
+    expect(rail?.style.top).toBe("480px");
+    root.unmount();
+  });
+
+  it("shows native Word revisions by author and accepts them into the file", async () => {
+    apiGetJson.mockResolvedValue({
+      ok: true,
+      ...snapshot,
+      hunks: [],
+      revisionAuthor: "王律师",
+      summary: { pending: 0, accepted: 0, rejected: 0 },
+      paragraphs: [
+        {
+          segments: [
+            { kind: "text", text: "甲方应于" },
+            {
+              kind: "tracked",
+              revId: "1",
+              change: "del",
+              author: "李律师",
+              text: "十日",
+              color: 0,
+            },
+            {
+              kind: "tracked",
+              revId: "2",
+              change: "ins",
+              author: "王律师",
+              text: "五日",
+              color: 1,
+            },
+            { kind: "text", text: "内付款。" },
+          ],
+        },
+      ],
+      blocks: [
+        {
+          kind: "paragraph",
+          segments: [
+            { kind: "text", text: "甲方应于" },
+            {
+              kind: "tracked",
+              revId: "1",
+              change: "del",
+              author: "李律师",
+              text: "十日",
+              color: 0,
+            },
+            {
+              kind: "tracked",
+              revId: "2",
+              change: "ins",
+              author: "王律师",
+              text: "五日",
+              color: 1,
+            },
+            { kind: "text", text: "内付款。" },
+          ],
+        },
+      ],
+      tracked: [
+        { revId: "1", change: "del", author: "李律师", text: "十日", color: 0 },
+        { revId: "2", change: "ins", author: "王律师", text: "五日", color: 1 },
+      ],
+    });
+    apiSendJson.mockResolvedValue({ ok: true, changed: 1 });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindWordRevisionSurface
+          apiBase="http://127.0.0.1:9"
+          root="workspace"
+          relPath="cases/m/补充协议.docx"
+          fileName="补充协议.docx"
+          onOpenWithSystem={() => undefined}
+          onRevealSource={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const del = host.querySelector(".lm-word-track[data-rev-color='0'] del");
+    const ins = host.querySelector(".lm-word-track[data-rev-color='1'] ins");
+    expect(del?.textContent).toBe("十日");
+    expect(ins?.textContent).toBe("五日");
+    expect(host.textContent).toContain("李律师");
+    expect(host.textContent).toContain("王律师");
+    expect(host.textContent).toContain("核对 · 1 处待定，另有 1 处他人修订");
+    expect(host.querySelector("[data-testid='lm-word-track-1']")?.getAttribute("data-own-revision")).toBe(
+      "false",
+    );
+    expect(host.querySelector("[data-testid='lm-word-track-accept-1']")).toBeNull();
+    expect(host.querySelector("[data-testid='lm-word-track-reject-1']")).toBeNull();
+    expect(host.querySelector("[data-testid='lm-word-fold-1']")?.textContent).toContain("李律师 · 删除");
+    expect(host.querySelector("[data-testid='lm-word-track-1']")?.textContent).not.toContain("删除的内容");
+    const firstRail = host.querySelector<HTMLElement>("[data-testid='lm-word-track-1']");
+    expect(firstRail?.style.top).toBe("0px");
+    await act(async () => {
+      host
+        .querySelector("[data-word-slot='page'][data-word-hunk='1']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(host.querySelector("[data-testid='lm-word-track-1']")?.textContent).toContain("删除的内容");
+    expect(host.querySelector("[data-testid='lm-word-track-1']")?.textContent).toContain("十日");
+    expect(host.querySelector("[data-testid='lm-word-fold-2']")).toBeNull();
+    await act(async () => {
+      host
+        .querySelector("[data-testid='lm-word-track-accept-2']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(host.querySelector("[data-testid='lm-word-fold-2']")?.textContent).toContain("已接受");
+    expect(host.querySelector("[data-word-slot='page'] ins")?.textContent).toBe("五日");
+    expect(apiSendJson).not.toHaveBeenCalledWith(
+      "http://127.0.0.1:9",
+      "/api/word-surface/tracked",
+      "POST",
+      expect.anything(),
+    );
+    root.unmount();
+  });
+
+  it("drops an own revision from the rail after reject", async () => {
+    apiGetJson.mockResolvedValue({
+      ok: true,
+      ...snapshot,
+      hunks: [],
+      revisionAuthor: "王律师",
+      summary: { pending: 0, accepted: 0, rejected: 0 },
+      paragraphs: [
+        {
+          segments: [
+            {
+              kind: "tracked",
+              revId: "2",
+              change: "ins",
+              author: "王律师",
+              text: "五日",
+              color: 0,
+            },
+          ],
+        },
+      ],
+      tracked: [{ revId: "2", change: "ins", author: "王律师", text: "五日", color: 0 }],
+    });
+    apiSendJson.mockResolvedValue({ ok: true, changed: 1 });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindWordRevisionSurface
+          apiBase="http://127.0.0.1:9"
+          root="workspace"
+          relPath="cases/m/补充协议.docx"
+          fileName="补充协议.docx"
+          onOpenWithSystem={() => undefined}
+          onRevealSource={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      host
+        .querySelector("[data-testid='lm-word-track-reject-2']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(host.querySelector("[data-testid='lm-word-track-2']")).toBeNull();
+    expect(host.querySelector("[data-testid='lm-word-fold-2']")).toBeNull();
+    expect(apiSendJson).toHaveBeenCalledWith("http://127.0.0.1:9", "/api/word-surface/tracked", "POST", {
+      root: "workspace",
+      path: "cases/m/补充协议.docx",
+      decision: "reject",
+      revId: "2",
+    });
+    root.unmount();
+  });
+
+  it("filters the reviewing pane by author", async () => {
+    apiGetJson.mockResolvedValue({
+      ok: true,
+      ...snapshot,
+      hunks: [],
+      authors: ["李律师", "王律师"],
+      tracked: [
+        { revId: "1", change: "del", author: "李律师", text: "十日", color: 0 },
+        { revId: "2", change: "ins", author: "王律师", text: "五日", color: 1 },
+      ],
+      paragraphs: [
+        {
+          segments: [
+            { kind: "text", text: "甲方应于" },
+            { kind: "tracked", revId: "1", change: "del", author: "李律师", text: "十日", color: 0 },
+            { kind: "tracked", revId: "2", change: "ins", author: "王律师", text: "五日", color: 1 },
+          ],
+        },
+      ],
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindWordRevisionSurface
+          apiBase="http://127.0.0.1:9"
+          root="workspace"
+          relPath="cases/m/补充协议.docx"
+          fileName="补充协议.docx"
+          onOpenWithSystem={() => undefined}
+          onRevealSource={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const filter = host.querySelector<HTMLSelectElement>("[data-testid='lm-word-author-filter']");
+    expect(filter).toBeTruthy();
+    await act(async () => {
+      if (filter) {
+        filter.value = "李律师";
+        filter.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+    expect(host.querySelector("[data-testid='lm-word-track-1']")).toBeTruthy();
+    expect(host.querySelector("[data-testid='lm-word-track-2']")).toBeNull();
+    root.unmount();
+  });
+
+  it("saves engine runs with Control+S", async () => {
+    apiGetJson.mockResolvedValue({
+      ok: true,
+      ...snapshot,
+      hunks: [],
+      paragraphs: [
+        {
+          runs: [
+            { text: "甲方应于" },
+            { text: "五日", track: { kind: "ins", id: "2", author: "张三" } },
+            { text: "付款。" },
+          ],
+          segments: [
+            { kind: "text", text: "甲方应于" },
+            { kind: "tracked", revId: "2", change: "ins", author: "张三", text: "五日", color: 0 },
+            { kind: "text", text: "付款。" },
+          ],
+        },
+      ],
+      tracked: [{ revId: "2", change: "ins", author: "张三", text: "五日", color: 0 }],
+      lawyerDisplayName: "张三",
+    });
+    apiSendJson.mockResolvedValue({ ok: true });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindWordRevisionSurface
+          apiBase="http://127.0.0.1:9"
+          root="workspace"
+          relPath="cases/m/补充协议.docx"
+          fileName="补充协议.docx"
+          onOpenWithSystem={() => undefined}
+          onRevealSource={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const box = host.querySelector("[data-baseline]");
+    await act(async () => {
+      box?.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(apiSendJson).toHaveBeenCalledWith(
+      "http://127.0.0.1:9",
+      "/api/word-surface/save",
+      "POST",
+      expect.objectContaining({
+        root: "workspace",
+        path: "cases/m/补充协议.docx",
+        paragraphs: [
+          expect.arrayContaining([
+            expect.objectContaining({ text: "五日", track: expect.objectContaining({ author: "张三" }) }),
+          ]),
+        ],
+      }),
+    );
+    root.unmount();
+  });
+
+  it("folds an engine track on accept and keeps the mark for export", async () => {
+    apiGetJson.mockResolvedValue({
+      ok: true,
+      ...snapshot,
+      hunks: [],
+      revisionAuthor: "张三",
+      paragraphs: [
+        {
+          runs: [
+            { text: "甲方应于" },
+            { text: "五日", track: { kind: "ins", id: "2", author: "张三" } },
+            { text: "付款。" },
+          ],
+          segments: [
+            { kind: "text", text: "甲方应于" },
+            { kind: "tracked", revId: "2", change: "ins", author: "张三", text: "五日", color: 0 },
+            { kind: "text", text: "付款。" },
+          ],
+        },
+      ],
+      tracked: [{ revId: "2", change: "ins", author: "张三", text: "五日", color: 0 }],
+    });
+    apiSendJson.mockResolvedValue({ ok: true });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindWordRevisionSurface
+          apiBase="http://127.0.0.1:9"
+          root="workspace"
+          relPath="cases/m/补充协议.docx"
+          fileName="补充协议.docx"
+          onOpenWithSystem={() => undefined}
+          onRevealSource={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      host
+        .querySelector("[data-testid='lm-word-track-accept-2']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(host.querySelector("[data-testid='lm-word-fold-2']")?.textContent).toContain("已接受");
+    expect(host.querySelector("[data-word-slot='page'] ins")?.textContent).toBe("五日");
+    expect(apiSendJson).toHaveBeenCalledWith(
+      "http://127.0.0.1:9",
+      "/api/word-surface/save",
+      "POST",
+      expect.objectContaining({
+        paragraphs: [
+          expect.arrayContaining([
+            expect.objectContaining({ text: "五日", track: expect.objectContaining({ author: "张三" }) }),
+          ]),
+        ],
+      }),
+    );
+    expect(apiSendJson).not.toHaveBeenCalledWith(
+      "http://127.0.0.1:9",
+      "/api/word-surface/tracked",
+      "POST",
+      expect.anything(),
+    );
     root.unmount();
   });
 });

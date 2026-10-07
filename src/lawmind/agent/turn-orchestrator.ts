@@ -15,6 +15,20 @@ import { isolationKey, resetIsolationBudget } from "./context-isolation-budget.j
 import { resolveContextTuning } from "./context-tuning.js";
 import { resolveToolSandboxEnabled } from "./dangerous-tool-policy.js";
 import {
+  type FactorState,
+  anchorsNamedInText,
+  applyInverseEdits,
+  beginTurnFactors,
+  bodiesForNextRender,
+  correctionCone,
+  draftTaskIdFromSurgical,
+  emptyFactorState,
+  isFactorAnchor,
+  revertProposals,
+  selectInverseEditsForCone,
+  takeBodySnapshot,
+} from "./factor-state.js";
+import {
   applyLiveTurnEvent,
   beginLiveTurnProgress,
   finishLiveTurnProgress,
@@ -98,6 +112,66 @@ import type { AgentConfig, AgentContext, AgentTurn } from "./types.js";
 const DEFAULT_MAX_HISTORY_MESSAGES = 100;
 /** Used only when `AgentConfig.toolExecutionTimeoutMs` is unset. */
 const DEFAULT_TOOL_TIMEOUT_MS = DEFAULT_TOOL_WALL_TIMEOUT_MS;
+
+async function revertWrittenEdits(
+  workspaceDir: string,
+  state: FactorState | undefined,
+  cone: readonly string[] = [],
+): Promise<void> {
+  if (!state) {
+    return;
+  }
+  const scoped = selectInverseEditsForCone(state, cone);
+  const taskId = draftTaskIdFromSurgical(state);
+  const factorCone = cone.filter(isFactorAnchor);
+  const hasSnapshot =
+    factorCone.length === 0 &&
+    Boolean(taskId) &&
+    (state.bodySnapshots ?? []).some((shot) => shot.taskId === taskId);
+  if (!taskId || (scoped.apply.length === 0 && !hasSnapshot)) {
+    return;
+  }
+  const { persistDraft, readDraft } = await import("../drafts/index.js");
+  const draft = readDraft(workspaceDir, taskId);
+  if (!draft) {
+    return;
+  }
+  if (hasSnapshot) {
+    const snapshot = takeBodySnapshot(state, taskId);
+    if (snapshot) {
+      const current = draft.sections.map((section) => section.body ?? "");
+      const nextBodies = bodiesForNextRender(current, snapshot);
+      const sections = draft.sections.map((section, index) => ({
+        ...section,
+        body: nextBodies[index] ?? section.body,
+      }));
+      persistDraft(workspaceDir, { ...draft, sections });
+      state.inverseEdits = [];
+      await refreshExportedWord(workspaceDir, taskId);
+      return;
+    }
+  }
+  if (scoped.apply.length === 0) {
+    return;
+  }
+  let applied = 0;
+  const sections = draft.sections.map((section) => {
+    const inverted = applyInverseEdits(section.body ?? "", scoped.apply);
+    applied += inverted.applied;
+    return { ...section, body: inverted.text };
+  });
+  if (applied === 0) {
+    return;
+  }
+  persistDraft(workspaceDir, { ...draft, sections });
+  state.inverseEdits = scoped.keep;
+  await refreshExportedWord(workspaceDir, taskId);
+}
+
+async function refreshExportedWord(workspaceDir: string, taskId: string): Promise<void> {
+  const { refreshTrackedExportIfPresent } = await import("../drafts/export-tracked-sibling.js");
+  await refreshTrackedExportIfPresent({ workspaceDir, taskId });
+}
 
 export async function runTurn(opts: {
   config: AgentConfig;
@@ -499,6 +573,7 @@ export async function runTurn(opts: {
     typeof priorUsed === "number" && Number.isFinite(priorUsed) && priorUsed > 0
       ? Math.floor(priorUsed)
       : 0;
+  session.factorState = beginTurnFactors(session.factorState ?? emptyFactorState());
   const turn: AgentTurn = {
     turnId,
     sessionId: session.sessionId,
@@ -508,7 +583,21 @@ export async function runTurn(opts: {
     status: "running",
     gateDecisions: [],
     startedAt,
+    factorState: session.factorState,
   };
+  ctx.factorState = session.factorState;
+  if (isCorrectionUtterance(instruction)) {
+    const named = anchorsNamedInText(instruction, session.factorState);
+    const reverted = revertProposals(session.factorState, named);
+    const cone = [...new Set([...reverted, ...correctionCone(session.factorState, named)])];
+    session.factorState.correctionLightCone = cone;
+    if (cone.length > 0) {
+      ctx.correctionLightCone = cone;
+    }
+    await revertWrittenEdits(config.workspaceDir, session.factorState, cone);
+  } else if ((session.factorState.correctionLightCone ?? []).length > 0) {
+    ctx.correctionLightCone = session.factorState.correctionLightCone;
+  }
   // Codex 对齐：回合开始就落盘占位轮次。否则中途退出/被杀会留下「有历史、无轮次」
   // 的会话，下一句单字就会被当成新任务顺着旧上下文重跑（真实事故）。
   if (!stoppedDuringSetup) {
@@ -762,6 +851,7 @@ export async function runTurn(opts: {
 
     const finalizeShared = (): TurnFinalizeShared => ({
       workspaceDir: config.workspaceDir,
+      ...(projectDirResolved ? { projectDir: projectDirResolved } : {}),
       session,
       turn,
       emitEvent,

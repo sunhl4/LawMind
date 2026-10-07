@@ -31,6 +31,24 @@ export function revisionPieces(before: string, after: string): RevisionPiece[] {
   return pieces;
 }
 
+/** True when a Word balloon is the painted form of this redline hunk. */
+export function trackCoversHunk(
+  row: { change: string; text: string },
+  hunk: { before: string; after: string },
+): boolean {
+  const text = row.text.trim();
+  if (!text) {
+    return false;
+  }
+  if (row.change === "del" || row.change === "moveFrom") {
+    return hunk.before.includes(text);
+  }
+  if (row.change === "ins" || row.change === "moveTo") {
+    return hunk.after.includes(text);
+  }
+  return false;
+}
+
 /** Edit one changed fragment. The stored sentence keeps the unchanged characters. */
 export function replaceChangeAfter(
   before: string,

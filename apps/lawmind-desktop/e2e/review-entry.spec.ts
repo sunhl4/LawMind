@@ -69,7 +69,6 @@ test.describe("文书台 / 工作台 决策落地", () => {
             matterReplicaCollab: false,
             ethicsWall: false,
             wordAddinAutoRun: true,
-            guardianTrackedRedlineBlock: false,
           },
         }),
       });

@@ -1,8 +1,8 @@
 /**
- * 权威库连接 — 只告诉律师接上没有、能不能查。
+ * 权威库连接 — 律师在这里接北大法宝，或继续用公开法规。
  */
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   authorityCorpusStatusLabel,
   isAuthorityCorpusCommercialReady,
@@ -18,6 +18,16 @@ export type LawmindAuthorityUsageSummary = {
   message?: string;
 };
 
+export type AuthoritySavePayload = {
+  provider: "pkulaw" | "open";
+  lawEndpoint?: string;
+  caseEndpoint?: string;
+  apiKey?: string;
+};
+
+const DEFAULT_LAW_ENDPOINT = "https://apim-gateway.pkulaw.com/mcp-law-search-service";
+const DEFAULT_CASE_ENDPOINT = "https://apim-gateway.pkulaw.com/mcp-case-search-service";
+
 type Props = {
   authorityCorpus?: LawmindSettingsAuthorityCorpus | null;
   authorityUsage?: LawmindAuthorityUsageSummary | null;
@@ -28,6 +38,8 @@ type Props = {
   npcFlkEnabled?: boolean;
   npcSaving?: boolean;
   onToggleNpc?: (enabled: boolean) => void;
+  authoritySaving?: boolean;
+  onSaveAuthority?: (payload: AuthoritySavePayload) => Promise<void>;
 };
 
 export function LawmindAuthoritySetup({
@@ -38,10 +50,71 @@ export function LawmindAuthoritySetup({
   npcFlkEnabled = true,
   npcSaving = false,
   onToggleNpc,
+  authoritySaving = false,
+  onSaveAuthority,
 }: Props) {
   const status = authorityCorpus?.status ?? "unset";
   const commercial = isAuthorityCorpusCommercialReady(status);
   const probeable = isAuthorityCorpusUiReady(status);
+  const pkulawOn = authorityCorpus?.provider === "pkulaw";
+  const [lawEndpoint, setLawEndpoint] = useState(DEFAULT_LAW_ENDPOINT);
+  const [caseEndpoint, setCaseEndpoint] = useState(DEFAULT_CASE_ENDPOINT);
+  const [apiKey, setApiKey] = useState("");
+  const [hasExistingKey, setHasExistingKey] = useState(Boolean(authorityCorpus?.authConfigured));
+  const [formMsg, setFormMsg] = useState<string | null>(null);
+  const [settingsReady, setSettingsReady] = useState(
+    () => typeof window.lawmindDesktop?.readAuthoritySettings !== "function",
+  );
+
+  useEffect(() => {
+    const read = window.lawmindDesktop?.readAuthoritySettings;
+    let cancelled = false;
+    if (!read) {
+      setSettingsReady(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setSettingsReady(false);
+    void read()
+      .then((res) => {
+        if (cancelled || !res?.ok) {
+          return;
+        }
+        if (res.lawEndpoint) {
+          setLawEndpoint(res.lawEndpoint);
+        }
+        if (res.caseEndpoint) {
+          setCaseEndpoint(res.caseEndpoint);
+        }
+        setHasExistingKey(Boolean(res.hasApiKey));
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSettingsReady(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authorityCorpus?.provider, authorityCorpus?.status, authorityCorpus?.authConfigured]);
+
+  async function save(payload: AuthoritySavePayload) {
+    if (!onSaveAuthority) {
+      setFormMsg("请在桌面应用里保存。");
+      return;
+    }
+    setFormMsg(null);
+    try {
+      await onSaveAuthority(payload);
+      setApiKey("");
+      setHasExistingKey(payload.provider === "pkulaw" ? true : hasExistingKey);
+      setFormMsg(payload.provider === "pkulaw" ? "已连接北大法宝。" : "已改用公开法规。");
+    } catch (cause) {
+      setFormMsg(cause instanceof Error ? cause.message : "保存失败");
+    }
+  }
+
   return (
     <section
       className="lm-settings-block"
@@ -50,7 +123,7 @@ export function LawmindAuthoritySetup({
     >
       <h3 className="lm-settings-subtitle">连接权威库</h3>
       <p className="lm-settings-caption" role="status">
-        未命中则不编造。闭源库由管理员配置。
+        未命中则不编造。北大法宝用你自己的访问令牌，只存在这台电脑上。
       </p>
       <div className="lm-settings-row">
         <span className="lm-settings-key">状态</span>
@@ -109,14 +182,83 @@ export function LawmindAuthoritySetup({
       <p className="lm-settings-caption" role="note">
         官方公开检索，命中标「国家法律法规数据库」；未命中或不可达时回退演示语料并如实标注。
       </p>
+      <label className="lm-field">
+        <span>北大法宝访问令牌</span>
+        <input
+          type="password"
+          autoComplete="off"
+          data-testid="lm-authority-token"
+          value={apiKey}
+          disabled={authoritySaving || !settingsReady}
+          placeholder={hasExistingKey ? "留空则保留已保存的令牌" : "粘贴你自己的访问令牌"}
+          onChange={(e) => setApiKey(e.target.value)}
+        />
+      </label>
+      <details className="lm-settings-advanced">
+        <summary>地址（一般不用改）</summary>
+        <div className="lm-settings-advanced-body">
+          <label className="lm-field">
+            <span>法规地址</span>
+            <input
+              type="text"
+              data-testid="lm-authority-law-endpoint"
+              value={lawEndpoint}
+              disabled={authoritySaving || !settingsReady}
+              onChange={(e) => setLawEndpoint(e.target.value)}
+            />
+          </label>
+          <label className="lm-field">
+            <span>案例地址</span>
+            <input
+              type="text"
+              data-testid="lm-authority-case-endpoint"
+              value={caseEndpoint}
+              disabled={authoritySaving || !settingsReady}
+              onChange={(e) => setCaseEndpoint(e.target.value)}
+            />
+          </label>
+        </div>
+      </details>
       <div className="lm-settings-actions">
+        <button
+          type="button"
+          className="lm-btn lm-btn-accent lm-btn-sm"
+          data-testid="lm-authority-save"
+          disabled={authoritySaving || !settingsReady || !onSaveAuthority}
+          onClick={() =>
+            void save({
+              provider: "pkulaw",
+              lawEndpoint,
+              caseEndpoint,
+              apiKey,
+            })
+          }
+        >
+          {authoritySaving ? "正在保存…" : pkulawOn ? "更新北大法宝" : "连接北大法宝"}
+        </button>
+        {pkulawOn ? (
+          <button
+            type="button"
+            className="lm-btn lm-btn-secondary lm-btn-sm"
+            data-testid="lm-authority-use-open"
+            disabled={authoritySaving || !settingsReady || !onSaveAuthority}
+            onClick={() => void save({ provider: "open" })}
+          >
+            改用公开法规
+          </button>
+        ) : null}
         {onOpenApiWizard ? (
-          <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={onOpenApiWizard}>
+          <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" onClick={onOpenApiWizard}>
             连接向导
           </button>
         ) : null}
         {probeControl}
       </div>
+      {formMsg ? (
+        <p className="lm-settings-caption" role="status" data-testid="lm-authority-save-msg">
+          {formMsg}
+        </p>
+      ) : null}
       {status === "configured" &&
       (authorityCorpus?.provider === "pkulaw" || authorityCorpus?.provider === "generic") ? (
         <p className="lm-settings-caption" role="note">

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_HARD_TOOL_CALL_CEILING,
   DEFAULT_SOFT_TOOL_CALLS,
+  formatToolBudgetHardStopReply,
   resolveToolCallBudgets,
   shouldCheckpointToolBudget,
   shouldHardStopToolBudget,
@@ -35,5 +36,10 @@ describe("shouldHardStopToolBudget", () => {
   it("stops only at the hard ceiling", () => {
     expect(shouldHardStopToolBudget(79, 80)).toBe(false);
     expect(shouldHardStopToolBudget(80, 80)).toBe(true);
+  });
+
+  it("delivers remaining work without asking the lawyer to continue", () => {
+    expect(formatToolBudgetHardStopReply()).toContain("待确认");
+    expect(formatToolBudgetHardStopReply()).not.toContain("继续");
   });
 });

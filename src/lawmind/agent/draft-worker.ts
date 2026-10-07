@@ -30,6 +30,16 @@ import {
   rankExploreCandidates,
   runFolderExplorer,
 } from "./explore-folder-worker.js";
+import {
+  anchorsMentionedInParts,
+  composeWorkerSystem,
+  conformalQhatFor,
+  emptyFactorState,
+  formatMarginalBlock,
+  marginalFactors,
+  selectSkeleton,
+  type FactorState,
+} from "./factor-state.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import {
   fitParentAdmission,
@@ -57,11 +67,11 @@ export const REVIEW_WORKER_CLOSE_PROMPT =
   "只读工具轮次已用尽。请立刻交回可落改的原句、改后句、待确认。原句必须出现在材料里。材料没有的数字和身份写入待确认，不要编造。不要改原件，不要导出，不要再调用工具。";
 
 export const REVIEW_WORKER_DEVELOPER_INSTRUCTIONS = [
-  "审查子工：只交回这一争点可落改的原句、改后句和待确认。",
+  "审查子工：只交回这一争点可落改的补丁（原句 find、改后句 replace、材料 span）。",
   "不要起草合同条款或新文书，不要改原件，不要导出或外发。",
   "原句必须来自材料或只读工具返回；材料没有的数字和身份写入待确认，不要编造法条原文。",
   "材料不够时先用只读工具：list_dir / explore_folder / analyze_document / search_statute / search_case_law。",
-  "回报：原句、改后句、待确认。不要声称已完成整份审查意见。",
+  "回报：patches、结论、待确认。不要声称已完成整份审查意见。",
 ].join("");
 
 const MIN_DRAFT_CHARS = 40;
@@ -79,6 +89,10 @@ export type DraftWorkerInput = {
   path?: string;
   section?: string;
   style?: string;
+  /** Stable proposition this sidecar answers. Seeds the 1-hop marginal. */
+  anchor?: string;
+  /** Entangled anchors the sidecar may read, e.g. amount:wage. */
+  binds?: string[];
   /** Continue this sidecar instead of starting another. */
   resumeId?: string;
   followUp?: string;
@@ -91,6 +105,7 @@ export type DraftWorkerModelPayload = {
   citations: string[];
   gaps: string[];
   conclusion?: string;
+  patches?: Array<{ find: string; replace: string; span?: string; anchor?: string }>;
 };
 
 export type DraftWorkerContext = Partial<
@@ -112,6 +127,7 @@ export type DraftWorkerContext = Partial<
     | "emitToolProgress"
     | "deliveryIntent"
     | "sidecarRole"
+    | "factorState"
   >
 >;
 
@@ -155,6 +171,7 @@ export type DraftWorkerOutput =
         sources: string[];
         toolsUsed: string[];
         steps: Array<{ tool: string; ok: boolean }>;
+        patches?: Array<{ find: string; replace: string; span?: string; anchor?: string }>;
       };
     }
   | {
@@ -278,6 +295,7 @@ export function parseDraftWorkerModelText(raw: string): DraftWorkerModelPayload 
         citations: stringList(rec.citations),
         gaps: stringList(rec.gaps),
         conclusion: oneLine(rec.conclusion),
+        patches: parsePatches(rec.patches),
       };
     }
     return null;
@@ -320,6 +338,34 @@ export function groundDraftCitations(
     }
   }
   return { citations: kept, dropped };
+}
+
+function parsePatches(raw: unknown): DraftWorkerModelPayload["patches"] {
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
+  const patches = raw.flatMap((item) => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+    const row = item as Record<string, unknown>;
+    const find = typeof row.find === "string" ? row.find.trim() : "";
+    const replace = typeof row.replace === "string" ? row.replace.trim() : "";
+    if (!find || !replace) {
+      return [];
+    }
+    const span = typeof row.span === "string" ? row.span.trim() : "";
+    const anchor = typeof row.anchor === "string" ? row.anchor.trim() : "";
+    return [
+      {
+        find,
+        replace,
+        ...(span ? { span } : {}),
+        ...(anchor ? { anchor } : {}),
+      },
+    ];
+  });
+  return patches.length > 0 ? patches : undefined;
 }
 
 function citationGrounded(citation: string, compactSource: string): boolean {
@@ -492,6 +538,10 @@ async function loadSourceMaterials(
   return { text: clipExcerpt(chunks.join("\n\n")), sources };
 }
 
+function anchorsMentioned(state: FactorState, parts: readonly string[]): string[] {
+  return anchorsMentionedInParts(state, parts);
+}
+
 function buildDraftUserPrompt(
   input: DraftWorkerInput,
   brief: string,
@@ -503,9 +553,13 @@ function buildDraftUserPrompt(
   const ask = review
     ? "请按任务书审查指定争点。draft 写依据说明，不要写新条款。优先输出 JSON；也可用【结论】【正文】【出处】【缺口】。"
     : "请按任务书起草指定章节。优先输出 JSON；长文也可按【正文】【结论】【出处】【缺口】分段。";
+  const skeleton = selectSkeleton({
+    revisingDocument: Boolean(input.path?.trim() || input.materials?.trim()),
+  });
   return [
+    skeleton.header ?? "",
     ask,
-    `JSON schema: { "draft": "string", "conclusion": "一句结论", "citations": ["材料出处"], "gaps": ["待补缺口"] }`,
+    `JSON schema: { "draft": "string", "conclusion": "一句结论", "citations": ["材料出处"], "gaps": ["待补缺口"], "patches": [{ "find": "原句", "replace": "改后句", "span": "材料原句", "anchor": "clause:…" }] }`,
     "",
     brief,
     `章节：${section}`,
@@ -655,7 +709,25 @@ export async function runDraftWorker(
     deliveryHint: [input.goal, input.section, input.style].filter(Boolean).join(" "),
   });
   const packSuffix = workStyleBlock ? `\n\n${workStyleBlock}` : "";
-  const systemContent = `${instructions}${sidecarConstraint}${packSuffix}\n出处必须来自材料或只读工具返回；材料没有的写进缺口。`;
+  const named = [input.section, input.goal, input.anchor, ...(input.binds ?? [])].filter(
+    (part): part is string => Boolean(part?.trim()),
+  );
+  const factorState = ctx?.factorState ?? emptyFactorState();
+  const seeds = [
+    ...new Set([
+      ...(input.anchor?.trim() ? [input.anchor.trim()] : []),
+      ...(input.binds ?? []).map((item) => item.trim()).filter(Boolean),
+      ...anchorsMentioned(factorState, named),
+    ]),
+  ];
+  const marginal = formatMarginalBlock(
+    marginalFactors(factorState, seeds),
+    conformalQhatFor(factorState),
+  );
+  const systemContent = composeWorkerSystem({
+    instructions: `${instructions}${sidecarConstraint}${packSuffix}\n出处必须来自材料或只读工具返回；材料没有的写进缺口。`,
+    marginal,
+  });
   const userContent = buildDraftUserPrompt(input, checked.brief, sourceBlock, review);
 
   if (agentCtx) {
@@ -749,7 +821,7 @@ export async function runDraftWorker(
         review ? "review" : "draft",
         withFinalAssistant(loop.messages, text),
       ),
-      isolationKey(ctx.workspaceDir ?? "", ctx.sessionId || "draft-worker"),
+      isolationKey(ctx?.workspaceDir ?? "", ctx?.sessionId || "draft-worker"),
       review ? "review" : "draft",
     );
   }
@@ -907,6 +979,7 @@ function successResult(
       sources: loaded.sources,
       toolsUsed,
       steps,
+      ...(parsed.patches && parsed.patches.length > 0 ? { patches: parsed.patches } : {}),
     },
   };
 }

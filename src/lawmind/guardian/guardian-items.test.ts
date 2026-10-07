@@ -5,7 +5,6 @@ import {
   buildGuardianEvidencePack,
   guardianExpectedItemIds,
   guardianBlocksExport,
-  guardianChecklistGapsOnly,
   parseGuardianItemVerdicts,
   parseGuardianReviewerJson,
   parseGuardianVerdict,
@@ -123,7 +122,7 @@ describe("P2.2 aggregateGuardianItems — verdict 由代码聚合，不由模型
         verdict: "fail",
         gaps: [{ code: "checklist_not_covered", message: "未覆盖" }],
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("summaryGaps 非空 → fail（全文级缺口）", () => {
@@ -290,21 +289,6 @@ describe("P2.2 合同审查 spec 的检查单能变成逐项判定清单", () =>
     expect(realMiss.verdict).toBe("fail");
     expect(realMiss.gaps.map((gap) => gap.code)).toEqual(["checklist_not_covered", "coverage"]);
     expect(guardianBlocksExport({ verdict: realMiss.verdict, gaps: realMiss.gaps })).toBe(true);
-    expect(
-      guardianChecklistGapsOnly({
-        verdict: "fail",
-        gaps: [{ code: "checklist_not_covered", message: "价款未约定" }],
-      }),
-    ).toBe(true);
-    expect(guardianChecklistGapsOnly({ verdict: realMiss.verdict, gaps: realMiss.gaps })).toBe(
-      false,
-    );
-    expect(
-      guardianChecklistGapsOnly({
-        verdict: "fail",
-        gaps: [{ code: "citation_ids_missing", message: "引用对不上" }],
-      }),
-    ).toBe(false);
 
     const blankNumber = aggregateGuardianItems({
       items: [{ id: "pr.price", supported: false, note: "单价未经确认不得改" }],

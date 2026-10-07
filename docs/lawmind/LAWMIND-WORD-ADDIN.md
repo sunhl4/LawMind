@@ -127,10 +127,8 @@ Internet 连接」看起来像断网，实际是来源被拒）。上面这一�
    实际 `word/document.xml`，检出「删/增相邻且几乎同句」的修订对（`xml_qa_non_minimal_edits`）——
    那正是多人协作时最难受的「整句删+整句增」，命中即不当作已完成。口径见
    [LAWMIND-MINIMAL-EDITS.md](LAWMIND-MINIMAL-EDITS.md)。
-2. **独立审稿（Guardian）**：缺省随 edition——solo 档 `advisory`（审稿照跑，缺口如实写进窗格那句话，
-   不阻断出稿；否则「审稿 2 轮未过」会让整条无人值守改稿断掉，律师只看到「没有结果」）；
-   firm / private_deploy 档 `block`（审稿不过就不出稿）。可用 policy `guardianTrackedRedline` 或
-   `LAWMIND_GUARDIAN_TRACKED_REDLINE` 覆盖任一方向。
+2. **独立审稿（Guardian）**：修订稿 `contractEdit` 不跑独立审稿；`render_tracked_draft` 交办即终稿，不因审稿结论挡本机出稿。
+   窗格仍可展示缺口。正式新建件 `render_document` 仍受引用/覆盖门禁。真正外发走 `send_email`。
 
 ### 请求状态
 

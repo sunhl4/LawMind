@@ -133,14 +133,10 @@ pnpm --filter lawmind-desktop typecheck
       安全线复核过：`send_email` 仍机械暂停、`prepare_outbound_mail` 不在预批准名单、
       Word 回合内 `render_document` 被工具自身拒绝。详见
       [docs/lawmind/LAWMIND-WORD-ADDIN.md](docs/lawmind/LAWMIND-WORD-ADDIN.md)。
-- [x] **独立审稿口径按档显式化（安全口径变更）**：tracked 修订稿的 Guardian 结论缺省随 edition——
-      **solo = `advisory`**（审稿照跑、缺口如实随结果交给律师，含 Word 窗格）、
-      **firm / private_deploy = `block`**（审稿不过就不出稿，保留律所级硬墙）。
-      任一档都可用 policy `guardianTrackedRedline` 或 `LAWMIND_GUARDIAN_TRACKED_REDLINE` 覆盖。
-      依据：`shouldRunLegalGuardianForDocument` 本就把 `contractEdit` 稿列为豁免项（修订稿不是最终交付物），
-      真正外发仍由 `send_email` 独立把关；而 solo 档把 tracked 导出按 `block` 处理会让整条无人值守改稿
-      在「审稿 2 轮未过」处断掉、律师只看到「没有结果」。律所档保留硬墙，因为那边
-      「未过独立审稿的稿子流出去」代价更高，且本就有「桌面端必须有一次显式动作」的档位。
+- [x] **交办即终稿（修订 Word 不再用审稿硬墙）**：`render_tracked_draft` 始终出本机 Word，疑问标进稿内
+      【待核实】/修订痕迹，不经审核台放行、不因 Guardian 结论挡导出。`contractEdit` 稿本就不跑独立审稿。
+      正式新建件 `render_document` 仍受引用/覆盖门禁；真正外发仍由 `send_email`（待发信 + 律师批准）把关。
+      旧 policy 键 `guardianTrackedRedline` / 环境变量档位已忽略，不再恢复硬墙。
 
 **期次模板（抄到下期）**：
 

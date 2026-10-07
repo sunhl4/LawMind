@@ -10,9 +10,15 @@ const openDeliverableInWps = vi.fn();
 const revealDeliverableInFolder = vi.fn();
 const openContractRevisionForTask = vi.fn();
 
-vi.mock("./lawmind-open-contract-revision", () => ({
-  openContractRevisionForTask: (...args: unknown[]) => openContractRevisionForTask(...args),
-}));
+vi.mock("./lawmind-open-contract-revision", async () => {
+  const actual = await vi.importActual<typeof import("./lawmind-open-contract-revision")>(
+    "./lawmind-open-contract-revision",
+  );
+  return {
+    ...actual,
+    openContractRevisionForTask: (...args: unknown[]) => openContractRevisionForTask(...args),
+  };
+});
 
 vi.mock("./canvas/host-actions", () => ({
   openDeliverableInWps: (...args: unknown[]) => openDeliverableInWps(...args),

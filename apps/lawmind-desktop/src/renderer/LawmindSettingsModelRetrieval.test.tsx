@@ -196,6 +196,42 @@ describe("LawmindSettingsModelRetrieval", () => {
     expect(host.textContent).not.toMatch(/配置无效$/);
   });
 
+  it("saves a 北大法宝 token from the settings form", async () => {
+    const onSaveAuthority = vi.fn(async () => undefined);
+    await act(async () => {
+      root.render(
+        <LawmindSettingsModelRetrieval
+          {...baseProps}
+          onSaveAuthority={onSaveAuthority}
+          health={{ modelConfigured: true }}
+        />,
+      );
+    });
+    const token = host.querySelector<HTMLInputElement>('[data-testid="lm-authority-token"]');
+    expect(token).toBeTruthy();
+    expect(host.textContent).not.toContain("管理员配置");
+    expect(host.textContent).not.toContain("MCP");
+    await act(async () => {
+      // eslint-disable-next-line typescript/unbound-method -- Descriptor#set is bound via .call below.
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(token, "tok-lawyer");
+      token?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const save = host.querySelector<HTMLButtonElement>('[data-testid="lm-authority-save"]');
+    expect(save?.textContent).toContain("连接北大法宝");
+    await act(async () => {
+      save?.click();
+    });
+    expect(onSaveAuthority).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "pkulaw",
+        apiKey: "tok-lawyer",
+        lawEndpoint: "https://apim-gateway.pkulaw.com/mcp-law-search-service",
+        caseEndpoint: "https://apim-gateway.pkulaw.com/mcp-case-search-service",
+      }),
+    );
+  });
+
   it("shows unset authority status and fail-closed caption", async () => {
     await act(async () => {
       root.render(

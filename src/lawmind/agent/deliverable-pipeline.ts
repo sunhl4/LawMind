@@ -103,7 +103,7 @@ export function formatDeliverableWorkflowReply(data: {
   if (data.researchDegraded) {
     lines.push("");
     lines.push(
-      "说明：法规/案例检索结果为空或超时，已按「可交付物优先」继续生成**带章节框架与待补充项**的草稿，请您在审核台补全事实与引用。",
+      "说明：法规/案例检索结果为空或超时，已按「可交付物优先」继续生成**带章节框架与待补充项**的草稿；本机 Word 可带【待核实】写出，不必先在审核台点通过。",
     );
   }
   if (data.taskId) {
@@ -123,12 +123,15 @@ export function formatDeliverableWorkflowReply(data: {
     lines.push(`- **状态**：已渲染 Word（低风险自动路径）`);
     lines.push(`- **路径**：\`${data.outputPath}\``);
   } else {
-    lines.push(`- **状态**：待您在 **审核台** 审阅（${data.status ?? "awaiting_lawyer_review"}）`);
+    lines.push(
+      `- **状态**：草稿已生成（${data.status ?? "awaiting_lawyer_review"}）；本机 Word 可立即导出，审核台「通过」不是前置条件。`,
+    );
     lines.push("");
     lines.push("### 下一步");
-    lines.push("1. 打开顶部 **「审核」**，找到上述任务 ID 的草稿；");
-    lines.push("2. 修改、补充后点击 **通过**；");
-    lines.push("3. 再点击 **导出 Word**（或让我调用 `render_document`）生成正式 .docx。");
+    lines.push(
+      "1. 让我调用 `render_document` 或 `render_tracked_draft` 写出本机 .docx（疑问标【待核实】/修订）；",
+    );
+    lines.push("2. 您在 Word 里改即可；外发仍走待发信，须您批准后才真正发出。");
   }
   if (data.steps && data.steps.length > 0) {
     lines.push("");

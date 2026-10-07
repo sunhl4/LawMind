@@ -89,11 +89,6 @@ export const EDITION_FEATURES = {
    */
   wordAddinAutoRun: { solo: true, firm: false, private_deploy: false },
   /**
-   * Tracked redline: independent guardian must pass before export.
-   * Solo off (= advisory); Firm / Private on (= block). Policy `guardianTrackedRedline` overrides.
-   */
-  guardianTrackedRedlineBlock: { solo: false, firm: true, private_deploy: true },
-  /**
    * Multi-assistant roster in settings sidebar / day-1 packaging.
    * Solo off: one parent agent; deep-link to 助手编制 still works for power users.
    * Firm / Private on: org staffing. See docs/LAWMIND-SINGLE-PARENT-AGENT.md.

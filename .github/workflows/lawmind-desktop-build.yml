@@ -47,7 +47,8 @@ jobs:
 
       - name: Package desktop app
         env:
-          # macOS: Developer ID 签名 + notarytool 公证。tag 构建要求公证成功。
+          OS_LABEL: ${{ matrix.label }}
+          # macOS: 配了 Developer ID 的 tag 构建才要求公证。没有证书时打 adhoc 包。
           CSC_LINK: ${{ matrix.label == 'mac' && secrets.MAC_CSC_LINK || '' }}
           CSC_KEY_PASSWORD: ${{ matrix.label == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -56,12 +57,17 @@ jobs:
           # Windows: Authenticode（缺证书时 electron-builder 会跳过签名并在报告中如实标红）。
           WIN_CSC_LINK: ${{ matrix.label == 'win' && secrets.WIN_CSC_LINK || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ matrix.label == 'win' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
-          LAWMIND_REQUIRE_NOTARIZED: ${{ startsWith(github.ref, 'refs/tags/lawmind-desktop-v') && matrix.label == 'mac' && '1' || '0' }}
+          LAWMIND_REQUIRE_NOTARIZED: ${{ startsWith(github.ref, 'refs/tags/lawmind-desktop-v') && matrix.label == 'mac' && secrets.MAC_CSC_LINK != '' && '1' || '0' }}
           LAWMIND_DESKTOP_NODE_VERSION: "22.23.2"
         run: |
-          if [ "${matrix.label}" = "win" ] && [ -n "${WIN_CSC_LINK}" ]; then
+          if [ "$OS_LABEL" = "win" ] && [ -n "${WIN_CSC_LINK}" ]; then
             export CSC_LINK="${WIN_CSC_LINK}"
             export CSC_KEY_PASSWORD="${WIN_CSC_KEY_PASSWORD}"
+          fi
+          if [ -z "${CSC_LINK}" ]; then
+            unset CSC_LINK
+            unset CSC_KEY_PASSWORD
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
           pnpm lawmind:desktop:dist
         shell: bash

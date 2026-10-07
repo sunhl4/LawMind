@@ -33,7 +33,24 @@ export type WordRunMark = {
   fontFamily?: string;
 };
 
-export type WordLayoutRun = { text: string } & WordRunMark;
+/** Word revision kind. Colors are not stored in the file; the preview assigns them. */
+export type WordTrackKind = "ins" | "del" | "moveFrom" | "moveTo" | "format";
+
+export type WordTrackMark = {
+  kind: WordTrackKind;
+  /** `w:id` from the file. */
+  id: string;
+  author: string;
+  date?: string;
+  moveName?: string;
+  format?: string;
+};
+
+export type WordLayoutRun = {
+  text: string;
+  track?: WordTrackMark;
+  commentIds?: string[];
+} & WordRunMark;
 
 export type WordLayoutParagraph = {
   align?: WordAlign;
@@ -46,6 +63,12 @@ export type WordLayoutParagraph = {
   listLabel?: string;
   runs: WordLayoutRun[];
   text: string;
+  /** Whole paragraph sits inside a block-level `w:ins` / `w:del`. */
+  blockTrack?: WordTrackMark;
+  /** Inner XML of `w:pPr`, kept so save can round-trip. */
+  pPrInner?: string;
+  /** Paragraph-property revision (`w:pPrChange`). */
+  pPrTrack?: WordTrackMark;
 };
 
 export type WordLayoutCell = {
@@ -55,6 +78,8 @@ export type WordLayoutCell = {
   /** Cell text flows top-to-bottom when Word sets `w:textDirection`. */
   vertical?: boolean;
   vAlign?: "top" | "center" | "bottom";
+  /** Row insert/delete on `w:trPr`. */
+  rowTrack?: WordTrackMark;
 };
 
 export type WordLayoutBlock =
@@ -183,6 +208,7 @@ function simplifyLayout(blocks: WordLayoutBlock[]): WordLayoutBlock[] {
         ...(cell.widthPx != null ? { widthPx: cell.widthPx } : {}),
         ...(cell.vertical ? { vertical: true } : {}),
         ...(cell.vAlign ? { vAlign: cell.vAlign } : {}),
+        ...(cell.rowTrack ? { rowTrack: cell.rowTrack } : {}),
       })),
     );
     if (!block.bordered && rows.every((row) => row.length <= 1)) {
@@ -240,12 +266,39 @@ function walkBlocks(
   defaults: StyleRaw,
 ): WordLayoutBlock[] {
   const blocks: WordLayoutBlock[] = [];
+  const comments: string[] = [];
   let cursor = 0;
   while (cursor < xml.length) {
     const paragraphAt = indexOfWordOpen(xml, "p", cursor);
     const tableAt = indexOfWordOpen(xml, "tbl", cursor);
+    const limit =
+      paragraphAt < 0 && tableAt < 0
+        ? xml.length
+        : Math.min(
+            paragraphAt >= 0 ? paragraphAt : xml.length,
+            tableAt >= 0 ? tableAt : xml.length,
+          );
+    const comment = nextCommentRange(xml, cursor, limit);
+    if (comment) {
+      applyCommentRange(comments, comment);
+      cursor = comment.end;
+      continue;
+    }
     if (paragraphAt < 0 && tableAt < 0) {
       break;
+    }
+    const wrapped = nextBlockTrack(xml, cursor, paragraphAt, tableAt);
+    if (wrapped) {
+      const end = indexOfMatchingClose(xml, wrapped.at, wrapped.name);
+      const openEnd = indexOfXmlTagEnd(xml, wrapped.at);
+      const inner = xml.slice(openEnd + 1, end - `</w:${wrapped.name}>`.length);
+      const openTag = xml.slice(wrapped.at, openEnd + 1);
+      const track = trackFromOpenTag(wrapped.name, openTag);
+      for (const block of walkBlocks(inner, styles, numbering, defaults)) {
+        blocks.push(stampBlockTrack(block, track));
+      }
+      cursor = end;
+      continue;
     }
     const tableFirst = tableAt >= 0 && (paragraphAt < 0 || tableAt < paragraphAt);
     if (tableFirst) {
@@ -264,7 +317,9 @@ function walkBlocks(
     }
     const close = xml.indexOf("</w:p>", openEnd + 1);
     const innerEnd = close >= 0 ? close : xml.length;
-    blocks.push(parseParagraph(xml.slice(openEnd + 1, innerEnd), styles, numbering, defaults));
+    blocks.push(
+      parseParagraph(xml.slice(openEnd + 1, innerEnd), styles, numbering, defaults, comments),
+    );
     cursor = close >= 0 ? close + "</w:p>".length : xml.length;
   }
   return blocks;
@@ -319,7 +374,7 @@ function trimEdgeRuns(runs: WordLayoutRun[]): WordLayoutRun[] {
   if (last) {
     last.text = last.text.replace(/\s+$/u, "");
   }
-  return next.filter((run) => run.text.length > 0);
+  return next.filter((run) => run.text.length > 0 || run.track?.kind === "format");
 }
 
 function parseTable(
@@ -406,12 +461,14 @@ function parseRow(
     const widthPx = cellWidthPx(tcPr, colWidthsPx, col, span);
     const vertical = textDirectionVertical(tcPr);
     const vAlign = vAlignOf(tcPr);
+    const rowTrack = rowMark(rowXml);
     cells.push({
       blocks: walkBlocks(inner, styles, numbering, defaults),
       ...(span > 1 ? { colspan: span } : {}),
       ...(widthPx != null ? { widthPx } : {}),
       ...(vertical ? { vertical: true } : {}),
       ...(vAlign ? { vAlign } : {}),
+      ...(rowTrack ? { rowTrack } : {}),
     });
     col += span;
     cursor = cellEnd;
@@ -464,6 +521,7 @@ function parseParagraph(
   styles: Map<string, StyleRaw>,
   numbering: NumberingModel,
   defaults: StyleRaw,
+  inheritedComments: readonly string[] = [],
 ): WordLayoutBlock {
   const pPr = elementInner(inner, "pPr");
   const styleId = pPr.match(/<w:pStyle\b[^>]*w:val="([^"]+)"/)?.[1];
@@ -494,8 +552,21 @@ function parseParagraph(
   const numId = pPr.match(/<w:numId\b[^>]*w:val="([^"]+)"/)?.[1];
   const ilvl = Number(pPr.match(/<w:ilvl\b[^>]*w:val="(\d+)"/)?.[1] ?? "0");
   const numbered = numId && numId !== "0" ? levelDef(numbering, numId, ilvl) : undefined;
-  const runs = trimEdgeRuns(collectRuns(stripFieldInstructions(inner), inherited));
-  const text = runs.map((run) => run.text).join("");
+  const pPrTrack = changeTrackOf(pPr, "pPrChange");
+  const collected = collectRuns(
+    stripFieldInstructions(inner),
+    inherited,
+    undefined,
+    inheritedComments,
+  );
+  if (pPrTrack) {
+    collected.unshift({ text: "", track: pPrTrack });
+  }
+  const runs = trimEdgeRuns(collected);
+  const text = runs
+    .filter((run) => run.track?.kind !== "del" && run.track?.kind !== "moveFrom")
+    .map((run) => run.text)
+    .join("");
   const listLabel = numId && numbered ? listLabelFor(numbering, numId, ilvl) : undefined;
   const spacing = spacingOf(pPr);
   const indent = ind.indent ?? numbered?.indent ?? resolved.indent;
@@ -515,18 +586,218 @@ function parseParagraph(
     ...(listLabel ? { listLabel } : {}),
     runs,
     text,
+    ...(pPr ? { pPrInner: pPr } : {}),
+    ...(pPrTrack ? { pPrTrack } : {}),
   };
 }
 
-function collectRuns(inner: string, inherited: WordRunMark): WordLayoutRun[] {
+const TRACK_WRAPPERS = ["moveFrom", "moveTo", "ins", "del"] as const;
+
+function nextBlockTrack(
+  xml: string,
+  cursor: number,
+  paragraphAt: number,
+  tableAt: number,
+): { at: number; name: (typeof TRACK_WRAPPERS)[number] } | null {
+  let bestAt = -1;
+  let bestName: (typeof TRACK_WRAPPERS)[number] | null = null;
+  for (const name of TRACK_WRAPPERS) {
+    const at = indexOfWordOpen(xml, name, cursor);
+    if (at < 0) {
+      continue;
+    }
+    if (paragraphAt >= 0 && paragraphAt < at) {
+      continue;
+    }
+    if (tableAt >= 0 && tableAt < at) {
+      continue;
+    }
+    if (bestAt < 0 || at < bestAt) {
+      bestAt = at;
+      bestName = name;
+    }
+  }
+  return bestName && bestAt >= 0 ? { at: bestAt, name: bestName } : null;
+}
+
+function trackFromOpenTag(
+  name: (typeof TRACK_WRAPPERS)[number],
+  openTag: string,
+  fallbackId?: string,
+): WordTrackMark {
+  const author = decodeXmlEntities(attrOf(openTag, "w:author")).trim() || "未知";
+  const date = attrOf(openTag, "w:date");
+  const moveName = attrOf(openTag, "w:name");
+  return {
+    kind: name,
+    id: attrOf(openTag, "w:id") || fallbackId || name,
+    author,
+    ...(date ? { date } : {}),
+    ...(moveName ? { moveName } : {}),
+  };
+}
+
+function stampBlockTrack(block: WordLayoutBlock, track: WordTrackMark): WordLayoutBlock {
+  if (block.kind === "paragraph") {
+    return { ...block, blockTrack: block.blockTrack ?? track, runs: stampRuns(block.runs, track) };
+  }
+  return {
+    ...block,
+    rows: block.rows.map((row) =>
+      row.map((cell) => ({
+        ...cell,
+        blocks: cell.blocks.map((inner) => stampBlockTrack(inner, track)),
+        rowTrack: cell.rowTrack ?? track,
+      })),
+    ),
+  };
+}
+
+function stampRuns(runs: WordLayoutRun[], track: WordTrackMark | undefined): WordLayoutRun[] {
+  if (!track) {
+    return runs;
+  }
+  return runs.map((run) => (run.track ? run : { ...run, track }));
+}
+
+function rowMark(rowXml: string): WordTrackMark | undefined {
+  const trPr = elementInner(rowXml, "trPr");
+  if (!trPr) {
+    return undefined;
+  }
+  for (const name of TRACK_WRAPPERS) {
+    const at = indexOfWordOpen(trPr, name, 0);
+    if (at < 0) {
+      continue;
+    }
+    const openEnd = indexOfXmlTagEnd(trPr, at);
+    if (openEnd < 0) {
+      continue;
+    }
+    return trackFromOpenTag(name, trPr.slice(at, openEnd + 1));
+  }
+  return undefined;
+}
+
+function formatTrackOf(rPr: string): WordTrackMark | undefined {
+  return changeTrackOf(rPr, "rPrChange");
+}
+
+function changeTrackOf(xml: string, tag: "rPrChange" | "pPrChange"): WordTrackMark | undefined {
+  if (!xml) {
+    return undefined;
+  }
+  const at = indexOfWordOpen(xml, tag, 0);
+  if (at < 0) {
+    return undefined;
+  }
+  const openEnd = indexOfXmlTagEnd(xml, at);
+  if (openEnd < 0) {
+    return undefined;
+  }
+  const openTag = xml.slice(at, openEnd + 1);
+  const labels: string[] = [];
+  if (toggle(xml, "b") === true) {
+    labels.push("加粗");
+  }
+  if (toggle(xml, "i") === true) {
+    labels.push("倾斜");
+  }
+  if (underlineOf(xml) === true) {
+    labels.push("下划线");
+  }
+  return {
+    kind: "format",
+    id: attrOf(openTag, "w:id") || "format",
+    author: decodeXmlEntities(attrOf(openTag, "w:author")).trim() || "未知",
+    ...(attrOf(openTag, "w:date") ? { date: attrOf(openTag, "w:date") } : {}),
+    format: labels.join("、") || "设置格式",
+  };
+}
+
+function commentsAt(xml: string, at: number): string[] {
+  const open: string[] = [];
+  let cursor = 0;
+  while (cursor < at) {
+    const start = xml.indexOf("<w:commentRangeStart", cursor);
+    const endTag = xml.indexOf("<w:commentRangeEnd", cursor);
+    if (start < 0 && endTag < 0) {
+      break;
+    }
+    const next = start >= 0 && (endTag < 0 || start < endTag) ? start : endTag;
+    if (next < 0 || next >= at) {
+      break;
+    }
+    const openEnd = indexOfXmlTagEnd(xml, next);
+    const tag = xml.slice(next, openEnd + 1);
+    const id = attrOf(tag, "w:id");
+    if (xml.startsWith("<w:commentRangeStart", next)) {
+      if (id) {
+        open.push(id);
+      }
+    } else if (id) {
+      const index = open.lastIndexOf(id);
+      if (index >= 0) {
+        open.splice(index, 1);
+      }
+    }
+    cursor = openEnd >= 0 ? openEnd + 1 : next + 1;
+  }
+  return open;
+}
+
+function nextCommentRange(
+  xml: string,
+  from: number,
+  before: number,
+): { id: string; start: boolean; end: number } | null {
+  const startAt = xml.indexOf("<w:commentRangeStart", from);
+  const endAt = xml.indexOf("<w:commentRangeEnd", from);
+  const next =
+    startAt >= 0 && (endAt < 0 || startAt < endAt)
+      ? { at: startAt, start: true }
+      : endAt >= 0
+        ? { at: endAt, start: false }
+        : null;
+  if (!next || next.at < 0 || next.at >= before) {
+    return null;
+  }
+  const openEnd = indexOfXmlTagEnd(xml, next.at);
+  const id = attrOf(xml.slice(next.at, openEnd + 1), "w:id");
+  if (!id) {
+    return { id: "", start: next.start, end: openEnd >= 0 ? openEnd + 1 : next.at + 1 };
+  }
+  return { id, start: next.start, end: openEnd >= 0 ? openEnd + 1 : next.at + 1 };
+}
+
+function applyCommentRange(open: string[], comment: { id: string; start: boolean }): void {
+  if (!comment.id) {
+    return;
+  }
+  if (comment.start) {
+    open.push(comment.id);
+    return;
+  }
+  const index = open.lastIndexOf(comment.id);
+  if (index >= 0) {
+    open.splice(index, 1);
+  }
+}
+
+function collectRuns(
+  inner: string,
+  inherited: WordRunMark,
+  parent?: WordTrackMark,
+  inheritedComments: readonly string[] = [],
+): WordLayoutRun[] {
   const runs: WordLayoutRun[] = [];
   let cursor = 0;
   while (cursor < inner.length) {
-    const start = indexOfWordOpen(inner, "r", cursor);
-    if (start < 0) {
+    const next = nextRunOrTrack(inner, cursor);
+    if (!next) {
       break;
     }
-    const openEnd = indexOfXmlTagEnd(inner, start);
+    const openEnd = indexOfXmlTagEnd(inner, next.at);
     if (openEnd < 0) {
       break;
     }
@@ -534,15 +805,68 @@ function collectRuns(inner: string, inherited: WordRunMark): WordLayoutRun[] {
       cursor = openEnd + 1;
       continue;
     }
+    if (next.kind === "track") {
+      const closeNeedle = `</w:${next.name}>`;
+      const end = indexOfMatchingClose(inner, next.at, next.name);
+      const openTag = inner.slice(next.at, openEnd + 1);
+      const track = trackFromOpenTag(next.name, openTag, `${next.name}-${next.at}`);
+      const bodyEnd = Math.max(openEnd + 1, end - closeNeedle.length);
+      runs.push(
+        ...collectRuns(inner.slice(openEnd + 1, bodyEnd), inherited, track, inheritedComments),
+      );
+      cursor = end;
+      continue;
+    }
     const close = inner.indexOf("</w:r>", openEnd + 1);
     const runInner = inner.slice(openEnd + 1, close >= 0 ? close : inner.length);
     const text = runVisibleText(runInner);
     if (text) {
-      runs.push({ text, ...overlayMark(inherited, elementInner(runInner, "rPr")) });
+      const rPr = elementInner(runInner, "rPr");
+      const format = parent ? undefined : formatTrackOf(rPr);
+      const comments = [...new Set([...inheritedComments, ...commentsAt(inner, next.at)])];
+      runs.push({
+        text,
+        ...overlayMark(inherited, rPr),
+        ...(parent ? { track: parent } : format ? { track: format } : {}),
+        ...(comments.length > 0 ? { commentIds: comments } : {}),
+      });
     }
     cursor = close >= 0 ? close + "</w:r>".length : inner.length;
   }
   return runs;
+}
+
+function nextRunOrTrack(
+  xml: string,
+  from: number,
+): { at: number; kind: "run" | "track"; name: (typeof TRACK_WRAPPERS)[number] } | null {
+  let bestAt = -1;
+  let best: { at: number; kind: "run" | "track"; name: (typeof TRACK_WRAPPERS)[number] } | null =
+    null;
+  const runAt = indexOfWordOpen(xml, "r", from);
+  if (runAt >= 0) {
+    bestAt = runAt;
+    best = { at: runAt, kind: "run", name: "ins" };
+  }
+  for (const name of TRACK_WRAPPERS) {
+    const at = indexOfWordOpen(xml, name, from);
+    if (at >= 0 && (bestAt < 0 || at < bestAt)) {
+      bestAt = at;
+      best = { at, kind: "track", name };
+    }
+  }
+  return best;
+}
+
+function attrOf(openTag: string, name: string): string {
+  const needle = `${name}="`;
+  const at = openTag.indexOf(needle);
+  if (at < 0) {
+    return "";
+  }
+  const start = at + needle.length;
+  const end = openTag.indexOf('"', start);
+  return end < 0 ? "" : openTag.slice(start, end);
 }
 
 function runVisibleText(runInner: string): string {
@@ -573,10 +897,11 @@ function runVisibleText(runInner: string): string {
       cursor = openEnd + 1;
       continue;
     }
-    const close = runInner.indexOf("</w:t>", openEnd + 1);
+    const closeTag = token.kind === "delText" ? "</w:delText>" : "</w:t>";
+    const close = runInner.indexOf(closeTag, openEnd + 1);
     const raw = close >= 0 ? runInner.slice(openEnd + 1, close) : "";
     out += decodeXmlEntities(raw);
-    cursor = close >= 0 ? close + "</w:t>".length : runInner.length;
+    cursor = close >= 0 ? close + closeTag.length : runInner.length;
   }
   return out.replace(/\u00a0/g, " ");
 }
@@ -584,7 +909,7 @@ function runVisibleText(runInner: string): string {
 function indexOfRunToken(
   xml: string,
   from: number,
-): { at: number; kind: "t" | "tab" | "br" } | null {
+): { at: number; kind: "t" | "delText" | "tab" | "br" } | null {
   let cursor = from;
   while (cursor < xml.length) {
     const at = xml.indexOf("<w:", cursor);
@@ -596,6 +921,9 @@ function indexOfRunToken(
     }
     if (xml.startsWith("<w:br", at) && isNameBoundary(xml, at + 5)) {
       return { at, kind: "br" };
+    }
+    if (xml.startsWith("<w:delText", at) && isNameBoundary(xml, at + 10)) {
+      return { at, kind: "delText" };
     }
     if (xml.startsWith("<w:t", at) && isNameBoundary(xml, at + 4)) {
       return { at, kind: "t" };

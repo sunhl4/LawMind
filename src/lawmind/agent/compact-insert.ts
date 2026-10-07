@@ -4,6 +4,7 @@
  */
 
 import { CONTEXT_DEFERRAL_BOUNCE_MARKER } from "./context-deferral.js";
+import { REVIEW_BOARD_EXPORT_BOUNCE_MARKER } from "./review-board-export-deferral.js";
 import type { AgentMessage } from "./types.js";
 
 /**
@@ -24,6 +25,7 @@ export const COMPACT_SYNTHETIC_USER_MARKERS = [
   COMPACT_REINJECTION_MARKER,
   // 退让反弹只服务下一轮采样，不是律师的真实提问：压缩整条丢弃、也不当锚点。
   CONTEXT_DEFERRAL_BOUNCE_MARKER,
+  REVIEW_BOARD_EXPORT_BOUNCE_MARKER,
   // 续接种子同理：它是上一段对话的蒸馏，不是律师本轮说的话。
   CARRYOVER_SEED_MARKER,
 ] as const;

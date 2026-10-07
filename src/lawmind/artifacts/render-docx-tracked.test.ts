@@ -466,7 +466,10 @@ describe("renderDocxWithTrackedChanges multi-match safety", () => {
       expect(result.warning).toContain("歧义跳过 1 处");
     }
     const manifest = JSON.parse(
-      fs.readFileSync(path.join(dir, ".task-multi.redline-manifest.json"), "utf8"),
+      fs.readFileSync(
+        path.join(dir, "cache", "redline-manifests", ".task-multi.redline-manifest.json"),
+        "utf8",
+      ),
     ) as {
       applyResult?: { applied: number; attempted: number; ambiguous: number };
       proposals: Array<{ hunkId: string; applyStatus?: string }>;

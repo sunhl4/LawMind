@@ -1,6 +1,9 @@
 /**
- * 任务完成且本轮写出了 WPS 能打开的文件时，把文件地址补进给律师的回复。
- * 地址是可点的 lm-wps 链接，点击后只交给 WPS。
+ * 任务完成且本轮写出了办公交付件时，把文件地址补进给律师的回复。
+ * 地址是可点的 lm-wps 链接：Word 左键进中栏核对，其它办公件左键进中栏；右键可去访达或用本机应用打开。
+ *
+ * 路径可落在 LawMind workspace，也可落在会话的 projectDir（本机案件文件夹）。
+ * notes/*.md 与 *.json 不进交付链接——那些留给模型上下文，不给律师点。
  */
 
 import path from "node:path";
@@ -19,34 +22,59 @@ const DELIVERABLE_TOOLS = new Set([
   "apply_file_ops",
 ]);
 
-function toWorkspaceRel(workspaceDir: string, value: string): string | null {
+export type DeliverableLinkRoots = {
+  workspaceDir: string;
+  projectDir?: string;
+};
+
+function normalizeRoot(root: string): string {
+  return path.resolve(root).replace(/\\/g, "/").replace(/\/$/, "");
+}
+
+/** 绝对路径若落在 root 下，返回相对路径；否则 null。 */
+function relUnderRoot(root: string, absolute: string): string | null {
+  const base = normalizeRoot(root);
+  const abs = path.resolve(absolute).replace(/\\/g, "/");
+  if (abs !== base && !abs.startsWith(`${base}/`)) {
+    return null;
+  }
+  return abs.slice(base.length).replace(/^\//, "");
+}
+
+function toDeliverableRel(roots: DeliverableLinkRoots, value: string): string | null {
   let raw = value.trim().replace(/\\/g, "/");
   if (!raw) {
     return null;
   }
-  const root = path.resolve(workspaceDir).replace(/\\/g, "/").replace(/\/$/, "");
   const absolute = raw.startsWith("/") || /^[A-Za-z]:\//.test(raw);
   if (absolute) {
-    const abs = path.resolve(raw).replace(/\\/g, "/");
-    if (abs !== root && !abs.startsWith(`${root}/`)) {
-      return null;
+    const underWorkspace = roots.workspaceDir.trim() ? relUnderRoot(roots.workspaceDir, raw) : null;
+    if (underWorkspace) {
+      return wpsDeliverablePath(underWorkspace);
     }
-    raw = abs.slice(root.length).replace(/^\//, "");
+    const project = roots.projectDir?.trim();
+    if (project) {
+      const underProject = relUnderRoot(project, raw);
+      if (underProject) {
+        return wpsDeliverablePath(underProject);
+      }
+    }
+    return null;
   }
   return wpsDeliverablePath(raw);
 }
 
-function pushPath(out: string[], workspaceDir: string, value: unknown): void {
+function pushPath(out: string[], roots: DeliverableLinkRoots, value: unknown): void {
   if (typeof value !== "string") {
     return;
   }
-  const rel = toWorkspaceRel(workspaceDir, value);
+  const rel = toDeliverableRel(roots, value);
   if (rel && !out.includes(rel)) {
     out.push(rel);
   }
 }
 
-function pushAppliedLine(out: string[], workspaceDir: string, line: unknown): void {
+function pushAppliedLine(out: string[], roots: DeliverableLinkRoots, line: unknown): void {
   if (typeof line !== "string") {
     return;
   }
@@ -59,16 +87,16 @@ function pushAppliedLine(out: string[], workspaceDir: string, line: unknown): vo
     .slice(at + marker.length)
     .replace(/（复制）$/, "")
     .trim();
-  pushPath(out, workspaceDir, dest);
+  pushPath(out, roots, dest);
 }
 
-function pushRecord(out: string[], workspaceDir: string, data: unknown): void {
+function pushRecord(out: string[], roots: DeliverableLinkRoots, data: unknown): void {
   if (!data || typeof data !== "object") {
     return;
   }
   const rec = data as Record<string, unknown>;
   for (const key of ["filePath", "outputRelativePath", "outputPath", "path", "destRel"]) {
-    pushPath(out, workspaceDir, rec[key]);
+    pushPath(out, roots, rec[key]);
   }
   for (const key of ["tables", "charts", "files"]) {
     const rows = rec[key];
@@ -77,13 +105,13 @@ function pushRecord(out: string[], workspaceDir: string, data: unknown): void {
     }
     for (const row of rows) {
       if (row && typeof row === "object") {
-        pushPath(out, workspaceDir, (row as { path?: unknown }).path);
+        pushPath(out, roots, (row as { path?: unknown }).path);
       }
     }
   }
   if (Array.isArray(rec.applied)) {
     for (const line of rec.applied) {
-      pushAppliedLine(out, workspaceDir, line);
+      pushAppliedLine(out, roots, line);
     }
   }
 }
@@ -91,7 +119,7 @@ function pushRecord(out: string[], workspaceDir: string, data: unknown): void {
 function officecliPaths(
   messages: AgentMessage[],
   toolCallId: string,
-  workspaceDir: string,
+  roots: DeliverableLinkRoots,
   out: string[],
 ): void {
   for (const msg of messages) {
@@ -108,16 +136,31 @@ function officecliPaths(
       return;
     }
     for (const arg of args) {
-      pushPath(out, workspaceDir, arg);
+      pushPath(out, roots, arg);
     }
     return;
   }
 }
 
-/** 本轮成功写出、且 WPS 能打开的工作区相对路径。读文件和失败的导出不算。 */
-export function collectDeliverablePaths(messages: AgentMessage[], workspaceDir: string): string[] {
+function normalizeRoots(
+  workspaceDir: string | DeliverableLinkRoots,
+  projectDir?: string,
+): DeliverableLinkRoots {
+  if (typeof workspaceDir === "string") {
+    return { workspaceDir, ...(projectDir?.trim() ? { projectDir: projectDir.trim() } : {}) };
+  }
+  return workspaceDir;
+}
+
+/** 本轮成功写出、且 WPS 能打开的相对路径。读文件和失败的导出不算。 */
+export function collectDeliverablePaths(
+  messages: AgentMessage[],
+  workspaceDir: string | DeliverableLinkRoots,
+  projectDir?: string,
+): string[] {
+  const roots = normalizeRoots(workspaceDir, projectDir);
   const out: string[] = [];
-  if (!workspaceDir.trim()) {
+  if (!roots.workspaceDir.trim() && !roots.projectDir?.trim()) {
     return out;
   }
   for (const msg of messages) {
@@ -129,20 +172,21 @@ export function collectDeliverablePaths(messages: AgentMessage[], workspaceDir: 
         continue;
       }
       if (response.name === "run_host_command") {
-        officecliPaths(messages, response.toolCallId, workspaceDir, out);
+        officecliPaths(messages, response.toolCallId, roots, out);
         continue;
       }
       if (!DELIVERABLE_TOOLS.has(response.name)) {
         continue;
       }
-      pushRecord(out, workspaceDir, response.result.data);
+      pushRecord(out, roots, response.result.data);
     }
   }
   return out;
 }
 
 function markdownLabel(rel: string): string {
-  return rel.replaceAll("[", "［").replaceAll("]", "］");
+  const base = rel.split("/").pop() || rel;
+  return base.replaceAll("[", "［").replaceAll("]", "］");
 }
 
 /**
@@ -151,11 +195,20 @@ function markdownLabel(rel: string): string {
 export function appendDeliverableFileLinks(
   reply: string,
   messages: AgentMessage[],
-  workspaceDir: string,
+  workspaceDir: string | DeliverableLinkRoots,
+  projectDir?: string,
 ): string {
-  const missing = collectDeliverablePaths(messages, workspaceDir).filter((rel) => {
+  const roots = normalizeRoots(workspaceDir, projectDir);
+  const missing = collectDeliverablePaths(messages, roots).filter((rel) => {
     const href = wpsDeliverableHref(rel);
-    return Boolean(href && !reply.includes(href));
+    if (!href) {
+      return false;
+    }
+    // 正文里已有 lm-wps 链接，或已写出同一相对路径 / 文件名的 Markdown 链，就不再重复脚注。
+    if (reply.includes(href) || reply.includes(`](${rel})`)) {
+      return false;
+    }
+    return true;
   });
   if (missing.length === 0) {
     return reply;

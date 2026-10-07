@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { captureStanceFromRedline, captureStanceRejection } from "../stance/capture.js";
-import { invalidateDraftListCache, listDrafts, readDraft } from "./index.js";
+import { invalidateDraftListCache, listDrafts, persistDraft, readDraft } from "./index.js";
 import {
   LAWYER_SURFACE_RATIONALE,
   readRedlineProposal,
@@ -128,6 +128,97 @@ export function listOpenWordReviews(workspaceDir: string): WordReviewTicket[] {
     }
   }
   return open;
+}
+
+function normRel(rel: string): string {
+  return rel.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+/** Same original baseline → keep editing that open review copy (no new `_02`). */
+export function findOpenWordReviewForBaseline(
+  workspaceDir: string,
+  baselineRel: string,
+): WordReviewTicket | undefined {
+  const want = normRel(baselineRel);
+  if (!want) {
+    return undefined;
+  }
+  for (const ticket of listOpenWordReviews(workspaceDir)) {
+    if (normRel(ticket.baselineRel) === want) {
+      return ticket;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolve an open review when the lawyer pins either the original baseline or
+ * the working copy (including a renamed sibling in the same folder).
+ */
+export function findOpenWordReviewForPin(
+  workspaceDir: string,
+  pinPath: string,
+): WordReviewTicket | undefined {
+  const raw = pinPath.trim();
+  if (!raw) {
+    return undefined;
+  }
+  const asRel = normRel(raw);
+  const byBaseline = findOpenWordReviewForBaseline(workspaceDir, asRel);
+  if (byBaseline) {
+    return byBaseline;
+  }
+  const pinBase = path.basename(asRel);
+  for (const ticket of listOpenWordReviews(workspaceDir)) {
+    const reviewAbs = path.resolve(ticket.reviewAbs);
+    const reviewDir = path.dirname(reviewAbs);
+    const pinAbs = path.isAbsolute(raw)
+      ? path.resolve(raw)
+      : path.resolve(reviewDir, path.basename(asRel));
+    if (reviewAbs === pinAbs || normRel(path.basename(reviewAbs)) === pinBase) {
+      return ticket;
+    }
+    // Lawyer renamed the working copy: reviewAbs missing, pin is another .docx
+    // in the same folder that is not the original baseline leaf.
+    const baselineLeaf = path.basename(normRel(ticket.baselineRel));
+    if (
+      /\.docx$/i.test(pinBase) &&
+      pinBase !== baselineLeaf &&
+      !fs.existsSync(reviewAbs) &&
+      fs.existsSync(pinAbs) &&
+      path.dirname(pinAbs) === reviewDir
+    ) {
+      return ticket;
+    }
+  }
+  return undefined;
+}
+
+/** Point the open ticket at a renamed working copy; original baseline stays. */
+export function adoptWordReviewAbs(params: {
+  workspaceDir: string;
+  taskId: string;
+  reviewAbs: string;
+}): { ok: boolean; ticket?: WordReviewTicket; reason?: string } {
+  const existing = readWordReview(params.workspaceDir, params.taskId);
+  if (!existing || existing.closedAt) {
+    return { ok: false, reason: existing?.closedAt ? "closed" : "missing" };
+  }
+  const reviewAbs = params.reviewAbs.trim();
+  if (!reviewAbs || !fs.existsSync(reviewAbs)) {
+    return { ok: false, reason: "missing_file" };
+  }
+  const ticket: WordReviewTicket = { ...existing, reviewAbs: path.resolve(reviewAbs) };
+  const file = wordReviewPath(params.workspaceDir, params.taskId);
+  if (!file) {
+    return { ok: false, reason: "invalid" };
+  }
+  writeJsonAtomic(file, ticket);
+  const draft = readDraft(params.workspaceDir, params.taskId);
+  if (draft && draft.outputPath !== ticket.reviewAbs) {
+    persistDraft(params.workspaceDir, { ...draft, outputPath: ticket.reviewAbs });
+  }
+  return { ok: true, ticket };
 }
 
 function liveHunks(workspaceDir: string, taskId: string): RedlineHunk[] {

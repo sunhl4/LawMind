@@ -10,8 +10,7 @@
  * 默认 `shadow`。为什么：`shadow` 阶段不改变任何律师可见行为，因此「默认开」不构成风险；
  * 而它产出的**逐项一致率**正是转 `on` 的唯一依据（一致率 <90% 的项禁止转，见计划 §3.8）。
  *
- * 解析顺序（与 `resolveGuardianTrackedRedlinePosture` 的既有先例一致，避免两处口径漂移）：
- * policy 显式 → env 显式 → 缺省。**未知取值按缺省处理**，不把写错的配置当成硬墙或免检。
+ * 解析顺序：policy 显式 → env 显式 → 缺省。**未知取值按缺省处理**，不把写错的配置当成硬墙或免检。
  */
 
 import { MACHINE_VERIFIERS } from "../guardian/machine-verifiers.js";
@@ -174,7 +173,7 @@ export function isLawyerEscalationAvailable(opts?: {
  * - `firm` / `private_deploy`：`block` —— 多律师协作，「按哪种口径办理」是所内口径问题，
  *   不确认就可能把该核对的东西漏掉。
  *
- * 与 `resolveGuardianTrackedRedlinePosture` 同一解析顺序（policy → env → edition 缺省），
+ * 解析顺序：policy 显式 → env 显式 → edition 缺省。
  * **未知取值按所在 edition 缺省处理**，不把写错的配置当硬墙或免检。
  */
 export function resolveEscalationPosture(opts?: {
@@ -191,7 +190,6 @@ export function resolveEscalationPosture(opts?: {
     return raw;
   }
   // 调用方可能只带一个字段（测试 / 局部配置）——edition 解析只用到 `edition` 与 `features`。
-  // 与 `resolveGuardianTrackedRedlinePosture` 的既有先例同一处理。
   const editionPolicy = (opts?.policy ?? null) as LawMindWorkspacePolicy | null;
   return resolveEdition({ policy: editionPolicy, env: opts?.env }).edition === "solo"
     ? "advisory"

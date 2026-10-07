@@ -20,7 +20,7 @@
 
 ## 交付闸门（CI）
 
-tag `lawmind-desktop-v*` 构建时：mac 侧 `LAWMIND_REQUIRE_NOTARIZED=1` 强制公证成功；release job 在缺少 `latest*.yml` 时拒绝发布。本机 `pnpm lawmind:desktop:dist` 仍是 `--publish never`，不签名也不发布。
+tag `lawmind-desktop-v*` 构建时：配了 `MAC_CSC_LINK` 才把 mac 侧 `LAWMIND_REQUIRE_NOTARIZED=1`；没有证书时打 adhoc 包并仍发布。release job 在缺少 `latest*.yml` 时拒绝发布。本机 `pnpm lawmind:desktop:dist` 仍是 `--publish never`，不签名也不发布。
 
 ## 安全与信任
 

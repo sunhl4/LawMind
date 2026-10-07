@@ -430,7 +430,9 @@ export function buildPostCompactSystemNote(opts: {
       `- 待澄清键（缺口标【待核实】进稿，不因此停写）: ${opts.pendingClarificationKeys.join(", ")}`,
     );
   }
-  lines.push("- 交付物验收与 render 门禁仍须遵守当前草稿 acceptance 状态。");
+  lines.push(
+    "- 交办即终稿：疑问写进稿内【待核实】或修订痕迹，仍须 render_tracked_draft 出 Word；勿请律师审核台放行。外发除外。",
+  );
   if (opts.workspaceDir) {
     for (const block of collectCompactAttachmentNotes(opts.workspaceDir, opts)) {
       lines.push("", block);

@@ -19,6 +19,15 @@ import {
 } from "../../../drafts/index.js";
 import type { TerminologyDrift } from "../../../drafts/terminology-adapt.js";
 import type { ArtifactSection } from "../../../types.js";
+import {
+  ingestDefinedTerms,
+  ingestDraftBody,
+  mapEditsToFactorAnchors,
+  recordBodySnapshot,
+  recordInverseEdits,
+  recordSurgicalAnchors,
+  reconcileSurgicalEditsWithPatches,
+} from "../../factor-state.js";
 import type { AgentContext, ToolCallResult } from "../../types.js";
 
 /**
@@ -74,7 +83,9 @@ export async function executeCrossDocumentEdits(args: {
 
   let edits: ReturnType<typeof parseCrossDocumentEditsInput>;
   try {
-    edits = parseCrossDocumentEditsInput(args.params.edits);
+    edits = parseCrossDocumentEditsInput(
+      reconcileSurgicalEditsWithPatches(ctx.factorState, args.params.edits),
+    );
   } catch (err) {
     return {
       ok: false,
@@ -174,6 +185,23 @@ export async function executeCrossDocumentEdits(args: {
     }
     prepareRedlineBaselineBeforeWrite(ctx.workspaceDir, change.taskId);
     persistDraft(ctx.workspaceDir, { ...draft, sections });
+    if (ctx.factorState) {
+      const prior = documents.find((item) => item.taskId === change.taskId);
+      const priorText = (prior?.sections ?? []).map((section) => section.body ?? "").join("\n");
+      ingestDefinedTerms(ctx.factorState, priorText);
+      recordBodySnapshot(
+        ctx.factorState,
+        change.taskId,
+        (prior?.sections ?? []).map((section) => section.body ?? ""),
+      );
+      recordInverseEdits(ctx.factorState, change.applied, priorText, edits);
+      recordSurgicalAnchors(ctx.factorState, [
+        change.taskId,
+        ...mapEditsToFactorAnchors(ctx.factorState, edits),
+        ...mapEditsToFactorAnchors(ctx.factorState, change.applied),
+      ]);
+      ingestDraftBody(ctx.factorState, sections.map((section) => section.body ?? "").join("\n"));
+    }
     const replaceByFind = new Map(plan.edits.map((e) => [e.find, e.replace]));
     try {
       const prior = readRedlinePlan(ctx.workspaceDir, change.taskId);

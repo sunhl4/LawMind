@@ -349,9 +349,14 @@ describe("ensureLocalFile lawyer download", () => {
         },
         waitMs: 5_000,
       }),
-    ).rejects.toMatchObject({ question: { key: "icloud_download_manual" } });
+    ).rejects.toMatchObject({
+      question: {
+        key: "icloud_download_manual",
+        options: ["我已下完"],
+      },
+    });
     expect(downloads.map((filePath) => path.basename(filePath))).toEqual(["聘用合同.docx"]);
-    noteLawyerIcloudReply("继续");
+    noteLawyerIcloudReply("我已下完");
     const afterManual = ioWith({
       ls: () => `${line("聘用合同.docx", "compressed,dataless")}\n`,
     });

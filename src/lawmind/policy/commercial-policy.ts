@@ -290,17 +290,8 @@ export function inspectCommercialPolicy(raw: unknown): CommercialPolicyInspectio
     rejected.push(note("enableCollaboration", "协作是否可用由版本决定；策略只能显式关掉"));
   }
 
-  const firmEdition = out.edition === "firm" || out.edition === "private_deploy";
-  if (src.guardianTrackedRedline === "block") {
-    out.guardianTrackedRedline = "block";
-  } else if (src.guardianTrackedRedline === "advisory") {
-    if (firmEdition) {
-      rejected.push(note("guardianTrackedRedline", "律所和私有化不能把修订稿审稿降成只提示"));
-    } else {
-      rejected.push(note("guardianTrackedRedline", "修订稿审稿姿态跟版本走，不在策略里放宽"));
-    }
-  } else if (src.guardianTrackedRedline !== undefined) {
-    rejected.push(note("guardianTrackedRedline", "不能识别的审稿姿态，已按版本默认"));
+  if (src.guardianTrackedRedline !== undefined) {
+    rejected.push(note("guardianTrackedRedline", "修订稿不再用审稿硬墙，已忽略"));
   }
 
   const consumed = new Set([
@@ -396,9 +387,6 @@ export function effectivePolicyRows(policy: LawMindWorkspacePolicy | null): Poli
   }
   if (policy.enableCollaboration === false) {
     rows.push(note("enableCollaboration", "false"));
-  }
-  if (policy.guardianTrackedRedline === "block") {
-    rows.push(note("guardianTrackedRedline", "block"));
   }
   return rows;
 }

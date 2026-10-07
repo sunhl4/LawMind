@@ -236,8 +236,8 @@ export function buildAuthorityCorpusSummary(opts?: {
       providerLabel,
       message:
         provider === "pkulaw" || provider === "lexis"
-          ? "商业法库还没接上。请在连接向导里填写地址和密钥，或改用公开法规。"
-          : "权威库还没接上。请在连接向导里填写地址，或改用公开法规。",
+          ? "商业法库还没接上。请在「模型与连接」里填写访问令牌，或继续用公开法规。"
+          : "权威库还没接上。请在「模型与连接」里填写地址，或改用公开法规。",
       envKey: ENV_KEY,
       authEnvKey: AUTH_ENV_KEY,
       providerEnvKey: PROVIDER_ENV_KEY,
@@ -258,9 +258,7 @@ export function buildAuthorityCorpusSummary(opts?: {
       providerEnvKey: PROVIDER_ENV_KEY,
     };
   }
-  const authNote = authConfigured
-    ? "已配置 LAWMIND_AUTHORITY_API_KEY（Bearer）。"
-    : "未配置 LAWMIND_AUTHORITY_API_KEY（公开端点或不需要鉴权时可省略）。";
+  const authNote = authConfigured ? "访问令牌已保存。" : "还没有访问令牌。";
   // Lexis: endpoint may be set for BYOK prep, but adapter is still a placeholder —
   // use dedicated "unimplemented" (not "invalid") so Doctor pills do not imply a bad URL.
   if (provider === "lexis") {
@@ -277,10 +275,7 @@ export function buildAuthorityCorpusSummary(opts?: {
       providerEnvKey: PROVIDER_ENV_KEY,
     };
   }
-  const providerNote =
-    provider === "pkulaw"
-      ? "provider=pkulaw（闭源·需厂商 Token）。"
-      : `provider=${provider}（${providerLabel}）。`;
+  const providerNote = provider === "pkulaw" ? "北大法宝。" : `${providerLabel}。`;
   return {
     configured: true,
     status: "configured",
@@ -288,7 +283,7 @@ export function buildAuthorityCorpusSummary(opts?: {
     authConfigured,
     provider,
     providerLabel,
-    message: `已配置权威检索端点（${v.url.host}）。${providerNote}${authNote}失败仍拒答、不编造。`,
+    message: `已接上权威库（${v.url.host}）。${providerNote}${authNote}未命中则不编造。`,
     envKey: ENV_KEY,
     authEnvKey: AUTH_ENV_KEY,
     providerEnvKey: PROVIDER_ENV_KEY,

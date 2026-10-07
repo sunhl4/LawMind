@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ArtifactDraft } from "../types.js";
 import {
   exportTrackedSiblingForTask,
+  refreshTrackedExportIfPresent,
   reviewFileLockMessage,
   selectTrackedExportHunks,
 } from "./export-tracked-sibling.js";
@@ -172,6 +173,66 @@ describe("exportTrackedSiblingForTask", () => {
     expect(second.outputPath).toBe(first.outputPath);
     expect(fs.readFileSync(source).equals(before)).toBe(true);
     expect(fs.readdirSync(path.dirname(source)).some((name) => name.includes("_02"))).toBe(false);
+  });
+
+  it("does not mint a Word file when nothing has been exported yet", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-export-refresh-"));
+    dirs.push(workspaceDir);
+    persistDraft(workspaceDir, {
+      taskId: "task-plain",
+      title: "补充协议",
+      output: "docx",
+      templateId: "word/contract-default",
+      summary: "",
+      sections: [{ heading: "付款", body: "甲方应于十日内付款。" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: "2026-09-27T00:00:00.000Z",
+    });
+    const result = await refreshTrackedExportIfPresent({
+      workspaceDir,
+      taskId: "task-plain",
+    });
+    expect(result.refreshed).toBe(false);
+  });
+
+  it("rewrites an existing sibling after the draft body is restored", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-export-refresh-live-"));
+    dirs.push(workspaceDir);
+    const task: ArtifactDraft = {
+      taskId: "task-refresh",
+      title: "服务合同",
+      output: "docx",
+      templateId: "word/contract-default",
+      summary: "",
+      sections: [{ heading: "付款", body: "甲方应于五日内付款。" }],
+      reviewNotes: [],
+      reviewStatus: "approved",
+      createdAt: "2026-09-28T00:00:00.000Z",
+    };
+    persistDraft(workspaceDir, task);
+    const first = await exportTrackedSiblingForTask({ workspaceDir, taskId: task.taskId });
+    expect(first.ok).toBe(true);
+    if (!first.ok) {
+      return;
+    }
+    const before = fs.readFileSync(first.outputPath);
+    const stored = readDraft(workspaceDir, task.taskId);
+    expect(stored).toBeTruthy();
+    if (!stored) {
+      return;
+    }
+    persistDraft(workspaceDir, {
+      ...stored,
+      sections: [{ heading: "付款", body: "甲方应于三日内付款。" }],
+    });
+    const refreshed = await refreshTrackedExportIfPresent({
+      workspaceDir,
+      taskId: task.taskId,
+    });
+    expect(refreshed.refreshed).toBe(true);
+    expect(fs.existsSync(first.outputPath)).toBe(true);
+    expect(fs.readFileSync(first.outputPath).equals(before)).toBe(false);
   });
 
   it("reports a locked review file instead of minting another sibling", () => {

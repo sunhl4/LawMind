@@ -10644,6 +10644,13 @@ button.lm-side-chat-session-forked-btn {
   padding: 20px 16px 32px;
 }
 
+.lm-word-surface-sheet {
+  display: flex;
+  align-items: flex-start;
+  width: max-content;
+  margin: 0 auto;
+}
+
 .lm-word-surface-page {
   box-sizing: border-box;
   width: 793.7px;
@@ -10686,6 +10693,44 @@ button.lm-side-chat-session-forked-btn {
 
 .lm-word-surface-blank {
   min-height: 1em;
+}
+
+.lm-word-surface-header,
+.lm-word-surface-footer,
+.lm-word-surface-footnotes {
+  color: #444;
+  font-size: 0.9em;
+}
+
+.lm-word-surface-header {
+  border-bottom: 1px solid #cfcfcf;
+  margin-bottom: 1.2em;
+  padding-bottom: 0.6em;
+}
+
+.lm-word-surface-footer {
+  border-top: 1px solid #cfcfcf;
+  margin-top: 1.2em;
+  padding-top: 0.6em;
+}
+
+.lm-word-surface-footnotes {
+  border-top: 1px solid #cfcfcf;
+  margin-top: 1.5em;
+  padding-top: 0.6em;
+}
+
+.lm-word-track-row {
+  background: var(--rev-wash, rgba(255, 0, 0, 0.08));
+}
+
+.lm-word-rev-fmt {
+  border-bottom: 1px dotted var(--rev-line, #c00000);
+}
+
+.lm-word-track[data-rev-change="moveTo"] .lm-word-rev-ins,
+.lm-word-track[data-rev-change="moveFrom"] .lm-word-rev-del {
+  text-decoration-style: double;
 }
 
 .lm-word-surface-label {
@@ -10788,7 +10833,7 @@ button.lm-side-chat-session-forked-btn {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 
 .lm-word-surface-rail-title {
@@ -10823,58 +10868,72 @@ button.lm-side-chat-session-forked-btn {
   color: var(--text-2);
 }
 
+/* Word by author: red, blue, green, violet, dark red, teal, dark yellow, gray. */
 .lm-word-rev,
-.lm-word-rev-card {
-  --rev-wash: rgba(192, 0, 0, 0.12);
-  --rev-line: #c00000;
+.lm-word-rev-card,
+.lm-word-track {
+  --rev-wash: rgba(255, 0, 0, 0.12);
+  --rev-line: #ff0000;
 }
 
 .lm-word-rev[data-rev-color="0"],
-.lm-word-rev-card[data-rev-color="0"] {
-  --rev-wash: rgba(192, 0, 0, 0.12);
-  --rev-line: #c00000;
+.lm-word-rev-card[data-rev-color="0"],
+.lm-word-track[data-rev-color="0"] {
+  --rev-wash: rgba(255, 0, 0, 0.12);
+  --rev-line: #ff0000;
 }
 
 .lm-word-rev[data-rev-color="1"],
-.lm-word-rev-card[data-rev-color="1"] {
-  --rev-wash: rgba(29, 78, 216, 0.18);
-  --rev-line: #1d4ed8;
+.lm-word-rev-card[data-rev-color="1"],
+.lm-word-track[data-rev-color="1"] {
+  --rev-wash: rgba(0, 0, 255, 0.12);
+  --rev-line: #0000ff;
 }
 
 .lm-word-rev[data-rev-color="2"],
-.lm-word-rev-card[data-rev-color="2"] {
-  --rev-wash: rgba(21, 128, 61, 0.18);
-  --rev-line: #15803d;
+.lm-word-rev-card[data-rev-color="2"],
+.lm-word-track[data-rev-color="2"] {
+  --rev-wash: rgba(0, 128, 0, 0.14);
+  --rev-line: #008000;
 }
 
 .lm-word-rev[data-rev-color="3"],
-.lm-word-rev-card[data-rev-color="3"] {
-  --rev-wash: rgba(126, 34, 206, 0.18);
-  --rev-line: #7e22ce;
+.lm-word-rev-card[data-rev-color="3"],
+.lm-word-track[data-rev-color="3"] {
+  --rev-wash: rgba(128, 0, 128, 0.14);
+  --rev-line: #800080;
 }
 
 .lm-word-rev[data-rev-color="4"],
-.lm-word-rev-card[data-rev-color="4"] {
-  --rev-wash: rgba(190, 18, 60, 0.18);
-  --rev-line: #be123c;
+.lm-word-rev-card[data-rev-color="4"],
+.lm-word-track[data-rev-color="4"] {
+  --rev-wash: rgba(128, 0, 0, 0.14);
+  --rev-line: #800000;
 }
 
 .lm-word-rev[data-rev-color="5"],
-.lm-word-rev-card[data-rev-color="5"] {
-  --rev-wash: rgba(15, 118, 110, 0.18);
-  --rev-line: #0f766e;
+.lm-word-rev-card[data-rev-color="5"],
+.lm-word-track[data-rev-color="5"] {
+  --rev-wash: rgba(0, 128, 128, 0.14);
+  --rev-line: #008080;
 }
 
 .lm-word-rev[data-rev-color="6"],
-.lm-word-rev-card[data-rev-color="6"] {
-  --rev-wash: rgba(194, 65, 12, 0.2);
-  --rev-line: #c2410c;
+.lm-word-rev-card[data-rev-color="6"],
+.lm-word-track[data-rev-color="6"] {
+  --rev-wash: rgba(128, 128, 0, 0.18);
+  --rev-line: #808000;
 }
 
 .lm-word-rev[data-rev-color="7"],
-.lm-word-rev-card[data-rev-color="7"] {
-  --rev-wash: rgba(67, 56, 202, 0.18);
-  --rev-line: #4338ca;
+.lm-word-rev-card[data-rev-color="7"],
+.lm-word-track[data-rev-color="7"] {
+  --rev-wash: rgba(128, 128, 128, 0.16);
+  --rev-line: #808080;
+}
+
+.lm-word-track {
+  cursor: pointer;
 }
 
 .lm-word-rev {
@@ -10883,7 +10942,8 @@ button.lm-side-chat-session-forked-btn {
 }
 
 .lm-word-rev-active,
-.lm-word-rev-card-active {
+.lm-word-rev-card-active,
+.lm-word-track-active {
   outline: 1px solid var(--rev-line);
   outline-offset: 0;
 }
@@ -10964,6 +11024,11 @@ button.lm-side-chat-session-forked-btn {
   padding: 4px 8px;
   background: var(--surface);
   opacity: 0.78;
+}
+
+.lm-word-rev-card-brief {
+  padding: 2px 8px;
+  opacity: 1;
 }
 
 .lm-word-rev-fold {

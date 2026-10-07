@@ -224,6 +224,155 @@ describe("draft-worker", () => {
     expect(result.data.instructions).toContain("并行写稿工");
   });
 
+  it("sidecar system gets only the 1-hop marginal and never the parent transcript", async () => {
+    vi.mocked(callModelWithRetry).mockResolvedValue(
+      successResponse(
+        JSON.stringify({
+          draft: DRAFT,
+          conclusion: "乙方有权解除",
+          citations: ["买卖合同"],
+          gaps: [],
+        }),
+      ),
+    );
+    const result = await runDraftWorker(
+      {
+        goal: "审查 clause:解除",
+        notGoal: "不要改原件",
+        materials: "买卖合同.docx",
+        excerpt:
+          "买卖合同第八条约定：逾期付款按日万分之五计付违约金。材料没有约定解除权以外的限制。",
+        section: "解除",
+        role: "review",
+      },
+      {
+        chatModel: model,
+        factorState: {
+          factors: [
+            {
+              anchor: "clause:解除",
+              kind: "clause",
+              outcomes: [{ id: "乙方有权解除", mass: 1 }],
+              repairs: 0,
+              flag: "ok",
+              neighbors: ["amount:wage"],
+            },
+            {
+              anchor: "amount:wage",
+              kind: "amount",
+              outcomes: [{ id: "88000", mass: 1 }],
+              repairs: 0,
+              flag: "ok",
+              neighbors: [],
+            },
+            {
+              anchor: "clause:管辖",
+              kind: "clause",
+              outcomes: [{ id: "仲裁", mass: 1 }],
+              repairs: 0,
+              flag: "ok",
+              neighbors: [],
+            },
+          ],
+          sourcePack: [],
+          demoCorpusIds: [],
+          calculatedSlots: [],
+          redlineFailures: [],
+          lastSurgicalAnchors: [],
+          adiabaticStep: 0,
+        },
+      },
+    );
+    expect(result.ok).toBe(true);
+    const messages = vi.mocked(callModelWithRetry).mock.calls[0]?.[1] as Array<{
+      role?: string;
+      content?: string;
+    }>;
+    const system = messages?.find((msg) => msg.role === "system")?.content ?? "";
+    const blob = messages?.map((msg) => msg.content ?? "").join("\n") ?? "";
+    expect(system).toContain("【约化因子】");
+    expect(system).toContain("clause:解除");
+    expect(system).toContain("amount:wage");
+    expect(system).not.toContain("clause:管辖");
+    expect(blob).not.toContain("PARENT_SECRET_HISTORY");
+    expect(blob).not.toContain("是否互相矛盾由你判断");
+  });
+
+  it("seeds 1-hop from binds even when the goal does not name the neighbor", async () => {
+    vi.mocked(callModelWithRetry).mockResolvedValue(
+      successResponse(
+        JSON.stringify({
+          draft: DRAFT,
+          conclusion: "乙方有权解除",
+          citations: ["买卖合同"],
+          gaps: [],
+        }),
+      ),
+    );
+    const result = await runDraftWorker(
+      {
+        goal: "审查解除条款",
+        notGoal: "不要改原件",
+        materials: "买卖合同.docx",
+        excerpt:
+          "买卖合同第八条约定：逾期付款按日万分之五计付违约金。材料没有约定解除权以外的限制。",
+        section: "解除",
+        role: "review",
+        anchor: "clause:解除",
+        binds: ["amount:wage"],
+      },
+      {
+        chatModel: model,
+        factorState: {
+          factors: [
+            {
+              anchor: "clause:解除",
+              kind: "clause",
+              outcomes: [{ id: "乙方有权解除", mass: 1, grounded: true }],
+              repairs: 0,
+              flag: "ok",
+              neighbors: [],
+            },
+            {
+              anchor: "amount:wage",
+              kind: "amount",
+              outcomes: [{ id: "88000", mass: 1, grounded: true }],
+              repairs: 0,
+              flag: "ok",
+              neighbors: [],
+            },
+            {
+              anchor: "clause:管辖",
+              kind: "clause",
+              outcomes: [{ id: "仲裁", mass: 1, grounded: true }],
+              repairs: 0,
+              flag: "ok",
+              neighbors: [],
+            },
+          ],
+          sourcePack: [],
+          demoCorpusIds: [],
+          calculatedSlots: [],
+          redlineFailures: [],
+          lastSurgicalAnchors: [],
+          adiabaticStep: 0,
+        },
+      },
+    );
+    expect(result.ok).toBe(true);
+    const messages = vi.mocked(callModelWithRetry).mock.calls[0]?.[1] as Array<{
+      role?: string;
+      content?: string;
+    }>;
+    const system = messages?.find((msg) => msg.role === "system")?.content ?? "";
+    const blob = messages?.map((msg) => msg.content ?? "").join("\n") ?? "";
+    expect(system).toContain("amount:wage");
+    expect(system).toContain("88000");
+    expect(system).toContain("clause:解除");
+    expect(system).not.toContain("clause:管辖");
+    expect(blob).not.toContain("PARENT_SECRET");
+  });
+
   it("review sidecars return a finding instead of a new clause", async () => {
     vi.mocked(callModelWithRetry).mockResolvedValue(
       successResponse(

@@ -22,6 +22,7 @@ import { buildAgentFleetSummary } from "../platform/build-agent-fleet.js";
 import { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
 import { CONTEXT_DEFERRAL_BOUNCE_MARKER } from "./context-deferral.js";
 import { MAIL_CONTRACT_FAST_PATH_DENIED_HINT } from "./mail-contract-fast-path.js";
+import { REVIEW_BOARD_EXPORT_BOUNCE_MARKER } from "./review-board-export-deferral.js";
 import { CARRYOVER_SEED_MARKER, forkSessionWithCarryover } from "./session-carryover.js";
 import { formatSteerUserMessage } from "./session-context-steer.js";
 import { loadSession, saveSession } from "./session.js";
@@ -575,6 +576,28 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(pressure.compactions.llmDigest.attempted).toBe(0);
         expect(pressure.compactions.llmDigest.used).toBe(0);
         delete process.env.LAWMIND_CONTEXT_TUNING;
+      },
+    );
+  });
+
+  it("交办即终稿：审核台放行推诿被反弹，下一轮须去出 Word", async () => {
+    const DEFERRAL =
+      "余 6 份需您在审核台放行，我才能出 Word。本轮改稿与导出工具未开。回「继续」逐份出稿。";
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(
+          cassetteAssistant(DEFERRAL),
+          cassetteToolCall("render_tracked_draft", { task_id: "t-export" }),
+          cassetteAssistant("已写出旁边审阅稿，空白处标了待核实。"),
+        );
+        const result = await h.runTurn("A。请把剩余合同出成带修订的 Word。");
+        expect(result.turn.status).toBe("completed");
+        expect(result.reply).not.toContain("审核台放行");
+        expect(result.reply).toContain("审阅稿");
+        expect(h.requests.length).toBeGreaterThanOrEqual(2);
+        expect(h.request(1).contains(REVIEW_BOARD_EXPORT_BOUNCE_MARKER)).toBe(true);
+        expect(h.spy?.log.executedNames()).toContain("render_tracked_draft");
       },
     );
   });
@@ -1483,8 +1506,8 @@ describe("turn-orchestrator cassettes (admission)", () => {
         await h.runTurn(instruction);
         expect(h.request(0).contains(instruction)).toBe(true);
         expect(h.request(0).hasAdvertisedTool("draft_worker")).toBe(true);
-        expect(h.request(0).contains("同一次回复里调用")).toBe(true);
-        expect(h.request(0).contains("role")).toBe(true);
+        expect(h.request(0).contains("同一次回复里派")).toBe(true);
+        expect(h.request(0).contains("【待核实】")).toBe(true);
       },
     );
   });
@@ -1498,7 +1521,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
         await h.runTurn(instruction);
         expect(h.request(0).contains(instruction)).toBe(true);
         expect(h.request(0).hasAdvertisedTool("draft_worker")).toBe(true);
-        expect(h.request(0).contains("同一轮每个争点一次")).toBe(true);
+        expect(h.request(0).contains("同一次回复里派")).toBe(true);
       },
     );
   });
@@ -2837,7 +2860,8 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(asked).toHaveLength(4);
         expect(result.turn.status).toBe("completed");
         expect(result.reply).toContain("同样的查找");
-        expect(result.reply).toContain("回复「继续」");
+        expect(result.reply).toContain("待确认");
+        expect(result.reply).not.toContain("回复「继续」");
         expect(result.reply).not.toContain("不应再采样");
       },
     );
@@ -2910,7 +2934,8 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(h.request(3).contains(nudge)).toBe(true);
         expect(nudge).not.toContain("apply_surgical_edits");
         expect(result.reply).toContain("已经读完");
-        expect(result.reply).toContain("回复「继续」");
+        expect(result.reply).toContain("待确认");
+        expect(result.reply).not.toContain("回复「继续」");
         expect(result.reply).not.toContain("原文件旁边");
         expect(result.reply).not.toContain("不应再采样");
       },
@@ -3083,6 +3108,1031 @@ describe("turn-orchestrator cassettes (admission)", () => {
         h.enqueue(cassetteAssistant("只按本案写。"));
         await h.runTurn("赔偿上限怎么写", { matterId });
         expect(h.request(0).allText()).not.toContain("柒万元整");
+      },
+    );
+  });
+
+  it("factor spans: the next request keeps the copied statute and drops duplicate hit packaging", async () => {
+    const statute = "第三十六条 用人单位与劳动者协商一致，可以解除劳动合同。";
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("search_statute", async () => ({
+          ok: true,
+          data: {
+            sourceIds: ["labor-36"],
+            hits: [{ title: "劳动合同法", snippet: statute }],
+            workspaceHits: [{ snippet: "DUPLICATE-PACKAGING" }],
+            authorityHits: [{ snippet: statute, debug: "raw-html" }],
+          },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("search_statute", { query: "解除" }),
+          cassetteAssistant("按检索原文写解除。"),
+        );
+        const result = await h.runTurn("查劳动合同法解除");
+        expect(h.request(1).contains(statute)).toBe(true);
+        expect(h.request(1).contains("【引用原文】")).toBe(true);
+        expect(h.request(1).contains("DUPLICATE-PACKAGING")).toBe(false);
+        expect(h.request(1).contains("raw-html")).toBe(false);
+        expect(h.request(1).contains("按检索原文写解除")).toBe(false);
+        expect(result.reply).toContain("按检索原文写解除。");
+        expect(result.turn.status).toBe("completed");
+      },
+    );
+  });
+
+  it("factor S3: an empty redline stays on the ledger and does not retarget the next sample", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("render_tracked_draft", async () => ({
+          ok: true,
+          data: { code: "xml_qa_no_tracks", taskId: "task-redline" },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("render_tracked_draft", { task_id: "task-redline" }),
+          cassetteAssistant("正文先保留，修订轨随后补。"),
+        );
+        const result = await h.runTurn("把这条改成修订稿");
+        expect(h.request(1).contains("【引擎核定】")).toBe(true);
+        expect(h.request(1).contains("xml_qa_no_tracks")).toBe(true);
+        expect(h.request(1).contains("【因子修复】")).toBe(false);
+        expect(h.request(1).contains("只重做这一处")).toBe(false);
+        expect(h.request(1).contains("正文先保留")).toBe(false);
+        expect(result.reply).toContain("正文先保留，修订轨随后补。");
+        expect(result.reply).not.toContain("【待核实】redline:");
+        expect(result.turn.status).toBe("completed");
+      },
+    );
+  });
+
+  it("factor S1: a demo citation written as authority keeps the sentence and attaches the ledger", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("search_statute", async () => ({
+          ok: true,
+          data: { sourceIds: ["npc-1"], demoCorpus: true },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("search_statute", { query: "合同" }),
+          cassetteAssistant("根据权威来源〔npc-1〕，应当付款。"),
+        );
+        const result = await h.runTurn("检索合同编现行规定");
+        expect(h.requests).toHaveLength(2);
+        expect(result.reply).toContain("根据权威来源〔npc-1〕，应当付款。");
+        expect(result.reply).not.toContain("【机械核定】");
+        expect(result.reply).not.toContain("citation:npc-1");
+        expect(result.reply).not.toContain("【因子修复】");
+        expect(result.turn.status).toBe("completed");
+        h.enqueue(cassetteAssistant("沿用核定。"));
+        await h.runTurn("继续");
+        expect(h.request(2).contains("权威来源〔npc-1〕")).toBe(false);
+        expect(h.request(2).contains("【引擎核定】")).toBe(true);
+        expect(h.request(2).contains("- citation:npc-1：live")).toBe(false);
+      },
+    );
+  });
+
+  it("factor pointer basis: a source id without a span stays mixed in the next sample", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("search_statute", async () => ({
+          ok: true,
+          data: { sourceIds: ["npc-bare"] },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("search_statute", { query: "合同" }),
+          cassetteAssistant("检索完毕。管辖争点如下。"),
+        );
+        const result = await h.runTurn("检索合同编现行规定");
+        expect(result.turn.status).toBe("completed");
+        const citation = result.turn.factorState?.factors.find(
+          (factor) => factor.anchor === "citation:npc-bare",
+        );
+        expect(citation?.outcomes[0]?.grounded).toBe(false);
+        h.enqueue(cassetteAssistant("写管辖。"));
+        await h.runTurn("写管辖争点");
+        expect(h.request(2).contains("【引擎核定】")).toBe(true);
+        expect(h.request(2).contains("【待核实】")).toBe(true);
+        expect(h.request(2).contains("- citation:npc-bare：live")).toBe(false);
+      },
+    );
+  });
+
+  it("factor S2: a conflicting amount keeps the judgment and attaches the calculator value", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("calculate", async () => ({
+          ok: true,
+          data: { op: "economic_compensation", value: 88000, formula: "n*wage", inputs: {} },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("calculate", { op: "economic_compensation", inputs: { years: 2 } }),
+          cassetteAssistant("经济补偿为 99999 元。"),
+        );
+        const result = await h.runTurn("计算经济补偿");
+        expect(h.request(1).contains("【引擎核定】")).toBe(true);
+        expect(h.request(1).contains("88000")).toBe(true);
+        expect(h.requests).toHaveLength(2);
+        expect(result.reply.startsWith("经济补偿为 99999 元。")).toBe(true);
+        expect(result.reply).not.toContain("【机械核定】");
+        expect(result.reply).not.toContain("【因子修复】");
+        expect(result.reply).not.toContain("只重做这一处");
+        expect(result.turn.status).toBe("completed");
+        const amount = result.turn.factorState?.factors.find(
+          (factor) => factor.anchor === "amount:economic_compensation",
+        );
+        expect(amount?.proposalId).toBe("99999");
+        expect(amount?.outcomes[0]?.id).toBe("88000");
+        h.enqueue(cassetteAssistant("沿用核定。"));
+        await h.runTurn("继续");
+        const next = h.request(2);
+        expect(next.contains("【引擎核定】")).toBe(true);
+        expect(next.contains("88000")).toBe(true);
+        const assistant = next
+          .messages()
+          .filter((message) => message.role === "assistant")
+          .map((message) => message.content ?? "")
+          .join("\n");
+        expect(assistant).not.toContain("99999");
+      },
+    );
+  });
+
+  it("factor inverse: 「不对」 restores the calculator reading and drops the proposal", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("calculate", async () => ({
+          ok: true,
+          data: { op: "economic_compensation", value: 88000, formula: "n*wage", inputs: {} },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("calculate", { op: "economic_compensation", inputs: { years: 2 } }),
+          cassetteAssistant("经济补偿为 99999 元。"),
+        );
+        await h.runTurn("计算经济补偿");
+        h.enqueue(cassetteAssistant("已改回计算器的数。"));
+        const corrected = await h.runTurn("不对");
+        const amount = corrected.turn.factorState?.factors.find(
+          (factor) => factor.anchor === "amount:economic_compensation",
+        );
+        expect(amount?.proposalId).toBeUndefined();
+        expect(amount?.outcomes[0]).toMatchObject({ id: "88000", grounded: true });
+        expect(corrected.turn.status).toBe("completed");
+      },
+    );
+  });
+
+  it("capability D5: 不对 restores 甲方; a later 管辖 edit zero-writes; amount stays", async () => {
+    const { persistDraft } = await import("../drafts/index.js");
+    await withTestLawMind(
+      (b) =>
+        b
+          .withLegalTools()
+          .withToolExecute("calculate", async () => ({
+            ok: true,
+            data: { op: "economic_compensation", value: 88000, formula: "n*wage", inputs: {} },
+          }))
+          .withToolExecute("draft_worker", async () => ({
+            ok: true,
+            data: {
+              section: "管辖",
+              draft: "争议提交仲裁。",
+              anchor: "clause:管辖",
+              outcomeId: "仲裁",
+              span: "争议提交仲裁",
+              conclusion: "提交仲裁",
+              citations: [],
+              gaps: [],
+            },
+          })),
+      async (h) => {
+        persistDraft(h.workspaceDir, {
+          taskId: "t-cone-d5",
+          title: "劳动合同审查",
+          summary: "s",
+          sections: [
+            {
+              heading: "正文",
+              body: "甲方：上海示例科技有限公司\n甲方应向乙方支付经济补偿 88000 元。争议提交仲裁。",
+              citations: [],
+            },
+          ],
+          reviewStatus: "approved",
+          reviewNotes: [],
+          output: "docx",
+          createdAt: ts(),
+        });
+        h.enqueue(
+          cassetteToolCalls([
+            {
+              name: "calculate",
+              arguments: { op: "economic_compensation", inputs: { years: 2 } },
+            },
+            {
+              name: "draft_worker",
+              arguments: { goal: "管辖", section: "管辖", anchor: "clause:管辖" },
+            },
+            {
+              name: "apply_surgical_edits",
+              arguments: {
+                task_id: "t-cone-d5",
+                edits: [{ find: "甲方应向", replace: "买方应向" }],
+                craft_check: { deferred: [] },
+              },
+            },
+          ]),
+          cassetteAssistant("已改称谓。"),
+        );
+        const first = await h.runTurn("请计算经济补偿并改称谓");
+        const firstSurgical = first.turn.messages
+          .flatMap((message) => message.toolCallResponses ?? [])
+          .find((row) => row.name === "apply_surgical_edits");
+        expect(firstSurgical?.result.ok).toBe(true);
+        expect(first.turn.factorState?.lastSurgicalAnchors).toContain("defined:甲方");
+        h.enqueue(cassetteAssistant("已按你的指示撤回该处。"));
+        const corrected = await h.runTurn("不对");
+        expect(corrected.turn.factorState?.correctionLightCone).toContain("defined:甲方");
+        expect(corrected.turn.factorState?.correctionLightCone).not.toContain("clause:管辖");
+        h.enqueue(
+          cassetteToolCall("apply_surgical_edits", {
+            task_id: "t-cone-d5",
+            edits: [{ find: "仲裁", replace: "诉讼" }],
+            craft_check: { deferred: [] },
+          }),
+          cassetteAssistant("管辖争点如下。"),
+        );
+        const denied = await h.runTurn("把仲裁改成诉讼");
+        const surgical = denied.turn.messages
+          .flatMap((message) => message.toolCallResponses ?? [])
+          .find((row) => row.name === "apply_surgical_edits");
+        expect(surgical?.result.ok).toBe(false);
+        expect(surgical?.result.data).toMatchObject({
+          code: "light_cone_zero_write",
+          written: false,
+        });
+        expect(denied.turn.status).toBe("completed");
+        h.enqueue(cassetteAssistant("管辖争点如下：约定仲裁有效。"));
+        await h.runTurn("继续写管辖争点");
+        const next = h.request(h.requests.length - 1);
+        expect(next.contains("88000")).toBe(true);
+        expect(next.contains("PARENT_SECRET")).toBe(false);
+      },
+    );
+  });
+
+  it("parallel draft_worker anchors fuse without asking the parent to judge", async () => {
+    const instruction = "请根据买卖合同.docx 起草解除条款的两种意见";
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(
+          cassetteToolCalls([
+            {
+              name: "draft_worker",
+              arguments: {
+                goal: "有权解除",
+                section: "解除甲",
+                anchor: "clause:解除",
+                materials: "买卖合同.docx",
+              },
+            },
+            {
+              name: "draft_worker",
+              arguments: {
+                goal: "无权解除",
+                section: "解除乙",
+                anchor: "clause:解除",
+                materials: "买卖合同.docx",
+              },
+            },
+          ]),
+          cassetteAssistant("已按对照汇总。"),
+        );
+        await h.runTurn(instruction);
+        const next = h.request(1).allText();
+        expect(next).toContain("【待核实】clause:解除");
+        expect(next).not.toContain("是否互相矛盾由你判断");
+        expect(next).not.toContain("请你判断是否冲突");
+      },
+    );
+  });
+
+  it("parallel draft_worker paraphrases of one outcome id do not cancel", async () => {
+    const instruction = "请根据买卖合同.docx 起草解除条款";
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(
+          cassetteToolCalls([
+            {
+              name: "draft_worker",
+              arguments: {
+                goal: "解除",
+                section: "解除甲",
+                anchor: "clause:解除",
+                outcomeId: "may_terminate",
+                conclusion: "乙方有权解除",
+                span: "第十五条",
+                materials: "买卖合同.docx",
+              },
+            },
+            {
+              name: "draft_worker",
+              arguments: {
+                goal: "解除",
+                section: "解除乙",
+                anchor: "clause:解除",
+                outcomeId: "may_terminate",
+                conclusion: "乙方可以解除本合同",
+                span: "第十五条",
+                materials: "买卖合同.docx",
+              },
+            },
+          ]),
+          cassetteAssistant("已按同一读法汇总。"),
+        );
+        await h.runTurn(instruction);
+        const next = h.request(1).allText();
+        expect(next).toContain("共享锚 clause:解除：may_terminate");
+        expect(next).not.toContain("【待核实】clause:解除");
+      },
+    );
+  });
+
+  it("a numbered outline lands as an editable skeleton start on the first sample", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已按结构来写。"));
+        await h.runTurn("请按这份合同改：\n1 工程概况\n1.1 工程名称\n2 违约责任");
+        const first = h.request(0);
+        expect(first.contains("【骨架起点】")).toBe(true);
+        expect(first.contains("工程概况")).toBe(true);
+        expect(first.contains("可改、可增、可删")).toBe(true);
+        expect(h.session()?.factorState?.skeletonTree?.[0]?.children[0]?.heading).toContain(
+          "工程名称",
+        );
+      },
+    );
+  });
+
+  it("a numbered outline plus calculate freezes lastPassedSkeleton and binds the amount slot", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("calculate", async () => ({
+          ok: true,
+          data: { op: "wage", value: 15000, formula: "wage", inputs: {} },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("calculate", { op: "wage", inputs: {} }),
+          cassetteAssistant("工资按核定写入。"),
+        );
+        const result = await h.runTurn(
+          "请按这份合同改：\n1 工程概况\n1.1 工程名称\n2 违约责任\n并计算工资",
+        );
+        expect(result.turn.status).toBe("completed");
+        expect(result.turn.factorState?.lastPassedSkeleton?.[0]?.heading).toContain("工程概况");
+        expect(result.turn.factorState?.lastPassedSkeleton?.[0]?.children[0]?.heading).toContain(
+          "工程名称",
+        );
+        expect(result.turn.factorState?.skeletonBoundAnchors).toContain("amount:wage");
+        expect(h.request(0).contains("【骨架起点】")).toBe(true);
+      },
+    );
+  });
+
+  it("an explicit builtin template id lands as an editable skeleton on the first sample", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("备忘录按栏目起草。"));
+        await h.runTurn("templateId=word/legal-memo-default\n起草备忘录");
+        const first = h.request(0);
+        expect(first.contains("【骨架起点】")).toBe(true);
+        expect(first.contains("一、结论")).toBe(true);
+        expect(first.contains("免责声明")).toBe(true);
+        expect(first.contains("可改、可增、可删")).toBe(true);
+        expect(h.session()?.factorState?.skeletonHeadings).toContain("事由");
+      },
+    );
+  });
+
+  it("capability CUAD express: a grounded clause plus a judgment still leaves writing tools open", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("draft_worker", async () => ({
+          ok: true,
+          data: {
+            section: "解除",
+            anchor: "clause:解除",
+            outcomeId: "提前三十日书面通知解除",
+            conclusion: "提前三十日书面通知解除",
+            span: "甲方有权提前三十日书面通知解除本合同，且无需说明理由。",
+          },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("draft_worker", {
+            goal: "解除",
+            section: "解除",
+            anchor: "clause:解除",
+            outcomeId: "提前三十日书面通知解除",
+            materials: "劳动合同.docx",
+          }),
+          cassetteAssistant(
+            "综合现有材料，我方主张就该条款保留谈判空间。若对方拒绝修改，则两种路径都写入意见。",
+          ),
+        );
+        const first = await h.runTurn("请写解除条款的意见");
+        expect(first.turn.status).toBe("completed");
+        expect(first.reply).toContain("主张就该条款保留谈判空间");
+        expect(first.reply).toContain("两种路径");
+        expect(first.reply).not.toContain("【机械核定】");
+        expect(first.reply).not.toContain("必须逐句");
+        h.enqueue(cassetteAssistant("管辖争点如下：约定仲裁有效。"));
+        await h.runTurn("继续写管辖争点");
+        const next = h.request(h.requests.length - 1);
+        expect(next.contains("主张就该条款保留谈判空间")).toBe(true);
+        expect(next.contains("两种路径")).toBe(true);
+        expect(next.contains("【判断保留】")).toBe(true);
+        expect(next.hasAdvertisedTool("search_statute")).toBe(true);
+        expect(
+          next.hasAdvertisedTool("apply_surgical_edits") ||
+            next.hasAdvertisedTool("write_document"),
+        ).toBe(true);
+        expect(next.contains("必须逐句")).toBe(false);
+      },
+    );
+  });
+
+  it("capability LawBench express: the wrong compensation leaves the sample and the judgment stays", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("calculate", async () => ({
+          ok: true,
+          data: { op: "economic_compensation", value: 45000, formula: "n*wage", inputs: {} },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("calculate", { op: "economic_compensation", inputs: { years: 3 } }),
+          cassetteAssistant(
+            "综合现有材料，我方主张就该条款保留谈判空间。若对方拒绝修改，则两种路径都写入意见。经济补偿为 54999 元。管辖争点宜另段展开。",
+          ),
+        );
+        const first = await h.runTurn("计算三年经济补偿并给意见");
+        expect(first.turn.status).toBe("completed");
+        expect(first.reply).toContain("主张就该条款保留谈判空间");
+        expect(first.reply).toContain("两种路径");
+        expect(first.reply).toContain("54999");
+        expect(first.reply).not.toContain("【机械核定】");
+        h.enqueue(cassetteAssistant("继续写管辖。"));
+        await h.runTurn("继续写管辖争点");
+        const next = h.request(h.requests.length - 1);
+        const assistant = next
+          .messages()
+          .filter((message) => message.role === "assistant")
+          .map((message) => message.content ?? "")
+          .join("\n");
+        expect(assistant).not.toContain("54999");
+        expect(next.contains("45000")).toBe(true);
+        expect(next.contains("主张就该条款保留谈判空间")).toBe(true);
+        expect(next.contains("两种路径")).toBe(true);
+        expect(next.contains("管辖争点")).toBe(true);
+        expect(next.hasAdvertisedTool("search_statute")).toBe(true);
+        expect(
+          next.hasAdvertisedTool("apply_surgical_edits") ||
+            next.hasAdvertisedTool("write_document"),
+        ).toBe(true);
+      },
+    );
+  });
+
+  it("a free draft names that it was not deformed from a verified skeleton", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("备忘录如下。"));
+        await h.runTurn("起草一份备忘录");
+        expect(h.request(0).contains("未从已验证骨架变形")).toBe(true);
+        expect(h.request(0).contains("先写工作任务书再调用")).toBe(false);
+      },
+    );
+  });
+
+  it("an unknown template id does not pause and keeps the free skeleton", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("起诉状如下。"));
+        const result = await h.runTurn("请写一份起诉状");
+        expect(result.turn.status).toBe("completed");
+        expect(h.request(0).contains("未从已验证骨架变形")).toBe(true);
+      },
+    );
+  });
+
+  it("draft_worker sidecar admission: parent history never enters the worker system", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("draft_worker", async (args, ctx) => {
+          const { composeWorkerSystem, emptyFactorState, formatMarginalBlock, marginalFactors } =
+            await import("./factor-state.js");
+          const { REVIEW_WORKER_DEVELOPER_INSTRUCTIONS } = await import("./draft-worker.js");
+          const section = typeof args.section === "string" ? args.section.trim() : "解除";
+          const state = ctx.factorState ?? emptyFactorState();
+          state.factors = [
+            {
+              anchor: "clause:解除",
+              kind: "clause",
+              outcomes: [{ id: "有权", mass: 1, grounded: true }],
+              repairs: 0,
+              flag: "ok",
+              neighbors: [],
+            },
+            {
+              anchor: "amount:wage",
+              kind: "amount",
+              outcomes: [{ id: "88000", mass: 1, grounded: true }],
+              repairs: 0,
+              flag: "ok",
+              neighbors: [],
+            },
+            {
+              anchor: "clause:管辖",
+              kind: "clause",
+              outcomes: [{ id: "仲裁", mass: 1, grounded: true }],
+              repairs: 0,
+              flag: "ok",
+              neighbors: [],
+            },
+          ];
+          const anchor = typeof args.anchor === "string" ? args.anchor.trim() : "";
+          const binds = Array.isArray(args.binds)
+            ? args.binds.filter(
+                (item): item is string => typeof item === "string" && item.trim().length > 0,
+              )
+            : [];
+          const seeds = [...new Set([anchor, ...binds, "clause:解除"].filter(Boolean))];
+          const marginal = formatMarginalBlock(marginalFactors(state, seeds));
+          const system = composeWorkerSystem({
+            instructions: REVIEW_WORKER_DEVELOPER_INSTRUCTIONS,
+            marginal,
+            parentTranscript: "PARENT_SECRET_HISTORY 上一案赔偿上限壹佰万",
+          });
+          return {
+            ok: true,
+            data: {
+              section,
+              draft: `${section}片段`,
+              conclusion: "有权解除",
+              citations: ["买卖合同.docx"],
+              gaps: [],
+              systemEcho: system,
+            },
+          };
+        }),
+      async (h) => {
+        h.seedHistory([
+          {
+            role: "user",
+            content: "PARENT_SECRET_HISTORY 上一案赔偿上限壹佰万",
+            timestamp: ts(),
+          },
+          {
+            role: "assistant",
+            content: "已记录。",
+            timestamp: ts(),
+          },
+        ]);
+        h.enqueue(
+          cassetteToolCall("draft_worker", {
+            goal: "审查解除",
+            section: "解除",
+            materials: "买卖合同.docx",
+            anchor: "clause:解除",
+            binds: ["amount:wage"],
+          }),
+          cassetteAssistant("已汇总。"),
+        );
+        const result = await h.runTurn("请审查买卖合同的解除条款");
+        expect(result.turn.status).toBe("completed");
+        expect(h.request(0).contains("PARENT_SECRET_HISTORY")).toBe(true);
+        const worker = h.spy?.log.calls.find((call) => call.name === "draft_worker");
+        expect(worker?.result.ok).toBe(true);
+        const echo =
+          worker?.result.data && typeof worker.result.data === "object"
+            ? ((worker.result.data as { systemEcho?: string }).systemEcho ?? "")
+            : "";
+        expect(echo).toContain("审查子工");
+        expect(echo).toContain("【约化因子】");
+        expect(echo).toContain("clause:解除");
+        expect(echo).toContain("amount:wage");
+        expect(echo).not.toContain("clause:管辖");
+        expect(echo).not.toContain("PARENT_SECRET_HISTORY");
+        expect(echo).not.toContain("壹佰万");
+      },
+    );
+  });
+
+  it("legal industry: 劳动合同 N 补偿 stays in the next sample and writing tools stay open", async () => {
+    await withTestLawMind(
+      (b) =>
+        b
+          .withToolExecute("calculate", async () => ({
+            ok: true,
+            data: {
+              op: "economic_compensation",
+              value: 45000,
+              formula: "15000 × 3",
+              inputs: { yearsOfService: 3, monthlyWageYuan: 15000, kind: "N" },
+            },
+          }))
+          .withToolExecute("search_statute", async () => ({
+            ok: true,
+            data: {
+              sourceIds: ["labor-47"],
+              hits: [
+                {
+                  title: "labor-47",
+                  snippet:
+                    "第四十七条 经济补偿按劳动者在本单位工作的年限，每满一年支付一个月工资的标准向劳动者支付。",
+                },
+              ],
+            },
+          })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCalls([
+            {
+              name: "calculate",
+              arguments: {
+                op: "economic_compensation",
+                inputs: { yearsOfService: 3, monthlyWageYuan: 15000, kind: "N" },
+              },
+            },
+            { name: "search_statute", arguments: { query: "经济补偿" } },
+          ]),
+          cassetteAssistant("综合证据，建议依法支付经济补偿 99999 元。管辖争点宜另段写。"),
+        );
+        const first = await h.runTurn("请按劳动合同计算经济补偿并写意见");
+        expect(first.turn.status).toBe("completed");
+        expect(first.reply).toContain("建议依法支付经济补偿");
+        expect(first.reply).not.toContain("【机械核定】");
+        h.enqueue(cassetteAssistant("管辖：合同约定提交上海仲裁。"));
+        await h.runTurn("请写管辖争点");
+        const next = h.request(2);
+        expect(next.contains("【引擎核定】")).toBe(true);
+        expect(next.contains("45000")).toBe(true);
+        expect(next.contains("第四十七条")).toBe(true);
+        const assistant = next
+          .messages()
+          .filter((message) => message.role === "assistant")
+          .map((message) => message.content ?? "")
+          .join("\n");
+        expect(assistant).not.toContain("99999");
+        expect(next.hasAdvertisedTool("search_statute")).toBe(true);
+        expect(
+          next.hasAdvertisedTool("apply_surgical_edits") ||
+            next.hasAdvertisedTool("write_document"),
+        ).toBe(true);
+      },
+    );
+  });
+
+  /**
+   * Claim Q / §9.8 — six-defect capability cassettes.
+   * Assert next-request body / tools / turn status. Not prompt copy.
+   * Not lawyer-graded manuscripts; do not conflate with lawyer-suite.
+   */
+  it("capability D1: wrong amount leaves the sample; next turn still writes 管辖 with tools open", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("calculate", async () => ({
+          ok: true,
+          data: { op: "economic_compensation", value: 88000, formula: "n*wage", inputs: {} },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("calculate", { op: "economic_compensation", inputs: { years: 2 } }),
+          cassetteAssistant("综合证据，我方主张继续履行更符合商业安排。经济补偿为 99999 元。"),
+        );
+        const first = await h.runTurn("计算经济补偿并写意见");
+        expect(first.reply).toContain("继续履行");
+        expect(first.reply).toContain("99999");
+        expect(first.reply).not.toContain("【机械核定】");
+        expect(first.turn.status).toBe("completed");
+
+        h.enqueue(cassetteAssistant("管辖争点如下：约定仲裁有效。"));
+        await h.runTurn("继续写管辖争点");
+        const next = h.request(2);
+        expect(next.contains("【引擎核定】")).toBe(true);
+        expect(next.contains("88000")).toBe(true);
+        const assistant = next
+          .messages()
+          .filter((message) => message.role === "assistant")
+          .map((message) => message.content ?? "")
+          .join("\n");
+        expect(assistant).not.toContain("99999");
+        expect(next.hasAdvertisedTool("search_statute")).toBe(true);
+        expect(
+          next.hasAdvertisedTool("apply_surgical_edits") ||
+            next.hasAdvertisedTool("write_document"),
+        ).toBe(true);
+      },
+    );
+  });
+
+  it("capability D6: authority demo cite is not evidence in the next sample; judgment stays for the lawyer", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("search_statute", async () => ({
+          ok: true,
+          data: { sourceIds: ["npc-1"], demoCorpus: true },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("search_statute", { query: "合同" }),
+          cassetteAssistant("根据权威来源〔npc-1〕，应当付款。相对方迟延，建议主张解除。"),
+        );
+        const first = await h.runTurn("检索合同编现行规定");
+        expect(first.reply).toContain("建议主张解除");
+        expect(first.reply).not.toContain("【机械核定】");
+        expect(first.turn.status).toBe("completed");
+
+        h.enqueue(cassetteAssistant("据此展开论证：催告后可解除。"));
+        await h.runTurn("据此展开论证");
+        const next = h.request(2);
+        expect(next.contains("权威来源〔npc-1〕")).toBe(false);
+        expect(next.contains("【引擎核定】")).toBe(true);
+        expect(next.contains("- citation:npc-1：live")).toBe(false);
+        expect(next.hasAdvertisedTool("search_statute")).toBe(true);
+      },
+    );
+  });
+
+  it("capability X1: after amount conflict the model still keeps judgment and can write 管辖", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("calculate", async () => ({
+          ok: true,
+          data: { op: "economic_compensation", value: 88000, formula: "n*wage", inputs: {} },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("calculate", { op: "economic_compensation", inputs: { years: 2 } }),
+          cassetteAssistant("因相对方迟延，建议主张解除。管辖宜另段写。经济补偿为 99999 元。"),
+        );
+        const first = await h.runTurn("算补偿并给意见");
+        expect(first.reply).toContain("建议主张解除");
+        expect(first.reply).toContain("管辖宜另段写");
+        expect(first.reply).not.toContain("【机械核定】");
+        expect(first.turn.status).toBe("completed");
+
+        h.enqueue(cassetteAssistant("管辖：合同约定提交上海仲裁。"));
+        const second = await h.runTurn("请写管辖争点");
+        expect(second.turn.status).toBe("completed");
+        expect(second.reply).toContain("管辖");
+        const next = h.request(2);
+        expect(next.contains("88000")).toBe(true);
+        const assistant = next
+          .messages()
+          .filter((message) => message.role === "assistant")
+          .map((message) => message.content ?? "")
+          .join("\n");
+        expect(assistant).not.toContain("99999");
+        expect(next.hasAdvertisedTool("search_statute")).toBe(true);
+      },
+    );
+  });
+
+  it("capability X2: pre-retrieval statute prose does not close search_statute", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("可考虑援引《劳动合同法》第36条，待检索核对后再定解除路径。"));
+        const result = await h.runTurn("劳动解除怎么写");
+        expect(result.turn.status).toBe("completed");
+        expect(result.reply).toContain("待检索核对");
+        expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("search_case_law")).toBe(true);
+        const citationFactor = result.turn.factorState?.factors.find((factor) =>
+          factor.anchor.includes("劳动合同法"),
+        );
+        expect(citationFactor === undefined || citationFactor.flag === "ok").toBe(true);
+      },
+    );
+  });
+
+  it("capability X4: mixed 待核实 delivery completes without a continue gate", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(
+          cassetteAssistant(
+            "解除权是否成立仍不明。结论：【待核实】催告是否到达；若到达则倾向解除，否则先补证。",
+          ),
+        );
+        const result = await h.runTurn("解除主张怎么写");
+        expect(result.turn.status).toBe("completed");
+        expect(result.turn.status).not.toBe("awaiting_clarification");
+        expect(result.reply).toContain("【待核实】");
+        expect(h.requests).toHaveLength(1);
+        expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
+      },
+    );
+  });
+
+  it("capability D2: a fluent bad cite is flagged and the judgment is not bounced into another sample", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("search_statute", async () => ({
+          ok: true,
+          data: {
+            sourceIds: ["labor-36"],
+            hits: [
+              {
+                id: "labor-36",
+                title: "劳动合同法",
+                snippet: "第三十六条 用人单位与劳动者协商一致，可以解除劳动合同。",
+              },
+            ],
+          },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("search_statute", { query: "解除" }),
+          cassetteAssistant(
+            "综合证据，我方主张继续履行更符合商业安排。依据《劳动合同法》第99条，可以解除。",
+          ),
+        );
+        const first = await h.runTurn("写解除意见");
+        expect(first.turn.status).toBe("completed");
+        expect(first.reply).toContain("继续履行");
+        expect(first.reply).not.toContain("【因子修复】");
+        expect(h.requests).toHaveLength(2);
+        const cite = first.turn.factorState?.factors.find((factor) =>
+          factor.anchor.includes("第99条"),
+        );
+        expect(cite?.flag === "mixed" || cite?.flag === "conflict").toBe(true);
+
+        h.enqueue(cassetteAssistant("管辖争点如下：约定仲裁有效。"));
+        await h.runTurn("继续写管辖争点");
+        const next = h.request(h.requests.length - 1);
+        expect(next.contains("【引擎核定】")).toBe(true);
+        expect(next.contains("【待核实】")).toBe(true);
+        expect(next.contains("继续履行")).toBe(true);
+        expect(next.contains("只重做这一处")).toBe(false);
+        expect(next.hasAdvertisedTool("search_statute")).toBe(true);
+      },
+    );
+  });
+
+  it("capability D3: two workers on one anchor stay 待核实 on both sides in the next sample", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("draft_worker", async (args) => ({
+          ok: true,
+          data: {
+            section: typeof args.section === "string" ? args.section : "解除",
+            anchor: typeof args.anchor === "string" ? args.anchor : "clause:解除",
+            outcomeId: typeof args.outcomeId === "string" ? args.outcomeId : "",
+            conclusion: typeof args.conclusion === "string" ? args.conclusion : "",
+          },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCalls([
+            {
+              name: "draft_worker",
+              arguments: {
+                goal: "有权解除",
+                section: "解除甲",
+                anchor: "clause:解除",
+                outcomeId: "may_terminate",
+                conclusion: "乙方有权解除",
+                materials: "买卖合同.docx",
+              },
+            },
+            {
+              name: "draft_worker",
+              arguments: {
+                goal: "无权解除",
+                section: "解除乙",
+                anchor: "clause:解除",
+                outcomeId: "must_continue",
+                conclusion: "乙方无权解除本合同，只能继续履行",
+                materials: "买卖合同.docx",
+              },
+            },
+          ]),
+          cassetteAssistant("两侧都先挂上，不取更长的一句。"),
+        );
+        const result = await h.runTurn("请对照解除的两种意见");
+        expect(result.turn.status).toBe("completed");
+        expect(h.requests).toHaveLength(2);
+        const next = h.request(1).allText();
+        expect(next).toContain("【待核实】clause:解除");
+        expect(next).toContain("有权解除");
+        expect(next).toContain("无权解除");
+        expect(next).not.toContain("请你判断是否冲突");
+      },
+    );
+  });
+
+  it("capability D4: the worker system drops PARENT_SECRET and still sees the local anchor", async () => {
+    await withTestLawMind(
+      (b) =>
+        b
+          .withToolExecute("calculate", async () => ({
+            ok: true,
+            data: {
+              op: "wage",
+              value: 15000,
+              formula: "wage",
+              inputs: {},
+              clauseAnchor: "clause:解除",
+            },
+          }))
+          .withToolExecute("draft_worker", async (args, ctx) => {
+            const { composeWorkerSystem, emptyFactorState, formatMarginalBlock, marginalFactors } =
+              await import("./factor-state.js");
+            const state = ctx.factorState ?? emptyFactorState();
+            const anchor = typeof args.anchor === "string" ? args.anchor : "clause:解除";
+            const marginal = formatMarginalBlock(marginalFactors(state, [anchor]));
+            const system = composeWorkerSystem({
+              instructions: "只写解除段。",
+              marginal,
+              parentTranscript: "PARENT_SECRET 上一案赔偿上限壹佰万",
+            });
+            return {
+              ok: true,
+              data: {
+                section: "解除",
+                conclusion: "已按本锚写。",
+                anchor,
+                workerSystem: system,
+              },
+            };
+          }),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("calculate", { op: "wage", inputs: {} }),
+          cassetteToolCall("draft_worker", {
+            goal: "解除",
+            section: "解除",
+            anchor: "clause:解除",
+            materials: "劳动合同.docx",
+          }),
+          cassetteAssistant("解除段已写。"),
+        );
+        const result = await h.runTurn("父会话里还有 PARENT_SECRET。请只写解除段。");
+        expect(result.turn.status).toBe("completed");
+        const worker = result.turn.messages
+          .flatMap((message) => message.toolCallResponses ?? [])
+          .find((row) => row.name === "draft_worker");
+        const system =
+          (worker?.result.data as { workerSystem?: string } | undefined)?.workerSystem ?? "";
+        expect(system).not.toContain("PARENT_SECRET");
+        expect(system).not.toContain("壹佰万");
+        expect(system.includes("clause:解除") || system.includes("15000")).toBe(true);
+      },
+    );
+  });
+
+  it("capability X3: 8.8万元 stays in the next sample beside the grounded 88000", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("calculate", async () => ({
+          ok: true,
+          data: { op: "economic_compensation", value: 88000, formula: "n*wage", inputs: {} },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("calculate", { op: "economic_compensation", inputs: { years: 2 } }),
+          cassetteAssistant("综合证据，我方主张继续履行。经济补偿为 8.8万元。"),
+        );
+        const first = await h.runTurn("计算经济补偿");
+        expect(first.turn.status).toBe("completed");
+        expect(first.reply).toContain("8.8万元");
+        expect(first.reply).toContain("继续履行");
+        const amount = first.turn.factorState?.factors.find(
+          (factor) => factor.anchor === "amount:economic_compensation",
+        );
+        expect(amount?.flag).not.toBe("conflict");
+        h.enqueue(cassetteAssistant("沿用核定。"));
+        await h.runTurn("继续写管辖");
+        const next = h.request(h.requests.length - 1);
+        expect(next.contains("8.8万元")).toBe(true);
+        expect(next.contains("88000")).toBe(true);
+        expect(next.contains("继续履行")).toBe(true);
+        expect(next.hasAdvertisedTool("search_statute")).toBe(true);
       },
     );
   });

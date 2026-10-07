@@ -1,7 +1,7 @@
 /**
  * 律师办任务时点名的文件夹或文件若在 iCloud 上，正文可能还不在本机。
  * 这里只服务这类材料：直接下载到原路径，下完再读，同一轮继续办。
- * 单个文件超过 5 分钟还没落地，才停下来请律师在访达里下完后回复「继续」。
+ * 单个文件超过 5 分钟还没落地，才停下来请律师在访达里下完后点「我已下完」。
  * 不改 LawMind 自己的会话、任务账本。那些仍只在本机读写。
  * dataless 文件不能用 read() 去触发下载，否则进程会堵在系统调用里。
  */
@@ -95,7 +95,7 @@ const consentedKeys = new Set<string>();
 const declinedKeys = new Set<string>();
 const manualHoldKeys = new Set<string>();
 let askedKeys: string[] = [];
-/** 律师说已经手动下完并回复继续。下一回只检查是否在本机，不再自动下载。 */
+/** 律师说已经手动下完。下一回只检查是否在本机，不再自动下载。 */
 let resumeWithoutDownload = false;
 /** 本轮律师刚同意下载，或刚说手动下完要继续。回合开始时消化掉。 */
 let downloadThisTurn = false;
@@ -410,9 +410,9 @@ export function icloudDownloadQuestion(names: readonly string[]): ClarificationQ
 export function icloudManualQuestion(name: string): ClarificationQuestion {
   return {
     key: ICLOUD_DOWNLOAD_MANUAL_KEY,
-    question: `「${name}」已尝试下载超过 5 分钟，仍没有落到本机。请在访达中手动把它下载完，然后回复「继续」。`,
+    question: `「${name}」已尝试下载超过 5 分钟，仍没有落到本机。请在访达中把它下载完，完成后点「我已下完」。`,
     inputType: "enum",
-    options: ["继续"],
+    options: ["我已下完"],
     required: true,
   };
 }
@@ -434,9 +434,9 @@ export function noteLawyerIcloudReply(text: string): void {
     downloadThisTurn = false;
     return;
   }
-  // 「继续 / 已经下载」只检查是否落地，不再自动下 5 分钟。
+  // 「我已下完 / 继续 / 已经下载」只检查是否落地，不再自动下 5 分钟。
   if (
-    /继续|已经下载|下载完|下好了/.test(compact) &&
+    /继续|已经下载|下载完|下好了|已下完|下完了/.test(compact) &&
     manualHoldKeys.size > 0 &&
     !/现在下载/.test(compact)
   ) {
@@ -495,7 +495,7 @@ export async function ensureLocalFile(
   const key = icloudFileKey(diskPath);
   const name = path.basename(diskPath);
   // 只有标志里明确有 dataless 才算在云端。解析不到、或只是 compressed，都当本地文件。
-  // 已经在本机就直接读。刚才那次「继续」也到此结束，后面的文件仍可自动下载。
+  // 已经在本机就直接读。刚才那次「我已下完」也到此结束，后面的文件仍可自动下载。
   if (!flags || !flagsLookDataless(flags)) {
     resumeWithoutDownload = false;
     manualHoldKeys.delete(key);
@@ -544,7 +544,7 @@ export async function ensureLocalFile(
   throw new IcloudLawyerPrompt(icloudManualQuestion(name));
 }
 
-/** 律师刚同意或刚说继续时，由 LawMind 自己处理这些文件，不等模型再点一次读取。 */
+/** 律师刚同意下载或刚点「我已下完」时，由 LawMind 自己处理这些文件，不等模型再点一次读取。 */
 export async function runApprovedIcloudDownloads(deps?: {
   io?: IcloudMaterializeIO;
   sleep?: (ms: number) => Promise<void>;

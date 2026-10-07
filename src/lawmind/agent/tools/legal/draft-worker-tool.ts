@@ -33,6 +33,24 @@ export const draftWorkerTool: AgentTool = {
         type: "string",
         description: "这一支的名字，例如「违约金」「开庭时间」。并行时必须互不相同。",
       },
+      anchor: {
+        type: "string",
+        description:
+          "这一支要回答的稳定命题锚，例如 clause:解除。同一锚的几支由引擎融合；不传则不参与相消。",
+      },
+      outcomeId: {
+        type: "string",
+        description:
+          "这一支的读法 id。同一锚上相同 id 的不同措辞合成一条；不同 id 才写成【待核实】。不传则用结论文本当 id。",
+      },
+      span: {
+        type: "string",
+        description: "支撑该读法的材料原句。没有原句时，该读法不得写成确定句。",
+      },
+      binds: {
+        type: "array",
+        description: "与本锚纠缠的其他锚，例如 amount:wage。子工只带走这些锚的 1-hop。",
+      },
       role: {
         type: "string",
         description: "review 交结论和依据；draft 写条款片段；explore 只读探查目录。",
@@ -68,9 +86,46 @@ export const draftWorkerTool: AgentTool = {
       params.role === "review" || params.role === "draft" || params.role === "explore"
         ? params.role
         : undefined;
-    return runDraftWorker(
-      { goal, notGoal, materials, excerpt, path, section, style, resumeId, followUp, role },
+    const anchor = typeof params.anchor === "string" ? params.anchor.trim() : "";
+    const binds = Array.isArray(params.binds)
+      ? params.binds.filter(
+          (item): item is string => typeof item === "string" && item.trim().length > 0,
+        )
+      : [];
+    const result = await runDraftWorker(
+      {
+        goal,
+        notGoal,
+        materials,
+        excerpt,
+        path,
+        section,
+        style,
+        resumeId,
+        followUp,
+        role,
+        ...(anchor ? { anchor } : {}),
+        ...(binds.length > 0 ? { binds } : {}),
+      },
       ctx,
     );
+    if (result.ok && result.data && typeof result.data === "object") {
+      const data = result.data as Record<string, unknown>;
+      const outcomeId = typeof params.outcomeId === "string" ? params.outcomeId.trim() : "";
+      const span = typeof params.span === "string" ? params.span.trim() : "";
+      if (anchor) {
+        data.anchor = anchor;
+      }
+      if (outcomeId) {
+        data.outcomeId = outcomeId;
+      }
+      if (span) {
+        data.span = span;
+      }
+      if (binds.length > 0) {
+        data.binds = binds;
+      }
+    }
+    return result;
   },
 };

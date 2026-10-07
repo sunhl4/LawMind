@@ -41,7 +41,7 @@ export function wordSurfaceEditorOf(node: Node | null | undefined): HTMLElement 
 export function lawyerInsertionOf(node: Node | null | undefined): HTMLElement | null {
   const el = node instanceof Element ? node : node?.parentElement;
   const ins = el?.closest(`ins.${WORD_SURFACE_INS_CLASS}`);
-  if (!(ins instanceof HTMLElement) || ins.closest(".lm-word-rev")) {
+  if (!(ins instanceof HTMLElement) || ins.closest(".lm-word-rev") || ins.closest(".lm-word-track")) {
     return null;
   }
   return ins;
@@ -204,7 +204,10 @@ export function applyInsertionText(text: string, options?: { move?: boolean }): 
     if (typeof document.execCommand !== "function") {
       return false;
     }
-    (existing.closest(".lm-word-surface-plain"))?.focus();
+    const editor = existing.closest(".lm-word-surface-plain");
+    if (editor instanceof HTMLElement) {
+      editor.focus();
+    }
     restoreRange(range);
     return document.execCommand("insertText", false, text);
   }

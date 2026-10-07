@@ -6,8 +6,6 @@
 
 import type { DraftCitationIntegrityView } from "../drafts/citation-integrity.js";
 import type { RedlineHunk } from "../drafts/redline-proposal.js";
-import { resolveEdition } from "../policy/edition.js";
-import type { LawMindWorkspacePolicy } from "../policy/workspace-policy.js";
 import type { ArtifactDraft, LegalReasoningGraph, ResearchBundle } from "../types.js";
 import {
   LEGAL_GUARDIAN_MAX_ROUNDS,
@@ -155,61 +153,6 @@ export function isInfraGuardianView(
   return view.gaps.some((g) => isInfraGuardianGapCode(g.code));
 }
 
-/**
- * 带修订轨的稿子是否「不过独立审稿就不许导出」。
- *
- * 解析顺序（都在 `apply` 与导出路径同源，避免两处口径漂移）：
- * 1. policy `guardianTrackedRedline`（显式 `block` / `advisory`）；
- * 2. env `LAWMIND_GUARDIAN_TRACKED_REDLINE`（显式 `block` / `advisory`）；
- * 3. edition 缺省 `guardianTrackedRedlineBlock`：**solo 关 → advisory；firm / private_deploy 开 → block**。
- *
- * 为什么这样分档：
- * - `advisory`：审稿照跑，缺口如实写进结果交律师（Word 里逐处可接受/拒绝），但不阻断导出。
- *   `shouldRunLegalGuardianForDocument` 对 `draft.contractEdit` 本来就是**豁免**的——
- *   带修订轨的稿不是最终交付物，真正外发仍由 `send_email` 独立把关；把 tracked 导出也按
- *   `block` 处理会让「审稿 2 轮未过」打断整条无人值守改稿，律师只看到「没有结果」。
- * - `block`：律所/私有部署里「未过独立审稿的稿子流出去」代价更高，保留硬墙。
- *
- * 未知取值（含拼写错误）按所在 edition 的缺省处理，不把写错的配置当成硬墙或免检。
- */
-export function resolveGuardianTrackedRedlinePosture(input?: {
-  policy?: { guardianTrackedRedline?: unknown } | null;
-  env?: NodeJS.ProcessEnv;
-}): "block" | "advisory" {
-  const fromPolicy = input?.policy?.guardianTrackedRedline;
-  if (fromPolicy === "block" || fromPolicy === "advisory") {
-    return fromPolicy;
-  }
-  const raw = (input?.env ?? process.env).LAWMIND_GUARDIAN_TRACKED_REDLINE?.trim().toLowerCase();
-  if (raw === "block" || raw === "advisory") {
-    return raw;
-  }
-  // 调用方可能只带一个字段（测试/局部配置），按 edition 解析只用到 edition 与 features。
-  const editionPolicy = (input?.policy ?? null) as LawMindWorkspacePolicy | null;
-  return resolveEdition({ policy: editionPolicy, env: input?.env }).features
-    .guardianTrackedRedlineBlock
-    ? "block"
-    : "advisory";
-}
-
-export function guardianBlocksExport(
-  record: Pick<GuardianRecord, "verdict"> & { gaps?: readonly GuardianGap[] },
-): boolean {
-  if (record.verdict !== "fail") {
-    return false;
-  }
-  const gaps = record.gaps ?? [];
-  // 只有提示备注，或轮次上限是被这些备注耗尽的：备注可见，但不挡 Word。
-  // 夹着未覆盖、缺答等实质缺口时仍然拦截。
-  if (
-    gaps.length > 0 &&
-    gaps.every((gap) => gap.code === "checklist_note" || gap.code === "guardian_exhausted")
-  ) {
-    return false;
-  }
-  return true;
-}
-
 const CHECKLIST_FLOOR_CODES = new Set([
   "checklist_note",
   "checklist_not_covered",
@@ -218,18 +161,20 @@ const CHECKLIST_FLOOR_CODES = new Set([
   "guardian_exhausted",
 ]);
 
-/**
- * 收工补导出时，缺口若全是检查单（含未覆盖、缺答），不扣下已经改好的 Word。
- * 引用对不上、机械核对未过，仍然拦住。
- */
-export function guardianChecklistGapsOnly(
+export function guardianBlocksExport(
   record: Pick<GuardianRecord, "verdict"> & { gaps?: readonly GuardianGap[] },
 ): boolean {
   if (record.verdict !== "fail") {
     return false;
   }
   const gaps = record.gaps ?? [];
-  return gaps.length > 0 && gaps.every((gap) => CHECKLIST_FLOOR_CODES.has(gap.code));
+  // 检查单备注 / 未覆盖 / 缺答 / 轮次耗尽：缺口进稿【待核实】或修订窗，不挡 Word。
+  // 交办即终稿——勿把「检查单套错门类」变成请律师审核台放行。
+  // 引用对不上、机械核对等非检查单缺口仍可拦正式件。
+  if (gaps.length > 0 && gaps.every((gap) => CHECKLIST_FLOOR_CODES.has(gap.code))) {
+    return false;
+  }
+  return true;
 }
 
 export function buildGuardianEvidencePack(input: {

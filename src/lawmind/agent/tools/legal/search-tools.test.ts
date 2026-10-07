@@ -418,6 +418,43 @@ describe("search_statute / search_case_law", () => {
     expect(data.hits[0]?.source).toBe("北大法宝");
     expect(data.hits[0]?.url).toContain("pkulaw.com");
   });
+
+  it("ranks the grounded amount ahead of the rejected number", async () => {
+    vi.spyOn(searchAuthority, "retrieveAuthorityHitsForChat").mockResolvedValue({
+      live: true,
+      provider: "pkulaw",
+      providerLabel: "北大法宝",
+      sourceTier: "live",
+      hits: [
+        { source: "错数", snippet: "经济补偿为 99999 元", title: "错数" },
+        { source: "核定", snippet: "经济补偿为 88000 元", title: "核定" },
+      ],
+      riskFlags: [],
+      missingItems: [],
+      demoCorpus: false,
+    });
+    const { emptyFactorState } = await import("../../factor-state.js");
+    const state = emptyFactorState();
+    state.factors.push({
+      anchor: "amount:economic_compensation",
+      kind: "amount",
+      outcomes: [{ id: "88000", mass: 1, grounded: true }],
+      repairs: 0,
+      flag: "conflict",
+      neighbors: [],
+      proposalId: "99999",
+    });
+    const statute = await searchStatute.execute(
+      { query: "经济补偿" },
+      makeCtx("/tmp/lawmind-search-amplify", { factorState: state }),
+    );
+    expect(statute.ok).toBe(true);
+    const data = statute.data as { hits: Array<{ source: string }> };
+    const groundedAt = data.hits.findIndex((hit) => hit.source === "核定");
+    const rejectedAt = data.hits.findIndex((hit) => hit.source === "错数");
+    expect(groundedAt).toBeGreaterThanOrEqual(0);
+    expect(rejectedAt).toBeGreaterThan(groundedAt);
+  });
 });
 
 describe("check_conflict_of_interest", () => {

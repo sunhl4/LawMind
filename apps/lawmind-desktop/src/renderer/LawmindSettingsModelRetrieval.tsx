@@ -21,7 +21,7 @@ import {
   type LawmindSettingsHealth,
 } from "./lawmind-settings-models.ts";
 import { isActiveModelVerified } from "./lawmind-model-verify";
-import { LawmindAuthoritySetup } from "./LawmindAuthoritySetup";
+import { LawmindAuthoritySetup, type AuthoritySavePayload } from "./LawmindAuthoritySetup";
 
 type Props = {
   config: LawmindSettingsAppConfig;
@@ -41,6 +41,8 @@ type Props = {
   applyDraftWithModelEnabled?: (enabled: boolean) => void | Promise<void>;
   npcSaving?: boolean;
   applyOpenLawNpc?: (enabled: boolean) => void | Promise<void>;
+  authoritySaving?: boolean;
+  onSaveAuthority?: (payload: AuthoritySavePayload) => Promise<void>;
   onOpenApiWizard: () => void;
 };
 
@@ -63,6 +65,8 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
     applyDraftWithModelEnabled,
     npcSaving = false,
     applyOpenLawNpc,
+    authoritySaving = false,
+    onSaveAuthority,
     onOpenApiWizard,
   } = props;
   const [workerModelId, setWorkerModelId] = useState<string>("");
@@ -301,6 +305,8 @@ export function LawmindSettingsModelRetrieval(props: Props): ReactNode {
             }
             npcSaving={npcSaving}
             onToggleNpc={applyOpenLawNpc ? (enabled) => void applyOpenLawNpc(enabled) : undefined}
+            authoritySaving={authoritySaving}
+            onSaveAuthority={onSaveAuthority}
             probeControl={
               apiBase ? (
                 <button

@@ -1811,6 +1811,13 @@ button.lm-side-chat-session-forked-btn {
   padding: 20px 16px 32px;
 }
 
+.lm-word-surface-sheet {
+  display: flex;
+  align-items: flex-start;
+  width: max-content;
+  margin: 0 auto;
+}
+
 .lm-word-surface-page {
   box-sizing: border-box;
   width: 793.7px;
@@ -1955,7 +1962,7 @@ button.lm-side-chat-session-forked-btn {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 
 .lm-word-surface-rail-title {
@@ -2156,6 +2163,11 @@ button.lm-side-chat-session-forked-btn {
   padding: 4px 8px;
   background: var(--surface);
   opacity: 0.78;
+}
+
+.lm-word-rev-card-brief {
+  padding: 2px 8px;
+  opacity: 1;
 }
 
 .lm-word-rev-fold {

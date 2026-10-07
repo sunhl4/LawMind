@@ -83,7 +83,7 @@
 
 **档位与阻断**
 
-`resolveGuardianTrackedRedlinePosture`、`guardianBlocksExport`。
+`guardianBlocksExport`（正式新建件；修订稿 `render_tracked_draft` 不挡本机出稿）。
 
 **基础设施失败**
 

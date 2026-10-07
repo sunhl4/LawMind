@@ -164,7 +164,7 @@ function buildCarryoverFrame(opts: {
     }
   }
   lines.push(
-    "- 交付物验收与 render 门禁仍遵守当前草稿 acceptance 状态；send_email 只写待发信，律师批准后才发出。",
+    "- 交办即终稿：疑问进稿【待核实】/修订，仍须出 Word，勿请审核台放行；send_email 只写待发信，律师批准后才发出。",
   );
 
   const attachments = collectCompactAttachmentNotes(workspaceDir, {

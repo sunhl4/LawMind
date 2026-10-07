@@ -164,6 +164,16 @@ export async function openDocxInReviewSurface(opts: {
   window.dispatchEvent(new CustomEvent(LAWMIND_SHOW_WORD_SURFACE_EVENT));
 }
 
+/** 对话里点非 Word 交付件：打开中间栏。项目目录里的稿不在工作区根上。 */
+export function openDeliverableInMiddleColumn(relPath: string): void {
+  const path = normPath(relPath);
+  if (!path || typeof window === "undefined") {
+    return;
+  }
+  prepareWorkspaceForFileOpen();
+  requestOpenWorkspaceFile(path, path.startsWith("cases/") ? "workspace" : "project");
+}
+
 /**
  * A chat copy can share the draft's title while the revisions sit on another
  * original. Open that original so the rail and the marks have a proposal.

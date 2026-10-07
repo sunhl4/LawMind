@@ -36,7 +36,6 @@ const FEATURE_ROWS: FeatureRow[] = [
   { key: "crossMatterRoadmap", label: "跨案件路线图" },
   { key: "crossMatterAcceptanceDashboard", label: "跨案件验收就绪概览" },
   { key: "wordAddinAutoRun", label: "Word 插件「审这份」自动开跑" },
-  { key: "guardianTrackedRedlineBlock", label: "修订稿独立审稿硬墙" },
   { key: "strictDangerousToolApproval", label: "危险工具须显式批准（律所版）" },
   { key: "reviewCampaignParallel", label: "审查专案组并行执行" },
   { key: "forcePeerReview", label: "签批前强制互审委派（律所版；可在路由 defaults 覆盖）" },

@@ -93,6 +93,8 @@ type Props = {
   onApplyDraftWithModelEnabled?: (enabled: boolean) => void | Promise<void>;
   npcSaving?: boolean;
   onApplyOpenLawNpc?: (enabled: boolean) => void | Promise<void>;
+  authoritySaving?: boolean;
+  onSaveAuthority?: (payload: import("./LawmindAuthoritySetup").AuthoritySavePayload) => Promise<void>;
   onReconnectLocalService?: () => void | Promise<void>;
   localServiceReconnecting?: boolean;
   onOpenApiWizard: () => void;
@@ -308,6 +310,8 @@ export function LawmindSettingsPage({
   onApplyDraftWithModelEnabled,
   npcSaving = false,
   onApplyOpenLawNpc,
+  authoritySaving = false,
+  onSaveAuthority,
   onReconnectLocalService,
   localServiceReconnecting = false,
   onOpenApiWizard,
@@ -418,6 +422,8 @@ export function LawmindSettingsPage({
     onApplyDraftWithModelEnabled,
     npcSaving,
     onApplyOpenLawNpc,
+    authoritySaving,
+    onSaveAuthority,
     onReconnectLocalService,
     localServiceReconnecting,
     onOpenApiWizard,
@@ -601,6 +607,8 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
     onApplyDraftWithModelEnabled,
     npcSaving,
     onApplyOpenLawNpc,
+    authoritySaving,
+    onSaveAuthority,
     onReconnectLocalService,
     localServiceReconnecting,
     onOpenApiWizard,
@@ -705,6 +713,8 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
           applyDraftWithModelEnabled={onApplyDraftWithModelEnabled}
           npcSaving={npcSaving}
           applyOpenLawNpc={onApplyOpenLawNpc}
+          authoritySaving={authoritySaving}
+          onSaveAuthority={onSaveAuthority}
           apiBase={config.apiBase}
           platformProviders={platformProviders}
           platformMode={platformMode}

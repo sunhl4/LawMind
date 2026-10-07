@@ -1,34 +1,35 @@
 /**
- * Open .docx in the chat middle column as a text preview. Dialogue revisions
- * paint onto the file's paragraphs. Accepted hunks can be exported beside the
- * original; this page is not the final Word.
+ * Open .docx in the chat middle column as Word Review: one tracked-change
+ * model, by-author colors. Accept folds and keeps the mark for export; reject
+ * removes it. Other lawyers' marks are visible only.
  */
 
 import {
-  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 import {
   replaceChangeAfter,
-  revisionPieces,
+  trackCoversHunk,
 } from "../../../../../src/lawmind/drafts/word-surface-pieces.ts";
 import type {
-  WordLineSpacing,
-  WordMeasure,
-  WordPageBox,
-  WordSurfaceBlock,
   WordSurfaceHunkView,
-  WordSurfaceParagraph,
-  WordSurfaceSegment,
   WordSurfaceSnapshot,
+  WordTrackedView,
 } from "../../../../../src/lawmind/drafts/word-surface.ts";
+import { WordSurfaceDocument, type SurfacePaint } from "./word-surface-document-view";
+import {
+  BalloonEdit,
+  formatRevisionTime,
+  HunkBalloon,
+  TrackBalloon,
+  wordBalloonLines,
+} from "./word-surface-margin";
 import { apiGetJson, apiSendJson, errorMessage } from "../api-client";
 import { openDeliverableInWps } from "../canvas/host-actions";
 import { openBoundBaselineIfDifferent } from "../lawmind-open-contract-revision";
@@ -43,6 +44,26 @@ import {
   wordSurfaceUndoRedo,
   wrapCommittedInsertion,
 } from "./word-surface-edit";
+import type { WordRevisionRun } from "../../../../../src/lawmind/drafts/word-revision/index.ts";
+import {
+  acceptParagraphTracks,
+  applyEngineDelete,
+  applyEngineFormat,
+  applyEngineInsert,
+  applyEngineMove,
+  authorClockFor,
+  editHitsForeignTrack,
+  caretEngineOffset,
+  isOwnRevisionAuthor,
+  ownRevisionName,
+  commentOnRange,
+  decideParagraphRuns,
+  paragraphRunsOf,
+  restoreCaret,
+  snapshotHasEngine,
+  snapshotWithRuns,
+} from "./word-surface-engine";
+import { packRailCardTops } from "./word-surface-rail";
 import {
   matchSyncedLawyerHunks,
   popSyncedLawyerUndo,
@@ -104,6 +125,41 @@ function surfaceQuery(
   return `/api/word-surface?${q.toString()}`;
 }
 
+function revisionCardStatus(
+  id: string,
+  hunks: WordSurfaceHunkView[],
+  tracked: WordTrackedView[],
+): "pending" | "accepted" | "rejected" {
+  const hunk = hunks.find((row) => row.hunkId === id);
+  if (hunk) {
+    return hunk.status;
+  }
+  const track = tracked.find((row) => row.revId === id);
+  if (!track) {
+    return "pending";
+  }
+  if (track.disposition === "accepted") {
+    return "accepted";
+  }
+  const covered = hunks.find((row) => trackCoversHunk(track, row));
+  return covered?.status ?? "pending";
+}
+
+function idsCoveredWithTrack(
+  row: WordTrackedView,
+  hunks: WordSurfaceHunkView[],
+  tracked: WordTrackedView[],
+): string[] {
+  const hunkMatches = hunks.filter((hunk) => trackCoversHunk(row, hunk));
+  const ids = new Set<string>([row.revId, ...hunkMatches.map((hunk) => hunk.hunkId)]);
+  for (const other of tracked) {
+    if (hunkMatches.some((hunk) => trackCoversHunk(other, hunk))) {
+      ids.add(other.revId);
+    }
+  }
+  return [...ids];
+}
+
 function snapshotKey(snap: WordSurfaceSnapshot): string {
   return JSON.stringify({
     taskId: snap.taskId,
@@ -112,6 +168,14 @@ function snapshotKey(snap: WordSurfaceSnapshot): string {
     page: snap.page,
     paragraphs: snap.paragraphs,
     hunks: snap.hunks.map((hunk) => [hunk.hunkId, hunk.status, hunk.color, hunk.before, hunk.after, hunk.placed]),
+    tracked: (snap.tracked ?? []).map((row) => [
+      row.revId,
+      row.change,
+      row.author,
+      row.text,
+      row.color,
+      row.disposition ?? "",
+    ]),
   });
 }
 
@@ -137,77 +201,6 @@ function dropSettledDrafts(
   return next;
 }
 
-function markStyle(segment: WordSurfaceSegment, revision: boolean): CSSProperties {
-  return {
-    fontWeight: segment.bold ? 700 : undefined,
-    fontStyle: segment.italic ? "italic" : undefined,
-    textDecoration: !revision && segment.underline ? "underline" : undefined,
-    fontSize: segment.fontSizePx ? `${segment.fontSizePx}px` : undefined,
-    fontFamily: segment.fontFamily,
-    color: revision ? undefined : segment.fontColor,
-  };
-}
-
-function measureCss(measure: WordMeasure | undefined, line: WordLineSpacing | undefined): string | undefined {
-  if (!measure) {
-    return undefined;
-  }
-  if (measure.unit === "px") {
-    return `${measure.value}px`;
-  }
-  if (measure.unit === "em") {
-    return `${measure.value}em`;
-  }
-  if (line?.rule === "exact" || line?.rule === "atLeast") {
-    return `${Math.round(measure.value * line.px * 10) / 10}px`;
-  }
-  const multiple = line?.rule === "auto" ? line.multiple : 1;
-  return `${Math.round(measure.value * multiple * 1000) / 1000}em`;
-}
-
-function lineCss(line: WordLineSpacing | undefined): string | undefined {
-  if (!line) {
-    return undefined;
-  }
-  if (line.rule === "auto") {
-    return String(line.multiple);
-  }
-  return `${line.px}px`;
-}
-
-function paragraphStyle(paragraph: WordSurfaceParagraph): CSSProperties {
-  const align = paragraph.align === "both" ? "justify" : paragraph.align;
-  return {
-    textAlign: align,
-    paddingLeft: measureCss(paragraph.indent, paragraph.line),
-    textIndent: measureCss(paragraph.firstIndent, paragraph.line),
-    marginTop: measureCss(paragraph.spaceBefore, paragraph.line),
-    marginBottom: measureCss(paragraph.spaceAfter, paragraph.line),
-    lineHeight: lineCss(paragraph.line),
-    fontFamily: paragraph.fontFamily,
-  };
-}
-
-function pageStyle(page: WordPageBox | undefined): CSSProperties {
-  const box = page ?? {
-    widthPx: 793.7,
-    marginTopPx: 96,
-    marginRightPx: 96,
-    marginBottomPx: 96,
-    marginLeftPx: 96,
-    fontFamily: 'SimSun, "NSimSun", "Songti SC", "STSong", "Noto Serif SC", serif',
-    fontSizePx: 16,
-  };
-  return {
-    width: box.widthPx,
-    paddingTop: box.marginTopPx,
-    paddingRight: box.marginRightPx,
-    paddingBottom: box.marginBottomPx,
-    paddingLeft: box.marginLeftPx,
-    fontFamily: box.fontFamily,
-    fontSize: box.fontSizePx ? `${box.fontSizePx}px` : undefined,
-  };
-}
 
 export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProps): ReactNode {
   const { apiBase, projectDir, root, relPath, fileName, busy = false, onRevealSource } = props;
@@ -217,13 +210,18 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [openIds, setOpenIds] = useState<Record<string, boolean>>({});
-  const [decisions, setDecisions] = useState<Record<string, "accepted" | "rejected">>({});
   const [liveEdits, setLiveEdits] = useState<LiveEdit[]>([]);
   const [actionBusy, setActionBusy] = useState(false);
   const [exportNote, setExportNote] = useState<string | null>(null);
   const [exportPath, setExportPath] = useState<string | null>(null);
-  const [selectionMenu, setSelectionMenu] = useState<SelectionMenu | null>(null);
+  const [selectionMenu, setSelectionMenu] = useState<{
+    x: number;
+    y: number;
+    inDeletion: boolean;
+    fileActions: boolean;
+  } | null>(null);
   const [markup, setMarkup] = useState<MarkupMode>("all");
+  const [authorFilter, setAuthorFilter] = useState<string>("all");
   const [pageEpoch, setPageEpoch] = useState(0);
   const [comments, setComments] = useState<SurfaceComment[]>([]);
   const keyRef = useRef("");
@@ -243,6 +241,11 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   const paintedSaveRef = useRef(false);
   const syncedUndoRef = useRef<SyncedLawyerUndo[]>([]);
   const liveEditsBeforeSyncRef = useRef<LiveEdit[]>([]);
+  const pendingCaretRef = useRef<{ index: number; offset: number } | null>(null);
+  const compositionCaretRef = useRef<{ index: number; offset: number } | null>(null);
+  const engineUndoRef = useRef<WordRevisionRun[][][]>([]);
+  const pendingMoveRef = useRef<{ index: number; start: number; end: number; text: string } | null>(null);
+  const followSelRef = useRef<string | null>(null);
   /** While true, snapshot updates must not rebuild the page DOM. */
   const holdPagePaint = () =>
     dirtyPlainRef.current || editingPlainRef.current || composingRef.current || syncingRef.current;
@@ -478,6 +481,36 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     [apiBase, projectDir, relPath, reload, root],
   );
 
+  const persistDocument = useCallback(
+    async (opts?: { force?: boolean }) => {
+      const current = snapshotRef.current;
+      const runs = paragraphRunsOf(current);
+      if (snapshotHasEngine(current) && apiBase.trim()) {
+        try {
+          await apiSendJson(apiBase, "/api/word-surface/save", "POST", {
+            root,
+            path: relPath,
+            paragraphs: runs,
+            ...(current?.docxComments && current.docxComments.length > 0
+              ? { comments: current.docxComments }
+              : {}),
+            ...(projectDir?.trim() ? { projectDir: projectDir.trim() } : {}),
+          });
+          keyRef.current = "";
+          seenRef.current = null;
+          dirtyPlainRef.current = false;
+          editingPlainRef.current = false;
+          await reload({ fresh: true });
+        } catch (err) {
+          setActionError(errorMessage(err, "没能写回这份文件。"));
+        }
+        return;
+      }
+      await syncDocument(opts);
+    },
+    [apiBase, projectDir, relPath, reload, root, syncDocument],
+  );
+
   const markPlainDirty = useCallback(() => {
     editingPlainRef.current = true;
     dirtyPlainRef.current = true;
@@ -485,7 +518,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
 
   const scheduleSync = useCallback(() => {
     markPlainDirty();
-    if (!composingRef.current) {
+    if (!composingRef.current && !snapshotHasEngine(snapshotRef.current)) {
       const page = rootRef.current?.querySelector(".lm-word-surface-page");
       if (page) {
         setLiveEdits(readLiveEdits(page));
@@ -502,9 +535,9 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       if (composingRef.current) {
         return;
       }
-      void syncDocument();
+      void persistDocument();
     }, SYNC_DEBOUNCE_MS);
-  }, [markPlainDirty, syncDocument]);
+  }, [markPlainDirty, persistDocument]);
 
   useEffect(() => {
     return () => {
@@ -514,8 +547,159 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     };
   }, []);
 
-  const syncDocumentRef = useRef(syncDocument);
-  syncDocumentRef.current = syncDocument;
+  const syncDocumentRef = useRef(persistDocument);
+  syncDocumentRef.current = persistDocument;
+
+  useLayoutEffect(() => {
+    const pending = pendingCaretRef.current;
+    if (!pending) {
+      return;
+    }
+    pendingCaretRef.current = null;
+    const editor = rootRef.current?.querySelector(
+      `[data-paragraph-index="${String(pending.index)}"]`,
+    );
+    if (editor instanceof HTMLElement) {
+      restoreCaret(editor, pending.offset);
+    }
+  }, [snapshot]);
+
+  const commitEngineRuns = useCallback(
+    (paragraphs: WordRevisionRun[][], caret?: { index: number; offset: number }) => {
+      const current = snapshotRef.current;
+      if (!current) {
+        return;
+      }
+      engineUndoRef.current = [...engineUndoRef.current, paragraphRunsOf(current)].slice(-50);
+      const next = snapshotWithRuns(current, paragraphs);
+      snapshotRef.current = next;
+      pageSnapshotRef.current = next;
+      setSnapshot(next);
+      if (caret) {
+        pendingCaretRef.current = caret;
+      }
+      dirtyPlainRef.current = true;
+      scheduleSync();
+    },
+    [scheduleSync],
+  );
+
+  const hiddenAuthorsOf = useCallback((current: WordSurfaceSnapshot | null): Set<string> | undefined => {
+    if (authorFilter === "all") {
+      return undefined;
+    }
+    return new Set((current?.authors ?? []).filter((name) => name !== authorFilter));
+  }, [authorFilter]);
+
+  const engineContext = useCallback(
+    (node: Node | null) => {
+      const current = snapshotRef.current;
+      if (!current || !snapshotHasEngine(current) || !node) {
+        return null;
+      }
+      const el = node instanceof Element ? node : node.parentElement;
+      const editor = el?.closest<HTMLElement>("[data-paragraph-index]");
+      if (!editor) {
+        return null;
+      }
+      const index = Number(editor.dataset.paragraphIndex ?? "-1");
+      if (!Number.isInteger(index) || index < 0) {
+        return null;
+      }
+      const runs = paragraphRunsOf(current)[index] ?? [];
+      const caret = caretEngineOffset(editor, runs, markup, hiddenAuthorsOf(current));
+      return { current, editor, index, runs, caret };
+    },
+    [hiddenAuthorsOf, markup],
+  );
+
+  const applyEngineBeforeInput = useCallback(
+    (event: InputEvent): boolean => {
+      const ctx = engineContext(event.target instanceof Node ? event.target : null);
+      if (!ctx || !ctx.caret) {
+        return false;
+      }
+      const editKind = event.inputType.startsWith("delete")
+        ? event.inputType.includes("Forward")
+          ? "delete-forward"
+          : "delete-back"
+        : "insert";
+      if (editHitsForeignTrack(ctx.runs, ctx.caret, ownRevisionName(ctx.current), editKind)) {
+        event.preventDefault();
+        return true;
+      }
+      if (event.inputType === "insertCompositionText" || event.isComposing) {
+        compositionCaretRef.current = { index: ctx.index, offset: ctx.caret.start };
+        return false;
+      }
+      event.preventDefault();
+      setActionError(null);
+      const author = authorClockFor(ctx.current);
+      const paragraphs = paragraphRunsOf(ctx.current);
+      if (event.inputType.startsWith("delete")) {
+        const nextRuns = applyEngineDelete(
+          ctx.runs,
+          ctx.caret,
+          !event.inputType.includes("Forward"),
+          author,
+        );
+        paragraphs[ctx.index] = nextRuns;
+        commitEngineRuns(paragraphs, { index: ctx.index, offset: ctx.caret.start });
+        return true;
+      }
+      if (!event.inputType.startsWith("insert")) {
+        return true;
+      }
+      const text =
+        event.inputType === "insertFromPaste" || event.inputType === "insertFromDrop"
+          ? event.data || event.dataTransfer?.getData("text/plain") || ""
+          : (event.data ?? "");
+      if (!text) {
+        return true;
+      }
+      const pendingMove = pendingMoveRef.current;
+      if (
+        event.inputType === "insertFromPaste" &&
+        pendingMove &&
+        pendingMove.text === text &&
+        pendingMove.index === ctx.index
+      ) {
+        const nextRuns = applyEngineMove(
+          ctx.runs,
+          { start: pendingMove.start, end: pendingMove.end },
+          ctx.caret.start,
+          author,
+        );
+        pendingMoveRef.current = null;
+        paragraphs[ctx.index] = nextRuns;
+        commitEngineRuns(paragraphs, { index: ctx.index, offset: ctx.caret.start + text.length });
+        return true;
+      }
+      const nextRuns = applyEngineInsert(ctx.runs, ctx.caret, text, author);
+      paragraphs[ctx.index] = nextRuns;
+      commitEngineRuns(paragraphs, {
+        index: ctx.index,
+        offset: ctx.caret.start + text.length,
+      });
+      pendingMoveRef.current = null;
+      return true;
+    },
+    [commitEngineRuns, engineContext],
+  );
+
+  const undoEngine = useCallback((): boolean => {
+    const prior = engineUndoRef.current.pop();
+    if (!prior || !snapshotRef.current) {
+      return false;
+    }
+    const next = snapshotWithRuns(snapshotRef.current, prior);
+    snapshotRef.current = next;
+    pageSnapshotRef.current = next;
+    setSnapshot(next);
+    dirtyPlainRef.current = true;
+    scheduleSync();
+    return true;
+  }, [scheduleSync]);
 
   // Leaving the page commits and then repaints. Moving to another line on the
   // same page must not rebuild the editor — that drops the caret and Control+Z.
@@ -556,11 +740,32 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
 
   const focusHunk = useCallback((hunkId: string, slot: "page" | "rail") => {
     setSelectedId(hunkId);
-    setOpenIds((current) => ({ ...current, [hunkId]: true }));
-    const node = rootRef.current?.querySelector(
-      `[data-word-hunk="${CSS.escape(hunkId)}"][data-word-slot="${slot}"]`,
-    );
-    node?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    setOpenIds((current) => {
+      const snap = snapshotRef.current;
+      const next = { ...current, [hunkId]: true };
+      const foreign = (snap?.tracked ?? []).filter((row) => !isOwnRevisionAuthor(row.author, snap));
+      if (foreign.some((row) => row.revId === hunkId)) {
+        for (const row of foreign) {
+          if (row.revId !== hunkId) {
+            next[row.revId] = false;
+          }
+        }
+      }
+      return next;
+    });
+    window.requestAnimationFrame(() => {
+      const root = rootRef.current;
+      const page = root?.querySelector(
+        `[data-word-hunk="${CSS.escape(hunkId)}"][data-word-slot="page"]`,
+      );
+      const rail = root?.querySelector(
+        `[data-word-hunk="${CSS.escape(hunkId)}"][data-word-slot="rail"]`,
+      );
+      const primary = slot === "page" ? page : rail;
+      const other = slot === "page" ? rail : page;
+      primary?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      other?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
   }, []);
 
   const showAllMarkup = useCallback((hunkId?: string) => {
@@ -610,7 +815,11 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   }, [apiBase, reload]);
 
   const stepRevision = (direction: -1 | 1) => {
-    const ids = snapshot?.hunks.map((hunk) => hunk.hunkId) ?? [];
+    const seen = new Set<string>();
+    const ids = [
+      ...(snapshot?.tracked ?? []).map((row) => row.revId),
+      ...(snapshot?.hunks ?? []).map((hunk) => hunk.hunkId),
+    ].filter((id) => (seen.has(id) ? false : (seen.add(id), true)));
     if (ids.length === 0) {
       return;
     }
@@ -625,58 +834,48 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     const root = rootRef.current;
     const desk = root?.querySelector<HTMLElement>(".lm-word-surface-desk");
     const margin = root?.querySelector<HTMLElement>(".lm-word-surface-rail-margin");
-    if (!root || !desk || !margin || markup !== "all") {
+    const spacer = margin?.querySelector<HTMLElement>(".lm-word-rev-spacer");
+    if (!root || !desk || !margin || !spacer || markup !== "all") {
       return undefined;
-    }
-    let spacer = margin.querySelector<HTMLElement>(".lm-word-rev-spacer");
-    if (!spacer) {
-      spacer = document.createElement("div");
-      spacer.className = "lm-word-rev-spacer";
-      margin.appendChild(spacer);
     }
     const place = () => {
       const cards = [...margin.querySelectorAll<HTMLElement>("[data-word-slot='rail']")];
-      const marginTop = margin.getBoundingClientRect().top;
-      const tops = cards.map((card) => {
-        const id = card.dataset.wordHunk ?? "";
-        const page = id
-          ? desk.querySelector<HTMLElement>(`[data-word-hunk="${CSS.escape(id)}"][data-word-slot="page"]`)
-          : null;
-        const wanted = page
-          ? page.getBoundingClientRect().top - marginTop + margin.scrollTop
-          : Number.POSITIVE_INFINITY;
-        return { card, wanted };
+      const packed = packRailCardTops(
+        cards.map((card) => {
+          const id = card.dataset.wordHunk ?? "";
+          const page = id
+            ? desk.querySelector<HTMLElement>(`[data-word-hunk="${CSS.escape(id)}"][data-word-slot="page"]`)
+            : null;
+          const sheet = desk.querySelector<HTMLElement>(".lm-word-surface-sheet") ?? desk;
+          const origin = sheet.getBoundingClientRect().top;
+          const wanted = page
+            ? page.getBoundingClientRect().top - origin
+            : Number.POSITIVE_INFINITY;
+          return { wanted, height: card.offsetHeight };
+        }),
+      );
+      cards.forEach((card, index) => {
+        card.style.top = `${packed.tops[index] ?? 0}px`;
       });
-      tops.sort((a, b) => a.wanted - b.wanted);
-      let stack = 0;
-      for (const row of tops) {
-        const top = Number.isFinite(row.wanted) ? Math.max(row.wanted, stack) : stack;
-        row.card.style.top = `${top}px`;
-        stack = top + row.card.offsetHeight + 8;
-      }
-      spacer.style.height = `${Math.max(desk.scrollHeight, stack)}px`;
-    };
-    const syncFromDesk = () => {
-      if (margin.scrollTop !== desk.scrollTop) {
-        margin.scrollTop = desk.scrollTop;
-      }
-      place();
-    };
-    const syncFromMargin = () => {
-      if (desk.scrollTop !== margin.scrollTop) {
-        desk.scrollTop = margin.scrollTop;
-      }
+      spacer.style.height = `${packed.height}px`;
     };
     place();
-    desk.addEventListener("scroll", syncFromDesk);
-    margin.addEventListener("scroll", syncFromMargin);
+    if (selectedId && followSelRef.current !== selectedId) {
+      followSelRef.current = selectedId;
+      const rail = margin.querySelector<HTMLElement>(
+        `[data-word-hunk="${CSS.escape(selectedId)}"][data-word-slot="rail"]`,
+      );
+      const page = desk.querySelector<HTMLElement>(
+        `[data-word-hunk="${CSS.escape(selectedId)}"][data-word-slot="page"]`,
+      );
+      rail?.scrollIntoView({ block: "nearest" });
+      page?.scrollIntoView({ block: "nearest" });
+    }
     window.addEventListener("resize", place);
     return () => {
-      desk.removeEventListener("scroll", syncFromDesk);
-      margin.removeEventListener("scroll", syncFromMargin);
       window.removeEventListener("resize", place);
     };
-  }, [markup, snapshot, selectedId]);
+  }, [comments, liveEdits, markup, openIds, selectedId, snapshot]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -689,6 +888,26 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       }
       const key = event.key.toLowerCase();
       if ((event.ctrlKey || event.metaKey) && !event.altKey && key === "x") {
+        const ctx = engineContext(event.target instanceof Node ? event.target : window.getSelection()?.anchorNode ?? null);
+        if (ctx?.caret && ctx.caret.end > ctx.caret.start) {
+          event.preventDefault();
+          if (editHitsForeignTrack(ctx.runs, ctx.caret, ownRevisionName(ctx.current), "delete-back")) {
+            return;
+          }
+          const text = window.getSelection()?.toString() ?? "";
+          rememberMove(text);
+          pendingMoveRef.current = {
+            index: ctx.index,
+            start: ctx.caret.start,
+            end: ctx.caret.end,
+            text,
+          };
+          void navigator.clipboard?.writeText(text).catch(() => undefined);
+          const paragraphs = paragraphRunsOf(ctx.current);
+          paragraphs[ctx.index] = applyEngineDelete(ctx.runs, ctx.caret, true, authorClockFor(ctx.current));
+          commitEngineRuns(paragraphs, { index: ctx.index, offset: ctx.caret.start });
+          return;
+        }
         const range = editorTextRange();
         if (!range) {
           return;
@@ -707,13 +926,24 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         !event.shiftKey &&
         (key === "b" || key === "i" || key === "u")
       ) {
+        const format = key === "b" ? "加粗" : key === "i" ? "倾斜" : "下划线";
+        const ctx = engineContext(event.target instanceof Node ? event.target : window.getSelection()?.anchorNode ?? null);
+        if (ctx?.caret && ctx.caret.end > ctx.caret.start) {
+          event.preventDefault();
+          if (editHitsForeignTrack(ctx.runs, ctx.caret, ownRevisionName(ctx.current), "insert")) {
+            return;
+          }
+          const paragraphs = paragraphRunsOf(ctx.current);
+          paragraphs[ctx.index] = applyEngineFormat(ctx.runs, ctx.caret, format, authorClockFor(ctx.current));
+          commitEngineRuns(paragraphs, { index: ctx.index, offset: ctx.caret.end });
+          return;
+        }
         const range = editorTextRange();
         const selected = range?.toString() ?? "";
         if (!selected) {
           return;
         }
         event.preventDefault();
-        const format = key === "b" ? "加粗" : key === "i" ? "倾斜" : "下划线";
         const command = key === "b" ? "bold" : key === "i" ? "italic" : "underline";
         if (typeof document.execCommand === "function") {
           document.execCommand(command);
@@ -723,6 +953,9 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       }
       if ((event.ctrlKey || event.metaKey) && key === "z" && !event.altKey) {
         event.preventDefault();
+        if (snapshotHasEngine(snapshotRef.current) && !event.shiftKey && undoEngine()) {
+          return;
+        }
         if (event.shiftKey) {
           wordSurfaceUndoRedo(
             window.getSelection()?.anchorNode ?? (event.target instanceof Node ? event.target : null),
@@ -753,7 +986,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         window.clearTimeout(syncTimerRef.current);
         syncTimerRef.current = null;
       }
-      void syncDocument({ force: true });
+      void persistDocument({ force: true });
     };
     const onBeforeInput = (event: Event) => {
       if (!(event instanceof InputEvent)) {
@@ -764,6 +997,9 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         return;
       }
       if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) {
+        return;
+      }
+      if (applyEngineBeforeInput(event)) {
         return;
       }
       if (!gateWordSurfaceBeforeInput(event)) {
@@ -780,6 +1016,10 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       composingRef.current = true;
       editingPlainRef.current = true;
       dirtyPlainRef.current = true;
+      const ctx = engineContext(event.target);
+      if (ctx?.caret) {
+        compositionCaretRef.current = { index: ctx.index, offset: ctx.caret.start };
+      }
       if (syncTimerRef.current != null) {
         window.clearTimeout(syncTimerRef.current);
         syncTimerRef.current = null;
@@ -792,6 +1032,26 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       }
       composingRef.current = false;
       const committed = event instanceof CompositionEvent ? event.data : "";
+      const pending = compositionCaretRef.current;
+      compositionCaretRef.current = null;
+      const current = snapshotRef.current;
+      if (committed && pending && snapshotHasEngine(current)) {
+        const paragraphs = paragraphRunsOf(current);
+        const runs = paragraphs[pending.index] ?? [];
+        const nextRuns = applyEngineInsert(
+          runs,
+          { offset: pending.offset, start: pending.offset, end: pending.offset },
+          committed,
+          authorClockFor(current),
+        );
+        paragraphs[pending.index] = nextRuns;
+        commitEngineRuns(paragraphs, {
+          index: pending.index,
+          offset: pending.offset + committed.length,
+        });
+        setActionError(null);
+        return;
+      }
       if (committed) {
         suppressCompositionEcho(committed);
         wrapCommittedInsertion(committed);
@@ -809,7 +1069,16 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       window.removeEventListener("compositionstart", onCompositionStart, true);
       window.removeEventListener("compositionend", onCompositionEnd, true);
     };
-  }, [recordFormat, scheduleSync, syncDocument, undoSyncedLawyerHunk]);
+  }, [
+    applyEngineBeforeInput,
+    commitEngineRuns,
+    engineContext,
+    persistDocument,
+    recordFormat,
+    scheduleSync,
+    undoEngine,
+    undoSyncedLawyerHunk,
+  ]);
 
   const showSelectionMenu = (clientX?: number, clientY?: number) => {
     const range = editorTextRange();
@@ -847,6 +1116,15 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   }, [selectionMenu]);
 
   const strikeSelection = () => {
+    const ctx = engineContext(window.getSelection()?.anchorNode ?? null);
+    if (ctx?.caret && ctx.caret.end > ctx.caret.start) {
+      const paragraphs = paragraphRunsOf(ctx.current);
+      paragraphs[ctx.index] = applyEngineDelete(ctx.runs, ctx.caret, true, authorClockFor(ctx.current));
+      commitEngineRuns(paragraphs, { index: ctx.index, offset: ctx.caret.start });
+      window.getSelection()?.removeAllRanges();
+      setSelectionMenu(null);
+      return;
+    }
     const range = editorTextRange();
     if (!range) {
       return;
@@ -862,6 +1140,15 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   };
 
   const unstrikeSelection = () => {
+    const ctx = engineContext(window.getSelection()?.anchorNode ?? null);
+    if (ctx?.caret && ctx.caret.end > ctx.caret.start) {
+      const paragraphs = paragraphRunsOf(ctx.current);
+      paragraphs[ctx.index] = applyEngineInsert(ctx.runs, ctx.caret, "", authorClockFor(ctx.current));
+      commitEngineRuns(paragraphs, { index: ctx.index, offset: ctx.caret.start });
+      window.getSelection()?.removeAllRanges();
+      setSelectionMenu(null);
+      return;
+    }
     const range = editorTextRange();
     const anchor = range?.commonAncestorContainer;
     const el = anchor instanceof Element ? anchor : anchor?.parentElement;
@@ -879,15 +1166,128 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     scheduleSync();
   };
 
+  const foldCards = (ids: string[]) => {
+    setOpenIds((current) => {
+      const next = { ...current };
+      for (const id of ids) {
+        next[id] = false;
+      }
+      return next;
+    });
+  };
+
+  const unfoldCards = (ids: string[]) => {
+    setOpenIds((current) => {
+      const next = { ...current };
+      for (const id of ids) {
+        next[id] = true;
+      }
+      return next;
+    });
+  };
+
+  const acceptTracksInSnapshot = (current: WordSurfaceSnapshot, revIds: string[]) => {
+    const accepted = new Set(revIds);
+    const next = snapshotHasEngine(current)
+      ? snapshotWithRuns(current, acceptParagraphTracks(paragraphRunsOf(current), revIds))
+      : { ...current };
+    next.tracked = (next.tracked ?? []).map((row) =>
+      accepted.has(row.revId) ? { ...row, disposition: "accepted" as const } : row,
+    );
+    next.hunks = current.hunks.map((hunk) =>
+      accepted.has(hunk.hunkId) ? { ...hunk, status: "accepted" as const } : hunk,
+    );
+    snapshotRef.current = next;
+    pageSnapshotRef.current = next;
+    setSnapshot(next);
+  };
+
+  const rejectTracksInSnapshot = (current: WordSurfaceSnapshot, ids: string[]) => {
+    const drop = new Set(ids);
+    const next: WordSurfaceSnapshot = {
+      ...current,
+      hunks: current.hunks.map((hunk) =>
+        drop.has(hunk.hunkId) ? { ...hunk, status: "rejected" as const } : hunk,
+      ),
+      tracked: (current.tracked ?? []).filter((row) => !drop.has(row.revId)),
+    };
+    snapshotRef.current = next;
+    pageSnapshotRef.current = next;
+    setSnapshot(next);
+  };
+
+  const postHunkResolve = async (taskId: string, hunkId: string, decision: "accept" | "reject") => {
+    await apiSendJson(
+      apiBase,
+      `/api/drafts/${encodeURIComponent(taskId)}/redline/hunks/${encodeURIComponent(hunkId)}/resolve`,
+      "POST",
+      { decision },
+    );
+  };
+
+  const persistRejectTracks = async (revIds: string[]) => {
+    if (revIds.length === 0) {
+      return;
+    }
+    const current = snapshotRef.current;
+    const inBody = new Set(
+      paragraphRunsOf(current).flatMap((runs) => runs.map((run) => run.track?.id).filter(Boolean)),
+    );
+    const bodyIds = revIds.filter((id) => inBody.has(id));
+    const extra = revIds.filter((id) => !inBody.has(id));
+    if (current && snapshotHasEngine(current) && bodyIds.length > 0) {
+      let paragraphs = paragraphRunsOf(current);
+      for (const id of bodyIds) {
+        paragraphs = decideParagraphRuns(paragraphs, id, "reject");
+      }
+      const next = snapshotWithRuns(current, paragraphs);
+      snapshotRef.current = next;
+      pageSnapshotRef.current = next;
+      setSnapshot(next);
+      await persistDocument({ force: true });
+    }
+    if (extra.length > 0 || !(current && snapshotHasEngine(current) && bodyIds.length > 0)) {
+      for (const id of extra.length > 0 ? extra : revIds) {
+        await apiSendJson(apiBase, "/api/word-surface/tracked", "POST", {
+          root,
+          path: relPath,
+          ...(projectDir?.trim() ? { projectDir: projectDir.trim() } : {}),
+          decision: "reject",
+          revId: id,
+        });
+      }
+      keyRef.current = "";
+      seenRef.current = null;
+      dirtyPlainRef.current = false;
+      editingPlainRef.current = false;
+      await reload({ fresh: true });
+      const latest = snapshotRef.current;
+      if (latest) {
+        rejectTracksInSnapshot(latest, revIds);
+      }
+      setPageEpoch((value) => value + 1);
+    }
+  };
+
   const decide = async (hunkId: string, decision: "accept" | "reject") => {
     const taskId = snapshot?.taskId;
     const hunk = snapshot?.hunks.find((row) => row.hunkId === hunkId);
     if (!taskId || !hunk || actionBusy) {
       return;
     }
+    const before = snapshot;
     const target = decision === "accept" ? "accepted" : "rejected";
-    setDecisions((current) => ({ ...current, [hunkId]: target }));
-    setOpenIds((current) => ({ ...current, [hunkId]: false }));
+    const tracked = snapshot.tracked ?? [];
+    const ids = [
+      hunkId,
+      ...tracked.filter((row) => trackCoversHunk(row, hunk)).map((row) => row.revId),
+    ];
+    foldCards(ids);
+    if (decision === "accept") {
+      acceptTracksInSnapshot(snapshot, ids);
+    } else {
+      rejectTracksInSnapshot(snapshot, ids);
+    }
     setActionBusy(true);
     setActionError(null);
     try {
@@ -901,28 +1301,76 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         );
       }
       if (hunk.status !== target) {
-        await apiSendJson(
-          apiBase,
-          `/api/drafts/${encodeURIComponent(taskId)}/redline/hunks/${encodeURIComponent(hunkId)}/resolve`,
-          "POST",
-          { decision },
-        );
+        await postHunkResolve(taskId, hunkId, decision);
       }
       setDrafts((current) => {
         const next = { ...current };
         delete next[hunkId];
         return next;
       });
+      if (decision === "reject") {
+        await persistRejectTracks(ids.filter((id) => id !== hunkId));
+      } else if (snapshotHasEngine(snapshotRef.current)) {
+        await persistDocument({ force: true });
+      }
       keyRef.current = "";
       seenRef.current = null;
       await reload({ fresh: true });
+      const latest = snapshotRef.current;
+      if (latest) {
+        if (decision === "accept") {
+          acceptTracksInSnapshot(latest, ids);
+        } else {
+          rejectTracksInSnapshot(latest, ids);
+        }
+      }
     } catch (err) {
-      setDecisions((current) => {
-        const next = { ...current };
-        delete next[hunkId];
-        return next;
-      });
-      setOpenIds((current) => ({ ...current, [hunkId]: true }));
+      snapshotRef.current = before;
+      pageSnapshotRef.current = before;
+      setSnapshot(before);
+      unfoldCards(ids);
+      setActionError(errorMessage(err, decision === "accept" ? "接受失败。" : "拒绝失败。"));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const decideTracked = async (revId: string, decision: "accept" | "reject") => {
+    const current = snapshotRef.current;
+    const row = current?.tracked?.find((item) => item.revId === revId);
+    if (!row || actionBusy || !isOwnRevisionAuthor(row.author, current)) {
+      return;
+    }
+    const before = current;
+    const target = decision === "accept" ? "accepted" : "rejected";
+    const ids = idsCoveredWithTrack(row, current.hunks ?? [], current.tracked ?? []);
+    foldCards(ids);
+    if (decision === "accept") {
+      acceptTracksInSnapshot(current, ids);
+    } else {
+      rejectTracksInSnapshot(current, ids);
+    }
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      const taskId = current.taskId;
+      if (taskId) {
+        for (const hunk of current.hunks ?? []) {
+          if (ids.includes(hunk.hunkId) && hunk.status !== target) {
+            await postHunkResolve(taskId, hunk.hunkId, decision);
+          }
+        }
+      }
+      if (decision === "reject") {
+        await persistRejectTracks(ids.filter((id) => (current.tracked ?? []).some((item) => item.revId === id)));
+      } else if (snapshotHasEngine(snapshotRef.current)) {
+        await persistDocument({ force: true });
+      }
+    } catch (err) {
+      snapshotRef.current = before;
+      pageSnapshotRef.current = before;
+      setSnapshot(before);
+      unfoldCards(ids);
       setActionError(errorMessage(err, decision === "accept" ? "接受失败。" : "拒绝失败。"));
     } finally {
       setActionBusy(false);
@@ -930,55 +1378,60 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   };
 
   const decideAll = async (decision: "accept" | "reject") => {
-    const taskId = snapshot?.taskId;
-    const pendingHunks = snapshot?.hunks.filter((hunk) => hunk.status === "pending") ?? [];
-    if (!taskId || pendingHunks.length === 0 || actionBusy) {
+    const current = snapshotRef.current;
+    const taskId = current?.taskId;
+    const pendingHunks = (current?.hunks ?? []).filter((hunk) => hunk.status === "pending");
+    const ownTracks = (current?.tracked ?? []).filter(
+      (row) => isOwnRevisionAuthor(row.author, current) && row.disposition !== "accepted",
+    );
+    if (actionBusy || (pendingHunks.length === 0 && ownTracks.length === 0)) {
       return;
     }
-    const target = decision === "accept" ? "accepted" : "rejected";
-    setDecisions((current) => {
-      const next = { ...current };
-      for (const hunk of pendingHunks) {
-        next[hunk.hunkId] = target;
-      }
-      return next;
-    });
-    setOpenIds((current) => {
-      const next = { ...current };
-      for (const hunk of pendingHunks) {
-        next[hunk.hunkId] = false;
-      }
-      return next;
-    });
+    if (pendingHunks.length > 0 && !taskId && ownTracks.length === 0) {
+      return;
+    }
+    const before = current;
+    const ids = [
+      ...pendingHunks.map((hunk) => hunk.hunkId),
+      ...ownTracks.map((row) => row.revId),
+    ];
+    foldCards(ids);
+    if (decision === "accept") {
+      acceptTracksInSnapshot(current, ids);
+    } else {
+      rejectTracksInSnapshot(current, ids);
+    }
     setActionBusy(true);
     setActionError(null);
     try {
-      for (const hunk of pendingHunks) {
-        await apiSendJson(
-          apiBase,
-          `/api/drafts/${encodeURIComponent(taskId)}/redline/hunks/${encodeURIComponent(hunk.hunkId)}/resolve`,
-          "POST",
-          { decision },
-        );
+      if (taskId) {
+        for (const hunk of pendingHunks) {
+          await postHunkResolve(taskId, hunk.hunkId, decision);
+        }
+      }
+      if (decision === "reject") {
+        await persistRejectTracks(ownTracks.map((row) => row.revId));
+      } else if (snapshotHasEngine(snapshotRef.current)) {
+        await persistDocument({ force: true });
       }
       keyRef.current = "";
       seenRef.current = null;
       await reload({ fresh: true });
+      const latest = snapshotRef.current;
+      if (latest) {
+        if (decision === "accept") {
+          acceptTracksInSnapshot(latest, ids);
+        } else {
+          rejectTracksInSnapshot(latest, ids);
+        }
+      }
     } catch (err) {
-      setDecisions((current) => {
-        const next = { ...current };
-        for (const hunk of pendingHunks) {
-          delete next[hunk.hunkId];
-        }
-        return next;
-      });
-      setOpenIds((current) => {
-        const next = { ...current };
-        for (const hunk of pendingHunks) {
-          next[hunk.hunkId] = true;
-        }
-        return next;
-      });
+      if (before) {
+        snapshotRef.current = before;
+        pageSnapshotRef.current = before;
+        setSnapshot(before);
+      }
+      unfoldCards(ids);
       setActionError(errorMessage(err, decision === "accept" ? "接受失败。" : "拒绝失败。"));
     } finally {
       setActionBusy(false);
@@ -1006,13 +1459,15 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   };
 
   const exportWord = async () => {
-    const taskId = snapshot?.taskId;
-    if (!taskId || actionBusy) {
+    if (!snapshot || actionBusy) {
       return;
     }
     setActionBusy(true);
     setActionError(null);
     try {
+      if (snapshotHasEngine(snapshot) && dirtyPlainRef.current) {
+        await persistDocument({ force: true });
+      }
       const body = await apiSendJson<
         {
           ok: true;
@@ -1020,24 +1475,25 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
           outputFileName: string;
           degraded?: boolean;
           trackWarning?: string;
+          mode?: string;
         },
-        { taskId: string; projectDir?: string }
+        { taskId?: string; root: RootKey; path: string; projectDir?: string }
       >(apiBase, "/api/word-surface/export", "POST", {
-        taskId,
+        root,
+        path: relPath,
+        ...(snapshot.taskId ? { taskId: snapshot.taskId } : {}),
         ...(projectDir?.trim() ? { projectDir: projectDir.trim() } : {}),
       });
       setExportPath(body.outputPath);
-      if (body.trackWarning) {
-        setExportNote(
-          `已覆盖审阅稿 ${body.outputFileName}，但修订轨核对未通过：${body.trackWarning}只含已接受的修改。原件留在原地。`,
-        );
-      } else {
-        setExportNote(
-          body.degraded
-            ? `已覆盖审阅稿 ${body.outputFileName}，修订痕迹没有完整落下。只含已接受的修改。原件留在原地。`
-            : `已覆盖审阅稿 ${body.outputFileName}。只含已接受的修改。这一条已从在办拿掉。原件留在原地。`,
-        );
-      }
+      setExportNote(
+        body.mode === "copy"
+          ? `已另存 ${body.outputFileName}，内容与正在打开的这份相同，修订仍留在文件里。`
+          : body.trackWarning
+            ? `已覆盖审阅稿 ${body.outputFileName}，但修订轨核对未通过：${body.trackWarning}只含已接受的修改。原件留在原地。`
+            : body.degraded
+              ? `已覆盖审阅稿 ${body.outputFileName}，修订痕迹没有完整落下。只含已接受的修改。原件留在原地。`
+              : `已覆盖审阅稿 ${body.outputFileName}。只含已接受的修改。这一条已从在办拿掉。原件留在原地。`,
+      );
     } catch (err) {
       setActionError(errorMessage(err, "导出失败。"));
     } finally {
@@ -1046,11 +1502,39 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   };
 
   const addCommentFromSelection = async () => {
+    const ctx = engineContext(window.getSelection()?.anchorNode ?? null);
     const range = editorTextRange();
-    const anchorText = range?.toString().trim() ?? "";
+    const anchorText = (range?.toString() || window.getSelection()?.toString() || "").trim();
+    if (ctx?.caret && ctx.caret.end > ctx.caret.start && snapshotHasEngine(ctx.current) && anchorText) {
+      const commentId = String(
+        Math.max(
+          0,
+          ...(ctx.current.docxComments ?? []).map((row) => Number(row.commentId) || 0),
+        ) + 1,
+      );
+      const paragraphs = paragraphRunsOf(ctx.current);
+      paragraphs[ctx.index] = commentOnRange(ctx.runs, ctx.caret, commentId);
+      const comment = {
+        commentId,
+        author:
+          ctx.current.revisionAuthor?.trim() ||
+          ctx.current.lawyerDisplayName?.trim() ||
+          "LawMind",
+        body: "批注",
+        anchorText,
+        date: new Date().toISOString(),
+      };
+      snapshotRef.current = {
+        ...ctx.current,
+        docxComments: [...(ctx.current.docxComments ?? []), comment],
+      };
+      commitEngineRuns(paragraphs, { index: ctx.index, offset: ctx.caret.end });
+      setSelectionMenu(null);
+      return;
+    }
     const taskId = snapshot?.taskId;
     if (!taskId || !anchorText || actionBusy) {
-      setActionError(taskId ? "请先选中要批注的正文。" : "请先在正文里改一处，形成修订任务后再加批注。");
+      setActionError(anchorText ? "请先在正文里改一处，形成修订任务后再加批注。" : "请先选中要批注的正文。");
       setSelectionMenu(null);
       return;
     }
@@ -1072,19 +1556,58 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     }
   };
 
-  const pending = snapshot?.summary.pending ?? 0;
-  const accepted = snapshot?.summary.accepted ?? 0;
-  const canExport = accepted > 0 && !actionBusy;
+  const engineMode = snapshotHasEngine(snapshot);
+  const canExport = Boolean(snapshot) && !actionBusy;
   const serverHunks = snapshot?.hunks ?? [];
-  const railLive = liveEdits.filter(
-    (edit) => !serverHunks.some((hunk) => hunk.before === edit.before && hunk.after === edit.after),
-  );
-  const railHunks = serverHunks.filter(
-    (hunk) => !railLive.some((edit) => edit.before === hunk.before),
-  );
+  const trackedAll = snapshot?.tracked ?? [];
+  const trackedRows = trackedAll.filter((row) => {
+    if (authorFilter !== "all" && row.author !== authorFilter) {
+      return false;
+    }
+    return revisionCardStatus(row.revId, serverHunks, trackedAll) !== "rejected";
+  });
+  const railLive = engineMode
+    ? []
+    : liveEdits.filter(
+        (edit) => !serverHunks.some((hunk) => hunk.before === edit.before && hunk.after === edit.after),
+      );
+  const railHunks = (engineMode ? serverHunks.filter((hunk) => !hunk.placed) : serverHunks).filter((hunk) => {
+    if (railLive.some((edit) => edit.before === hunk.before)) {
+      return false;
+    }
+    if (hunk.status === "rejected" || revisionCardStatus(hunk.hunkId, serverHunks, trackedAll) === "rejected") {
+      return false;
+    }
+    return !trackedRows.some((row) => trackCoversHunk(row, hunk));
+  });
+  const pending =
+    trackedRows.filter(
+      (row) =>
+        isOwnRevisionAuthor(row.author, snapshot) &&
+        revisionCardStatus(row.revId, serverHunks, trackedAll) === "pending",
+    ).length +
+    railHunks.filter(
+      (hunk) => revisionCardStatus(hunk.hunkId, serverHunks, trackedAll) === "pending",
+    ).length;
+  const foreignCount = trackedRows.filter((row) => !isOwnRevisionAuthor(row.author, snapshot)).length;
   const lawyerName = snapshot?.lawyerDisplayName?.trim() || "律师";
+  const hiddenAuthors =
+    authorFilter === "all" ? undefined : new Set((snapshot?.authors ?? []).filter((name) => name !== authorFilter));
+  const railComments: SurfaceComment[] = [
+    ...(snapshot?.docxComments ?? []).map((row) => ({
+      commentId: row.commentId,
+      taskId: snapshot?.taskId ?? "",
+      anchorText: row.anchorText,
+      body: row.body,
+      author: row.author,
+      createdAt: row.date ?? "",
+    })),
+    ...comments.filter(
+      (row) => !(snapshot?.docxComments ?? []).some((docx) => docx.commentId === row.commentId),
+    ),
+  ];
   const pageSnapshotRef = useRef<WordSurfaceSnapshot | null>(snapshot);
-  if (!dirtyPlainRef.current) {
+  if (!dirtyPlainRef.current || engineMode) {
     pageSnapshotRef.current = snapshot;
   }
   const pagePaintLive = useMemo(
@@ -1097,10 +1620,16 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       onPlainDirty: scheduleSync,
       onShowAllMarkup: showAllMarkup,
       markup,
+      hiddenAuthors,
     }),
-    [drafts, focusHunk, markup, onPlainFocus, scheduleSync, selectedId, showAllMarkup, snapshot?.hunks],
+    [drafts, focusHunk, hiddenAuthors, markup, onPlainFocus, scheduleSync, selectedId, showAllMarkup, snapshot?.hunks],
   );
-  if (!dirtyPlainRef.current || !pagePaintRef.current || pagePaintRef.current.markup !== pagePaintLive.markup) {
+  if (
+    engineMode ||
+    !dirtyPlainRef.current ||
+    !pagePaintRef.current ||
+    pagePaintRef.current.markup !== pagePaintLive.markup
+  ) {
     pagePaintRef.current = pagePaintLive;
   }
 
@@ -1113,8 +1642,12 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
           <span className="lm-word-surface-count">
             {snapshot
               ? pending > 0
-                ? `核对 · ${pending} 处待定`
-                : "核对 · 没有待定修订"
+                ? foreignCount > 0
+                  ? `核对 · ${pending} 处待定，另有 ${foreignCount} 处他人修订`
+                  : `核对 · ${pending} 处待定`
+                : trackedRows.length > 0
+                  ? `已标出 · ${trackedRows.length} 处`
+                  : "核对 · 没有待定修订"
               : loadError
                 ? "没打开"
                 : "正在打开"}
@@ -1135,6 +1668,64 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
               <option value="original">原始状态</option>
             </select>
           </label>
+          {(snapshot?.authors?.length ?? 0) > 0 ? (
+            <label className="lm-word-markup">
+              <select
+                className="lm-input lm-word-markup-select"
+                aria-label="特定人员"
+                data-testid="lm-word-author-filter"
+                value={authorFilter}
+                onChange={(event) => setAuthorFilter(event.target.value)}
+              >
+                <option value="all">所有审阅者</option>
+                {(snapshot?.authors ?? []).map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            data-testid="lm-word-prev"
+            disabled={!snapshot || (snapshot.hunks.length === 0 && trackedRows.length === 0)}
+            onClick={() => stepRevision(-1)}
+          >
+            上一条
+          </button>
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            data-testid="lm-word-next"
+            disabled={!snapshot || (snapshot.hunks.length === 0 && trackedRows.length === 0)}
+            onClick={() => stepRevision(1)}
+          >
+            下一条
+          </button>
+          {pending > 0 ? (
+            <>
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-sm"
+                data-testid="lm-word-accept-all"
+                disabled={actionBusy}
+                onClick={() => void decideAll("accept")}
+              >
+                全部接受
+              </button>
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-sm"
+                data-testid="lm-word-reject-all"
+                disabled={actionBusy}
+                onClick={() => void decideAll("reject")}
+              >
+                全部拒绝
+              </button>
+            </>
+          ) : null}
           <button
             type="button"
             className="lm-btn lm-btn-ghost lm-btn-sm"
@@ -1162,14 +1753,10 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
             className="lm-btn lm-btn-accent lm-btn-sm"
             data-testid="lm-word-surface-export"
             disabled={!canExport}
-            title={
-              accepted > 0
-                ? "覆盖旁边那份审阅稿。没接受的修订不会写入。原件留在原地。"
-                : "先接受要留下的修改。没决定的不会写入。"
-            }
+            title="另存一份当前打开的文件，修订仍留在拷贝里。"
             onClick={() => void exportWord()}
           >
-            导出并覆盖审阅稿
+            另存审阅稿
           </button>
         </div>
       </header>
@@ -1209,6 +1796,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
           });
         }}
       >
+      <div className="lm-word-surface-sheet">
       <WordSurfaceDocument
         key={pageEpoch}
         fileName={fileName}
@@ -1216,7 +1804,6 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         snapshot={pageSnapshotRef.current}
         paint={pagePaintRef.current}
       />
-      </div>
       <div
         className="lm-split-handle lm-split-handle-vertical"
         role="separator"
@@ -1231,55 +1818,10 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         aria-label="修订"
         style={{ width: railWidth, flexBasis: railWidth }}
       >
-          <h2 className="lm-word-surface-rail-title">
-            <span>修订</span>
-            <span className="lm-word-rev-bulk">
-              <button
-                type="button"
-                className="lm-btn lm-btn-ghost lm-btn-sm"
-                data-testid="lm-word-prev"
-                disabled={!snapshot || snapshot.hunks.length === 0}
-                onClick={() => stepRevision(-1)}
-              >
-                上一条
-              </button>
-              <button
-                type="button"
-                className="lm-btn lm-btn-ghost lm-btn-sm"
-                data-testid="lm-word-next"
-                disabled={!snapshot || snapshot.hunks.length === 0}
-                onClick={() => stepRevision(1)}
-              >
-                下一条
-              </button>
-              {pending > 0 ? (
-                <>
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-ghost lm-btn-sm"
-                    data-testid="lm-word-accept-all"
-                    disabled={actionBusy}
-                    onClick={() => void decideAll("accept")}
-                  >
-                    全部接受
-                  </button>
-                  <button
-                    type="button"
-                    className="lm-btn lm-btn-ghost lm-btn-sm"
-                    data-testid="lm-word-reject-all"
-                    disabled={actionBusy}
-                    onClick={() => void decideAll("reject")}
-                  >
-                    全部拒绝
-                  </button>
-                </>
-              ) : null}
-            </span>
-          </h2>
-          <div className="lm-word-surface-rail-margin lm-scroll">
-          {railLive.length === 0 && railHunks.length === 0 && comments.length === 0 ? (
+          <div className="lm-word-surface-rail-margin">
+          {railLive.length === 0 && railHunks.length === 0 && trackedRows.length === 0 && railComments.length === 0 ? (
             <p className="lm-word-surface-empty">
-              右侧是待核对的修订。接受要留下的，再导出覆盖旁边的审阅稿。没决定的不会写入。原件留在原地。
+              右侧是这份文件里的修订。接受后折叠，导出仍带痕迹；拒绝后从正文和导出拿掉。他人修订只显示。
             </p>
           ) : markup !== "all" ? (
             <p className="lm-word-surface-empty">
@@ -1291,6 +1833,29 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
             </p>
           ) : (
             <>
+            <div className="lm-word-rev-spacer" aria-hidden="true" />
+            {trackedRows.map((row) => {
+              const own = isOwnRevisionAuthor(row.author, snapshot);
+              const shownStatus = revisionCardStatus(row.revId, serverHunks, trackedAll);
+              const reviewed = shownStatus === "accepted";
+              const open = own ? (openIds[row.revId] ?? !reviewed) :  openIds[row.revId];
+              return (
+                <TrackBalloon
+                  key={`track-${row.revId}-${row.change}`}
+                  row={row}
+                  own={own}
+                  accepted={reviewed}
+                  open={open}
+                  selected={selectedId === row.revId}
+                  busy={actionBusy}
+                  onFocus={() => focusHunk(row.revId, "page")}
+                  onFold={() => setOpenIds((current) => ({ ...current, [row.revId]: false }))}
+                  onUnfold={() => focusHunk(row.revId, "page")}
+                  onAccept={() => void decideTracked(row.revId, "accept")}
+                  onReject={() => void decideTracked(row.revId, "reject")}
+                />
+              );
+            })}
             {railLive.map((edit) => (
               <section
                 key={edit.key}
@@ -1333,120 +1898,38 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
             ))}
             {railHunks.map((hunk) => {
               const afterText = liveAfter(drafts, hunk.hunkId, hunk.after);
-              const decided = Object.hasOwn(decisions, hunk.hunkId) ? decisions[hunk.hunkId] : undefined;
-              const shownStatus = decided ?? hunk.status;
               if (afterText === hunk.before && !(hunk.rationale ?? "").startsWith("设置格式")) {
                 return null;
               }
-              const reviewed = shownStatus !== "pending";
+              const reviewed = hunk.status !== "pending";
               const open = openIds[hunk.hunkId] ?? !reviewed;
-              const foldLabel = shownStatus === "accepted" ? "已接受" : shownStatus === "rejected" ? "已拒绝" : "待定";
               return (
-                <section
+                <HunkBalloon
                   key={hunk.hunkId}
-                  className={`lm-word-rev-card${selectedId === hunk.hunkId ? " lm-word-rev-card-active" : ""}${reviewed && !open ? " lm-word-rev-card-done" : ""}`}
-                  data-word-hunk={hunk.hunkId}
-                  data-word-slot="rail"
-                  data-rev-color={String(hunk.color ?? revisionColor(serverHunks, hunk.hunkId))}
-                  data-testid={`lm-word-hunk-${hunk.hunkId}`}
-                  onClick={(event) => {
-                    const target = event.target;
-                    if (target instanceof Element && target.closest("button, textarea, a, .lm-word-rev-edit")) {
-                      return;
-                    }
+                  hunk={{ ...hunk, color: hunk.color ?? revisionColor(serverHunks, hunk.hunkId) }}
+                  afterText={afterText}
+                  open={open}
+                  selected={selectedId === hunk.hunkId}
+                  busy={actionBusy}
+                  onFocus={() => focusHunk(hunk.hunkId, "page")}
+                  onFold={() => setOpenIds((current) => ({ ...current, [hunk.hunkId]: false }))}
+                  onUnfold={() => {
+                    setOpenIds((current) => ({ ...current, [hunk.hunkId]: true }));
                     focusHunk(hunk.hunkId, "page");
                   }}
-                >
-                  {open ? (
-                    <>
-                      <div className="lm-word-rev-card-head">
-                        <p className="lm-word-rev-byline">
-                          {hunk.author ?? "审阅"}
-                          {hunk.revisedAt ? `，${formatRevisionTime(hunk.revisedAt)}` : ""}
-                        </p>
-                        <div className="lm-word-rev-card-actions">
-                          {reviewed ? (
-                            <button
-                              type="button"
-                              className="lm-btn lm-btn-ghost lm-btn-sm"
-                              onClick={() => setOpenIds((current) => ({ ...current, [hunk.hunkId]: false }))}
-                            >
-                              收起
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="lm-btn lm-btn-sm"
-                            data-testid={`lm-word-accept-${hunk.hunkId}`}
-                            aria-label="接受"
-                            title="接受修订"
-                            aria-pressed={shownStatus === "accepted"}
-                            disabled={actionBusy}
-                            onClick={() => void decide(hunk.hunkId, "accept")}
-                          >
-                            接受
-                          </button>
-                          <button
-                            type="button"
-                            className="lm-btn lm-btn-ghost lm-btn-sm"
-                            data-testid={`lm-word-reject-${hunk.hunkId}`}
-                            aria-label="拒绝"
-                            title="拒绝修订"
-                            aria-pressed={shownStatus === "rejected"}
-                            disabled={actionBusy}
-                            onClick={() => void decide(hunk.hunkId, "reject")}
-                          >
-                            拒绝
-                          </button>
-                        </div>
-                      </div>
-                      <div className="lm-word-rev-preview">
-                        {wordBalloonLines(hunk.before, afterText, hunk.rationale).map((line, lineIndex) => (
-                          <p key={lineIndex} className="lm-word-rev-balloon-line">
-                            <span className="lm-word-rev-balloon-label">{line.label}</span>
-                            {line.mark === "del" ? (
-                              <del className="lm-word-rev-del">{line.text}</del>
-                            ) : (
-                              <BalloonEdit
-                                text={line.text}
-                                editable={hunk.status === "pending"}
-                                testId={`lm-word-edit-${hunk.hunkId}`}
-                                onChange={(text) => {
-                                  const next = replaceChangeAfter(hunk.before, afterText, line.changeIndex, text);
-                                  draftsRef.current = { ...draftsRef.current, [hunk.hunkId]: next };
-                                  setSelectedId(hunk.hunkId);
-                                  setDrafts(draftsRef.current);
-                                }}
-                                onBlur={() => void commitRailEdit(hunk.hunkId)}
-                              />
-                            )}
-                          </p>
-                        ))}
-                      </div>
-                      {!hunk.placed ? <p className="lm-word-rev-unplaced">未在正文中找到</p> : null}
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="lm-word-rev-fold"
-                      data-testid={`lm-word-fold-${hunk.hunkId}`}
-                      onClick={() => {
-                        setOpenIds((current) => ({ ...current, [hunk.hunkId]: true }));
-                        focusHunk(hunk.hunkId, "page");
-                      }}
-                    >
-                      <span className="lm-word-rev-fold-mark" aria-hidden="true">
-                        {shownStatus === "accepted" ? "✓" : "✕"}
-                      </span>
-                      <span className="lm-word-rev-fold-text">
-                        {foldLabel} · {changeSummary(hunk.before, hunk.after)}
-                      </span>
-                    </button>
-                  )}
-                </section>
+                  onAccept={() => void decide(hunk.hunkId, "accept")}
+                  onReject={() => void decide(hunk.hunkId, "reject")}
+                  onDraft={(text, changeIndex) => {
+                    const next = replaceChangeAfter(hunk.before, afterText, changeIndex, text);
+                    draftsRef.current = { ...draftsRef.current, [hunk.hunkId]: next };
+                    setSelectedId(hunk.hunkId);
+                    setDrafts(draftsRef.current);
+                  }}
+                  onCommit={() => void commitRailEdit(hunk.hunkId)}
+                />
               );
             })}
-            {comments.map((comment) => (
+            {railComments.map((comment) => (
               <section
                 key={comment.commentId}
                 className="lm-word-rev-card lm-word-comment-card"
@@ -1532,6 +2015,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       </aside>
       </div>
       </div>
+      </div>
       {selectionMenu ? (
         <div
           className={`lm-word-selection-menu${selectionMenu.fileActions ? " lm-word-selection-menu-stack" : ""}`}
@@ -1602,177 +2086,10 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
           )}
         </div>
       ) : null}
+      </div>
     </div>
   );
 }
-
-type SurfacePaint = {
-  hunks: WordSurfaceHunkView[];
-  selectedId: string | null;
-  drafts: Record<string, string>;
-  onFocus: (hunkId: string, slot: "page" | "rail") => void;
-  onPlainFocus: (active: boolean) => void;
-  onPlainDirty: () => void;
-  /** Optional hunkId: jump to that revision after switching to all markup. */
-  onShowAllMarkup: (hunkId?: string) => void;
-  markup: MarkupMode;
-  /** False for vertical table cells — keep them read-only. */
-  plainEditable?: boolean;
-};
-
-const WordSurfaceDocument = memo(function WordSurfaceDocument(props: {
-  fileName: string;
-  loadError: string | null;
-  snapshot: WordSurfaceSnapshot | null;
-  paint: SurfacePaint;
-}): ReactNode {
-  const { fileName, loadError, snapshot, paint } = props;
-  const empty = Boolean(
-    snapshot &&
-      snapshot.paragraphs.every((paragraph) =>
-        paragraph.segments.every((segment) => segment.kind === "text" && !segment.text.trim()),
-      ),
-  );
-  return (
-    <article className="lm-word-surface-page" style={pageStyle(snapshot?.page)} aria-label={fileName}>
-      {loadError && !snapshot ? (
-        <p className="lm-word-surface-empty">{loadError}</p>
-      ) : empty ? (
-        <p className="lm-word-surface-empty">这份 Word 没有可抽出的正文。</p>
-      ) : (
-        renderSurfaceBlocks(
-          snapshot?.blocks?.length
-            ? snapshot.blocks
-            : (snapshot?.paragraphs ?? []).map((paragraph) => ({ kind: "paragraph" as const, ...paragraph })),
-          paint,
-          snapshot?.page,
-        )
-      )}
-    </article>
-  );
-});
-
-function renderSurfaceBlocks(
-  blocks: WordSurfaceBlock[],
-  paint: SurfacePaint,
-  page?: WordPageBox,
-): ReactNode {
-  return blocks.map((block, index) => {
-    if (block.kind !== "table") {
-      return renderSurfaceParagraph(block, index, paint);
-    }
-    const cols = scaledColWidths(block, page);
-    return (
-      <table
-        key={index}
-        className={`lm-word-surface-table${block.bordered ? " lm-word-surface-table-grid" : ""}`}
-        style={tableStyle(block, page)}
-      >
-        {cols ? (
-          <colgroup>
-            {cols.map((width, colIndex) => (
-              <col key={colIndex} style={{ width }} />
-            ))}
-          </colgroup>
-        ) : null}
-        <tbody>
-          {block.rows.map((row, rowIndex) => (
-            <tr key={rowIndex}>
-              {row.map((cell, cellIndex) => {
-                const cellPaint: SurfacePaint = {
-                  ...paint,
-                  plainEditable: !cell.vertical,
-                };
-                return (
-                  <td
-                    key={cellIndex}
-                    colSpan={cell.colspan}
-                    style={cellStyle(cell)}
-                    data-word-cell={cell.vertical ? "vertical" : "plain"}
-                  >
-                    {renderSurfaceBlocks(cell.blocks, cellPaint, page)}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    );
-  });
-}
-
-function contentWidthPx(page: WordPageBox | undefined): number | undefined {
-  if (!page) {
-    return undefined;
-  }
-  return Math.max(0, page.widthPx - page.marginLeftPx - page.marginRightPx);
-}
-
-function scaledColWidths(
-  block: Extract<WordSurfaceBlock, { kind: "table" }>,
-  page: WordPageBox | undefined,
-): number[] | undefined {
-  const cols = block.colWidthsPx;
-  if (!cols || cols.length === 0) {
-    return undefined;
-  }
-  if (block.widthPx != null) {
-    return cols;
-  }
-  const target =
-    block.widthPct != null ? ((contentWidthPx(page) ?? 0) * block.widthPct) / 100 : contentWidthPx(page);
-  if (!target || target <= 0) {
-    return cols;
-  }
-  const sum = cols.reduce((total, width) => total + width, 0);
-  if (sum <= 0) {
-    return cols;
-  }
-  const factor = target / sum;
-  return cols.map((width) => Math.round(width * factor * 10) / 10);
-}
-
-function tableStyle(
-  block: Extract<WordSurfaceBlock, { kind: "table" }>,
-  page: WordPageBox | undefined,
-): CSSProperties | undefined {
-  const cols = scaledColWidths(block, page);
-  if (block.widthPx != null) {
-    return { width: block.widthPx, minWidth: block.widthPx };
-  }
-  if (block.widthPct != null) {
-    return { width: `${block.widthPct}%` };
-  }
-  if (cols && cols.length > 0) {
-    return { width: cols.reduce((sum, width) => sum + width, 0) };
-  }
-  return { width: "100%" };
-}
-
-function cellStyle(cell: {
-  widthPx?: number;
-  vertical?: boolean;
-  vAlign?: "top" | "center" | "bottom";
-  colspan?: number;
-}): CSSProperties {
-  const style: CSSProperties = {};
-  if (cell.vAlign) {
-    style.verticalAlign = cell.vAlign;
-  }
-  if (cell.vertical) {
-    style.writingMode = "vertical-rl";
-    style.textOrientation = "upright";
-    style.whiteSpace = "nowrap";
-    style.textAlign = "center";
-  } else {
-    style.wordBreak = "keep-all";
-    style.overflowWrap = "normal";
-  }
-  return style;
-}
-
-type SelectionMenu = { x: number; y: number; inDeletion: boolean; fileActions: boolean };
 
 function editorTextRange(): Range | null {
   const selection = window.getSelection();
@@ -1788,12 +2105,6 @@ function editorTextRange(): Range | null {
   return range;
 }
 
-function paragraphBaseline(paragraph: WordSurfaceParagraph): string {
-  if (paragraph.baselineText != null) {
-    return paragraph.baselineText;
-  }
-  return paragraph.segments.map((segment) => (segment.kind === "text" ? segment.text : segment.before)).join("");
-}
 
 function paintedInsertionEdits(
   page: ParentNode,
@@ -1873,257 +2184,4 @@ function visibleResultText(editor: HTMLElement): string {
   };
   walk(editor);
   return out;
-}
-
-function wordBalloonLines(
-  before: string,
-  after: string,
-  rationale?: string,
-): { label: string; text: string; mark: "del" | "ins" | "fmt"; changeIndex: number }[] {
-  if (rationale?.startsWith("设置格式")) {
-    return [{ label: rationale, text: after || before, mark: "fmt", changeIndex: 0 }];
-  }
-  const moved = rationale === "移动的内容";
-  const lines: { label: string; text: string; mark: "del" | "ins" | "fmt"; changeIndex: number }[] = [];
-  let changeIndex = 0;
-  for (const piece of revisionPieces(before, after)) {
-    if (piece.kind !== "change") {
-      continue;
-    }
-    if (piece.before) {
-      lines.push({
-        label: moved ? "移动来源" : "删除的内容",
-        text: piece.before,
-        mark: "del",
-        changeIndex,
-      });
-    }
-    if (piece.after) {
-      lines.push({
-        label: moved ? "移动目标" : "插入的内容",
-        text: piece.after,
-        mark: "ins",
-        changeIndex,
-      });
-    }
-    changeIndex += 1;
-  }
-  return lines;
-}
-
-function BalloonEdit(props: {
-  text: string;
-  editable: boolean;
-  testId: string;
-  onChange: (text: string) => void;
-  onBlur: () => void;
-}): ReactNode {
-  const ref = useRef<HTMLModElement>(null);
-  const focused = useRef(false);
-  useLayoutEffect(() => {
-    const node = ref.current;
-    if (!node || focused.current) {
-      return;
-    }
-    if (node.textContent !== props.text) {
-      node.textContent = props.text;
-    }
-  }, [props.text]);
-  return (
-    <ins
-      ref={ref}
-      className="lm-word-rev-ins lm-word-rev-edit"
-      contentEditable={props.editable}
-      suppressContentEditableWarning
-      role="textbox"
-      aria-label="修改这条修订"
-      data-testid={props.testId}
-      spellCheck={false}
-      onMouseDown={(event) => event.stopPropagation()}
-      onClick={(event) => event.stopPropagation()}
-      onFocus={() => {
-        focused.current = true;
-      }}
-      onInput={(event) => props.onChange(event.currentTarget.textContent ?? "")}
-      onBlur={() => {
-        focused.current = false;
-        props.onBlur();
-      }}
-    />
-  );
-}
-
-function formatRevisionTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function changeSummary(before: string, after: string): string {
-  const bits = revisionPieces(before, after)
-    .filter((piece) => piece.kind === "change")
-    .map((piece) => {
-      if (piece.kind !== "change") {
-        return "";
-      }
-      if (piece.before && piece.after) {
-        return `${piece.before} → ${piece.after}`;
-      }
-      return piece.after || piece.before;
-    })
-    .filter(Boolean);
-  return (bits.join("；") || after || before).replace(/\s+/g, " ").trim();
-}
-
-function liveRevisionPiece(
-  segments: WordSurfaceParagraph["segments"],
-  segIndex: number,
-  segment: Extract<WordSurfaceSegment, { kind: "revision" }>,
-  paint: SurfacePaint,
-): { before: string; after: string } {
-  const hunk = paint.hunks.find((row) => row.hunkId === segment.hunkId);
-  if (!hunk || paint.drafts[segment.hunkId] === undefined) {
-    return { before: segment.before, after: segment.after };
-  }
-  const changes = revisionPieces(hunk.before, liveAfter(paint.drafts, segment.hunkId, hunk.after)).filter(
-    (piece) => piece.kind === "change",
-  );
-  const prior = segments
-    .slice(0, segIndex)
-    .filter((row) => row.kind === "revision" && row.hunkId === segment.hunkId).length;
-  const piece = changes[prior];
-  return piece && piece.kind === "change"
-    ? { before: piece.before, after: piece.after }
-    : { before: segment.before, after: segment.after };
-}
-
-function renderRevisionSpan(
-  segments: WordSurfaceParagraph["segments"],
-  segIndex: number,
-  segment: Extract<WordSurfaceSegment, { kind: "revision" }>,
-  paint: SurfacePaint,
-): ReactNode {
-  const piece = liveRevisionPiece(segments, segIndex, segment, paint);
-  const changeIndex = segments
-    .slice(0, segIndex)
-    .filter((row) => row.kind === "revision" && row.hunkId === segment.hunkId).length;
-  const mode = paint.markup;
-  if (piece.before === piece.after) {
-    return (
-      <span
-        key={segIndex}
-        className={`lm-word-rev lm-word-rev-fmt${paint.selectedId === segment.hunkId ? " lm-word-rev-active" : ""}`}
-        data-word-hunk={segment.hunkId}
-        data-word-slot="page"
-        data-rev-after={piece.after}
-        data-change-index={String(changeIndex)}
-        data-rev-color={String(segment.color ?? revisionColor(paint.hunks, segment.hunkId))}
-        onClick={() => paint.onFocus(segment.hunkId, "rail")}
-      >
-        {piece.after}
-      </span>
-    );
-  }
-  if (mode === "original" || mode === "simple" || mode === "none") {
-    return <span key={segIndex}>{mode === "original" ? piece.before : piece.after}</span>;
-  }
-  return (
-    <span
-      key={segIndex}
-      className={`lm-word-rev${paint.selectedId === segment.hunkId ? " lm-word-rev-active" : ""}`}
-      style={markStyle(segment, true)}
-      data-word-hunk={segment.hunkId}
-      data-word-slot="page"
-      data-rev-after={piece.after}
-      data-change-index={String(changeIndex)}
-      data-rev-color={String(segment.color ?? revisionColor(paint.hunks, segment.hunkId))}
-      onClick={() => paint.onFocus(segment.hunkId, "rail")}
-    >
-      {piece.before ? <del className="lm-word-rev-del">{piece.before}</del> : null}
-      {piece.after ? <ins className="lm-word-rev-ins">{piece.after}</ins> : null}
-    </span>
-  );
-}
-
-function renderSurfaceParagraph(paragraph: WordSurfaceParagraph, index: number, paint: SurfacePaint): ReactNode {
-  const blank = paragraph.segments.every((segment) => segment.kind === "text" && !segment.text.trim());
-  const revised =
-    paint.markup !== "none" &&
-    paint.markup !== "original" &&
-    paragraph.segments.some((segment) => segment.kind === "revision");
-  const revisionIds = paragraph.segments
-    .filter((segment): segment is Extract<WordSurfaceSegment, { kind: "revision" }> => segment.kind === "revision")
-    .map((segment) => segment.hunkId);
-  const editable = paint.plainEditable !== false;
-  return (
-    <p
-      key={index}
-      className={`lm-word-surface-p${blank ? " lm-word-surface-blank" : ""}${revised ? " lm-word-surface-p-revised" : ""}`}
-      style={paragraphStyle(paragraph)}
-      data-testid={editable ? undefined : "lm-word-surface-p-readonly"}
-    >
-      {paint.markup === "simple" && revised ? (
-        <button
-          type="button"
-          className="lm-word-rev-bar"
-          aria-label="显示此段修订"
-          data-testid="lm-word-rev-bar"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => {
-            if (revisionIds.length === 0) {
-              paint.onShowAllMarkup();
-              return;
-            }
-            const current =
-              paint.selectedId && revisionIds.includes(paint.selectedId)
-                ? revisionIds.indexOf(paint.selectedId)
-                : -1;
-            const next = revisionIds[(current + 1) % revisionIds.length];
-            paint.onShowAllMarkup(next);
-          }}
-        />
-      ) : null}
-      {paragraph.listLabel ? <span className="lm-word-surface-label">{paragraph.listLabel}</span> : null}
-      <span
-        className="lm-word-surface-plain"
-        data-baseline={paragraphBaseline(paragraph)}
-        contentEditable={editable}
-        suppressContentEditableWarning
-        spellCheck={false}
-        role="textbox"
-        aria-label="修改这段正文"
-        onFocus={() => {
-          if (editable) {
-            paint.onPlainFocus(true);
-          }
-        }}
-        onBlur={(event) => {
-          if (!editable) {
-            return;
-          }
-          const next = event.relatedTarget;
-          const staying = next instanceof Element && next.closest(".lm-word-surface-page") !== null;
-          paint.onPlainFocus(staying);
-        }}
-        onInput={() => {
-          if (editable) {
-            paint.onPlainDirty();
-          }
-        }}
-      >
-        {paragraph.segments.map((segment, segIndex) =>
-          segment.kind === "text" ? (
-            <span key={segIndex} style={markStyle(segment, false)}>
-              {segment.text}
-            </span>
-          ) : (
-            renderRevisionSpan(paragraph.segments, segIndex, segment, paint)
-          ),
-        )}
-      </span>
-    </p>
-  );
 }

@@ -26,11 +26,11 @@ export const LAWYER_CLOSE_RULES = `### 收口三句
 **请您定**
 只写材料里没有、而且会改变下一稿的事实或选择，让律师能用一句话回复。期限、单价、比例另起一句，标明不挡住现在的意见。
 
-不要复述核对过程，不要请律师放行核对。核对单套错了合同类型时，不要写。`;
+不要复述核对过程，不要请律师放行核对，不要请律师去审核台放行才能出 Word。核对单套错了合同类型时，不要写。疑问标进稿内【待核实】或修订痕迹，照常出 Word。`;
 
 /** 核对器自己的话。槽位和正文里碰到就丢掉。 */
 const HIDDEN_GAP_RE =
-  /guardian|checklist|usedIn|writerDeferred|sameTurn|hunk|sections\s*为空|检查单|审稿员|门禁|落改|验证器|独立审稿|轮未过|错误码|itemId|pr\.|loan\.|maxRounds|citation_insufficient|no_checklist/i;
+  /guardian|checklist|usedIn|writerDeferred|sameTurn|hunk|sections\s*为空|检查单|审稿员|门禁|落改|验证器|独立审稿|轮未过|错误码|itemId|pr\.|loan\.|maxRounds|citation_insufficient|no_checklist|审核台.*放行|才能出\s*Word|改稿与导出工具未开/i;
 
 export function lawyerVisibleGaps(gaps: string[]): string[] {
   const out: string[] = [];

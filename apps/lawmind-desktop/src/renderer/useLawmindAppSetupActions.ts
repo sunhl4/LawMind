@@ -3,12 +3,14 @@ import type { AppConfig } from "./lawmind-app-bootstrap";
 import { loadAppBootstrapSnapshot, refreshLocalAppConfig } from "./lawmind-app-bootstrap";
 import { setLoopbackApiAuthToken } from "./lawmind-api-auth";
 import { setDraftWithModelEnabled } from "./lawmind-models-api";
-import { errorMessage, apiSendJson } from "./api-client";
+import { ApiRequestError, errorMessage, apiSendJson } from "./api-client";
+import { authorityProbeFailureText } from "./lawmind-authority-connect";
 import { applyPostFirstrunPermissionDefaults } from "./lawmind-compose-prefs";
 import { clearProjectDirectory } from "./lawmind-settings-project";
 import { mapHealthState, type LawmindHealthState } from "./useLawmindAppBootstrapEffects";
 import type { HealthPayload } from "./lawmind-app-data.js";
 import { FIRST_RUN_DEMO_MATTER_ID } from "./lawmind-day-one";
+import type { AuthoritySavePayload } from "./LawmindAuthoritySetup";
 
 export { DAY_ONE_EXAMPLE_PROMPTS, FIRST_RUN_DEMO_MATTER_ID } from "./lawmind-day-one";
 
@@ -51,6 +53,20 @@ export async function startWorkingConversation(
     window.localStorage.setItem("lm.firstRun.dismissed", "1");
   } catch {
     /* ignore */
+  }
+}
+
+/** Live check after the token is stored. A 502 body carries probe.error, not a top-level message. */
+async function confirmPkulawConnected(apiBase: string): Promise<void> {
+  let probed: { authorityCorpus?: { provider?: string } };
+  try {
+    probed = await apiSendJson(apiBase, "/api/authority/probe", "POST", {});
+  } catch (cause) {
+    const body = cause instanceof ApiRequestError ? cause.body : null;
+    throw new Error(authorityProbeFailureText(body), { cause: cause });
+  }
+  if (probed.authorityCorpus?.provider !== "pkulaw") {
+    throw new Error("令牌已保存，但还没有切到北大法宝。请再保存一次。");
   }
 }
 
@@ -167,6 +183,7 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
   const [retrievalSaving, setRetrievalSaving] = useState(false);
   const [draftWithModelSaving, setDraftWithModelSaving] = useState(false);
   const [npcSaving, setNpcSaving] = useState(false);
+  const [authoritySaving, setAuthoritySaving] = useState(false);
 
   const applyOpenLawNpc = useCallback(
     async (enabled: boolean) => {
@@ -191,6 +208,39 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
         setError(errorMessage(cause, "切换国家法律法规数据库开关失败"));
       } finally {
         setNpcSaving(false);
+      }
+    },
+    [applyBootstrapSnapshot, config, setConfig, setError, setHealth, setHealthPayload],
+  );
+
+  const saveAuthority = useCallback(
+    async (payload: AuthoritySavePayload) => {
+      const bridge = window.lawmindDesktop;
+      if (!bridge?.saveAuthority || !config) {
+        throw new Error("请在桌面应用里连接北大法宝");
+      }
+      setAuthoritySaving(true);
+      setError(null);
+      try {
+        const response = await bridge.saveAuthority(payload);
+        const adopted = await adoptConfigAfterBackendRestart(config, response, setConfig);
+        if (!response.ok) {
+          throw new Error(response.error || "保存失败");
+        }
+        const nextBase = adopted?.apiBase ?? response.apiBase ?? config.apiBase;
+        const snapshot = await loadAppBootstrapSnapshot(nextBase);
+        setHealth(mapHealthState(snapshot.health));
+        setHealthPayload(snapshot.health);
+        applyBootstrapSnapshot(snapshot);
+        if (payload.provider === "pkulaw") {
+          await confirmPkulawConnected(nextBase);
+        }
+      } catch (cause) {
+        const message = errorMessage(cause, "连接北大法宝失败");
+        setError(message);
+        throw new Error(message, { cause: cause });
+      } finally {
+        setAuthoritySaving(false);
       }
     },
     [applyBootstrapSnapshot, config, setConfig, setError, setHealth, setHealthPayload],
@@ -452,6 +502,8 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
     applyDraftWithModelEnabled,
     npcSaving,
     applyOpenLawNpc,
+    authoritySaving,
+    saveAuthority,
     runWizardSave,
     pickWs,
     openApiWizard,

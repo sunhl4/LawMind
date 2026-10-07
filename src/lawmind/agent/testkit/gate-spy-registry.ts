@@ -126,24 +126,31 @@ export function createGateSpyRegistry(extra: SpySpec[] = []): GateSpyRegistry {
             ? (args) => {
                 const section = typeof args.section === "string" ? args.section.trim() : "";
                 const materials = typeof args.materials === "string" ? args.materials.trim() : "";
+                const anchor = typeof args.anchor === "string" ? args.anchor.trim() : "";
+                const outcomeId = typeof args.outcomeId === "string" ? args.outcomeId.trim() : "";
                 const goal = typeof args.goal === "string" ? args.goal : "";
-                const conclusion = /无权解除/.test(goal)
-                  ? "乙方无权解除"
-                  : /有权解除/.test(goal)
-                    ? "乙方有权解除"
-                    : /不构成违约|未构成违约/.test(goal)
-                      ? "不构成违约"
-                      : /构成违约/.test(goal)
-                        ? "已构成违约"
-                        : section
-                          ? `${section}需对照材料`
-                          : "需对照材料";
+                const supplied = typeof args.conclusion === "string" ? args.conclusion.trim() : "";
+                const conclusion = supplied
+                  ? supplied
+                  : /无权解除/.test(goal)
+                    ? "乙方无权解除"
+                    : /有权解除/.test(goal)
+                      ? "乙方有权解除"
+                      : /不构成违约|未构成违约/.test(goal)
+                        ? "不构成违约"
+                        : /构成违约/.test(goal)
+                          ? "已构成违约"
+                          : section
+                            ? `${section}需对照材料`
+                            : "需对照材料";
                 return Promise.resolve({
                   ok: true,
                   data: {
                     spy: true,
                     name: "draft_worker",
                     section,
+                    ...(anchor ? { anchor } : {}),
+                    ...(outcomeId ? { outcomeId } : {}),
                     draft: section ? `${section}片段` : "片段",
                     conclusion,
                     citations: [materials || "材料"],

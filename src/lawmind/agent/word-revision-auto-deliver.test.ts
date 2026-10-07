@@ -155,7 +155,6 @@ describe("shouldAutoDeliverWordRevision", () => {
         }
         return {
           execute: async (params: { task_id?: string }) => {
-            expect(agent.wordRevisionFloorDelivery).toBe(true);
             calls.push(params.task_id ?? "");
             return {
               ok: true,
@@ -171,6 +170,5 @@ describe("shouldAutoDeliverWordRevision", () => {
     const note = await autoDeliverWordRevisionIfNeeded({ ctx: agent, registry, turn: t });
     expect(calls).toEqual(["failed"]);
     expect(note).toContain("已写出 failed");
-    expect(agent.wordRevisionFloorDelivery).toBeUndefined();
   });
 });

@@ -34,6 +34,10 @@ import {
   pinDevUserData,
   resolveRuntimeAppIconPath,
 } from "./brand.mjs";
+import { ignoreBrokenPipe } from "./child-log-forward.mjs";
+
+ignoreBrokenPipe(process.stdout);
+ignoreBrokenPipe(process.stderr);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appIconPath = resolveRuntimeAppIconPath(__dirname);

@@ -1,4 +1,6 @@
+import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { linkDraftToDeliverable } from "../../../application/services/deliverable-service.js";
 import { namedPlaceDirFromDelivery } from "../../../artifacts/named-user-place.js";
 import { validateDraftAgainstSpec } from "../../../deliverables/index.js";
@@ -39,6 +41,7 @@ import {
   taskIntentFromRecordOnly,
 } from "../../../tasks/index.js";
 import type { ArtifactSection, TaskIntent } from "../../../types.js";
+import { ingestDraftBody, resolveKnownTemplateId } from "../../factor-state.js";
 import type { AgentContext, AgentTool } from "../../types.js";
 import { formatRenderToolError } from "../render-tool-messages.js";
 import {
@@ -499,6 +502,13 @@ export const updateDraft: AgentTool = {
       }
       prepareRedlineBaselineBeforeWrite(ctx.workspaceDir, taskId);
       persistDraft(ctx.workspaceDir, next);
+      if (ctx.factorState) {
+        const { ingestDraftBody } = await import("../../factor-state.js");
+        ingestDraftBody(
+          ctx.factorState,
+          (next.sections ?? []).map((section) => section.body ?? "").join("\n"),
+        );
+      }
       let redlinePlanPreview:
         | {
             itemCount: number;
@@ -660,7 +670,7 @@ export const draftDocument: AgentTool = {
       const title = asOptionalString(params.title, "title", MAX_TITLE_LENGTH);
       const audience = asOptionalString(params.audience, "audience", MAX_AUDIENCE_LENGTH);
       const matterId = resolveMatterId(params.matter_id, ctx.matterId);
-      const templateId = resolveTemplateId(params.template_id);
+      const templateId = resolveKnownTemplateId(resolveTemplateId(params.template_id));
       const baselinePath = asOptionalString(
         params.contract_edit_baseline_path,
         "contract_edit_baseline_path",
@@ -668,6 +678,66 @@ export const draftDocument: AgentTool = {
       );
       if (baselinePath && isBinaryWordDocBaseline(baselinePath)) {
         return { ok: false, error: DOC_NEEDS_DOCX_MESSAGE, data: { code: "doc_needs_docx" } };
+      }
+      // Sticky working copy: if this original (or its open review sibling) already
+      // has an in-flight Word review, continue that task instead of minting `_02`.
+      {
+        const { findOpenWordReviewForPin, adoptWordReviewAbs, readWordReview } =
+          await import("../../../drafts/word-review.js");
+        const { wordFilePinRelPaths } =
+          await import("../../../drafts/paired-review-deliverable.js");
+        const { resolveWordBaselineAbs } =
+          await import("../../../artifacts/word-revision-delivery.js");
+        const pinCandidates = [
+          ...(baselinePath ? [baselinePath] : []),
+          ...wordFilePinRelPaths(ctx.contextPins),
+        ];
+        for (const pin of pinCandidates) {
+          const sticky = findOpenWordReviewForPin(ctx.workspaceDir, pin);
+          if (!sticky) {
+            continue;
+          }
+          const existing = readDraft(ctx.workspaceDir, sticky.taskId);
+          if (!existing?.contractEdit?.baselineRelativePath) {
+            continue;
+          }
+          const resolvedPin = resolveWordBaselineAbs({
+            workspaceDir: ctx.workspaceDir,
+            projectDir: ctx.projectDir,
+            raw: pin,
+            pins: ctx.contextPins,
+          });
+          const pinAbs = resolvedPin?.abs;
+          if (
+            pinAbs &&
+            fs.existsSync(pinAbs) &&
+            path.resolve(sticky.reviewAbs) !== path.resolve(pinAbs) &&
+            path.basename(pinAbs).toLowerCase() !== path.basename(sticky.baselineRel).toLowerCase()
+          ) {
+            adoptWordReviewAbs({
+              workspaceDir: ctx.workspaceDir,
+              taskId: sticky.taskId,
+              reviewAbs: pinAbs,
+            });
+          }
+          const live = readWordReview(ctx.workspaceDir, sticky.taskId);
+          return {
+            ok: true,
+            data: {
+              taskId: sticky.taskId,
+              title: existing.title,
+              output: existing.output,
+              templateId: existing.templateId,
+              deliverableType: existing.deliverableType,
+              contractEdit: existing.contractEdit,
+              sectionsCount: existing.sections?.length ?? 0,
+              continuedReview: true,
+              reviewAbs: live?.reviewAbs ?? sticky.reviewAbs,
+              message:
+                "已有在办审阅副本：继续在同一份 Word 上改，不再从原件另拷一份。律师若已重命名副本，后续仍写回该文件。",
+            },
+          };
+        }
       }
       const reuseTaskId =
         asOptionalString(params.task_id, "task_id", 128) ?? (ctx.linkedTaskId?.trim() || undefined);
@@ -932,6 +1002,12 @@ export const draftDocument: AgentTool = {
       }
 
       const openClarifications = pinnedWordBaseline ? undefined : draft.clarificationQuestions;
+      if (ctx.factorState) {
+        ingestDraftBody(
+          ctx.factorState,
+          (draft.sections ?? []).map((section) => section.body ?? "").join("\n"),
+        );
+      }
       return {
         ok: true,
         data: {
@@ -1263,14 +1339,8 @@ export const renderTrackedDraft: AgentTool = {
       }
       let guardianView: import("../../../guardian/types.js").GuardianLawyerView | undefined;
       if (params.allow_empty_redline !== true) {
-        const {
-          runLegalGuardianForTrackedDraft,
-          guardianBlocksExport,
-          guardianChecklistGapsOnly,
-          resolveGuardianTrackedRedlinePosture,
-          slimGuardianView,
-          guardianFailToolResult,
-        } = await import("../../../guardian/index.js");
+        const { runLegalGuardianForTrackedDraft, slimGuardianView } =
+          await import("../../../guardian/index.js");
         ctx.emitToolProgress?.("正在核对交件");
         const guardianRecord = await runLegalGuardianForTrackedDraft({
           workspaceDir: ctx.workspaceDir,
@@ -1279,21 +1349,9 @@ export const renderTrackedDraft: AgentTool = {
           allowEmptyRedline: false,
           ctx,
         });
+        // 带修订 Word：审稿照跑、缺口随结果交到稿旁/窗格，永不因审稿挡导出。
+        // 交办即终稿——疑问标【待核实】/修订，律师在 Word 里改，不经审核台放行。
         guardianView = slimGuardianView(guardianRecord);
-        // 默认 advisory：审稿照跑并如实报缺口，但不阻断 tracked 导出（见 posture 说明）。
-        // 律所可用 policy/env 恢复 block 硬墙。
-        const posture = resolveGuardianTrackedRedlinePosture({
-          policy: (await import("../../../policy/workspace-policy.js")).readWorkspacePolicyFile(
-            ctx.workspaceDir,
-          ),
-        });
-        if (
-          posture === "block" &&
-          guardianBlocksExport(guardianRecord) &&
-          !(ctx.wordRevisionFloorDelivery === true && guardianChecklistGapsOnly(guardianRecord))
-        ) {
-          return guardianFailToolResult(taskId, guardianView);
-        }
       }
       let lawyerDecisions: string[] = [];
       {
@@ -1359,6 +1417,18 @@ export const renderTrackedDraft: AgentTool = {
         matterId ||
         draft.matterId?.trim() ||
         (baselineRel ? matterIdFromWorkspaceRelativePath(baselineRel) : undefined);
+      let existingOutputAbs = draft.outputPath;
+      if (baselineRel) {
+        const { findOpenWordReviewForBaseline } = await import("../../../drafts/word-review.js");
+        const sticky = findOpenWordReviewForBaseline(ctx.workspaceDir, baselineRel);
+        if (sticky?.reviewAbs?.trim()) {
+          existingOutputAbs = sticky.reviewAbs;
+          if (draft.outputPath !== sticky.reviewAbs) {
+            persistDraft(ctx.workspaceDir, { ...draft, outputPath: sticky.reviewAbs });
+            draft = { ...draft, outputPath: sticky.reviewAbs };
+          }
+        }
+      }
       const planned = planTrackedWordDelivery({
         workspaceDir: ctx.workspaceDir,
         projectDir: ctx.projectDir,
@@ -1369,7 +1439,7 @@ export const renderTrackedDraft: AgentTool = {
           ? pathMod.basename(baselineRel)
           : `${draft.title?.trim() || "合同"}.docx`,
         pins: ctx.contextPins,
-        existingOutputAbs: draft.outputPath,
+        existingOutputAbs,
       });
       if (ctx.wordRevisionTurn && !planned.baselineAbs) {
         return {
@@ -1483,7 +1553,18 @@ export const renderTrackedDraft: AgentTool = {
       if (storedDraft && result.outputPath && storedDraft.outputPath !== result.outputPath) {
         persistDraft(ctx.workspaceDir, { ...storedDraft, outputPath: result.outputPath });
       }
-      const rel = pathMod.relative(ctx.workspaceDir, result.outputPath).replace(/\\/g, "/");
+      // 审阅稿常写在 projectDir（本机案件夹）而不是 workspace；相对路径优先案件夹，
+      // 避免把绝对路径塞进工具结果，导致聊天无法拼出可点的交付链接。
+      let rel = pathMod.relative(ctx.workspaceDir, result.outputPath).replace(/\\/g, "/");
+      if (rel.startsWith("..") || pathMod.isAbsolute(rel)) {
+        const projectRoot = ctx.projectDir?.trim();
+        if (projectRoot) {
+          const projectRel = pathMod.relative(projectRoot, result.outputPath).replace(/\\/g, "/");
+          if (!projectRel.startsWith("..") && !pathMod.isAbsolute(projectRel)) {
+            rel = projectRel;
+          }
+        }
+      }
       const degraded = result.mode === "plain_fallback" || Boolean(result.degraded);
       const qaWarning = xmlQa && !xmlQa.ok ? xmlQa.warning : undefined;
       const xmlMissingTracks = Boolean(xmlQa && !xmlQa.ok);
@@ -1563,7 +1644,8 @@ export const renderTrackedDraft: AgentTool = {
           taskId,
           matterId: matterId || undefined,
           outputPath: result.outputPath,
-          outputRelativePath: rel.startsWith("..") ? result.outputPath : rel,
+          outputRelativePath:
+            rel.startsWith("..") || pathMod.isAbsolute(rel) ? result.outputPath : rel,
           mode: result.mode,
           baselineSource: result.baselineSource,
           degraded: degraded || undefined,

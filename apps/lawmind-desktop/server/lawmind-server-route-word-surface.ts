@@ -5,11 +5,11 @@
  * POST /api/word-surface/hunks/:hunkId/revise   { taskId, after }
  * POST /api/word-surface/hunks/:hunkId/undo     { taskId }
  * GET/POST/DELETE /api/word-surface/comments…
- * POST /api/word-surface/export                 { taskId, projectDir? }
+ * POST /api/word-surface/tracked              { root, path, decision, revId? }
+ * POST /api/word-surface/save                  { root, path, paragraphs }
+ * POST /api/word-surface/export                 { root, path } or { taskId }
  *
- * Export overwrites the sibling tracked .docx already written for this draft.
- * Only accepted hunks are written. Pending and rejected hunks stay off that
- * file. The original is not modified. This preview is not a signed-off final.
+ * Save writes the open .docx. Export copies that file as a sibling 审阅稿.
  */
 
 import fs from "node:fs/promises";
@@ -24,6 +24,9 @@ import {
   syncLawyerSurfaceDocument,
   type WordSurfaceSnapshot,
 } from "../../../src/lawmind/drafts/word-surface.js";
+import { decideDocxTrackedRevision } from "../../../src/lawmind/drafts/word-surface-tracked.js";
+import { copyDocx, saveParagraphRuns } from "../../../src/lawmind/drafts/word-revision/document.js";
+import type { WordRevisionRun } from "../../../src/lawmind/drafts/word-revision/index.js";
 import {
   addWordSurfaceComment,
   listWordSurfaceComments,
@@ -42,6 +45,7 @@ import { safeOptionalProjectDir, sendJson } from "./lawmind-server-helpers.js";
 import { isSafeTaskIdSegment } from "./safe-task-id.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import type { WordBaselineRoot } from "../../../src/lawmind/artifacts/word-revision-delivery.js";
+import { resolveWordBaselineAbs } from "../../../src/lawmind/artifacts/word-revision-delivery.js";
 import { readDraft } from "../../../src/lawmind/drafts/index.js";
 
 async function captureWordSurfaceLearning(opts: {
@@ -70,11 +74,6 @@ async function captureWordSurfaceLearning(opts: {
 const reviseSchema = z.object({
   taskId: z.string().trim().min(1).max(200),
   after: z.string().max(50_000),
-});
-
-const exportSchema = z.object({
-  taskId: z.string().trim().min(1).max(200),
-  projectDir: z.string().optional(),
 });
 
 const syncSchema = z.object({
@@ -116,6 +115,66 @@ const commentUpdateSchema = z.object({
   body: z.string().max(8_000),
 });
 
+const trackedSchema = z.object({
+  root: z.enum(["workspace", "project"]),
+  path: z.string().trim().min(1).max(2_000),
+  projectDir: z.string().optional(),
+  decision: z.enum(["accept", "reject"]),
+  revId: z.string().trim().min(1).max(80).optional(),
+});
+
+const revisionRunSchema = z.object({
+  text: z.string().max(50_000),
+  track: z
+    .object({
+      kind: z.enum(["ins", "del", "moveFrom", "moveTo", "format"]),
+      id: z.string().max(80),
+      author: z.string().max(80),
+      date: z.string().max(80).optional(),
+      moveName: z.string().max(80).optional(),
+      format: z.string().max(80).optional(),
+      disposition: z.enum(["open", "accepted"]).optional(),
+    })
+    .optional(),
+  commentIds: z.array(z.string().max(80)).max(40).optional(),
+  mark: z
+    .object({
+      bold: z.boolean().optional(),
+      italic: z.boolean().optional(),
+      underline: z.boolean().optional(),
+      fontSizePx: z.number().optional(),
+      fontColor: z.string().max(20).optional(),
+      fontFamily: z.string().max(200).optional(),
+    })
+    .optional(),
+});
+
+const saveSchema = z.object({
+  root: z.enum(["workspace", "project"]),
+  path: z.string().trim().min(1).max(2_000),
+  projectDir: z.string().optional(),
+  paragraphs: z.array(z.array(revisionRunSchema)).max(2_000),
+  comments: z
+    .array(
+      z.object({
+        commentId: z.string().max(80),
+        author: z.string().max(80),
+        body: z.string().max(8_000),
+        anchorText: z.string().max(2_000).optional(),
+        date: z.string().max(80).optional(),
+      }),
+    )
+    .max(400)
+    .optional(),
+});
+
+const exportCopySchema = z.object({
+  taskId: z.string().trim().min(1).max(200).optional(),
+  root: z.enum(["workspace", "project"]).optional(),
+  path: z.string().trim().min(1).max(2_000).optional(),
+  projectDir: z.string().optional(),
+});
+
 function parseRoot(raw: string | null): WordBaselineRoot | undefined {
   if (raw === "workspace" || raw === "project") {
     return raw;
@@ -130,6 +189,10 @@ const wordSurfaceSource = path.resolve(
 const wordSurfaceLayoutSource = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../../src/lawmind/drafts/word-surface-layout.ts",
+);
+const wordSurfaceTrackedSource = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../src/lawmind/drafts/word-surface-tracked.ts",
 );
 
 type LoadWordSurface = typeof loadWordSurfaceStatic;
@@ -147,11 +210,14 @@ async function wordSurfaceCodeStamp(): Promise<string> {
     return "bundled";
   }
   try {
-    const [surface, layout] = await Promise.all([
+    const [surface, layout, tracked] = await Promise.all([
       fs.stat(wordSurfaceSource),
       fs.stat(wordSurfaceLayoutSource),
+      fs.stat(wordSurfaceTrackedSource),
     ]);
-    return String(Math.max(Math.round(surface.mtimeMs), Math.round(layout.mtimeMs)));
+    return String(
+      Math.max(Math.round(surface.mtimeMs), Math.round(layout.mtimeMs), Math.round(tracked.mtimeMs)),
+    );
   } catch {
     return "bundled";
   }
@@ -162,11 +228,16 @@ async function resolveLoadWordSurface(): Promise<LoadWordSurface> {
     return loadWordSurfaceStatic;
   }
   try {
-    const [surface, layout] = await Promise.all([
+    const [surface, layout, tracked] = await Promise.all([
       fs.stat(wordSurfaceSource),
       fs.stat(wordSurfaceLayoutSource),
+      fs.stat(wordSurfaceTrackedSource),
     ]);
-    const mtimeMs = Math.max(Math.round(surface.mtimeMs), Math.round(layout.mtimeMs));
+    const mtimeMs = Math.max(
+      Math.round(surface.mtimeMs),
+      Math.round(layout.mtimeMs),
+      Math.round(tracked.mtimeMs),
+    );
     if (liveLoader?.mtimeMs === mtimeMs) {
       return liveLoader.load;
     }
@@ -177,6 +248,21 @@ async function resolveLoadWordSurface(): Promise<LoadWordSurface> {
     return imported.loadWordSurface;
   } catch {
     return loadWordSurfaceStatic;
+  }
+}
+
+async function resolveDecideTracked(): Promise<typeof decideDocxTrackedRevision> {
+  if (process.env.LAWMIND_PACKAGED === "1") {
+    return decideDocxTrackedRevision;
+  }
+  try {
+    const mtime = Math.round((await fs.stat(wordSurfaceTrackedSource)).mtimeMs);
+    const imported = (await import(
+      `${pathToFileURL(wordSurfaceTrackedSource).href}?mtime=${mtime}`
+    )) as { decideDocxTrackedRevision: typeof decideDocxTrackedRevision };
+    return imported.decideDocxTrackedRevision;
+  } catch {
+    return decideDocxTrackedRevision;
   }
 }
 
@@ -225,6 +311,46 @@ export async function handleWordSurfaceRoutes({
     }
     const snapshot: WordSurfaceSnapshot = loaded.snapshot;
     sendJson(res, 200, { ok: true, ...snapshot, codeStamp }, c);
+    return true;
+  }
+
+  if (pathname === "/api/word-surface/tracked" && req.method === "POST") {
+    let body: z.infer<typeof trackedSchema>;
+    try {
+      body = await parseJsonBodyZod(req, trackedSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const root = parseRoot(body.root);
+    if (!root) {
+      sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+      return true;
+    }
+    const found = resolveWordBaselineAbs({
+      workspaceDir: ctx.workspaceDir,
+      projectDir: safeOptionalProjectDir(body.projectDir),
+      raw: body.path,
+      preferredRoot: root,
+    });
+    if (!found || found.root !== root) {
+      sendJson(res, 404, { ok: false, error: "not_found" }, c);
+      return true;
+    }
+    const decideTracked = await resolveDecideTracked();
+    const decided = await decideTracked({
+      absPath: found.abs,
+      decision: body.decision,
+      ...(body.revId ? { revId: body.revId } : {}),
+    });
+    if (!decided.ok) {
+      sendJson(res, 409, { ok: false, error: decided.error, message: decided.error }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true, changed: decided.changed }, c);
     return true;
   }
 
@@ -506,10 +632,10 @@ export async function handleWordSurfaceRoutes({
     return true;
   }
 
-  if (pathname === "/api/word-surface/export" && req.method === "POST") {
-    let body: z.infer<typeof exportSchema>;
+  if (pathname === "/api/word-surface/save" && req.method === "POST") {
+    let body: z.infer<typeof saveSchema>;
     try {
-      body = await parseJsonBodyZod(req, exportSchema);
+      body = await parseJsonBodyZod(req, saveSchema);
     } catch (err) {
       if (isInvalidRequestBodyError(err)) {
         sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
@@ -517,7 +643,84 @@ export async function handleWordSurfaceRoutes({
       }
       throw err;
     }
-    if (!isSafeTaskIdSegment(body.taskId)) {
+    const root = parseRoot(body.root);
+    if (!root) {
+      sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+      return true;
+    }
+    const found = resolveWordBaselineAbs({
+      workspaceDir: ctx.workspaceDir,
+      projectDir: safeOptionalProjectDir(body.projectDir),
+      raw: body.path,
+      preferredRoot: root,
+    });
+    if (!found || found.root !== root) {
+      sendJson(res, 404, { ok: false, error: "not_found" }, c);
+      return true;
+    }
+    const saved = await saveParagraphRuns({
+      absPath: found.abs,
+      paragraphs: body.paragraphs as WordRevisionRun[][],
+      ...(body.comments
+        ? {
+            comments: body.comments.map((comment) => ({
+              commentId: comment.commentId,
+              author: comment.author,
+              body: comment.body,
+              anchorText: comment.anchorText ?? "",
+              ...(comment.date ? { date: comment.date } : {}),
+            })),
+          }
+        : {}),
+    });
+    if (!saved.ok) {
+      sendJson(res, 409, { ok: false, error: saved.error, message: saved.error }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true }, c);
+    return true;
+  }
+
+  if (pathname === "/api/word-surface/export" && req.method === "POST") {
+    let body: z.infer<typeof exportCopySchema>;
+    try {
+      body = await parseJsonBodyZod(req, exportCopySchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const root = parseRoot(body.root ?? null);
+    if (root && body.path) {
+      const found = resolveWordBaselineAbs({
+        workspaceDir: ctx.workspaceDir,
+        projectDir: safeOptionalProjectDir(body.projectDir),
+        raw: body.path,
+        preferredRoot: root,
+      });
+      if (!found || found.root !== root) {
+        sendJson(res, 404, { ok: false, error: "not_found" }, c);
+        return true;
+      }
+      const destName = path.basename(found.abs).replace(/\.docx$/i, "_审阅稿.docx");
+      const destAbs = path.join(path.dirname(found.abs), destName);
+      const copied = await copyDocx(found.abs, destAbs);
+      if (!copied.ok) {
+        sendJson(res, 409, { ok: false, error: copied.error, message: copied.error }, c);
+        return true;
+      }
+      sendJson(res, 200, {
+        ok: true,
+        outputPath: destAbs,
+        outputFileName: destName,
+        mode: "copy",
+        degraded: false,
+      }, c);
+      return true;
+    }
+    if (!body.taskId || !isSafeTaskIdSegment(body.taskId)) {
       sendJson(res, 400, { ok: false, error: "invalid_task_id" }, c);
       return true;
     }
@@ -525,7 +728,7 @@ export async function handleWordSurfaceRoutes({
     const result = await exportTrackedSiblingForTask({
       workspaceDir: ctx.workspaceDir,
       taskId: body.taskId,
-      acceptedOnly: true,
+      acceptedOnly: false,
       ...(projectDir ? { projectDir } : {}),
     });
     if (result.ok) {

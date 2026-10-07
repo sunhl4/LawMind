@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
   keychainStatus: () => ipcRenderer.invoke("lawmind:keychain-status"),
   setRetrievalMode: (mode) => ipcRenderer.invoke("lawmind:set-retrieval-mode", mode),
   setOpenLawNpc: (payload) => ipcRenderer.invoke("lawmind:set-open-law-npc", payload ?? {}),
+  readAuthoritySettings: () => ipcRenderer.invoke("lawmind:read-authority-settings"),
+  saveAuthority: (payload) => ipcRenderer.invoke("lawmind:save-authority", payload ?? {}),
   pickProject: () => ipcRenderer.invoke("lawmind:pick-project"),
   pickFolder: () => ipcRenderer.invoke("lawmind:pick-folder"),
   setProjectDir: (projectDir) => ipcRenderer.invoke("lawmind:set-project-dir", projectDir),

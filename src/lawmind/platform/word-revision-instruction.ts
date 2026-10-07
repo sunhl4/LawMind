@@ -107,14 +107,6 @@ export function isWordRevisionInstruction(instruction: string): boolean {
   return isWordRevisionTurn(instruction);
 }
 
-/** @deprecated Playbook no longer freezes an allow-list. */
-export function wordRevisionAllowNames(
-  _instruction: string,
-  _pins?: ComposeContextPin[],
-): string[] | undefined {
-  return undefined;
-}
-
 export function wordRevisionDenyNames(
   instruction: string,
   pins?: ComposeContextPin[],
@@ -127,12 +119,13 @@ export const WORD_REVISION_PROMPT = [
   "- 这是**已有 Word 的改稿**。请把带审阅痕迹的 `.docx` 写到源文件同目录；可以在对话里说明改了什么。",
   "- 不要用 `render_document` 模板重建原件，不要写到 artifacts/ 顶替原件修订。",
   "- 推荐路径：`analyze_document` / `read_project_file` → `draft_document`/`update_draft`（seed 基线）→ `apply_surgical_edits` → `render_tracked_draft`。核法条可用 `search_statute`。按任务选用，不要为走工具序丢掉判断。",
+  "- **同一原件只拷一次**：首次 `render_tracked_draft` 在源文件同目录写出 `原名_日期_01.docx`（不改原件）。追问改稿必须复用该 taskId / 在办审阅副本覆盖写回，禁止再 `draft_document` 新开任务、禁止再生成 `_02`。律师若重命名了副本，钉选该副本后仍写回同一文件。",
   "- 禁止 `render_document` 重建原件。禁止 `prepare_outbound_mail` / `send_email`。",
   "- 优先通读钉选 Word；多份材料可以继续读。不要反复读同一文件，也不要读 `playbooks/` 或条款库。",
   "- 多份独立合同，或长文里互不依赖、各自都要通读的争点：第一轮并行 `draft_worker`（role=review，section 各不相同）。每支只交原句、改后句、待确认。一两处短改不要派。",
   "- 父对话用交回的原句 `apply_surgical_edits`，再按份 `render_tracked_draft`。子代理读过的全文不要再整份读进来；原句对不上时只重读那一处。定位不到的写入 craft_check.deferred，不因此停整单。配额用尽时用 resume_id 续那一支，不要把配额用完当成没做完。",
   "- 若本回合已注入「改稿要点」：按看/改/停处理。检查单不是必须全改；停项与未确认数字写入 deferred。类型仅为疑似时，正文不对题则忽略该清单。检查单未覆盖不拦出稿。",
-  "- 落改：`draft_document`/`update_draft`（`contract_edit_baseline_path` = 源文件相对路径，`seed_sections_from_baseline=true`，deliverable 必须是原文件正文不是审查意见或重建稿）→ `apply_surgical_edits` → `render_tracked_draft`。",
-  "- 导出规则（引擎执行）：**拷贝原文件**，在**源文件同一目录**写入 `原名_YYYYMMDD_01.docx`。不改原件；保留原格式与原有修订，只叠加新修订。",
+  "- 落改：首次 `draft_document`/`update_draft`（`contract_edit_baseline_path` = **原件**相对路径，`seed_sections_from_baseline=true`）→ `apply_surgical_edits` → `render_tracked_draft`。之后追问只 `apply_surgical_edits` + `render_tracked_draft`（同一 taskId）；`draft_document` 若撞上在办审阅副本会直接交回原 taskId，不再另拷。",
+  "- 导出规则（引擎执行）：首次**拷贝原文件**到同目录 `原名_YYYYMMDD_01.docx`；之后覆盖该审阅副本。不改原件；保留原格式与原有修订，只叠加新修订。",
   "- `redlinePending=0` 不得导出。",
 ].join("\n");

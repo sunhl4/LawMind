@@ -481,7 +481,7 @@ data: {
 ```text
 data.gateDecision = { gate: "research_write_bypass_gate", decision: "block", reason: ... }
 existingTaskId: <已有任务 id>
-hint: 请 draft_document（传入 task_id）经证据门禁后，再走审核台导出。
+hint: 请 draft_document（传入 task_id）经证据门禁后，再 render_document / render_tracked_draft 导出本机 Word。
 ```
 
 **`existingTaskId` 是个体贴的设计**：它告诉模型「这件事已经有个任务在跑了」，所以模型可以去补那个任务，而不是另起一个。

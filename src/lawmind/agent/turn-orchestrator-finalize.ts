@@ -24,6 +24,7 @@ import { persistAgentInstructionTask } from "../tasks/index.js";
 import type { ClarificationQuestion } from "../types.js";
 import { markWorkNeedsLawyer } from "../work/store.js";
 import { appendDeliverableFileLinks } from "./deliverable-chat-links.js";
+import { scrubLawyerFacingAssistantText } from "./lawyer-chat-projection.js";
 import { collectRetrievedAnchors } from "./lawyer-close-anchors.js";
 import { constrainLawyerVisibleReply, lawyerVisibleGaps } from "./lawyer-close.js";
 import { attachPersistedLiveTraceToLastAssistant } from "./live-turn-progress.js";
@@ -63,7 +64,7 @@ function rewriteTrailingAssistantReply(
     if (!msg.content?.trim()) {
       continue;
     }
-    const next = constrainLawyerVisibleReply(msg.content, anchors);
+    const next = scrubLawyerFacingAssistantText(constrainLawyerVisibleReply(msg.content, anchors));
     if (next !== msg.content) {
       msg.content = next;
     }
@@ -96,6 +97,8 @@ function auditSessionHistoryAlignment(
 
 export type TurnFinalizeShared = {
   workspaceDir: string;
+  /** 本机案件文件夹；Word 审阅稿常落在这里，交付链接需要它才能相对化。 */
+  projectDir?: string;
   session: AgentSession;
   turn: AgentTurn;
   emitEvent: (event: RunTurnEvent) => void;
@@ -195,6 +198,7 @@ export function finalizeAgentTurn(opts: {
   let { finalReply } = opts;
   const {
     workspaceDir,
+    projectDir,
     session,
     turn,
     emitEvent,
@@ -204,9 +208,12 @@ export function finalizeAgentTurn(opts: {
     memory,
     ensureLiveProgressFinished,
   } = shared;
+  const projectDirResolved = projectDir?.trim() || session.projectDir?.trim() || undefined;
 
   const anchors = collectRetrievedAnchors(turn.messages);
-  finalReply = constrainLawyerVisibleReply(finalReply, anchors);
+  // 核对黑话与 notes/json 清单都从落盘助手正文去掉：正文只保留律师要看的话 + 交付链接。
+  // 工作笔记已在 LawMind 工作区 notes/；工具结果里仍有路径，模型可按需 read，不必整表进上下文。
+  finalReply = scrubLawyerFacingAssistantText(constrainLawyerVisibleReply(finalReply, anchors));
   rewriteTrailingAssistantReply(session.conversationHistory, anchors);
   rewriteTrailingAssistantReply(turn.messages, anchors);
 
@@ -263,7 +270,10 @@ export function finalizeAgentTurn(opts: {
   }
 
   if (turn.status === "completed") {
-    finalReply = appendDeliverableFileLinks(finalReply, turn.messages, workspaceDir);
+    finalReply = appendDeliverableFileLinks(finalReply, turn.messages, {
+      workspaceDir,
+      ...(projectDirResolved ? { projectDir: projectDirResolved } : {}),
+    });
     turn.result = finalReply;
     replaceLastLawyerAssistant(session.conversationHistory, finalReply);
     replaceLastLawyerAssistant(turn.messages, finalReply);

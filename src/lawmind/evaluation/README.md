@@ -69,3 +69,5 @@ pnpm lawmind:compaction-fidelity -- --rounds 6
 ## Orchestrator admission (not this directory)
 
 Deliverable recall lives here. **Agent loop / gate / compact / steer / tool-lock changes** must add a true-loop cassette in `src/lawmind/agent/turn-orchestrator-cassettes.test.ts` (`TestLawMind.builder()`). That harness shares the scripted model HTTP server with engine shadow replay, but asserts the next request body rather than planted-lint recall.
+
+律师向因子内核（LegalBench / CUAD / LawBench 题型、自撰夹具、复跑命令）见 [docs/LAWMIND-LEGAL-KERNEL-BENCH.md](../../docs/LAWMIND-LEGAL-KERNEL-BENCH.md)。§9.3 行业夹具五类错误消融在 `src/lawmind/agent/factor-state-legal-industry-ablation.test.ts`。§9.5 离线三方对照在 `src/lawmind/evaluation/offline-diagonal-simulator.ts`，不是影子回放，也不进交件回合。

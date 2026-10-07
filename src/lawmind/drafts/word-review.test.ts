@@ -5,10 +5,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildAgentFleetSummary } from "../platform/build-agent-fleet.js";
 import { readStanceItems } from "../stance/store.js";
 import type { ArtifactDraft } from "../types.js";
-import { persistDraft } from "./index.js";
+import { persistDraft, readDraft } from "./index.js";
 import { LAWYER_SURFACE_RATIONALE, writeRedlineProposal } from "./redline-proposal.js";
 import {
+  adoptWordReviewAbs,
   closeWordReviewTicket,
+  findOpenWordReviewForBaseline,
+  findOpenWordReviewForPin,
   finishWordReviewExport,
   openWordReviewTicket,
   readWordReview,
@@ -87,6 +90,58 @@ describe("word review ticket", () => {
     expect(again.reason).toBe("closed");
     const after = await buildAgentFleetSummary({ workspaceDir });
     expect(after.runs.some((run) => run.kind === "word_check")).toBe(false);
+  });
+
+  it("finds the open review by baseline or by the working-copy pin", () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-word-review-sticky-"));
+    dirs.push(workspaceDir);
+    const contracts = path.join(workspaceDir, "contracts");
+    fs.mkdirSync(contracts, { recursive: true });
+    const reviewAbs = path.join(contracts, "服务合同_20260928_01.docx");
+    fs.writeFileSync(reviewAbs, "docx");
+    persistDraft(
+      workspaceDir,
+      draft({
+        taskId: "task-sticky",
+        title: "服务合同",
+        outputPath: reviewAbs,
+        contractEdit: { baselineRelativePath: "contracts/服务合同.docx", mode: "surgical" },
+      }),
+    );
+    writeRedlineProposal(workspaceDir, {
+      taskId: "task-sticky",
+      baselineSections: [{ heading: "违约金", body: "百分之十。" }],
+      hunks: [
+        {
+          hunkId: "h1",
+          sectionIndex: 0,
+          before: "十",
+          after: "五",
+          status: "pending",
+          granularity: "surgical",
+        },
+      ],
+      updatedAt: "2026-09-28T01:00:00.000Z",
+    });
+    expect(openWordReviewTicket({ workspaceDir, taskId: "task-sticky", reviewAbs }).opened).toBe(
+      true,
+    );
+    expect(findOpenWordReviewForBaseline(workspaceDir, "contracts/服务合同.docx")?.taskId).toBe(
+      "task-sticky",
+    );
+    expect(findOpenWordReviewForPin(workspaceDir, "contracts/服务合同.docx")?.taskId).toBe(
+      "task-sticky",
+    );
+    expect(findOpenWordReviewForPin(workspaceDir, reviewAbs)?.taskId).toBe("task-sticky");
+
+    const renamed = path.join(contracts, "服务合同-发包人修订稿.docx");
+    fs.renameSync(reviewAbs, renamed);
+    expect(findOpenWordReviewForPin(workspaceDir, renamed)?.taskId).toBe("task-sticky");
+    expect(adoptWordReviewAbs({ workspaceDir, taskId: "task-sticky", reviewAbs: renamed }).ok).toBe(
+      true,
+    );
+    expect(readWordReview(workspaceDir, "task-sticky")?.reviewAbs).toBe(path.resolve(renamed));
+    expect(readDraft(workspaceDir, "task-sticky")?.outputPath).toBe(path.resolve(renamed));
   });
 
   it("does not queue an opinion drafted from scratch", async () => {

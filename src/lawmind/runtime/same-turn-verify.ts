@@ -225,11 +225,6 @@ export function formatSameTurnVerifyCapDeliver(state: SameTurnVerifyTurnState): 
   ].join("\n");
 }
 
-/** @deprecated Use formatSameTurnVerifyCapDeliver — kept for any stale imports during rollout. */
-export function formatSameTurnVerifyPaused(state: SameTurnVerifyTurnState): string {
-  return formatSameTurnVerifyCapDeliver(state);
-}
-
 /** Minimal history row — avoids importing agent types into this runtime module. */
 export type SameTurnVerifyHistoryMessage = {
   role: string;

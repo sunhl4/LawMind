@@ -149,28 +149,22 @@ export async function autoDeliverWordRevisionIfNeeded(params: {
   ) {
     return undefined;
   }
-  const previous = params.ctx.wordRevisionFloorDelivery;
-  params.ctx.wordRevisionFloorDelivery = true;
   const lines: string[] = [];
-  try {
-    for (const taskId of pending) {
-      const result = await tool.execute({ task_id: taskId }, params.ctx);
-      if (!result.ok) {
-        continue;
-      }
-      const data = result.data as { message?: string; outputPath?: string } | undefined;
-      if (typeof data?.message === "string" && data.message.trim()) {
-        lines.push(data.message.trim());
-      } else if (typeof data?.outputPath === "string" && data.outputPath.trim()) {
-        lines.push(`已写出源文件同目录审阅稿：${data.outputPath.trim()}`);
-      }
-      const mark = openWordCheckMarker(params.ctx.workspaceDir, taskId);
-      if (mark) {
-        lines.push(mark);
-      }
+  for (const taskId of pending) {
+    const result = await tool.execute({ task_id: taskId }, params.ctx);
+    if (!result.ok) {
+      continue;
     }
-  } finally {
-    params.ctx.wordRevisionFloorDelivery = previous;
+    const data = result.data as { message?: string; outputPath?: string } | undefined;
+    if (typeof data?.message === "string" && data.message.trim()) {
+      lines.push(data.message.trim());
+    } else if (typeof data?.outputPath === "string" && data.outputPath.trim()) {
+      lines.push(`已写出源文件同目录审阅稿：${data.outputPath.trim()}`);
+    }
+    const mark = openWordCheckMarker(params.ctx.workspaceDir, taskId);
+    if (mark) {
+      lines.push(mark);
+    }
   }
   return lines.length > 0 ? lines.join("\n") : undefined;
 }

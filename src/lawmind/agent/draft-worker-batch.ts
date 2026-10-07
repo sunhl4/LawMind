@@ -1,11 +1,12 @@
 /**
  * Same-round draft_worker contract.
  * The parent model emits the briefs; this module rejects colliding sections
- * and writes a join index (gaps, each conclusion, shared citations) before
- * the next sample. It does not decide whether two conclusions conflict.
+ * and writes a join index before the next sample. Shared anchors are fused
+ * by product merge. Free-text conclusions without an anchor are not judged.
  */
 
 import { DRAFT_WORKER_TOOL_NAME } from "./draft-worker.js";
+import { fuseSharedAnchorLines } from "./factor-state.js";
 import { stringifyToolResultForHistory } from "./tool-result-history.js";
 import type { AgentMessage } from "./types.js";
 
@@ -53,6 +54,11 @@ export type DraftJoinRow = {
   gaps: string[];
   citations: string[];
   conclusion?: string;
+  /** Stable proposition anchor. Free text without this does not cancel. */
+  anchor?: string;
+  /** Fusion key. Same id with different wording does not conflict. */
+  outcomeId?: string;
+  span?: string;
 };
 
 /** Short index the parent must read before stitching sections. No extra model call. */
@@ -61,7 +67,7 @@ export function buildDraftWorkerJoinIndex(rows: DraftJoinRow[]): string | undefi
     return undefined;
   }
   const lines = [
-    "【并行写稿对照】汇总前先核对，不要把各章原文直接拼接。各支结论列在下面，是否互相矛盾由你判断。",
+    "【并行写稿对照】汇总前先核对，不要把各章原文直接拼接。各支结论列在下面。共享锚已由引擎融合。",
   ];
   for (const row of rows) {
     const gaps = row.gaps
@@ -94,6 +100,7 @@ export function buildDraftWorkerJoinIndex(rows: DraftJoinRow[]): string | undefi
       lines.push(`引用重复：${cite}（${[...new Set(sections)].join("、")}）`);
     }
   }
+  lines.push(...fuseSharedAnchorLines(rows));
   return lines.join("\n");
 }
 
@@ -125,6 +132,9 @@ export function attachDraftWorkerJoinIndex(outcomes: JoinCarrier[]): void {
       gaps: stringList(data?.gaps),
       citations: stringList(data?.citations),
       conclusion: typeof data?.conclusion === "string" ? data.conclusion : undefined,
+      anchor: anchorOf(data) || anchorOf(carrier.toolArgs),
+      outcomeId: textField(data, "outcomeId") || textField(carrier.toolArgs, "outcomeId"),
+      span: textField(data, "span") || textField(carrier.toolArgs, "span"),
     });
   }
   const index = buildDraftWorkerJoinIndex(rows);
@@ -149,6 +159,15 @@ export function attachDraftWorkerJoinIndex(outcomes: JoinCarrier[]): void {
 
 function sectionOf(record: Record<string, unknown> | undefined): string {
   const raw = record?.section;
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
+function anchorOf(record: Record<string, unknown> | undefined): string {
+  return textField(record, "anchor");
+}
+
+function textField(record: Record<string, unknown> | undefined, key: string): string {
+  const raw = record?.[key];
   return typeof raw === "string" ? raw.trim() : "";
 }
 

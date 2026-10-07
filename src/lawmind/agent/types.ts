@@ -16,6 +16,7 @@ import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import type { GateDecision, TaskExecutionState } from "../platform/contracts.js";
 import type { LawMindRequiresAction } from "../platform/requires-action.js";
 import type { ClarificationQuestion, RiskLevel, MatterIndex } from "../types.js";
+import type { FactorState } from "./factor-state.js";
 import type { AgentTurnPlan } from "./turn-plan-model.js";
 import type { WorldStateBaseline } from "./world-state.js";
 
@@ -154,11 +155,14 @@ export type AgentContext = {
    * Tools must not emit opinion memos or template rebuilds.
    */
   wordRevisionTurn?: boolean;
+  /** Engine-owned diagonal factor state for this turn. The model only samples. */
+  factorState?: FactorState;
   /**
-   * 收工补导出这一次：检查单缺口写进结果，不扣下已有修订。
-   * 只由引擎在补导出时置位，模型的工具参数设不了。
+   * Held correction 1-hop from 「不对」 (copied from factorState.correctionLightCone).
+   * Surgical edits that map outside this set are not written.
+   * Empty or unset means the current batch is unconstrained.
    */
-  wordRevisionFloorDelivery?: boolean;
+  correctionLightCone?: string[];
   /**
    * Compiled delivery constraints for this turn (opinion memo vs tracked copy,
    * named place, preserve-source). Orthogonal to capability bind.
@@ -337,6 +341,8 @@ export type AgentTurn = {
    * The turn is not complete while `red` is true (bounce or pause instead).
    */
   sameTurnVerify?: import("../runtime/same-turn-verify.js").SameTurnVerifyTurnState;
+  /** Same object as `session.factorState` for this turn. */
+  factorState?: FactorState;
   /**
    * 上下文退让反弹次数（`context-deferral.ts`）：模型以上下文预算为由把活儿退回
    * 律师时，同一回合内反弹回去继续办；超过上限后如实收下其回复。
@@ -482,6 +488,11 @@ export type AgentSession = {
     items: import("./compact-fact-pin.js").FactPinItem[];
     updatedAt: string;
   };
+  /**
+   * Diagonal factor state. Amounts and redline codes reset each turn;
+   * anchors and the last surgical batch survive for the light cone.
+   */
+  factorState?: FactorState;
   /**
    * 本会话已「另起新对话并带上文」到了哪个会话（源会话侧指针）。
    * 侧栏显示「→ 由此续接」；同时作为 fork 的幂等键（`nonce`）。

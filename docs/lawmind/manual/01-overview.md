@@ -240,15 +240,15 @@ apps/lawmind-desktop/server/lawmind-local-server.ts（节选）
 
 `src/lawmind/policy/edition-features.ts` 是功能键表（浏览器可安全导入）；`edition.ts` 负责运行时解析。解析优先级为 `policy.edition` > 环境变量 `LAWMIND_EDITION` > 默认值 `solo`（字符串大小写不敏感；永不报错，不存在「许可缺失」状态）。许可证文件里的 edition **不驱动**这张表（软提醒另见第 15 章）：
 
-| Edition id       | 中文名       | 典型差异（节选）                                                                                                                                                                   |
-| ---------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `solo`           | 独立律师版   | **主产品档**：单人能用的能力默认开（自定义文书、跨案概览、验收包、审计完整性等）；`wordAddinAutoRun` 默认**开**；`guardianTrackedRedlineBlock` 默认**关**（修订稿结论为 advisory） |
-| `firm`           | 律所协作版   | 在 Solo 之上开多律师墙：利益冲突墙、强制同行审核、案件副本协作、危险工具硬批准；修订稿独立审稿默认**硬墙**；Word 插件自动跑默认**关**                                              |
-| `private_deploy` | 私有化部署版 | 在 Firm 之上额外开合规审计导出、SBOM 安全面板                                                                                                                                      |
+| Edition id       | 中文名       | 典型差异（节选）                                                                                                                                              |
+| ---------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `solo`           | 独立律师版   | **主产品档**：单人能用的能力默认开（自定义文书、跨案概览、验收包、审计完整性等）；`wordAddinAutoRun` 默认**开**；修订稿本机 Word 交办即终稿（不经审核台硬墙） |
+| `firm`           | 律所协作版   | 在 Solo 之上开多律师墙：利益冲突墙、强制同行审核、案件副本协作、危险工具硬批准；Word 插件自动跑默认**关**（修订稿同样交办即终稿；外发仍须批准）               |
+| `private_deploy` | 私有化部署版 | 在 Firm 之上额外开合规审计导出、SBOM 安全面板                                                                                                                 |
 
 门禁以 `isFeatureEnabled(featureKey)`（或带覆盖的专用解析器）在引擎侧强制；渲染层通过 `GET /api/policy/edition` 消费同一份 `features`（`use-edition` 的失败回退与 Solo 表一致）。`GET /api/policy/workspace` 是出网 / 白名单等策略读侧，**不是** Edition 入口。
 
-专用覆盖（比表更高优先）：`wordAddinAutoRun`、`guardianTrackedRedline`、`ethicsWall.enabled`、`matterReplica.enabled`、路由 `forcePeerReview`，以及前瞻性的 `policy.features.<key>` 布尔覆盖。`src/lawmind/build-channel.ts` 另有一条 `LAWMIND_BUILD_CHANNEL=oss|commercial` 的商业隔离开关，与 Edition 是两件事（见 §1.14）。
+专用覆盖（比表更高优先）：`wordAddinAutoRun`、`ethicsWall.enabled`、`matterReplica.enabled`、路由 `forcePeerReview`，以及前瞻性的 `policy.features.<key>` 布尔覆盖。`src/lawmind/build-channel.ts` 另有一条 `LAWMIND_BUILD_CHANNEL=oss|commercial` 的商业隔离开关，与 Edition 是两件事（见 §1.14）。
 
 完整 17 键对照表见第 15 章 §15.8。
 

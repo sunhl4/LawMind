@@ -13,6 +13,22 @@ import {
   resetRedlineBaselineFromDraft,
 } from "../../../drafts/index.js";
 import { terminologyWarningsPatch } from "../../../drafts/terminology-adapt.js";
+import {
+  editContradictsGroundedAmount,
+  editIntroducesForeignRole,
+  extractSkeletonHeadings,
+  fuseProposal,
+  ingestDefinedTerms,
+  ingestDraftBody,
+  rememberSkeleton,
+  reconcileSurgicalEditsWithPatches,
+  mapEditsToFactorAnchors,
+  recordBodySnapshot,
+  recordInverseEdits,
+  recordSurgicalAnchor,
+  recordSurgicalAnchors,
+  surgicalPayloadOutsideLightCone,
+} from "../../factor-state.js";
 import type { AgentTool } from "../../types.js";
 import { executeCrossDocumentEdits } from "./cross-document-edits-tool.js";
 import {
@@ -68,15 +84,42 @@ export const applySurgicalEdits: AgentTool = {
     if (blocked) {
       return blocked;
     }
+    const cone = ctx.correctionLightCone;
+    if (cone && cone.length > 0 && surgicalPayloadOutsideLightCone(cone, params, ctx.factorState)) {
+      return {
+        ok: false,
+        error: "这次只改已点名的那一处，其余未写入。",
+        data: { code: "light_cone_zero_write", written: false },
+      };
+    }
+    const amountAnchor = editContradictsGroundedAmount(ctx.factorState, params.edits);
+    if (amountAnchor) {
+      return {
+        ok: false,
+        error: "这次改写和已核定的金额不一致，未写入。",
+        data: { code: "grounded_amount_zero_write", anchor: amountAnchor, written: false },
+      };
+    }
+    params.edits = reconcileSurgicalEditsWithPatches(ctx.factorState, params.edits);
+    const foreignRole = editIntroducesForeignRole(ctx.factorState, params.edits);
+    if (foreignRole && ctx.factorState) {
+      fuseProposal(ctx.factorState, `party:${foreignRole}`, "clause", foreignRole);
+    }
+    const batchTaskIds = Array.isArray(params.task_ids)
+      ? params.task_ids.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+      : [];
+    if (ctx.factorState && typeof params.task_id === "string") {
+      recordSurgicalAnchor(ctx.factorState, params.task_id);
+    }
+    if (ctx.factorState && batchTaskIds.length > 0) {
+      recordSurgicalAnchors(ctx.factorState, batchTaskIds);
+    }
     try {
       const { applySurgicalTextEdits } = await import("../../../drafts/apply-surgical-edits.js");
       const { parseCraftCheckInput, evaluateCraftCheck } =
         await import("../../../drafts/contract-redline-craft.js");
       const craftCheck = parseCraftCheckInput(params.craft_check);
       // 跨文书一致改：给了 task_ids 就走全批路径（同一锚定规则、先预检再落笔）。
-      const batchTaskIds = Array.isArray(params.task_ids)
-        ? params.task_ids.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-        : [];
       if (batchTaskIds.length > 0) {
         return executeCrossDocumentEdits({ params, ctx, taskIds: batchTaskIds, craftCheck });
       }
@@ -105,7 +148,10 @@ export const applySurgicalEdits: AgentTool = {
           wordRevisionTurn: ctx.wordRevisionTurn,
           mailContractTurn: ctx.mailContractTurn,
         });
-        edits = resolved.edits;
+        edits = reconcileSurgicalEditsWithPatches(
+          ctx.factorState,
+          resolved.edits,
+        ) as typeof resolved.edits;
         editsFromPlan = resolved.fromPlan;
       } catch (err) {
         return {
@@ -170,6 +216,24 @@ export const applySurgicalEdits: AgentTool = {
       }
       // Amplitude gate for this tool is per-edit (find/replace). Do not run the
       // whole-draft rewrite gate — seed+summary noise was falsely blocking Δ~1 万字.
+      const plannedAmount = editContradictsGroundedAmount(ctx.factorState, edits);
+      if (plannedAmount) {
+        return {
+          ok: false,
+          error: "这次改写和已核定的金额不一致，未写入。",
+          data: { code: "grounded_amount_zero_write", anchor: plannedAmount, written: false },
+        };
+      }
+      if (ctx.factorState) {
+        const body = (draft.sections ?? []).map((section) => section.body ?? "").join("\n");
+        ingestDefinedTerms(ctx.factorState, body);
+        rememberSkeleton(ctx.factorState, extractSkeletonHeadings(body), "document");
+      }
+      const plannedRole = editIntroducesForeignRole(ctx.factorState, edits);
+      if (plannedRole && ctx.factorState) {
+        fuseProposal(ctx.factorState, `party:${plannedRole}`, "clause", plannedRole);
+      }
+      const priorBodies = (draft.sections ?? []).map((section) => section.body ?? "");
       const applied = applySurgicalTextEdits({ sections: draft.sections, edits });
       if (!applied.ok) {
         const spanHard = applied.code === "span_too_wide";
@@ -207,6 +271,19 @@ export const applySurgicalEdits: AgentTool = {
       // apply_surgical_edits keeps every accumulated edit in the export proposal.
       prepareRedlineBaselineBeforeWrite(ctx.workspaceDir, taskId);
       persistDraft(ctx.workspaceDir, next);
+      if (ctx.factorState) {
+        recordBodySnapshot(ctx.factorState, taskId, priorBodies);
+        recordInverseEdits(ctx.factorState, applied.applied, priorBodies.join("\n"), edits);
+        recordSurgicalAnchors(ctx.factorState, [
+          taskId,
+          ...mapEditsToFactorAnchors(ctx.factorState, edits),
+          ...mapEditsToFactorAnchors(ctx.factorState, applied.applied),
+        ]);
+        ingestDraftBody(
+          ctx.factorState,
+          (next.sections ?? []).map((section) => section.body ?? "").join("\n"),
+        );
+      }
       try {
         const { writeRedlinePlan, readRedlinePlan } =
           await import("../../../drafts/redline-plan.js");

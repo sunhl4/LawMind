@@ -6,7 +6,6 @@ import {
   extractAnchorContext,
   formatGuardianFailMessage,
   guardianBlocksExport,
-  resolveGuardianTrackedRedlinePosture,
   isLegalGuardianEnabled,
   nextGuardianRound,
   parseGuardianReviewerJson,
@@ -224,78 +223,7 @@ describe("legal guardian verdict parse", () => {
     expect(isLegalGuardianEnabled({} as NodeJS.ProcessEnv)).toBe(true);
   });
 
-  it("does not hard-block tracked redline export by default (审稿照跑、缺口照报)", () => {
-    // 实测把 tracked 导出也按 block 处理时，「审稿 2 轮未过」会打断整条 Word 一键改稿，
-    // 律师只看到「没有结果」。solo 缺省改为 advisory：缺口如实交出，不阻断。
-    expect(resolveGuardianTrackedRedlinePosture({ env: {} as NodeJS.ProcessEnv })).toBe("advisory");
-    expect(resolveGuardianTrackedRedlinePosture()).toBe("advisory");
-  });
-
-  it("keeps the hard wall by default for firm / private deployments", () => {
-    // 跨档口径：律所/私有部署里「未过独立审稿的稿子流出去」代价更高，缺省保留硬墙。
-    expect(
-      resolveGuardianTrackedRedlinePosture({
-        env: { LAWMIND_EDITION: "firm" } as NodeJS.ProcessEnv,
-      }),
-    ).toBe("block");
-    expect(
-      resolveGuardianTrackedRedlinePosture({
-        env: { LAWMIND_EDITION: "private_deploy" } as NodeJS.ProcessEnv,
-      }),
-    ).toBe("block");
-    // policy 标注的 edition 优先于 env（与 resolveEdition 同一口径）
-    expect(
-      resolveGuardianTrackedRedlinePosture({
-        policy: { edition: "firm" },
-        env: { LAWMIND_EDITION: "solo" } as NodeJS.ProcessEnv,
-      }),
-    ).toBe("block");
-    // 律所也能显式放行（与 solo 同样一条覆盖路径）
-    expect(
-      resolveGuardianTrackedRedlinePosture({
-        env: {
-          LAWMIND_EDITION: "firm",
-          LAWMIND_GUARDIAN_TRACKED_REDLINE: "advisory",
-        } as NodeJS.ProcessEnv,
-      }),
-    ).toBe("advisory");
-  });
-
-  it("lets a firm restore the hard wall via policy or env", () => {
-    expect(
-      resolveGuardianTrackedRedlinePosture({ policy: { guardianTrackedRedline: "block" } }),
-    ).toBe("block");
-    expect(
-      resolveGuardianTrackedRedlinePosture({
-        env: { LAWMIND_GUARDIAN_TRACKED_REDLINE: "block" } as NodeJS.ProcessEnv,
-      }),
-    ).toBe("block");
-    // policy 优先于 env
-    expect(
-      resolveGuardianTrackedRedlinePosture({
-        policy: { guardianTrackedRedline: "advisory" },
-        env: { LAWMIND_GUARDIAN_TRACKED_REDLINE: "block" } as NodeJS.ProcessEnv,
-      }),
-    ).toBe("advisory");
-  });
-
-  it("ignores a garbage posture value instead of failing open or closed by accident", () => {
-    // 认不出就按所在 edition 的缺省，不把写错的配置当成硬墙或免检。
-    expect(
-      resolveGuardianTrackedRedlinePosture({
-        policy: { guardianTrackedRedline: "whatever" },
-        env: { LAWMIND_GUARDIAN_TRACKED_REDLINE: "nonsense" } as NodeJS.ProcessEnv,
-      }),
-    ).toBe("advisory");
-    expect(
-      resolveGuardianTrackedRedlinePosture({
-        policy: { guardianTrackedRedline: "whatever", edition: "firm" },
-        env: { LAWMIND_GUARDIAN_TRACKED_REDLINE: "nonsense" } as NodeJS.ProcessEnv,
-      }),
-    ).toBe("block");
-  });
-
-  it("runs on opinion Word export, not internal memos or tracked redline drafts", () => {
+  it("runs on opinion Word export, not internal memos or tracked redline drafts", async () => {
     expect(shouldRunLegalGuardianForDocument({ deliverableType: "memo.opinion" })).toBe(true);
     expect(shouldRunLegalGuardianForDocument({ deliverableType: "contract.review" })).toBe(true);
     expect(shouldRunLegalGuardianForDocument({ deliverableType: "letter.counsel" })).toBe(true);

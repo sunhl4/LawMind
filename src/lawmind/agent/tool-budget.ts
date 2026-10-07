@@ -47,5 +47,5 @@ export function formatToolBudgetContinueReply(used: number): string {
 }
 
 export function formatToolBudgetHardStopReply(): string {
-  return "这一轮的步骤已经到上限，所以先停下来。已经做好的结果都还在。要继续办理，在这条对话里回复「继续」即可。";
+  return "这一轮的步骤已经到上限。已经做好的结果都还在，缺的事实留在文中待确认。";
 }
