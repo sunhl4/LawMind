@@ -203,6 +203,8 @@ describe("skill deliverable contract (synthetic)", () => {
     // 档位口径写进 pipelineHint，而不是只存在于 skill 正文。
     expect(review?.pipelineHint).toContain("可接受回退");
     expect(review?.pipelineHint).toContain("永不接受");
+    expect(review?.pipelineHint).toContain("冲突");
+    expect(review?.pipelineHint).toContain("未见");
   });
 
   it("时间轴同一轮交正式件，不先停下来等确认", () => {
@@ -243,14 +245,12 @@ describe("skill deliverable contract (synthetic)", () => {
     const reviewPlan = planLeanSkillPrompt(review, "请审查这份采购合同");
     const reviewDisclosed = [...reviewPlan.primaryIds, ...reviewPlan.indexLines].join("\n");
     expect(reviewPlan.primaryIds).toContain("contract-review-layers");
+    expect(reviewPlan.primaryIds).toContain("contract-playbook-review");
     expect(reviewDisclosed).toContain("contract-playbook-review");
-    // 索引行带 description（不是只有 id）。
-    const playbookLine = reviewPlan.indexLines.find((l) =>
-      l.startsWith("contract-playbook-review"),
-    );
-    expect(playbookLine).toBeTruthy();
-    expect(playbookLine).toMatch(/[:：]\s*\S/);
-    expect(reviewPlan.indexIds).toContain("contract-playbook-review");
+    const redlineLine = reviewPlan.indexLines.find((l) => l.startsWith("contract-redline-craft"));
+    expect(redlineLine).toBeTruthy();
+    expect(redlineLine).toMatch(/[:：]\s*\S/);
+    expect(reviewPlan.indexIds).toContain("contract-redline-craft");
 
     const timeline = bindLawyerCapability({ instruction: "把这些材料做成时间轴" })!;
     const timelinePlan = planLeanSkillPrompt(timeline, "把这些材料做成时间轴");

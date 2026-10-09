@@ -16,6 +16,7 @@ import type { ComposeContextPin } from "../../platform/compose-context-pin.js";
 import { COMPUTE_INTENT_RE, isPublicWebFactLookup } from "../../skills/capability-patterns.js";
 import { productPlaybookToolNames } from "../../skills/product-playbooks.js";
 import { pileNeedsMaterialDigest } from "../material-pile-digest.js";
+import { namedWorkspaceDeliverables } from "../named-deliverable.js";
 import { collectDisclosedToolNames } from "./governance.js";
 import type { ToolRegistry } from "./registry.js";
 
@@ -127,15 +128,6 @@ export function pinsIncludeXlsx(pins: ComposeContextPin[] | undefined): boolean 
       return false;
     }
     return /\.xlsx$/i.test(pin.relPath);
-  });
-}
-
-export function pinsIncludeWord(pins: ComposeContextPin[] | undefined): boolean {
-  return (pins ?? []).some((pin) => {
-    if (pin.pinKind !== "file" || pin.kind !== "file") {
-      return false;
-    }
-    return /\.docx$/i.test(pin.relPath);
   });
 }
 
@@ -270,7 +262,7 @@ export function extraToolsForInstruction(
     hardBind &&
     (compiled.pipelineOverride === "tracked_redline" ||
       compiled.capabilityId === "mail.contract" ||
-      (compiled.capabilityId === "contract.review" && pinsIncludeWord(extras?.pins)))
+      compiled.capabilityId === "contract.review")
   ) {
     extrasTools.push("render_tracked_draft");
   }
@@ -282,6 +274,13 @@ export function extraToolsForInstruction(
   }
   if (COMPUTE_INTENT_RE.test(text)) {
     extrasTools.push(...COMPUTE_DELIVERABLE_TOOL_NAMES);
+  }
+  const namedFiles = namedWorkspaceDeliverables(text);
+  if (namedFiles.length > 0) {
+    extrasTools.push("write_document");
+    if (namedFiles.some((name) => /\.docx?$/i.test(name))) {
+      extrasTools.push("draft_document", "render_document");
+    }
   }
   if (/\bhttps?:\/\//i.test(text)) {
     extrasTools.push("url_dossier");

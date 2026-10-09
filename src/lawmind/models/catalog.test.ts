@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   builtinIdForEnvModelName,
+  contextTokensForUpstreamModel,
   getBuiltinModelById,
+  isDeepSeekFlashUpstream,
   LAWMIND_DEFAULT_BUILTIN_MODEL_ID,
   LAWMIND_DEFAULT_UPSTREAM_MODEL,
 } from "./catalog.js";
@@ -22,6 +24,9 @@ describe("lawmind models catalog", () => {
     expect(getBuiltinModelById("builtin:deepseek-chat")?.contextTokens).toBe(131_072);
     expect(getBuiltinModelById("builtin:deepseek-reasoner")?.contextTokens).toBe(131_072);
     expect(getBuiltinModelById(LAWMIND_DEFAULT_BUILTIN_MODEL_ID)?.contextTokens).toBe(1_048_576);
+    expect(contextTokensForUpstreamModel("deepseek-flash")).toBe(1_048_576);
+    expect(contextTokensForUpstreamModel("deepseek-v4-flash")).toBe(1_048_576);
+    expect(isDeepSeekFlashUpstream("deepseek-v4-flash-vision-exp")).toBe(true);
   });
 
   it("maps retired DeepSeek Flash aliases to deepseek-flash", () => {

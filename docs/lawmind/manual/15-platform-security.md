@@ -158,7 +158,7 @@ https 走过代理时用 CONNECT 隧道，http 走普通转发。代理那一跳
 `safeCommand(options)` 是唯一的子进程出口。它做六件事，对应文件头部的六条注释：
 
 1. 命令白名单 / 绝对路径解析
-2. 禁止 shell，参数必须数组化
+2. 参数必须数组化。bash / sh 只能执行工作区内的脚本文件，不能带 `-c`
 3. env 注入审计（只传白名单 env）
 4. cwd 限制
 5. 超时、子进程资源清理
@@ -175,10 +175,12 @@ https 走过代理时用 CONNECT 隧道，http 走普通转发。代理那一跳
 两条黑名单：
 
 ```js
-FORBIDDEN_SHELL_COMMANDS = { sh, bash, zsh, fish, dash, cmd, cmd.exe,
+FORBIDDEN_SHELL_COMMANDS = { zsh, fish, dash, cmd, cmd.exe,
                              powershell, powershell.exe, pwsh, pwsh.exe }
 FORBIDDEN_SHELL_ARGS = { -c, /c, -Command, -command, -e, --eval, --execute }
 ```
+
+`bash` 和 `sh` 可以执行工作区内的脚本文件。`-c` 仍然拒绝，避免一条参数变成任意命令。
 
 命令名撞黑名单：
 

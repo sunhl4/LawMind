@@ -315,12 +315,12 @@ export const runHostCommandTool: AgentTool = {
   definition: {
     name: "run_host_command",
     description:
-      "在已授权目录内运行受控本机命令（officecli / mdfind / git / python 等）。officecli 的文件参数与 cwd 必须在工作区内（已选本机文件夹为只读，要纳入本案请先「收进本案」）；它的文档位置选择器（`/`、`/body`、`/body/p[3]`、`/header[1]`、`/sheet[1]`）会被识别为范围而不是路径，其余以 `/` 开头的参数一律按文件系统路径校验。",
+      "在已授权目录内运行受控本机命令（officecli / mdfind / git / python / bash / sh 等）。bash 与 sh 只能执行工作区内的脚本文件，不能带 -c。相对 cwd 相对本案目录，省略则在本案目录执行。officecli 的文件参数与 cwd 必须在工作区内（已选本机文件夹为只读，要纳入本案请先「收进本案」）；它的文档位置选择器（`/`、`/body`、`/body/p[3]`、`/header[1]`、`/sheet[1]`）会被识别为范围而不是路径，其余以 `/` 开头的参数一律按文件系统路径校验。",
     category: "system",
     parameters: {
-      command: { type: "string", description: "命令名（如 officecli、git）", required: true },
-      args: { type: "array", description: "参数数组，禁止拼接 shell" },
-      cwd: { type: "string", description: "工作目录，必须在已授权根内" },
+      command: { type: "string", description: "命令名（如 officecli、git、bash）", required: true },
+      args: { type: "array", description: "参数数组。bash / sh 传脚本路径，不要传 -c" },
+      cwd: { type: "string", description: "工作目录。相对路径相对本案；省略则用本案目录" },
     },
     riskLevel: "high",
     approvalTemplate: "generic",

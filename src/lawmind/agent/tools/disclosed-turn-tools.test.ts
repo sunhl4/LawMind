@@ -60,6 +60,12 @@ describe("disclosed-turn-tools", () => {
       expect.arrayContaining(["run_compute", "render_chart", "write_spreadsheet"]),
     );
     expect(extraToolsForInstruction("修改合同")).not.toContain("run_compute");
+    expect(extraToolsForInstruction("把金额写入 amount.txt，只能有数字。")).toContain(
+      "write_document",
+    );
+    expect(extraToolsForInstruction("Output: `issue-memorandum.docx`.")).toEqual(
+      expect.arrayContaining(["write_document", "draft_document", "render_document"]),
+    );
   });
 
   it("does not let a dropped-in workspace skill disclose tools", async () => {
@@ -151,6 +157,18 @@ x
       "draft_worker",
     );
     expect(extraToolsForInstruction("请审查这份采购合同")).not.toContain("render_tracked_draft");
+    expect(
+      extraToolsForInstruction("请审查这份采购合同", {
+        pins: [
+          {
+            pinKind: "file",
+            root: "project",
+            relPath: "隔断采购合同.pdf",
+            kind: "file",
+          },
+        ],
+      }),
+    ).toEqual(expect.arrayContaining(["draft_document", "render_tracked_draft"]));
     expect(extraToolsForInstruction("请起草买卖合同的违约金条款")).toContain("draft_worker");
     expect(extraToolsForInstruction("请分别审查这份采购合同的付款争点和解除争点")).toContain(
       "draft_worker",

@@ -265,9 +265,10 @@ describe("lawyer-capabilities", () => {
     expect(bodies.some((b) => b.includes("合同分层审查"))).toBe(true);
     const lean = planLeanSkillPrompt(bound!, "请审查合同条款");
     const leanBodies = readSkillPromptBodies(undefined, lean.primaryIds);
-    expect(lean.primaryIds).toEqual(["contract-review-layers", "contract-redline-craft"]);
+    expect(lean.primaryIds).toEqual(["contract-review-layers", "contract-playbook-review"]);
     expect(leanBodies.some((b) => b.includes("合同分层审查"))).toBe(true);
-    expect(leanBodies.some((b) => b.includes("合同审阅改稿手艺"))).toBe(true);
+    expect(leanBodies.some((b) => b.includes("合同 Playbook 审查"))).toBe(true);
+    expect(leanBodies.some((b) => b.includes("合同审阅改稿手艺"))).toBe(false);
     expect(leanBodies.some((b) => b.includes("## 九类事实"))).toBe(false);
     const block = formatBoundCapabilityBlock(bound!, leanBodies, { indexLines: lean.indexLines });
     expect(block).toContain("本轮 LawMind 能力：合同审查");
@@ -317,7 +318,7 @@ describe("lawyer-capabilities", () => {
   it("does not freeze contract.review into a single tool sequence", () => {
     const bound = bindLawyerCapability({ instruction: "请审查这份采购合同" });
     expect(bound?.pipelineHint).toContain("已配置工具都可用");
-    expect(bound?.pipelineHint).toContain("律师指定只要一种则按指定");
+    expect(bound?.pipelineHint).not.toContain("默认意见+修订稿都交");
     expect(bound?.pipelineHint).not.toContain("完成=意见");
     const bodies = readSkillPromptBodies(undefined, ["contract-review-layers"]);
     const block = formatBoundCapabilityBlock(bound!, bodies);

@@ -6,21 +6,21 @@ import {
 } from "./tool-decision-sampling.js";
 
 describe("tool decision sampling", () => {
-  it("caps advertised tool rounds and leaves deliverable rounds alone", () => {
-    expect(resolveToolDecisionMaxTokens(40_000, true)).toBe(TOOL_DECISION_MAX_TOKENS);
+  it("uses the model output budget on tool rounds", () => {
+    expect(resolveToolDecisionMaxTokens(40_000, true)).toBe(40_000);
     expect(resolveToolDecisionMaxTokens(1_024, true)).toBe(1_024);
     expect(resolveToolDecisionMaxTokens(40_000, false)).toBe(40_000);
-    expect(resolveToolDecisionMaxTokens(undefined, true)).toBe(TOOL_DECISION_MAX_TOKENS);
+    expect(resolveToolDecisionMaxTokens(undefined, true)).toBeUndefined();
   });
 
-  it("raises output only when a tool round comes back truncated", () => {
+  it("raises output only when a tool round comes back truncated below the model budget", () => {
     expect(
       shouldRaiseToolDecisionOutput({
         toolsAdvertised: true,
         configuredMaxTokens: 40_000,
         finishReason: "length",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldRaiseToolDecisionOutput({
         toolsAdvertised: true,

@@ -151,16 +151,14 @@ export async function completeFirstRunDialog(page: Page): Promise<string> {
   const dialog = page.getByRole("dialog", { name: /LawMind 新手引导/i });
   await expect(dialog).toBeVisible({ timeout: 30_000 });
 
-  // 1. 选择角色
+  // 1. 选择角色 → 直接进入文书
   await dialog.getByRole("button", { name: "独立执业" }).click();
-  // 2. 跳过偏好，使用推荐默认
-  await dialog.getByTestId("lm-firstrun-skip-prefs").click();
-  // 3. 选择第一个可用交付物类型（通常是合同审查或律师函）
+  // 2. 选择第一个可用交付物类型（通常是合同审查或律师函）
   await expect(dialog.locator(".lm-firstrun-cards")).toBeVisible({ timeout: 10_000 });
   const firstSpec = dialog.locator(".lm-firstrun-card").first();
   await expect(firstSpec).toBeVisible({ timeout: 10_000 });
   await firstSpec.click();
-  // 4. 显式勾选「同时创建演示案件」，再开始交办
+  // 3. 显式勾选「同时创建演示案件」，再开始交办
   await dialog.getByTestId("lm-firstrun-create-matter").check();
   const confirm = dialog.getByRole("button", { name: "建案件并开始交办" });
   await expect(confirm).toBeEnabled({ timeout: 10_000 });

@@ -45,6 +45,32 @@ export function instructionHasWordFile(instruction: string): boolean {
   );
 }
 
+/**
+ * Yesterday's `.docx` in the transcript does not make this turn a Word edit
+ * when the lawyer pinned or named a non-Word file.
+ */
+function historySuppliesWordFile(params: WordRevisionTurnInput): boolean {
+  if (!instructionHasWordFile(params.historyText ?? "")) {
+    return false;
+  }
+  const filePins = (params.pins ?? []).filter((pin) => {
+    if (!("relPath" in pin) || typeof pin.relPath !== "string") {
+      return false;
+    }
+    if ("kind" in pin && pin.kind === "directory") {
+      return false;
+    }
+    return pin.relPath.trim().length > 0;
+  });
+  if (filePins.length > 0 && !filePins.some((pin) => WORD_FILE_RE.test(pin.relPath))) {
+    return false;
+  }
+  if (/\.pdf\b/i.test(params.instruction) && !WORD_FILE_RE.test(params.instruction)) {
+    return false;
+  }
+  return true;
+}
+
 export function pinsHaveWordFile(pins?: ComposeContextPin[]): boolean {
   return (pins ?? []).some((pin) => {
     if (!("relPath" in pin) || typeof pin.relPath !== "string") {
@@ -82,9 +108,7 @@ export function isWordRevisionTurn(input: WordRevisionTurnInput | string): boole
   }
   const body = t.replace(MARKER_LINE_RE, "");
   const hasWord =
-    instructionHasWordFile(t) ||
-    pinsHaveWordFile(params.pins) ||
-    instructionHasWordFile(params.historyText ?? "");
+    instructionHasWordFile(t) || pinsHaveWordFile(params.pins) || historySuppliesWordFile(params);
   const hasEdit = instructionLooksLikeWordEdit(body) || FOLLOW_UP_EXPORT_RE.test(body);
   let candidate = false;
   if (FILE_PAGE_RE.test(t) && hasWord && (hasEdit || /修改|改稿|修订/.test(body))) {

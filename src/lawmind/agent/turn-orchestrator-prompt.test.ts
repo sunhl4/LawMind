@@ -61,7 +61,7 @@ describe("turn-orchestrator-prompt", () => {
     expect(session.conversationHistory[0]?.content).toBe(result.systemPromptFinal);
   });
 
-  it("pairs opinion and tracked redline when 合同审查 has a Word pin but is not the Word lock", async () => {
+  it("does not force a paired redline when 合同审查 has a Word pin", async () => {
     const session: AgentSession = {
       sessionId: "sess-paired",
       actorId: "system",
@@ -90,10 +90,10 @@ describe("turn-orchestrator-prompt", () => {
         },
       ],
     });
-    expect(visiblePrompt(result, session)).toContain("## 成套交件");
     expect(visiblePrompt(result, session)).toContain("## 检索协议");
+    expect(visiblePrompt(result, session)).not.toContain("## 成套交件");
+    expect(visiblePrompt(result, session)).not.toContain("<!--lm-delivery:judge-->");
     expect(visiblePrompt(result, session)).not.toContain("Word 改稿 · 原文件审阅痕迹");
-    expect(result.systemPromptFinal).not.toContain("## 成套交件");
   });
 
   it("does not pair redline when the lawyer named an opinion sidecar", async () => {
@@ -326,7 +326,7 @@ describe("turn-orchestrator-prompt", () => {
     );
     expect(result.systemPromptFinal).not.toContain(CONTRACT_FAST_LANE_PROMPT.split("\n")[0] ?? "");
     expect(visiblePrompt(result, session)).not.toContain("## 成套交件");
-    expect(visiblePrompt(result, session)).toContain("本地意见书优先");
+    expect(visiblePrompt(result, session)).not.toContain("<!--lm-delivery:judge-->");
   });
 
   it("pairs 改稿计划 with a 5-minute dispatch when a Word is pinned", async () => {
@@ -365,9 +365,10 @@ describe("turn-orchestrator-prompt", () => {
       ],
     });
     const prompt = visiblePrompt(result, session);
-    expect(prompt).toContain("## 成套交件");
     expect(prompt).toContain("## 改稿计划");
     expect(prompt).toContain("render_tracked_draft");
+    expect(prompt).not.toContain("## 成套交件");
+    expect(prompt).not.toContain("<!--lm-delivery:judge-->");
     expect(prompt).not.toContain("<!--lm-delivery:opinion_memo-->");
     expect(prompt).not.toContain("本地意见书优先");
     expect(prompt).not.toContain("合同审查意见书（Craft）");

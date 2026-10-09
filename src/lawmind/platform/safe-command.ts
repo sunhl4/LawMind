@@ -3,7 +3,7 @@
  *
  * 集中处理子进程命令的安全策略：
  *   ① 命令白名单 / 绝对路径解析
- *   ② 禁止 shell，参数必须数组化
+ *   ② 参数必须数组化。bash / sh 只能执行工作区脚本，不能带 -c
  *   ③ env 注入审计（只传白名单 env）
  *   ④ cwd 限制（必须在工作区或临时目录下）
  *   ⑤ 超时、子进程资源清理
@@ -71,8 +71,6 @@ export class SafeCommandError extends Error {
 
 /** 禁止作为外部命令执行的系统 shell（防止参数注入一键拿 shell）。 */
 const FORBIDDEN_SHELL_COMMANDS = new Set([
-  "sh",
-  "bash",
   "zsh",
   "fish",
   "dash",
@@ -238,6 +236,9 @@ function isForbiddenShell(command: string, args: string[]): string | undefined {
   }
   if (FORBIDDEN_SHELL_COMMANDS.has(base)) {
     return `不允许使用系统 shell 作为外部命令：${base}`;
+  }
+  if ((base === "bash" || base === "sh") && args.some((arg) => FORBIDDEN_SHELL_ARGS.has(arg))) {
+    return "bash 或 sh 只能执行工作区内的脚本文件，不能带 -c。";
   }
   if (args.some((a) => FORBIDDEN_SHELL_ARGS.has(a))) {
     return "参数中禁止出现代码执行开关（如 -c / -Command）";

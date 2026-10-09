@@ -1597,7 +1597,7 @@
   border: none;
   border-radius: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--link);
   cursor: pointer;
   font-family: inherit;
   font-size: inherit;
@@ -1605,13 +1605,14 @@
   line-height: inherit;
   letter-spacing: 0;
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--accent-border) 55%, transparent);
+  text-decoration-color: var(--link);
+  text-decoration-thickness: 1px;
   text-underline-offset: 2px;
   transition: color var(--t) var(--ease), text-decoration-color var(--t) var(--ease);
 }
 .lm-source-pill:hover {
-  color: var(--accent);
-  text-decoration-color: var(--accent-border);
+  color: var(--link-hover);
+  text-decoration-color: var(--link-hover);
 }
 .lm-legal-cite-missing {
   color: var(--danger, #a33);

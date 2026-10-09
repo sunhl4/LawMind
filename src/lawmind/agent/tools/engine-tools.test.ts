@@ -1203,7 +1203,7 @@ describe("draft_document", () => {
     expect(result.error).toContain("instruction 不能为空");
   });
 
-  it("stamps contractEdit from a compose Word pin on unlocked 合同审查", async () => {
+  it("does not stamp a pinned Word into a revision baseline unless this turn is a revision", async () => {
     const ws = tmpWorkspace();
     const rel = "uploads/采购合同.docx";
     fs.mkdirSync(path.join(ws, "uploads"), { recursive: true });
@@ -1218,12 +1218,111 @@ describe("draft_document", () => {
     expect(result.ok, result.error ?? "draft_document failed").toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.deliverableType).toBe("contract.review");
-    expect(data.pairedDeliverable).toBe(true);
-    expect(
-      (data.contractEdit as { baselineRelativePath?: string } | undefined)?.baselineRelativePath,
-    ).toBe(rel);
+    expect(data.pairedDeliverable).toBeUndefined();
+    expect(data.contractEdit).toBeUndefined();
     const headings = ((data.sections as Array<{ heading: string }>) ?? []).map((s) => s.heading);
     expect(headings).toContain("宏观审查");
+  });
+
+  it("refuses tracked export when the baseline itself is a pdf", async () => {
+    const ws = tmpWorkspace();
+    const taskId = "task-pdf-baseline";
+    persistDraft(ws, {
+      taskId,
+      title: "隔断采购",
+      output: "docx",
+      templateId: "word/contract-default",
+      deliverableType: "contract.review",
+      summary: "s",
+      sections: [{ heading: "第一条", body: "原文不变。" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+      contractEdit: {
+        baselineRelativePath: "隔断采购合同.pdf",
+        mode: "surgical",
+      },
+    });
+    const tool = createLegalToolRegistry().get("render_tracked_draft")!;
+    const result = await tool.execute({ task_id: taskId }, makeCtx(ws));
+    expect(result.ok).toBe(false);
+    expect((result.data as { code?: string } | undefined)?.code).toBe("pdf_not_revisable");
+  });
+
+  it("does not reuse yesterday's contract draft when this turn has a pdf", async () => {
+    const ws = tmpWorkspace();
+    const yesterday = "task-yesterday-word";
+    persistDraft(ws, {
+      taskId: yesterday,
+      title: "移动隔断",
+      output: "docx",
+      templateId: "word/contract-default",
+      deliverableType: "contract.review",
+      summary: "s",
+      sections: [{ heading: "第一条", body: "原文不变。" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+      contractEdit: {
+        baselineRelativePath: "移动隔断项目_20261008_01.docx",
+        mode: "surgical",
+      },
+    });
+    const tool = createLegalToolRegistry().get("draft_document")!;
+    const result = await tool.execute(
+      { instruction: "审这份新的采购合同.pdf，只要审核意见" },
+      makeCtx(ws, undefined, {
+        linkedTaskId: yesterday,
+        contextPins: [
+          { pinKind: "file", root: "project", relPath: "隔断采购合同.pdf", kind: "file" },
+          {
+            pinKind: "file",
+            root: "project",
+            relPath: "移动隔断项目_20261008_01.docx",
+            kind: "file",
+          },
+        ],
+      }),
+    );
+    expect(result.ok, result.error ?? "draft_document failed").toBe(true);
+    const data = result.data as {
+      taskId?: string;
+      continuedReview?: boolean;
+      contractEdit?: unknown;
+    };
+    expect(data.taskId).not.toBe(yesterday);
+    expect(data.continuedReview).not.toBe(true);
+    expect(data.contractEdit).toBeUndefined();
+  });
+
+  it("does not reuse the open draft when a follow-up asks for a new file and brings nothing", async () => {
+    const ws = tmpWorkspace();
+    const yesterday = "task-yesterday-word";
+    persistDraft(ws, {
+      taskId: yesterday,
+      title: "移动隔断",
+      output: "docx",
+      templateId: "word/contract-default",
+      deliverableType: "contract.review",
+      summary: "s",
+      sections: [{ heading: "第一条", body: "原文不变。" }],
+      reviewNotes: [],
+      reviewStatus: "pending",
+      createdAt: new Date().toISOString(),
+      contractEdit: {
+        baselineRelativePath: "移动隔断项目_20261008_01.docx",
+        mode: "surgical",
+      },
+    });
+    const tool = createLegalToolRegistry().get("draft_document")!;
+    const result = await tool.execute(
+      { instruction: "按我下面的需求写一份备忘，结果放到一个新文件里" },
+      makeCtx(ws, undefined, { linkedTaskId: yesterday }),
+    );
+    expect(result.ok, result.error ?? "draft_document failed").toBe(true);
+    const data = result.data as { taskId?: string; continuedReview?: boolean };
+    expect(data.taskId).not.toBe(yesterday);
+    expect(data.continuedReview).not.toBe(true);
   });
 
   it("does not stamp paired redline when the lawyer asked for an opinion sidecar", async () => {

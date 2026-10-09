@@ -23,6 +23,7 @@ import {
   correctionCone,
   draftTaskIdFromSurgical,
   emptyFactorState,
+  ingestMaterialAmounts,
   isFactorAnchor,
   revertProposals,
   selectInverseEditsForCone,
@@ -574,6 +575,7 @@ export async function runTurn(opts: {
       ? Math.floor(priorUsed)
       : 0;
   session.factorState = beginTurnFactors(session.factorState ?? emptyFactorState());
+  ingestMaterialAmounts(session.factorState, instruction);
   const turn: AgentTurn = {
     turnId,
     sessionId: session.sessionId,

@@ -8,7 +8,7 @@ import { isUnderRoot } from "./paths.js";
 import type { HostAccessRuntime } from "./types.js";
 
 const OFFICE_BINARIES = new Set(["officecli", "mdfind", "mdls"]);
-const WORKSPACE_BINARIES = new Set(["git", "python", "python3"]);
+const WORKSPACE_BINARIES = new Set(["git", "python", "python3", "bash", "sh"]);
 
 /**
  * officecli：可改写文件，且它的**位置参数是文档选择器**而不是文件系统路径。
@@ -36,8 +36,6 @@ function isOfficeCliSelector(arg: string): boolean {
   return arg === "/" || OFFICECLI_SELECTOR_RE.test(arg);
 }
 const FORBIDDEN_BINARIES = new Set([
-  "sh",
-  "bash",
   "zsh",
   "fish",
   "dash",
@@ -153,9 +151,16 @@ export function authorizeHostCommand(
     return { ok: false, error: "当前不能运行这条本机命令。" };
   }
   const name = basenameCommand(request.command);
+  const args = request.args ?? [];
+  if ((name === "bash" || name === "sh") && args.some((arg) => arg === "-c" || arg === "-lc")) {
+    return { ok: false, error: "bash 或 sh 只能执行工作区内的脚本文件，不能带 -c。" };
+  }
   const needed = commandLevelFor(name);
   if (needed === "forbidden") {
-    return { ok: false, error: `不允许运行 ${name}。` };
+    return {
+      ok: false,
+      error: `不允许运行 ${name}。不要再试 zsh、dash、fish。bash 或 sh 只能执行工作区内的脚本文件，不能带 -c。`,
+    };
   }
   if (needed === "session") {
     if (!runtime.policy.allowSessionCommands || runtime.policy.hostCommandLevel !== "session") {
@@ -186,12 +191,16 @@ export function authorizeHostCommand(
   }
   const isOfficeCli = OFFICECLI_COMMANDS.has(name);
   const roots = isOfficeCli ? [runtime.workspaceDir] : allowedRootsForCommands(runtime);
-  const args = request.args ?? [];
   const bad = argsEscapeRoots(args, roots, { allowDocumentSelectors: isOfficeCli });
   if (bad) {
     return { ok: false, error: `参数路径不在已授权目录内：${path.basename(bad)}` };
   }
-  let cwd = request.cwd?.trim() ? path.resolve(request.cwd) : runtime.workspaceDir;
+  const requestedCwd = request.cwd?.trim();
+  let cwd = !requestedCwd
+    ? runtime.workspaceDir
+    : path.isAbsolute(requestedCwd)
+      ? path.resolve(requestedCwd)
+      : path.resolve(runtime.workspaceDir, requestedCwd);
   const cwdResolved = resolveHostPath(runtime, cwd);
   if (!cwdResolved.ok) {
     cwd = runtime.workspaceDir;

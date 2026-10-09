@@ -381,7 +381,8 @@ export type SystemPromptContext = {
   projectDirectoryHint?: string;
   /**
    * 桌面工作台为当前会话关联的草稿任务 ID（与 `AgentContext.linkedTaskId` 同源）。
-   * 用于提示模型：省略 `render_document.task_id` 时工具会优先该草稿。
+   * 事实提示：要接着写它就传 task_id；不传则 `draft_document` 另起一份。
+   * `render_document` 省略 task_id 时仍导出这份已打开的草稿。
    */
   linkedTaskId?: string;
   /** Phase B：岗位风险上限（高于任务风险时须强调律师确认） */
@@ -815,9 +816,10 @@ ${ap}`);
 
 律师在桌面端已为本次对话关联**草稿任务 ID**：\`${linked}\`。
 
-- 调用 \`render_document\` 时若**未**传 \`task_id\`，工具会**优先**针对上述任务 ID 的草稿；若该任务尚无草稿或 ID 在工作区内无效，则回退到**最近一份**草稿。
-- 调用 \`execute_workflow\` 做**续跑**（\`existing_task_id\` + \`restart_from: "research"\`）时，必须把要续的那条任务的 **taskId 写进 existing_task_id**；**不会**因为本段关联 ID而自动续跑。
-- 其它工具（如 \`draft_document\`、\`research_task\`）仍按各自参数执行；需要针对**特定**既有任务时，请显式传入 \`task_id\` / \`existing_task_id\` 等字段，不要默认假定「关联 ID」适用于所有工具。`);
+- 这个 ID 是律师已经打开的草稿，不是本轮需求的结论。
+- \`draft_document\` 不传 \`task_id\` 时另起一份稿，不会改写上面这份（本轮已是改 Word 或邮件改稿时除外）。要接着写它，把这个 ID 传进去。
+- 调用 \`render_document\` 时若**未**传 \`task_id\`，工具会导出上面这份已打开的草稿。本轮若刚起草了另一份，把新的 taskId 传给 \`render_document\`。
+- 调用 \`execute_workflow\` 做**续跑**（\`existing_task_id\` + \`restart_from: "research"\`）时，必须把要续的那条任务的 **taskId 写进 existing_task_id**；**不会**因为本段关联 ID而自动续跑。`);
   }
 
   const client = ctx.clientProfile?.trim();

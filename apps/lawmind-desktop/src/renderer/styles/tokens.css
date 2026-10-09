@@ -85,6 +85,9 @@
   --info:      #2f6fd6;
   --info-dim:  rgba(47, 111, 214, 0.1);
   --info-border: rgba(47, 111, 214, 0.28);
+  /* Answer hyperlinks — familiar link blue, still readable on the light canvas */
+  --link:        #2f6fd6;
+  --link-hover:  #1e5bb5;
 
   /* Radii */
   --r-xs: 4px;
@@ -282,6 +285,9 @@ html.lm-theme-dark {
   --info:      #4b91f7;
   --info-dim:  rgba(75, 145, 247, 0.1);
   --info-border: rgba(75, 145, 247, 0.28);
+  /* Lighter blue on the dark canvas so links still read as hyperlinks */
+  --link:        #8ec5ff;
+  --link-hover:  #b9dbff;
 
   --shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.25);
   --shadow-sm:  0 2px 6px rgba(0, 0, 0, 0.28);

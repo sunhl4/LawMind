@@ -66,6 +66,8 @@ export function builtinUserStandards(): UserStandard[] {
       items: [
         { text: "核对争议解决是否对我方明显不利", tone: "check" },
         { text: "责任上限与排除人身/故意/重大过失的条款是否经提示", tone: "check" },
+        { text: "价格限制、数量或最低承诺、无限责任是否写明或标未核", tone: "check" },
+        { text: "第三方受益、关联方许可、最惠国是否写明或标未核", tone: "check" },
       ],
       source: "builtin",
       enabled: true,
@@ -107,6 +109,8 @@ export function builtinUserStandards(): UserStandard[] {
         { text: "当事人与签约主体是否对齐", tone: "check" },
         { text: "违约与责任上限是否可执行", tone: "check" },
         { text: "管辖与适用法是否对我方明显不利", tone: "check" },
+        { text: "价格限制、数量或最低承诺、无限责任是否写明或标未核", tone: "check" },
+        { text: "第三方受益、关联方许可、最惠国是否写明或标未核", tone: "check" },
         { text: "关键法条能核则核，核不到标【待核实】", tone: "check" },
       ],
       source: "builtin",

@@ -28,6 +28,7 @@ export type WorkerLoopMessage = {
     function?: { name?: string; arguments?: string };
   }>;
   tool_call_id?: string;
+  reasoning_content?: string;
 };
 
 type AssistantToolCall = {
@@ -41,6 +42,7 @@ type ModelChoice = {
   choices?: Array<{
     message?: {
       content?: string | null;
+      reasoning_content?: string | null;
       tool_calls?: Array<{
         id?: string;
         type?: string;
@@ -285,10 +287,12 @@ export async function runReadonlyWorkerLoop(opts: {
         type: "function" as const,
         function: { name: call.name, arguments: call.rawArguments },
       }));
+      const reasoning = response.choices?.[0]?.message?.reasoning_content?.trim() ?? "";
       messages.push({
         role: "assistant",
         content: text,
         tool_calls: openaiCalls,
+        ...(reasoning ? { reasoning_content: reasoning } : {}),
       });
 
       const results = await Promise.all(

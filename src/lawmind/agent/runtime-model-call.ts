@@ -7,6 +7,8 @@ import {
   DEFAULT_MODEL_MAX_RETRIES,
   isRetryableHttpFailure,
 } from "../llm/http-retry.js";
+import { REVIEW_MODEL_TIMEOUT_MS } from "../models/capability-envelope.js";
+import { isDeepSeekFlashUpstream } from "../models/catalog.js";
 import { createOutboundProxy } from "../platform/outbound-proxy.js";
 import { isToolPairingRejectText, sanitizeWireMessages } from "./session-tool-call-pairing.js";
 import type { WireChatMessage } from "./session-tool-call-pairing.js";
@@ -16,6 +18,34 @@ export { DEFAULT_MODEL_MAX_RETRIES, modelAttemptBudget } from "../llm/http-retry
 
 /** Matches desktop / envelope default (`LAWMIND_AGENT_TIMEOUT_MS` fallback). */
 const DEFAULT_MODEL_TIMEOUT_MS = 120_000;
+
+/**
+ * V4.1 Flash keeps thinking on. Tool rounds use high so a file edit does not
+ * spend max-effort reasoning before every call. The closing reply, with no
+ * tools left in the request, uses max. A write-synthesis sample passes max
+ * even while write tools stay advertised.
+ */
+export function deepSeekReasoningEffort(
+  model: string,
+  toolsAdvertised: boolean,
+  override?: "high" | "max",
+): "high" | "max" | undefined {
+  if (!isDeepSeekFlashUpstream(model)) {
+    return undefined;
+  }
+  if (override) {
+    return override;
+  }
+  return toolsAdvertised ? "high" : "max";
+}
+
+function timeoutForCall(config: AgentModelConfig): number {
+  const configured = config.timeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
+  if (!isDeepSeekFlashUpstream(config.model)) {
+    return configured;
+  }
+  return Math.max(configured, REVIEW_MODEL_TIMEOUT_MS);
+}
 
 const modelProxy = createOutboundProxy({ requestTag: "model-api" });
 
@@ -124,6 +154,7 @@ type ChatCompletionStreamChunk = {
     delta?: {
       role?: string;
       content?: string | null;
+      reasoning_content?: string | null;
       tool_calls?: Array<{
         index?: number;
         id?: string;
@@ -139,6 +170,8 @@ type ChatCompletionStreamChunk = {
 type ChatCompletionMessage = {
   role: "assistant" | "user" | "system" | "tool";
   content?: string | null;
+  /** DeepSeek thinking trace. Not lawyer-visible. Required on later tool turns. */
+  reasoning_content?: string | null;
   tool_calls?: Array<{
     id: string;
     type: "function";
@@ -164,12 +197,18 @@ export type CallModelOptions = {
    * 会话路径在此修复来源历史并落盘，使修复持久化。
    */
   onToolPairingReject?: () => WireChatMessage[] | undefined;
+  /**
+   * DeepSeek thinking budget for this sample.
+   * Tool rounds stay high unless a write-synthesis sample asks for max.
+   */
+  reasoningEffort?: "high" | "max";
 };
 
 /** Accumulate streaming chunks into a final `ChatCompletionResponse` shape. */
 export function aggregateStreamChunks(chunks: ChatCompletionStreamChunk[]): ChatCompletionResponse {
   let role = "assistant";
   let content = "";
+  let reasoning = "";
   let finishReason = "stop";
   type ToolCallAcc = {
     id: string;
@@ -197,6 +236,9 @@ export function aggregateStreamChunks(chunks: ChatCompletionStreamChunk[]): Chat
     }
     if (typeof delta.content === "string") {
       content += delta.content;
+    }
+    if (typeof delta.reasoning_content === "string") {
+      reasoning += delta.reasoning_content;
     }
     if (Array.isArray(delta.tool_calls)) {
       for (const tc of delta.tool_calls) {
@@ -229,6 +271,7 @@ export function aggregateStreamChunks(chunks: ChatCompletionStreamChunk[]): Chat
   const message: ChatCompletionMessage = {
     role: role as "assistant",
     content: content || null,
+    ...(reasoning ? { reasoning_content: reasoning } : {}),
   };
   if (toolCalls.size > 0) {
     message.tool_calls = [...toolCalls.entries()]
@@ -288,7 +331,7 @@ async function callModelOnce(
   opts: CallModelOptions = {},
 ): Promise<ChatCompletionResponse> {
   const url = `${config.baseUrl.replace(/\/$/, "")}/chat/completions`;
-  const timeoutMs = config.timeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
+  const timeoutMs = timeoutForCall(config);
 
   // 送出前最后一道（Codex for_prompt 的对应物）：不经 session 的调用方
   // （draft-worker / readonly-worker / 压缩 digest 等）没有可修复的历史，
@@ -304,6 +347,15 @@ async function callModelOnce(
 
   if (config.maxTokens) {
     body.max_tokens = config.maxTokens;
+  }
+
+  const reasoningEffort = deepSeekReasoningEffort(
+    config.model,
+    tools.length > 0,
+    opts.reasoningEffort,
+  );
+  if (reasoningEffort) {
+    body.reasoning_effort = reasoningEffort;
   }
 
   if (Array.isArray(config.stop) && config.stop.length > 0) {

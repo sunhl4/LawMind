@@ -26,7 +26,7 @@ describe("authorizeHostCommand", () => {
     }
   });
 
-  it("forbids shells and curl", () => {
+  it("allows bash to run a script file and still forbids sudo and curl", () => {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "lm-cmd-ws-"));
     try {
       const runtime = buildHostAccessRuntime({
@@ -37,9 +37,33 @@ describe("authorizeHostCommand", () => {
         homeDir: workspace,
       });
       runtime.policy.allowHostCommands = true;
-      for (const command of ["bash", "sudo", "curl"]) {
+      for (const command of ["sudo", "curl", "zsh"]) {
         const result = authorizeHostCommand(runtime, { command });
         expect(result.ok).toBe(false);
+      }
+      const script = path.join(workspace, "job.sh");
+      fs.writeFileSync(script, "#!/bin/bash\nprintf ok\\n");
+      const bash = authorizeHostCommand(runtime, {
+        command: "bash",
+        args: ["job.sh"],
+        cwd: workspace,
+      });
+      expect(bash.ok).toBe(true);
+      const inline = authorizeHostCommand(runtime, {
+        command: "bash",
+        args: ["-c", "printf ok"],
+        cwd: workspace,
+      });
+      expect(inline.ok).toBe(false);
+      const relative = authorizeHostCommand(runtime, {
+        command: "bash",
+        args: ["job.sh"],
+        cwd: ".",
+      });
+      expect(relative.ok).toBe(true);
+      if (relative.ok && "cwd" in relative) {
+        expect(fs.realpathSync(relative.cwd)).toBe(fs.realpathSync(workspace));
+        expect(fs.realpathSync(relative.cwd)).not.toBe(fs.realpathSync(process.cwd()));
       }
     } finally {
       fs.rmSync(workspace, { recursive: true, force: true });

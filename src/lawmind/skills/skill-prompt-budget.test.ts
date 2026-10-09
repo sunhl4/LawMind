@@ -11,11 +11,13 @@ describe("skill-prompt-budget", () => {
     const bound = bindLawyerCapability({ instruction: "请审查合同条款" });
     expect(bound).toBeTruthy();
     const lean = planLeanSkillPrompt(bound!, "请审查合同条款");
-    expect(lean.primaryIds).toEqual(["contract-review-layers", "contract-redline-craft"]);
+    expect(lean.primaryIds).toEqual(["contract-review-layers", "contract-playbook-review"]);
+    expect(lean.indexIds).toContain("contract-redline-craft");
     expect(lean.indexIds).toContain("legal-element-extraction");
     const bodies = readSkillPromptBodies(undefined, lean.primaryIds);
     expect(bodies.some((b) => b.includes("合同分层审查"))).toBe(true);
-    expect(bodies.some((b) => b.includes("合同审阅改稿手艺"))).toBe(true);
+    expect(bodies.some((b) => b.includes("合同 Playbook 审查"))).toBe(true);
+    expect(bodies.some((b) => b.includes("合同审阅改稿手艺"))).toBe(false);
     expect(bodies.some((b) => b.includes("## 九类事实"))).toBe(false);
     const block = formatBoundCapabilityBlock(bound!, bodies, { indexLines: lean.indexLines });
     expect(block).toContain("其余技能（索引，不要通读）");

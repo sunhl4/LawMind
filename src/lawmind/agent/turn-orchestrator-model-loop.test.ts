@@ -8,6 +8,8 @@ import {
   formatIdenticalToolRepeatStop,
   formatWordRevisionCapStop,
   formatWordRevisionExportNudge,
+  forbiddenShellRejectionCount,
+  formatForbiddenShellNudge,
   identicalToolRepeatDecision,
   lawyerRepeatKind,
   resolveStrictUpstreamToolStreaming,
@@ -23,6 +25,37 @@ describe("shouldWarnToolBudget", () => {
     expect(shouldWarnToolBudget(32, 40)).toBe(true);
     expect(shouldWarnToolBudget(0, 40)).toBe(false);
     expect(shouldWarnToolBudget(10, 0)).toBe(false);
+  });
+});
+
+describe("forbidden shell retries", () => {
+  it("counts bash and sh rejections as one loop and ignores other errors", () => {
+    const messages: AgentMessage[] = [
+      {
+        role: "tool",
+        content: "",
+        timestamp: "t",
+        toolCallResponses: [
+          {
+            toolCallId: "1",
+            name: "run_host_command",
+            result: { ok: false, error: "不允许运行 bash。不要再试。" },
+          },
+          {
+            toolCallId: "2",
+            name: "run_host_command",
+            result: { ok: false, error: "不允许运行 sh。不要再试。" },
+          },
+          {
+            toolCallId: "3",
+            name: "run_host_command",
+            result: { ok: false, error: "cwd 超出允许目录" },
+          },
+        ],
+      },
+    ];
+    expect(forbiddenShellRejectionCount(messages)).toBe(2);
+    expect(formatForbiddenShellNudge()).toContain("python3");
   });
 });
 

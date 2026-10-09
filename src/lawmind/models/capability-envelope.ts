@@ -25,9 +25,14 @@ export type ModelCapabilityEnvelope = {
 };
 
 const DEFAULT_CONTEXT_TOKENS = 128_000;
-/** Prefer generous output; env can still raise/lower. */
+/** Chat and classify stay on this ceiling. */
 const MAX_OUTPUT_HARD_CAP = 65_536;
+/** Review and draft may think longer before the answer. Not the 384k provider max. */
+const REVIEW_OUTPUT_HARD_CAP = 131_072;
 const MIN_OUTPUT_TOKENS = 4_096;
+const DEFAULT_MODEL_TIMEOUT_MS = 120_000;
+/** DeepSeek max-effort review turns outlive the 120s chat ceiling. */
+export const REVIEW_MODEL_TIMEOUT_MS = 8 * 60 * 1000;
 
 function parsePositiveIntEnv(name: string): number | undefined {
   const raw = process.env[name]?.trim();
@@ -96,12 +101,20 @@ export function resolveCapabilityEnvelope(opts: {
   const envContext = parsePositiveIntEnv("LAWMIND_MODEL_CONTEXT_TOKENS");
   const contextTokens = Math.max(4_096, opts.contextTokens ?? envContext ?? DEFAULT_CONTEXT_TOKENS);
   const modelTimeoutMs =
-    opts.timeoutMs ?? parsePositiveIntEnv("LAWMIND_AGENT_TIMEOUT_MS") ?? 120_000;
+    opts.timeoutMs ??
+    parsePositiveIntEnv("LAWMIND_AGENT_TIMEOUT_MS") ??
+    (opts.taskKind === "draft" || opts.taskKind === "review"
+      ? REVIEW_MODEL_TIMEOUT_MS
+      : DEFAULT_MODEL_TIMEOUT_MS);
   const envMaxOut = parsePositiveIntEnv("LAWMIND_AGENT_MAX_TOKENS");
   const ratio = outputRatioForTask(opts.taskKind);
   const computedOut = Math.floor(contextTokens * ratio);
+  const outputCap =
+    opts.taskKind === "draft" || opts.taskKind === "review"
+      ? REVIEW_OUTPUT_HARD_CAP
+      : MAX_OUTPUT_HARD_CAP;
   const maxOutputTokens = Math.min(
-    MAX_OUTPUT_HARD_CAP,
+    outputCap,
     Math.max(MIN_OUTPUT_TOKENS, opts.maxTokensOverride ?? envMaxOut ?? computedOut),
   );
   const charsPerToken =

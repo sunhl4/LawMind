@@ -13,6 +13,7 @@ export type ChatCompletionsMessage = {
     function?: { name?: string; arguments?: string };
   }>;
   tool_call_id?: string;
+  reasoning_content?: string;
 };
 
 export type ChatCompletionsRequestBody = {
@@ -23,6 +24,7 @@ export type ChatCompletionsRequestBody = {
   tool_choice?: unknown;
   temperature?: number;
   max_tokens?: number;
+  reasoning_effort?: string;
 };
 
 export class ModelRequestSnapshot {

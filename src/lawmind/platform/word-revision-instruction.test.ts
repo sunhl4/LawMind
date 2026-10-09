@@ -129,4 +129,29 @@ describe("word-revision-instruction", () => {
     expect(wordRevisionDenyNames("出一份修改建议放到桌面，不要改原稿", pins)).toBeUndefined();
     expect(isWordRevisionTurn({ instruction: "修改合同", pins })).toBe(true);
   });
+
+  it("does not inherit yesterday's word from history when this turn is a pdf", () => {
+    const pdfPins = [
+      {
+        pinKind: "file" as const,
+        root: "project" as const,
+        relPath: "隔断采购合同.pdf",
+        kind: "file" as const,
+      },
+    ];
+    const history = "交付文件\n移动隔断项目_20261008_01.docx";
+    expect(
+      isWordRevisionTurn({
+        instruction: "审这份新的合同.pdf，只要审核意见",
+        pins: pdfPins,
+        historyText: history,
+      }),
+    ).toBe(false);
+    expect(
+      isWordRevisionTurn({
+        instruction: "修改合同",
+        historyText: history,
+      }),
+    ).toBe(true);
+  });
 });

@@ -92,6 +92,17 @@ describe("aggregateStreamChunks", () => {
     expect(result.choices[0].finish_reason).toBe("tool_calls");
   });
 
+  it("concatenates reasoning_content without mixing it into content", () => {
+    const result = aggregateStreamChunks([
+      { choices: [{ delta: { reasoning_content: "先想" } }] },
+      {
+        choices: [{ delta: { reasoning_content: "清楚", content: "答案" }, finish_reason: "stop" }],
+      },
+    ]);
+    expect(result.choices[0].message.reasoning_content).toBe("先想清楚");
+    expect(result.choices[0].message.content).toBe("答案");
+  });
+
   it("captures usage when sent in the final chunk", () => {
     const result = aggregateStreamChunks([
       { choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] },

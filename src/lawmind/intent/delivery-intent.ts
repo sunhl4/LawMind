@@ -42,7 +42,7 @@ export const DELIVERY_MARKER_OPINION_MEMO = "<!--lm-delivery:opinion_memo-->";
 export const DELIVERY_MARKER_CHAT_QA = "<!--lm-delivery:chat_qa-->";
 
 export const OPINION_MEMO_PIPELINE_HINT =
-  "律师要一份新的意见书 Word（默认 .docx），原文件只读。优先 `draft_document` → `render_document`，并在会话写出完整意见。改稿工具仍可用；不要覆盖原稿，也不要把完成条件理解成必须出红线。";
+  "律师指定了意见类交件，原文件只读。意见写进会话；若原话还要一份文件或点名了位置，再用 `draft_document` → `render_document`。不要覆盖原稿，也不要把完成条件理解成必须出红线或必须另存 Word。改稿工具仍可用。";
 
 /** The output *is* comments / an opinion memo, not a marked-up copy of the source. */
 const OPINION_OBJECT_RE =
@@ -95,12 +95,18 @@ function mutateSourceOf(text: string): DeliveryMutateSource {
   return "unspecified";
 }
 
+/** Form boilerplate 「交付物类型：合同审查意见」 is one factor, not a shape lock. */
+function lawyerNamedOpinionObject(text: string): boolean {
+  const withoutForm = text.replace(/交付物类型：[^\n]*/g, "");
+  return OPINION_OBJECT_RE.test(withoutForm);
+}
+
 function artifactShapeOf(
   text: string,
   mutateSource: DeliveryMutateSource,
   outputPlace: DeliveryOutputPlace,
 ): DeliveryArtifactShape {
-  const opinionObject = OPINION_OBJECT_RE.test(text);
+  const opinionObject = lawyerNamedOpinionObject(text);
   const weakOpinion = /意见/.test(text);
   const redlineObject = REDLINE_OBJECT_RE.test(text);
   const preserve = mutateSource === "forbid";
@@ -196,13 +202,13 @@ export function formatDeliveryConstraintPromptBlock(
   if (delivery.artifactShape === "opinion_memo") {
     lines.push(DELIVERY_MARKER_OPINION_MEMO);
     lines.push("## 本轮交件形态（律师已指定）");
+    lines.push("- 律师指定了意见类交件。正文是审查意见与修改建议，不要拷贝原合同再改。");
     lines.push(
-      "- 交付物是一份**新的意见书 Word**（默认 `.docx`）。正文只有审查意见与修改建议，不要拷贝原合同再改。",
+      "- 原文件只读。不要把完成条件理解成必须出审阅痕迹，也不要理解成凡是意见都得另存一份 Word。",
     );
-    lines.push("- 原文件只读，不得覆盖。不要把完成条件理解成必须出审阅痕迹修订稿。");
     lines.push("- 会话里写出完整意见（结论、风险、建议），不能只给文件路径。");
     lines.push(
-      "- 优先 `draft_document` → `render_document`。工具表不收窄；若律师随后要红线，仍可改稿。",
+      "- 原话要文件或点名了位置时，再用 `draft_document` → `render_document`。工具表不收窄；若律师随后要红线，仍可改稿。",
     );
   } else {
     lines.push("## 本轮交件形态（律师已指定）");

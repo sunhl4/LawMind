@@ -11,6 +11,7 @@ import {
   bodiesForNextRender,
   consumeRedlineRepair,
   correctionCone,
+  bindSkeletonSlot,
   emptyFactorState,
   editContradictsGroundedAmount,
   extractSkeletonHeadings,
@@ -19,6 +20,7 @@ import {
   hopTruncation,
   ingestDefinedTerms,
   ingestDraftBody,
+  ingestMaterialAmounts,
   ingestToolResult,
   linkNeighbors,
   renderEngineReadings,
@@ -181,6 +183,44 @@ describe("marginal and light cone", () => {
     });
     expect(system).not.toContain("PARENT_SECRET");
     expect(system).not.toContain("citation:labor-47");
+  });
+
+  it("keeps the losing reading as 未核 when purity picks one side", () => {
+    const state = emptyFactorState();
+    recordReading(state, "clause:解除", "clause", "提前通知解除", true);
+    const factor = state.factors[0];
+    expect(factor).toBeDefined();
+    factor.outcomes = [
+      { id: "提前通知解除", mass: 0.9, grounded: true },
+      { id: "随时解除", mass: 0.1, grounded: true },
+    ];
+    const block = formatMarginalBlock(marginalFactors(state, ["clause:解除"]));
+    expect(block).toContain("提前通知解除");
+    expect(block).toContain("未核：随时解除");
+    expect(block).not.toContain("【机械核定】");
+  });
+
+  it("pulls the whole term group into the marginal without widening hopTruncation", () => {
+    const state = emptyFactorState();
+    recordReading(state, "clause:生效日", "clause", "2024年3月1日", true);
+    recordReading(state, "clause:到期日", "clause", "本合同有效期至生效日起五年。", true);
+    const block = formatMarginalBlock(marginalFactors(state, ["clause:生效日"]));
+    expect(block).toContain("clause:到期日");
+    expect(block).toContain("本合同有效期至生效日起五年。");
+    const report = hopTruncation(state, ["clause:生效日"]);
+    expect(report.hop1).not.toContain("clause:到期日");
+  });
+
+  it("marks a long party span unchecked and does not spend an outline slot on clause presence", () => {
+    const state = emptyFactorState();
+    recordReading(state, "clause:当事人", "clause", "甲方某某公司（以下简称甲方）。", true);
+    const block = formatMarginalBlock(marginalFactors(state, ["clause:当事人"]));
+    expect(block).toContain("未核：");
+    expect(block).toContain("短片段");
+    expect(bindSkeletonSlot(state, "clause:当事人")).toBe(true);
+    expect(state.adiabaticStep).toBe(0);
+    ingestToolResult(state, "calculate", { op: "wage", value: 15000 });
+    expect(state.adiabaticStep).toBe(0);
   });
 
   it("drops parent transcript from the worker system text", () => {
@@ -851,5 +891,59 @@ describe("pointer basis and extract-time edges", () => {
     expect(block).toContain("88000");
     expect(block).toContain("defined:甲方");
     expect(block).toContain("北京示例科技有限公司");
+  });
+});
+
+describe("stated material amounts", () => {
+  it("grounds an amount from the lawyer text and keeps the span when the draft blanks it", () => {
+    const state = beginTurnFactors(emptyFactorState());
+    ingestMaterialAmounts(
+      state,
+      "船舶修理费用人民币480万元，另有停运损失。身份证号330102199001011234。",
+    );
+    const factor = state.factors.find((item) => item.anchor === "amount:stated:4800000");
+    expect(factor?.outcomes[0]?.grounded).toBe(true);
+    expect(factor?.outcomes[0]?.id).toBe("480万元");
+    expect(renderEngineReadings(state)).toContain("480万元");
+    expect(renderEngineReadings(state)).toContain("材料原句");
+    expect(state.factors.some((item) => item.anchor.includes("330102199001011234"))).toBe(false);
+
+    ingestDraftBody(state, "修理费用【待核实】。");
+    expect(factor?.flag).toBe("conflict");
+    const reading = renderEngineReadings(state);
+    expect(reading).toContain("480万元");
+    expect(reading).toContain("材料原句");
+    expect(reading).toContain("待核实");
+    expect(reading).not.toMatch(/【待核实】480万元/);
+  });
+
+  it("does not mark a conflict when the draft never takes up that amount", () => {
+    const state = beginTurnFactors(emptyFactorState());
+    ingestMaterialAmounts(state, "修理费用人民币480万元。");
+    ingestDraftBody(state, "建议先核对合同主体，再决定是否起诉。");
+    const factor = state.factors.find((item) => item.anchor === "amount:stated:4800000");
+    expect(factor?.flag).not.toBe("conflict");
+  });
+
+  it("clears the drift once the draft uses the material amount", () => {
+    const state = beginTurnFactors(emptyFactorState());
+    ingestMaterialAmounts(state, "修理费用人民币480万元。");
+    ingestDraftBody(state, "修理费用【待核实】。");
+    ingestDraftBody(state, "修理费用主张480万元。");
+    const factor = state.factors.find((item) => item.anchor === "amount:stated:4800000");
+    expect(factor?.flag).toBe("ok");
+  });
+
+  it("leaves a statute the library did not return ungrounded", () => {
+    const state = beginTurnFactors(emptyFactorState());
+    ingestToolResult(state, "search_statute", {
+      sourceIds: ["civil-577"],
+      hits: [{ title: "民法典", snippet: "当事人一方不履行合同义务的，应当承担继续履行。" }],
+    });
+    applyProseSyndrome(state, "依据《泰国商事法》第三条，应当取得外商经营许可。");
+    const foreign = state.factors.find((item) => item.anchor.includes("泰国"));
+    expect(foreign?.outcomes.some((outcome) => outcome.grounded === true)).not.toBe(true);
+    const reading = renderEngineReadings(state);
+    expect(reading).not.toContain("泰国商事法：live");
   });
 });

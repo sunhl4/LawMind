@@ -4,6 +4,7 @@ import {
   resolveCapabilityEnvelope,
   resolveClassifySidecarLimits,
   resolveTemperatureForTask,
+  REVIEW_MODEL_TIMEOUT_MS,
 } from "./capability-envelope.js";
 
 const ENV_KEYS = [
@@ -68,6 +69,17 @@ describe("resolveCapabilityEnvelope", () => {
     process.env.LAWMIND_AGENT_MAX_TOKENS = "12000";
     const env = resolveCapabilityEnvelope({ contextTokens: 128_000 });
     expect(env.maxOutputTokens).toBe(12_000);
+  });
+
+  it("review and draft keep a higher output ceiling and an eight-minute timeout", () => {
+    clearEnv();
+    const chat = resolveCapabilityEnvelope({ contextTokens: 1_000_000, taskKind: "chat" });
+    const review = resolveCapabilityEnvelope({ contextTokens: 1_000_000, taskKind: "review" });
+    const classify = resolveClassifySidecarLimits({ contextTokens: 1_000_000 });
+    expect(chat.maxOutputTokens).toBe(65_536);
+    expect(review.maxOutputTokens).toBe(131_072);
+    expect(review.modelTimeoutMs).toBe(REVIEW_MODEL_TIMEOUT_MS);
+    expect(classify.timeoutMs).toBe(120_000);
   });
 
   it("draft task kind uses higher output ratio", () => {

@@ -2,6 +2,7 @@ import type { AgentModelConfig, AgentRuntimeModelIdentity } from "../agent/types
 import { applyEnvelopeToAgentModelDefaults } from "./capability-envelope.js";
 import {
   builtinIdForEnvModelName,
+  contextTokensForUpstreamModel,
   getBuiltinModelById,
   LAWMIND_BUILTIN_MODELS,
   LAWMIND_DEFAULT_BUILTIN_MODEL_ID,
@@ -147,7 +148,6 @@ export function resolveBuiltinToAgentModel(builtinId: string): {
   }
   const apiKey = resolveProviderApiKeyFromEnv(def.provider);
   if (!apiKey) {
-    const _prov = getProviderDefinition(def.provider);
     return {
       error: "missing_provider_api_key",
       model: {
@@ -203,7 +203,7 @@ export function resolveCustomToAgentModel(
       baseUrl: row.baseUrl,
       apiKey,
       model: row.model,
-      ...baseAgentModelDefaults(),
+      ...baseAgentModelDefaults(contextTokensForUpstreamModel(row.model)),
       ...(stop && stop.length > 0 ? { stop } : {}),
     },
   };
@@ -438,7 +438,7 @@ export function buildModelCatalog(lawMindRoot: string): {
 
   const builtins: ModelCatalogEntry[] = LAWMIND_BUILTIN_MODELS.map((m) => {
     const configured = Boolean(resolveProviderApiKeyFromEnv(m.provider));
-    const _prov = getProviderDefinition(m.provider);
+    const prov = getProviderDefinition(m.provider);
     return attachVerification({
       id: m.id,
       kind: "builtin",
@@ -449,7 +449,7 @@ export function buildModelCatalog(lawMindRoot: string): {
       model: m.model,
       baseUrl: m.baseUrl,
       configured,
-      providerKeyHint: configured ? undefined : _prov.apiKeyEnvKeys[0],
+      providerKeyHint: configured ? undefined : prov.apiKeyEnvKeys[0],
       contextTokens: m.contextTokens,
       tags: m.tags,
     });

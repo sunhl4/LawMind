@@ -853,7 +853,7 @@ const PROTECTED_BASENAMES = new Set([".lawmind-dms.json", "RULES.md", "ethics-wa
 
 > 律师要读某份误落在黑名单里的材料，只能先把文件复制到本机文件夹或本案目录——这是有意的摩擦力。
 
-命令执行另有一套：`FORBIDDEN_BINARIES`（`sh/bash/zsh/sudo/osascript/curl/wget` 等）恒拒；office 级之外**任何命令都要 `approved === true`**；参数里的绝对路径必须在允许根内。会话级授权只存在进程内存里，本地 API 一重启就失效——这是对的默认值。
+命令执行另有一套：`FORBIDDEN_BINARIES` 仍拒绝 `zsh/sudo/osascript/curl/wget` 等。`bash` 和 `sh` 可以执行工作区内的脚本文件，不能带 `-c`。参数里的绝对路径必须在允许根内。
 
 这里有一条容易看漏的区分：office 级命令（`officecli` / `mdfind` / `mdls`）**不走**那条逐次审批，因为审批分支写成了 `needed !== "office" && approved !== true`。而 officecli 是能改写文件的，所以「参数根」在这一层承担了全部约束——`allowedRootsForCommands` 会把挂载点也算进允许根，于是可写命令必须单独收窄到工作区（见 §12.11）。只读命令（`mdfind` / `mdls`）不受影响，仍可检索已选本机文件夹。
 

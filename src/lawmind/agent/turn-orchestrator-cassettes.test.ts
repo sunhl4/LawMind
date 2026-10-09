@@ -21,6 +21,8 @@ import { summarizeContextPressure } from "../metrics/context-pressure.js";
 import { buildAgentFleetSummary } from "../platform/build-agent-fleet.js";
 import { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
 import { CONTEXT_DEFERRAL_BOUNCE_MARKER } from "./context-deferral.js";
+import { CONSULT_QUESTIONS_MARKER, PLEADING_SECTION_MARKER } from "./deliverable-shape.js";
+import { ISSUE_LEDGER_MARKER } from "./issue-ledger.js";
 import { MAIL_CONTRACT_FAST_PATH_DENIED_HINT } from "./mail-contract-fast-path.js";
 import { REVIEW_BOARD_EXPORT_BOUNCE_MARKER } from "./review-board-export-deferral.js";
 import { CARRYOVER_SEED_MARKER, forkSessionWithCarryover } from "./session-carryover.js";
@@ -41,6 +43,7 @@ import {
   formatIdenticalToolRepeatNudge,
 } from "./turn-orchestrator-model-loop.js";
 import type { AgentMessage } from "./types.js";
+import { WRITE_SYNTHESIS_MARKER } from "./write-synthesis.js";
 
 const FAST_LANE = [
   "【交办】5 分钟合同审查",
@@ -111,20 +114,245 @@ function orphanToolCallIds(
 }
 
 describe("turn-orchestrator cassettes (admission)", () => {
-  it("tool rounds cap max_tokens and raise it when the reply is truncated", async () => {
+  it("tool rounds use the model max_tokens instead of a 4096 thinking cap", async () => {
     await withTestLawMind(
       (b) =>
         b.withConfig((config) => {
           config.model.maxTokens = 40_000;
         }),
       async (h) => {
-        h.enqueue(cassetteAssistant("未写完", "length"), cassetteAssistant("写完了。"));
+        h.enqueue(cassetteAssistant("未写完", "length"));
         const result = await h.runTurn("继续不澄清。根据此前依据写结论。");
-        expect(h.request(0).body.max_tokens).toBe(4_096);
+        expect(h.request(0).body.max_tokens).toBe(40_000);
         expect(h.request(0).advertisedToolNames().length).toBeGreaterThan(0);
-        expect(h.request(1).body.max_tokens).toBe(40_000);
-        expect(result.reply).toContain("写完了");
-        expect(result.turn.messages.some((m) => m.content === "未写完")).toBe(false);
+        expect(h.requests).toHaveLength(1);
+        expect(result.reply).toContain("未写完");
+      },
+    );
+  });
+
+  it("bounces once when a named deliverable is still missing, then write_document lands it", async () => {
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        h.enqueue(
+          cassetteAssistant("已写入 artifacts/analysis/amount.txt。"),
+          cassetteToolCall("write_document", { file_path: "amount.txt", content: "84000" }),
+          cassetteAssistant("amount.txt 已写在工作区。"),
+        );
+        const result = await h.runTurn("把金额写入 amount.txt，文件里只能有数字。");
+        expect(h.request(0).hasAdvertisedTool("write_document")).toBe(true);
+        const nudge = h
+          .request(1)
+          .messages()
+          .find((message) => (message.content ?? "").includes("【交件路径】"));
+        expect(nudge?.content).toContain("amount.txt");
+        expect(h.request(1).hasAdvertisedTool("write_document")).toBe(true);
+        expect(fs.readFileSync(path.join(h.workspaceDir, "amount.txt"), "utf8")).toBe("84000");
+        expect(result.reply).toContain("已写在工作区");
+        expect(result.reply).not.toContain("artifacts/analysis");
+      },
+    );
+  });
+
+  it("puts the issue ledger on a review memo request and leaves a numeric file task without it", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("备忘录已写。"));
+        await h.runTurn(
+          "Review the attached employment agreement and summarize restrictive covenants in a structured memo.",
+        );
+        expect(JSON.stringify(h.request(0).messages())).toContain(ISSUE_LEDGER_MARKER);
+      },
+    );
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("84000"));
+        await h.runTurn("把金额写入 amount.txt，文件里只能有数字。");
+        expect(JSON.stringify(h.request(0).messages())).not.toContain(ISSUE_LEDGER_MARKER);
+      },
+    );
+  });
+
+  it("passes DeepSeek reasoning_content into the next tool-using request", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withConfig((config) => {
+          config.model.model = "deepseek-flash";
+        }),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("search_statute", { q: "通知" }, "THINK_CHAIN"),
+          cassetteAssistant("建议继续履行。"),
+        );
+        const result = await h.runTurn("核一下通知期。");
+        expect(h.request(0).body.reasoning_effort).toBe("high");
+        expect(h.request(1).advertisedToolNames().length).toBeGreaterThan(0);
+        const carried = h
+          .request(1)
+          .messages()
+          .find((message) => message.role === "assistant" && message.tool_calls?.length);
+        expect(carried?.reasoning_content).toBe("THINK_CHAIN");
+        expect(result.reply).toContain("建议继续履行");
+        expect(result.reply).not.toContain("THINK_CHAIN");
+        expect(result.reply).not.toContain("【机械核定】");
+      },
+    );
+  });
+
+  it("write synthesis: after four searches the next request drops search and uses max effort", async () => {
+    await withTestLawMind(
+      (b) =>
+        b
+          .withLegalTools()
+          .withConfig((config) => {
+            config.model.model = "deepseek-flash";
+          })
+          .withToolExecute("search_statute", async () => ({
+            ok: true,
+            data: { hits: [{ title: "劳动合同法", snippet: "第三十六条" }] },
+          })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCalls([
+            { name: "search_statute", arguments: { query: "一" } },
+            { name: "search_statute", arguments: { query: "二" } },
+            { name: "search_statute", arguments: { query: "三" } },
+            { name: "search_statute", arguments: { query: "四" } },
+          ]),
+          cassetteToolCall("write_document", {
+            file_path: "case-note.md",
+            content: "《劳动合同法》第三十六条。结论：可以解除。",
+          }),
+          cassetteAssistant("稿已交。"),
+        );
+        const result = await h.runTurn("把分析写入 case-note.md。");
+        expect(h.request(0).body.reasoning_effort).toBe("high");
+        expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(false);
+        expect(h.request(1).hasAdvertisedTool("search_case_law")).toBe(false);
+        expect(h.request(1).hasAdvertisedTool("write_document")).toBe(true);
+        expect(h.request(1).body.reasoning_effort).toBe("max");
+        expect(h.request(1).allText()).toContain(WRITE_SYNTHESIS_MARKER);
+        expect(fs.existsSync(path.join(h.workspaceDir, "case-note.md"))).toBe(true);
+        expect(h.request(2).hasAdvertisedTool("search_statute")).toBe(false);
+        expect(h.request(2).hasAdvertisedTool("search_case_law")).toBe(false);
+        expect(result.turn.status).toBe("completed");
+      },
+    );
+  });
+
+  it("pleading frame: search stays until the file lands, then a missing section is rewritten without search", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withLegalTools().withConfig((config) => {
+          config.model.model = "deepseek-flash";
+        }),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("write_document", {
+            file_path: "答辩状-5.md",
+            content: "答辩请求：驳回。\n事实：借款。\n理由：已还。",
+          }),
+          cassetteToolCall("write_document", {
+            file_path: "答辩状-5.md",
+            content:
+              "答辩请求：驳回。\n事实：借款。\n理由：已还。\n证据：借条。\n《民法典》第六百七十五条。",
+          }),
+          cassetteAssistant("答辩状已交。"),
+        );
+        const result = await h.runTurn(
+          "根据材料撰写民事答辩状。\n用 write_document 写入 答辩状-5.md，再结束。\n\n案情里有人提到【结论】。",
+        );
+        expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("write_document")).toBe(true);
+        expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(false);
+        expect(h.request(1).hasAdvertisedTool("search_case_law")).toBe(false);
+        expect(h.request(1).hasAdvertisedTool("write_document")).toBe(true);
+        expect(h.request(1).body.reasoning_effort).toBe("max");
+        expect(h.request(1).allText()).toContain(PLEADING_SECTION_MARKER);
+        expect(h.request(2).hasAdvertisedTool("search_statute")).toBe(false);
+        expect(result.turn.status).toBe("completed");
+        expect(fs.readFileSync(path.join(h.workspaceDir, "答辩状-5.md"), "utf8")).toContain("证据");
+      },
+    );
+  });
+
+  it("consult follow-up frame: search is not advertised and a non-list file is rewritten once", async () => {
+    const questions = Array.from(
+      { length: 10 },
+      (_, index) => `${index + 1}. 这件事的第 ${index + 1} 个事实是什么？`,
+    ).join("\n");
+    await withTestLawMind(
+      (b) =>
+        b.withLegalTools().withConfig((config) => {
+          config.model.model = "deepseek-flash";
+        }),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("write_document", {
+            file_path: "追问清单-8.md",
+            content: "法律意见：应当起诉。\n1. 诉讼请求为还款。",
+          }),
+          cassetteToolCall("write_document", {
+            file_path: "追问清单-8.md",
+            content: questions,
+          }),
+          cassetteAssistant("追问已交。"),
+        );
+        const result = await h.runTurn(
+          "本轮不要给完整法律意见，只列出 10–25 条可核验的追问。\n用 write_document 写入 追问清单-8.md，再结束。",
+        );
+        expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("search_case_law")).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("write_document")).toBe(true);
+        expect(h.request(0).body.reasoning_effort).toBe("high");
+        expect(h.request(1).allText()).toContain(CONSULT_QUESTIONS_MARKER);
+        expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(false);
+        expect(h.request(1).body.reasoning_effort).toBe("max");
+        expect(h.request(2).hasAdvertisedTool("search_statute")).toBe(false);
+        expect(result.turn.status).toBe("completed");
+      },
+    );
+  });
+
+  it("case-analysis frame still advertises search when the facts mention a complaint or follow-ups", async () => {
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("write_document", {
+            file_path: "case-analysis-8.md",
+            content: "【结论】支持。\n【案情简述】略。\n【分析过程】略。\n【依据法条】第三十六条。",
+          }),
+          cassetteAssistant("分析已交。"),
+        );
+        await h.runTurn(
+          [
+            "按题目要求用【结论】【案情简述】【分析过程】【依据法条】四段。",
+            "用 write_document 写入 case-analysis-8.md。",
+            "",
+            "当事人要求撰写民事起诉状，并说不要给完整法律意见，只列出追问。",
+          ].join("\n"),
+        );
+        expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(1).allText()).not.toContain(PLEADING_SECTION_MARKER);
+        expect(h.request(1).allText()).not.toContain(CONSULT_QUESTIONS_MARKER);
+      },
+    );
+  });
+
+  it("material amounts from the lawyer text are in the first request engine reading", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("先记下修理费用。"));
+        await h.runTurn("船舶修理费用人民币480万元。请写一份备忘。");
+        expect(h.request(0).allText()).toContain("480万元");
+        expect(h.request(0).allText()).toContain("材料原句");
       },
     );
   });
@@ -1373,6 +1601,63 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(h.request(0).hasAdvertisedTool("render_tracked_draft")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("prepare_outbound_mail")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
+      },
+    );
+  });
+
+  it("pdf baseline cannot be exported as tracked changes", async () => {
+    const { persistDraft } = await import("../drafts/index.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        persistDraft(h.workspaceDir, {
+          taskId: "task-pdf-baseline",
+          title: "隔断采购",
+          summary: "s",
+          sections: [{ heading: "第一条", body: "原文不变。付款节点见附件。", citations: [] }],
+          reviewStatus: "pending",
+          reviewNotes: [],
+          output: "docx",
+          templateId: "word/contract-default",
+          deliverableType: "contract.review",
+          createdAt: ts(),
+          contractEdit: {
+            baselineRelativePath: "隔断采购合同.pdf",
+            mode: "surgical",
+          },
+        });
+        h.enqueue(
+          cassetteToolCall("render_tracked_draft", { task_id: "task-pdf-baseline" }),
+          cassetteAssistant("已按材料给出审核意见。"),
+        );
+        const result = await h.runTurn("审这份新的采购合同.pdf，只要审核意见，不要改材料", {
+          contextPins: [
+            {
+              pinKind: "file",
+              root: "project",
+              relPath: "隔断采购合同.pdf",
+              kind: "file",
+            },
+            {
+              pinKind: "file",
+              root: "project",
+              relPath: "移动隔断项目_20261008_01.docx",
+              kind: "file",
+            },
+          ],
+        });
+        expect(h.request(0).contains("<!--lm-delivery:judge-->")).toBe(false);
+        expect(h.request(0).contains("## 成套交件")).toBe(false);
+        expect(h.request(0).contains(DELIVERY_MARKER_OPINION_MEMO)).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("render_tracked_draft")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("draft_document")).toBe(true);
+        const render = result.turn.messages
+          .flatMap((m) => m.toolCallResponses ?? [])
+          .find((r) => r.name === "render_tracked_draft");
+        expect(render?.result.ok).toBe(false);
+        expect((render?.result.data as { code?: string } | undefined)?.code).toBe(
+          "pdf_not_revisable",
+        );
       },
     );
   });
@@ -3482,7 +3767,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("a numbered outline plus calculate freezes lastPassedSkeleton and binds the amount slot", async () => {
+  it("a numbered outline plus calculate freezes lastPassedSkeleton without spending an outline slot", async () => {
     await withTestLawMind(
       (b) =>
         b.withToolExecute("calculate", async () => ({
@@ -3502,7 +3787,10 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(result.turn.factorState?.lastPassedSkeleton?.[0]?.children[0]?.heading).toContain(
           "工程名称",
         );
-        expect(result.turn.factorState?.skeletonBoundAnchors).toContain("amount:wage");
+        expect(result.turn.factorState?.skeletonBoundAnchors ?? []).not.toContain("amount:wage");
+        expect(
+          result.turn.factorState?.factors.some((factor) => factor.anchor === "amount:wage"),
+        ).toBe(true);
         expect(h.request(0).contains("【骨架起点】")).toBe(true);
       },
     );

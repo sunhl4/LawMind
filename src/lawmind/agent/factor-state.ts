@@ -181,11 +181,17 @@ export function emptyFactorState(): FactorState {
   };
 }
 
+/** Amounts copied from the lawyer's own text this turn. Not a legal conclusion. */
+export const STATED_AMOUNT_PREFIX = "amount:stated:";
+
+const STATED_AMOUNT_CAP = 24;
+
 /** Amounts and redlines are turn-local. Anchors from earlier turns stay for the light cone. */
 export function beginTurnFactors(state: FactorState): FactorState {
   state.calculatedSlots = [];
   state.redlineFailures = [];
   state.adiabaticStep = 0;
+  state.factors = state.factors.filter((factor) => !factor.anchor.startsWith(STATED_AMOUNT_PREFIX));
   for (const factor of state.factors) {
     factor.repairs = 0;
     if (factor.flag === "uncorrectable") {
@@ -415,12 +421,30 @@ export function hopTruncation(state: FactorState, seeds: readonly string[]): Hop
   };
 }
 
+const TERM_ANCHOR_RE = /生效日|到期日|续期|通知期/;
+
+export function isTermAnchor(anchor: string): boolean {
+  return TERM_ANCHOR_RE.test(anchor);
+}
+
 export function marginalFactors(state: FactorState, anchors: readonly string[]): Factor[] {
   const dist = hopDistanceMap(state, anchors);
-  return state.factors.filter((factor) => {
+  const selected = state.factors.filter((factor) => {
     const distance = dist.get(factor.anchor);
     return distance !== undefined && distance <= 1;
   });
+  if (!anchors.some((anchor) => isTermAnchor(anchor))) {
+    return selected;
+  }
+  const seen = new Set(selected.map((factor) => factor.anchor));
+  for (const factor of state.factors) {
+    if (seen.has(factor.anchor) || !isTermAnchor(factor.anchor)) {
+      continue;
+    }
+    selected.push(factor);
+    seen.add(factor.anchor);
+  }
+  return selected;
 }
 
 export function formatMarginalBlock(factors: readonly Factor[], qhat?: number): string {
@@ -824,6 +848,10 @@ export function bindSkeletonSlot(state: FactorState, anchor: string): boolean {
   const id = anchor.trim();
   if (!id) {
     return false;
+  }
+  // Clause presence is a checklist row, not an outline slot.
+  if (id.startsWith("clause:")) {
+    return true;
   }
   state.skeletonBoundAnchors = state.skeletonBoundAnchors ?? [];
   if (state.skeletonBoundAnchors.includes(id)) {
@@ -1288,6 +1316,23 @@ export function adiabaticMaySample(step: number, bindingNewSlot: boolean): boole
   return step < ADIABATIC_MAX_STEPS;
 }
 
+/**
+ * Amounts written in the lawyer's materials become grounded factors before sampling.
+ * The model still chooses the words. A later draft cannot drop the span.
+ */
+export function ingestMaterialAmounts(state: FactorState, text: string): void {
+  for (const amount of collectStatedAmounts(text).slice(0, STATED_AMOUNT_CAP)) {
+    upsertOutcome(
+      state,
+      `${STATED_AMOUNT_PREFIX}${amount.key}`,
+      "amount",
+      amount.raw,
+      true,
+      amount.span,
+    );
+  }
+}
+
 export function bindAdiabaticSlot(state: FactorState): boolean {
   if (!adiabaticMaySample(state.adiabaticStep, true)) {
     return false;
@@ -1315,7 +1360,6 @@ export function ingestToolResult(state: FactorState, toolName: string, data: unk
       }
       upsertOutcome(state, anchor, "amount", text, true);
       bindListedAnchors(state, anchor, record);
-      bindSkeletonSlot(state, anchor);
     }
   }
   if (toolName === "draft_worker") {
@@ -1512,7 +1556,69 @@ export function fuseSharedAnchorLines(
   return lines;
 }
 
+/** Short span, full sentence, or a term sentence that still needs calculate. */
+export function fieldShapeHint(anchor: string): string | undefined {
+  if (/当事人|签约主体|合同名称|管辖/.test(anchor)) {
+    return "短片段";
+  }
+  if (/到期日/.test(anchor)) {
+    return "整句，再用 calculate";
+  }
+  if (/价格限制|最低承诺|数量限制|无限责任|第三方受益|关联方许可|最惠国/.test(anchor)) {
+    return "整句";
+  }
+  return undefined;
+}
+
+export function spanFitsFieldShape(anchor: string, text: string): boolean {
+  const hint = fieldShapeHint(anchor);
+  if (!hint) {
+    return true;
+  }
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (hint === "短片段") {
+    return trimmed.length <= 48 && !/[。！？；]/.test(trimmed);
+  }
+  return /[。；]/.test(trimmed);
+}
+
+function otherOutcomeIds(outcomes: readonly FactorOutcome[], chosen: string): string[] {
+  const ids: string[] = [];
+  for (const outcome of normalizeOutcomes(outcomes)) {
+    if (outcome.id !== chosen && !ids.includes(outcome.id)) {
+      ids.push(outcome.id);
+    }
+  }
+  return ids;
+}
+
+function renderDefiniteBody(factor: Factor, chosen: string): string {
+  const others = otherOutcomeIds(factor.outcomes, chosen);
+  const hint = fieldShapeHint(factor.anchor);
+  if (hint && !spanFitsFieldShape(factor.anchor, chosen)) {
+    const pending = [chosen, ...others];
+    return `未核：${pending.join("；")}（要${hint}）`;
+  }
+  if (others.length === 0) {
+    return chosen;
+  }
+  return `${chosen}；未核：${others.join("；")}`;
+}
+
 function renderFactorBody(factor: Factor, qhat?: number): string {
+  if (factor.anchor.startsWith(STATED_AMOUNT_PREFIX)) {
+    const grounded = factor.outcomes.find((outcome) => outcome.grounded === true && outcome.id);
+    const id = grounded?.id ?? factor.anchor.slice(STATED_AMOUNT_PREFIX.length);
+    const span = grounded?.span?.trim();
+    const base = span ? `${id}（材料原句：${span}）` : id;
+    if (factor.flag === "conflict" && factor.proposalId) {
+      return `${base}。稿里写成了${factor.proposalId}，材料里的数仍以这里为准。`;
+    }
+    return base;
+  }
   if ((factor.flag === "conflict" || factor.flag === "uncorrectable") && factor.proposalId) {
     const grounded = projectReadingGated(factor.outcomes, qhat);
     const left = grounded.kind === "definite" ? grounded.id : grounded.ids.join("；");
@@ -1520,13 +1626,17 @@ function renderFactorBody(factor: Factor, qhat?: number): string {
     return `【待核实】${sides.join("；") || "未定"}`;
   }
   const reading = projectReadingGated(factor.outcomes, qhat);
-  return reading.kind === "definite" ? reading.id : `【待核实】${reading.ids.join("；") || "未定"}`;
+  if (reading.kind !== "definite") {
+    return `【待核实】${reading.ids.join("；") || "未定"}`;
+  }
+  return renderDefiniteBody(factor, reading.id);
 }
 
 function absorbProseProposals(state: FactorState, prose: string): void {
   absorbBracketCitations(state, prose);
   absorbStatuteCitations(state, prose);
   absorbMoneyProposals(state, prose);
+  noteStatedAmountDrift(state, prose);
   absorbNegationCollisions(state, prose);
   const foreignRole = foreignRoleWord(state, prose);
   if (foreignRole) {
@@ -1680,6 +1790,142 @@ function parseArticleToken(raw: string): number | undefined {
   const tens = hundred[2] ? (map[hundred[2]] ?? 0) * 10 : raw.includes("十") ? 10 : 0;
   const ones = hundred[3] ? (map[hundred[3]] ?? 0) : 0;
   return head + tens + ones;
+}
+
+type StatedAmount = {
+  key: string;
+  raw: string;
+  span: string;
+  value: number;
+  currency: "cny" | "usd";
+};
+
+function collectStatedAmounts(text: string): StatedAmount[] {
+  const found: StatedAmount[] = [];
+  const seen = new Set<string>();
+  const patterns: Array<{ re: RegExp; currency: "cny" | "usd"; wan: boolean }> = [
+    { re: /(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*万\s*元/g, currency: "cny", wan: true },
+    { re: /(\d+(?:\.\d+)?)\s*万(?!元)/g, currency: "cny", wan: true },
+    { re: /(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*美元/g, currency: "usd", wan: false },
+    { re: /(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*元/g, currency: "cny", wan: false },
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern.re)) {
+      const index = match.index ?? 0;
+      if (/第\s*$/.test(text.slice(Math.max(0, index - 2), index))) {
+        continue;
+      }
+      const digits = Number((match[1] ?? "").replace(/,/g, ""));
+      if (!Number.isFinite(digits) || digits <= 0) {
+        continue;
+      }
+      const value = pattern.wan ? Math.round(digits * 10000) : Math.round(digits);
+      const key = pattern.currency === "usd" ? `usd:${value}` : String(value);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      const raw = (match[0] ?? "").replace(/\s+/g, "");
+      found.push({
+        key,
+        raw,
+        span: sentenceAround(text, index, index + (match[0]?.length ?? 0)),
+        value,
+        currency: pattern.currency,
+      });
+      if (found.length >= STATED_AMOUNT_CAP) {
+        return found;
+      }
+    }
+  }
+  return found;
+}
+
+function sentenceAround(text: string, start: number, end: number): string {
+  const left = Math.max(
+    text.lastIndexOf("\n", start),
+    text.lastIndexOf("。", start),
+    text.lastIndexOf("！", start),
+    text.lastIndexOf("？", start),
+  );
+  let right = text.length;
+  for (const mark of ["\n", "。", "！", "？"]) {
+    const at = text.indexOf(mark, end);
+    if (at >= 0 && at < right) {
+      right = at;
+    }
+  }
+  const from = left >= 0 ? left + 1 : Math.max(0, start - 40);
+  return text.slice(from, right).replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+function spanHooks(span: string, raw: string): string[] {
+  const rest = span.split(raw).join("");
+  const runs = rest.match(/[\u4e00-\u9fff]{4,}/g) ?? [];
+  const hooks = new Set<string>();
+  for (const run of runs) {
+    for (let i = 0; i <= run.length - 4; i += 1) {
+      hooks.add(run.slice(i, i + 4));
+    }
+  }
+  return [...hooks];
+}
+
+function proseHasStatedAmount(prose: string, amount: StatedAmount): boolean {
+  if (prose.includes(amount.raw)) {
+    return true;
+  }
+  return collectStatedAmounts(prose).some((item) => item.key === amount.key);
+}
+
+/** A draft that blanks or replaces a material amount does not erase that span. */
+function noteStatedAmountDrift(state: FactorState, prose: string): void {
+  const sentences = prose
+    .split(/[。！？\n]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  for (const factor of state.factors) {
+    if (!factor.anchor.startsWith(STATED_AMOUNT_PREFIX)) {
+      continue;
+    }
+    const grounded = factor.outcomes.find((outcome) => outcome.grounded === true && outcome.span);
+    if (!grounded?.span) {
+      continue;
+    }
+    const key = factor.anchor.slice(STATED_AMOUNT_PREFIX.length);
+    const amount: StatedAmount = {
+      key,
+      raw: grounded.id,
+      span: grounded.span,
+      value: 0,
+      currency: key.startsWith("usd:") ? "usd" : "cny",
+    };
+    if (proseHasStatedAmount(prose, amount)) {
+      if (factor.flag === "conflict") {
+        factor.proposalId = undefined;
+        factor.flag = "ok";
+      }
+      continue;
+    }
+    const hooks = spanHooks(grounded.span, grounded.id);
+    if (hooks.length === 0) {
+      continue;
+    }
+    for (const sentence of sentences) {
+      if (!hooks.some((hook) => sentence.includes(hook))) {
+        continue;
+      }
+      const blank = /待核实|＿{2,}|_{4,}/.test(sentence);
+      const replaced = collectStatedAmounts(sentence).some((item) => item.key !== key);
+      if (!blank && !replaced) {
+        continue;
+      }
+      const foreign = collectStatedAmounts(sentence).find((item) => item.key !== key);
+      factor.proposalId = blank ? "待核实" : (foreign?.raw ?? "其他数额");
+      factor.flag = "conflict";
+      break;
+    }
+  }
 }
 
 function absorbMoneyProposals(state: FactorState, prose: string): void {

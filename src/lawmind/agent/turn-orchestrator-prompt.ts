@@ -859,11 +859,6 @@ export async function prepareTurnPromptContext(opts: {
       if (shouldInjectRedlinePlanProtocol(bound, protocolGate)) {
         queue("protocol", formatRedlinePlanPromptBlock());
       }
-      const { shouldInjectPairedReviewDeliverable, formatPairedReviewDeliverablePromptBlock } =
-        await import("../drafts/paired-review-deliverable.js");
-      if (shouldInjectPairedReviewDeliverable(bound, opts.contextPins, protocolGate)) {
-        queue("protocol", formatPairedReviewDeliverablePromptBlock());
-      }
       const { shouldInjectResearchProtocol, formatResearchProtocolPromptBlock } =
         await import("../research/research-protocol.js");
       if (shouldInjectResearchProtocol(bound, protocolGate)) {
@@ -893,6 +888,11 @@ export async function prepareTurnPromptContext(opts: {
       queue("skill_index", formatCapabilityCatalogIndex(), {
         overflow: { tool: "read_skill", path: "skills" },
       });
+    }
+    const { formatIssueLedgerBlock, instructionNeedsIssueLedger } =
+      await import("./issue-ledger.js");
+    if (instructionNeedsIssueLedger(instruction)) {
+      queue("protocol", formatIssueLedgerBlock());
     }
     const { isLookOnlyUtterance } = await import("../intent/utterance-kind.js");
     if (bound?.id === "litigation.draft" && !isLookOnlyUtterance(instruction)) {

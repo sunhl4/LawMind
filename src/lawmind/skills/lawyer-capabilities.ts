@@ -62,7 +62,7 @@ export const LAWYER_CAPABILITIES: readonly LawyerCapability[] = [
       "delivery-language",
     ],
     pipeline: "execute_workflow",
-    pipelineHint: `${OPEN_TOOLS_HINT}意见须含宏观/中观/微观与推荐措辞，并按 Playbook 给出标准/可接受回退/永不接受档位与具体改法。纸别和底线扫描在 \`contract-playbook-review\`；档位边界拿不准时再 \`read_skill\`，不要为了读技能停掉已能写的意见。钉选 Word 时默认意见+修订稿都交，律师指定只要一种则按指定。空修订不得导出。开放 \`search_statute\` 时写条号前先试检 1–2 条。`,
+    pipelineHint: `${OPEN_TOOLS_HINT}意见须含宏观/中观/微观与推荐措辞，并按 Playbook 给出标准/可接受回退/永不接受档位与具体改法。多份材料冲突时并列两说。会改变效力、范围或救济的缺失写明未见哪一项。不能只用已写明条款的摘录代替冲突、缺失和改法。纸别和底线扫描在 \`contract-playbook-review\`；档位边界拿不准时再 \`read_skill\`，不要为了读技能停掉已能写的意见。PDF 和图片写不了审阅痕迹。空修订不得导出。开放 \`search_statute\` 时写条号前先试检 1–2 条；材料不是中国法文本时以原文为准，不要为了凑条号改去检索中国法。`,
   },
   {
     id: "letter.draft",

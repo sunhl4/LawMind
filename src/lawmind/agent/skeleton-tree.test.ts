@@ -109,20 +109,16 @@ describe("skeleton syntax tree", () => {
     expect(renderEngineReadings(state)).toContain("【骨架起点】");
   });
 
-  it("binds calculate slots on ingest; a repeat is free and the seventh unique slot does not advance the cap", () => {
+  it("records calculated amounts without spending outline slots", () => {
     const state = emptyFactorState();
     rememberSkeleton(state, extractSkeletonHeadings(OUTLINE), "document");
     ingestToolResult(state, "calculate", { op: "wage", value: 15000 });
     ingestToolResult(state, "calculate", { op: "wage", value: 16000 });
-    expect(state.adiabaticStep).toBe(1);
-    expect(state.skeletonBoundAnchors).toEqual(["amount:wage"]);
-    for (let step = 2; step <= ADIABATIC_MAX_STEPS; step += 1) {
+    for (let step = 2; step <= ADIABATIC_MAX_STEPS + 1; step += 1) {
       ingestToolResult(state, "calculate", { op: `slot-${step}`, value: step });
     }
-    expect(state.adiabaticStep).toBe(ADIABATIC_MAX_STEPS);
-    ingestToolResult(state, "calculate", { op: "slot-7", value: 7 });
-    expect(state.adiabaticStep).toBe(ADIABATIC_MAX_STEPS);
-    expect(state.skeletonBoundAnchors).not.toContain("amount:slot-7");
+    expect(state.adiabaticStep).toBe(0);
+    expect(state.skeletonBoundAnchors ?? []).not.toContain("amount:wage");
     expect(state.factors.some((factor) => factor.anchor === "amount:slot-7")).toBe(true);
   });
 });

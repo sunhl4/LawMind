@@ -122,9 +122,9 @@ export function buildXmlQaRetryHint(plan: RedlinePlan | undefined): {
 export function formatRedlinePlanPromptBlock(): string {
   return [
     "## 改稿计划",
-    "有钉选合同且要出修订稿时：先列最短 find/replace（条款、P0/P1/P2），再 `apply_surgical_edits`，然后 `render_tracked_draft`。",
-    "不要直接改 Word 文件。跨度过宽时引擎会收窄锚定；导出后系统核对修订 XML（w:ins/w:del）。空修订不得导出。",
-    "没有钉选文件、或律师只要意见书时，只出意见（宏观/中观/微观+推荐措辞），不要假装已出红线。",
+    "只有本轮要改的是可编辑 Word，并且律师要出修订稿时：先列最短 find/replace（条款、P0/P1/P2），再 `apply_surgical_edits`，然后 `render_tracked_draft`。",
+    "不要直接改 Word 文件，也不要把 PDF 或图片当成修订基线。跨度过宽时引擎会收窄锚定；导出后系统核对修订 XML（w:ins/w:del）。空修订不得导出。",
+    "律师只要意见、或这份材料写不了审阅痕迹时，按原话交意见（宏观/中观/微观+推荐措辞），不要假装已出红线。",
   ].join("\n");
 }
 

@@ -75,7 +75,11 @@ function renderJson(
       body: JSON.stringify({
         choices: [
           {
-            message: { role: "assistant", content: round.content },
+            message: {
+              role: "assistant",
+              content: round.content,
+              ...(round.reasoningContent ? { reasoning_content: round.reasoningContent } : {}),
+            },
             finish_reason: round.finishReason ?? "stop",
           },
         ],
@@ -95,7 +99,12 @@ function renderJson(
     body: JSON.stringify({
       choices: [
         {
-          message: { role: "assistant", content: "", tool_calls },
+          message: {
+            role: "assistant",
+            content: "",
+            tool_calls,
+            ...(round.reasoningContent ? { reasoning_content: round.reasoningContent } : {}),
+          },
           finish_reason: "tool_calls",
         },
       ],
@@ -136,6 +145,9 @@ function renderSse(
     resolveValue,
   );
   chunks.push(sseEvent({ choices: [{ delta: { role: "assistant" } }] }));
+  if (round.reasoningContent) {
+    chunks.push(sseEvent({ choices: [{ delta: { reasoning_content: round.reasoningContent } }] }));
+  }
   tool_calls.forEach((tc, index) => {
     chunks.push(
       sseEvent({

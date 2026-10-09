@@ -47,6 +47,8 @@
 | `workspace/`            | **开发/演示用工作区盘面**：可提交 **模板、playbooks、示例 cases、通用 MEMORY 样例**；任务、草稿、会话、审计、产物等运行数据由 `workspace/.gitignore` 排除，勿推送到公开仓库。                                                                          |
 | `.github/`              | CI（`lawmind-*.yml`、CodeQL 等）与模板。                                                                                                                                                                                                               |
 
+**平级独立工程（不在本 monorepo 内）**：`LawMind-Bench`（自建中国律师评测资产）。指针见 [LAWMIND-CHINESE-LEGAL-AGENT-BENCHMARKS.md](./LAWMIND-CHINESE-LEGAL-AGENT-BENCHMARKS.md)。勿在本仓再建 `benchmarks/lawmind-bench/`。
+
 ## 引擎分层（`src/lawmind/`）
 
 以下为心智模型，不必与文件夹一一 rigid 对应，但利于导航：

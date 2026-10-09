@@ -17,6 +17,25 @@ export const DEEPSEEK_FLASH_RETIRED_ALIASES = [
   "deepseek-v4-flash-vision-exp",
 ] as const;
 
+/** Official V4.1 Flash window. Custom rows that name this model inherit it. */
+export const DEEPSEEK_FLASH_CONTEXT_TOKENS = 1_048_576;
+
+export function isDeepSeekFlashUpstream(model: string): boolean {
+  const id = model.trim();
+  return (
+    id === LAWMIND_DEFAULT_UPSTREAM_MODEL ||
+    (DEEPSEEK_FLASH_RETIRED_ALIASES as readonly string[]).includes(id)
+  );
+}
+
+export function contextTokensForUpstreamModel(model: string): number | undefined {
+  const id = model.trim();
+  if (isDeepSeekFlashUpstream(id)) {
+    return DEEPSEEK_FLASH_CONTEXT_TOKENS;
+  }
+  return LAWMIND_BUILTIN_MODELS.find((row) => row.model === id)?.contextTokens;
+}
+
 /** Curated built-in models (Cursor-style picker). Keys come from env per provider. */
 export const LAWMIND_BUILTIN_MODELS: BuiltinModelDefinition[] = [
   // DeepSeek（工程默认）
@@ -29,7 +48,7 @@ export const LAWMIND_BUILTIN_MODELS: BuiltinModelDefinition[] = [
     baseUrl: DEEPSEEK,
     model: LAWMIND_DEFAULT_UPSTREAM_MODEL,
     group: "DeepSeek",
-    contextTokens: 1_048_576,
+    contextTokens: DEEPSEEK_FLASH_CONTEXT_TOKENS,
     tags: ["推荐", "多模态"],
   },
   // 通义千问

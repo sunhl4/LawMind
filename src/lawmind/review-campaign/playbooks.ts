@@ -29,7 +29,8 @@ const STANDARD_CONTRACT_REVIEW: FleetPlaybook = {
       weight: 0.3,
       timeoutMs: 120_000,
       toolAllowlist: ["draft_document", "research_task"],
-      promptHint: "识别责任上限、违约、解除与高风险偏移。",
+      promptHint:
+        "识别责任上限、违约、解除、价格限制、数量或最低承诺、无限责任、第三方受益、关联方许可、最惠国与高风险偏移。到期日留整句，再用 calculate，不要压成一个日期。",
     },
     {
       id: "compliance",

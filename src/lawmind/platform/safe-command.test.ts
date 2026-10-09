@@ -112,6 +112,20 @@ describe("safe-command", () => {
         timeoutMs: 1000,
       }),
     ).toThrow(SafeCommandError);
+    const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-bash-"));
+    const script = path.join(scriptDir, "job.sh");
+    fs.writeFileSync(script, "#!/bin/bash\nprintf '%s\\n' ok\n");
+    try {
+      const ran = await runSafeCommand({
+        command: "bash",
+        args: [script],
+        cwd: scriptDir,
+        timeoutMs: 5000,
+      });
+      expect(ran.stdout.trim()).toBe("ok");
+    } finally {
+      fs.rmSync(scriptDir, { recursive: true, force: true });
+    }
     // 直接运行 node -e 也会被当作可执行代码开关拒绝，防止参数注入绕过白名单。
     expect(() =>
       safeCommand({

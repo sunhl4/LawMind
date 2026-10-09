@@ -26,12 +26,14 @@ describe("LawmindFirstRunDialog 演示案件名", () => {
   let host: HTMLDivElement;
   let root: Root;
   let createBodies: Array<{ matterId?: string }>;
+  let learningPosts: unknown[];
 
   beforeEach(() => {
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
     createBodies = [];
+    learningPosts = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -45,6 +47,13 @@ describe("LawmindFirstRunDialog 演示案件名", () => {
         }
         if (url.includes("/api/matters/create")) {
           createBodies.push(jsonBody(init?.body));
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("/api/lawyer-profile/learning")) {
+          learningPosts.push(jsonBody(init?.body));
           return new Response(JSON.stringify({ ok: true }), {
             status: 200,
             headers: { "content-type": "application/json" },
@@ -91,7 +100,7 @@ describe("LawmindFirstRunDialog 演示案件名", () => {
     await clickByText("独立执业");
     const skipMid = host.querySelector('[data-testid="lm-firstrun-skip-wizard"]');
     expect(skipMid?.textContent).toContain("不记这些，直接开始");
-    await clickByText("用推荐默认，跳过习惯");
+    expect(host.textContent).not.toMatch(/行文风格|风险口径|对客语气|用推荐默认/);
     await clickByText("买卖合同审查");
     const box = host.querySelector('[data-testid="lm-firstrun-create-matter"]') as HTMLInputElement | null;
     expect(box).toBeTruthy();
@@ -103,6 +112,7 @@ describe("LawmindFirstRunDialog 演示案件名", () => {
     expect(matterId).toBe("演示案件-买卖合同审查");
     expect(matterId).not.toMatch(/\d{8,}/);
     expect(isValidMatterId(matterId)).toBe(true);
+    expect(learningPosts).toEqual([]);
   });
 
   it("exposes 跳过向导，直接开始 and creates 演示案件", async () => {

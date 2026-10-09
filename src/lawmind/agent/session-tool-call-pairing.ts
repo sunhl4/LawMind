@@ -439,6 +439,8 @@ export function hasOpenToolGroup(messages: readonly AgentMessage[]): boolean {
 export type WireChatMessage = {
   role: string;
   content?: string | null;
+  /** DeepSeek requires this on later turns that still advertise tools. */
+  reasoning_content?: string | null;
   tool_calls?: Array<{
     id?: string;
     type?: string;

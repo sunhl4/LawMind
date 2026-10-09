@@ -129,9 +129,9 @@ describe("resolveTurnDeliveryIntent", () => {
     "- 审查重点：管辖",
   ].join("\n");
 
-  it("keeps 5-minute opinion-only when no Word is pinned", () => {
+  it("keeps 5-minute form text from locking an opinion-memo sidecar when no Word is pinned", () => {
     const d = resolveTurnDeliveryIntent(fastLane, []);
-    expect(d.artifactShape).toBe("opinion_memo");
+    expect(d.artifactShape).toBe("unspecified");
   });
 
   it("does not treat 5-minute 合同审查意见 as sidecar when a Word is pinned", () => {

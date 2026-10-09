@@ -38,9 +38,22 @@ import {
   MID_TURN_LLM_DIGEST_TIMEOUT_MS,
   resolveContextTuning,
 } from "./context-tuning.js";
+import {
+  consultListGap,
+  formatConsultQuestionsNudge,
+  formatPleadingSectionNudge,
+  instructionFramesConsultQuestions,
+  instructionFramesPleading,
+  pleadingSectionGaps,
+} from "./deliverable-shape.js";
 import { applyProseSyndrome, appendMechanicalNote } from "./factor-state.js";
 import { applyMidTurnCompact } from "./mid-turn-compact.js";
 import { friendlyModelErrorMessage } from "./model-error-message.js";
+import {
+  formatMissingDeliverableNudge,
+  missingNamedDeliverables,
+  namedWorkspaceDeliverables,
+} from "./named-deliverable.js";
 import {
   formatReviewBoardExportBounce,
   isReviewBoardExportDeferralReply,
@@ -90,6 +103,15 @@ import {
   applyPendingWorldStateCraftPatch,
   collectWorldStateHashes,
 } from "./world-state.js";
+import {
+  CALCULATE_PARAM_FAILURE_CAP,
+  countSearchCalls,
+  formatCalculateParamStopNudge,
+  formatWriteSynthesisNudge,
+  shouldSynthesizeBeforeWrite,
+  trailingCalculateParamFailures,
+  withholdSearchTools,
+} from "./write-synthesis.js";
 
 /**
  * Strict tool streaming is opt-in (D3): desktop/SSE defaults relaxed so tool_calls
@@ -163,6 +185,32 @@ export function advanceIdenticalToolStreak(
 }
 
 /** Soft coach after a repeated batch; hard stop only if the nudge is ignored. */
+const FORBIDDEN_SHELL_RE = /不允许运行 (?:bash|sh|zsh|dash|fish)/;
+
+/** Count rejected shell binaries in this turn. Different names still count as one loop. */
+export function forbiddenShellRejectionCount(
+  messages: ReadonlyArray<Pick<AgentMessage, "toolCallResponses">>,
+): number {
+  let count = 0;
+  for (const message of messages) {
+    for (const response of message.toolCallResponses ?? []) {
+      const error = response.result.error ?? "";
+      if (FORBIDDEN_SHELL_RE.test(error)) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
+export function formatForbiddenShellNudge(): string {
+  return "【命令拒绝】zsh、dash、fish 不能运行。bash 或 sh 只能执行工作区内的脚本文件，不能带 -c。不要再试被拒绝的命令。用 bash 脚本、python3 或 write_document 写出用户要的文件，然后结束。";
+}
+
+export function formatForbiddenShellStop(): string {
+  return "被拒绝的命令我已停止再试。bash 或 sh 只能执行工作区内的脚本文件，不能带 -c。需要结果时，请改跑该脚本，或用 python3 / 直接写结果文件。";
+}
+
 export function identicalToolRepeatDecision(state: IdenticalToolStreak): "ok" | "nudge" | "stop" {
   if (state.streak < IDENTICAL_TOOL_REPEAT_NUDGE_AT) {
     return "ok";
@@ -404,6 +452,12 @@ export async function runModelToolLoop(opts: {
   /** One missing provider choice per turn is a glitch, not a failed delivery. */
   let emptyChoiceRetryUsed = false;
   let identicalToolStreak: IdenticalToolStreak | null = null;
+  let forbiddenShellNudged = false;
+  let deliverableNudged = false;
+  let synthesisNudged = false;
+  let calculateParamNudged = false;
+  let pleadingNudged = false;
+  let consultNudged = false;
   /** At most one extra sample per turn after a finished Word-revision reread. */
   let documentRereadContinued = false;
   let wordRevisionExportNudged = false;
@@ -625,8 +679,23 @@ export async function runModelToolLoop(opts: {
       discoveryCallCounts: opts.turn.toolNameCallCounts,
       hostFileLedger: contextUsesHostFileLedger(opts.ctx),
     });
-    openAITools = opts.registry.toOpenAITools({ names: step.toolNames });
-    const toolDelta = applyToolDisclosureDelta(opts.session, previousToolNames, step.toolNames);
+    const missingForWrite = missingNamedDeliverables(
+      opts.config.workspaceDir,
+      opts.turn.instruction,
+    );
+    const framePleading = instructionFramesPleading(opts.turn.instruction);
+    const frameConsult = instructionFramesConsultQuestions(opts.turn.instruction);
+    const synthesisRound = synthesisNudged && missingForWrite.length > 0;
+    const pleadingRewrite =
+      pleadingNudged &&
+      pleadingSectionGaps(opts.config.workspaceDir, opts.turn.instruction).length > 0;
+    const consultRewrite =
+      consultNudged && consultListGap(opts.config.workspaceDir, opts.turn.instruction);
+    const lockSearch =
+      synthesisNudged || frameConsult || (framePleading && missingForWrite.length === 0);
+    const roundToolNames = lockSearch ? withholdSearchTools(step.toolNames) : step.toolNames;
+    openAITools = opts.registry.toOpenAITools({ names: roundToolNames });
+    const toolDelta = applyToolDisclosureDelta(opts.session, previousToolNames, roundToolNames);
     if (toolDelta) {
       opts.emitEvent({
         type: "tool_delta",
@@ -641,13 +710,13 @@ export async function runModelToolLoop(opts: {
         detail: { roundIndex, added: toolDelta.added, removed: toolDelta.removed },
       });
     }
-    previousToolNames = [...step.toolNames];
+    previousToolNames = [...roundToolNames];
     opts.emitEvent({ type: "round_start", roundIndex });
     emitTurnLifecycle({
       phase: "before_model_round",
       sessionId: opts.session.sessionId,
       turnId: opts.turn.turnId,
-      detail: { roundIndex, toolCount: step.toolNames.length },
+      detail: { roundIndex, toolCount: roundToolNames.length },
     });
     if (shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)) {
       applySameTurnVerifyHistoryCollapse(opts.session, opts.turn, "keep_latest_full");
@@ -696,6 +765,9 @@ export async function runModelToolLoop(opts: {
             ? (chunk: string) => opts.emitEvent({ type: "delta", roundIndex, text: chunk })
             : undefined,
           signal: opts.abortSignal,
+          ...(synthesisRound || pleadingRewrite || consultRewrite
+            ? { reasoningEffort: "max" as const }
+            : {}),
           // 服务端以「工具结果不配对」拒收时：修复来源历史并落盘，再重发一次。
           // 修复必须落到 session，否则下一轮又会从同一份坏历史重建（Claude Code 的教训）。
           onToolPairingReject: () => {
@@ -857,7 +929,9 @@ export async function runModelToolLoop(opts: {
       }
     }
 
-    const assistantMsg = choice.message;
+    const assistantMsg = choice.message as typeof choice.message & {
+      reasoning_content?: string | null;
+    };
     const toolCalls = assistantMsg.tool_calls;
 
     const decisionWasQuiet = openAITools.length > 0 && !outputRaised;
@@ -870,10 +944,12 @@ export async function runModelToolLoop(opts: {
       emitQuietSegment(assistantMsg.content ?? "");
     }
 
+    const reasoningContent = assistantMsg.reasoning_content?.trim() ?? "";
     const agentMsg: AgentMessage = {
       role: "assistant",
       content: assistantMsg.content ?? "",
       timestamp: new Date().toISOString(),
+      ...(reasoningContent ? { reasoningContent } : {}),
     };
 
     if (toolCalls && toolCalls.length > 0) {
@@ -1041,6 +1117,22 @@ export async function runModelToolLoop(opts: {
         opts.turn.messages.push(bounce);
         continue;
       }
+      const missingDeliverables = deliverableNudged
+        ? []
+        : missingNamedDeliverables(opts.config.workspaceDir, opts.turn.instruction);
+      if (missingDeliverables.length > 0) {
+        deliverableNudged = true;
+        agentMsg.hiddenFromLawyer = true;
+        const nudge = {
+          role: "user" as const,
+          content: formatMissingDeliverableNudge(missingDeliverables),
+          timestamp: new Date().toISOString(),
+          hiddenFromLawyer: true,
+        };
+        opts.session.conversationHistory.push(nudge);
+        opts.turn.messages.push(nudge);
+        continue;
+      }
       const voiced = appendMechanicalNote(assistantMsg.content ?? "", opts.turn.factorState);
       agentMsg.content = voiced;
       finalReply = voiced;
@@ -1126,6 +1218,100 @@ export async function runModelToolLoop(opts: {
     if (opts.turn.status === "completed" && batchResult.finalReply) {
       finalReply = batchResult.finalReply;
       break;
+    }
+
+    const missingForSynthesis = missingNamedDeliverables(
+      opts.config.workspaceDir,
+      opts.turn.instruction,
+    );
+    let steeredToWrite = false;
+    if (
+      !synthesisNudged &&
+      shouldSynthesizeBeforeWrite({
+        missingDeliverables: missingForSynthesis,
+        searchCalls: countSearchCalls(opts.turn.toolNameCallCounts),
+        advertisedToolNames: stepAfterBatch.toolNames,
+      })
+    ) {
+      synthesisNudged = true;
+      const nudge = {
+        role: "user" as const,
+        content: formatWriteSynthesisNudge(missingForSynthesis),
+        timestamp: new Date().toISOString(),
+        hiddenFromLawyer: true,
+      };
+      opts.session.conversationHistory.push(nudge);
+      opts.turn.messages.push(nudge);
+      steeredToWrite = true;
+    }
+    if (framePleading && !pleadingNudged) {
+      const gaps = pleadingSectionGaps(opts.config.workspaceDir, opts.turn.instruction);
+      if (gaps.length > 0) {
+        pleadingNudged = true;
+        const nudge = {
+          role: "user" as const,
+          content: formatPleadingSectionNudge(gaps),
+          timestamp: new Date().toISOString(),
+          hiddenFromLawyer: true,
+        };
+        opts.session.conversationHistory.push(nudge);
+        opts.turn.messages.push(nudge);
+        steeredToWrite = true;
+      }
+    }
+    if (
+      frameConsult &&
+      !consultNudged &&
+      consultListGap(opts.config.workspaceDir, opts.turn.instruction)
+    ) {
+      consultNudged = true;
+      const nudge = {
+        role: "user" as const,
+        content: formatConsultQuestionsNudge(namedWorkspaceDeliverables(opts.turn.instruction)),
+        timestamp: new Date().toISOString(),
+        hiddenFromLawyer: true,
+      };
+      opts.session.conversationHistory.push(nudge);
+      opts.turn.messages.push(nudge);
+      steeredToWrite = true;
+    }
+    if (
+      !calculateParamNudged &&
+      trailingCalculateParamFailures(opts.session.conversationHistory) >=
+        CALCULATE_PARAM_FAILURE_CAP
+    ) {
+      calculateParamNudged = true;
+      const nudge = {
+        role: "user" as const,
+        content: formatCalculateParamStopNudge(),
+        timestamp: new Date().toISOString(),
+        hiddenFromLawyer: true,
+      };
+      opts.session.conversationHistory.push(nudge);
+      opts.turn.messages.push(nudge);
+      steeredToWrite = true;
+    }
+    if (steeredToWrite) {
+      continue;
+    }
+
+    const forbiddenShells = forbiddenShellRejectionCount(opts.session.conversationHistory);
+    if (forbiddenShells >= 4) {
+      opts.turn.status = "completed";
+      finalReply = formatForbiddenShellStop();
+      break;
+    }
+    if (forbiddenShells >= 2 && !forbiddenShellNudged) {
+      forbiddenShellNudged = true;
+      const nudge = {
+        role: "user" as const,
+        content: formatForbiddenShellNudge(),
+        timestamp: new Date().toISOString(),
+        hiddenFromLawyer: true,
+      };
+      opts.session.conversationHistory.push(nudge);
+      opts.turn.messages.push(nudge);
+      continue;
     }
 
     if (toolRefs.length > 0) {

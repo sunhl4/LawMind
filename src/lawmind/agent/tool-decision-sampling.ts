@@ -1,22 +1,19 @@
 /**
- * Tool-decision rounds ask for a short completion. The full envelope is only
- * used when that short completion comes back truncated (the model is writing
- * the deliverable in the reply, not picking the next tool).
+ * Tool rounds use the model's own output budget. A 4096 cap is spent on
+ * DeepSeek `reasoning_content` before the tool call is written.
+ * A later raise only happens when this function sent less than `configured`.
  */
 
 export const TOOL_DECISION_MAX_TOKENS = 4_096;
 
 export function resolveToolDecisionMaxTokens(
   configured: number | undefined,
-  toolsAdvertised: boolean,
+  _toolsAdvertised: boolean,
 ): number | undefined {
-  if (!toolsAdvertised) {
-    return configured && configured > 0 ? Math.floor(configured) : undefined;
-  }
   if (configured == null || !Number.isFinite(configured) || configured <= 0) {
-    return TOOL_DECISION_MAX_TOKENS;
+    return undefined;
   }
-  return Math.min(Math.floor(configured), TOOL_DECISION_MAX_TOKENS);
+  return Math.floor(configured);
 }
 
 export function shouldRaiseToolDecisionOutput(opts: {
@@ -34,5 +31,6 @@ export function shouldRaiseToolDecisionOutput(opts: {
   if (configured == null || !Number.isFinite(configured) || configured <= 0) {
     return true;
   }
-  return configured > TOOL_DECISION_MAX_TOKENS;
+  const sent = resolveToolDecisionMaxTokens(configured, true);
+  return sent != null && sent < Math.floor(configured);
 }

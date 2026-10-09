@@ -74,7 +74,7 @@ describe("redline-plan", () => {
             "【交办】5 分钟合同审查\n交付物类型：合同审查意见\n- 己方立场：中立\n- 审查重点：管辖",
         },
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldInjectRedlinePlanProtocol(
         { id: "contract.review", pipeline: "execute_workflow" },

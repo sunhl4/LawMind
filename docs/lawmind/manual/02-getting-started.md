@@ -43,7 +43,7 @@ pnpm lawmind:desktop
 
 1. **连接模型**：向导收集 API Key、Base URL、模型名、工作区、检索通道（`single` / `dual`）。向导内置「推荐栈」（DeepSeek Flash（推荐）/ 通义千问 / OpenAI 兼容）；这些值默认落进设置里的「模型与连接」分区。
 2. **写入密钥**：密钥优先进入操作系统密钥链（`apps/lawmind-desktop/electron/lawmind-key-vault.cjs`）；随后从 `.env.lawmind` 抹掉明文，并重启本地 API 子进程。若系统加密存储不可用，向导**拒绝**保存（文案：请在系统设置里打开钥匙串后再试）。不改成明文。
-3. **落到对话**：钥匙验证通过后建「演示案件」、权限可执行、输入框留空。已经有案件时引导不会自动再弹。身份和文书仍可从设置重开 `LawmindFirstRunDialog`；走完才写偏好。已经往下选时，放弃按钮是「不记这些，直接开始」，不和「下一步」抢主按钮。
+3. **落到对话**：钥匙验证通过后建「演示案件」、权限可执行、输入框留空。已经有案件时引导不会自动再弹。身份和文书仍可从设置重开 `LawmindFirstRunDialog`（三步：身份 → 文书 → 开始）；**不**再问行文/风险/对客习惯，也不写冷启动风格偏好。已经往下选时，放弃按钮是「不记这些，直接开始」，不和主按钮抢。
 4. **空对话示例**：三句可点交办（备忘 / 审违约责任 / 记下传票）只填进输入框，不自动发送。审合同和记传票要先拖入文件。实现：`lawmind-day-one.ts` 的 `DAY_ONE_EXAMPLE_PROMPTS`，空态在 `lawmind-chat-messages-column.tsx`。
 5. **首跑完成标记**：`<工作区>/.lawmind/firstrun-acceptance-pending.json` 记录待验收的 `matterId`（先写临时文件再改名），验收完成后清除；首跑向导可从设置重新打开。
 

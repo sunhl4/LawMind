@@ -95,7 +95,7 @@ test.describe("Job intake & template gallery", () => {
     await expect(page.getByText(/出稿检查|验收|acceptance/i).first()).toBeVisible({ timeout: 15_000 });
   });
 
-  test("first-run prefs step is reachable when dismiss key cleared", async ({ page }) => {
+  test("first-run document step is reachable when dismiss key cleared", async ({ page }) => {
     await page.route(`${e2eMockApiBase()}/api/matters/overviews**`, async (route) => {
       await route.fulfill({
         status: 200,
@@ -114,9 +114,8 @@ test.describe("Job intake & template gallery", () => {
       return;
     }
     await firstRun.getByRole("button", { name: /独立执业|律所协办|合伙人/ }).first().click();
-    await expect(firstRun.getByText(/行文风格|风险口径|对客语气/).first()).toBeVisible({
-      timeout: 10_000,
-    });
+    await expect(firstRun.getByText(/行文风格|风险口径|对客语气|用推荐默认/)).toHaveCount(0);
+    await expect(firstRun.getByTestId("lm-firstrun-skip-spec")).toBeVisible({ timeout: 10_000 });
     await firstRun.getByRole("button", { name: /稍后再说|不用了|跳过向导/ }).first().click();
   });
 });

@@ -16,10 +16,7 @@ import {
   attachWordAddinResultSafely,
   wordAddinResultPatch,
 } from "../../../integrations/word-addin/attach-result.js";
-import {
-  isOpinionMemoDelivery,
-  resolveTurnDeliveryIntent,
-} from "../../../intent/delivery-intent.js";
+import { resolveTurnDeliveryIntent } from "../../../intent/delivery-intent.js";
 import {
   DOC_NEEDS_DOCX_MESSAGE,
   isBinaryWordDocBaseline,
@@ -519,7 +516,8 @@ export const updateDraft: AgentTool = {
       if (
         ctx.wordRevisionTurn !== true &&
         ctx.mailContractTurn !== true &&
-        next.deliverableType === "contract.review"
+        next.deliverableType === "contract.review" &&
+        next.contractEdit
       ) {
         try {
           const { writeRedlinePlanFromOpinion } =
@@ -690,7 +688,9 @@ export const draftDocument: AgentTool = {
           await import("../../../artifacts/word-revision-delivery.js");
         const pinCandidates = [
           ...(baselinePath ? [baselinePath] : []),
-          ...wordFilePinRelPaths(ctx.contextPins),
+          ...(ctx.wordRevisionTurn === true || ctx.mailContractTurn === true
+            ? wordFilePinRelPaths(ctx.contextPins)
+            : []),
         ];
         for (const pin of pinCandidates) {
           const sticky = findOpenWordReviewForPin(ctx.workspaceDir, pin);
@@ -739,8 +739,23 @@ export const draftDocument: AgentTool = {
           };
         }
       }
-      const reuseTaskId =
-        asOptionalString(params.task_id, "task_id", 128) ?? (ctx.linkedTaskId?.trim() || undefined);
+      const explicitTaskId = asOptionalString(params.task_id, "task_id", 128);
+      let reuseTaskId = explicitTaskId;
+      if (!reuseTaskId) {
+        const linked = ctx.linkedTaskId?.trim();
+        if (linked) {
+          const { mayImplicitlyReuseLinkedDraft } =
+            await import("../../../intent/deliverable-judgment.js");
+          if (
+            mayImplicitlyReuseLinkedDraft({
+              wordRevisionTurn: ctx.wordRevisionTurn === true,
+              mailContractTurn: ctx.mailContractTurn === true,
+            })
+          ) {
+            reuseTaskId = linked;
+          }
+        }
+      }
 
       let intent: TaskIntent;
       if (reuseTaskId) {
@@ -924,37 +939,19 @@ export const draftDocument: AgentTool = {
       const citationIntegrity = validateDraftCitationsAgainstBundle(draft, bundle);
       let contractBaselineWarnings: string[] = [];
       let pinnedWordBaseline = Boolean(baselinePath);
-      let pairedDeliverable = false;
       {
         const { isWordRevisionTurn } =
           await import("../../../platform/word-revision-instruction.js");
-        const { isMailContractFastPathInstruction } =
-          await import("../../../platform/mail-contract-short-path-instruction.js");
         const { extractDocxRelativePathsFromText, enrichDraftWithContractEditBaseline } =
           await import("../../../drafts/contract-edit-baseline.js");
-        const { pinsIncludeWordFile, wordFilePinRelPaths } =
-          await import("../../../drafts/paired-review-deliverable.js");
         const wordRev =
           ctx.wordRevisionTurn === true ||
           isWordRevisionTurn({ instruction, pins: ctx.contextPins });
         const extracted = extractDocxRelativePathsFromText(instruction);
-        pairedDeliverable =
-          !wordRev &&
-          ctx.mailContractTurn !== true &&
-          !isMailContractFastPathInstruction(instruction) &&
-          draft.deliverableType === "contract.review" &&
-          pinsIncludeWordFile(ctx.contextPins) &&
-          !isOpinionMemoDelivery(turnDelivery(ctx, instruction));
-        pinnedWordBaseline = Boolean(
-          baselinePath || wordRev || extracted.length > 0 || pairedDeliverable,
-        );
+        pinnedWordBaseline = Boolean(baselinePath || wordRev || extracted.length > 0);
         if (pinnedWordBaseline) {
           const { persistDraft } = await import("../../../drafts/index.js");
-          const extraPaths = [
-            ...(baselinePath ? [baselinePath] : []),
-            ...extracted,
-            ...(pairedDeliverable ? wordFilePinRelPaths(ctx.contextPins) : []),
-          ];
+          const extraPaths = [...(baselinePath ? [baselinePath] : []), ...extracted];
           const enriched = await enrichDraftWithContractEditBaseline({
             workspaceDir: ctx.workspaceDir,
             projectDir: ctx.projectDir,
@@ -971,33 +968,6 @@ export const draftDocument: AgentTool = {
             draft = { ...draft, clarificationQuestions: undefined };
           }
           persistDraft(ctx.workspaceDir, draft);
-        }
-      }
-
-      let redlinePlanPreview:
-        | {
-            itemCount: number;
-            skippedCount: number;
-            items: Array<{ find: string; replace: string }>;
-          }
-        | undefined;
-      if (pairedDeliverable && ctx.wordRevisionTurn !== true && ctx.mailContractTurn !== true) {
-        try {
-          const { writeRedlinePlanFromOpinion } =
-            await import("../../../drafts/opinion-redline-plan.js");
-          const plan = writeRedlinePlanFromOpinion(ctx.workspaceDir, draft);
-          if (plan.items.length > 0) {
-            redlinePlanPreview = {
-              itemCount: plan.items.length,
-              skippedCount: plan.skipped.length,
-              items: plan.items.slice(0, 12).map((row) => ({
-                find: row.find,
-                replace: row.replace,
-              })),
-            };
-          }
-        } catch {
-          /* best-effort sidecar */
         }
       }
 
@@ -1038,8 +1008,6 @@ export const draftDocument: AgentTool = {
             openClarifications && openClarifications.length > 0
               ? "draft_with_placeholders"
               : "draft_ready",
-          ...(pairedDeliverable ? { pairedDeliverable: true as const } : {}),
-          ...(redlinePlanPreview ? { redlinePlan: redlinePlanPreview } : {}),
           ...(isDemoCorpusResult(bundle) ? { demoCorpus: true as const } : {}),
         },
       };
@@ -1264,6 +1232,17 @@ export const renderTrackedDraft: AgentTool = {
       let draft = readDraft(ctx.workspaceDir, taskId);
       if (!draft) {
         return { ok: false, error: `找不到草稿 ${taskId}` };
+      }
+      {
+        const { trackedBaselineRefusal } = await import("../../../intent/deliverable-judgment.js");
+        const refusal = trackedBaselineRefusal(draft.contractEdit?.baselineRelativePath);
+        if (refusal) {
+          return {
+            ok: false,
+            error: refusal.message,
+            data: { taskId, code: refusal.code },
+          };
+        }
       }
       if (ctx.wordRevisionTurn && !draft.contractEdit) {
         const { enrichDraftWithContractEditBaseline } =

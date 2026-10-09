@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  formatPairedReviewDeliverablePromptBlock,
-  pinsIncludeWordFile,
-  shouldInjectPairedReviewDeliverable,
-  wordFilePinRelPaths,
-} from "./paired-review-deliverable.js";
+import { pinsIncludeWordFile, wordFilePinRelPaths } from "./paired-review-deliverable.js";
 
-describe("paired-review-deliverable", () => {
+describe("word file pins", () => {
   const docxPin = {
     pinKind: "file" as const,
     root: "project" as const,
@@ -14,62 +9,19 @@ describe("paired-review-deliverable", () => {
     kind: "file" as const,
   };
 
-  it("pairs opinion + redline only for unlocked 合同审查 with a Word pin", () => {
+  it("lists pinned word paths and ignores other files", () => {
     expect(pinsIncludeWordFile([docxPin])).toBe(true);
+    expect(pinsIncludeWordFile([])).toBe(false);
     expect(
-      shouldInjectPairedReviewDeliverable({ id: "contract.review", pipeline: "execute_workflow" }, [
-        docxPin,
-      ]),
-    ).toBe(true);
-    expect(
-      shouldInjectPairedReviewDeliverable({ id: "contract.review", pipeline: "tracked_redline" }, [
-        docxPin,
-      ]),
-    ).toBe(false);
-    expect(
-      shouldInjectPairedReviewDeliverable({ id: "mail.contract", pipeline: "execute_workflow" }, [
-        docxPin,
+      pinsIncludeWordFile([
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "隔断采购合同.pdf",
+          kind: "file",
+        },
       ]),
     ).toBe(false);
-    expect(
-      shouldInjectPairedReviewDeliverable(
-        { id: "contract.review", pipeline: "execute_workflow" },
-        [],
-      ),
-    ).toBe(false);
-    expect(
-      shouldInjectPairedReviewDeliverable(
-        { id: "contract.review", pipeline: "execute_workflow" },
-        [docxPin],
-        {
-          instruction:
-            "【交办】5 分钟合同审查\n交付物类型：合同审查意见\n- 己方立场：中立\n- 审查重点：管辖",
-        },
-      ),
-    ).toBe(true);
-    expect(
-      shouldInjectPairedReviewDeliverable(
-        { id: "contract.review", pipeline: "execute_workflow" },
-        [],
-        {
-          instruction:
-            "【交办】5 分钟合同审查\n交付物类型：合同审查意见\n- 己方立场：中立\n- 审查重点：管辖",
-        },
-      ),
-    ).toBe(false);
-    expect(
-      shouldInjectPairedReviewDeliverable(
-        { id: "contract.review", pipeline: "execute_workflow" },
-        [docxPin],
-        {
-          instruction: "给我一些审查意见放到桌面，不要在源文件上修改",
-        },
-      ),
-    ).toBe(false);
-    expect(formatPairedReviewDeliverablePromptBlock()).toContain("render_tracked_draft");
     expect(wordFilePinRelPaths([docxPin])).toEqual(["采购合同.docx"]);
-    expect(formatPairedReviewDeliverablePromptBlock()).toContain("意见快照");
-    expect(formatPairedReviewDeliverablePromptBlock()).toContain("工具表不收窄");
-    expect(formatPairedReviewDeliverablePromptBlock()).not.toContain("不算合同审查完成");
   });
 });

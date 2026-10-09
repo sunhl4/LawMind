@@ -1,8 +1,9 @@
 /**
  * LawmindFirstRunDialog — Deliverable-First Architecture P5 (30 秒首跑)
- * + cold-start preference interview (P1).
  *
- *   role → prefs → starter deliverable → create matter + seed prompt + write preferences
+ *   role → starter deliverable → create matter + seed prompt
+ *   Habit/style questionnaire removed: no cold-start preference writes into the model prompt.
+ *   Style habits stay in 记忆库 (confirm-before-write); firstrun only sets UI permission defaults.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -46,26 +47,6 @@ const ROLES: Role[] = [
   { id: "partner", label: "合伙人", hint: "把关定稿与风险" },
 ];
 
-type PrefChoice = { id: string; label: string };
-
-const WRITING_STYLE: PrefChoice[] = [
-  { id: "concise", label: "简洁直接" },
-  { id: "detailed", label: "详尽论证" },
-  { id: "litigation", label: "偏诉讼对抗" },
-];
-
-const RISK_POSTURE: PrefChoice[] = [
-  { id: "conservative", label: "偏保守" },
-  { id: "balanced", label: "平衡" },
-  { id: "assertive", label: "偏进取" },
-];
-
-const CLIENT_TONE: PrefChoice[] = [
-  { id: "formal", label: "正式严谨" },
-  { id: "plain", label: "通俗易懂" },
-  { id: "warm", label: "亲和说明" },
-];
-
 type SpecSummary = {
   type: string;
   displayName: string;
@@ -93,7 +74,7 @@ function buildFirstrunSeedPrompt(role: Role["id"], spec: SpecSummary | null): st
   }
   if (isContractReviewSpec(spec)) {
     return buildContractFastLanePrompt({
-      materials: "请使用对话中已引用的合同材料；若尚无引用请追问我补充文件或粘贴关键条款。",
+      materials: "请使用对话中已引用的合同材料；若尚无引用请追问我补充文件或粘贴相关条款。",
       focus: "付款、违约、管辖、责任限制、终止与争议解决",
       stance: "client",
       depth: "standard",
@@ -112,7 +93,7 @@ type Props = {
   onOpenAdvancedSettings?: () => void;
 };
 
-type Step = "role" | "prefs" | "spec" | "confirm";
+type Step = "role" | "spec" | "confirm";
 
 /**
  * 首跑演示案件名：稳定、律师友好、不带时间戳。
@@ -124,10 +105,6 @@ function autoMatterIdFromSpec(spec: SpecSummary | null): string {
   }
   const safe = spec.displayName.replace(/[^\p{L}\p{N}._\- ]/gu, "").trim();
   return `演示案件-${safe || "示例"}`;
-}
-
-function labelOf(choices: PrefChoice[], id: string | null): string {
-  return choices.find((c) => c.id === id)?.label ?? "";
 }
 
 export function LawmindFirstRunDialog(props: Props): ReactNode {
@@ -143,9 +120,6 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
   const [autoOpen, setAutoOpen] = useState(false);
   const [step, setStep] = useState<Step>("role");
   const [role, setRole] = useState<Role["id"] | null>(null);
-  const [writingStyle, setWritingStyle] = useState<string | null>(null);
-  const [riskPosture, setRiskPosture] = useState<string | null>(null);
-  const [clientTone, setClientTone] = useState<string | null>(null);
   const [specs, setSpecs] = useState<SpecSummary[] | null>(null);
   const [specError, setSpecError] = useState<string | null>(null);
   const [chosenSpec, setChosenSpec] = useState<SpecSummary | null>(null);
@@ -335,10 +309,8 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
     }
   }, [apiBase, onSeedReady, dismissForever]);
 
-  const prefsReady = Boolean(writingStyle && riskPosture && clientTone);
-
   const submit = useCallback(async () => {
-    if (!role || !prefsReady) {
+    if (!role) {
       return;
     }
     setSubmitBusy(true);
@@ -367,24 +339,8 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
           // 首跑审计失败不阻断进入对话
         }
       }
-      const prefNotes = [
-        `冷启动偏好：行文风格=${labelOf(WRITING_STYLE, writingStyle)}`,
-        `冷启动偏好：风险口径=${labelOf(RISK_POSTURE, riskPosture)}`,
-        `冷启动偏好：对客语气=${labelOf(CLIENT_TONE, clientTone)}`,
-      ];
-      for (const note of prefNotes) {
-        try {
-          await apiSendJson<
-            { ok?: boolean },
-            { note: string; source: "manual" }
-          >(apiBase, "/api/lawyer-profile/learning", "POST", {
-            note,
-            source: "manual",
-          });
-        } catch {
-          // 偏好写入失败不阻断首跑
-        }
-      }
+      // No cold-start style/risk/tone preference writes — keep the model unconstrained
+      // until habits are confirmed via 记忆库 / revisions / dialogue.
       const seedPrompt = buildFirstrunSeedPrompt(role, chosenSpec);
       applyPostFirstrunPermissionDefaults({ executable: true });
       onSeedReady({ matterId, seedPrompt });
@@ -394,18 +350,7 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
     } finally {
       setSubmitBusy(false);
     }
-  }, [
-    role,
-    chosenSpec,
-    prefsReady,
-    writingStyle,
-    riskPosture,
-    clientTone,
-    apiBase,
-    onSeedReady,
-    dismissForever,
-    createDemoMatter,
-  ]);
+  }, [role, chosenSpec, apiBase, onSeedReady, dismissForever, createDemoMatter]);
 
   if (!visible) {
     return null;
@@ -415,8 +360,6 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
     if (step === "confirm") {
       setStep("spec");
     } else if (step === "spec") {
-      setStep("prefs");
-    } else if (step === "prefs") {
       setStep("role");
     }
   };
@@ -426,18 +369,11 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
       <div className="lm-wizard lm-firstrun">
         <div className="lm-firstrun-head">
           <h2>可以开始了</h2>
-            <p className="lm-meta">直接开工。身份和习惯可以现在记，也可以以后在记忆库里补。</p>
+          <p className="lm-meta">直接开工。身份和文书可以现在选，也可以以后再补。写作习惯可在记忆库里从改稿与对话中沉淀。</p>
           <ol className="lm-firstrun-steps" aria-label="进度">
             <li className={step === "role" ? "active" : "done"}>1. 身份</li>
-            <li
-              className={
-                step === "prefs" ? "active" : step === "spec" || step === "confirm" ? "done" : ""
-              }
-            >
-              2. 习惯
-            </li>
-            <li className={step === "spec" ? "active" : step === "confirm" ? "done" : ""}>3. 文书</li>
-            <li className={step === "confirm" ? "active" : ""}>4. 开始</li>
+            <li className={step === "spec" ? "active" : step === "confirm" ? "done" : ""}>2. 文书</li>
+            <li className={step === "confirm" ? "active" : ""}>3. 开始</li>
           </ol>
         </div>
         {bootstrapError ? (
@@ -465,80 +401,13 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
                 className={`lm-firstrun-card ${role === r.id ? "selected" : ""}`}
                 onClick={() => {
                   setRole(r.id);
-                  setStep("prefs");
+                  setStep("spec");
                 }}
               >
                 <div className="lm-firstrun-card-title">{r.label}</div>
                 <div className="lm-firstrun-card-hint">{r.hint}</div>
               </button>
             ))}
-          </div>
-        ) : null}
-
-        {step === "prefs" ? (
-          <div className="lm-firstrun-prefs">
-            <p className="lm-meta">选三项即可，后面随时可在改稿页继续沉淀。</p>
-            <p className="lm-firstrun-express">
-              <button
-                type="button"
-                className="lm-btn lm-btn-secondary lm-btn-sm"
-                data-testid="lm-firstrun-skip-prefs"
-                onClick={() => {
-                  setWritingStyle("concise");
-                  setRiskPosture("balanced");
-                  setClientTone("formal");
-                  setStep("spec");
-                }}
-              >
-                用推荐默认，跳过习惯
-              </button>
-              <span className="lm-meta">简洁 · 平衡风险 · 正式语气</span>
-            </p>
-            <fieldset className="lm-firstrun-pref-group">
-              <legend>行文风格</legend>
-              <div className="lm-firstrun-pref-options">
-                {WRITING_STYLE.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={`lm-firstrun-card ${writingStyle === c.id ? "selected" : ""}`}
-                    onClick={() => setWritingStyle(c.id)}
-                  >
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-            <fieldset className="lm-firstrun-pref-group">
-              <legend>风险口径</legend>
-              <div className="lm-firstrun-pref-options">
-                {RISK_POSTURE.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={`lm-firstrun-card ${riskPosture === c.id ? "selected" : ""}`}
-                    onClick={() => setRiskPosture(c.id)}
-                  >
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-            <fieldset className="lm-firstrun-pref-group">
-              <legend>对客语气</legend>
-              <div className="lm-firstrun-pref-options">
-                {CLIENT_TONE.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={`lm-firstrun-card ${clientTone === c.id ? "selected" : ""}`}
-                    onClick={() => setClientTone(c.id)}
-                  >
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
           </div>
         ) : null}
 
@@ -597,13 +466,6 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
             <div className="lm-firstrun-confirm-row">
               <span className="lm-meta">身份</span>
               <span>{ROLES.find((r) => r.id === role)?.label}</span>
-            </div>
-            <div className="lm-firstrun-confirm-row">
-              <span className="lm-meta">习惯</span>
-              <span>
-                {labelOf(WRITING_STYLE, writingStyle)} · {labelOf(RISK_POSTURE, riskPosture)} ·{" "}
-                {labelOf(CLIENT_TONE, clientTone)}
-              </span>
             </div>
             <div className="lm-firstrun-confirm-row">
               <span className="lm-meta">文书</span>
@@ -685,21 +547,11 @@ export function LawmindFirstRunDialog(props: Props): ReactNode {
               上一步
             </button>
           ) : null}
-          {step === "prefs" ? (
-            <button
-              type="button"
-              className="lm-btn"
-              disabled={!prefsReady}
-              onClick={() => setStep("spec")}
-            >
-              下一步
-            </button>
-          ) : null}
           {step === "confirm" ? (
             <button
               type="button"
               className="lm-btn"
-              disabled={submitBusy || !role || !prefsReady}
+              disabled={submitBusy || !role}
               onClick={() => void submit()}
             >
               {submitBusy ? "正在开始…" : createDemoMatter ? "建案件并开始交办" : "开始交办"}

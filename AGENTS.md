@@ -32,12 +32,13 @@ This repository is **LawMind only** (legal workbench: `src/lawmind`, `apps/lawmi
 
 ## Layout (what to touch)
 
-| Area                                     | Path                                                                                      |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Engine (tasks, drafts, agent, policy, …) | `src/lawmind/`                                                                            |
-| Desktop shell + local HTTP API sources   | `apps/lawmind-desktop/`                                                                   |
-| VitePress docs app                       | `apps/lawmind-docs/`                                                                      |
-| LawMind CLI scripts                      | `scripts/lawmind/`（`pnpm lawmind:*` 入口）· `scripts/pre-commit/`（本地 git hooks 辅助） |
+| Area                                     | Path                                                                                            |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Engine (tasks, drafts, agent, policy, …) | `src/lawmind/`                                                                                  |
+| Desktop shell + local HTTP API sources   | `apps/lawmind-desktop/`                                                                         |
+| VitePress docs app                       | `apps/lawmind-docs/`                                                                            |
+| LawMind Bench（自建评测 · **独立仓库**） | 平级目录 `../LawMind-Bench/`（不嵌本仓）；指针 `docs/LAWMIND-CHINESE-LEGAL-AGENT-BENCHMARKS.md` |
+| LawMind CLI scripts                      | `scripts/lawmind/`（`pnpm lawmind:*` 入口）· `scripts/pre-commit/`（本地 git hooks 辅助）       |
 
 ## Product UI (this machine only)
 

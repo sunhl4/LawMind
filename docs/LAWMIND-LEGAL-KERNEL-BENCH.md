@@ -19,6 +19,16 @@
 
 只吸收**题型与口径**。夹具是自撰中文劳动合同 / 买卖 / 保密 / 许可片段。禁止粘贴 CUAD、MAUD、ContractNLI 的合同原文。
 
+真循环外部切片（语料在 `tmp/`，不进 git）：
+
+- Harvey LAB 英文两题 + 交件/账本改动冲突表：[docs/LAWMIND-HARVEY-LAB-SLICE.md](./LAWMIND-HARVEY-LAB-SLICE.md)
+- PLawBench 中国法 9 题切片（案例分析 / 诉状 / 追问）：[docs/LAWMIND-PLAWBENCH-SLICE.md](./LAWMIND-PLAWBENCH-SLICE.md)
+
+中国法律 Agent 公开集调研与自建资产（**独立仓库**，与本仓平级）：
+
+- 产品仓指针：[docs/LAWMIND-CHINESE-LEGAL-AGENT-BENCHMARKS.md](./LAWMIND-CHINESE-LEGAL-AGENT-BENCHMARKS.md)
+- **LawMind Bench** 真相源：本机常见路径 `../LawMind-Bench/`（发版闸门与金标在彼仓，不嵌本仓）
+
 - **LegalBench / CUAD**：<https://github.com/HazyResearch/legalbench> 、任务表 <https://hazyresearch.stanford.edu/legalbench/tasks/> 。Hendrycks et al. 2021。官方 41 类全在 [src/lawmind/agent/cuad-official-clauses.ts](../src/lawmind/agent/cuad-official-clauses.ts)。Yes/No 仅在有回应 span 时为 Yes；日期答案为 `mm/dd/yyyy`；同一组可以共一段。这里的夹具是自撰中文，不是 EDGAR 的 510 份合同。510 份的零样本结果在文末。
 - **LawBench**：<https://github.com/open-compass/LawBench> 。Fei et al. 2024。20 个任务号都用论文里的指标（accuracy、multi-label F1、rc-F1、soft-F1、ROUGE-L、normalized log-distance、F0.5），见 [src/lawmind/agent/legal-bench-metrics.ts](../src/lawmind/agent/legal-bench-metrics.ts)。夹具不是 20×500 官方集。官方集的零样本结果在文末。
 - **ContractNLI**：Koreeda & Manning 2021。三向：蕴含 / 矛盾 / 未提及。矛盾 → 【待核实】，禁止 argmax。
@@ -166,6 +176,8 @@ pnpm exec vitest run \
 | Volume Restriction                 | 0.827 |    0.829 |          0.429 |       0.073 |   0.125 |
 | Warranty Duration                  | 0.873 |    0.899 |          0.774 |       0.640 |   0.701 |
 
-名称、双方、日期、管辖、续期和保证期的金标是短 span。这一轮要求抄完整句子，所以 Parties 的 exact match 是 0.002、Agreement Date 的 token F1 是 0.263，但「有没有这段」仍在 0.95 以上：模型找到了，抄得比金标长。Yes/No 类里，Volume Restriction、Price Restrictions、Uncapped Liability、Third Party Beneficiary 和两类 Affiliate License 的存在 F1 低于 0.5，主要是漏报。
+上表是「全部 41 类都抄完整句子」。名称、双方、日期、管辖、续期和保证期的金标是短 span，所以 Parties 的 exact match 是 0.002、Agreement Date 的 token F1 是 0.263，但「有没有这段」仍在 0.95 以上。
 
-readme 对这九类短答案要求只标片段、对其余类要求整句。按这个区分又开了一轮，跑到 56/510 时接口返回余额不足，这轮没有分数。上表是唯一完整的 510 份结果。
+readme 的口径是这九类只抄片段、其余类抄整句。这一轮 510 份也全部返回。总 exact match 0.736，token F1 0.807。有答案的 6702 题 exact match 0.306、token F1 0.529。无答案拒答 0.938。条款是否存在：precision 0.858，recall 0.788，F1 0.822。短答案里 Document Name 的 token F1 升到 0.943，Agreement Date 升到 0.734，Effective Date 升到 0.758。Parties 的存在 F1 仍是 1.000，token F1 只有 0.309。Expiration Date 的存在 recall 从 0.792 掉到 0.269。价格限制、数量限制、无限责任、附属许可的存在 recall 也更低。
+
+对照用同一套 LawBench 官方脚本、同一 0–100 刻度。来源是 [DeepSeek 系列在 LawBench 上的公开结果](https://huggingface.co/datasets/WNJXYK/LawBench_Results)：DeepSeek-V3 平均 55.64，DeepSeek-R1 平均 58.57。本机 `deepseek-flash` 平均 60.6。落后的是 2-6（5.8，R1 为 31.72）、2-10（62.9，R1 为 72.27）、3-8（15.9，V3 为 23.34）。

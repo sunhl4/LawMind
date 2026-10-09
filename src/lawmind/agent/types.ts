@@ -271,6 +271,11 @@ export type AgentMessage = {
    * injected context. The model still sees `content`. The bubble shows this.
    */
   lawyerVisibleText?: string;
+  /**
+   * DeepSeek thinking trace for the next tool-using request.
+   * Not shown in the lawyer bubble and not evidence.
+   */
+  reasoningContent?: string;
   /** 持久化的执行轨迹（assistant 消息，供桌面 reload 后展示） */
   liveTrace?: PersistedChatLiveTrace;
   executionState?: TaskExecutionState;

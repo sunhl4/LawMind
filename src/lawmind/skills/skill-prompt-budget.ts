@@ -7,7 +7,7 @@ import { readBuiltinSkillMarkdown } from "./lawyer-capabilities.js";
 import { litigationPrimary } from "./litigation-primary.js";
 
 const PRIMARY_BY_CAPABILITY: Record<string, readonly string[]> = {
-  "contract.review": ["contract-review-layers", "contract-redline-craft"],
+  "contract.review": ["contract-review-layers", "contract-playbook-review"],
   "contract.draft": ["contract-drafting-route", "practice-defaults"],
   "mail.contract": ["contract-review-layers", "citation-grounding"],
   "letter.draft": ["delivery-language", "legal-element-extraction"],
@@ -39,6 +39,12 @@ export function primarySkillIdsForBound(
   if (bound.id === "mail.contract") {
     const mail = ["contract-review-layers", "citation-grounding"].filter((id) => allowed.has(id));
     return mail.length > 0 ? mail : [...bound.skillIds].slice(0, 2);
+  }
+  if (bound.pipeline === "tracked_redline" && bound.id === "contract.review") {
+    const head = ["contract-review-layers", "contract-redline-craft"].filter((id) =>
+      allowed.has(id),
+    );
+    return head.length > 0 ? head : [...bound.skillIds].slice(0, 2);
   }
   if (bound.pipeline === "tracked_redline" && bound.id === "litigation.draft") {
     const head = [...bound.skillIds].filter((id) => allowed.has(id)).slice(0, 2);

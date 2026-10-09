@@ -4,6 +4,12 @@ All notable changes to this **LawMind-only** repository are tracked here.
 
 Historical **OpenClaw** upstream release notes were removed when the repository was slimmed to LawMind (engine + desktop + docs). For archeology, refer to the former upstream project history if you still have access.
 
+## Unreleased
+
+### Eval / Assets
+
+- 立项 **LawMind Bench** 为与本仓**平级的独立仓库**（本机常见 `../LawMind-Bench/`）：题库/金标/发版闸门不嵌在本 monorepo。产品仓仅保留指针 [docs/LAWMIND-CHINESE-LEGAL-AGENT-BENCHMARKS.md](docs/LAWMIND-CHINESE-LEGAL-AGENT-BENCHMARKS.md)；公开切片（PLawBench/Harvey/LawBench）仍属本仓工程回归。
+
 ## 0.2.2 — 2026-10-07
 
 ### Desktop
@@ -11,6 +17,7 @@ Historical **OpenClaw** upstream release notes were removed when the repository 
 - GitHub Release 安装包与当前律师工作台源码对齐；版本号 `apps/lawmind-desktop` → `0.2.2`；标签 `lawmind-desktop-v0.2.2`。
 - 桌面构建工作流修正 shell 中 `${matrix.label}` 无法展开、打包一步都没跑的问题。没有 Developer ID 证书时打 adhoc 包（下载后右键打开）；配了证书的 tag 构建仍要求公证。
 - 打包前生成画布 `sandbox-runtime.js`（该文件不入库），否则生产构建找不到它、安装包出不来。
+- 首跑去掉「习惯」问卷（行文 / 风险 / 对客）；不再写冷启动风格偏好进模型提示。流程改为身份 → 文书 → 开始；仍保留可执行权限等 UI 默认。习惯改由记忆库确认后沉淀。
 
 ### Changes
 

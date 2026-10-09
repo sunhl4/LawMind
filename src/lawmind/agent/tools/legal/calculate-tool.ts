@@ -47,6 +47,12 @@ export const calculateTool: AgentTool = {
     if (!computed.ok) {
       return { ok: false, error: computed.error };
     }
-    return { ok: true, data: computed.result };
+    return {
+      ok: true,
+      data: {
+        ...computed.result,
+        next: "若用户指定了文件，用 write_document 把 value 写到该相对路径后结束。run_compute 的 writeText 只会落到 artifacts/analysis/，不算交到指定路径。不要换字段名再调用 calculate。",
+      },
+    };
   },
 };

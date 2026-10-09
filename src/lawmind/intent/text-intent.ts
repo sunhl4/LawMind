@@ -58,7 +58,8 @@ export type TextVerb =
   | "continue"
   | "vague";
 
-const REVIEW_RE = /审查|审阅|看看|帮我看|帮忙看|看一下|风险|条款问题|意见书|合同审查/;
+const REVIEW_RE =
+  /审查|审阅|审核意见|审这份|审一下|看看|帮我看|帮忙看|看一下|风险|条款问题|意见书|合同审查/;
 const REDLINE_RE = /改稿|红线|审阅痕迹|出修订|修订稿|修改这份|改一下|改合同|修改合同/;
 const DRAFT_RE = /起草|拟定|拟写|撰写|写一份|拟一份|出一份稿|从零/;
 const LETTER_RE = /律师函|催告函|催款函|通知函|回函|答复函|demand letter/;

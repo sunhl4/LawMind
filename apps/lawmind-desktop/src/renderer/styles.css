@@ -3854,8 +3854,7 @@ html.lm-theme-dark .lm-main-header {
   margin-top: 8px;
 }
 
-.lm-chat-session-chip,
-.lm-md-session-link {
+.lm-chat-session-chip {
   display: inline-flex;
   align-items: center;
   margin: 0;
@@ -3875,22 +3874,47 @@ html.lm-theme-dark .lm-main-header {
   cursor: pointer;
 }
 
+/* Answer jumps (file, web, session, draft): familiar blue underline, not a brass chip. */
 .lm-md-session-link {
-  padding: 0 6px;
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
   font-size: inherit;
-  max-width: min(100%, 280px);
+  font-weight: inherit;
+  line-height: inherit;
   vertical-align: baseline;
+  text-align: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
 }
 
-.lm-chat-session-chip:hover,
-.lm-md-session-link:hover {
+.lm-chat-session-chip:hover {
   border-color: var(--accent, #b8860b);
 }
 
-.lm-chat-session-chip:focus-visible,
-.lm-md-session-link:focus-visible {
+.lm-md-session-link:hover {
+  color: var(--link-hover);
+  text-decoration-color: var(--link-hover);
+}
+
+.lm-chat-session-chip:focus-visible {
   outline: 2px solid var(--accent, #b8860b);
   outline-offset: 1px;
+}
+
+.lm-md-session-link:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .lm-msg-gate {
@@ -16198,7 +16222,7 @@ button.lm-side-chat-session-forked-btn {
   border: none;
   border-radius: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--link);
   cursor: pointer;
   font-family: inherit;
   font-size: inherit;
@@ -16206,13 +16230,14 @@ button.lm-side-chat-session-forked-btn {
   line-height: inherit;
   letter-spacing: 0;
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--accent-border) 55%, transparent);
+  text-decoration-color: var(--link);
+  text-decoration-thickness: 1px;
   text-underline-offset: 2px;
   transition: color var(--t) var(--ease), text-decoration-color var(--t) var(--ease);
 }
 .lm-source-pill:hover {
-  color: var(--accent);
-  text-decoration-color: var(--accent-border);
+  color: var(--link-hover);
+  text-decoration-color: var(--link-hover);
 }
 .lm-legal-cite-missing {
   color: var(--danger, #a33);

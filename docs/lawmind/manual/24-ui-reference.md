@@ -350,13 +350,13 @@
 
 ## 24.10 首跑与向导
 
-| 组件                        | 作用                                                          |
-| --------------------------- | ------------------------------------------------------------- |
-| `LawmindFirstRunDialog.tsx` | 可选的身份与习惯。连上模型后默认不弹；从设置重开才记偏好      |
-| `LawmindApiSetupWizard.tsx` | 连接向导（API Key、Base URL、模型、工作区、检索通道、推荐栈） |
-| `HelpPanel.tsx`             | 帮助面板                                                      |
-| `LawmindCommandPalette.tsx` | 命令面板                                                      |
-| `FileWorkbench.tsx`         | 文件工作台                                                    |
+| 组件                        | 作用                                                                 |
+| --------------------------- | -------------------------------------------------------------------- |
+| `LawmindFirstRunDialog.tsx` | 可选的身份与文书。连上模型后默认不弹；从设置重开。不写冷启动风格偏好 |
+| `LawmindApiSetupWizard.tsx` | 连接向导（API Key、Base URL、模型、工作区、检索通道、推荐栈）        |
+| `HelpPanel.tsx`             | 帮助面板                                                             |
+| `LawmindCommandPalette.tsx` | 命令面板                                                             |
+| `FileWorkbench.tsx`         | 文件工作台                                                           |
 
 连上模型之后直接进空对话，并建「演示案件」。身份、文风、风险口径和客户口吻留在这份对话框里，从设置重开才写进偏好。不要把它写成连上模型之后的必经问卷。
 

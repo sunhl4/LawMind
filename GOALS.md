@@ -67,6 +67,16 @@ LawMind **不把可审计当作产品价值、法律质量证明或用户信任�
 
 ## 三、当前期次与未完成项
 
+### 第十九期 · LawMind Bench（中国律师自建评测 · 独立仓库 · 2026-10-08）
+
+> 公开中国法 Agent 集可对齐研究，但不能验收「法宝真检索 + 交件」。自建 Bench 是公司资产，与本产品仓**平级独立开发**（本机常见路径 `../LawMind-Bench/`），不嵌在本仓库内。
+
+- [x] **独立仓库骨架**：`LawMind-Bench`（六分册、schema、脱敏样例、调研文档、`INTEGRATION.md`）
+- [x] **产品仓指针**： [docs/LAWMIND-CHINESE-LEGAL-AGENT-BENCHMARKS.md](docs/LAWMIND-CHINESE-LEGAL-AGENT-BENCHMARKS.md)
+- [ ] **律师金标 v0**（在 Bench 仓 `private/`）：每分册 ≥3 道私有题
+- [ ] **跑分 CLI + 发版 advisory**（Bench 仓；可选 `LAWMIND_ROOT` 调本产品）
+- [ ] **发版闸门生效**：题量达标后从 advisory 升为挡发版
+
 ### 第十九期 — 商业产品化冲刺（对标 Harvey · 当前期次）
 
 依据：2026-09-18 市面对标评审（[docs/LAWMIND-AGENT-PARITY-REVIEW.md](docs/LAWMIND-AGENT-PARITY-REVIEW.md)）+ Harvey 2026-09 公开 release（Harvey II / Tenet / Agentic Vault / Review Tables / Command Center）。主线：**把「交件能不能直接用」从工程切片变成商业承诺**。计划全文：画布 `lawmind-harvey-next-steps-2026-09`。

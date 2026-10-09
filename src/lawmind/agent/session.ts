@@ -714,6 +714,8 @@ export function compactHistory(
 export type ModelChatMessage = {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** Passed back when this assistant turn used tools. Not lawyer-visible. */
+  reasoning_content?: string;
   tool_calls?: Array<{
     id: string;
     type: "function";
@@ -771,6 +773,7 @@ function projectHistoryToModelMessages(source: AgentMessage[]): ModelChatMessage
     const base: ModelChatMessage = {
       role: msg.role,
       content: msg.content,
+      ...(msg.reasoningContent ? { reasoning_content: msg.reasoningContent } : {}),
     };
 
     if (msg.toolCalls && msg.toolCalls.length > 0) {

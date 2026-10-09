@@ -49,9 +49,10 @@ describe("contract-fast-lane-instruction", () => {
     expect(CONTRACT_FAST_LANE_TOOL_NAMES).toContain("draft_document");
   });
 
-  it("pairs redline coaching when a Word is pinned", () => {
-    expect(formatContractFastLanePrompt({ wordPinned: true })).toContain("render_tracked_draft");
-    expect(formatContractFastLanePrompt({ wordPinned: true })).not.toContain("本地意见书优先");
-    expect(formatContractFastLanePrompt()).toContain("本地意见书优先");
+  it("does not switch the 5-minute prompt into a mandatory redline when a Word is pinned", () => {
+    expect(formatContractFastLanePrompt({ wordPinned: true })).toBe(formatContractFastLanePrompt());
+    expect(formatContractFastLanePrompt()).toContain("工具表不收窄");
+    expect(formatContractFastLanePrompt()).not.toContain("本地意见书优先");
+    expect(formatContractFastLanePrompt({ wordPinned: true })).not.toContain("默认交审查意见");
   });
 });
