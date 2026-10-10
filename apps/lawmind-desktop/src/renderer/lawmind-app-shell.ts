@@ -16,7 +16,6 @@ import { useLawmindDetailDomain, useLawmindRecordsDomain } from "./lawmind-app-s
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
 import { DESK_WRITE_TOOL_NAMES } from "../../../../src/lawmind/agent/tool-name-sets.ts";
 import { notifyOutboundChanged } from "./lawmind-desk-outbound";
-import { requestOpenMatterOnDesk } from "./lawmind-desk-nav";
 import { contextMatterIdAfterCatalogChange } from "./lawmind-chat-scope";
 import { shouldSuggestContextFork } from "./LawmindContextForkSuggestion";
 import {
@@ -458,10 +457,8 @@ export function useLawmindAppShell() {
       if (info.toolNames.some((name) => DESK_WRITE_TOOL_NAMES.has(name))) {
         setMatterRefreshVersion((v) => v + 1);
       }
-      // 模型查了案件摘要：中栏跟到该案（有绑定芯片时）。
-      if (info.toolNames.includes("get_matter_summary") && contextMatterId?.trim()) {
-        requestOpenMatterOnDesk(contextMatterId);
-      }
+      // 中栏跳案件管理只走「打开/查看某某案」话术（requestViewMatterFromChat），
+      // 不因 get_matter_summary 等只读工具误切工作台。
       // send_email / prepare_outbound_mail 写入待发信后立刻刷新对话里的「本案有待发出」。
       if (
         info.toolNames.some(

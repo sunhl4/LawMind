@@ -2,7 +2,7 @@
  * 工作台：默认今日提醒；案件管理为下钻；左栏目录仍是案件真源。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { apiGetJson, apiSendJson, errorMessage, fetchApi } from "./api-client";
+import { ApiRequestError, apiGetJson, apiSendJson, errorMessage, fetchApi } from "./api-client";
 import { triggerBrowserDownload } from "./review/review-workbench-helpers";
 import { type ExtractedLegalEvent } from "../../../../src/lawmind/desk/legal-event-extract.ts";
 import {
@@ -33,6 +33,7 @@ import {
 import { LawmindDaemonRecap } from "./LawmindDaemonRecap";
 import { LawmindDeskAgenda } from "./LawmindDeskAgenda";
 import type { DeskAgendaItem } from "./lawmind-desk-agenda";
+import { setPendingAgendaMatterLink } from "./lawmind-desk-nav";
 import { openDeliverableInWps } from "./canvas/host-actions";
 import { LawmindDeskOutboundList } from "./LawmindDeskOutboundList";
 import {
@@ -300,6 +301,9 @@ function fallbackDeskMatter(
 function deskAlertCopy(err: string): string {
   if (/matter not found/i.test(err)) {
     return "未找到该案件登记。若左栏只有材料文件夹，请用「新建案件」登记后再打开案件管理。";
+  }
+  if (/no_route|请退出 LawMind/i.test(err) || /not found.*服务返回 404/i.test(err)) {
+    return "本地服务还是旧版本，删不了这条提醒。请完全退出 LawMind 后重新打开，再试一次。";
   }
   return err;
 }
@@ -579,8 +583,9 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     if (matterRefreshVersion <= 0) {
       return;
     }
-    void reloadMatters().catch(() => undefined);
-  }, [matterRefreshVersion, reloadMatters]);
+    // 建案 / 签批回写后：案卷列表与今日提醒（待拍板消项）一起刷新。
+    void Promise.all([reloadMatters(), reloadToday()]).catch(() => undefined);
+  }, [matterRefreshVersion, reloadMatters, reloadToday]);
 
   useEffect(() => {
     if (!viewingId) {
@@ -688,6 +693,32 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     return map;
   }, [matters]);
 
+  const recentMatters = useMemo(
+    () =>
+      shownMatters.slice(0, 3).map((row) => ({
+        matterId: row.matterId,
+        title: row.title,
+      })),
+    [shownMatters],
+  );
+
+  const openCreateMatterPlain = () => {
+    setPendingAgendaMatterLink(null);
+    onCreateMatter?.();
+  };
+
+  const createMatterForAgendaItem = (item: DeskAgendaItem) => {
+    if (item.kind !== "plan" || !onCreateMatter) {
+      openCreateMatterPlain();
+      return;
+    }
+    setPendingAgendaMatterLink({
+      itemId: item.id,
+      ...(item.originDate ? { originDate: item.originDate } : {}),
+    });
+    onCreateMatter();
+  };
+
   const addPlanItem = async (text: string) => {
     setBusy(true);
     setErr(null);
@@ -710,7 +741,8 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     }
   };
 
-  const toggleAgendaItem = async (item: DeskAgendaItem, done: boolean) => {
+  /** 办完：标记完成并从今日提醒列表消失（不再用复选框反勾）。 */
+  const completeAgendaItem = async (item: DeskAgendaItem) => {
     setBusy(true);
     setErr(null);
     try {
@@ -719,7 +751,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
           { ok?: boolean; today?: TodaySnapshot },
           { done: boolean; date?: string }
         >(apiBase, `/api/desk/plan/items/${encodeURIComponent(item.id)}`, "PATCH", {
-          done,
+          done: true,
           ...(item.originDate ? { date: item.originDate } : {}),
         });
         if (j.today) {
@@ -734,8 +766,12 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
         }
         const j = await apiSendJson<
           { ok?: boolean; today?: TodaySnapshot },
-          { source: "mail"; sourceRef: string }
-        >(apiBase, "/api/desk/plan/source-done", "POST", { source: "mail", sourceRef: ref });
+          { source: "mail"; sourceRef: string; done: boolean }
+        >(apiBase, "/api/desk/plan/source-done", "POST", {
+          source: "mail",
+          sourceRef: ref,
+          done: true,
+        });
         if (j.today) {
           setToday(j.today);
         } else {
@@ -751,14 +787,101 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
           apiBase,
           `/api/matters/${encodeURIComponent(matterId)}/deadlines/${encodeURIComponent(deadlineId)}`,
           "PATCH",
-          { status: done ? "completed" : "open" },
+          { status: "completed" },
         );
         await reloadToday();
       } else if (item.kind === "approval") {
         onOpenNeedsDecision?.(item.matterId);
       }
     } catch (e) {
-      setErr(errorMessage(e, "更新提醒失败"));
+      setErr(errorMessage(e, "办完提醒失败"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** 删除手写/过时备忘：从计划文件移除；旧服务无删除路由时退化为办完消项。 */
+  const deleteAgendaItem = async (item: DeskAgendaItem) => {
+    if (item.kind !== "plan") {
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      try {
+        const j = await apiSendJson<
+          { ok?: boolean; today?: TodaySnapshot },
+          { date?: string }
+        >(apiBase, `/api/desk/plan/items/${encodeURIComponent(item.id)}/delete`, "POST", (item.originDate ? { date: item.originDate } : {}));
+        if (j.today) {
+          setToday(j.today);
+        } else {
+          await reloadToday();
+        }
+      } catch (e) {
+        if (!(e instanceof ApiRequestError) || e.status !== 404) {
+          throw e;
+        }
+        // 旧本地服务尚无删除路由：先按办完消项，避免红字 404。
+        const j = await apiSendJson<
+          { ok?: boolean; today?: TodaySnapshot },
+          { done: boolean; date?: string }
+        >(apiBase, `/api/desk/plan/items/${encodeURIComponent(item.id)}`, "PATCH", {
+          done: true,
+          ...(item.originDate ? { date: item.originDate } : {}),
+        });
+        if (j.today) {
+          setToday(j.today);
+        } else {
+          await reloadToday();
+        }
+      }
+    } catch (e) {
+      setErr(errorMessage(e, "删除提醒失败"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** 把误办完的提醒恢复到列表（邮件消项哨兵 / 手写备忘）。 */
+  const restoreAgendaItem = async (item: DeskAgendaItem) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      if (item.kind === "plan") {
+        const j = await apiSendJson<
+          { ok?: boolean; today?: TodaySnapshot },
+          { done: boolean; date?: string }
+        >(apiBase, `/api/desk/plan/items/${encodeURIComponent(item.id)}`, "PATCH", {
+          done: false,
+          ...(item.originDate ? { date: item.originDate } : {}),
+        });
+        if (j.today) {
+          setToday(j.today);
+        } else {
+          await reloadToday();
+        }
+      } else if (item.kind === "mail") {
+        const ref = mailSourceRef(item);
+        if (!ref) {
+          throw new Error("缺少邮件引用");
+        }
+        const j = await apiSendJson<
+          { ok?: boolean; today?: TodaySnapshot },
+          { source: "mail"; sourceRef: string; done: boolean }
+        >(apiBase, "/api/desk/plan/source-done", "POST", {
+          source: "mail",
+          sourceRef: ref,
+          done: false,
+        });
+        if (j.today) {
+          setToday(j.today);
+        } else {
+          await reloadToday();
+        }
+      }
+    } catch (e) {
+      setErr(errorMessage(e, "恢复提醒失败"));
     } finally {
       setBusy(false);
     }
@@ -1341,7 +1464,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
               </button>
             ) : null}
             {onCreateMatter ? (
-              <button type="button" className="lm-btn lm-btn-sm" onClick={onCreateMatter}>
+              <button type="button" className="lm-btn lm-btn-sm" onClick={openCreateMatterPlain}>
                 新建案件
               </button>
             ) : null}
@@ -1363,17 +1486,23 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
             items={todayItems}
             progress={today?.progress ?? { done: 0, total: 0 }}
             matterTitleById={matterTitleById}
+            recentMatters={recentMatters}
+            focusMatterId={selectedMatterId}
             query={query}
             listFilter={listFilter}
             urgencyChips={urgencyChips}
             onListFilter={setListFilter}
             busy={busy}
-            onToggleItem={toggleAgendaItem}
+            onCompleteItem={completeAgendaItem}
+            onDeleteItem={deleteAgendaItem}
+            onRestoreItem={restoreAgendaItem}
             onOpenMatter={openMatter}
-            onCreateMatter={onCreateMatter}
+            onCreateMatter={openCreateMatterPlain}
+            onCreateMatterForItem={createMatterForAgendaItem}
             onOpenNeedsDecision={onOpenNeedsDecision}
             onAddPlan={addPlanItem}
             onShowCases={showCases}
+            onGoToChat={(opts) => onGoToChat({ prompt: opts?.prompt })}
             replicaNote={
               replicaFeed.length > 0 ? (
                 <div className="lm-desk-replica-note" data-testid="lm-desk-replica-feed">
@@ -1452,7 +1581,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                     全部案卷
                   </button>
                 ) : onCreateMatter ? (
-                  <button type="button" className="lm-btn lm-btn-sm" onClick={onCreateMatter}>
+                  <button type="button" className="lm-btn lm-btn-sm" onClick={openCreateMatterPlain}>
                     新建案件
                   </button>
                 ) : null}

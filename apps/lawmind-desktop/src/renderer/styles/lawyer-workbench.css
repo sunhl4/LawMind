@@ -1209,7 +1209,7 @@
 
 .lm-desk-agenda-card {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px 12px;
   align-items: start;
   padding: 12px 14px;
@@ -1228,28 +1228,6 @@
 .lm-desk-agenda-card.is-hot {
   border-color: color-mix(in srgb, var(--danger-border, var(--error)) 70%, var(--border));
   background: color-mix(in srgb, var(--danger-dim, rgba(180, 60, 50, 0.08)) 55%, var(--surface));
-}
-
-.lm-desk-agenda-card.is-done {
-  opacity: 0.72;
-}
-
-.lm-desk-agenda-card.is-done .lm-desk-agenda-title {
-  text-decoration: line-through;
-  color: var(--text-2);
-}
-
-.lm-desk-agenda-check {
-  display: grid;
-  place-items: center;
-  padding-top: 3px;
-}
-
-.lm-desk-agenda-check input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
-  cursor: pointer;
 }
 
 .lm-desk-agenda-card-body {
@@ -1398,15 +1376,175 @@
   }
 
   .lm-desk-agenda-card {
-    grid-template-columns: 28px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .lm-desk-agenda-card-actions {
-    grid-column: 2;
+    grid-column: 1;
     justify-content: flex-start;
   }
 
   .lm-desk-agenda-hero {
     align-items: flex-start;
   }
+}
+
+.lm-desk-agenda-source {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.lm-desk-agenda-source[data-source="自动"] {
+  color: var(--accent-cool, var(--text-2));
+  border-color: var(--accent-cool-border, var(--border));
+  background: color-mix(in srgb, var(--accent-cool-dim, var(--surface-2)) 65%, var(--surface));
+}
+
+.lm-desk-agenda-source[data-source="未结"] {
+  color: var(--warn);
+  border-color: var(--warn-border);
+  background: color-mix(in srgb, var(--warn-dim) 65%, var(--surface));
+}
+
+.lm-desk-agenda-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lm-desk-agenda-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lm-desk-agenda-group-head {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lm-desk-agenda-group-head:hover {
+  background: color-mix(in srgb, var(--accent-dim) 28%, var(--surface-2));
+}
+
+.lm-desk-agenda-group-chev {
+  width: 1rem;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.lm-desk-agenda-group-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-desk-agenda-recent {
+  margin-top: 10px;
+  width: 100%;
+  max-width: 22rem;
+}
+
+.lm-desk-agenda-recent-label {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.lm-desk-agenda-recent ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lm-desk-agenda-recent-btn {
+  appearance: none;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lm-desk-agenda-done {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--surface));
+}
+
+.lm-desk-agenda-done > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-2);
+}
+
+.lm-desk-agenda-done > summary::-webkit-details-marker {
+  display: none;
+}
+
+.lm-desk-agenda-done-hint {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.lm-desk-agenda-done .lm-desk-agenda-list {
+  margin-top: 10px;
+}
+
+.lm-desk-agenda-card--done-row {
+  opacity: 0.88;
+}
+
+.lm-desk-agenda-card--done-row .lm-desk-agenda-title {
+  text-decoration: line-through;
+  color: var(--text-2);
+}
+
+.lm-desk-agenda-recent-btn:hover {
+  border-color: var(--accent-border);
 }

@@ -349,6 +349,62 @@ describe("handleLawyerDeskRoutes", () => {
     expect(after.some((item) => item.title === "改代理词")).toBe(false);
   });
 
+  it("patches matterId onto a plan item", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-desk-plan-link-"));
+    tmp.push(workspaceDir);
+    const { appendDailyPlanItems, loadDailyPlan, localDateKey } = await import(
+      "../../../src/lawmind/desk/daily-plan.js"
+    );
+    const today = localDateKey();
+    const saved = await appendDailyPlanItems(workspaceDir, ["回电王总"], { date: today });
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const patch = captureRes();
+    await handleLawyerDeskRoutes({
+      ctx,
+      pathname: `/api/desk/plan/items/${saved.items[0].id}`,
+      req: jsonReq("PATCH", { matterId: "case-link" }),
+      res: patch.res,
+      url: new URL(`http://127.0.0.1/api/desk/plan/items/${saved.items[0].id}`),
+      c: {},
+    });
+    expect(patch.json().ok).toBe(true);
+    expect(loadDailyPlan(workspaceDir, today).items[0]?.matterId).toBe("case-link");
+  });
+
+  it("deletes a plan item from today's reminder", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-desk-plan-del-"));
+    tmp.push(workspaceDir);
+    const { appendDailyPlanItems, loadDailyPlan, localDateKey } = await import(
+      "../../../src/lawmind/desk/daily-plan.js"
+    );
+    const today = localDateKey();
+    const saved = await appendDailyPlanItems(workspaceDir, ["过时备忘"], { date: today });
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const del = captureRes();
+    await handleLawyerDeskRoutes({
+      ctx,
+      pathname: `/api/desk/plan/items/${saved.items[0].id}/delete`,
+      req: jsonReq("POST", {}),
+      res: del.res,
+      url: new URL(`http://127.0.0.1/api/desk/plan/items/${saved.items[0].id}/delete`),
+      c: {},
+    });
+    expect(del.json().ok).toBe(true);
+    expect(loadDailyPlan(workspaceDir, today).items).toHaveLength(0);
+    const todayItems = (del.json().today as { items: Array<{ title: string }> }).items;
+    expect(todayItems.some((item) => item.title === "过时备忘")).toBe(false);
+  });
+
   /**
    * `/api/workspace/standards` 的 `bindWhen.contractTypes` 必须是**闭合的 12 类 id**。
    *

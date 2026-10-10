@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const NAMED_DELIVERABLE_RE =
-  /(?:写入|写到|写进|\bwrite\b|\boutput:)\s*[`「"']*([A-Za-z0-9_\u4e00-\u9fff.-]+\.[A-Za-z0-9]{1,8})/gi;
+  /(?:写入|写到|写进|点名输出|文件名为|交件文件名|\bwrite\b|\boutput:)\s*[：:〕】]?\s*[`「"']*([A-Za-z0-9_\u4e00-\u9fff.·-]+\.[A-Za-z0-9]{1,8})/gi;
 
 export function namedWorkspaceDeliverables(instruction: string): string[] {
   const found: string[] = [];

@@ -262,4 +262,41 @@ describe("renderLegalMarkdown tables and math", () => {
     expect(menuPath).toBe("cases/m/费用.xlsx");
     window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
   });
+
+  it("renders CASE-style italic, h3, and multi-line list continuations", async () => {
+    const text = [
+      "# 案件档案",
+      "",
+      "## 1. 基本信息",
+      "",
+      "- 客户: _（与目录 clients/该id/ 对应）_",
+      "- 第二十八条　协议亦可载明：",
+      "（一）权利义务；",
+      "（二）解除和终止。",
+      "",
+      "### 附注",
+      "",
+      "磁盘上**不存在**该件。",
+    ].join("\n");
+    await act(async () => {
+      root.render(<div className="lm-md">{renderLegalMarkdown(text)}</div>);
+    });
+    expect(host.querySelector("em")?.textContent).toContain("与目录 clients");
+    expect(host.textContent).not.toContain("_（与目录");
+    expect(host.querySelector(".lm-md-h3")?.textContent).toBe("附注");
+    const items = host.querySelectorAll(".lm-md-list > li");
+    expect(items.length).toBe(2);
+    expect(items[1]?.innerHTML).toContain("<br");
+    expect(items[1]?.textContent).toContain("（一）权利义务");
+    expect(items[1]?.textContent).toContain("（二）解除和终止");
+    expect(host.querySelector("strong")?.textContent).toBe("不存在");
+  });
+
+  it("does not italicize snake_case identifiers", async () => {
+    await act(async () => {
+      root.render(<div>{renderLegalMarkdown("id: matter_muko_64")}</div>);
+    });
+    expect(host.querySelector("em")).toBeNull();
+    expect(host.textContent).toContain("matter_muko_64");
+  });
 });

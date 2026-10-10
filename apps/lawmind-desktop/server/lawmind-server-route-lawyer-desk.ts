@@ -20,7 +20,14 @@ import { extractLegalEvents } from "../../../src/lawmind/desk/legal-event-extrac
 import { applyLegalEvents, applyIntakeBrief } from "../../../src/lawmind/desk/desk-apply.js";
 import { readDeskMaterialText } from "../../../src/lawmind/desk/desk-material-text.js";
 import { formatDeadlinesIcs } from "../../../src/lawmind/desk/deadline-ics.js";
-import { appendDailyPlanItems, setDailyPlanItemDone, markDailyPlanSourceDone } from "../../../src/lawmind/desk/daily-plan.js";
+import {
+  appendDailyPlanItems,
+  deleteDailyPlanItem,
+  patchDailyPlanItem,
+  setDailyPlanItemDone,
+  setDailyPlanSourceDone,
+  markDailyPlanSourceDone,
+} from "../../../src/lawmind/desk/daily-plan.js";
 import { buildTodayWorkSnapshot } from "../../../src/lawmind/desk/today-work.js";
 import {
   evaluateMatterReplicaGate,
@@ -55,10 +62,15 @@ const planPostSchema = z.object({
   matterId: z.string().trim().min(1).max(200).optional(),
 });
 
-const planItemPatchSchema = z.object({
-  done: z.boolean(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-});
+const planItemPatchSchema = z
+  .object({
+    done: z.boolean().optional(),
+    matterId: z.union([z.string().trim().min(1).max(200), z.null()]).optional(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  })
+  .refine((body) => body.done !== undefined || body.matterId !== undefined, {
+    message: "done or matterId required",
+  });
 
 const deadlinePostSchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -154,6 +166,8 @@ const sourceDoneSchema = z.object({
   source: z.enum(["mail", "deadline", "approval"]),
   sourceRef: z.string().trim().min(1).max(200),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /** 默认 true；false 用于今日提醒反勾邮件等来源项。 */
+  done: z.boolean().optional(),
 });
 
 function requireMatter(pathnameMatter: string, res: LawmindRouteContext["res"], c: LawmindRouteContext["c"]): string | null {
@@ -259,7 +273,19 @@ export async function handleLawyerDeskRoutes({
   if (planItemMatch && req.method === "PATCH") {
     try {
       const body = await parseJsonBodyZod(req, planItemPatchSchema);
-      const plan = await setDailyPlanItemDone(workspaceDir, decodeURIComponent(planItemMatch[1] ?? ""), body.done, body.date);
+      const itemId = decodeURIComponent(planItemMatch[1] ?? "");
+      const plan =
+        body.done !== undefined && body.matterId === undefined
+          ? await setDailyPlanItemDone(workspaceDir, itemId, body.done, body.date)
+          : await patchDailyPlanItem(
+              workspaceDir,
+              itemId,
+              {
+                ...(body.done !== undefined ? { done: body.done } : {}),
+                ...(body.matterId !== undefined ? { matterId: body.matterId } : {}),
+              },
+              body.date,
+            );
       if (!plan) {
         sendJson(res, 404, { ok: false, error: "item not found" }, c);
         return true;
@@ -275,10 +301,53 @@ export async function handleLawyerDeskRoutes({
     return true;
   }
 
+  if (planItemMatch && req.method === "DELETE") {
+    const itemId = decodeURIComponent(planItemMatch[1] ?? "");
+    const dateParam = url.searchParams.get("date")?.trim();
+    const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : undefined;
+    const plan = await deleteDailyPlanItem(workspaceDir, itemId, date);
+    if (!plan) {
+      sendJson(res, 404, { ok: false, error: "item not found" }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true, plan, today: buildTodayWorkSnapshot(workspaceDir) }, c);
+    return true;
+  }
+
+  /** 与 DELETE 等价；桌面端用 POST，避免旧本地服务 / 部分环境对 DELETE 无路由。 */
+  const planItemDeletePost = /^\/api\/desk\/plan\/items\/([^/]+)\/delete$/.exec(pathname);
+  if (planItemDeletePost && req.method === "POST") {
+    try {
+      const body = await parseJsonBodyZod(
+        req,
+        z.object({
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        }),
+      );
+      const itemId = decodeURIComponent(planItemDeletePost[1] ?? "");
+      const plan = await deleteDailyPlanItem(workspaceDir, itemId, body.date);
+      if (!plan) {
+        sendJson(res, 404, { ok: false, error: "item not found" }, c);
+        return true;
+      }
+      sendJson(res, 200, { ok: true, plan, today: buildTodayWorkSnapshot(workspaceDir) }, c);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid delete" }, c);
+        return true;
+      }
+      throw err;
+    }
+    return true;
+  }
+
   if (pathname === "/api/desk/plan/source-done" && req.method === "POST") {
     try {
       const body = await parseJsonBodyZod(req, sourceDoneSchema);
-      const plan = await markDailyPlanSourceDone(workspaceDir, body.source, body.sourceRef, body.date);
+      const done = body.done !== false;
+      const plan = done
+        ? await markDailyPlanSourceDone(workspaceDir, body.source, body.sourceRef, body.date)
+        : await setDailyPlanSourceDone(workspaceDir, body.source, body.sourceRef, false, body.date);
       sendJson(res, 200, { ok: true, plan, today: buildTodayWorkSnapshot(workspaceDir) }, c);
     } catch (err) {
       if (isInvalidRequestBodyError(err)) {

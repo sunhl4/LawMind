@@ -4,6 +4,8 @@ import type { RootKey } from "../file/file-workbench-types";
 import type { LawmindMainView } from "../lawmind-main-view";
 import { tryClarifyAttachFile } from "../lawmind-clarify-bring-in-bus";
 import { useEdition } from "../use-edition";
+import { apiSendJson } from "../api-client";
+import { takePendingAgendaMatterLink } from "../lawmind-desk-nav";
 import type { LawmindAppRootDialogsProps } from "./LawmindAppRootDialogs";
 import type { LawmindFileWorkbenchHostProps } from "./LawmindFileWorkbenchHost";
 import type { CommandPaletteAction } from "../LawmindCommandPalette";
@@ -101,8 +103,31 @@ export function useLawmindAppRootDialogsProps(
           }
         : undefined,
       createMatterOpen,
-      onCloseCreateMatter: () => setCreateMatterOpen(false),
+      onCloseCreateMatter: () => {
+        takePendingAgendaMatterLink();
+        setCreateMatterOpen(false);
+      },
       onCreateMatterSuccess: (mid) => {
+        const pending = takePendingAgendaMatterLink();
+        const base = apiBase?.trim();
+        if (pending && base) {
+          void apiSendJson(
+            base,
+            `/api/desk/plan/items/${encodeURIComponent(pending.itemId)}`,
+            "PATCH",
+            {
+              matterId: mid,
+              ...(pending.originDate ? { date: pending.originDate } : {}),
+            },
+          )
+            .catch(() => undefined)
+            .finally(() => {
+              setMatterRefreshVersion((v) => v + 1);
+              recordsDeskMattersSetSelectedKey(mid);
+              openMatterOnDesk?.(mid);
+            });
+          return;
+        }
         setMatterRefreshVersion((v) => v + 1);
         recordsDeskMattersSetSelectedKey(mid);
         openMatterOnDesk?.(mid);

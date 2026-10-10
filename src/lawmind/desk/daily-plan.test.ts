@@ -8,7 +8,10 @@ import {
   loadDailyPlan,
   localDateKey,
   markDailyPlanSourceDone,
+  deleteDailyPlanItem,
+  patchDailyPlanItem,
   setDailyPlanItemDone,
+  setDailyPlanSourceDone,
   shiftLocalDateKey,
 } from "./daily-plan.js";
 
@@ -93,5 +96,29 @@ describe("daily-plan", () => {
     expect(plan.items[0]?.source).toBe("mail");
     expect(plan.items[0]?.sourceRef).toBe("msg-new");
     expect(plan.items[0]?.done).toBe(true);
+  });
+
+  it("can unmark a mail source when needed", async () => {
+    const date = "2026-10-10";
+    await setDailyPlanSourceDone(workspaceDir, "mail", "msg-undo", true, date);
+    const reopened = await setDailyPlanSourceDone(workspaceDir, "mail", "msg-undo", false, date);
+    expect(reopened.items.find((item) => item.sourceRef === "msg-undo")?.done).toBe(false);
+  });
+
+  it("patches matterId onto an existing plan row", async () => {
+    const saved = await appendDailyPlanItems(workspaceDir, ["回电王总"], { date: "2026-10-10" });
+    const patched = await patchDailyPlanItem(
+      workspaceDir,
+      saved.items[0].id,
+      { matterId: "case-link" },
+      "2026-10-10",
+    );
+    expect(patched?.items[0]?.matterId).toBe("case-link");
+  });
+
+  it("deletes a plan row from the day file", async () => {
+    const saved = await appendDailyPlanItems(workspaceDir, ["过时备忘"], { date: "2026-10-10" });
+    const after = await deleteDailyPlanItem(workspaceDir, saved.items[0].id, "2026-10-10");
+    expect(after?.items).toHaveLength(0);
   });
 });

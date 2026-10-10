@@ -41,9 +41,12 @@ import {
 import {
   consultListGap,
   formatConsultQuestionsNudge,
+  formatMemoSectionNudge,
   formatPleadingSectionNudge,
   instructionFramesConsultQuestions,
+  instructionFramesMemoDeliverable,
   instructionFramesPleading,
+  memoSectionGaps,
   pleadingSectionGaps,
 } from "./deliverable-shape.js";
 import { applyProseSyndrome, appendMechanicalNote } from "./factor-state.js";
@@ -457,6 +460,7 @@ export async function runModelToolLoop(opts: {
   let synthesisNudged = false;
   let calculateParamNudged = false;
   let pleadingNudged = false;
+  let memoNudged = false;
   let consultNudged = false;
   /** At most one extra sample per turn after a finished Word-revision reread. */
   let documentRereadContinued = false;
@@ -691,8 +695,14 @@ export async function runModelToolLoop(opts: {
       pleadingSectionGaps(opts.config.workspaceDir, opts.turn.instruction).length > 0;
     const consultRewrite =
       consultNudged && consultListGap(opts.config.workspaceDir, opts.turn.instruction);
+    const frameMemo = instructionFramesMemoDeliverable(opts.turn.instruction);
+    const memoRewrite =
+      memoNudged && memoSectionGaps(opts.config.workspaceDir, opts.turn.instruction).length > 0;
     const lockSearch =
-      synthesisNudged || frameConsult || (framePleading && missingForWrite.length === 0);
+      synthesisNudged ||
+      frameConsult ||
+      (framePleading && missingForWrite.length === 0) ||
+      (frameMemo && missingForWrite.length === 0 && memoRewrite);
     const roundToolNames = lockSearch ? withholdSearchTools(step.toolNames) : step.toolNames;
     openAITools = opts.registry.toOpenAITools({ names: roundToolNames });
     const toolDelta = applyToolDisclosureDelta(opts.session, previousToolNames, roundToolNames);
@@ -1274,6 +1284,21 @@ export async function runModelToolLoop(opts: {
       opts.session.conversationHistory.push(nudge);
       opts.turn.messages.push(nudge);
       steeredToWrite = true;
+    }
+    if (frameMemo && !memoNudged) {
+      const gaps = memoSectionGaps(opts.config.workspaceDir, opts.turn.instruction);
+      if (gaps.length > 0) {
+        memoNudged = true;
+        const nudge = {
+          role: "user" as const,
+          content: formatMemoSectionNudge(gaps),
+          timestamp: new Date().toISOString(),
+          hiddenFromLawyer: true,
+        };
+        opts.session.conversationHistory.push(nudge);
+        opts.turn.messages.push(nudge);
+        steeredToWrite = true;
+      }
     }
     if (
       !calculateParamNudged &&

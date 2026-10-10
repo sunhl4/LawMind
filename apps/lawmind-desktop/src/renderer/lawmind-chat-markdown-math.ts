@@ -9,6 +9,7 @@ import { tryConsumeLmSessionMarkdown } from "./lawmind-session-link";
 export type InlineMarkdownToken =
   | { kind: "text"; value: string }
   | { kind: "bold"; value: string }
+  | { kind: "italic"; value: string }
   | { kind: "code"; value: string }
   | { kind: "math"; tex: string; display: boolean }
   | { kind: "session_link"; label: string; sessionId: string; assistantId?: string }
@@ -160,6 +161,14 @@ export function tokenizeInlineLegalMarkdown(text: string): InlineMarkdownToken[]
       }
     }
 
+    const italic = tryConsumeItalicEmphasis(text, index);
+    if (italic) {
+      flush();
+      tokens.push({ kind: "italic", value: italic.value });
+      index = italic.next;
+      continue;
+    }
+
     if (text[index] === "[") {
       const sessionLink = tryConsumeLmSessionMarkdown(text, index);
       if (sessionLink) {
@@ -221,6 +230,52 @@ function tokenFromLawyerLink(link: LawyerChatLink): InlineMarkdownToken {
     return { kind: "wps_link", label: link.label, path: link.path };
   }
   return { kind: "text", value: link.label };
+}
+
+/**
+ * `_注_` / `*注*`。下划线不切开 `matter_id` 这类词中下划线；
+ * CASE.md 模板大量用 `_（说明）_` 标占位提示。
+ */
+export function tryConsumeItalicEmphasis(
+  text: string,
+  index: number,
+): { value: string; next: number } | null {
+  const marker = text[index];
+  if (marker !== "_" && marker !== "*") {
+    return null;
+  }
+  if (text[index + 1] === marker) {
+    return null;
+  }
+  const prev = index > 0 ? (text[index - 1] ?? "") : "";
+  if (marker === "_" && /[A-Za-z0-9]/.test(prev)) {
+    return null;
+  }
+  let cursor = index + 1;
+  while (cursor < text.length) {
+    const ch = text[cursor] ?? "";
+    if (ch === "\n") {
+      return null;
+    }
+    if (ch === marker) {
+      if (text[cursor + 1] === marker) {
+        cursor += 1;
+        continue;
+      }
+      const after = text[cursor + 1] ?? "";
+      if (marker === "_" && /[A-Za-z0-9]/.test(after)) {
+        cursor += 1;
+        continue;
+      }
+      const value = text.slice(index + 1, cursor);
+      if (!value.trim()) {
+        return null;
+      }
+      return { value, next: cursor + 1 };
+    }
+    cursor += 1;
+  }
+  return null;
 }
 
 function trySingleDollarMath(

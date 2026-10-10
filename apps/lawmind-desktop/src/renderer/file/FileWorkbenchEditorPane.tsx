@@ -30,6 +30,8 @@ import { MediaFileView } from "./MediaFileView";
 import { PdfFileView } from "./PdfFileView";
 import { XlsxFileView } from "./XlsxFileView";
 import { ZipFileView } from "./ZipFileView";
+import { isMarkdownWorkbenchPath } from "./markdown-file-preview";
+import { renderLegalMarkdown } from "../lawmind-chat-markdown";
 
 export type FileWorkbenchEditorPaneProps = {
   tabs: OpenFileTab[];
@@ -91,12 +93,17 @@ export function FileWorkbenchEditorPane({
   projectDir = null,
 }: FileWorkbenchEditorPaneProps) {
   const canvasFile = Boolean(activeTab && activeTab.kind === "text" && /\.canvas\.tsx$/i.test(activeTab.path));
+  const markdownFile = Boolean(
+    activeTab && activeTab.kind === "text" && isMarkdownWorkbenchPath(activeTab.path),
+  );
   const [canvasSource, setCanvasSource] = useState(false);
+  const [mdSource, setMdSource] = useState(false);
   const sourceRef = useRef<HTMLTextAreaElement>(null);
   const appliedReveal = useRef("");
   const [lineReveal, setLineReveal] = useState<RevealFileLineDetail | null>(null);
   const canvasKind = useLawmindCanvasKind();
   const canvasPreview = canvasFile && !canvasSource;
+  const markdownPreview = markdownFile && !mdSource && !canvasFile;
   const canvasBg = canvasKind === "dark" ? "#181818" : "#FCFCFC";
   const canvasFg = canvasKind === "dark" ? "#E4E4E4" : "#141414";
   const canvasLine = canvasKind === "dark" ? "#E4E4E41F" : "#1414141F";
@@ -106,6 +113,7 @@ export function FileWorkbenchEditorPane({
   if (canvasTabId !== canvasTabSeen) {
     setCanvasTabSeen(canvasTabId);
     setCanvasSource(false);
+    setMdSource(false);
     setCanvasExportNote(null);
   }
   useEffect(() => {
@@ -139,6 +147,13 @@ export function FileWorkbenchEditorPane({
       setCanvasSource(true);
       return;
     }
+    if (markdownFile && !mdSource) {
+      if (appliedReveal.current.startsWith(revealKey)) {
+        return;
+      }
+      setMdSource(true);
+      return;
+    }
     const area = sourceRef.current;
     if (!area || appliedReveal.current === revealKey) {
       return;
@@ -149,7 +164,7 @@ export function FileWorkbenchEditorPane({
     area.setSelectionRange(range.start, range.end);
     const lineHeight = Number.parseFloat(getComputedStyle(area).lineHeight) || 20;
     area.scrollTop = Math.max(0, (lineReveal.line - 3) * lineHeight);
-  }, [activeTab, canvasFile, canvasSource, lineReveal]);
+  }, [activeTab, canvasFile, canvasSource, markdownFile, mdSource, lineReveal]);
 
   useEffect(() => {
     const onResult = (event: Event) => {
@@ -426,6 +441,16 @@ export function FileWorkbenchEditorPane({
                     {canvasSource ? "画布" : "源码"}
                   </button>
                 ) : null}
+                {markdownFile ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost lm-btn-sm"
+                    data-testid="lm-md-preview-toggle"
+                    onClick={() => setMdSource((value) => !value)}
+                  >
+                    {mdSource ? "预览" : "源码"}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="lm-btn lm-btn-sm"
@@ -448,6 +473,22 @@ export function FileWorkbenchEditorPane({
           )}
           {canvasPreview ? (
             <CanvasFileView root={activeTab.root} path={activeTab.path} source={activeTab.content} />
+          ) : markdownPreview ? (
+            <div
+              className="lm-md-file-preview lm-scroll"
+              data-testid="lm-md-file-preview"
+              aria-label={`${activeTab.name} 预览`}
+            >
+              <article className="lm-md-file-preview-sheet">
+                <div className="lm-md-file-preview-body lm-md">
+                  {renderLegalMarkdown(activeTab.content, {
+                    apiBase,
+                    workspaceDir,
+                    onOpenError: (message) => setError(message),
+                  })}
+                </div>
+              </article>
+            </div>
           ) : (
             <textarea
               ref={sourceRef}
@@ -457,7 +498,7 @@ export function FileWorkbenchEditorPane({
               spellCheck={false}
             />
           )}
-          {canvasPreview ? null : (
+          {canvasPreview || markdownPreview ? null : (
             <div className="lm-editor-statusbar">
               {activeTab.name} · {activeTab.content.split("\n").length} 行 · {activeTab.content.length} 字符
             </div>

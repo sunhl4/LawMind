@@ -15,6 +15,24 @@ export type ViewMatterIntentDetail = {
   boundMatterId?: string | null;
 };
 
+/** 今日提醒「新建案件并挂上」：建案成功后把计划行挂上 matterId。 */
+export type PendingAgendaMatterLink = {
+  itemId: string;
+  originDate?: string;
+};
+
+let pendingAgendaMatterLink: PendingAgendaMatterLink | null = null;
+
+export function setPendingAgendaMatterLink(link: PendingAgendaMatterLink | null): void {
+  pendingAgendaMatterLink = link;
+}
+
+export function takePendingAgendaMatterLink(): PendingAgendaMatterLink | null {
+  const next = pendingAgendaMatterLink;
+  pendingAgendaMatterLink = null;
+  return next;
+}
+
 export function requestOpenMatterOnDesk(matterId: string): void {
   const mid = matterId.trim();
   if (!mid || typeof window === "undefined") {

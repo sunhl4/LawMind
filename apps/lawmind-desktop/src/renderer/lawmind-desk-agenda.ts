@@ -106,13 +106,13 @@ function sortAgendaItems(items: DeskAgendaItem[], todayDate: string | undefined)
   });
 }
 
-/** 把今日快照排成提醒分区；已完成项沉底但仍保留在原分区，便于反勾。 */
+/** 把今日快照排成提醒分区；默认隐藏已办完项（办完即从列表消失）。 */
 export function buildAgendaSections(
   items: DeskAgendaItem[],
   opts?: { todayDate?: string; now?: Date; includeDone?: boolean },
 ): DeskAgendaSection[] {
   const now = opts?.now ?? new Date();
-  const includeDone = opts?.includeDone !== false;
+  const includeDone = opts?.includeDone === true;
   const buckets = new Map<DeskAgendaBucketId, DeskAgendaItem[]>();
   for (const id of BUCKET_ORDER) {
     buckets.set(id, []);
@@ -140,15 +140,62 @@ export function agendaProgressLabel(done: number, total: number): string {
   return `今日已办 ${done} / ${total}`;
 }
 
-/** 对话里「查看 / 打开某某案」类意图。 */
+/** 对话里「查看 / 打开某某案」类意图（须点名案件/案卷，避免「打开工作台」误跳）。 */
 export function isViewMatterIntent(text: string): boolean {
   const t = text.trim();
   if (!t) {
     return false;
   }
-  return /(?:查看|打开|进入|看看|转到|跳到).{0,12}(?:案件|案卷|卷宗|驾舱|工作台)|(?:案件|案卷|卷宗).{0,6}(?:详情|管理|页面)/.test(
+  return /(?:查看|打开|进入|看看|转到|跳到).{0,12}(?:案件|案卷|卷宗|驾舱)|(?:案件|案卷|卷宗).{0,6}(?:详情|管理|页面)/.test(
     t,
   );
+}
+
+/** 提醒来源角标：自动整理 / 手写备忘 / 跨日未结。 */
+export function agendaSourceLabel(
+  item: Pick<DeskAgendaItem, "kind" | "originDate">,
+  todayDate?: string,
+): string {
+  if (item.kind === "mail" || item.kind === "deadline" || item.kind === "approval") {
+    return "自动";
+  }
+  if (item.originDate && todayDate && item.originDate !== todayDate) {
+    return "未结";
+  }
+  return "手写";
+}
+
+export type AgendaMatterGroup = {
+  key: string;
+  matterId: string | null;
+  title: string;
+  items: DeskAgendaItem[];
+};
+
+/** 分区内按案件归组，便于折叠；无案件归入同一「未关联」组。 */
+export function groupAgendaItemsByMatter(
+  items: DeskAgendaItem[],
+  matterTitleById: Record<string, string>,
+): AgendaMatterGroup[] {
+  const order: string[] = [];
+  const map = new Map<string, AgendaMatterGroup>();
+  for (const item of items) {
+    const mid = item.matterId?.trim() || null;
+    const groupKey = mid ?? "__unlinked__";
+    let group = map.get(groupKey);
+    if (!group) {
+      group = {
+        key: groupKey,
+        matterId: mid,
+        title: mid ? (matterTitleById[mid] ?? mid) : "未关联案件",
+        items: [],
+      };
+      map.set(groupKey, group);
+      order.push(groupKey);
+    }
+    group.items.push(item);
+  }
+  return order.map((k) => map.get(k)!);
 }
 
 /**

@@ -171,7 +171,48 @@ describe("FileWorkbenchEditorPane", () => {
         />,
       );
     });
-    expect(host.querySelector("textarea.lm-editor-textarea")).toBeTruthy();
+    // .md 默认阅读预览；点「源码」才进 textarea
+    expect(host.querySelector('[data-testid="lm-md-file-preview"]')).toBeTruthy();
+    expect(host.querySelector("textarea.lm-editor-textarea")).toBeNull();
+  });
+
+  it("renders markdown preview by default and can switch to source", async () => {
+    const md = textTab({
+      content: "## 生成产物\n\n- **通过门禁**\n- 见 `合同.docx`",
+      savedContent: "## 生成产物\n\n- **通过门禁**\n- 见 `合同.docx`",
+    });
+    await act(async () => {
+      root.render(
+        <FileWorkbenchEditorPane
+          tabs={[md]}
+          activeTabId={md.id}
+          setActiveTabId={() => {}}
+          activeTab={md}
+          activeDirty={false}
+          busy={false}
+          setError={() => {}}
+          closeTab={() => {}}
+          updateActiveContent={() => {}}
+          saveActive={() => {}}
+          saveActiveAs={() => {}}
+          doShowInFolder={() => {}}
+        />,
+      );
+    });
+    const preview = host.querySelector('[data-testid="lm-md-file-preview"]');
+    expect(preview).toBeTruthy();
+    expect(preview?.textContent).toContain("生成产物");
+    expect(preview?.textContent).toContain("通过门禁");
+    expect(preview?.textContent).not.toContain("## 生成产物");
+    expect(preview?.querySelector("strong")?.textContent).toBe("通过门禁");
+    expect(preview?.querySelector("code")?.textContent).toBe("合同.docx");
+
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-testid="lm-md-preview-toggle"]')?.click();
+    });
+    const area = host.querySelector<HTMLTextAreaElement>("textarea.lm-editor-textarea");
+    expect(area?.value).toContain("## 生成产物");
+    expect(host.querySelector('[data-testid="lm-md-file-preview"]')).toBeNull();
   });
 
   it("renders document tabs with a type mark, ellipsis label, and a close icon", async () => {

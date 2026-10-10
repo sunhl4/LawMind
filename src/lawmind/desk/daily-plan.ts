@@ -217,6 +217,16 @@ export async function setDailyPlanItemDone(
   done: boolean,
   date?: string,
 ): Promise<DailyPlan | undefined> {
+  return patchDailyPlanItem(workspaceDir, itemId, { done }, date);
+}
+
+/** 更新计划行：完成态与/或挂上案件。 */
+export async function patchDailyPlanItem(
+  workspaceDir: string,
+  itemId: string,
+  patch: { done?: boolean; matterId?: string | null },
+  date?: string,
+): Promise<DailyPlan | undefined> {
   const origin = findDailyPlanItemDate(workspaceDir, itemId, date);
   if (!origin) {
     return undefined;
@@ -226,13 +236,45 @@ export async function setDailyPlanItemDone(
   if (idx < 0) {
     return undefined;
   }
-  plan.items[idx] = { ...plan.items[idx], done };
+  const cur = plan.items[idx];
+  const next: DailyPlanItem = { ...cur };
+  if (typeof patch.done === "boolean") {
+    next.done = patch.done;
+  }
+  if (patch.matterId !== undefined) {
+    const mid = typeof patch.matterId === "string" ? patch.matterId.trim() : "";
+    if (mid) {
+      next.matterId = mid;
+    } else {
+      delete next.matterId;
+    }
+  }
+  plan.items[idx] = next;
+  return saveDailyPlan(workspaceDir, plan);
+}
+
+/** 从当日/回溯日计划文件中移除一行（过时备忘手工清理）。 */
+export async function deleteDailyPlanItem(
+  workspaceDir: string,
+  itemId: string,
+  date?: string,
+): Promise<DailyPlan | undefined> {
+  const origin = findDailyPlanItemDate(workspaceDir, itemId, date);
+  if (!origin) {
+    return undefined;
+  }
+  const plan = loadDailyPlan(workspaceDir, origin);
+  const nextItems = plan.items.filter((item) => item.id !== itemId);
+  if (nextItems.length === plan.items.length) {
+    return undefined;
+  }
+  plan.items = nextItems;
   return saveDailyPlan(workspaceDir, plan);
 }
 
 /**
  * 按来源引用标记完成态。`done: true` 时若尚无 plan 行则补哨兵；
- * `done: false` 时把已有哨兵改回未完成（用于今日提醒反勾）。
+ * `done: false` 时把已有哨兵改回未完成。
  */
 export async function setDailyPlanSourceDone(
   workspaceDir: string,

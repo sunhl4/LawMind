@@ -61,6 +61,9 @@ export function renderInlineLegalMarkdown(
         <strong key={`strong-${tokenIndex}`}>{renderInlineLegalMarkdown(token.value, ctx)}</strong>
       );
     }
+    if (token.kind === "italic") {
+      return <em key={`em-${tokenIndex}`}>{renderInlineLegalMarkdown(token.value, ctx)}</em>;
+    }
     if (token.kind === "code") {
       return (
         <code key={`code-${tokenIndex}`} className="lm-md-code">
@@ -256,6 +259,66 @@ function consumeFence(
   return { lang, body, next: lines.length };
 }
 
+/** 空行或新块起点：列表项续行到此为止（CASE.md 法条多行挂在同一 `-` 下）。 */
+function isMarkdownBlockStartLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return true;
+  }
+  if (/^#{1,6}\s+/.test(line) || /^---+$/.test(trimmed)) {
+    return true;
+  }
+  if (trimmed.startsWith("```") || trimmed.startsWith("~~~") || trimmed.startsWith(">")) {
+    return true;
+  }
+  if (/^[-*]\s+/.test(line) || /^[-*]$/.test(trimmed) || /^\d+\.\s+/.test(line)) {
+    return true;
+  }
+  if (trimmed.startsWith("|")) {
+    return true;
+  }
+  return false;
+}
+
+function collectListItemContinuation(
+  lines: string[],
+  itemStart: number,
+  firstLine: string,
+): { bodyLines: string[]; next: number } {
+  const bodyLines = [firstLine];
+  let index = itemStart + 1;
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    if (isMarkdownBlockStartLine(line)) {
+      break;
+    }
+    bodyLines.push(line);
+    index += 1;
+  }
+  return { bodyLines, next: index };
+}
+
+function renderListItemLines(bodyLines: string[], ctx?: LegalMarkdownContext): ReactNode {
+  return bodyLines.map((part, partIndex) => (
+    <span key={`li-line-${partIndex}`}>
+      {partIndex > 0 ? <br /> : null}
+      {renderInlineLegalMarkdown(part, ctx)}
+    </span>
+  ));
+}
+
+/** `- item` / `* item` / 单独一行的 `-`（CASE 空占位）。 */
+function matchUnorderedListMarker(line: string): string | null {
+  const withText = /^[-*]\s+(.*)$/.exec(line);
+  if (withText) {
+    return withText[1] ?? "";
+  }
+  if (/^[-*]$/.test(line.trim())) {
+    return "";
+  }
+  return null;
+}
+
 export function renderLegalMarkdown(text: string, ctx?: LegalMarkdownContext): ReactNode {
   const lines = text.split("\n");
   const blocks: ReactNode[] = [];
@@ -303,22 +366,13 @@ export function renderLegalMarkdown(text: string, ctx?: LegalMarkdownContext): R
       continue;
     }
 
-    const h1 = /^#\s+(.+)$/.exec(line);
-    if (h1) {
+    const heading = /^(#{1,4})\s+(.+)$/.exec(line);
+    if (heading) {
+      const level = heading[1].length;
+      const cls = level === 1 ? "lm-md-h1" : level === 2 ? "lm-md-h2" : level === 3 ? "lm-md-h3" : "lm-md-h4";
       blocks.push(
-        <div key={`h1-${index}`} className="lm-md-h1">
-          {renderInlineLegalMarkdown(h1[1], ctx)}
-        </div>,
-      );
-      index += 1;
-      continue;
-    }
-
-    const h2 = /^##\s+(.+)$/.exec(line);
-    if (h2) {
-      blocks.push(
-        <div key={`h2-${index}`} className="lm-md-h2">
-          {renderInlineLegalMarkdown(h2[1], ctx)}
+        <div key={`h${level}-${index}`} className={cls}>
+          {renderInlineLegalMarkdown(heading[2], ctx)}
         </div>,
       );
       index += 1;
@@ -381,42 +435,46 @@ export function renderLegalMarkdown(text: string, ctx?: LegalMarkdownContext): R
       }
     }
 
-    const bullet = /^-\s+(.+)$/.exec(line);
-    if (bullet) {
+    if (matchUnorderedListMarker(line) !== null) {
       const items: ReactNode[] = [];
+      const listStart = index;
       while (index < lines.length) {
-        const bulletMatch = /^-\s+(.+)$/.exec(lines[index] ?? "");
-        if (!bulletMatch) {
+        const first = matchUnorderedListMarker(lines[index] ?? "");
+        if (first === null) {
           break;
         }
+        const body = collectListItemContinuation(lines, index, first);
         items.push(
-          <li key={`ul-item-${index}`}>{renderInlineLegalMarkdown(bulletMatch[1], ctx)}</li>,
+          <li key={`ul-item-${index}`}>{renderListItemLines(body.bodyLines, ctx)}</li>,
         );
-        index += 1;
+        index = body.next;
       }
       blocks.push(
-        <ul key={`ul-${index}`} className="lm-md-list">
+        <ul key={`ul-${listStart}`} className="lm-md-list">
           {items}
         </ul>,
       );
       continue;
     }
 
-    const ordered = /^\d+\.\s+(.+)$/.exec(line);
+    const ordered = /^\d+\.\s+(.*)$/.exec(line);
     if (ordered) {
       const items: ReactNode[] = [];
+      const listStart = index;
       while (index < lines.length) {
-        const orderedMatch = /^\d+\.\s+(.+)$/.exec(lines[index] ?? "");
+        const orderedMatch = /^\d+\.\s+(.*)$/.exec(lines[index] ?? "");
         if (!orderedMatch) {
           break;
         }
+        const first = orderedMatch[1] ?? "";
+        const body = collectListItemContinuation(lines, index, first);
         items.push(
-          <li key={`ol-item-${index}`}>{renderInlineLegalMarkdown(orderedMatch[1], ctx)}</li>,
+          <li key={`ol-item-${index}`}>{renderListItemLines(body.bodyLines, ctx)}</li>,
         );
-        index += 1;
+        index = body.next;
       }
       blocks.push(
-        <ol key={`ol-${index}`} className="lm-md-list lm-md-ol">
+        <ol key={`ol-${listStart}`} className="lm-md-list lm-md-ol">
           {items}
         </ol>,
       );

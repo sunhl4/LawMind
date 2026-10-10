@@ -53,11 +53,15 @@ describe("deliverable shape", () => {
 
   it("asks for pleading sections only after the named file exists and is incomplete", () => {
     expect(missingPleadingSections("诉讼请求：还款。\n事实：借款。\n理由：到期。")).toEqual([
+      "当事人",
+      "管辖",
       "证据",
     ]);
-    expect(missingPleadingSections("答辩请求：驳回。\n事实与理由：已还。\n证据：借条。")).toEqual(
-      [],
-    );
+    expect(
+      missingPleadingSections(
+        "当事人：甲。\n管辖：上海。\n答辩请求：驳回。\n事实与理由：已还。\n证据：借条。",
+      ),
+    ).toEqual([]);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-plead-"));
     const instruction = "撰写民事起诉状。用 write_document 写入 起诉状-5.md。";
     expect(pleadingSectionGaps(dir, instruction)).toEqual([]);
