@@ -23,7 +23,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
-    "electron": "^34.3.0",
+    "electron": "^44.7.0",
     "electron-builder": "^25.1.8",
     "playwright": "1.63.0",
     "typescript": "^5.9.3",
