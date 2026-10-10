@@ -934,6 +934,10 @@ describe("formatted word surface", () => {
       docxComments: [{ commentId: "1", author: "李律师", body: "看这里", anchorText: "正文" }],
     });
     expect(surface.headerBlocks?.[0]?.kind).toBe("paragraph");
+    if (surface.headerBlocks?.[0]?.kind === "paragraph") {
+      expect(surface.headerBlocks[0].storyPart).toBe("word/header1.xml");
+      expect(surface.headerBlocks[0].sourceIndex).toBe(0);
+    }
     expect(surface.tracked?.some((row) => row.revId === "7" && row.author === "李律师")).toBe(true);
     expect(surface.docxComments?.[0]?.body).toBe("看这里");
   });

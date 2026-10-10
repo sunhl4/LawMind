@@ -37,7 +37,7 @@ describe("writeVisibleTrackedEdits", () => {
     const xml = await out.file("word/document.xml")?.async("string");
     expect(xml).toContain("<w:del ");
     expect(xml).toContain("<w:ins ");
-    expect(xml).toContain("<w:delText>十</w:delText>");
+    expect(xml).toContain(">十</w:delText>");
     expect(xml).toContain(">五</w:t>");
     expect(xml).toContain("甲方应于");
     expect(xml).toContain("日内付款。");

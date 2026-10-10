@@ -165,16 +165,16 @@ rg --files -g '*.test.ts' -g '*.test.tsx' -g '*.spec.ts' -g '!**/node_modules/**
 
 按「测什么」分类：
 
-| 类别           | 例子                                                               |
-| -------------- | ------------------------------------------------------------------ |
-| 首跑与全旅程   | `first-matter-journey`（首跑 → 建案 → 交办 → 草稿 → 签批 → 导出）  |
-| 生命周期与自愈 | `daemon-supervision`、`server-crash-recovery`                      |
-| 门禁与决策     | `judgment-escalation-electron`、`review-entry`、`delivery-redline` |
-| 工作台与协作   | `agent-fleet`、`meeting-flow`、`matter-cockpit`、`review-campaign` |
-| 交办入口       | `job-intake`、`solo-contract-fast-lane`、`solo-research-fast-lane` |
-| 信任与安全     | `skills-trust`、`contract-review-trust`、`approval-queue`          |
-| 设置与对话框   | `settings`、`dialogs`、`smoke`、`authority-mock`、`triage-nda`     |
-| 布局与文件     | `workspace-layout`、`workspace-chat`、`electron-file-deeplink`     |
+| 类别           | 例子                                                                           |
+| -------------- | ------------------------------------------------------------------------------ |
+| 首跑与全旅程   | `first-matter-journey`（首跑 → 建案 → 交办 → 草稿 → 签批 → 导出）              |
+| 生命周期与自愈 | `daemon-supervision`、`server-crash-recovery`                                  |
+| 门禁与决策     | `judgment-escalation-electron`、`review-entry`、`delivery-redline`             |
+| 工作台与协作   | `agent-fleet`、`meeting-flow`、`matter-cockpit`、`review-campaign`             |
+| 交办入口       | `job-intake`、`solo-research-fast-lane`（原 `solo-contract-fast-lane` 已移除） |
+| 信任与安全     | `skills-trust`、`contract-review-trust`、`approval-queue`                      |
+| 设置与对话框   | `settings`、`dialogs`、`smoke`、`authority-mock`、`triage-nda`                 |
+| 布局与文件     | `workspace-layout`、`workspace-chat`、`electron-file-deeplink`                 |
 
 **注意两套配置互斥**（浏览器 mock vs 真机 Electron），有测试专门守这个分区。
 

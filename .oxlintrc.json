@@ -15,7 +15,6 @@
         "allow": [
           "__approved",
           "__dirname",
-          "__lmRequestContractFastLane",
           "__lmRequestDeskLane",
           "__lmOpenWriteMaterials",
           "_load",

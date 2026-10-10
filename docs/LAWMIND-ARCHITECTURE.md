@@ -441,14 +441,15 @@ Electron 主进程 (main.mjs)
   └── /api/artifact — 产物下载
 
 渲染进程 (App.tsx + styles.css)
-  ├── 一级导航：对话 / 工作台 / 在办（`LawmindMainView`: workspace | desk | agents）
+  ├── 顶栏一级：对话 / 工作台（`LawmindMainView` 另有 agents / review / archive；agents 经「待我拍板」等进入，不占一级 tab）
   ├── 对话视图（消息列表 + Markdown 渲染 + 意图状态条 + Chip 栏）
   ├── 文件工作台（FileWorkbench）
-  ├── 律师工作台（LawmindLawyerWorkbench：今日计划、案件门类、本案卷宗；案件详情并入此处）
-  ├── 审核台（ReviewWorkbench：草稿审阅、签批、渲染；次级入口）
-  ├── 设置（主栏全页：侧栏分组导航 + 内容区；助手 / 模型检索 / 记忆库 / 工作区等）
-  ├── 侧边栏（助手选择器 / 项目药丸 / 折叠工作记录）
-  └── 配置向导（首次启动 API Key 设置流）
+  ├── 律师工作台（LawmindLawyerWorkbench：默认今日提醒，可下钻全部案卷 / 本案卷宗；案件详情并入此处）
+  ├── 在办（AgentFleet：签批 / 补充 / 批准；「待我拍板」或 `/agents`）
+  ├── 改稿（ReviewWorkbench：草稿审阅、签批、渲染；次级入口）
+  ├── 设置（主栏全页：平铺侧栏 + 内容区；账号 / 模型 / 工作区 / 外观 / 协作 / 自动办件 / 记忆库 / 免责）
+  ├── 侧边栏（案件列表 / 会话列表 / 有待决策时「待我拍板」）
+  └── 配置向导（首次启动 API Key 设置流）+ 可选首跑（身份 → 文书 → 开始）
 ```
 
 ### UI 设计系统
@@ -464,11 +465,11 @@ Electron 主进程 (main.mjs)
 
 设置由顶栏齿轮（`lm-gear-btn`）触发，在主工作栏以 **全页** `LawmindSettingsPage`（`lm-settings-page`）展示，左侧导航 + 右侧内容区（非模态叠层）。侧栏是**一条 8 项平铺目录**（Cursor 风格，不分组、没有「更多设置」折叠桶），见 `lawmind-settings-nav.ts`：
 
-账号、模型与连接、工作区、外观、自动办件、记忆库、助手编制、免责声明。
+账号、模型与连接、工作区、外观、协作、自动办件、记忆库、免责声明。
 
-版本号与「更新」按钮在侧栏底部，不另开一页。角色说明 / 团队工作流 / 作业标准 / 版本与授权 / 系统健康 / 文书模板六个分区已退役但仍可深链（`SETTINGS_NAV_RETIRED_ITEMS`，深链只读）；旧分区 id 自动改道（`review-prefs`→外观、`host`/`doctor`→工作区、`tools`→模型与连接、`app-update`→账号）。原「系统健康」页的功能按去处收编：Word 连接在「外观」，查找重建与案件档案整理在「工作区」（只在需要时出现），许可 / 模型来源 / 用量在「账号」，其余走 `pnpm lawmind:doctor` 与 `GET /api/health`。
+版本号与「更新」按钮在侧栏底部，不另开一页。助手编制 / 角色说明 / 作业标准 / 版本与授权 / 系统健康 / 文书模板等已退役但仍可深链（`SETTINGS_NAV_RETIRED_ITEMS`，深链只读）；旧分区 id 自动改道（`review-prefs`→外观、`host`/`doctor`→工作区、`tools`→模型与连接、`app-update`→账号）。原「系统健康」页的功能按去处收编：Word 连接在「外观」，查找重建与案件档案整理在「工作区」（只在需要时出现），许可 / 模型来源 / 用量在「账号」，其余走 `pnpm lawmind:doctor` 与 `GET /api/health`。
 
-签批与按流程办在顶栏 **「在办」**，不必在设置里编制助手或配置角色。
+签批与按流程办进 **在办**（「待我拍板」或设置 → 协作），不必在设置里编制助手或配置角色。手册与界面冲突时以桌面壳为准。
 
 ### 项目目录（IPC 流）
 

@@ -34,9 +34,9 @@ test.describe("LawMind golden path", () => {
     await expect(page.getByTestId("lm-chat-drop-zone")).toBeVisible();
     await expect(page.locator(".lm-side")).toBeVisible();
     await expect(page.getByTestId("lm-tab-desk")).toHaveAttribute("aria-current", "page");
-    await expect(page.getByTestId("lm-lawyer-today-plan-input")).toHaveCount(0);
-    await expect(page.getByText("临近期日")).toHaveCount(0);
-    await expect(page.getByLabel("案件")).toBeVisible();
+    await expect(page.getByTestId("lm-desk-agenda")).toBeVisible();
+    await expect(page.getByTestId("lm-lawyer-today-plan-input")).toBeVisible();
+    await expect(page.getByLabel("今日提醒")).toBeVisible();
     const cockpit = page.getByTestId("lm-lawyer-cockpit");
     await expect(cockpit).toBeVisible();
     const box = await cockpit.boundingBox();

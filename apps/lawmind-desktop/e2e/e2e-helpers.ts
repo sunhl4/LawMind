@@ -336,27 +336,6 @@ export async function openMatterCockpit(page: Page): Promise<void> {
   ).toBeVisible({ timeout: 30_000 });
 }
 
-/** Open the contract fast-lane card via the e2e hook (no classification menu). */
-export async function openContractFastLane(page: Page): Promise<void> {
-  await expect
-    .poll(async () =>
-      page.evaluate(
-        () =>
-          typeof (window as Window & { __lmRequestContractFastLane?: unknown }).__lmRequestContractFastLane ===
-          "function",
-      ),
-    )
-    .toBe(true);
-  await page.evaluate(() => {
-    (
-      window as Window & {
-        __lmRequestContractFastLane?: (req?: { preferCompact?: boolean }) => void;
-      }
-    ).__lmRequestContractFastLane?.({ preferCompact: true });
-  });
-  await expect(page.getByTestId("lm-contract-fast-lane")).toBeVisible({ timeout: 10_000 });
-}
-
 /** Open the research fast-lane card via the e2e hook. */
 export async function openResearchFastLane(page: Page): Promise<void> {
   await expect

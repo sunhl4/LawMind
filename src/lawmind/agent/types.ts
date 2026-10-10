@@ -182,7 +182,6 @@ export type AgentContext = {
    * Opinion-only 5-minute / structured 交办 fast lane.
    * Prompt coaching only; tools stay unlocked.
    */
-  contractFastLaneTurn?: boolean;
   /** Runtime auto-trial already merged statute hits this turn. */
   statuteTrialThisTurn?: boolean;
   /** Turn-resolved tool allowlist (role ∩ parent inherit ∩ playbook). */

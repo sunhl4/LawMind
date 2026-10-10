@@ -51,7 +51,7 @@
 3. **预算与模式解析**：`resolveToolCallBudgets(config.maxToolCalls)` 得到软 / 硬上限，解析 `maxHistory`、工具超时、是否允许危险工具免审批、权限模式。
 4. **会话装载 / 创建**：`loadSession` / `createSession`；校验助手一致性（`session_assistant_mismatch`）；本轮显式带新案件时重绑 `matterId`；按新指示裁剪旧计划 `pruneTurnPlanForNewInstruction`。
 5. **工作记录覆盖层**：`ensureLawyerWorkForTurn`（best-effort）。
-6. **回合分类**：`wordRevisionTurn`（Word 改稿）、`deliveryIntent`、`mailContractTurn`（邮件合同短路径）、`contractFastLaneTurn`，合并 `confirmedAnswers`，判定 `noTaskTurn`。
+6. **回合分类**：`wordRevisionTurn`（Word 改稿）、`deliveryIntent`、`mailContractTurn`（邮件合同短路径），合并 `confirmedAnswers`，判定 `noTaskTurn`。（原 Solo「5 分钟合同审查」固定快车道已移除；合同审查走对话引用 + 自然语言交办。）
 7. **构造 `AgentContext`**：本轮运行环境（工作区、案件、助手、权限、钉选、授权预批准、沙箱开关、abort signal、模型等）。
 8. **算出本轮工具表**（唯一真相源，见 3.7）。
 9. **组装系统提示**：`prepareTurnPromptContext` + `buildSystemPrompt`，按 `LAWMIND_PROMPT_DYNAMIC_BOUNDARY` 切静态前缀与会话 / 回合后缀。

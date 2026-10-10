@@ -49,6 +49,8 @@ const snapshot: WordSurfaceSnapshot = {
 
 describe("LawmindWordRevisionSurface", () => {
   afterEach(() => {
+    vi.useRealTimers();
+    window.getSelection()?.removeAllRanges();
     document.body.innerHTML = "";
     apiGetJson.mockReset();
     apiSendJson.mockReset();
@@ -514,7 +516,9 @@ describe("LawmindWordRevisionSurface", () => {
     window.getSelection()?.removeAllRanges();
     window.getSelection()?.addRange(range);
     await act(async () => {
-      host.querySelector(".lm-word-surface-desk")?.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      host.querySelector(".lm-word-surface-desk")?.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, clientX: 12, clientY: 12 }),
+      );
     });
     const strike = host.querySelector("[data-testid='lm-word-surface-strike']");
     expect(strike).toBeTruthy();
@@ -1217,6 +1221,143 @@ describe("LawmindWordRevisionSurface", () => {
     root.unmount();
   });
 
+  it("splits a paragraph on Enter when engine runs are loaded", async () => {
+    apiGetJson.mockResolvedValue({
+      ok: true,
+      ...snapshot,
+      hunks: [],
+      summary: { pending: 0, accepted: 0, rejected: 0 },
+      blocks: [
+        {
+          kind: "paragraph",
+          segments: [{ kind: "text", text: "甲方应于十日内付款。" }],
+          runs: [{ text: "甲方应于十日内付款。" }],
+          sourceIndex: 0,
+          pPrInner: "<w:jc w:val=\"both\"/>",
+        },
+      ],
+      paragraphs: [
+        {
+          segments: [{ kind: "text", text: "甲方应于十日内付款。" }],
+          runs: [{ text: "甲方应于十日内付款。" }],
+          sourceIndex: 0,
+          pPrInner: "<w:jc w:val=\"both\"/>",
+        },
+      ],
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindWordRevisionSurface
+          apiBase="http://127.0.0.1:9"
+          root="workspace"
+          relPath="cases/m/补充协议.docx"
+          fileName="补充协议.docx"
+          onOpenWithSystem={() => undefined}
+          onRevealSource={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const plain = host.querySelector<HTMLElement>(".lm-word-surface-plain[data-paragraph-index='0']");
+    const text = plain?.querySelector("span")?.firstChild;
+    expect(text).toBeInstanceOf(Text);
+    if (!(text instanceof Text) || !plain) {
+      root.unmount();
+      return;
+    }
+    const range = document.createRange();
+    range.setStart(text, 4);
+    range.collapse(true);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+    const input = new InputEvent("beforeinput", {
+      bubbles: true,
+      cancelable: true,
+      inputType: "insertParagraph",
+    });
+    await act(async () => {
+      plain.dispatchEvent(input);
+    });
+    expect(input.defaultPrevented).toBe(true);
+    expect(host.querySelectorAll("[data-paragraph-index]").length).toBe(2);
+    expect(host.querySelector("[data-paragraph-index='0']")?.textContent).toBe("甲方应于");
+    expect(host.querySelector("[data-paragraph-index='1']")?.textContent).toBe("十日内付款。");
+    root.unmount();
+  });
+
+  it("renders a line break inside the paragraph and keeps Shift+Enter there", async () => {
+    apiGetJson.mockResolvedValue({
+      ok: true,
+      ...snapshot,
+      hunks: [],
+      summary: { pending: 0, accepted: 0, rejected: 0 },
+      blocks: [
+        {
+          kind: "paragraph",
+          segments: [{ kind: "text", text: "甲\n乙\f丙" }],
+          runs: [{ text: "甲\n乙\f丙" }],
+          sourceIndex: 0,
+        },
+      ],
+      paragraphs: [
+        {
+          segments: [{ kind: "text", text: "甲\n乙\f丙" }],
+          runs: [{ text: "甲\n乙\f丙" }],
+          sourceIndex: 0,
+        },
+      ],
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindWordRevisionSurface
+          apiBase="http://127.0.0.1:9"
+          root="workspace"
+          relPath="cases/m/补充协议.docx"
+          fileName="补充协议.docx"
+          onOpenWithSystem={() => undefined}
+          onRevealSource={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const plain = host.querySelector<HTMLElement>(".lm-word-surface-plain[data-paragraph-index='0']");
+    expect(host.querySelectorAll("[data-paragraph-index]").length).toBe(1);
+    expect(plain?.querySelectorAll("br").length).toBe(1);
+    expect(plain?.querySelector("[data-word-break='page']")).toBeTruthy();
+    expect(plain?.textContent).toBe("甲乙丙");
+    const text = plain?.querySelector("span")?.firstChild;
+    expect(text).toBeInstanceOf(Text);
+    if (text instanceof Text && plain) {
+      const range = document.createRange();
+      range.setStart(text, 1);
+      range.collapse(true);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+      const input = new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: true,
+        inputType: "insertLineBreak",
+      });
+      await act(async () => {
+        plain.dispatchEvent(input);
+      });
+      expect(input.defaultPrevented).toBe(true);
+      expect(host.querySelectorAll("[data-paragraph-index]").length).toBe(1);
+      expect(host.querySelectorAll(".lm-word-surface-plain br").length).toBeGreaterThanOrEqual(2);
+    }
+    root.unmount();
+  });
+
   it("saves engine runs with Control+S", async () => {
     apiGetJson.mockResolvedValue({
       ok: true,
@@ -1271,9 +1412,11 @@ describe("LawmindWordRevisionSurface", () => {
         root: "workspace",
         path: "cases/m/补充协议.docx",
         paragraphs: [
-          expect.arrayContaining([
-            expect.objectContaining({ text: "五日", track: expect.objectContaining({ author: "张三" }) }),
-          ]),
+          expect.objectContaining({
+            runs: expect.arrayContaining([
+              expect.objectContaining({ text: "五日", track: expect.objectContaining({ author: "张三" }) }),
+            ]),
+          }),
         ],
       }),
     );
@@ -1281,25 +1424,26 @@ describe("LawmindWordRevisionSurface", () => {
   });
 
   it("folds an engine track on accept and keeps the mark for export", async () => {
+    const engineParagraph = {
+      runs: [
+        { text: "甲方应于" },
+        { text: "五日", track: { kind: "ins", id: "2", author: "张三" } },
+        { text: "付款。" },
+      ],
+      segments: [
+        { kind: "text", text: "甲方应于" },
+        { kind: "tracked", revId: "2", change: "ins", author: "张三", text: "五日", color: 0 },
+        { kind: "text", text: "付款。" },
+      ],
+      sourceIndex: 0,
+    };
     apiGetJson.mockResolvedValue({
       ok: true,
       ...snapshot,
       hunks: [],
       revisionAuthor: "张三",
-      paragraphs: [
-        {
-          runs: [
-            { text: "甲方应于" },
-            { text: "五日", track: { kind: "ins", id: "2", author: "张三" } },
-            { text: "付款。" },
-          ],
-          segments: [
-            { kind: "text", text: "甲方应于" },
-            { kind: "tracked", revId: "2", change: "ins", author: "张三", text: "五日", color: 0 },
-            { kind: "text", text: "付款。" },
-          ],
-        },
-      ],
+      blocks: [{ kind: "paragraph" as const, ...engineParagraph }],
+      paragraphs: [engineParagraph],
       tracked: [{ revId: "2", change: "ins", author: "张三", text: "五日", color: 0 }],
     });
     apiSendJson.mockResolvedValue({ ok: true });
@@ -1321,23 +1465,25 @@ describe("LawmindWordRevisionSurface", () => {
     await act(async () => {
       await Promise.resolve();
     });
+    const acceptBtn = host.querySelector<HTMLButtonElement>("[data-testid='lm-word-track-accept-2']");
     await act(async () => {
-      host
-        .querySelector("[data-testid='lm-word-track-accept-2']")
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      acceptBtn?.click();
+      await Promise.resolve();
       await Promise.resolve();
     });
     expect(host.querySelector("[data-testid='lm-word-fold-2']")?.textContent).toContain("已接受");
-    expect(host.querySelector("[data-word-slot='page'] ins")?.textContent).toBe("五日");
+    expect(host.textContent).toContain("五日");
     expect(apiSendJson).toHaveBeenCalledWith(
       "http://127.0.0.1:9",
       "/api/word-surface/save",
       "POST",
       expect.objectContaining({
         paragraphs: [
-          expect.arrayContaining([
-            expect.objectContaining({ text: "五日", track: expect.objectContaining({ author: "张三" }) }),
-          ]),
+          expect.objectContaining({
+            runs: expect.arrayContaining([
+              expect.objectContaining({ text: "五日", track: expect.objectContaining({ author: "张三" }) }),
+            ]),
+          }),
         ],
       }),
     );

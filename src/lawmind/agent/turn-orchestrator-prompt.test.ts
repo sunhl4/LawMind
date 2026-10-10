@@ -2,7 +2,6 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CONTRACT_FAST_LANE_PROMPT } from "../platform/contract-fast-lane-instruction.js";
 import { WORD_REVISION_PROMPT } from "../platform/word-revision-instruction.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { prepareTurnPromptContext } from "./turn-orchestrator-prompt.js";
@@ -292,112 +291,6 @@ describe("turn-orchestrator-prompt", () => {
     )?.[0];
     expect(secondPermission).toBe(firstPermission);
     expect(session.worldStateEpoch).toBe(epochAfterFirst);
-  });
-
-  it("injects the contract fast-lane ops block for a 5-minute dispatch", async () => {
-    const session: AgentSession = {
-      sessionId: "sess-lane",
-      actorId: "system",
-      turns: [],
-      conversationHistory: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const result = await prepareTurnPromptContext({
-      config: {
-        workspaceDir,
-        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
-      },
-      registry: new ToolRegistry(),
-      session,
-      instruction: [
-        "【交办】5 分钟合同审查",
-        "交付物类型：合同审查意见",
-        "- 己方立场：中立",
-        "- 审查重点：管辖",
-        "审查深度：标准。",
-      ].join("\n"),
-      resolvedAssistantId: undefined,
-      linkedTaskIdForCtx: undefined,
-      projectDirResolved: undefined,
-    });
-    expect(visiblePrompt(result, session)).toContain(
-      CONTRACT_FAST_LANE_PROMPT.split("\n")[0] ?? "",
-    );
-    expect(result.systemPromptFinal).not.toContain(CONTRACT_FAST_LANE_PROMPT.split("\n")[0] ?? "");
-    expect(visiblePrompt(result, session)).not.toContain("## 成套交件");
-    expect(visiblePrompt(result, session)).not.toContain("<!--lm-delivery:judge-->");
-  });
-
-  it("pairs 改稿计划 with a 5-minute dispatch when a Word is pinned", async () => {
-    const session: AgentSession = {
-      sessionId: "sess-lane-pin",
-      actorId: "system",
-      turns: [],
-      conversationHistory: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const result = await prepareTurnPromptContext({
-      config: {
-        workspaceDir,
-        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
-      },
-      registry: new ToolRegistry(),
-      session,
-      instruction: [
-        "【交办】5 分钟合同审查",
-        "交付物类型：合同审查意见",
-        "- 己方立场：中立",
-        "- 审查重点：管辖",
-        "审查深度：标准。",
-      ].join("\n"),
-      resolvedAssistantId: undefined,
-      linkedTaskIdForCtx: undefined,
-      projectDirResolved: "/tmp/project",
-      contextPins: [
-        {
-          pinKind: "file",
-          root: "project",
-          relPath: "采购合同.docx",
-          kind: "file",
-        },
-      ],
-    });
-    const prompt = visiblePrompt(result, session);
-    expect(prompt).toContain("## 改稿计划");
-    expect(prompt).toContain("render_tracked_draft");
-    expect(prompt).not.toContain("## 成套交件");
-    expect(prompt).not.toContain("<!--lm-delivery:judge-->");
-    expect(prompt).not.toContain("<!--lm-delivery:opinion_memo-->");
-    expect(prompt).not.toContain("本地意见书优先");
-    expect(prompt).not.toContain("合同审查意见书（Craft）");
-  });
-
-  it("does not treat 办件 contract.review as the opinion-only fast lane", async () => {
-    const session: AgentSession = {
-      sessionId: "sess-desk-review",
-      actorId: "system",
-      turns: [],
-      conversationHistory: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const result = await prepareTurnPromptContext({
-      config: {
-        workspaceDir,
-        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
-      },
-      registry: new ToolRegistry(),
-      session,
-      instruction: "【办件】能力：contract.review\n流程：合同审查\n请按已附材料与钉源执行该流程。",
-      resolvedAssistantId: undefined,
-      linkedTaskIdForCtx: undefined,
-      projectDirResolved: undefined,
-    });
-    expect(visiblePrompt(result, session)).not.toContain(
-      CONTRACT_FAST_LANE_PROMPT.split("\n")[0] ?? "",
-    );
   });
 
   it("injects the Word revision ops block for file-page 修改合同", async () => {

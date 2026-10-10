@@ -41,6 +41,7 @@ import {
   makeFileContextItemId,
 } from "./lawmind-file-chat-context";
 import { resolveImplicitWordPinsForChat } from "./lawmind-active-word-file";
+import { requestViewMatterFromChat } from "./lawmind-desk-nav";
 import {
   appendActivityDelta,
   appendActivityToolProgress,
@@ -449,6 +450,8 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       if (!text || !config) {
         return;
       }
+      // 律师说「打开/查看某某案」时，中栏先跳到案件管理（不等模型回合结束）。
+      requestViewMatterFromChat(text, contextMatterId);
       const background = opts2?.background;
       const focusNow = currentFocus();
       if (background) {

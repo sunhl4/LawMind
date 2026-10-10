@@ -51,4 +51,4 @@ export {
   paragraphHasMarkup,
   projectRuns,
 } from "./view.js";
-export { replaceParagraphRunsInXml, serializeRuns } from "./xml.js";
+export { insertEmptyTableRowInXml, replaceParagraphRunsInXml, serializeRuns } from "./xml.js";

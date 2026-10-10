@@ -1,7 +1,7 @@
 /**
  * Paper view for the chat-middle Word review. Paints runs; it does not load files.
  */
-import { memo, type CSSProperties, type ReactNode } from "react";
+import { memo, useRef, type CSSProperties, type ReactNode } from "react";
 import {
   revisionPieces,
 } from "../../../../../src/lawmind/drafts/word-surface-pieces.ts";
@@ -15,6 +15,8 @@ import type {
   WordSurfaceSegment,
   WordSurfaceSnapshot,
 } from "../../../../../src/lawmind/drafts/word-surface.ts";
+import { useWordSurfacePageBreaks, WordSurfacePageBreakMarkers } from "./word-surface-page-breaks";
+import { renderWordRunText } from "./word-surface-run-text";
 
 type MarkupMode = "all" | "simple" | "none" | "original";
 
@@ -122,23 +124,33 @@ export const WordSurfaceDocument = memo(function WordSurfaceDocument(props: {
   paint: SurfacePaint;
 }): ReactNode {
   const { fileName, loadError, snapshot, paint } = props;
+  const pageRef = useRef<HTMLElement | null>(null);
   const empty = Boolean(
     snapshot &&
       snapshot.paragraphs.every((paragraph) =>
         paragraph.segments.every((segment) =>
-          segment.kind === "text"
-            ? !segment.text.trim()
-            : segment.kind === "tracked"
-              ? !segment.text.trim()
-              : false,
+          segment.kind === "text" || segment.kind === "tracked" ? !segment.text.trim() : false,
         ),
       ),
   );
   const index = { current: 0 };
-  const bodyPaint = { ...paint, paragraphIndex: index };
-  const storyPaint = { ...paint, plainEditable: false as const };
+  const sharedPaint = { ...paint, paragraphIndex: index };
+  const pageBreaks = useWordSurfacePageBreaks(pageRef, snapshot?.page, [
+    snapshot?.paragraphs,
+    snapshot?.blocks,
+    snapshot?.headerBlocks,
+    snapshot?.footerBlocks,
+    snapshot?.footnoteBlocks,
+    paint.markup,
+    paint.hunks,
+  ]);
   return (
-    <article className="lm-word-surface-page" style={pageStyle(snapshot?.page)} aria-label={fileName}>
+    <article
+      ref={pageRef}
+      className="lm-word-surface-page"
+      style={{ ...pageStyle(snapshot?.page), position: "relative" }}
+      aria-label={fileName}
+    >
       {loadError && !snapshot ? (
         <p className="lm-word-surface-empty">{loadError}</p>
       ) : empty ? (
@@ -147,26 +159,27 @@ export const WordSurfaceDocument = memo(function WordSurfaceDocument(props: {
         <>
           {snapshot?.headerBlocks && snapshot.headerBlocks.length > 0 ? (
             <div className="lm-word-surface-header" data-testid="lm-word-surface-header">
-              {renderSurfaceBlocks(snapshot.headerBlocks, storyPaint, snapshot.page)}
+              {renderSurfaceBlocks(snapshot.headerBlocks, sharedPaint, snapshot.page)}
             </div>
           ) : null}
           {renderSurfaceBlocks(
             snapshot?.blocks?.length
               ? snapshot.blocks
               : (snapshot?.paragraphs ?? []).map((paragraph) => ({ kind: "paragraph" as const, ...paragraph })),
-            bodyPaint,
+            sharedPaint,
             snapshot?.page,
           )}
           {snapshot?.footnoteBlocks && snapshot.footnoteBlocks.length > 0 ? (
             <div className="lm-word-surface-footnotes" data-testid="lm-word-surface-footnotes">
-              {renderSurfaceBlocks(snapshot.footnoteBlocks, storyPaint, snapshot.page)}
+              {renderSurfaceBlocks(snapshot.footnoteBlocks, sharedPaint, snapshot.page)}
             </div>
           ) : null}
           {snapshot?.footerBlocks && snapshot.footerBlocks.length > 0 ? (
             <div className="lm-word-surface-footer" data-testid="lm-word-surface-footer">
-              {renderSurfaceBlocks(snapshot.footerBlocks, storyPaint, snapshot.page)}
+              {renderSurfaceBlocks(snapshot.footerBlocks, sharedPaint, snapshot.page)}
             </div>
           ) : null}
+          <WordSurfacePageBreakMarkers breaks={pageBreaks} />
         </>
       )}
     </article>
@@ -177,17 +190,22 @@ function renderSurfaceBlocks(
   blocks: WordSurfaceBlock[],
   paint: SurfacePaint,
   page?: WordPageBox,
+  tableCounter?: { current: number },
 ): ReactNode {
+  const tables = tableCounter ?? { current: 0 };
   return blocks.map((block, index) => {
     if (block.kind !== "table") {
       return renderSurfaceParagraph(block, index, paint);
     }
+    const tableIndex = tables.current;
+    tables.current += 1;
     const cols = scaledColWidths(block, page);
     return (
       <table
         key={index}
         className={`lm-word-surface-table${block.bordered ? " lm-word-surface-table-grid" : ""}`}
         style={tableStyle(block, page)}
+        data-table-index={String(tableIndex)}
       >
         {cols ? (
           <colgroup>
@@ -206,6 +224,7 @@ function renderSurfaceBlocks(
               data-word-hunk={rowTrack?.revId}
               data-word-slot={rowTrack ? "page" : undefined}
               data-rev-color={rowTrack ? String(rowTrack.color) : undefined}
+              data-row-index={String(rowIndex)}
               onClick={rowTrack ? () => paint.onFocus(rowTrack.revId, "rail") : undefined}
             >
               {row.map((cell, cellIndex) => {
@@ -220,7 +239,7 @@ function renderSurfaceBlocks(
                     style={cellStyle(cell)}
                     data-word-cell={cell.vertical ? "vertical" : "plain"}
                   >
-                    {renderSurfaceBlocks(cell.blocks, cellPaint, page)}
+                    {renderSurfaceBlocks(cell.blocks, cellPaint, page, tables)}
                   </td>
                 );
               })}
@@ -315,6 +334,9 @@ function paragraphBaseline(paragraph: WordSurfaceParagraph): string {
       if (segment.kind === "tracked") {
         return segment.change === "del" || segment.change === "moveFrom" ? "" : segment.text;
       }
+      if (segment.kind === "image") {
+        return "";
+      }
       return segment.before;
     })
     .join("");
@@ -365,12 +387,16 @@ function renderRevisionSpan(
         data-rev-color={String(segment.color ?? revisionColor(paint.hunks, segment.hunkId))}
         onClick={() => paint.onFocus(segment.hunkId, "rail")}
       >
-        {piece.after}
+        {renderWordRunText(piece.after)}
       </span>
     );
   }
   if (mode === "original" || mode === "simple" || mode === "none") {
-    return <span key={segIndex}>{mode === "original" ? piece.before : piece.after}</span>;
+    return (
+      <span key={segIndex}>
+        {renderWordRunText(mode === "original" ? piece.before : piece.after)}
+      </span>
+    );
   }
   return (
     <span
@@ -384,8 +410,8 @@ function renderRevisionSpan(
       data-rev-color={String(segment.color ?? revisionColor(paint.hunks, segment.hunkId))}
       onClick={() => paint.onFocus(segment.hunkId, "rail")}
     >
-      {piece.before ? <del className="lm-word-rev-del">{piece.before}</del> : null}
-      {piece.after ? <ins className="lm-word-rev-ins">{piece.after}</ins> : null}
+      {piece.before ? <del className="lm-word-rev-del">{renderWordRunText(piece.before)}</del> : null}
+      {piece.after ? <ins className="lm-word-rev-ins">{renderWordRunText(piece.after)}</ins> : null}
     </span>
   );
 }
@@ -401,7 +427,7 @@ function renderTrackedSpan(
   const mode = paint.markup;
   const plain = (key: number, text: string) => (
     <span key={key} style={markStyle(segment, false)} data-all-from={String(allFrom)}>
-      {text}
+      {renderWordRunText(text)}
     </span>
   );
   if (hidden) {
@@ -426,7 +452,7 @@ function renderTrackedSpan(
         data-all-from={String(allFrom)}
         onClick={() => paint.onFocus(segment.revId, "rail")}
       >
-        {segment.text}
+        {renderWordRunText(segment.text)}
       </span>
     );
   }
@@ -443,7 +469,7 @@ function renderTrackedSpan(
       data-all-from={String(allFrom)}
       onClick={() => paint.onFocus(segment.revId, "rail")}
     >
-      <Tag className={deleted ? "lm-word-rev-del" : "lm-word-rev-ins"}>{segment.text}</Tag>
+      <Tag className={deleted ? "lm-word-rev-del" : "lm-word-rev-ins"}>{renderWordRunText(segment.text)}</Tag>
     </span>
   );
 }
@@ -531,10 +557,44 @@ function renderSurfaceParagraph(paragraph: WordSurfaceParagraph, index: number, 
       >
         {paragraph.segments.map((segment, segIndex) => {
           const from = allFrom;
-          allFrom += segment.kind === "text" || segment.kind === "tracked" ? segment.text.length : (segment.before.length + segment.after.length);
+          allFrom +=
+            segment.kind === "text" || segment.kind === "tracked"
+              ? segment.text.length
+              : segment.kind === "image"
+                ? 1
+                : segment.before.length + segment.after.length;
+          if (segment.kind === "image") {
+            return (
+              <span
+                key={segIndex}
+                className="lm-word-surface-image"
+                data-all-from={String(from)}
+                contentEditable={false}
+              >
+                {segment.src ? (
+                  <img
+                    src={segment.src}
+                    alt={segment.alt ?? "文档图片"}
+                    width={segment.widthPx}
+                    height={segment.heightPx}
+                    style={{
+                      maxWidth: "100%",
+                      height: "auto",
+                      ...(segment.widthPx ? { width: segment.widthPx } : {}),
+                    }}
+                    data-testid="lm-word-surface-image"
+                  />
+                ) : (
+                  <span className="lm-word-surface-image-placeholder" data-testid="lm-word-surface-image-placeholder">
+                    [图片过大或无法预览]
+                  </span>
+                )}
+              </span>
+            );
+          }
           return segment.kind === "text" ? (
             <span key={segIndex} style={markStyle(segment, false)} data-all-from={String(from)}>
-              {segment.text}
+              {renderWordRunText(segment.text)}
             </span>
           ) : segment.kind === "tracked" ? (
             renderTrackedSpan(segment, segIndex, paint, from)

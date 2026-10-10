@@ -13,7 +13,6 @@
  */
 
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
-import { isContractFastLaneInstruction } from "../platform/contract-fast-lane-instruction.js";
 import { extractTextIntent } from "./text-intent.js";
 import { instructionLooksLikeLetterQa } from "./utterance-kind.js";
 
@@ -153,26 +152,12 @@ export function deliveryPinsIncludeWord(pins: readonly ComposeContextPin[] | und
   );
 }
 
-/**
- * Turn-level delivery: 5-minute form always says 合同审查意见.
- * A Word pin means default paired (opinion + redline) unless the lawyer forbade mutating the source.
- */
+/** Turn-level delivery from the lawyer's instruction (no fixed-lane overrides). */
 export function resolveTurnDeliveryIntent(
   instruction: string | undefined,
-  pins?: readonly ComposeContextPin[],
+  _pins?: readonly ComposeContextPin[],
 ): DeliveryIntent {
-  const delivery = extractDeliveryIntent(instruction);
-  if (delivery.mutateSource === "forbid") {
-    return delivery;
-  }
-  if (deliveryPinsIncludeWord(pins) && instruction && isContractFastLaneInstruction(instruction)) {
-    return {
-      ...delivery,
-      artifactShape: "unspecified",
-      chatMirror: "unspecified",
-    };
-  }
-  return delivery;
+  return extractDeliveryIntent(instruction);
 }
 
 export function isOpinionMemoDelivery(delivery: DeliveryIntent | undefined): boolean {

@@ -10,14 +10,33 @@ export type FsEntry = {
   mtimeMs: number;
 };
 
+/** Middle-column preview kind. Binary kinds keep content empty; image may set dataUrl. */
+export type FilePreviewKind =
+  | "text"
+  | "word"
+  | "image"
+  | "pdf"
+  | "xlsx"
+  | "media"
+  | "eml"
+  | "zip"
+  | "doc"
+  | "fallback";
+
 export type OpenFileTab = {
   id: string;
   root: RootKey;
   path: string;
   name: string;
+  kind: FilePreviewKind;
+  /** Text tabs only — binary tabs leave both empty. */
   content: string;
   savedContent: string;
   mtimeMs: number;
+  /** Image preview data URL when kind === "image". */
+  dataUrl?: string;
+  /** Fallback panel copy when kind === "fallback" (or until a richer kind ships). */
+  fallbackMode?: "office" | "binary";
 };
 
 export type IndexedFile = { root: RootKey; path: string; name: string };
@@ -53,6 +72,12 @@ export type FsClip = {
 
 export type FilePortalHosts = {
   explorer: HTMLElement | null;
+  /**
+   * When set with `explorer`, the workbench splits the rail:
+   * `explorer` = 工作区（本机文件夹），`explorerCases` = 案件材料。
+   * Omit to keep both sections in a single `explorer` host.
+   */
+  explorerCases?: HTMLElement | null;
   /** When set, drag handle lives between file tree and the next column (legacy three-column rail). */
   split?: HTMLElement | null;
   /** 主区为案件工作台时可缺省，仅保留侧栏材料树。 */
@@ -89,8 +114,6 @@ export type Props = {
   onPickProject?: () => void | Promise<void>;
   /** 将路径加入对话/议题引用（发送时把路径说明一并给模型） */
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
-  /** docx/doc/pdf：引用并跳转对话填入「5 分钟合同审查」交办 */
-  onSendContractForReview?: (payload: { root: RootKey; relPath: string }) => void;
   /** 右键「引用」菜单文案；默认「在对话中引用」 */
   addToContextLabel?: string;
   /** When set, 资源管理器 / 分割条 / 编辑器分别挂到这些节点（用于侧栏资源区 + 主区对话等布局） */

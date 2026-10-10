@@ -24,17 +24,16 @@
 
 `skillIds` 是该能力**可以**用的作业标准全集。真正写进系统提示的只有两份。其余变成索引行，模型用 `read_skill` 自取。这是 Cursor / Codex 的技能目录做法：说明先短，正文按需打开。差别是律师不能安装或关掉这些文件（第 11 章）。
 
-`action` 只有五种，描述界面落点，不改变工具表：
+`action` 只有四种，描述界面落点，不改变工具表：
 
-| action            | 落点                               |
-| ----------------- | ---------------------------------- |
-| `lock`            | 写入办件锁，走通用交办             |
-| `contract-lane`   | 合同快车道。只有 `contract.review` |
-| `research-lane`   | 研究快车道。只有 `research.memo`   |
-| `mail-lane`       | 邮件快车道。只有 `mail.contract`   |
-| `write-materials` | 写材料。只有 `materials.draft`     |
+| action            | 落点                                 |
+| ----------------- | ------------------------------------ |
+| `lock`            | 写入办件锁，走通用交办（含合同审查） |
+| `research-lane`   | 研究快车道。只有 `research.memo`     |
+| `mail-lane`       | 邮件快车道。只有 `mail.contract`     |
+| `write-materials` | 写材料。只有 `materials.draft`       |
 
-合同审查的界面说明是「按已附合同出审查意见；要改原文时再出修订稿」。不要写成「走审查流水线」——那句话会让律师和模型都以为切了能力就锁死步骤。
+合同审查的界面说明是「按已附合同出审查意见；要改原文时再出修订稿」。不要写成「走审查流水线」——那句话会让律师和模型都以为切了能力就锁死步骤。原 Solo「5 分钟合同审查」`contract-lane` 已移除。
 
 ## 22.3 绑定：硬钉子先于猜测
 
@@ -122,7 +121,7 @@
 
 | id                    | 名称         | 管线                  | 默认交付物           | 主阶段                 | 入口       |
 | --------------------- | ------------ | --------------------- | -------------------- | ---------------------- | ---------- |
-| `contract.review`     | 合同审查     | `execute_workflow`    | `contract.review`    | 分层审查、最短改动     | 合同快车道 |
+| `contract.review`     | 合同审查     | `execute_workflow`    | `contract.review`    | 分层审查、最短改动     | 办件锁     |
 | `contract.draft`      | 合同起草     | `execute_workflow`    | `contract.general`   | 起草路由、开箱口径     | 办件锁     |
 | `mail.contract`       | 邮件合同审阅 | `tracked_redline`     | `contract.review`    | 分层审查、引用锚定     | 邮件快车道 |
 | `letter.draft`        | 函件起草     | `execute_workflow`    | `letter.counsel`     | 交付用语、要素提取     | 办件锁     |

@@ -24,6 +24,13 @@ import {
 import { resolveOpenableOutputPath, artifactApiRelFromOutput } from "./lawmind-app-utils";
 import { scheduleScrollChatMessagesToLatest } from "./lawmind-chat-scroll";
 import { LAWMIND_OPEN_MATTER_OUTBOUND } from "./lawmind-desk-outbound";
+import {
+  LAWMIND_OPEN_MATTER_ON_DESK,
+  LAWMIND_VIEW_MATTER_INTENT,
+  type OpenMatterOnDeskDetail,
+  type ViewMatterIntentDetail,
+} from "./lawmind-desk-nav";
+import { resolveMatterIdFromViewIntent } from "./lawmind-desk-agenda";
 import type { DeskMatterFocus, DeskMatterFocusPane } from "./app/desk-matter-focus";
 import type { CommandPaletteAction } from "./LawmindCommandPalette";
 import type { LawmindMainView } from "./lawmind-main-view";
@@ -200,6 +207,7 @@ export function LawmindAppRoot() {
   const [chatMatterHeadline, setChatMatterHeadline] = useState<string | null>(null);
   /** 左栏：资源树 portal；主区：仅编辑器 */
   const [fileExplorerHost, setFileExplorerHost] = useState<HTMLDivElement | null>(null);
+  const [fileExplorerCasesHost, setFileExplorerCasesHost] = useState<HTMLDivElement | null>(null);
   const [fileExplorerPortaled, setFileExplorerPortaled] = useState(false);
   const [fileEditorHost, setFileEditorHost] = useState<HTMLDivElement | null>(null);
   /** 从文书台点「返回案件」时一次性选中左侧案件，避免掉上下文 */
@@ -374,11 +382,42 @@ export function LawmindAppRoot() {
       setMainView("desk");
     };
     window.addEventListener(LAWMIND_OPEN_MATTER_OUTBOUND, onOutbound);
+    const onOpenMatterOnDesk = (event: Event) => {
+      const matterId = (event as CustomEvent<OpenMatterOnDeskDetail>).detail?.matterId?.trim();
+      if (!matterId) {
+        return;
+      }
+      recordsDeskMatters.setSelectedKey(matterId);
+      actions.setContextMatterId(matterId);
+      setDeskMatterFocus((prev) => ({ id: matterId, n: (prev?.n ?? 0) + 1 }));
+      setMainView("desk");
+    };
+    const onViewMatterIntent = (event: Event) => {
+      const detail = (event as CustomEvent<ViewMatterIntentDetail>).detail;
+      if (!detail?.text?.trim()) {
+        return;
+      }
+      const matters = recordsDeskMatters.sidebarRowsAll
+        .filter((r) => Boolean(r.matterId) && r.key !== RECORDS_DESK_UNLINKED)
+        .map((r) => ({ matterId: r.matterId as string, title: r.title }));
+      const mid = resolveMatterIdFromViewIntent(detail.text, matters, detail.boundMatterId);
+      if (!mid) {
+        return;
+      }
+      recordsDeskMatters.setSelectedKey(mid);
+      actions.setContextMatterId(mid);
+      setDeskMatterFocus((prev) => ({ id: mid, n: (prev?.n ?? 0) + 1 }));
+      setMainView("desk");
+    };
+    window.addEventListener(LAWMIND_OPEN_MATTER_ON_DESK, onOpenMatterOnDesk);
+    window.addEventListener(LAWMIND_VIEW_MATTER_INTENT, onViewMatterIntent);
     return () => {
       window.removeEventListener(LAWMIND_CANVAS_COMPOSER_EVENT, onComposer);
       window.removeEventListener(LAWMIND_OPEN_MATTER_OUTBOUND, onOutbound);
+      window.removeEventListener(LAWMIND_OPEN_MATTER_ON_DESK, onOpenMatterOnDesk);
+      window.removeEventListener(LAWMIND_VIEW_MATTER_INTENT, onViewMatterIntent);
     };
-  }, [actions, setMainView]);
+  }, [actions, recordsDeskMatters, setMainView]);
 
   // ⌘K 全局查找挂在根壳：对话、工作台、改稿页都能唤起；再按一次收起。
   useEffect(() => {
@@ -698,6 +737,8 @@ export function LawmindAppRoot() {
     wsChatColWidth,
     fileExplorerHost,
     setFileExplorerHost,
+    fileExplorerCasesHost,
+    setFileExplorerCasesHost,
     fileExplorerPortaled,
     setFileExplorerPortaled,
     fileEditorHost,

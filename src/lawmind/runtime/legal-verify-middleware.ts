@@ -252,7 +252,6 @@ export function applyLegalVerifyToResult(
     toolNameCallCounts?: Record<string, number>;
     wordRevisionTurn?: boolean;
     mailContractTurn?: boolean;
-    contractFastLaneTurn?: boolean;
     statuteTrialThisTurn?: boolean;
     workspaceDir?: string;
     args?: Record<string, unknown>;
@@ -295,10 +294,7 @@ export function applyLegalVerifyToResult(
       const data = asRecord(result.data);
       const deliverableType =
         typeof data?.deliverableType === "string" ? data.deliverableType : undefined;
-      const skipStatute =
-        opts?.wordRevisionTurn === true ||
-        opts?.mailContractTurn === true ||
-        opts?.contractFastLaneTurn === true;
+      const skipStatute = opts?.wordRevisionTurn === true || opts?.mailContractTurn === true;
       let statuteVerify:
         | { message: string; unverified: true; statuteTrialMissing: true }
         | undefined;
@@ -448,7 +444,6 @@ export const legalVerifyMiddleware: ToolMiddleware = async (call, next) => {
     toolNameCallCounts: call.policy.toolNameCallCounts,
     wordRevisionTurn: call.ctx.wordRevisionTurn,
     mailContractTurn: call.ctx.mailContractTurn,
-    contractFastLaneTurn: call.ctx.contractFastLaneTurn,
     statuteTrialThisTurn: call.ctx.statuteTrialThisTurn === true,
     workspaceDir: call.ctx.workspaceDir,
     args: call.args,

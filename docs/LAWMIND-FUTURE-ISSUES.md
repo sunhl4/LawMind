@@ -86,7 +86,7 @@
 ## 4. 桌面 UX / IA 债
 
 - [x] Action Hub 模态 vs「在办」主视图的最终收敛：侧栏/顶栏/对话「待我拍板」直接进「在办」（不再开模态）
-- [x] 一级顶栏为 **对话 / 工作台 / 在办**（`LawmindMainView`）；会议室与改稿为次级深链，不占一级对等 Tab
+- [x] 顶栏一级为 **对话 / 工作台**；`agents`（在办）经「待我拍板」/`/agents`/设置协作进入，不占一级 tab；会议室与改稿为次级深链
 - [x] 意图状态条与 `runTurn` 同源 compile（`POST /api/intent/compile` + peek）；拖文件不再自动弹合同审查卡；unbound/纠正清 `lastBound`
 - [x] `cases/*/RULES.md` 纳入写保护（与 `matters/*/RULES.md` 同口径）
 - [x] 旧 Matter cockpit 页并入工作台本案卷宗（顶栏案件名 / 侧栏选案 → `desk` + dossier）

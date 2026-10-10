@@ -32,12 +32,7 @@ export const LAWYER_CAPABILITY_IDS = [
 
 export type LawyerCapabilityId = (typeof LAWYER_CAPABILITY_IDS)[number];
 
-export type LawyerCapabilityDeskAction =
-  | "lock"
-  | "contract-lane"
-  | "research-lane"
-  | "mail-lane"
-  | "write-materials";
+export type LawyerCapabilityDeskAction = "lock" | "research-lane" | "mail-lane" | "write-materials";
 
 export type LawyerCapabilityDeskItem = {
   id: LawyerCapabilityId;
@@ -55,7 +50,7 @@ export const LAWYER_CAPABILITY_DESK_ITEMS: readonly LawyerCapabilityDeskItem[] =
     label: "合同审查",
     hint: "按已附合同出审查意见；要改原文时再出修订稿",
     testId: "lm-desk-work-contract",
-    action: "contract-lane",
+    action: "lock",
     defaultDeliverableType: "contract.review",
   },
   {

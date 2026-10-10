@@ -58,6 +58,7 @@ import {
   type WordPageBox,
   type WordRunMark,
 } from "./word-surface-layout.js";
+import { outlineEntriesOf } from "./word-surface-outline.js";
 import { revisionPieces, trackCoversHunk } from "./word-surface-pieces.js";
 
 /**
@@ -66,6 +67,7 @@ import { revisionPieces, trackCoversHunk } from "./word-surface-pieces.js";
  * the document is red, the next blue, then the list repeats.
  */
 export { WORD_REVISION_COLOR_COUNT, trackCoversHunk };
+export { outlineEntriesOf } from "./word-surface-outline.js";
 
 export type WordSurfaceMark = WordRunMark;
 
@@ -91,6 +93,13 @@ export type WordSurfaceSegment = (
       color: number;
       format?: string;
       disposition?: "open" | "accepted";
+    }
+  | {
+      kind: "image";
+      src: string;
+      widthPx?: number;
+      heightPx?: number;
+      alt?: string;
     }
 ) &
   WordSurfaceMark;
@@ -118,12 +127,27 @@ export type WordSurfaceParagraph = {
   line?: WordLineSpacing;
   fontFamily?: string;
   listLabel?: string;
+  /** 1-based outline level; absent on body paragraphs. */
+  outlineLevel?: number;
   /** Docx text before lawyer edits. Control+S compares the paragraph against this. */
   baselineText?: string;
   segments: WordSurfaceSegment[];
   /** All-markup runs. The surface composes Word edits against this, not the DOM. */
   runs?: WordRevisionRun[];
   pPrInner?: string;
+  /**
+   * Index of this paragraph in the loaded story part's `w:p` sequence.
+   * `null` = inserted after load (Enter).
+   */
+  sourceIndex?: number | null;
+  /** Zip part this paragraph belongs to, e.g. `word/document.xml` / `word/header1.xml`. */
+  storyPart?: string;
+};
+
+export type WordSurfaceOutlineEntry = {
+  paragraphIndex: number;
+  level: number;
+  text: string;
 };
 
 export type WordSurfaceCell = {
@@ -170,6 +194,8 @@ export type WordSurfaceSnapshot = {
   blocks: WordSurfaceBlock[];
   /** Reading order, including paragraphs inside tables. */
   paragraphs: WordSurfaceParagraph[];
+  /** Heading outline for the left nav (built from paragraph outlineLevel). */
+  outline?: WordSurfaceOutlineEntry[];
   hunks: WordSurfaceHunkView[];
   /** Revisions already in the file, in document order. Absent on older snapshots. */
   tracked?: WordTrackedView[];
@@ -495,12 +521,28 @@ function paintRevisionRuns(
   runs: WordRevisionRun[],
   colors: Map<string, number>,
 ): WordSurfaceSegment[] {
-  return runs.map((run) => {
+  const out: WordSurfaceSegment[] = [];
+  for (const run of runs) {
+    if (run.image) {
+      out.push({
+        kind: "image" as const,
+        src: run.image.src,
+        ...(run.image.widthPx != null ? { widthPx: run.image.widthPx } : {}),
+        ...(run.image.heightPx != null ? { heightPx: run.image.heightPx } : {}),
+        alt: "文档图片",
+      });
+      continue;
+    }
+    // Field markers / unhydrated drawings stay in runs for save; hide the placeholder glyph.
+    if (run.preservedXml && (!run.text || run.text === "\uFFFC")) {
+      continue;
+    }
     if (!run.track) {
-      return { kind: "text" as const, text: run.text, ...run.mark };
+      out.push({ kind: "text" as const, text: run.text, ...run.mark });
+      continue;
     }
     rememberAuthor(colors, run.track.author);
-    return {
+    out.push({
       kind: "tracked" as const,
       revId: run.track.id,
       change: run.track.kind,
@@ -511,8 +553,9 @@ function paintRevisionRuns(
       ...(run.track.format ? { format: run.track.format } : {}),
       ...(run.track.disposition === "accepted" ? { disposition: "accepted" as const } : {}),
       ...run.mark,
-    };
-  });
+    });
+  }
+  return out;
 }
 
 function layoutFromPlain(texts: string[]): WordLayoutBlock[] {
@@ -553,6 +596,52 @@ function flattenParagraphs(blocks: WordSurfaceBlock[]): WordSurfaceParagraph[] {
     }
   }
   return out;
+}
+
+const BODY_PART = "word/document.xml";
+
+/** Assign stable `sourceIndex` (+ optional storyPart) so save can insert new `w:p` rows. */
+function stampPartSourceIndexes(blocks: WordSurfaceBlock[], storyPart: string): WordSurfaceBlock[] {
+  let index = 0;
+  const walk = (list: WordSurfaceBlock[]): WordSurfaceBlock[] =>
+    list.map((block) => {
+      if (block.kind === "table") {
+        return {
+          ...block,
+          rows: block.rows.map((row) =>
+            row.map((cell) => ({ ...cell, blocks: walk(cell.blocks) })),
+          ),
+        };
+      }
+      const sourceIndex = index;
+      index += 1;
+      return { ...block, sourceIndex, storyPart };
+    });
+  return walk(blocks);
+}
+
+function paintStoryLayouts(
+  stories: Array<{ part: string; blocks: WordLayoutBlock[] }> | undefined,
+  flat: WordLayoutBlock[] | undefined,
+  fallbackPart: string,
+  colors: Map<string, number>,
+  revisionAuthor: string,
+): WordSurfaceBlock[] | undefined {
+  if (stories && stories.length > 0) {
+    return stories.flatMap((story) =>
+      stampPartSourceIndexes(
+        paintLayout(story.blocks, [], new Set(), colors, revisionAuthor),
+        story.part,
+      ),
+    );
+  }
+  if (flat && flat.length > 0) {
+    return stampPartSourceIndexes(
+      paintLayout(flat, [], new Set(), colors, revisionAuthor),
+      fallbackPart,
+    );
+  }
+  return undefined;
 }
 
 function paintLayout(
@@ -623,6 +712,7 @@ function paintLayout(
       ...(block.line ? { line: block.line } : {}),
       ...(block.fontFamily ? { fontFamily: block.fontFamily } : {}),
       ...(block.listLabel ? { listLabel: block.listLabel } : {}),
+      ...(block.outlineLevel != null ? { outlineLevel: block.outlineLevel } : {}),
       ...(block.text ? { baselineText: block.text } : {}),
       ...(block.pPrInner ? { pPrInner: block.pPrInner } : {}),
       runs,
@@ -754,6 +844,10 @@ export function composeWordSurface(params: {
   headerLayout?: WordLayoutBlock[];
   footerLayout?: WordLayoutBlock[];
   footnoteLayout?: WordLayoutBlock[];
+  /** Prefer per-part stories so save can write the correct header/footer XML. */
+  headerStories?: Array<{ part: string; blocks: WordLayoutBlock[] }>;
+  footerStories?: Array<{ part: string; blocks: WordLayoutBlock[] }>;
+  footnoteStories?: Array<{ part: string; blocks: WordLayoutBlock[] }>;
   docxComments?: WordRevisionComment[];
 }): WordSurfaceSnapshot {
   const source =
@@ -763,6 +857,13 @@ export function composeWordSurface(params: {
   const sections = params.proposal?.baselineSections ?? [];
   const colors = new Map<string, number>();
   collectTrackAuthors(source, colors);
+  for (const story of [
+    ...(params.headerStories ?? []),
+    ...(params.footerStories ?? []),
+    ...(params.footnoteStories ?? []),
+  ]) {
+    collectTrackAuthors(story.blocks, colors);
+  }
   collectTrackAuthors(params.headerLayout ?? [], colors);
   collectTrackAuthors(params.footerLayout ?? [], colors);
   collectTrackAuthors(params.footnoteLayout ?? [], colors);
@@ -784,7 +885,10 @@ export function composeWordSurface(params: {
       : {}),
   }));
   const used = new Set<string>();
-  const blocks = paintLayout(source, colored, used, colors, revisionAuthor);
+  const blocks = stampPartSourceIndexes(
+    paintLayout(source, colored, used, colors, revisionAuthor),
+    BODY_PART,
+  );
   const paragraphs = flattenParagraphs(blocks);
   const statusRank: Record<RedlineHunk["status"], number> = {
     pending: 0,
@@ -813,15 +917,27 @@ export function composeWordSurface(params: {
     paragraphs.length > 0 ? paragraphs : [{ segments: [{ kind: "text" as const, text: "" }] }];
   const paintedBlocks =
     blocks.length > 0 ? blocks : [{ kind: "paragraph" as const, segments: page[0].segments }];
-  const headerBlocks = params.headerLayout
-    ? paintLayout(params.headerLayout, [], new Set(), colors, revisionAuthor)
-    : undefined;
-  const footerBlocks = params.footerLayout
-    ? paintLayout(params.footerLayout, [], new Set(), colors, revisionAuthor)
-    : undefined;
-  const footnoteBlocks = params.footnoteLayout
-    ? paintLayout(params.footnoteLayout, [], new Set(), colors, revisionAuthor)
-    : undefined;
+  const headerBlocks = paintStoryLayouts(
+    params.headerStories,
+    params.headerLayout,
+    "word/header1.xml",
+    colors,
+    revisionAuthor,
+  );
+  const footerBlocks = paintStoryLayouts(
+    params.footerStories,
+    params.footerLayout,
+    "word/footer1.xml",
+    colors,
+    revisionAuthor,
+  );
+  const footnoteBlocks = paintStoryLayouts(
+    params.footnoteStories,
+    params.footnoteLayout,
+    "word/footnotes.xml",
+    colors,
+    revisionAuthor,
+  );
   const tracked = [
     ...collectTracked(headerBlocks ?? []),
     ...collectTracked(paintedBlocks),
@@ -832,6 +948,7 @@ export function composeWordSurface(params: {
     ...hunk,
     placed: hunk.placed || tracked.some((row) => trackCoversHunk(row, hunk)),
   }));
+  const outline = outlineEntriesOf(page);
   return {
     fileName: params.fileName,
     relPath: params.relPath,
@@ -840,6 +957,7 @@ export function composeWordSurface(params: {
     updatedAt: params.proposal?.updatedAt ?? params.draft?.createdAt ?? null,
     blocks: paintedBlocks,
     paragraphs: page,
+    ...(outline.length > 0 ? { outline } : {}),
     page: params.page ?? defaultWordPage(),
     hunks: hunkViews,
     tracked,
@@ -905,9 +1023,9 @@ export async function loadWordSurface(params: {
   }
   let layout: WordLayoutBlock[] = [];
   let paper = defaultWordPage();
-  let headerLayout: WordLayoutBlock[] = [];
-  let footerLayout: WordLayoutBlock[] = [];
-  let footnoteLayout: WordLayoutBlock[] = [];
+  const headerStories: Array<{ part: string; blocks: WordLayoutBlock[] }> = [];
+  const footerStories: Array<{ part: string; blocks: WordLayoutBlock[] }> = [];
+  const footnoteStories: Array<{ part: string; blocks: WordLayoutBlock[] }> = [];
   let docxComments: WordRevisionComment[] = [];
   let acceptedRevIds: string[] = [];
   try {
@@ -915,15 +1033,19 @@ export async function loadWordSurface(params: {
     paper = stories.page;
     docxComments = stories.comments;
     acceptedRevIds = stories.acceptedRevIds;
+    const { hydrateLayoutImages } = await import("./word-revision/hydrate-images.js");
+    const imageBudget = { total: 0 };
     for (const story of stories.stories) {
+      const relsPath = `word/_rels/${story.part.replace(/^word\//, "")}.rels`;
+      const painted = await hydrateLayoutImages(story.blocks, stories.zip, relsPath, imageBudget);
       if (story.role === "body") {
-        layout = story.blocks;
+        layout = painted;
       } else if (story.role === "header") {
-        headerLayout = [...headerLayout, ...story.blocks];
+        headerStories.push({ part: story.part, blocks: painted });
       } else if (story.role === "footer") {
-        footerLayout = [...footerLayout, ...story.blocks];
+        footerStories.push({ part: story.part, blocks: painted });
       } else {
-        footnoteLayout = [...footnoteLayout, ...story.blocks];
+        footnoteStories.push({ part: story.part, blocks: painted });
       }
     }
   } catch {
@@ -939,9 +1061,9 @@ export async function loadWordSurface(params: {
     draft,
     proposal,
     workspaceDir: params.workspaceDir,
-    ...(headerLayout.length > 0 ? { headerLayout } : {}),
-    ...(footerLayout.length > 0 ? { footerLayout } : {}),
-    ...(footnoteLayout.length > 0 ? { footnoteLayout } : {}),
+    ...(headerStories.length > 0 ? { headerStories } : {}),
+    ...(footerStories.length > 0 ? { footerStories } : {}),
+    ...(footnoteStories.length > 0 ? { footnoteStories } : {}),
     ...(docxComments.length > 0 ? { docxComments } : {}),
   });
   return {

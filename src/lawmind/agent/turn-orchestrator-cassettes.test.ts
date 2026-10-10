@@ -45,7 +45,7 @@ import {
 import type { AgentMessage } from "./types.js";
 import { WRITE_SYNTHESIS_MARKER } from "./write-synthesis.js";
 
-const FAST_LANE = [
+const CONTRACT_DISPATCH = [
   "【交办】5 分钟合同审查",
   "交付物类型：合同审查意见",
   "- 合同/材料说明：nda.docx",
@@ -377,13 +377,13 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("fast-lane: next request stays unlocked with the 5-minute craft; search_statute executes", async () => {
+  it("structured contract dispatch: next request stays unlocked and the removed fast-lane coach is gone", async () => {
     await withTestLawMind(
       (b) => b,
       async (h) => {
         h.enqueue(cassetteToolCall("search_statute"), cassetteAssistant("已处理。"));
-        await h.runTurn(FAST_LANE);
-        expect(h.request(0).contains("合同审查 · 快车道")).toBe(true);
+        await h.runTurn(CONTRACT_DISPATCH);
+        expect(h.request(0).contains("合同审查 · 快车道")).toBe(false);
         expect(h.request(0).hasAdvertisedTool("list_more_tools")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
@@ -396,7 +396,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("fast-lane: update_plan executes and the next request carries the checklist", async () => {
+  it("structured contract dispatch: update_plan executes and the next request carries the checklist", async () => {
     await withTestLawMind(
       (b) => b,
       async (h) => {
@@ -409,7 +409,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
           }),
           cassetteAssistant("先通读合同。"),
         );
-        await h.runTurn(FAST_LANE);
+        await h.runTurn(CONTRACT_DISPATCH);
         expect(h.spy?.log.calls.find((call) => call.name === "update_plan")?.result.ok).toBe(true);
         expect(h.request(1).contains("<!--lm-ws:plan-->")).toBe(true);
         expect(h.request(1).contains("读钉选合同")).toBe(true);
@@ -1333,13 +1333,13 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("fast-lane does not freeze list_dir away", async () => {
+  it("structured contract dispatch does not freeze list_dir away", async () => {
     await withTestLawMind(
       (b) => b,
       async (h) => {
         h.enqueue(cassetteAssistant("已处理。"));
-        await h.runTurn(FAST_LANE);
-        expect(h.request(0).contains("合同审查 · 快车道")).toBe(true);
+        await h.runTurn(CONTRACT_DISPATCH);
+        expect(h.request(0).contains("合同审查 · 快车道")).toBe(false);
         expect(h.request(0).advertisedToolNames()).toContain("list_dir");
       },
     );
@@ -1678,12 +1678,12 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("fast-lane with Word pin keeps surgical tools and does not stamp opinion-memo delivery", async () => {
+  it("structured contract dispatch with Word pin keeps surgical tools and does not stamp opinion-memo delivery", async () => {
     await withTestLawMind(
       (b) => b,
       async (h) => {
         h.enqueue(cassetteAssistant("已处理。"));
-        await h.runTurn(FAST_LANE, {
+        await h.runTurn(CONTRACT_DISPATCH, {
           contextPins: [
             {
               pinKind: "file",
@@ -2696,7 +2696,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
           cassetteToolCall("search_statute", { query: "违约" }),
           cassetteToolCall("search_statute", { query: "付款" }),
         );
-        const result = await h.runTurn(FAST_LANE);
+        const result = await h.runTurn(CONTRACT_DISPATCH);
         expect(result.turn.status).toBe("completed");
         expect(result.turn.requiresAction ?? []).toEqual([]);
         expect(h.spy?.log.executedNames().filter((n) => n === "search_statute")).toHaveLength(2);
@@ -2713,7 +2713,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
           cassetteToolCall("search_statute", { query: "付款" }),
           cassetteAssistant("审查意见：注意付款与违约条款。"),
         );
-        const result = await h.runTurn(FAST_LANE);
+        const result = await h.runTurn(CONTRACT_DISPATCH);
         expect(result.turn.status).toBe("completed");
         expect(result.reply).toContain("审查意见");
         expect(result.turn.requiresAction ?? []).toEqual([]);

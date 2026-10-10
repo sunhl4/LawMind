@@ -73,7 +73,6 @@ import {
   shouldRequireFolderExplore,
 } from "../intent/utterance-kind.js";
 import type { MemoryContext } from "../memory/index.js";
-import { isContractFastLaneInstruction } from "../platform/contract-fast-lane-instruction.js";
 import { extractSuggestedReplyTo } from "../platform/mail-contract-short-path-instruction.js";
 import { isMailContractFastPathInstruction } from "../platform/mail-contract-short-path-instruction.js";
 import { resolvePlaybookToolLock } from "../platform/playbook-tool-lock.js";
@@ -323,7 +322,6 @@ export async function runTurn(opts: {
   });
   const deliveryIntent = resolveTurnDeliveryIntent(instruction, opts.contextPins);
   const mailContractTurn = isMailContractFastPathInstruction(instruction);
-  const contractFastLaneTurn = isContractFastLaneInstruction(instruction);
   const confirmedAnswers = mergeConfirmedAnswers(
     session.lastConfirmedAnswers,
     opts.confirmedAnswers,
@@ -413,7 +411,6 @@ export async function runTurn(opts: {
       wordRevisionTurn,
       mailContractTurn,
     }),
-    contractFastLaneTurn,
     chatModel: config.model,
     reviewModel: config.workerModel ?? config.model,
     ...(confirmedAnswers ? { confirmedAnswers } : {}),

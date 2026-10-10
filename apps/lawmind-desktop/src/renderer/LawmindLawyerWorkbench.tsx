@@ -1,5 +1,5 @@
 /**
- * 工作台：对话页中栏里的案卷。左边是目录，右边是对话。
+ * 工作台：默认今日提醒；案件管理为下钻；左栏目录仍是案件真源。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage, fetchApi } from "./api-client";
@@ -13,6 +13,7 @@ import {
   formatMaterialBytes,
   formatTimelineDay,
   isOverdue,
+  mailSourceRef,
   matterHotLine,
   matterMatchesListFilter,
   materialDisplayPath,
@@ -30,6 +31,8 @@ import {
   type MatterParty,
 } from "../../../../src/lawmind/desk/matter-parties.ts";
 import { LawmindDaemonRecap } from "./LawmindDaemonRecap";
+import { LawmindDeskAgenda } from "./LawmindDeskAgenda";
+import type { DeskAgendaItem } from "./lawmind-desk-agenda";
 import { openDeliverableInWps } from "./canvas/host-actions";
 import { LawmindDeskOutboundList } from "./LawmindDeskOutboundList";
 import {
@@ -294,6 +297,17 @@ function fallbackDeskMatter(
   };
 }
 
+function deskAlertCopy(err: string): string {
+  if (/matter not found/i.test(err)) {
+    return "未找到该案件登记。若左栏只有材料文件夹，请用「新建案件」登记后再打开案件管理。";
+  }
+  return err;
+}
+
+function isDeskConnectionError(err: string): boolean {
+  return err.includes("无法连接本地服务");
+}
+
 function DeskServiceAlert({
   err,
   onReconnect,
@@ -306,16 +320,17 @@ function DeskServiceAlert({
   if (!err) {
     return null;
   }
+  const showReconnect = Boolean(onReconnect) && isDeskConnectionError(err);
   return (
     <div className="lm-lawyer-alert" role="alert">
-      <p className="lm-error">{err}</p>
-      {onReconnect ? (
+      <p className="lm-error">{deskAlertCopy(err)}</p>
+      {showReconnect ? (
         <button
           type="button"
           className="lm-btn lm-btn-sm"
           data-testid="lm-lawyer-reconnect"
           disabled={reconnecting}
-          onClick={() => void onReconnect()}
+          onClick={() => void onReconnect?.()}
         >
           {reconnecting ? "连接中…" : "重新连接"}
         </button>
@@ -372,7 +387,7 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
   const [pulse, setPulse] = useState<MatterPulseView | null>(null);
   const [outboundItems, setOutboundItems] = useState<DeskOutboundItem[]>([]);
   const [matterKind, setMatterKind] = useState<MatterKind>("general");
-  const [view, setView] = useState<"list" | "matter">("list");
+  const [view, setView] = useState<"agenda" | "cases" | "matter">("agenda");
   const [openedMatterId, setOpenedMatterId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [scrollPane, setScrollPane] = useState<DeskMatterFocusPane | null>(null);
@@ -655,9 +670,98 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
     onSelectMatter(matterId);
   };
 
-  const backToList = () => {
-    setView("list");
+  const backToAgenda = () => {
+    setView("agenda");
     setScrollPane(null);
+  };
+
+  const showCases = () => {
+    setView("cases");
+    setScrollPane(null);
+  };
+
+  const matterTitleById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const row of matters) {
+      map[row.matterId] = row.title;
+    }
+    return map;
+  }, [matters]);
+
+  const addPlanItem = async (text: string) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const j = await apiSendJson<{ ok?: boolean; today?: TodaySnapshot }, { texts: string[] }>(
+        apiBase,
+        "/api/desk/plan",
+        "POST",
+        { texts: [text] },
+      );
+      if (j.today) {
+        setToday(j.today);
+      } else {
+        await reloadToday();
+      }
+    } catch (e) {
+      setErr(errorMessage(e, "添加提醒失败"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleAgendaItem = async (item: DeskAgendaItem, done: boolean) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      if (item.kind === "plan") {
+        const j = await apiSendJson<
+          { ok?: boolean; today?: TodaySnapshot },
+          { done: boolean; date?: string }
+        >(apiBase, `/api/desk/plan/items/${encodeURIComponent(item.id)}`, "PATCH", {
+          done,
+          ...(item.originDate ? { date: item.originDate } : {}),
+        });
+        if (j.today) {
+          setToday(j.today);
+        } else {
+          await reloadToday();
+        }
+      } else if (item.kind === "mail") {
+        const ref = mailSourceRef(item);
+        if (!ref) {
+          throw new Error("缺少邮件引用");
+        }
+        const j = await apiSendJson<
+          { ok?: boolean; today?: TodaySnapshot },
+          { source: "mail"; sourceRef: string }
+        >(apiBase, "/api/desk/plan/source-done", "POST", { source: "mail", sourceRef: ref });
+        if (j.today) {
+          setToday(j.today);
+        } else {
+          await reloadToday();
+        }
+      } else if (item.kind === "deadline") {
+        const matterId = item.matterId?.trim();
+        const deadlineId = item.sourceRef?.trim();
+        if (!matterId || !deadlineId) {
+          throw new Error("缺少期限引用");
+        }
+        await apiSendJson(
+          apiBase,
+          `/api/matters/${encodeURIComponent(matterId)}/deadlines/${encodeURIComponent(deadlineId)}`,
+          "PATCH",
+          { status: done ? "completed" : "open" },
+        );
+        await reloadToday();
+      } else if (item.kind === "approval") {
+        onOpenNeedsDecision?.(item.matterId);
+      }
+    } catch (e) {
+      setErr(errorMessage(e, "更新提醒失败"));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const revealArchive = (anchorId: string) => {
@@ -1206,8 +1310,8 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
               className="lm-input"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="筛选案名、案号…"
-              aria-label="筛选案卷"
+              placeholder={view === "agenda" ? "筛选提醒、案名…" : "筛选案名、案号…"}
+              aria-label={view === "agenda" ? "筛选提醒" : "筛选案卷"}
             />
             {query.trim() ? (
               <button
@@ -1221,8 +1325,18 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
             ) : null}
           </div>
           <div className="lm-lawyer-top-actions">
+            {view === "matter" || view === "cases" ? (
+              <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={backToAgenda}>
+                今日提醒
+              </button>
+            ) : null}
+            {view === "agenda" ? (
+              <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={showCases}>
+                全部案卷
+              </button>
+            ) : null}
             {view === "matter" ? (
-              <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={backToList}>
+              <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={showCases}>
                 全部案卷
               </button>
             ) : null}
@@ -1242,36 +1356,59 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
       />
 
       <div className="lm-lawyer-cockpit" data-testid="lm-lawyer-cockpit">
-        {view === "list" ? (
-          <div className="lm-desk-case-list" aria-label="案件">
-            <LawmindDaemonRecap apiBase={apiBase} />
-            {replicaFeed.length > 0 ? (
-              <div className="lm-desk-replica-note" data-testid="lm-desk-replica-feed">
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-ghost lm-btn-sm"
-                  onClick={() => openMatter(replicaFeed[0]?.matterId ?? "")}
-                >
-                  {`协作新材料 ${replicaFeed.length} 条 · ${replicaFeed[0]?.title ?? ""}`}
-                </button>
-                {replicaFeed[0]?.kind === "material.put" ? (
+        {view === "agenda" ? (
+          <LawmindDeskAgenda
+            apiBase={apiBase}
+            todayDate={today?.date}
+            items={todayItems}
+            progress={today?.progress ?? { done: 0, total: 0 }}
+            matterTitleById={matterTitleById}
+            query={query}
+            listFilter={listFilter}
+            urgencyChips={urgencyChips}
+            onListFilter={setListFilter}
+            busy={busy}
+            onToggleItem={toggleAgendaItem}
+            onOpenMatter={openMatter}
+            onCreateMatter={onCreateMatter}
+            onOpenNeedsDecision={onOpenNeedsDecision}
+            onAddPlan={addPlanItem}
+            onShowCases={showCases}
+            replicaNote={
+              replicaFeed.length > 0 ? (
+                <div className="lm-desk-replica-note" data-testid="lm-desk-replica-feed">
                   <button
                     type="button"
-                    className="lm-btn lm-btn-sm lm-btn-secondary"
-                    data-testid={`lm-desk-replica-organize-${replicaFeed[0].opId}`}
-                    onClick={() => {
-                      const pathHint = replicaFeed[0]?.relPath ? `（路径 ${replicaFeed[0].relPath}）` : "";
-                      onGoToChat({
-                        matterId: replicaFeed[0]?.matterId,
-                        prompt: `请把协作同步来的新材料整理入卷${pathHint}：核对文件名、建议归入 materials 子目录，并更新本案要点。只整理本案材料，不要改无关案件。`,
-                      });
-                    }}
+                    className="lm-btn lm-btn-ghost lm-btn-sm"
+                    onClick={() => openMatter(replicaFeed[0]?.matterId ?? "")}
                   >
-                    整理入卷
+                    {`协作新材料 ${replicaFeed.length} 条 · ${replicaFeed[0]?.title ?? ""}`}
                   </button>
-                ) : null}
-              </div>
-            ) : null}
+                  {replicaFeed[0]?.kind === "material.put" ? (
+                    <button
+                      type="button"
+                      className="lm-btn lm-btn-sm lm-btn-secondary"
+                      data-testid={`lm-desk-replica-organize-${replicaFeed[0].opId}`}
+                      onClick={() => {
+                        const pathHint = replicaFeed[0]?.relPath
+                          ? `（路径 ${replicaFeed[0].relPath}）`
+                          : "";
+                        onGoToChat({
+                          matterId: replicaFeed[0]?.matterId,
+                          prompt: `请把协作同步来的新材料整理入卷${pathHint}：核对文件名、建议归入 materials 子目录，并更新本案要点。只整理本案材料，不要改无关案件。`,
+                        });
+                      }}
+                    >
+                      整理入卷
+                    </button>
+                  ) : null}
+                </div>
+              ) : null
+            }
+          />
+        ) : view === "cases" ? (
+          <div className="lm-desk-case-list" aria-label="案件">
+            <LawmindDaemonRecap apiBase={apiBase} />
             {urgencyChips.length > 0 ? (
               <div className="lm-desk-urgency-strip" data-testid="lm-desk-urgency-strip" aria-label="跨案紧急事项">
                 {urgencyChips.map((chip) => (
@@ -1389,8 +1526,8 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
         ) : !selected ? (
           <div className="lm-lawyer-empty">
             <p className="lm-lawyer-empty-title">选一个案件</p>
-            <button type="button" className="lm-btn lm-btn-sm" onClick={backToList}>
-              全部案卷
+            <button type="button" className="lm-btn lm-btn-sm" onClick={backToAgenda}>
+              今日提醒
             </button>
           </div>
         ) : (

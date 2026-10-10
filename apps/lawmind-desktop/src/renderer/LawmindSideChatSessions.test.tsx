@@ -73,7 +73,7 @@ describe("LawmindSideChatSessions", () => {
     host.remove();
   });
 
-  it("shows the conversation search and a new-chat button", async () => {
+  it("keeps search collapsed by default and reveals it from the toggle", async () => {
     await act(async () => {
       root.render(
         <LawmindSideChatSessions
@@ -89,6 +89,12 @@ describe("LawmindSideChatSessions", () => {
       );
     });
     expect(host.querySelector('[aria-label="新建对话"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeNull();
+    const toggle = host.querySelector('[data-testid="lm-side-chat-search-toggle"]') as HTMLButtonElement;
+    expect(toggle).toBeTruthy();
+    await act(async () => {
+      toggle.click();
+    });
     const search = host.querySelector('[data-testid="lm-side-chat-search"]');
     const label = host.querySelector(".lm-section-label");
     expect(search).toBeTruthy();
@@ -137,6 +143,11 @@ describe("LawmindSideChatSessions", () => {
         />,
       );
     });
+    expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeNull();
+    await act(async () => {
+      window.dispatchEvent(new Event("lawmind:focus-chat-search"));
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
     const input = host.querySelector('[data-testid="lm-side-chat-search"]') as HTMLInputElement;
     expect(input).toBeTruthy();
     const focus = vi.spyOn(input, "focus");
@@ -147,7 +158,7 @@ describe("LawmindSideChatSessions", () => {
     expect(focus).toHaveBeenCalled();
   });
 
-  it("keeps the search field after Escape", async () => {
+  it("closes the search field on Escape when the query is empty", async () => {
     await act(async () => {
       root.render(
         <LawmindSideChatSessions
@@ -159,11 +170,15 @@ describe("LawmindSideChatSessions", () => {
         />,
       );
     });
+    await act(async () => {
+      (host.querySelector('[data-testid="lm-side-chat-search-toggle"]') as HTMLButtonElement).click();
+    });
     const input = host.querySelector('[data-testid="lm-side-chat-search"]') as HTMLInputElement;
+    expect(input).toBeTruthy();
     await act(async () => {
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
-    expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeNull();
   });
 
   it("shows the open chat in the list as soon as it exists, before the catalog includes it", async () => {

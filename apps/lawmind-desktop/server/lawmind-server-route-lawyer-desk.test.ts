@@ -236,6 +236,32 @@ describe("handleLawyerDeskRoutes", () => {
     expect(pulse.materials).toEqual([]);
   });
 
+  it("pulse rematerializes matter.json when only cases/<id> exists", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-desk-pulse-cases-"));
+    tmp.push(workspaceDir);
+    fs.mkdirSync(path.join(workspaceDir, "cases", "YX-mail", "mail"), { recursive: true });
+    fs.writeFileSync(path.join(workspaceDir, "cases", "YX-mail", "CASE.md"), "# 邮件案\n", "utf8");
+    const ctx: LawmindDispatchContext = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false },
+    };
+    const cap = captureRes();
+    await handleLawyerDeskRoutes({
+      ctx,
+      pathname: "/api/matters/YX-mail/pulse",
+      req: jsonReq("GET"),
+      res: cap.res,
+      url: new URL("http://127.0.0.1/api/matters/YX-mail/pulse"),
+      c: {},
+    });
+    expect(cap.status).toBe(200);
+    expect(cap.json().ok).toBe(true);
+    expect((cap.json().pulse as { matterId: string }).matterId).toBe("YX-mail");
+    expect(fs.existsSync(path.join(workspaceDir, "matters", "YX-mail", "matter.json"))).toBe(true);
+  });
+
   it("marks a mail source as done in today's plan", async () => {
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-desk-mail-done-"));
     tmp.push(workspaceDir);

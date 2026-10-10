@@ -1,10 +1,9 @@
 /**
- * 5-minute review is prompt coaching only (do not freeze tools).
- * This flag skips “you must search / must redline” protocol blocks.
+ * Helpers for deciding whether protocol coach blocks should inject.
+ * No fixed “5-minute review” lane — ordinary turns keep research/surgical coaching.
  */
 
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
-import { isContractFastLaneInstruction } from "../platform/contract-fast-lane-instruction.js";
 
 export type PromptProtocolGate = {
   instruction?: string;
@@ -14,10 +13,6 @@ export type PromptProtocolGate = {
 
 export const RESEARCH_PROTOCOL_TOOLS = ["search_statute", "search_case_law"] as const;
 export const SURGICAL_PROTOCOL_TOOLS = ["apply_surgical_edits"] as const;
-
-export function isOpinionOnlyFastLane(instruction?: string): boolean {
-  return Boolean(instruction && isContractFastLaneInstruction(instruction));
-}
 
 /** Missing list = do not infer a lock (unit tests). Empty list = nothing open. */
 export function toolsAllowAny(

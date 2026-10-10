@@ -708,28 +708,6 @@ export async function prepareTurnPromptContext(opts: {
             }),
           );
         }
-      } else {
-        const { isContractFastLaneInstruction, formatContractFastLanePrompt } =
-          await import("../platform/contract-fast-lane-instruction.js");
-        if (isContractFastLaneInstruction(instruction)) {
-          const { deliveryPinsIncludeWord } = await import("../intent/delivery-intent.js");
-          queue(
-            "craft",
-            formatContractFastLanePrompt({
-              wordPinned: deliveryPinsIncludeWord(opts.contextPins),
-            }),
-          );
-          queue(
-            "protocol",
-            formatWordRevisionChecklistBlock({
-              instruction,
-              pins: opts.contextPins,
-              workspaceDir: config.workspaceDir,
-              documentText,
-              purpose: "review",
-            }),
-          );
-        }
       }
     }
   } catch {
@@ -916,8 +894,7 @@ export async function prepareTurnPromptContext(opts: {
       (isOpinionMemoDelivery(compiled.delivery) ||
         /意见书短路径|Opinion Craft|审查意见书/.test(instruction) ||
         ((dt === "contract.review" || /contract\.review/.test(instruction)) &&
-          /prepare_outbound_mail|意见书/.test(instruction) &&
-          !/【交办】5 分钟合同审查/.test(instruction)));
+          /prepare_outbound_mail|意见书/.test(instruction)));
     if (looksOpinion) {
       const { OPINION_CRAFT_SKILL } = await import("../drafts/opinion-craft.js");
       if (!fragments.some((f) => f.body.includes("合同审查意见书"))) {

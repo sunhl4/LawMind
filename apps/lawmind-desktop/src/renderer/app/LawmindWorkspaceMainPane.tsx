@@ -371,7 +371,6 @@ function LawmindWorkspaceMainPaneImpl({
                 onOpenNeedsDecisionDesk={openNeedsDecisionDesk}
                 onCreateMatter={onCreateMatter}
                 onOpenAgentsWorkflows={openAgentsWorkflows}
-                onDispatchPrompt={(prompt) => void onSendClarificationMessage(prompt)}
                 showEmptyMatterGuide={showEmptyMatterGuide}
                 onDeleteChatMessage={onDeleteChatMessage}
                 onEditChatMessage={onEditChatMessage}

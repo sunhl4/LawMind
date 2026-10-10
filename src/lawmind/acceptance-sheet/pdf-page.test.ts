@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { renderPdfPagePng } from "./pdf-page.js";
+import { countPdfPages, renderPdfPagePng } from "./pdf-page.js";
 
 const tempDirs: string[] = [];
 
@@ -44,6 +44,7 @@ describe("renderPdfPagePng", () => {
     writeSimplePdf(file, "LawMind page");
     const png = await renderPdfPagePng(file, 1);
     expect(png.subarray(0, 4).toString("hex")).toBe("89504e47");
+    expect(await countPdfPages(file)).toBe(1);
   });
 
   it("rejects a page number that was not named", async () => {

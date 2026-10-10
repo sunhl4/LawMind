@@ -13,8 +13,6 @@ import { lawmindDocUrl } from "./lawmind-public-urls.js";
 import { LAWMIND_ATTORNEY_DISCLAIMER_SHORT } from "./lawmind-attorney-disclaimer";
 import { applyPostFirstrunPermissionDefaults } from "./lawmind-compose-prefs";
 import { FIRST_RUN_DEMO_MATTER_ID } from "./lawmind-day-one";
-import { buildContractFastLanePrompt } from "./lawmind-contract-fast-lane";
-
 const DISMISS_KEY = "lm.firstRun.dismissed";
 
 function rememberBrowserDismiss(stamp: string): void {
@@ -73,12 +71,11 @@ function buildFirstrunSeedPrompt(role: Role["id"], spec: SpecSummary | null): st
     return "";
   }
   if (isContractReviewSpec(spec)) {
-    return buildContractFastLanePrompt({
-      materials: "请使用对话中已引用的合同材料；若尚无引用请追问我补充文件或粘贴相关条款。",
-      focus: "付款、违约、管辖、责任限制、终止与争议解决",
-      stance: "client",
-      depth: "standard",
-    });
+    return [
+      "请审查这份合同（委托方立场，标准深度）。",
+      "重点看付款、违约、管辖、责任限制、终止与争议解决。",
+      "请使用对话中已引用的合同材料；若尚无引用请追问我补充文件或粘贴相关条款。",
+    ].join("");
   }
   return STARTER_PROMPT_BY_ROLE[role](spec.displayName);
 }

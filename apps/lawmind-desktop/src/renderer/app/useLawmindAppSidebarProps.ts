@@ -13,6 +13,7 @@ export type UseLawmindAppSidebarPropsInput = {
   showExplorerSkeleton: boolean;
   onSidebarResizePointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
   setFileExplorerHost: (el: HTMLDivElement | null) => void;
+  setFileExplorerCasesHost: (el: HTMLDivElement | null) => void;
   actionSummaryTotal: number;
   matterSidebarRows: MatterSidebarRow[];
   selectedMatterKey: string | null;
@@ -53,6 +54,7 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
     showExplorerSkeleton,
     onSidebarResizePointerDown,
     setFileExplorerHost,
+    setFileExplorerCasesHost,
     actionSummaryTotal,
     matterSidebarRows,
     selectedMatterKey,
@@ -91,6 +93,7 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       onCloseSettings: () => setShowSettings(false),
       settingsOpen: showSettings,
       setFileExplorerHost,
+      setFileExplorerCasesHost,
       actionSummaryTotal,
       matterSidebarRows,
       selectedMatterKey,
@@ -139,6 +142,7 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       setShowSettings,
       showSettings,
       setFileExplorerHost,
+      setFileExplorerCasesHost,
       actionSummaryTotal,
       matterSidebarRows,
       selectedMatterKey,

@@ -15,11 +15,13 @@ describe("LawmindFileWorkbenchHost", () => {
   let host: HTMLDivElement;
   let root: Root;
   let explorerHost: HTMLDivElement;
+  let explorerCasesHost: HTMLDivElement;
 
   beforeEach(() => {
     host = document.createElement("div");
     document.body.appendChild(host);
     explorerHost = document.createElement("div");
+    explorerCasesHost = document.createElement("div");
     root = createRoot(host);
   });
 
@@ -39,6 +41,7 @@ describe("LawmindFileWorkbenchHost", () => {
           workspaceDir="/tmp/ws"
           projectDir={null}
           fileExplorerHost={null}
+          fileExplorerCasesHost={explorerCasesHost}
           fileEditorHost={null}
           onExplorerPortaled={onExplorerPortaled}
           onAddToChatContext={() => {}}
@@ -52,7 +55,7 @@ describe("LawmindFileWorkbenchHost", () => {
     expect(onExplorerPortaled).toHaveBeenCalledWith(false);
   });
 
-  it("portals file workbench when explorer host is ready", async () => {
+  it("returns null when cases host is missing", async () => {
     const onExplorerPortaled = vi.fn();
     await act(async () => {
       root.render(
@@ -61,6 +64,30 @@ describe("LawmindFileWorkbenchHost", () => {
           workspaceDir="/tmp/ws"
           projectDir={null}
           fileExplorerHost={explorerHost}
+          fileExplorerCasesHost={null}
+          fileEditorHost={null}
+          onExplorerPortaled={onExplorerPortaled}
+          onAddToChatContext={() => {}}
+          mattersPickList={[]}
+          workspaceTreeRefreshKey={0}
+          casesNodeActions={null}
+        />,
+      );
+    });
+    expect(host.innerHTML).toBe("");
+    expect(onExplorerPortaled).toHaveBeenCalledWith(false);
+  });
+
+  it("portals file workbench when both explorer hosts are ready", async () => {
+    const onExplorerPortaled = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindFileWorkbenchHost
+          showSidebarWorkbenchFiles
+          workspaceDir="/tmp/ws"
+          projectDir={null}
+          fileExplorerHost={explorerHost}
+          fileExplorerCasesHost={explorerCasesHost}
           fileEditorHost={null}
           onExplorerPortaled={onExplorerPortaled}
           onAddToChatContext={() => {}}

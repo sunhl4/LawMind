@@ -25,7 +25,43 @@ export type LoadedXlsxWorkbook = {
   truncatedSheets: boolean;
 };
 
-function cellRaw(value: unknown, text: string): XlsxCell {
+/** exceljs is CJS; native ESM puts Workbook on `.default`, Vitest may flatten it. */
+type ExcelJsNamespace = typeof import("exceljs");
+
+export function resolveExcelJsModule(mod: unknown): ExcelJsNamespace {
+  const rec = mod as { Workbook?: unknown; default?: { Workbook?: unknown } };
+  if (typeof rec.Workbook === "function") {
+    return rec as ExcelJsNamespace;
+  }
+  if (rec.default && typeof rec.default.Workbook === "function") {
+    return rec.default as ExcelJsNamespace;
+  }
+  throw new Error("ExcelJS.Workbook is not a constructor");
+}
+
+export async function importExcelJsForPreview(): Promise<ExcelJsNamespace> {
+  return resolveExcelJsModule(await import("exceljs"));
+}
+
+function parsePlainText(text: string): XlsxCell {
+  const t = text.trim();
+  if (!t) {
+    return null;
+  }
+  const compact = t.replace(/,/g, "");
+  const asNum = Number(compact);
+  if (Number.isFinite(asNum) && /^-?\d+(\.\d+)?$/.test(compact)) {
+    return asNum;
+  }
+  return t;
+}
+
+/**
+ * Read a cell from exceljs `cell.value` only.
+ * Never touch `cell.text`: MergeValue.toString() throws when the master is empty
+ * (`null.toString`), which is common in lawyer workbooks with merged title cells.
+ */
+export function cellRaw(value: unknown): XlsxCell {
   if (value == null) {
     return null;
   }
@@ -35,28 +71,35 @@ function cellRaw(value: unknown, text: string): XlsxCell {
   if (typeof value === "boolean") {
     return value;
   }
+  if (typeof value === "string") {
+    return parsePlainText(value);
+  }
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value.toISOString().slice(0, 10);
   }
   if (typeof value === "object") {
-    const rec = value as { result?: unknown; text?: unknown; richText?: Array<{ text?: string }> };
-    if (rec.result !== undefined) {
-      return cellRaw(rec.result, text);
+    const rec = value as {
+      result?: unknown;
+      text?: unknown;
+      error?: unknown;
+      richText?: Array<{ text?: string }>;
+    };
+    if ("result" in rec) {
+      return cellRaw(rec.result);
     }
     if (Array.isArray(rec.richText)) {
       const joined = rec.richText.map((t) => t.text ?? "").join("");
-      return joined.trim() ? joined : null;
+      return parsePlainText(joined);
     }
-  }
-  const t = text.trim();
-  if (!t) {
+    if (typeof rec.text === "string") {
+      return parsePlainText(rec.text);
+    }
+    if (typeof rec.error === "string") {
+      return rec.error;
+    }
     return null;
   }
-  const asNum = Number(t.replace(/,/g, ""));
-  if (t !== "" && Number.isFinite(asNum) && /^-?\d+(\.\d+)?$/.test(t.replace(/,/g, ""))) {
-    return asNum;
-  }
-  return t;
+  return null;
 }
 
 export async function loadXlsxWorkbook(filePath: string): Promise<LoadedXlsxWorkbook> {
@@ -67,7 +110,7 @@ export async function loadXlsxWorkbook(filePath: string): Promise<LoadedXlsxWork
   if (st.size > MAX_XLSX_READ_BYTES) {
     throw new Error(`电子表格超过 ${Math.round(MAX_XLSX_READ_BYTES / 1_000_000)}MB 上限`);
   }
-  const ExcelJS = await import("exceljs");
+  const ExcelJS = await importExcelJsForPreview();
   await ensureLocalFile(filePath);
   const buffer = await fs.readFile(filePath);
   const workbook = new ExcelJS.Workbook();
@@ -88,7 +131,7 @@ export async function loadXlsxWorkbook(filePath: string): Promise<LoadedXlsxWork
       const maxCol = Math.max(row.cellCount, 1);
       for (let c = 1; c <= maxCol; c++) {
         const cell = row.getCell(c);
-        cells.push(cellRaw(cell.value, cell.text ?? ""));
+        cells.push(cellRaw(cell.value));
       }
       rows.push(cells);
       rowCount++;
@@ -143,7 +186,7 @@ export async function writeXlsxWorkbook(
   if (cells > MAX_XLSX_WRITE_CELLS) {
     throw new Error(`写出单元格数超过 ${MAX_XLSX_WRITE_CELLS} 上限`);
   }
-  const ExcelJS = await import("exceljs");
+  const ExcelJS = await importExcelJsForPreview();
   const workbook = new ExcelJS.Workbook();
   const used =
     sheets.length > 0 ? sheets.slice(0, MAX_XLSX_SHEETS) : [{ name: "Sheet1", rows: [] }];

@@ -208,7 +208,9 @@ textarea.lm-input,
     [type="color"]
   ):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not(
     .lm-input
-  ):not(.lm-side-chat-session-input):not([class*="monaco"]):not([class*="cm-"]),
+  ):not(.lm-side-chat-session-input):not(.lm-xlsx-cell-input):not([class*="monaco"]):not(
+    [class*="cm-"]
+  ),
 .lm-shell textarea:not(.lm-input):not([class*="monaco"]):not([class*="cm-"]):not(.lm-draft-doc-editor-body),
 .lm-shell select:not(.lm-input) {
   border-radius: var(--control-radius);
@@ -224,7 +226,7 @@ textarea.lm-input,
 .lm-shell
   input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not(
     [type="color"]
-  ):not([type="hidden"]):not(.lm-input):focus,
+  ):not([type="hidden"]):not(.lm-input):not(.lm-xlsx-cell-input):focus,
 .lm-shell textarea:not(.lm-input):focus,
 .lm-shell select:not(.lm-input):focus {
   outline: none;

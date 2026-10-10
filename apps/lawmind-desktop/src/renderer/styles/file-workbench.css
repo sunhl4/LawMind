@@ -716,7 +716,7 @@
   border-bottom: 1px solid var(--border);
 }
 
-/* With chat list: materials tree shrinks; 对话 section takes remaining height.
+/* 对话优先：工作区 + 案件材料叠在顶（默认折叠），下方对话占主高度。
    用 flex 比例拿确定高度（勿用 flex-basis:auto），否则子树 height:100% 无法约束，滚轮无效。 */
 .lm-side-with-chat-sessions .lm-side-explorer-host {
   flex: 0 0 auto;
@@ -725,9 +725,19 @@
   overflow: hidden;
 }
 
+.lm-side-with-chat-sessions .lm-side-explorer-host--work,
+.lm-side-with-chat-sessions .lm-side-explorer-host--cases {
+  border-bottom: 1px solid var(--border);
+}
+
 .lm-side-with-chat-sessions .lm-files-explorer-scroll {
   flex: 0 1 auto;
-  max-height: min(42vh, 360px);
+  max-height: min(36vh, 280px);
+}
+
+.lm-side-with-chat-sessions .lm-files-explorer.lm-file-explorer-embedded {
+  height: auto;
+  padding: 4px 8px;
 }
 
 .lm-side-chat-unbound {
@@ -883,6 +893,28 @@
   line-height: 24px;
   box-sizing: border-box;
   align-self: center;
+}
+
+.lm-side-chat-search-toggle {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lm-side-chat-search-toggle:hover,
+.lm-side-chat-search-toggle[aria-pressed="true"] {
+  background: var(--wash);
+  color: var(--text);
 }
 
 .lm-side-chat-sessions-empty {
@@ -1462,6 +1494,247 @@ button.lm-side-chat-session-forked-btn {
   gap: 6px;
 }
 
+/* Document tab strip: flush with the preview, not floating chips. */
+.lm-files-editor:has(> .lm-file-tabs) {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.lm-files-editor:has(> .lm-file-tabs) .lm-editor-pane {
+  border: none;
+  border-radius: 0;
+  background: var(--surface);
+}
+
+.lm-files-editor > .lm-file-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 40px;
+  padding: 6px 8px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  /* Horizontal tab strip: hide the rail so the bar stays one line tall. */
+  scrollbar-width: none;
+}
+
+.lm-files-editor > .lm-file-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.lm-files-editor .lm-file-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  max-width: none;
+  height: 32px;
+  margin: 0;
+  padding: 0 4px 0 8px;
+  border-top: 2px solid transparent;
+  border-right: 1px solid transparent;
+  border-left: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: background 120ms var(--ease), color 120ms var(--ease);
+}
+
+.lm-files-editor .lm-file-tab::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: -2px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--border-md);
+  pointer-events: none;
+}
+
+.lm-files-editor .lm-file-tab:hover::after,
+.lm-files-editor .lm-file-tab.active::after,
+.lm-files-editor .lm-file-tab:has(+ .lm-file-tab.active)::after,
+.lm-files-editor .lm-file-tab:has(+ .lm-file-tab:hover)::after,
+.lm-files-editor .lm-file-tab:last-child::after {
+  opacity: 0;
+}
+
+.lm-files-editor .lm-file-tab:hover:not(.active) {
+  background: var(--wash-strong);
+  color: var(--text);
+}
+
+.lm-files-editor .lm-file-tab.active {
+  z-index: 1;
+  margin-bottom: -1px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  border-top-color: var(--accent);
+  border-left-color: var(--border);
+  border-right-color: var(--border);
+  box-shadow: 0 1px 0 var(--surface);
+}
+
+.lm-files-editor .lm-file-tab.active:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent-border), 0 1px 0 var(--surface);
+}
+
+.lm-files-editor .lm-file-tab:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+
+.lm-files-editor .lm-file-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.lm-file-tab-hover {
+  position: fixed;
+  z-index: 80;
+  width: min(300px, calc(100vw - 16px));
+  padding: 10px 12px 8px;
+  border: 1px solid var(--border-md);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+}
+
+.lm-file-tab-hover-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.lm-file-tab-hover-path {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.lm-file-tab-hover-add {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lm-file-tab-hover-add:hover {
+  color: var(--accent-hover);
+}
+
+.lm-files-editor .lm-file-type-mark {
+  flex-shrink: 0;
+  display: block;
+}
+
+.lm-files-editor .lm-file-type-mark.is-pdf { color: #c23b3b; }
+.lm-files-editor .lm-file-type-mark.is-sheet { color: #1f7a4d; }
+.lm-files-editor .lm-file-type-mark.is-word { color: #2b579a; }
+.lm-files-editor .lm-file-type-mark.is-slide { color: #c43e1c; }
+.lm-files-editor .lm-file-type-mark.is-image { color: #6d5b99; }
+.lm-files-editor .lm-file-type-mark.is-mail { color: #3d6d99; }
+.lm-files-editor .lm-file-type-mark.is-archive { color: #8a6232; }
+.lm-files-editor .lm-file-type-mark.is-media { color: #5c4d86; }
+.lm-files-editor .lm-file-type-mark.is-text { color: #6e675e; }
+.lm-files-editor .lm-file-type-mark.is-code { color: #2f6f68; }
+.lm-files-editor .lm-file-type-mark.is-file { color: #6e675e; }
+
+.lm-files-editor button.lm-file-tab-close {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.lm-files-editor .lm-file-tab:not(.active):not(:hover):not(:focus-within) button.lm-file-tab-close {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lm-files-editor .lm-file-tab.dirty:not(:hover):not(:focus-within) button.lm-file-tab-close {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.lm-files-editor button.lm-file-tab-close:hover {
+  background: var(--wash-strong);
+  color: var(--text);
+}
+
+.lm-files-editor button.lm-file-tab-close:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.lm-files-editor .lm-file-tab-x {
+  display: block;
+}
+
+.lm-files-editor .lm-file-tab-dirty {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lm-files-editor .lm-file-tab.dirty:not(:hover):not(:focus-within) .lm-file-tab-x {
+  visibility: hidden;
+}
+
+.lm-files-editor .lm-file-tab.dirty:not(:hover):not(:focus-within) .lm-file-tab-dirty {
+  opacity: 1;
+}
+
 .lm-office-doc-pane {
   min-height: 0;
 }
@@ -1494,6 +1767,475 @@ button.lm-side-chat-session-forked-btn {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+.lm-files-editor > .lm-preview-host:not([hidden]) {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lm-preview-host > .lm-editor-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.lm-pdf-preview-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  height: 100%;
+}
+
+.lm-pdf-preview-pane .lm-editor-header,
+.lm-xlsx-preview-pane .lm-editor-header {
+  justify-content: flex-end;
+}
+
+.lm-pdf-preview-pane .lm-editor-header:has(.lm-pdf-preview-tools),
+.lm-xlsx-preview-pane .lm-editor-header:has(.lm-xlsx-edit-status) {
+  justify-content: space-between;
+}
+
+.lm-xlsx-edit-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.lm-xlsx-cell {
+  cursor: cell;
+  position: relative;
+}
+
+/* Excel-like selection: green box, no soft focus ring / bubble. */
+.lm-xlsx-cell-selected {
+  outline: 2px solid #217346;
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.lm-xlsx-cell-editing {
+  outline: 2px solid #217346;
+  outline-offset: -2px;
+  z-index: 2;
+  overflow: visible;
+  padding: 0 !important;
+}
+
+/*
+ * In-cell editor must look identical to the cell text — transparent, no radius,
+ * inherit font/size/color/align/fill. Excluded from shell `.lm-input` softener.
+ */
+.lm-xlsx-cell-input {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 2px 6px;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: inherit !important;
+  font: inherit !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  font-style: inherit !important;
+  line-height: inherit !important;
+  letter-spacing: inherit !important;
+  text-align: inherit !important;
+  text-decoration: inherit !important;
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  caret-color: #000;
+}
+
+.lm-pdf-preview-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.lm-pdf-preview-pane .lm-editor-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.lm-pdf-preview-pages {
+  --scale-factor: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: var(--side-bg, #f4f1ea);
+  padding: 16px 16px 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  cursor: text;
+}
+
+/* Scroll-stable slot; only nearby pages mount a live PDFPageView. */
+.lm-pdf-preview-page-slot {
+  position: relative;
+  flex: 0 0 auto;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(40, 32, 22, 0.12),
+    0 8px 28px rgba(40, 32, 22, 0.08);
+  overflow: hidden;
+}
+
+.lm-pdf-preview-page-slot.is-placeholder {
+  background: color-mix(in srgb, #fff 92%, var(--side-bg, #f4f1ea));
+}
+
+/* Host for pdf.js PDFPageView (sets --scale-factor on this node). */
+.lm-pdf-preview-page {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* Official .page geometry — scale vars drive textLayer font/box calc. */
+.lm-pdf-preview-page .page {
+  --user-unit: 1;
+  --total-scale-factor: calc(var(--scale-factor) * var(--user-unit));
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  position: relative;
+  direction: ltr;
+  overflow: visible;
+  background: #fff;
+  cursor: text;
+}
+
+/* Let the text layer receive every pointer hit (gaps included). */
+.lm-pdf-preview-page .canvasWrapper {
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.lm-pdf-preview-page .canvasWrapper canvas {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Match pdf.js viewer textLayer rules (Chrome endOfContent gap-fill). */
+.lm-pdf-preview-page .textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 1;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+  pointer-events: auto;
+}
+
+.lm-pdf-preview-page .textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.lm-pdf-preview-page .textLayer > :not(.markedContent),
+.lm-pdf-preview-page .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+}
+
+.lm-pdf-preview-page .textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+
+.lm-pdf-preview-page .textLayer span[role="img"] {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+.lm-pdf-preview-page .textLayer ::selection {
+  background: rgba(0, 120, 215, 0.35);
+  background: color-mix(in srgb, AccentColor, transparent 65%);
+}
+
+.lm-pdf-preview-page .textLayer br::selection {
+  background: transparent;
+}
+
+/* Inert: custom drag-select owns Selection; keep pdf.js endOfContent from fighting it. */
+.lm-pdf-preview-page .textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.lm-media-preview-pane,
+.lm-xlsx-preview-pane,
+.lm-eml-preview-pane,
+.lm-zip-preview-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.lm-eml-preview-body,
+.lm-zip-preview-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lm-eml-headers {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.lm-eml-headers > div {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.lm-eml-headers dt {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.lm-eml-headers dd {
+  margin: 0;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+.lm-eml-attachments ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.lm-eml-body {
+  margin: 0;
+  white-space: pre-wrap;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+
+.lm-zip-entry-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lm-zip-entry-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 3px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.lm-zip-entry-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-zip-entry-size {
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+
+.lm-media-preview-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+}
+
+.lm-media-preview-player {
+  max-width: min(100%, 960px);
+  max-height: min(70vh, 640px);
+  width: 100%;
+}
+
+.lm-media-preview-caption,
+.lm-xlsx-preview-note {
+  margin: 0;
+  text-align: center;
+}
+
+.lm-xlsx-preview-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+.lm-xlsx-grid-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: #fff;
+}
+
+.lm-xlsx-grid {
+  border-collapse: collapse;
+  font-size: 11pt;
+  line-height: 1.25;
+  background: #fff;
+  color: #000;
+  table-layout: fixed;
+}
+
+.lm-xlsx-grid--excel {
+  border-collapse: collapse;
+}
+
+.lm-xlsx-grid th,
+.lm-xlsx-grid td {
+  padding: 2px 6px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+}
+
+.lm-xlsx-corner,
+.lm-xlsx-col-head,
+.lm-xlsx-row-head {
+  background: #f3f3f3;
+  color: #5b5b5b;
+  font-weight: 500;
+  font-size: 11px;
+  border: 1px solid #d0d7de;
+  position: sticky;
+  z-index: 2;
+}
+
+.lm-xlsx-corner {
+  left: 0;
+  top: 0;
+  z-index: 3;
+  width: 40px;
+  min-width: 40px;
+}
+
+.lm-xlsx-col-head {
+  top: 0;
+  text-align: center;
+}
+
+.lm-xlsx-row-head {
+  left: 0;
+  text-align: center;
+  width: 40px;
+  min-width: 40px;
+}
+
+.lm-xlsx-sheet-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 0;
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 0 4px;
+  overflow-x: auto;
+  background: #f3f3f3;
+  border-top: 1px solid #d0d7de;
+}
+
+.lm-xlsx-sheet-tab {
+  appearance: none;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 0;
+  background: transparent;
+  color: #323130;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 6px 14px 7px;
+  margin: 2px 1px 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.lm-xlsx-sheet-tab:hover {
+  background: #eaeaea;
+}
+
+.lm-xlsx-sheet-tab-active {
+  background: #fff;
+  border-color: #d0d7de;
+  border-top: 2px solid #217346;
+  font-weight: 600;
+  margin-top: 0;
+  padding-top: 5px;
 }
 
 .lm-image-preview-pane {
@@ -1698,13 +2440,17 @@ button.lm-side-chat-session-forked-btn {
 }
 
 /* ── Word revision surface (chat middle column) ───────────── */
-.lm-files-editor:has(> .lm-word-surface-pane) {
+.lm-files-editor:has(.lm-word-surface-pane) {
   padding: 0;
   gap: 0;
 }
 
 .lm-word-surface-pane {
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -1715,14 +2461,15 @@ button.lm-side-chat-session-forked-btn {
 }
 
 .lm-word-surface {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  height: 100%;
+  height: auto;
   display: flex;
   flex-direction: row;
   align-items: stretch;
   padding: 0;
+  overflow: hidden;
 }
 
 .lm-word-surface-main {
@@ -1737,10 +2484,12 @@ button.lm-side-chat-session-forked-btn {
 
 .lm-word-surface-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .lm-word-surface-title {
@@ -1748,15 +2497,6 @@ button.lm-side-chat-session-forked-btn {
   align-items: baseline;
   gap: 10px;
   min-width: 0;
-}
-
-.lm-word-surface-name {
-  font-size: 14px;
-  font-weight: 650;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .lm-word-surface-count {
@@ -1768,9 +2508,12 @@ button.lm-side-chat-session-forked-btn {
 .lm-word-surface-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: flex-start;
   gap: 6px;
-  flex-shrink: 0;
+  flex: 1 1 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .lm-word-surface-note,
@@ -1802,6 +2545,65 @@ button.lm-side-chat-session-forked-btn {
   gap: 0;
 }
 
+.lm-word-surface-outline {
+  flex: 0 0 188px;
+  width: 188px;
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  background: var(--panel-bg, var(--bg));
+  padding: 10px 6px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lm-word-outline-item {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  background: transparent;
+  color: var(--text-1);
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-word-outline-item:hover {
+  background: var(--hover-bg, color-mix(in srgb, var(--text-1) 6%, transparent));
+}
+
+.lm-word-outline-item[data-level="1"] {
+  font-weight: 600;
+}
+
+.lm-word-find {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: min(100%, 520px);
+}
+
+.lm-word-find-input {
+  width: 120px;
+  min-width: 88px;
+}
+
+.lm-word-find-count {
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
 .lm-word-surface-desk {
   flex: 1 1 auto;
   min-width: 0;
@@ -1818,10 +2620,37 @@ button.lm-side-chat-session-forked-btn {
   margin: 0 auto;
 }
 
+.lm-word-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.lm-word-zoom-label {
+  font-size: 12px;
+  color: var(--text-2);
+  min-width: 3.2em;
+  text-align: center;
+}
+
+.lm-word-surface-status {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--panel-bg, var(--bg));
+  white-space: nowrap;
+}
+
 .lm-word-surface-page {
   box-sizing: border-box;
   width: 793.7px;
   max-width: none;
+  zoom: var(--lm-word-zoom, 1);
   margin: 0 auto;
   padding: 96px;
   background: #fff;
@@ -1837,6 +2666,51 @@ button.lm-side-chat-session-forked-btn {
   line-break: strict;
   word-break: keep-all;
   overflow-wrap: break-word;
+}
+
+.lm-word-format-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.lm-word-format-bar .lm-btn {
+  min-width: 28px;
+  font-weight: 700;
+}
+
+.lm-word-page-breaks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.lm-word-page-break {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed rgba(40, 32, 22, 0.28);
+}
+
+.lm-word-page-break-label {
+  position: absolute;
+  right: 8px;
+  top: -10px;
+  padding: 0 6px;
+  background: #fff;
+  color: rgba(40, 32, 22, 0.55);
+  font-size: 11px;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  line-height: 1;
+}
+
+.lm-word-surface-image-placeholder {
+  display: inline-block;
+  padding: 4px 8px;
+  color: rgba(40, 32, 22, 0.55);
+  font-size: 12px;
+  border: 1px dashed rgba(40, 32, 22, 0.28);
 }
 
 .lm-word-surface-p {
@@ -1906,6 +2780,15 @@ button.lm-side-chat-session-forked-btn {
 .lm-word-surface-plain {
   cursor: text;
   outline: none;
+  white-space: pre-wrap;
+  tab-size: 4;
+}
+
+.lm-word-break-page-inline {
+  display: block;
+  height: 0;
+  margin: 0.65em 0 0.35em;
+  border-top: 1px dashed rgba(40, 32, 22, 0.35);
 }
 
 .lm-word-surface-blank .lm-word-surface-plain {
@@ -2238,6 +3121,8 @@ button.lm-side-chat-session-forked-btn {
   margin: 0;
   font-size: 13px;
   line-height: 1.45;
+  white-space: pre-wrap;
+  tab-size: 4;
 }
 
 .lm-word-rev-balloon-label {
@@ -2269,4 +3154,28 @@ button.lm-side-chat-session-forked-btn {
 
 .lm-word-rev-card-actions button[aria-pressed="true"] {
   box-shadow: inset 0 0 0 1px var(--rev-line);
+}
+
+@media print {
+  .lm-word-surface-bar,
+  .lm-word-surface-rail,
+  .lm-word-surface-outline,
+  .lm-word-surface-status,
+  .lm-split-handle,
+  .lm-word-selection-menu,
+  .lm-file-tabs {
+    display: none !important;
+  }
+
+  .lm-word-surface-desk {
+    overflow: visible !important;
+    background: #fff !important;
+    padding: 0 !important;
+  }
+
+  .lm-word-surface-page {
+    zoom: 1 !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
 }

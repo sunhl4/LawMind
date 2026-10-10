@@ -21,6 +21,8 @@ export type LawmindAppSidebarProps = {
   onCloseSettings: () => void;
   settingsOpen: boolean;
   setFileExplorerHost: (el: HTMLDivElement | null) => void;
+  /** 左栏底部「案件材料」portal；与 setFileExplorerHost（工作区）成对。 */
+  setFileExplorerCasesHost: (el: HTMLDivElement | null) => void;
   actionSummaryTotal: number;
   matterSidebarRows: MatterSidebarRow[];
   selectedMatterKey: string | null;
@@ -166,6 +168,7 @@ function LawmindAppSidebarImpl({
   onCloseSettings,
   settingsOpen,
   setFileExplorerHost,
+  setFileExplorerCasesHost,
   matterSidebarRows,
   selectedMatterKey,
   onSelectMatterKey,
@@ -263,6 +266,27 @@ function LawmindAppSidebarImpl({
           </button>
         </div>
 
+        {/* 对话优先（A）：工作区 → 案件材料（均默认折叠）→ 当前案件 → 对话（占主高度） */}
+        {showWorkbenchExplorer ? (
+          <div
+            ref={setFileExplorerHost}
+            className="lm-side-explorer-host lm-side-explorer-host--work"
+            aria-label="工作区"
+            data-testid="lm-side-explorer-work"
+          >
+            {showExplorerSkeleton ? <LawmindSideExplorerSkeleton /> : null}
+          </div>
+        ) : null}
+
+        {showWorkbenchExplorer ? (
+          <div
+            ref={setFileExplorerCasesHost}
+            className="lm-side-explorer-host lm-side-explorer-host--cases"
+            aria-label="案件材料"
+            data-testid="lm-side-explorer-cases"
+          />
+        ) : null}
+
         {showSideChat &&
         onSelectChatSession &&
         onCreateNewChatSession &&
@@ -310,16 +334,6 @@ function LawmindAppSidebarImpl({
               onDelete={onDeleteChatSession}
             />
           </>
-        ) : null}
-
-        {showWorkbenchExplorer ? (
-          <div
-            ref={setFileExplorerHost}
-            className="lm-side-explorer-host"
-            aria-label="材料资源树"
-          >
-            {showExplorerSkeleton ? <LawmindSideExplorerSkeleton /> : null}
-          </div>
         ) : null}
 
         {showMatterList ? (

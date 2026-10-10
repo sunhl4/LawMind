@@ -109,6 +109,7 @@ function minimalProps(overrides: Partial<LawmindAppRootViewProps> = {}): Lawmind
       onCloseSettings: noop,
       settingsOpen: false,
       setFileExplorerHost: noop,
+      setFileExplorerCasesHost: noop,
       matterSidebarRows: [],
       selectedMatterKey: null,
       onSelectMatterKey: noop,

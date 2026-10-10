@@ -55,7 +55,7 @@
 | 自动办件     | 7      | `lawyer-automations.ts`（导出最多，56 个）、`lawyer-automations-runner.ts`、`automation-paths.ts`、`automation-run-history.ts`、`automation-dispatch-ledger.ts`、`automation-from-work.ts`、`infer-automation-from-instruction.ts` |
 | 守护进程     | 3      | `lawmind-daemon.ts`、`lawmind-daemon-supervision.ts`、`lawmind-daemon-log.ts`                                                                                                                                                      |
 | Word 改稿    | 6      | `word-revision-core.ts`（机制）、`word-revision-packs.ts`（九个族的内容）、`word-revision-checklist.ts`、`word-revision-instruction.ts`、`word-revision-document-excerpt.ts`、`word-revision-packs.ts`                             |
-| 指令生成器   | 3      | `mail-contract-short-path-instruction.ts`、`contract-fast-lane-instruction.ts`、`infer-automation-from-instruction.ts`                                                                                                             |
+| 指令生成器   | 2      | `mail-contract-short-path-instruction.ts`、`infer-automation-from-instruction.ts`（原 `contract-fast-lane-instruction.ts` 已移除）                                                                                                 |
 | 其他         | 3      | `local-key-store.ts`、`local-api-schemas.ts`（40+ 个 zod 请求体）、`client-profile` 相关                                                                                                                                           |
 
 **`requires-action.ts` 是「待我拍板」的数据构造处**：把「需要律师做的事」统一成 `LawMindRequiresAction`（六种 kind），并生成每条的中文标题与决定按钮。六类与四种决定的清单见第 68.10 节。

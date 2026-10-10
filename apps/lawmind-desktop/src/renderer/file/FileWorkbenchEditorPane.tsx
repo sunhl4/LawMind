@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState, type Dispatch, SetStateAction } from "react";
 import { type RootKey, type OpenFileTab } from "./file-workbench-types";
-import { getFileIcon } from "./file-workbench-fs";
-import { isContractReviewCandidatePath } from "../lawmind-file-chat-context";
+import { fileTabAddress, wpsTabLabel } from "./file-tab-layout";
+import { FileTabHoverCard, fileTabHoverTarget, useFileTabHover } from "./file-tab-hover";
+import { FileTypeMark } from "./file-type-mark";
 import { lawyerCanvasTitle } from "../lawmind-explorer-lawyer-view";
-import { LawmindWordRevisionSurface } from "./LawmindWordRevisionSurface";
 import { CanvasFileView } from "../canvas/CanvasFileView";
 import { useLawmindCanvasKind } from "../canvas/theme";
 import {
   LAWMIND_CANVAS_EXPORT_RESULT_EVENT,
-  openDeliverableInWps,
   requestCanvasExport,
   type CanvasExportResultDetail,
 } from "../canvas/host-actions";
@@ -18,6 +17,19 @@ import {
   offsetForLine,
   type RevealFileLineDetail,
 } from "../lawmind-workspace-file-open";
+import {
+  FallbackPreviewPanel,
+  ImagePreviewPanel,
+  WordPreviewPanel,
+  keepsMountedWhileInactive,
+  type PreviewHeaderActions,
+} from "./preview-registry";
+import { DocFileView } from "./DocFileView";
+import { EmlFileView } from "./EmlFileView";
+import { MediaFileView } from "./MediaFileView";
+import { PdfFileView } from "./PdfFileView";
+import { XlsxFileView } from "./XlsxFileView";
+import { ZipFileView } from "./ZipFileView";
 
 export type FileWorkbenchEditorPaneProps = {
   tabs: OpenFileTab[];
@@ -27,15 +39,6 @@ export type FileWorkbenchEditorPaneProps = {
   activeDirty: boolean;
   busy: boolean;
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
-  onSendContractForReview?: (payload: { root: RootKey; relPath: string }) => void;
-  imagePreview: { root: RootKey; relPath: string; name: string; dataUrl: string } | null;
-  setImagePreview: Dispatch<
-    SetStateAction<{ root: RootKey; relPath: string; name: string; dataUrl: string } | null>
-  >;
-  officeBlock: { root: RootKey; relPath: string; name: string; mode?: "office" | "binary" } | null;
-  setOfficeBlock: Dispatch<
-    SetStateAction<{ root: RootKey; relPath: string; name: string; mode?: "office" | "binary" } | null>
-  >;
   setError: Dispatch<SetStateAction<string | null>>;
   closeTab: (id: string) => void;
   updateActiveContent: (content: string) => void;
@@ -43,8 +46,31 @@ export type FileWorkbenchEditorPaneProps = {
   saveActiveAs: () => void | Promise<void>;
   doShowInFolder: (root: RootKey, relPath: string) => void | Promise<void>;
   apiBase?: string;
+  workspaceDir?: string;
   projectDir?: string | null;
 };
+
+function previewActionsFor(
+  tab: OpenFileTab,
+  props: Pick<
+    FileWorkbenchEditorPaneProps,
+    "busy" | "onAddToChatContext" | "doShowInFolder" | "setError"
+  >,
+): PreviewHeaderActions {
+  return {
+    busy: props.busy,
+    onAddToChatContext: props.onAddToChatContext,
+    onRevealSource: () => void props.doShowInFolder(tab.root, tab.path),
+    onOpenWithSystem: () => {
+      props.setError(null);
+      void window.lawmindDesktop?.openWithSystem({ root: tab.root, path: tab.path }).then((r) => {
+        if (r && !r.ok) {
+          props.setError(r.error ?? "无法用系统应用打开该文件。");
+        }
+      });
+    },
+  };
+}
 
 export function FileWorkbenchEditorPane({
   tabs,
@@ -54,11 +80,6 @@ export function FileWorkbenchEditorPane({
   activeDirty,
   busy,
   onAddToChatContext,
-  onSendContractForReview,
-  imagePreview,
-  setImagePreview,
-  officeBlock,
-  setOfficeBlock,
   setError,
   closeTab,
   updateActiveContent,
@@ -66,9 +87,10 @@ export function FileWorkbenchEditorPane({
   saveActiveAs,
   doShowInFolder,
   apiBase = "",
+  workspaceDir = "",
   projectDir = null,
 }: FileWorkbenchEditorPaneProps) {
-  const canvasFile = Boolean(activeTab && /\.canvas\.tsx$/i.test(activeTab.path));
+  const canvasFile = Boolean(activeTab && activeTab.kind === "text" && /\.canvas\.tsx$/i.test(activeTab.path));
   const [canvasSource, setCanvasSource] = useState(false);
   const sourceRef = useRef<HTMLTextAreaElement>(null);
   const appliedReveal = useRef("");
@@ -103,7 +125,7 @@ export function FileWorkbenchEditorPane({
   }, []);
 
   useEffect(() => {
-    if (!lineReveal || !activeTab) {
+    if (!lineReveal || !activeTab || activeTab.kind !== "text") {
       return;
     }
     if (activeTab.root !== lineReveal.root || activeTab.path !== lineReveal.relPath) {
@@ -143,51 +165,166 @@ export function FileWorkbenchEditorPane({
     window.addEventListener(LAWMIND_CANVAS_EXPORT_RESULT_EVENT, onResult);
     return () => window.removeEventListener(LAWMIND_CANVAS_EXPORT_RESULT_EVENT, onResult);
   }, [activeTab, doShowInFolder]);
+
+  const mountedTabs = tabs.filter((tab) => keepsMountedWhileInactive(tab.kind));
+  const showTabStrip = tabs.length > 0 && !canvasPreview;
+  const tabHover = useFileTabHover();
+  const hoveredTab = fileTabHoverTarget(tabs, tabHover.hover);
+
   return (
     <section className="lm-files-editor" onClick={(e) => e.stopPropagation()}>
-      {canvasPreview || tabs.length === 0 ? null : (
-      <div className="lm-file-tabs" role="tablist" aria-label="打开的文件">
-        {tabs.map((tab) => {
-          const dirty = tab.content !== tab.savedContent;
-          const selected = activeTabId === tab.id;
-          const activate = () => {
-            setOfficeBlock(null);
-            setImagePreview(null);
-            setActiveTabId(tab.id);
-          };
-          return (
-            <div
-              key={tab.id}
-              role="tab"
-              aria-selected={selected}
-              aria-controls="lm-file-editor-panel"
-              tabIndex={selected ? 0 : -1}
-              className={`lm-file-tab ${selected ? "active" : ""}`}
-              title={`${tab.root}:${tab.path}`}
-              onClick={activate}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
+      {showTabStrip ? (
+        <div className="lm-file-tabs" role="tablist" aria-label="打开的文件">
+          {tabs.map((tab) => {
+            const dirty = tab.kind === "text" && tab.content !== tab.savedContent;
+            const selected = activeTabId === tab.id;
+            const activate = () => {
+              setActiveTabId(tab.id);
+            };
+            return (
+              <div
+                key={tab.id}
+                id={`lm-file-tab-${tab.id}`}
+                role="tab"
+                aria-selected={selected}
+                aria-controls="lm-file-editor-panel"
+                tabIndex={selected ? 0 : -1}
+                className={`lm-file-tab${selected ? " active" : ""}${dirty ? " dirty" : ""}`}
+                aria-label={dirty ? `${tab.name}，未保存` : tab.name}
+                onMouseEnter={(event) => tabHover.queueShow(tab.id, event.currentTarget)}
+                onMouseLeave={tabHover.queueHide}
+                onClick={activate}
+                onMouseDown={(e) => {
+                  if (e.button === 1) {
+                    e.preventDefault();
+                  }
+                }}
+                onAuxClick={(e) => {
+                  if (e.button !== 1) {
+                    return;
+                  }
                   e.preventDefault();
-                  activate();
-                }
-              }}
-            >
-              <span className="lm-fs-icon">{getFileIcon(tab.name, "file")}</span>
-              <span>{tab.name}{dirty ? " ●" : ""}</span>
-              <button
-                type="button"
-                className="lm-file-tab-close"
-                aria-label={`关闭 ${tab.name}`}
-                onMouseDown={(e) => { e.stopPropagation(); }}
-                onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
-              >×</button>
-            </div>
-          );
-        })}
-      </div>
-      )}
+                  closeTab(tab.id);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    activate();
+                    return;
+                  }
+                  if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") {
+                    return;
+                  }
+                  e.preventDefault();
+                  const index = tabs.findIndex((item) => item.id === tab.id);
+                  const next = tabs[index + (e.key === "ArrowRight" ? 1 : -1)];
+                  if (!next) {
+                    return;
+                  }
+                  setActiveTabId(next.id);
+                  queueMicrotask(() => {
+                    document.getElementById(`lm-file-tab-${next.id}`)?.focus();
+                  });
+                }}
+              >
+                <FileTypeMark name={tab.name} />
+                <span className="lm-file-tab-label">{wpsTabLabel(tab.name)}</span>
+                <button
+                  type="button"
+                  className="lm-file-tab-close"
+                  aria-label={`关闭 ${tab.name}`}
+                  title={dirty ? "关闭（未保存）" : "关闭"}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTab(tab.id);
+                  }}
+                >
+                  <svg className="lm-file-tab-x" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                    <path
+                      d="M3.15 3.15l5.7 5.7M8.85 3.15l-5.7 5.7"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.35"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  {dirty ? <span className="lm-file-tab-dirty" aria-hidden="true" /> : null}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+      {hoveredTab && tabHover.hover ? (
+        <FileTabHoverCard
+          hover={tabHover.hover}
+          name={hoveredTab.name}
+          address={fileTabAddress(hoveredTab.root, hoveredTab.path, workspaceDir, projectDir)}
+          canAdd={Boolean(onAddToChatContext)}
+          onPointerEnter={tabHover.cancelHide}
+          onPointerLeave={tabHover.queueHide}
+          onAdd={() => {
+            onAddToChatContext?.({ root: hoveredTab.root, relPath: hoveredTab.path, kind: "file" });
+            tabHover.dismiss();
+          }}
+        />
+      ) : null}
 
-      {activeTab ? (
+      {mountedTabs.map((tab) => {
+        const active = tab.id === activeTabId;
+        const actions = previewActionsFor(tab, {
+          busy,
+          onAddToChatContext,
+          doShowInFolder,
+          setError,
+        });
+        return (
+          <div
+            key={tab.id}
+            role={active ? "tabpanel" : undefined}
+            id={active ? "lm-file-editor-panel" : undefined}
+            aria-label={active ? tab.name : undefined}
+            aria-hidden={!active}
+            className="lm-preview-host"
+            hidden={!active}
+            style={active ? undefined : { display: "none" }}
+            data-preview-kind={tab.kind}
+            data-testid={active ? `lm-preview-active-${tab.kind}` : undefined}
+          >
+            {tab.kind === "word" ? (
+              <WordPreviewPanel
+                tab={tab}
+                apiBase={apiBase}
+                projectDir={projectDir}
+                busy={busy}
+                onRevealSource={actions.onRevealSource}
+                onError={(message) => setError(message)}
+              />
+            ) : tab.kind === "image" ? (
+              <ImagePreviewPanel tab={tab} actions={actions} />
+            ) : tab.kind === "pdf" ? (
+              <PdfFileView tab={tab} apiBase={apiBase} actions={actions} />
+            ) : tab.kind === "xlsx" ? (
+              <XlsxFileView tab={tab} apiBase={apiBase} actions={actions} />
+            ) : tab.kind === "media" ? (
+              <MediaFileView tab={tab} apiBase={apiBase} actions={actions} />
+            ) : tab.kind === "eml" ? (
+              <EmlFileView tab={tab} apiBase={apiBase} actions={actions} />
+            ) : tab.kind === "zip" ? (
+              <ZipFileView tab={tab} apiBase={apiBase} actions={actions} />
+            ) : tab.kind === "doc" ? (
+              <DocFileView tab={tab} apiBase={apiBase} actions={actions} />
+            ) : (
+              <FallbackPreviewPanel tab={tab} actions={actions} />
+            )}
+          </div>
+        );
+      })}
+
+      {activeTab && activeTab.kind === "text" ? (
         <div
           className="lm-editor-pane"
           role="tabpanel"
@@ -262,57 +399,52 @@ export function FileWorkbenchEditorPane({
             </div>
           ) : null}
           {canvasPreview ? null : (
-          <div className="lm-editor-header">
-            <div className="lm-editor-breadcrumb">
-              <span className="lm-editor-root-badge">{activeTab.root}</span>
-              <span className="lm-editor-path">{activeTab.path}</span>
+            <div className="lm-editor-header">
+              <div className="lm-editor-breadcrumb">
+                <span className="lm-editor-root-badge">{activeTab.root}</span>
+                <span className="lm-editor-path">{activeTab.path}</span>
+              </div>
+              <div className="lm-compose-actions">
+                {activeDirty && <span className="lm-dot lm-dot-warn">未保存</span>}
+                {onAddToChatContext ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost lm-btn-sm"
+                    onClick={() =>
+                      onAddToChatContext({ root: activeTab.root, relPath: activeTab.path, kind: "file" })
+                    }
+                  >
+                    加入对话引用
+                  </button>
+                ) : null}
+                {canvasFile ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost lm-btn-sm"
+                    onClick={() => setCanvasSource((value) => !value)}
+                  >
+                    {canvasSource ? "画布" : "源码"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-sm"
+                  disabled={busy || !activeTab}
+                  title={!activeDirty ? "无未保存修改时不会写入" : "保存到当前文件（⌘S）"}
+                  onClick={() => void saveActive()}
+                >
+                  保存
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary lm-btn-sm"
+                  disabled={busy || !activeTab}
+                  onClick={() => void saveActiveAs()}
+                >
+                  另存为…
+                </button>
+              </div>
             </div>
-            <div className="lm-compose-actions">
-              {activeDirty && <span className="lm-dot lm-dot-warn">未保存</span>}
-              {onAddToChatContext && activeTab ? (
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-ghost lm-btn-sm"
-                  onClick={() => onAddToChatContext({ root: activeTab.root, relPath: activeTab.path, kind: "file" })}
-                >
-                  加入对话引用
-                </button>
-              ) : null}
-              {onSendContractForReview &&
-              activeTab &&
-              isContractReviewCandidatePath(activeTab.path) ? (
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-accent lm-btn-sm"
-                  data-testid="lm-editor-send-contract-review"
-                  onClick={() =>
-                    onSendContractForReview({ root: activeTab.root, relPath: activeTab.path })
-                  }
-                >
-                  送审本合同
-                </button>
-              ) : null}
-              {canvasFile ? (
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-ghost lm-btn-sm"
-                  onClick={() => setCanvasSource((value) => !value)}
-                >
-                  {canvasSource ? "画布" : "源码"}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="lm-btn lm-btn-sm"
-                disabled={busy || !activeTab}
-                title={!activeDirty ? "无未保存修改时不会写入" : "保存到当前文件（⌘S）"}
-                onClick={() => void saveActive()}
-              >
-                保存
-              </button>
-              <button type="button" className="lm-btn lm-btn-secondary lm-btn-sm" disabled={busy || !activeTab} onClick={() => void saveActiveAs()}>另存为…</button>
-            </div>
-          </div>
           )}
           {canvasPreview ? (
             <CanvasFileView root={activeTab.root} path={activeTab.path} source={activeTab.content} />
@@ -326,159 +458,39 @@ export function FileWorkbenchEditorPane({
             />
           )}
           {canvasPreview ? null : (
-          <div className="lm-editor-statusbar">
-            {activeTab.name} · {activeTab.content.split("\n").length} 行 · {activeTab.content.length} 字符
-          </div>
+            <div className="lm-editor-statusbar">
+              {activeTab.name} · {activeTab.content.split("\n").length} 行 · {activeTab.content.length} 字符
+            </div>
           )}
         </div>
-      ) : imagePreview ? (
-        <div className="lm-editor-pane lm-image-preview-pane">
-          <div className="lm-editor-header">
-            <div className="lm-editor-breadcrumb">
-              <span className="lm-editor-root-badge">{imagePreview.root}</span>
-              <span className="lm-editor-path">{imagePreview.relPath || "(根)"}</span>
-            </div>
-            <div className="lm-editor-actions">
-              <button
-                type="button"
-                className="lm-btn lm-btn-secondary lm-btn-sm"
-                onClick={() => void doShowInFolder(imagePreview.root, imagePreview.relPath)}
-              >
-                在访达中显示
-              </button>
-              <button
-                type="button"
-                className="lm-btn lm-btn-sm"
-                disabled={busy}
-                onClick={async () => {
-                  setError(null);
-                  const r = await window.lawmindDesktop?.openWithSystem({
-                    root: imagePreview.root,
-                    path: imagePreview.relPath,
-                  });
-                  if (r && !r.ok) {
-                    setError(r.error ?? "无法用系统应用打开该文件。");
-                  }
-                }}
-              >
-                用本机应用打开
-              </button>
-              {onAddToChatContext ? (
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-ghost lm-btn-sm"
-                  onClick={() =>
-                    onAddToChatContext({
-                      root: imagePreview.root,
-                      relPath: imagePreview.relPath,
-                      kind: "file",
-                    })
-                  }
-                >
-                  在对话中引用
-                </button>
-              ) : null}
-            </div>
-          </div>
-          <div className="lm-image-preview-body">
-            <img className="lm-image-preview-img" src={imagePreview.dataUrl} alt={imagePreview.name} />
-            <p className="lm-meta lm-image-preview-caption">{imagePreview.name}</p>
-          </div>
-        </div>
-      ) : officeBlock && /\.docx$/i.test(officeBlock.relPath) ? (
-        <div className="lm-editor-pane lm-office-doc-pane lm-word-surface-pane">
-          <LawmindWordRevisionSurface
-            apiBase={apiBase}
-            projectDir={projectDir}
-            root={officeBlock.root}
-            relPath={officeBlock.relPath}
-            fileName={officeBlock.name}
-            busy={busy}
-            onRevealSource={() => void doShowInFolder(officeBlock.root, officeBlock.relPath)}
-            onOpenWithSystem={() => {
-              setError(null);
-              void openDeliverableInWps(officeBlock.relPath, officeBlock.root).then((r) => {
-                if (!r.ok) {
-                  setError(r.error ?? "无法用 WPS 打开该文件。");
-                }
-              });
-            }}
+      ) : null}
+
+      {activeTab && activeTab.kind === "fallback" ? (
+        <div
+          role="tabpanel"
+          id="lm-file-editor-panel"
+          aria-label={activeTab.name}
+          data-testid={`lm-preview-active-${activeTab.kind}`}
+        >
+          <FallbackPreviewPanel
+            tab={activeTab}
+            actions={previewActionsFor(activeTab, {
+              busy,
+              onAddToChatContext,
+              doShowInFolder,
+              setError,
+            })}
           />
         </div>
-      ) : officeBlock ? (
-        <div className="lm-editor-pane lm-office-doc-pane">
-          <div className="lm-editor-header">
-            <div className="lm-editor-breadcrumb">
-              <span className="lm-editor-root-badge">{officeBlock.root}</span>
-              <span className="lm-editor-path">{officeBlock.relPath || "(根)"}</span>
-            </div>
-          </div>
-          <div className="lm-office-doc-body">
-            <p className="lm-office-doc-title">{officeBlock.name}</p>
-            <p className="lm-office-doc-copy">
-              {officeBlock.mode === "binary"
-                ? "该文件为二进制格式，无法在此纯文本编辑器中打开。可用本机应用查看，或在访达中打开。"
-                : "本页为纯文本材料编辑器，不支持 Word/Excel/PowerPoint/PDF 的版式与表格预览。请用本机已安装的 Office 或 WPS 等打开编辑。"}
-            </p>
-            <div className="lm-office-doc-actions">
-              <button
-                type="button"
-                className="lm-btn lm-btn-sm"
-                disabled={busy}
-                onClick={async () => {
-                  setError(null);
-                  const r = await window.lawmindDesktop?.openWithSystem({
-                    root: officeBlock.root,
-                    path: officeBlock.relPath,
-                  });
-                  if (r && !r.ok) {
-                    setError(r.error ?? "无法用系统应用打开该文件。");
-                  }
-                }}
-              >
-                用本机应用打开
-              </button>
-              <button
-                type="button"
-                className="lm-btn lm-btn-secondary lm-btn-sm"
-                onClick={() => void doShowInFolder(officeBlock.root, officeBlock.relPath)}
-              >
-                在访达中显示
-              </button>
-              {onAddToChatContext ? (
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-ghost lm-btn-sm"
-                  onClick={() => onAddToChatContext({ root: officeBlock.root, relPath: officeBlock.relPath, kind: "file" })}
-                >
-                  在对话中引用
-                </button>
-              ) : null}
-              {onSendContractForReview && isContractReviewCandidatePath(officeBlock.relPath) ? (
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-accent lm-btn-sm"
-                  data-testid="lm-editor-send-contract-review"
-                  onClick={() =>
-                    onSendContractForReview({
-                      root: officeBlock.root,
-                      relPath: officeBlock.relPath,
-                    })
-                  }
-                >
-                  送审本合同
-                </button>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      ) : (
+      ) : null}
+
+      {!activeTab && tabs.length === 0 ? (
         <div className="lm-editor-empty">
           <div className="lm-messages-empty-icon">📂</div>
           <div className="lm-messages-empty-title">选择文件开始编辑</div>
           <div className="lm-messages-empty-hint">点文件或 ⌘P。</div>
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

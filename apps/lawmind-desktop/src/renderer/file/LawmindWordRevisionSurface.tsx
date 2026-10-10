@@ -22,6 +22,8 @@ import type {
   WordSurfaceSnapshot,
   WordTrackedView,
 } from "../../../../../src/lawmind/drafts/word-surface.ts";
+import { outlineEntriesOf } from "../../../../../src/lawmind/drafts/word-surface-outline.ts";
+import { normalizeWordControls } from "../../../../../src/lawmind/drafts/word-surface-breaks.ts";
 import { WordSurfaceDocument, type SurfacePaint } from "./word-surface-document-view";
 import {
   BalloonEdit,
@@ -45,6 +47,7 @@ import {
   wrapCommittedInsertion,
 } from "./word-surface-edit";
 import type { WordRevisionRun } from "../../../../../src/lawmind/drafts/word-revision/index.ts";
+import { allMarkupText } from "../../../../../src/lawmind/drafts/word-revision/compose.ts";
 import {
   acceptParagraphTracks,
   applyEngineDelete,
@@ -54,6 +57,7 @@ import {
   authorClockFor,
   editHitsForeignTrack,
   caretEngineOffset,
+  editableParagraphsOf,
   isOwnRevisionAuthor,
   ownRevisionName,
   commentOnRange,
@@ -61,7 +65,10 @@ import {
   paragraphRunsOf,
   restoreCaret,
   snapshotHasEngine,
+  snapshotSplitParagraph,
   snapshotWithRuns,
+  splitRunsAt,
+  storyParagraphOffset,
 } from "./word-surface-engine";
 import { packRailCardTops } from "./word-surface-rail";
 import {
@@ -70,6 +77,9 @@ import {
   pushSyncedLawyerUndo,
   type SyncedLawyerUndo,
 } from "./word-surface-synced-undo";
+import { findInParagraphTexts, stepFindIndex, type WordFindHit } from "./word-surface-find";
+import { requestOpenWorkspaceFile } from "../lawmind-workspace-file-open";
+import { resolveRelForAbs } from "../lawmind-workspace-relpath";
 
 type SurfaceComment = {
   commentId: string;
@@ -164,9 +174,26 @@ function snapshotKey(snap: WordSurfaceSnapshot): string {
   return JSON.stringify({
     taskId: snap.taskId,
     updatedAt: snap.updatedAt,
-    blocks: snap.blocks,
     page: snap.page,
-    paragraphs: snap.paragraphs,
+    paragraphs: snap.paragraphs.map((paragraph) => ({
+      sourceIndex: paragraph.sourceIndex,
+      baselineText: paragraph.baselineText,
+      pPrInner: paragraph.pPrInner,
+      runs: (paragraph.runs ?? []).map((run) => ({
+        text: run.text,
+        track: run.track,
+        mark: run.mark,
+        preserved: Boolean(run.preservedXml),
+        image: run.image
+          ? { w: run.image.widthPx, h: run.image.heightPx, hasSrc: Boolean(run.image.src) }
+          : undefined,
+      })),
+      segments: paragraph.segments.map((segment) =>
+        segment.kind === "image"
+          ? { kind: "image", w: segment.widthPx, h: segment.heightPx, hasSrc: Boolean(segment.src) }
+          : segment,
+      ),
+    })),
     hunks: snap.hunks.map((hunk) => [hunk.hunkId, hunk.status, hunk.color, hunk.before, hunk.after, hunk.placed]),
     tracked: (snap.tracked ?? []).map((row) => [
       row.revId,
@@ -219,11 +246,23 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     y: number;
     inDeletion: boolean;
     fileActions: boolean;
+    hunkId?: string | null;
+    tableIndex?: number;
+    rowIndex?: number;
   } | null>(null);
   const [markup, setMarkup] = useState<MarkupMode>("all");
   const [authorFilter, setAuthorFilter] = useState<string>("all");
   const [pageEpoch, setPageEpoch] = useState(0);
   const [comments, setComments] = useState<SurfaceComment[]>([]);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [replaceQuery, setReplaceQuery] = useState("");
+  const [findHits, setFindHits] = useState<WordFindHit[]>([]);
+  const [findIndex, setFindIndex] = useState(-1);
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [zoomPercent, setZoomPercent] = useState(100);
+  const findInputRef = useRef<HTMLInputElement | null>(null);
+  const deskRef = useRef<HTMLDivElement | null>(null);
   const keyRef = useRef("");
   const reboundRef = useRef("");
   const seenRef = useRef<{ fileMtimeMs: number; proposalAt: string; codeStamp: string } | null>(null);
@@ -487,10 +526,36 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       const runs = paragraphRunsOf(current);
       if (snapshotHasEngine(current) && apiBase.trim()) {
         try {
+          const metas = editableParagraphsOf(current);
+          type WriteRow = {
+            sourceIndex: number | null;
+            runs: WordRevisionRun[];
+            pPrInner?: string;
+          };
+          const byPart = new Map<string, WriteRow[]>();
+          for (let index = 0; index < runs.length; index += 1) {
+            const meta = metas[index];
+            const part = meta?.storyPart?.trim() || "word/document.xml";
+            const row: WriteRow = {
+              sourceIndex: meta?.sourceIndex === undefined ? index : meta.sourceIndex,
+              runs: runs[index] ?? [],
+              ...(meta?.pPrInner ? { pPrInner: meta.pPrInner } : {}),
+            };
+            const list = byPart.get(part) ?? [];
+            list.push(row);
+            byPart.set(part, list);
+          }
+          const bodyWrites = byPart.get("word/document.xml") ?? [];
+          byPart.delete("word/document.xml");
+          const stories = [...byPart.entries()].map(([part, paragraphs]) => ({
+            part,
+            paragraphs,
+          }));
           await apiSendJson(apiBase, "/api/word-surface/save", "POST", {
             root,
             path: relPath,
-            paragraphs: runs,
+            paragraphs: bodyWrites,
+            ...(stories.length > 0 ? { stories } : {}),
             ...(current?.docxComments && current.docxComments.length > 0
               ? { comments: current.docxComments }
               : {}),
@@ -647,13 +712,32 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         commitEngineRuns(paragraphs, { index: ctx.index, offset: ctx.caret.start });
         return true;
       }
+      if (event.inputType === "insertLineBreak") {
+        const nextRuns = applyEngineInsert(ctx.runs, ctx.caret, "\n", author);
+        paragraphs[ctx.index] = nextRuns;
+        commitEngineRuns(paragraphs, { index: ctx.index, offset: ctx.caret.start + 1 });
+        return true;
+      }
+      if (event.inputType === "insertParagraph") {
+        const { before, after } = splitRunsAt(ctx.runs, ctx.caret.start);
+        engineUndoRef.current = [...engineUndoRef.current, paragraphRunsOf(ctx.current)].slice(-50);
+        const next = snapshotSplitParagraph(ctx.current, ctx.index, before, after);
+        snapshotRef.current = next;
+        pageSnapshotRef.current = next;
+        setSnapshot(next);
+        pendingCaretRef.current = { index: ctx.index + 1, offset: 0 };
+        dirtyPlainRef.current = true;
+        scheduleSync();
+        return true;
+      }
       if (!event.inputType.startsWith("insert")) {
         return true;
       }
-      const text =
+      const text = normalizeWordControls(
         event.inputType === "insertFromPaste" || event.inputType === "insertFromDrop"
           ? event.data || event.dataTransfer?.getData("text/plain") || ""
-          : (event.data ?? "");
+          : (event.data ?? ""),
+      );
       if (!text) {
         return true;
       }
@@ -814,6 +898,150 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     }
   }, [apiBase, reload]);
 
+  const runFind = useCallback(
+    (query: string, preferIndex = 0) => {
+      const texts = paragraphRunsOf(snapshotRef.current).map((runs) => allMarkupText(runs));
+      const hits = findInParagraphTexts(texts, query);
+      setFindHits(hits);
+      const nextIndex = hits.length === 0 ? -1 : Math.min(preferIndex, hits.length - 1);
+      setFindIndex(nextIndex);
+      const hit = nextIndex >= 0 ? hits[nextIndex] : null;
+      if (hit) {
+        window.requestAnimationFrame(() => {
+          const editor = rootRef.current?.querySelector(
+            `[data-paragraph-index="${String(hit.paragraphIndex)}"]`,
+          );
+          if (editor instanceof HTMLElement) {
+            editor.scrollIntoView({ block: "center", behavior: "smooth" });
+            restoreCaret(editor, hit.start);
+          }
+        });
+      }
+    },
+    [],
+  );
+
+  const stepFind = (direction: -1 | 1) => {
+    const next = stepFindIndex(findIndex, findHits.length, direction);
+    setFindIndex(next);
+    const hit = next >= 0 ? findHits[next] : null;
+    if (hit) {
+      window.requestAnimationFrame(() => {
+        const editor = rootRef.current?.querySelector(
+          `[data-paragraph-index="${String(hit.paragraphIndex)}"]`,
+        );
+        if (editor instanceof HTMLElement) {
+          editor.scrollIntoView({ block: "center", behavior: "smooth" });
+          restoreCaret(editor, hit.start);
+        }
+      });
+    }
+  };
+
+  const jumpToOutline = (paragraphIndex: number) => {
+    const absolute = paragraphIndex + storyParagraphOffset(snapshotRef.current);
+    window.requestAnimationFrame(() => {
+      const editor = rootRef.current?.querySelector(
+        `[data-paragraph-index="${String(absolute)}"]`,
+      );
+      if (editor instanceof HTMLElement) {
+        editor.scrollIntoView({ block: "start", behavior: "smooth" });
+      }
+    });
+  };
+
+  const replaceFindHit = (hit: WordFindHit, replacement: string): boolean => {
+    const current = snapshotRef.current;
+    if (!current || !snapshotHasEngine(current)) {
+      return false;
+    }
+    const paragraphs = paragraphRunsOf(current);
+    const runs = paragraphs[hit.paragraphIndex];
+    if (!runs) {
+      return false;
+    }
+    const caret = { offset: hit.start, start: hit.start, end: hit.end };
+    if (editHitsForeignTrack(runs, caret, ownRevisionName(current), "insert")) {
+      return false;
+    }
+    paragraphs[hit.paragraphIndex] = applyEngineInsert(
+      runs,
+      caret,
+      replacement,
+      authorClockFor(current),
+    );
+    commitEngineRuns(paragraphs, {
+      index: hit.paragraphIndex,
+      offset: hit.start + replacement.length,
+    });
+    return true;
+  };
+
+  const replaceOne = () => {
+    const hit = findIndex >= 0 ? findHits[findIndex] : null;
+    if (!hit) {
+      return;
+    }
+    if (!replaceFindHit(hit, replaceQuery)) {
+      return;
+    }
+    window.requestAnimationFrame(() => runFind(findQuery, findIndex));
+  };
+
+  const replaceAll = () => {
+    const current = snapshotRef.current;
+    if (!current || !snapshotHasEngine(current) || findHits.length === 0) {
+      return;
+    }
+    const paragraphs = paragraphRunsOf(current);
+    const author = authorClockFor(current);
+    const own = ownRevisionName(current);
+    let last: WordFindHit | null = null;
+    for (const hit of [...findHits].toReversed()) {
+      const runs = paragraphs[hit.paragraphIndex];
+      if (!runs) {
+        continue;
+      }
+      const caret = { offset: hit.start, start: hit.start, end: hit.end };
+      if (editHitsForeignTrack(runs, caret, own, "insert")) {
+        continue;
+      }
+      paragraphs[hit.paragraphIndex] = applyEngineInsert(runs, caret, replaceQuery, author);
+      last = hit;
+    }
+    if (!last) {
+      return;
+    }
+    commitEngineRuns(paragraphs, {
+      index: last.paragraphIndex,
+      offset: last.start + replaceQuery.length,
+    });
+    window.requestAnimationFrame(() => runFind(findQuery, 0));
+  };
+
+  const applyToolbarFormat = (format: "加粗" | "倾斜" | "下划线") => {
+    const ctx = engineContext(window.getSelection()?.anchorNode ?? null);
+    if (ctx?.caret && ctx.caret.end > ctx.caret.start) {
+      if (editHitsForeignTrack(ctx.runs, ctx.caret, ownRevisionName(ctx.current), "insert")) {
+        return;
+      }
+      const paragraphs = paragraphRunsOf(ctx.current);
+      paragraphs[ctx.index] = applyEngineFormat(ctx.runs, ctx.caret, format, authorClockFor(ctx.current));
+      commitEngineRuns(paragraphs, { index: ctx.index, offset: ctx.caret.end });
+      return;
+    }
+    const range = editorTextRange();
+    const selected = range?.toString() ?? "";
+    if (!selected) {
+      return;
+    }
+    const command = format === "加粗" ? "bold" : format === "倾斜" ? "italic" : "underline";
+    if (typeof document.execCommand === "function") {
+      document.execCommand(command);
+    }
+    void recordFormat(format, selected);
+  };
+
   const stepRevision = (direction: -1 | 1) => {
     const seen = new Set<string>();
     const ids = [
@@ -872,10 +1100,15 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       page?.scrollIntoView({ block: "nearest" });
     }
     window.addEventListener("resize", place);
+    const sheet = desk.querySelector<HTMLElement>(".lm-word-surface-sheet") ?? desk;
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => place());
+    observer?.observe(sheet);
     return () => {
       window.removeEventListener("resize", place);
+      observer?.disconnect();
     };
-  }, [comments, liveEdits, markup, openIds, selectedId, snapshot]);
+  }, [comments, liveEdits, markup, openIds, selectedId, snapshot, zoomPercent]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -976,6 +1209,12 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
           return;
         }
         void undoSyncedLawyerHunk();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && key === "f") {
+        event.preventDefault();
+        setFindOpen(true);
+        window.requestAnimationFrame(() => findInputRef.current?.focus());
         return;
       }
       if (key !== "s" || event.altKey || event.shiftKey || (!event.ctrlKey && !event.metaKey)) {
@@ -1079,26 +1318,6 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     undoEngine,
     undoSyncedLawyerHunk,
   ]);
-
-  const showSelectionMenu = (clientX?: number, clientY?: number) => {
-    const range = editorTextRange();
-    if (!range) {
-      setSelectionMenu(null);
-      return;
-    }
-    const rect =
-      typeof range.getBoundingClientRect === "function"
-        ? range.getBoundingClientRect()
-        : { left: 0, bottom: 0 };
-    const anchor = range.commonAncestorContainer;
-    const el = anchor instanceof Element ? anchor : anchor.parentElement;
-    setSelectionMenu({
-      x: clientX ?? rect.left,
-      y: clientY ?? rect.bottom + 6,
-      inDeletion: Boolean(el?.closest("del")),
-      fileActions: false,
-    });
-  };
 
   useEffect(() => {
     if (!selectionMenu) {
@@ -1338,7 +1557,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   const decideTracked = async (revId: string, decision: "accept" | "reject") => {
     const current = snapshotRef.current;
     const row = current?.tracked?.find((item) => item.revId === revId);
-    if (!row || actionBusy || !isOwnRevisionAuthor(row.author, current)) {
+    if (!current || !row || actionBusy || !isOwnRevisionAuthor(row.author, current)) {
       return;
     }
     const before = current;
@@ -1387,7 +1606,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     if (actionBusy || (pendingHunks.length === 0 && ownTracks.length === 0)) {
       return;
     }
-    if (pendingHunks.length > 0 && !taskId && ownTracks.length === 0) {
+    if (!current || (pendingHunks.length > 0 && !taskId && ownTracks.length === 0)) {
       return;
     }
     const before = current;
@@ -1458,6 +1677,85 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     }
   };
 
+  const insertTableRowBelow = async (tableIndex: number, afterRowIndex: number) => {
+    if (!apiBase.trim() || actionBusy) {
+      return;
+    }
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      await apiSendJson(apiBase, "/api/word-surface/table-row", "POST", {
+        root,
+        path: relPath,
+        ...(projectDir ? { projectDir } : {}),
+        tableIndex,
+        afterRowIndex,
+      });
+      seenRef.current = null;
+      await reload({ fresh: true });
+      setPageEpoch((value) => value + 1);
+    } catch (err) {
+      setActionError(errorMessage(err, "没能插入表格行。"));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const compareWithOtherDocx = async () => {
+    if (!apiBase.trim() || actionBusy) {
+      return;
+    }
+    const desk = window.lawmindDesktop;
+    if (!desk?.openFilesDialog || !desk.getConfig) {
+      setActionError("请在 LawMind 桌面应用里比较文档。");
+      return;
+    }
+    setActionError(null);
+    try {
+      const picked = await desk.openFilesDialog({
+        title: "选择要与当前文档比较的另一份 .docx",
+        multi: false,
+        filters: [{ name: "Word", extensions: ["docx"] }],
+      });
+      if (!picked.ok || picked.canceled || !picked.filePaths?.[0]) {
+        return;
+      }
+      const config = await desk.getConfig();
+      const mapped = resolveRelForAbs(config.workspaceDir, config.projectDir, picked.filePaths[0]);
+      if (!mapped) {
+        setActionError("比较文件须在工作区或项目目录内。请先把对方稿放进本案材料再比较。");
+        return;
+      }
+      setActionBusy(true);
+      const body = await apiSendJson<{
+        ok: true;
+        root: RootKey;
+        path: string;
+        outputFileName: string;
+        changed: number;
+        skippedInserts: number;
+      }>(apiBase, "/api/word-surface/compare", "POST", {
+        root,
+        path: relPath,
+        ...(projectDir ? { projectDir } : {}),
+        otherRoot: mapped.root,
+        otherPath: mapped.rel,
+      });
+      const note =
+        body.changed === 0
+          ? `已生成 ${body.outputFileName}，两份正文一致。`
+          : `已生成 ${body.outputFileName}，标出 ${body.changed} 处段落差异` +
+            (body.skippedInserts > 0 ? `（对方另有 ${body.skippedInserts} 段新增未落进比较稿）` : "") +
+            "。";
+      setExportNote(note);
+      requestOpenWorkspaceFile(body.path, body.root);
+    } catch (err) {
+      setActionError(errorMessage(err, "没能完成文档比较。"));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const exportWord = async () => {
     if (!snapshot || actionBusy) {
       return;
@@ -1496,6 +1794,36 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       );
     } catch (err) {
       setActionError(errorMessage(err, "导出失败。"));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const exportPdf = async () => {
+    if (!snapshot || actionBusy) {
+      return;
+    }
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      if (snapshotHasEngine(snapshot) && dirtyPlainRef.current) {
+        await persistDocument({ force: true });
+      }
+      const body = await apiSendJson<
+        { ok: true; outputPath: string; outputFileName: string; path?: string },
+        { root: RootKey; path: string; projectDir?: string }
+      >(apiBase, "/api/word-surface/export-pdf", "POST", {
+        root,
+        path: relPath,
+        ...(projectDir?.trim() ? { projectDir: projectDir.trim() } : {}),
+      });
+      setExportPath(body.outputPath);
+      setExportNote(`已导出 PDF ${body.outputFileName}（LibreOffice）。`);
+      if (body.path) {
+        requestOpenWorkspaceFile(body.path, root);
+      }
+    } catch (err) {
+      setActionError(errorMessage(err, "导出 PDF 失败。"));
     } finally {
       setActionBusy(false);
     }
@@ -1632,27 +1960,27 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   ) {
     pagePaintRef.current = pagePaintLive;
   }
+  const revisionStatus = !snapshot
+    ? loadError
+      ? "没打开"
+      : "正在打开"
+    : pending > 0
+      ? foreignCount > 0
+        ? `核对 · ${pending} 处待定，另有 ${foreignCount} 处他人修订`
+        : `核对 · ${pending} 处待定`
+      : trackedRows.length > 0
+        ? null
+        : "核对 · 没有待定修订";
 
   return (
     <div className="lm-word-surface" ref={rootRef} data-testid="lm-word-surface">
       <div className="lm-word-surface-main">
       <header className="lm-word-surface-bar">
-        <div className="lm-word-surface-title">
-          <span className="lm-word-surface-name">{fileName}</span>
-          <span className="lm-word-surface-count">
-            {snapshot
-              ? pending > 0
-                ? foreignCount > 0
-                  ? `核对 · ${pending} 处待定，另有 ${foreignCount} 处他人修订`
-                  : `核对 · ${pending} 处待定`
-                : trackedRows.length > 0
-                  ? `已标出 · ${trackedRows.length} 处`
-                  : "核对 · 没有待定修订"
-              : loadError
-                ? "没打开"
-                : "正在打开"}
-          </span>
-        </div>
+        {revisionStatus ? (
+          <div className="lm-word-surface-title">
+            <span className="lm-word-surface-count">{revisionStatus}</span>
+          </div>
+        ) : null}
         <div className="lm-word-surface-actions">
           <label className="lm-word-markup">
             <select
@@ -1686,6 +2014,168 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
               </select>
             </label>
           ) : null}
+          <div className="lm-word-format-bar" role="toolbar" aria-label="格式" data-testid="lm-word-format-bar">
+            <button
+              type="button"
+              className="lm-btn lm-btn-ghost lm-btn-sm"
+              title="加粗 ⌘B"
+              data-testid="lm-word-format-bold"
+              onClick={() => applyToolbarFormat("加粗")}
+            >
+              B
+            </button>
+            <button
+              type="button"
+              className="lm-btn lm-btn-ghost lm-btn-sm"
+              title="倾斜 ⌘I"
+              data-testid="lm-word-format-italic"
+              onClick={() => applyToolbarFormat("倾斜")}
+            >
+              I
+            </button>
+            <button
+              type="button"
+              className="lm-btn lm-btn-ghost lm-btn-sm"
+              title="下划线 ⌘U"
+              data-testid="lm-word-format-underline"
+              onClick={() => applyToolbarFormat("下划线")}
+            >
+              U
+            </button>
+          </div>
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            data-testid="lm-word-outline-toggle"
+            aria-pressed={outlineOpen}
+            onClick={() => setOutlineOpen((open) => !open)}
+          >
+            大纲
+          </button>
+          <div className="lm-word-zoom" role="group" aria-label="缩放" data-testid="lm-word-zoom">
+            <button
+              type="button"
+              className="lm-btn lm-btn-ghost lm-btn-sm"
+              disabled={zoomPercent <= 50}
+              onClick={() => setZoomPercent((z) => Math.max(50, z - 25))}
+            >
+              −
+            </button>
+            <span className="lm-word-zoom-label">{zoomPercent}%</span>
+            <button
+              type="button"
+              className="lm-btn lm-btn-ghost lm-btn-sm"
+              disabled={zoomPercent >= 200}
+              onClick={() => setZoomPercent((z) => Math.min(200, z + 25))}
+            >
+              +
+            </button>
+            <button
+              type="button"
+              className="lm-btn lm-btn-ghost lm-btn-sm"
+              data-testid="lm-word-zoom-page-width"
+              onClick={() => {
+                const desk = deskRef.current;
+                const pageW = snapshot?.page?.widthPx ?? 793.7;
+                if (!desk) {
+                  setZoomPercent(100);
+                  return;
+                }
+                const fit = Math.floor(((desk.clientWidth - 32) / pageW) * 100);
+                setZoomPercent(Math.max(50, Math.min(200, fit)));
+              }}
+            >
+              页宽
+            </button>
+          </div>
+          {findOpen ? (
+            <div className="lm-word-find" data-testid="lm-word-find">
+              <input
+                ref={findInputRef}
+                className="lm-input lm-word-find-input"
+                aria-label="查找"
+                value={findQuery}
+                placeholder="查找…"
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setFindQuery(value);
+                  runFind(value, 0);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    stepFind(event.shiftKey ? -1 : 1);
+                  }
+                  if (event.key === "Escape") {
+                    setFindOpen(false);
+                  }
+                }}
+              />
+              <input
+                className="lm-input lm-word-find-input"
+                aria-label="替换为"
+                data-testid="lm-word-replace-input"
+                value={replaceQuery}
+                placeholder="替换为…"
+                onChange={(event) => setReplaceQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    replaceOne();
+                  }
+                  if (event.key === "Escape") {
+                    setFindOpen(false);
+                  }
+                }}
+              />
+              <span className="lm-word-find-count">
+                {findHits.length === 0 ? "无结果" : `${findIndex + 1}/${findHits.length}`}
+              </span>
+              <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => stepFind(-1)}>
+                上一个
+              </button>
+              <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={() => stepFind(1)}>
+                下一个
+              </button>
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-sm"
+                data-testid="lm-word-replace-one"
+                disabled={findHits.length === 0}
+                onClick={() => replaceOne()}
+              >
+                替换
+              </button>
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-sm"
+                data-testid="lm-word-replace-all"
+                disabled={findHits.length === 0}
+                onClick={() => replaceAll()}
+              >
+                全部替换
+              </button>
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-sm"
+                onClick={() => setFindOpen(false)}
+              >
+                关闭
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="lm-btn lm-btn-ghost lm-btn-sm"
+              data-testid="lm-word-find-open"
+              onClick={() => {
+                setFindOpen(true);
+                window.requestAnimationFrame(() => findInputRef.current?.focus());
+              }}
+            >
+              查找
+            </button>
+          )}
           <button
             type="button"
             className="lm-btn lm-btn-ghost lm-btn-sm"
@@ -1750,6 +2240,25 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
           </button>
           <button
             type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            data-testid="lm-word-print"
+            title="打印当前页"
+            onClick={() => window.print()}
+          >
+            打印
+          </button>
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            data-testid="lm-word-export-pdf"
+            disabled={!canExport || actionBusy}
+            title="用 LibreOffice 另存一份同目录 PDF"
+            onClick={() => void exportPdf()}
+          >
+            导 PDF
+          </button>
+          <button
+            type="button"
             className="lm-btn lm-btn-accent lm-btn-sm"
             data-testid="lm-word-surface-export"
             disabled={!canExport}
@@ -1780,19 +2289,55 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         </p>
       ) : null}
       <div className="lm-word-surface-body">
+      {outlineOpen ? (
+        <nav className="lm-word-surface-outline lm-scroll" aria-label="大纲" data-testid="lm-word-outline">
+          {(() => {
+            const entries = outlineEntriesOf(snapshot?.paragraphs ?? []);
+            if (entries.length === 0) {
+              return <p className="lm-word-surface-empty">这篇没有可识别的标题大纲。</p>;
+            }
+            return entries.map((entry) => (
+              <button
+                key={`${entry.paragraphIndex}-${entry.text}`}
+                type="button"
+                className="lm-word-outline-item"
+                data-level={entry.level}
+                style={{ paddingLeft: 8 + (entry.level - 1) * 12 }}
+                onClick={() => jumpToOutline(entry.paragraphIndex)}
+              >
+                {entry.text}
+              </button>
+            ));
+          })()}
+        </nav>
+      ) : null}
       <div
+        ref={deskRef}
         className="lm-word-surface-desk lm-scroll"
-        onMouseUp={() => showSelectionMenu()}
+        style={{ ["--lm-word-zoom" as string]: String(zoomPercent / 100) }}
         onContextMenu={(event) => {
           event.preventDefault();
           const range = editorTextRange();
           const anchor = range?.commonAncestorContainer;
           const el = anchor instanceof Element ? anchor : anchor?.parentElement;
+          const hunkEl = el?.closest<HTMLElement>("[data-word-hunk]");
+          const hunkId = hunkEl?.dataset.wordHunk ?? null;
+          if (hunkId) {
+            setSelectedId(hunkId);
+          }
+          const tableEl = el?.closest<HTMLElement>("[data-table-index]");
+          const rowEl = el?.closest<HTMLElement>("[data-row-index]");
+          const tableIndex = tableEl ? Number(tableEl.dataset.tableIndex) : undefined;
+          const rowIndex = rowEl ? Number(rowEl.dataset.rowIndex) : undefined;
           setSelectionMenu({
             x: event.clientX,
             y: event.clientY,
             inDeletion: Boolean(el?.closest("del")),
-            fileActions: true,
+            fileActions: !range,
+            hunkId,
+            ...(Number.isInteger(tableIndex) && Number.isInteger(rowIndex)
+              ? { tableIndex, rowIndex }
+              : {}),
           });
         }}
       >
@@ -2016,6 +2561,43 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       </div>
       </div>
       </div>
+      {(() => {
+        const paragraphs = snapshot?.paragraphs ?? [];
+        const chars = paragraphs.reduce((sum, paragraph) => {
+          const text =
+            paragraph.runs?.map((run) => run.text).join("") ??
+            paragraph.segments
+              .map((seg) =>
+                seg.kind === "text" || seg.kind === "tracked"
+                  ? seg.text
+                  : seg.kind === "revision"
+                    ? seg.after
+                    : "",
+              )
+              .join("");
+          return sum + text.replace(/\s+/g, "").length;
+        }, 0);
+        const revIds = [
+          ...new Set([
+            ...(snapshot?.hunks ?? []).map((h) => h.hunkId),
+            ...(trackedRows ?? []).map((r) => r.revId),
+          ]),
+        ];
+        const revAt = selectedId ? revIds.indexOf(selectedId) + 1 : 0;
+        return (
+          <footer className="lm-word-surface-status" data-testid="lm-word-status">
+            <span>{chars.toLocaleString()} 字</span>
+            <span>
+              {revIds.length === 0
+                ? "无修订"
+                : revAt > 0
+                  ? `修订 ${revAt} / ${revIds.length}`
+                  : `修订 ${revIds.length} 处`}
+            </span>
+            <span>{zoomPercent}%</span>
+          </footer>
+        );
+      })()}
       {selectionMenu ? (
         <div
           className={`lm-word-selection-menu${selectionMenu.fileActions ? " lm-word-selection-menu-stack" : ""}`}
@@ -2026,8 +2608,92 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
             event.stopPropagation();
           }}
         >
+          {selectionMenu.hunkId ? (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="lm-word-surface-accept-hunk"
+                disabled={actionBusy}
+                onClick={() => {
+                  const id = selectionMenu.hunkId;
+                  setSelectionMenu(null);
+                  if (!id) {
+                    return;
+                  }
+                  if ((snapshot?.tracked ?? []).some((row) => row.revId === id)) {
+                    void decideTracked(id, "accept");
+                  } else {
+                    void decide(id, "accept");
+                  }
+                }}
+              >
+                接受此修订
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="lm-word-surface-reject-hunk"
+                disabled={actionBusy}
+                onClick={() => {
+                  const id = selectionMenu.hunkId;
+                  setSelectionMenu(null);
+                  if (!id) {
+                    return;
+                  }
+                  if ((snapshot?.tracked ?? []).some((row) => row.revId === id)) {
+                    void decideTracked(id, "reject");
+                  } else {
+                    void decide(id, "reject");
+                  }
+                }}
+              >
+                拒绝此修订
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="lm-word-surface-focus-hunk"
+                onClick={() => {
+                  const id = selectionMenu.hunkId;
+                  setSelectionMenu(null);
+                  if (id) {
+                    focusHunk(id, "rail");
+                  }
+                }}
+              >
+                查看修订卡
+              </button>
+            </>
+          ) : null}
+          {selectionMenu.tableIndex != null && selectionMenu.rowIndex != null ? (
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="lm-word-insert-table-row"
+              onClick={() => {
+                const tableIndex = selectionMenu.tableIndex!;
+                const afterRowIndex = selectionMenu.rowIndex!;
+                setSelectionMenu(null);
+                void insertTableRowBelow(tableIndex, afterRowIndex);
+              }}
+            >
+              在下方插入行
+            </button>
+          ) : null}
           {selectionMenu.fileActions ? (
             <>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="lm-word-surface-compare"
+                onClick={() => {
+                  setSelectionMenu(null);
+                  void compareWithOtherDocx();
+                }}
+              >
+                与另一份比较…
+              </button>
               <button
                 type="button"
                 role="menuitem"
@@ -2166,7 +2832,15 @@ function readLiveEdits(page: ParentNode): LiveEdit[] {
 function visibleResultText(editor: HTMLElement): string {
   let out = "";
   const walk = (node: Node) => {
+    if (node instanceof HTMLBRElement) {
+      out += "\n";
+      return;
+    }
     if (node instanceof HTMLElement) {
+      if (node.dataset.wordBreak === "page") {
+        out += "\f";
+        return;
+      }
       if (node.classList.contains("lm-word-rev")) {
         const original = node.querySelector(":scope > .lm-word-rev-del");
         out += original?.textContent ?? "";

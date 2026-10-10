@@ -8,6 +8,8 @@
  * unit. This extractor follows that.
  */
 
+import { decodeXmlEntities, normalizeWordControls, wordSymbolText } from "./word-surface-breaks.js";
+
 export type WordAlign = "left" | "center" | "right" | "both";
 
 /** `em` is a character unit (chars / 100). `line` is a line unit (lines / 100). */
@@ -50,6 +52,14 @@ export type WordLayoutRun = {
   text: string;
   track?: WordTrackMark;
   commentIds?: string[];
+  /**
+   * Full `<w:r>…</w:r>` (or equivalent) kept verbatim on save.
+   * Used for drawings, fields, and other non-text runs that serializeRuns
+   * cannot rebuild from plain text.
+   */
+  preservedXml?: string;
+  /** Preview data URL filled by hydrateLayoutImages; empty src = placeholder. */
+  image?: { src: string; widthPx?: number; heightPx?: number };
 } & WordRunMark;
 
 export type WordLayoutParagraph = {
@@ -61,6 +71,11 @@ export type WordLayoutParagraph = {
   line?: WordLineSpacing;
   fontFamily?: string;
   listLabel?: string;
+  /**
+   * 1-based outline level for the middle-column outline pane.
+   * From `w:outlineLvl`, heading style, or a short Chinese heading pattern.
+   */
+  outlineLevel?: number;
   runs: WordLayoutRun[];
   text: string;
   /** Whole paragraph sits inside a block-level `w:ins` / `w:del`. */
@@ -126,9 +141,78 @@ type StyleRaw = {
   spaceBefore?: WordMeasure;
   spaceAfter?: WordMeasure;
   line?: WordLineSpacing;
+  /** OOXML 0-based outline level from the style's `w:pPr`. */
+  outlineLvl?: number;
   /** Table style paints a visible grid when the table itself omits `tblBorders`. */
   tableBordered?: boolean;
 };
+
+const OUTLINE_HEADING_CHAR_CAP = 40;
+const CHINESE_OUTLINE_H1 = /^[一二三四五六七八九十百]+、/;
+const CHINESE_OUTLINE_H2 = /^[（(][一二三四五六七八九十\d]+[）)]/;
+const CHINESE_OUTLINE_H3 = /^\d+、/;
+
+/** Heading 1–9 from a Word style id or display name. */
+export function styleHeadingLevel(styleIdOrName: string | undefined): number | undefined {
+  if (!styleIdOrName?.trim()) {
+    return undefined;
+  }
+  const match = /^(?:Heading|heading|标题)\s*([1-9])$/.exec(styleIdOrName.trim());
+  if (match?.[1]) {
+    return Number(match[1]);
+  }
+  const compact = /^(?:Heading|heading|标题)([1-9])$/.exec(styleIdOrName.trim());
+  if (compact?.[1]) {
+    return Number(compact[1]);
+  }
+  return undefined;
+}
+
+/** Short Chinese clause headings used when the doc has no outlineLvl / style. */
+export function chineseHeadingLevel(text: string): number | undefined {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length > OUTLINE_HEADING_CHAR_CAP) {
+    return undefined;
+  }
+  if (trimmed === "免责声明" || CHINESE_OUTLINE_H1.test(trimmed)) {
+    return 1;
+  }
+  if (CHINESE_OUTLINE_H2.test(trimmed)) {
+    return 2;
+  }
+  if (CHINESE_OUTLINE_H3.test(trimmed)) {
+    return 3;
+  }
+  return undefined;
+}
+
+/** Resolve a 1-based outline level for a paragraph (undefined = body). */
+export function resolveParagraphOutlineLevel(params: {
+  pPr: string;
+  styleId?: string;
+  styleName?: string;
+  styleOutlineLvl?: number;
+  text: string;
+}): number | undefined {
+  const direct = params.pPr.match(/<w:outlineLvl\b[^>]*w:val="(\d+)"/)?.[1];
+  if (direct != null) {
+    const n = Number(direct);
+    if (Number.isFinite(n) && n >= 0 && n <= 8) {
+      return n + 1;
+    }
+  }
+  if (params.styleOutlineLvl != null && Number.isFinite(params.styleOutlineLvl)) {
+    const n = params.styleOutlineLvl;
+    if (n >= 0 && n <= 8) {
+      return n + 1;
+    }
+  }
+  return (
+    styleHeadingLevel(params.styleName) ??
+    styleHeadingLevel(params.styleId) ??
+    chineseHeadingLevel(params.text)
+  );
+}
 
 type LevelDef = {
   start: number;
@@ -368,11 +452,12 @@ function trimEdgeRuns(runs: WordLayoutRun[]): WordLayoutRun[] {
   const next = runs.map((run) => ({ ...run }));
   const first = next[0];
   const last = next[next.length - 1];
+  // Keep line breaks, tabs, and page breaks. They are content, not XML padding.
   if (first) {
-    first.text = first.text.replace(/^\s+/u, "");
+    first.text = first.text.replace(/^[^\S\n\t\f]+/u, "");
   }
   if (last) {
-    last.text = last.text.replace(/\s+$/u, "");
+    last.text = last.text.replace(/[^\S\n\t\f]+$/u, "");
   }
   return next.filter((run) => run.text.length > 0 || run.track?.kind === "format");
 }
@@ -565,7 +650,9 @@ function parseParagraph(
   const runs = trimEdgeRuns(collected);
   const text = runs
     .filter((run) => run.track?.kind !== "del" && run.track?.kind !== "moveFrom")
-    .map((run) => run.text)
+    // preservedXml (fldChar / drawing / OLE) keeps a placeholder atom for save;
+    // it must not pollute visible paragraph text.
+    .map((run) => (run.preservedXml ? "" : run.text))
     .join("");
   const listLabel = numId && numbered ? listLabelFor(numbering, numId, ilvl) : undefined;
   const spacing = spacingOf(pPr);
@@ -574,6 +661,13 @@ function parseParagraph(
   const spaceBefore = spacing.spaceBefore ?? resolved.spaceBefore;
   const spaceAfter = spacing.spaceAfter ?? resolved.spaceAfter;
   const line = spacing.line ?? resolved.line;
+  const outlineLevel = resolveParagraphOutlineLevel({
+    pPr,
+    styleId,
+    styleName: resolved.name,
+    styleOutlineLvl: resolved.outlineLvl,
+    text,
+  });
   return {
     kind: "paragraph",
     ...(align ? { align } : {}),
@@ -584,6 +678,7 @@ function parseParagraph(
     ...(line ? { line } : {}),
     ...(inherited.fontFamily ? { fontFamily: inherited.fontFamily } : {}),
     ...(listLabel ? { listLabel } : {}),
+    ...(outlineLevel != null ? { outlineLevel } : {}),
     runs,
     text,
     ...(pPr ? { pPrInner: pPr } : {}),
@@ -818,20 +913,29 @@ function collectRuns(
       continue;
     }
     const close = inner.indexOf("</w:r>", openEnd + 1);
+    const runEnd = close >= 0 ? close + "</w:r>".length : inner.length;
     const runInner = inner.slice(openEnd + 1, close >= 0 ? close : inner.length);
     const text = runVisibleText(runInner);
+    const comments = [...new Set([...inheritedComments, ...commentsAt(inner, next.at)])];
     if (text) {
       const rPr = elementInner(runInner, "rPr");
       const format = parent ? undefined : formatTrackOf(rPr);
-      const comments = [...new Set([...inheritedComments, ...commentsAt(inner, next.at)])];
       runs.push({
         text,
         ...overlayMark(inherited, rPr),
         ...(parent ? { track: parent } : format ? { track: format } : {}),
         ...(comments.length > 0 ? { commentIds: comments } : {}),
       });
+    } else if (runHasPreservableContent(runInner)) {
+      // Keep drawings / fields / OLE as opaque XML so save does not drop them.
+      runs.push({
+        text: "\uFFFC",
+        preservedXml: inner.slice(next.at, runEnd),
+        ...(parent ? { track: parent } : {}),
+        ...(comments.length > 0 ? { commentIds: comments } : {}),
+      });
     }
-    cursor = close >= 0 ? close + "</w:r>".length : inner.length;
+    cursor = runEnd;
   }
   return runs;
 }
@@ -869,6 +973,11 @@ function attrOf(openTag: string, name: string): string {
   return end < 0 ? "" : openTag.slice(start, end);
 }
 
+/** Non-text run body that must round-trip through serializeRuns unchanged. */
+function runHasPreservableContent(runInner: string): boolean {
+  return /<w:(drawing|pict|object|oleObject|fldChar|instrText|delInstrText)\b/.test(runInner);
+}
+
 function runVisibleText(runInner: string): string {
   let out = "";
   let cursor = 0;
@@ -877,19 +986,39 @@ function runVisibleText(runInner: string): string {
     if (!token) {
       break;
     }
+    const end = indexOfXmlTagEnd(runInner, token.at);
+    const open = end >= 0 ? runInner.slice(token.at, end + 1) : "";
     if (token.kind === "tab") {
       out += "\t";
-      const end = indexOfXmlTagEnd(runInner, token.at);
       cursor = end >= 0 ? end + 1 : token.at + 6;
       continue;
     }
     if (token.kind === "br") {
-      out += "\n";
-      const end = indexOfXmlTagEnd(runInner, token.at);
+      out += attrOf(open, "w:type") === "page" ? "\f" : "\n";
       cursor = end >= 0 ? end + 1 : token.at + 5;
       continue;
     }
-    const openEnd = indexOfXmlTagEnd(runInner, token.at);
+    if (token.kind === "cr") {
+      out += "\n";
+      cursor = end >= 0 ? end + 1 : token.at + 5;
+      continue;
+    }
+    if (token.kind === "sym") {
+      out += wordSymbolText(attrOf(open, "w:font"), attrOf(open, "w:char"));
+      cursor = end >= 0 ? end + 1 : token.at + 6;
+      continue;
+    }
+    if (token.kind === "hyphen") {
+      out += "\u2011";
+      cursor = end >= 0 ? end + 1 : token.at + 16;
+      continue;
+    }
+    if (token.kind === "softHyphen") {
+      out += "\u00AD";
+      cursor = end >= 0 ? end + 1 : token.at + 13;
+      continue;
+    }
+    const openEnd = end;
     if (openEnd < 0) {
       break;
     }
@@ -903,30 +1032,36 @@ function runVisibleText(runInner: string): string {
     out += decodeXmlEntities(raw);
     cursor = close >= 0 ? close + closeTag.length : runInner.length;
   }
-  return out.replace(/\u00a0/g, " ");
+  return normalizeWordControls(out).replace(/\u00a0/g, " ");
 }
+
+const RUN_TOKENS = [
+  ["noBreakHyphen", "hyphen"],
+  ["softHyphen", "softHyphen"],
+  ["delText", "delText"],
+  ["ptab", "tab"],
+  ["tab", "tab"],
+  ["br", "br"],
+  ["cr", "cr"],
+  ["sym", "sym"],
+  ["t", "t"],
+] as const;
 
 function indexOfRunToken(
   xml: string,
   from: number,
-): { at: number; kind: "t" | "delText" | "tab" | "br" } | null {
+): { at: number; kind: (typeof RUN_TOKENS)[number][1] } | null {
   let cursor = from;
   while (cursor < xml.length) {
     const at = xml.indexOf("<w:", cursor);
     if (at < 0) {
       return null;
     }
-    if (xml.startsWith("<w:tab", at) && isNameBoundary(xml, at + 6)) {
-      return { at, kind: "tab" };
-    }
-    if (xml.startsWith("<w:br", at) && isNameBoundary(xml, at + 5)) {
-      return { at, kind: "br" };
-    }
-    if (xml.startsWith("<w:delText", at) && isNameBoundary(xml, at + 10)) {
-      return { at, kind: "delText" };
-    }
-    if (xml.startsWith("<w:t", at) && isNameBoundary(xml, at + 4)) {
-      return { at, kind: "t" };
+    for (const [name, kind] of RUN_TOKENS) {
+      const needle = `<w:${name}`;
+      if (xml.startsWith(needle, at) && isNameBoundary(xml, at + needle.length)) {
+        return { at, kind };
+      }
     }
     cursor = at + 3;
   }
@@ -971,6 +1106,8 @@ function parseStyles(stylesXml: string): Map<string, StyleRaw> {
     const ind = indents(pPr);
     const spacing = spacingOf(pPr);
     const mark = markOf(rPr);
+    const outlineLvlRaw = pPr.match(/<w:outlineLvl\b[^>]*w:val="(\d+)"/)?.[1];
+    const outlineLvl = outlineLvlRaw != null ? Number(outlineLvlRaw) : undefined;
     const noSpace = name === "No Spacing" || name === "无间隔";
     const tableBordered =
       type === "table" && bordersHaveStroke(elementInner(tblPr, "tblBorders") || tblPr);
@@ -990,6 +1127,7 @@ function parseStyles(stylesXml: string): Map<string, StyleRaw> {
       ...(spacing.spaceBefore ? { spaceBefore: spacing.spaceBefore } : {}),
       ...(spacing.spaceAfter ? { spaceAfter: spacing.spaceAfter } : {}),
       ...(spacing.line ? { line: spacing.line } : {}),
+      ...(outlineLvl != null && Number.isFinite(outlineLvl) ? { outlineLvl } : {}),
       ...(tableBordered ? { tableBordered: true } : {}),
       ...(noSpace
         ? {
@@ -1031,6 +1169,7 @@ function resolveStyle(
     ...(raw.spaceBefore ? { spaceBefore: raw.spaceBefore } : {}),
     ...(raw.spaceAfter ? { spaceAfter: raw.spaceAfter } : {}),
     ...(raw.line ? { line: raw.line } : {}),
+    ...(raw.outlineLvl != null ? { outlineLvl: raw.outlineLvl } : {}),
     ...(raw.tableBordered ? { tableBordered: true } : {}),
     ...(raw.name ? { name: raw.name } : {}),
     ...(raw.type ? { type: raw.type } : {}),
@@ -1586,13 +1725,4 @@ function indexOfXmlTagEnd(xml: string, from: number): number {
     }
   }
   return -1;
-}
-
-function decodeXmlEntities(text: string): string {
-  return text
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
 }

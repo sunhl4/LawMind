@@ -5,6 +5,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { revisionPieces } from "../../../../../src/lawmind/drafts/word-surface-pieces.ts";
 import type { WordSurfaceHunkView, WordTrackedView } from "../../../../../src/lawmind/drafts/word-surface.ts";
+import { renderWordRunText } from "./word-surface-run-text";
 
 export type MarginLiveEdit = { key: string; before: string; after: string };
 
@@ -219,9 +220,9 @@ export function TrackBalloon(props: {
             <p className="lm-word-rev-balloon-line">
               <span className="lm-word-rev-balloon-label">{trackedBalloonLabel(row)}</span>
               {row.change === "format" ? null : row.change === "del" || row.change === "moveFrom" ? (
-                <del className="lm-word-rev-del">{row.text}</del>
+                <del className="lm-word-rev-del">{renderWordRunText(row.text)}</del>
               ) : (
-                <ins className="lm-word-rev-ins">{row.text}</ins>
+                <ins className="lm-word-rev-ins">{renderWordRunText(row.text)}</ins>
               )}
             </p>
           </div>
@@ -325,10 +326,10 @@ export function HunkBalloon(props: {
               <p key={lineIndex} className="lm-word-rev-balloon-line">
                 <span className="lm-word-rev-balloon-label">{line.label}</span>
                 {line.mark === "del" ? (
-                  <del className="lm-word-rev-del">{line.text}</del>
+                  <del className="lm-word-rev-del">{renderWordRunText(line.text)}</del>
                 ) : (
                   <BalloonEdit
-                    text={line.text}
+                    text={line.text.replaceAll("\f", "\n")}
                     editable={hunk.status === "pending"}
                     testId={`lm-word-edit-${hunk.hunkId}`}
                     onChange={(text) => props.onDraft(text, line.changeIndex)}

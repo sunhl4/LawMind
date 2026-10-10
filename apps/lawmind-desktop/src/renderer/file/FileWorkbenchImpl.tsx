@@ -14,7 +14,6 @@ export type { FileWorkbenchCasesNodeActions, FileWorkbenchProps } from "./file-w
 import {
   isProtectedWorkspacePath,
   isImageLikePath,
-  isOfficeLikePath,
   keyOf,
   basename,
   getDirname,
@@ -23,6 +22,7 @@ import {
   allocateNonCollidingRelPath,
   resolveRelForAbs,
 } from "./file-workbench-fs";
+import { isBinaryPreviewKind, resolvePreviewKind } from "./preview-kind";
 import { isValidMatterId } from "../../../../../src/lawmind/cases/matter-id.ts";
 import { notifyMaterialChosen } from "../lawmind-material-chosen";
 import { apiPost } from "../lawmind-api-routes.ts";
@@ -52,7 +52,6 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     canUseFilesystemBridge,
     onAddToChatContext,
     addToContextLabel,
-    onSendContractForReview,
     portalHosts,
     workspaceExplorerToolbar,
     casesNodeActions,
@@ -76,37 +75,6 @@ export function FileWorkbench(props: FileWorkbenchProps) {
   const [showQuickOpen, setShowQuickOpen] = useState(false);
   const [indexedFiles, setIndexedFiles] = useState<IndexedFile[]>([]);
   const [fsClip, setFsClip] = useState<FsClip | null>(null);
-  const [officeBlock, setOfficeBlock] = useState<{
-    root: RootKey;
-    relPath: string;
-    name: string;
-    mode?: "office" | "binary";
-  } | null>(null);
-  useEffect(() => {
-    const fromOffice =
-      officeBlock && /\.docx?$/i.test(officeBlock.relPath)
-        ? { root: officeBlock.root, relPath: officeBlock.relPath }
-        : null;
-    const fromSelected =
-      selected?.kind === "file" && /\.docx?$/i.test(selected.path)
-        ? { root: selected.root, relPath: selected.path }
-        : null;
-    const next = fromOffice ?? fromSelected;
-    setActiveWorkbenchWordFile(next);
-    if (next) {
-      rememberFileContextPath({ ...next, kind: "file" });
-    }
-    return () => {
-      setActiveWorkbenchWordFile(null);
-    };
-  }, [officeBlock, selected]);
-
-  const [imagePreview, setImagePreview] = useState<{
-    root: RootKey;
-    relPath: string;
-    name: string;
-    dataUrl: string;
-  } | null>(null);
   /** 右键「加入案件」后选择目标案件 */
   const [addToMatterPick, setAddToMatterPick] = useState<{ relPath: string; kind: "file" | "directory" } | null>(null);
   /** 加入案件弹窗内手动输入的案件编号 */
@@ -143,7 +111,27 @@ export function FileWorkbench(props: FileWorkbenchProps) {
   const moveIntoMatterInFlightRef = useRef(false);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
-  const activeDirty = activeTab ? activeTab.content !== activeTab.savedContent : false;
+  const activeDirty =
+    activeTab?.kind === "text" ? activeTab.content !== activeTab.savedContent : false;
+
+  useEffect(() => {
+    const fromTab =
+      activeTab?.kind === "word"
+        ? { root: activeTab.root, relPath: activeTab.path }
+        : null;
+    const fromSelected =
+      selected?.kind === "file" && /\.docx$/i.test(selected.path)
+        ? { root: selected.root, relPath: selected.path }
+        : null;
+    const next = fromTab ?? fromSelected;
+    setActiveWorkbenchWordFile(next);
+    if (next) {
+      rememberFileContextPath({ ...next, kind: "file" });
+    }
+    return () => {
+      setActiveWorkbenchWordFile(null);
+    };
+  }, [activeTab, selected]);
 
   // ── Close context menu on outside click ─────────────────────
   // 显式返回类型：回调在有菜单时返回清理函数、无菜单时提前返回，
@@ -242,7 +230,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
   // ── Save ─────────────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const saveActive = useCallback(async () => {
-    if (!activeTab) {return;}
+    if (!activeTab || activeTab.kind !== "text") {return;}
     if (activeTab.content === activeTab.savedContent) {
       setError(null);
       return;
@@ -271,7 +259,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const saveActiveAs = useCallback(async () => {
-    if (!activeTab) {
+    if (!activeTab || activeTab.kind !== "text") {
       return;
     }
     setBusy(true);
@@ -390,44 +378,69 @@ export function FileWorkbench(props: FileWorkbenchProps) {
   }, [portalHosts?.editor]);
 
   const openFile = useCallback(async (root: RootKey, relPath: string) => {
-    if (isOfficeLikePath(relPath)) {
-      setImagePreview(null);
-      setOfficeBlock({ root, relPath, name: basename(relPath), mode: "office" });
-      setActiveTabId(null);
-      setSelected({ root, path: relPath, kind: "file" });
-      setError(null);
-      notifyMaterialChosen(root, relPath);
-      revealWordSurface(relPath);
-      return;
-    }
     const tabId = `${root}:${relPath}`;
     const existing = tabs.find((t) => t.id === tabId);
     if (existing) {
-      setOfficeBlock(null);
-      setImagePreview(null);
       setActiveTabId(existing.id);
+      setSelected({ root, path: relPath, kind: "file" });
+      setError(null);
       notifyMaterialChosen(root, relPath);
-      revealCanvasSurface(relPath);
+      if (existing.kind === "word") {
+        revealWordSurface(relPath);
+      } else if (existing.kind === "text") {
+        revealCanvasSurface(relPath);
+      }
       return;
     }
+
+    const kind = resolvePreviewKind(relPath);
+
+    // Binary previews (word / pdf / xlsx / media / fallback) open without reading text.
+    if (isBinaryPreviewKind(kind) && kind !== "image") {
+      const tab: OpenFileTab = {
+        id: tabId,
+        root,
+        path: relPath,
+        name: basename(relPath),
+        kind,
+        content: "",
+        savedContent: "",
+        mtimeMs: 0,
+        ...(kind === "fallback" ? { fallbackMode: "office" as const } : {}),
+      };
+      setTabs((prev) => [...prev, tab]);
+      setActiveTabId(tab.id);
+      setSelected({ root, path: relPath, kind: "file" });
+      setError(null);
+      notifyMaterialChosen(root, relPath);
+      if (kind === "word") {
+        revealWordSurface(relPath);
+      }
+      return;
+    }
+
     setBusy(true);
     try {
       const res = await window.lawmindDesktop?.fsRead({ root, path: relPath });
       if (!res?.ok || typeof res.mtimeMs !== "number") {
         const errText = res?.error ?? "文件读取失败";
         if (errText.toLowerCase().includes("binary")) {
-          setImagePreview(null);
-          setOfficeBlock({
+          const tab: OpenFileTab = {
+            id: tabId,
             root,
-            relPath,
+            path: relPath,
             name: basename(relPath),
-            mode: isOfficeLikePath(relPath) ? "office" : "binary",
-          });
-          setActiveTabId(null);
+            kind: "fallback",
+            content: "",
+            savedContent: "",
+            mtimeMs: 0,
+            fallbackMode: "binary",
+          };
+          setTabs((prev) => [...prev, tab]);
+          setActiveTabId(tab.id);
           setSelected({ root, path: relPath, kind: "file" });
           setError(null);
           notifyMaterialChosen(root, relPath);
-          revealWordSurface(relPath);
           return;
         }
         throw new Error(errText);
@@ -438,14 +451,19 @@ export function FileWorkbench(props: FileWorkbenchProps) {
         if (!b64) {
           throw new Error("图片读取失败");
         }
-        setOfficeBlock(null);
-        setImagePreview({
+        const tab: OpenFileTab = {
+          id: tabId,
           root,
-          relPath,
+          path: relPath,
           name: basename(relPath),
+          kind: "image",
+          content: "",
+          savedContent: "",
+          mtimeMs: res.mtimeMs,
           dataUrl: `data:${mime};base64,${b64}`,
-        });
-        setActiveTabId(null);
+        };
+        setTabs((prev) => [...prev, tab]);
+        setActiveTabId(tab.id);
         setSelected({ root, path: relPath, kind: "file" });
         setError(null);
         notifyMaterialChosen(root, relPath);
@@ -454,11 +472,15 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       if (typeof res.content !== "string") {
         throw new Error(res.error ?? "文件读取失败");
       }
-      setOfficeBlock(null);
-      setImagePreview(null);
       const tab: OpenFileTab = {
-        id: tabId, root, path: relPath, name: basename(relPath),
-        content: res.content, savedContent: res.content, mtimeMs: res.mtimeMs,
+        id: tabId,
+        root,
+        path: relPath,
+        name: basename(relPath),
+        kind: "text",
+        content: res.content,
+        savedContent: res.content,
+        mtimeMs: res.mtimeMs,
       };
       setTabs((prev) => [...prev, tab]);
       setActiveTabId(tab.id);
@@ -545,7 +567,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
   const closeTab = (tabId: string) => {
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) {return;}
-    if (tab.content !== tab.savedContent) {
+    if (tab.kind === "text" && tab.content !== tab.savedContent) {
       setConfirmDialog({
         kind: "simple",
         message: `文件 "${tab.name}" 有未保存修改，确认关闭？`,
@@ -668,7 +690,15 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     await refreshDir(root, getDirname(oldPath));
     const oldTabId = `${root}:${oldPath}`;
     setTabs((prev) => prev.map((t) =>
-      t.id === oldTabId ? { ...t, id: `${root}:${newPath}`, path: newPath, name: basename(newPath) } : t,
+      t.id === oldTabId
+        ? {
+            ...t,
+            id: `${root}:${newPath}`,
+            path: newPath,
+            name: basename(newPath),
+            kind: resolvePreviewKind(newPath),
+          }
+        : t,
     ));
     if (activeTabId === oldTabId) {setActiveTabId(`${root}:${newPath}`);}
     setSelected((prev) => (prev?.path === oldPath && prev.root === root ? { ...prev, path: newPath } : prev));
@@ -892,7 +922,6 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       canUseFilesystemBridge={canUseFilesystemBridge}
       onAddToChatContext={onAddToChatContext}
       addToContextLabel={addToContextLabel}
-      onSendContractForReview={onSendContractForReview}
       portalHosts={portalHosts}
       workspaceExplorerToolbar={workspaceExplorerToolbar}
       casesNodeActions={casesNodeActionsResolved}
@@ -920,10 +949,6 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       setShowQuickOpen={setShowQuickOpen}
       indexedFiles={indexedFiles}
       fsClip={fsClip}
-      officeBlock={officeBlock}
-      setOfficeBlock={setOfficeBlock}
-      imagePreview={imagePreview}
-      setImagePreview={setImagePreview}
       addToMatterPick={addToMatterPick}
       setAddToMatterPick={setAddToMatterPick}
       addToMatterManualDraft={addToMatterManualDraft}

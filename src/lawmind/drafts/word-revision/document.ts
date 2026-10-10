@@ -89,6 +89,8 @@ export function layoutRunToRevision(run: WordLayoutRun): WordRevisionRun {
       : {}),
     ...markFromRun(run),
     ...(run.commentIds && run.commentIds.length > 0 ? { commentIds: run.commentIds } : {}),
+    ...(run.preservedXml ? { preservedXml: run.preservedXml } : {}),
+    ...(run.image ? { image: run.image } : {}),
   };
 }
 
@@ -130,9 +132,17 @@ export function materializeLayoutBlocks(
   return paragraphs.map((runs) => materializeHunks(runs, pending, author));
 }
 
+export type ParagraphRunWrite =
+  | WordRevisionRun[]
+  | { sourceIndex?: number | null; runs: WordRevisionRun[]; pPrInner?: string };
+
+const STORY_PART_NAME = /^word\/(?:header\d+|footer\d+|footnotes|endnotes)\.xml$/;
+
 export async function saveParagraphRuns(params: {
   absPath: string;
-  paragraphs: WordRevisionRun[][];
+  paragraphs: ParagraphRunWrite[];
+  /** Header / footer / footnote parts keyed by zip path. */
+  stories?: Array<{ part: string; paragraphs: ParagraphRunWrite[] }>;
   comments?: WordRevisionComment[];
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   let zip: JSZip;
@@ -145,16 +155,34 @@ export async function saveParagraphRuns(params: {
   if (!documentXml) {
     return { ok: false, error: "这份 Word 没有正文。" };
   }
-  const patched = replaceParagraphRunsInXml(
-    documentXml,
-    params.paragraphs.map((runs) => ({ runs })),
-  );
+  const writes = params.paragraphs.map((row) => (Array.isArray(row) ? { runs: row } : row));
+  const patched = replaceParagraphRunsInXml(documentXml, writes);
   zip.file("word/document.xml", patched.xml);
+  const storyTrackIds: string[] = [];
+  for (const story of params.stories ?? []) {
+    if (!STORY_PART_NAME.test(story.part)) {
+      return { ok: false, error: "页眉页脚路径无效。" };
+    }
+    const storyXml = await zip.file(story.part)?.async("string");
+    if (!storyXml) {
+      return { ok: false, error: `找不到 ${story.part}。` };
+    }
+    const storyWrites = story.paragraphs.map((row) => (Array.isArray(row) ? { runs: row } : row));
+    const next = replaceParagraphRunsInXml(storyXml, storyWrites);
+    zip.file(story.part, next.xml);
+    storyTrackIds.push(...trackIdsInDocumentXml(storyXml));
+  }
   const previousXml = (await zip.file(DISPOSITION_PART)?.async("string")) ?? "";
+  const allRuns = [
+    ...writes.map((row) => row.runs),
+    ...(params.stories ?? []).flatMap((story) =>
+      story.paragraphs.map((row) => (Array.isArray(row) ? row : row.runs)),
+    ),
+  ];
   const accepted = nextDispositionIds({
     previousAccepted: parseDispositionXml(previousXml),
-    previousStoryIds: trackIdsInDocumentXml(documentXml),
-    paragraphs: params.paragraphs,
+    previousStoryIds: new Set([...trackIdsInDocumentXml(documentXml), ...storyTrackIds]),
+    paragraphs: allRuns,
   });
   zip.file(DISPOSITION_PART, serializeDispositionXml(accepted));
   await ensureDispositionPart(zip);

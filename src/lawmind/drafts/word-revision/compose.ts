@@ -42,6 +42,16 @@ export function maxTrackId(runs: WordRevisionRun[]): number {
 export function flattenRuns(runs: WordRevisionRun[]): WordRevisionAtom[] {
   const atoms: WordRevisionAtom[] = [];
   for (const run of runs) {
+    if (run.preservedXml) {
+      atoms.push({
+        ch: run.text || "\uFFFC",
+        ...(run.track ? { track: run.track } : {}),
+        ...(run.mark ? { mark: run.mark } : {}),
+        ...(run.commentIds && run.commentIds.length > 0 ? { commentIds: run.commentIds } : {}),
+        preservedXml: run.preservedXml,
+      });
+      continue;
+    }
     for (const ch of run.text) {
       atoms.push({
         ch,
@@ -57,9 +67,20 @@ export function flattenRuns(runs: WordRevisionRun[]): WordRevisionAtom[] {
 export function coalesceRuns(atoms: WordRevisionAtom[]): WordRevisionRun[] {
   const runs: WordRevisionRun[] = [];
   for (const atom of atoms) {
+    if (atom.preservedXml) {
+      runs.push({
+        text: atom.ch || "\uFFFC",
+        preservedXml: atom.preservedXml,
+        ...(atom.track ? { track: atom.track } : {}),
+        ...(atom.mark ? { mark: atom.mark } : {}),
+        ...(atom.commentIds && atom.commentIds.length > 0 ? { commentIds: atom.commentIds } : {}),
+      });
+      continue;
+    }
     const last = runs[runs.length - 1];
     if (
       last &&
+      !last.preservedXml &&
       sameTrack(last.track, atom.track) &&
       sameMark(last.mark, atom.mark) &&
       sameIds(last.commentIds, atom.commentIds)
@@ -74,7 +95,7 @@ export function coalesceRuns(atoms: WordRevisionAtom[]): WordRevisionRun[] {
       ...(atom.commentIds && atom.commentIds.length > 0 ? { commentIds: atom.commentIds } : {}),
     });
   }
-  return runs.filter((run) => run.text.length > 0);
+  return runs.filter((run) => run.text.length > 0 || Boolean(run.preservedXml));
 }
 
 export function allMarkupText(runs: WordRevisionRun[]): string {

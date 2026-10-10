@@ -8,6 +8,11 @@ import fs from "node:fs/promises";
 import JSZip from "jszip";
 import { computeMinimalEditSpans } from "./minimal-edit-script.js";
 import type { RedlineHunk } from "./redline-proposal.js";
+import {
+  decodeXmlEntities,
+  normalizeWordControls,
+  serializeWordRunText,
+} from "./word-surface-breaks.js";
 
 export async function writeVisibleTrackedEdits(params: {
   sourceAbs: string;
@@ -132,19 +137,19 @@ function visibleRunText(inner: string): string {
     if (match[0].startsWith("<w:tab")) {
       out += "\t";
     } else if (match[0].startsWith("<w:br")) {
-      out += "\n";
+      out += /w:type="page"/u.test(match[0]) ? "\f" : "\n";
     } else {
-      out += decodeXml(match[1] ?? "");
+      out += decodeXmlEntities(match[1] ?? "");
     }
   }
-  return out;
+  return normalizeWordControls(out);
 }
 
 function plainRun(rPr: string, text: string): string {
   if (!text) {
     return "";
   }
-  return `<w:r>${rPr}${textNode("w:t", text)}</w:r>`;
+  return `<w:r>${rPr}${serializeWordRunText(text, "t")}</w:r>`;
 }
 
 function revisionRun(
@@ -156,24 +161,10 @@ function revisionRun(
   id: number,
 ): string {
   const tag = kind === "del" ? "w:del" : "w:ins";
-  const textTag = kind === "del" ? "w:delText" : "w:t";
-  return `<${tag} w:id="${id}" w:author="${encodeXml(author)}" w:date="${date}"><w:r>${rPr}${textNode(textTag, text)}</w:r></${tag}>`;
-}
-
-function textNode(tag: string, text: string): string {
-  const space = /^\s|\s$/u.test(text) ? ` xml:space="preserve"` : "";
-  return `<${tag}${space}>${encodeXml(text)}</${tag}>`;
+  const textTag = kind === "del" ? "delText" : "t";
+  return `<${tag} w:id="${id}" w:author="${encodeXml(author)}" w:date="${date}"><w:r>${rPr}${serializeWordRunText(text, textTag)}</w:r></${tag}>`;
 }
 
 function encodeXml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function decodeXml(text: string): string {
-  return text
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
 }

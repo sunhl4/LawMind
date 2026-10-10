@@ -7,8 +7,6 @@ import {
 } from "./file-workbench-types";
 import { getDirname, isProtectedWorkspacePath } from "./file-workbench-fs";
 import { matterIdFromWorkspaceCasesRelPath, isWorkspaceCaseSubdirRootRelPath } from "../lawmind-cases-path";
-import { isContractReviewCandidatePath } from "../lawmind-file-chat-context";
-
 export type FileWorkbenchContextMenuProps = {
   menuRef: RefObject<HTMLDivElement | null>;
   contextMenu: ContextMenu | null;
@@ -20,8 +18,6 @@ export type FileWorkbenchContextMenuProps = {
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
   /** Override default「在对话中引用」label (e.g. meeting →「加入议题材料」). */
   addToContextLabel?: string;
-  /** docx/doc/pdf → 引用并打开合同审查短路径 */
-  onSendContractForReview?: (payload: { root: RootKey; relPath: string }) => void;
   setAddToMatterManualDraft: Dispatch<SetStateAction<string>>;
   setAddToMatterLastError: Dispatch<SetStateAction<string | null>>;
   setAddToMatterPick: Dispatch<SetStateAction<{ relPath: string; kind: "file" | "directory" } | null>>;
@@ -45,7 +41,6 @@ export function FileWorkbenchContextMenu({
   busy,
   onAddToChatContext,
   addToContextLabel,
-  onSendContractForReview,
   setAddToMatterManualDraft,
   setAddToMatterLastError,
   setAddToMatterPick,
@@ -81,11 +76,6 @@ export function FileWorkbenchContextMenu({
     ctxPath !== "cases" &&
     !ctxPath.startsWith("cases/");
   const wsProtectedHint = ctxPath ? isProtectedWorkspacePath(root, ctxPath) : null;
-  const canSendContract =
-    kind === "file" &&
-    Boolean(onSendContractForReview) &&
-    Boolean(ctxPath) &&
-    isContractReviewCandidatePath(ctxPath);
   return (
     <div
       ref={menuRef}
@@ -167,19 +157,6 @@ export function FileWorkbenchContextMenu({
                 : `💬 在对话中引用${kind === "directory" ? "（整目录）" : ""}`}
             </button>
           ) : null}
-          {canSendContract ? (
-            <button
-              type="button"
-              role="menuitem"
-              data-testid="lm-file-send-contract-review"
-              onClick={() => {
-                onSendContractForReview!({ root, relPath: ctxPath });
-                setContextMenu(null);
-              }}
-            >
-              ⚖️ 送审本合同
-            </button>
-          ) : null}
           {canOfferAddToMatter ? (
             <button
               type="button"
@@ -207,7 +184,7 @@ export function FileWorkbenchContextMenu({
                   setContextMenu(null);
                 }}
               >
-                📋 打开案件工作台
+                进入案件管理
               </button>
               {cn.onLinkMatterToChat ? (
                 <button

@@ -8,6 +8,27 @@ import fs from "node:fs/promises";
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 const MAX_PNG_BYTES = 6 * 1024 * 1024;
 
+/** Page count for preview. Does not rasterize. */
+export async function countPdfPages(absPath: string): Promise<number> {
+  const stat = await fs.stat(absPath);
+  if (stat.size > MAX_PDF_BYTES) {
+    throw new Error("pdf_too_large");
+  }
+  const data = await fs.readFile(absPath);
+  const mod = await import("pdf-parse");
+  const parser = new mod.PDFParse({ data });
+  try {
+    const info = await parser.getInfo({ parsePageInfo: false });
+    const total = info.total;
+    if (!Number.isInteger(total) || total < 1) {
+      throw new Error("page_not_found");
+    }
+    return total;
+  } finally {
+    await parser.destroy().catch(() => undefined);
+  }
+}
+
 export async function renderPdfPagePng(absPath: string, page: number): Promise<Buffer> {
   if (!Number.isInteger(page) || page < 1 || page > 500) {
     throw new Error("invalid_page");

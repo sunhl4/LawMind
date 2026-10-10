@@ -4,14 +4,6 @@ import {
   defaultIntakeFieldsForDeliverable,
   type JobIntakeFieldDef,
 } from "./lawmind-job-intake";
-import {
-  buildContractFastLanePrompt,
-  CONTRACT_REVIEW_DEPTH_OPTIONS,
-  CONTRACT_REVIEW_STANCE_OPTIONS,
-  stanceIntakeValue,
-  type ContractReviewDepth,
-  type ContractReviewStance,
-} from "./lawmind-contract-fast-lane";
 import { appendCampaignUpgradeInstruction } from "../../../../src/lawmind/review-campaign/review-brief.ts";
 import { apiPostTriageConfirm, apiPostTriagePreview } from "./lawmind-triage-api";
 import type { TriageSession } from "../../../../src/lawmind/triage/types.ts";
@@ -39,6 +31,18 @@ type Props = {
 };
 
 type Step = "form" | "triage";
+
+const CONTRACT_STANCE_OPTIONS = [
+  { id: "neutral", label: "中立", value: "中立" },
+  { id: "client", label: "委托方", value: "委托方（保护我方利益）" },
+  { id: "counterparty", label: "相对方", value: "相对方视角（预判对方抗辩）" },
+] as const;
+
+const CONTRACT_DEPTH_OPTIONS = [
+  { id: "quick", label: "快速", value: "快速", hint: "挑最关键的 3–5 个风险，约数分钟" },
+  { id: "standard", label: "标准", value: "标准", hint: "全面审查并起草可签批意见书" },
+  { id: "deep", label: "深度", value: "深度", hint: "逐条细查，可升完整审查专案组" },
+] as const;
 
 export function LawmindJobIntakeForm(props: Props): ReactNode {
   const {
@@ -81,27 +85,29 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
 
   const isContractReview = template.deliverableType === "contract.review";
 
-  const buildPrompt = (): string => {
-    if (isContractReview) {
-      const stance = (values.stance || "client") as ContractReviewStance;
-      const depth = (values.depth || "standard") as ContractReviewDepth;
-      return buildContractFastLanePrompt({
-        materials: values.materials ?? "",
-        focus: values.focus,
-        stance: CONTRACT_REVIEW_STANCE_OPTIONS.some((o) => o.id === stance) ? stance : "client",
-        depth: CONTRACT_REVIEW_DEPTH_OPTIONS.some((o) => o.id === depth) ? depth : "standard",
-      });
-    }
-    return buildJobIntakeDispatchPrompt({
+  const buildPrompt = (): string =>
+    buildJobIntakeDispatchPrompt({
       templateName: template.name,
       deliverableType: template.deliverableType,
-      fields: fields.map((f) => ({
-        key: f.key,
-        label: f.label,
-        value: values[f.key] ?? "",
-      })),
+      fields: fields.map((f) => {
+        const raw = values[f.key] ?? "";
+        if (f.key === "stance") {
+          return {
+            key: f.key,
+            label: f.label,
+            value: CONTRACT_STANCE_OPTIONS.find((o) => o.id === raw)?.value ?? raw,
+          };
+        }
+        if (f.key === "depth") {
+          return {
+            key: f.key,
+            label: f.label,
+            value: CONTRACT_DEPTH_OPTIONS.find((o) => o.id === raw)?.value ?? raw,
+          };
+        }
+        return { key: f.key, label: f.label, value: raw };
+      }),
     });
-  };
 
   const tryBuild = (): string | null => {
     if (missingRequired.length > 0) {
@@ -339,15 +345,16 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
               if (!pendingPrompt) {
                 return;
               }
-              const stance = (values.stance || "client") as ContractReviewStance;
-              const depth = (values.depth || "standard") as ContractReviewDepth;
+              const stanceId = values.stance || "client";
+              const depthId = values.depth || "standard";
+              const stanceLabel =
+                CONTRACT_STANCE_OPTIONS.find((o) => o.id === stanceId)?.value ?? "委托方（保护我方利益）";
+              const depthLabel =
+                CONTRACT_DEPTH_OPTIONS.find((o) => o.id === depthId)?.value ?? "标准";
               const upgraded = appendCampaignUpgradeInstruction(pendingPrompt, {
-                stance: stanceIntakeValue(
-                  CONTRACT_REVIEW_STANCE_OPTIONS.some((o) => o.id === stance) ? stance : "client",
-                ),
+                stance: stanceLabel,
                 focus: values.focus,
-                depth:
-                  depth === "deep" ? "深度" : depth === "quick" ? "快速" : "标准",
+                depth: depthLabel,
               });
               setPendingPrompt(upgraded);
               void confirmTriage(false, upgraded);
@@ -383,7 +390,7 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
                   {f.required ? <abbr title="必填">*</abbr> : null}
                 </span>
                 <div className="lm-contract-fast-lane-chips">
-                  {CONTRACT_REVIEW_STANCE_OPTIONS.map((o) => (
+                  {CONTRACT_STANCE_OPTIONS.map((o) => (
                     <button
                       key={o.id}
                       type="button"
@@ -407,7 +414,7 @@ export function LawmindJobIntakeForm(props: Props): ReactNode {
                   {f.required ? <abbr title="必填">*</abbr> : null}
                 </span>
                 <div className="lm-contract-fast-lane-chips">
-                  {CONTRACT_REVIEW_DEPTH_OPTIONS.map((o) => (
+                  {CONTRACT_DEPTH_OPTIONS.map((o) => (
                     <button
                       key={o.id}
                       type="button"

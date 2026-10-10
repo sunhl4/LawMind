@@ -326,6 +326,15 @@ git worktree add --detach <路径> HEAD
 
 最后一条：**工作区里的技能文件是播种产物，真正的源头在仓库里**。改了工作区里的技能不会进入版本控制，改仓库里的才会。
 
+### 已知本地 stash（勿 pop 到 main）
+
+部分开发机上还留着 2026-09 的两条本地 stash（不进远程）。完整对照表见 [`docs/LAWMIND-ENGINEERING-REVIEW.md`](../../LAWMIND-ENGINEERING-REVIEW.md)「本机 git stash 存档说明」：
+
+- `stash@{0}`（约 9/18）：matter-replica 协作 WIP；产品线已在 main，这份是未完成草稿。
+- `stash@{1}`（约 9/17）：trust-gates + 桌面大杂烩；审查后的代码已进 main，stash 已过期。
+
+两者都**不是**「量子启发因子态之前的旧 agent 内核」。需要对照用 `git stash show -p`，不要在共享工作区 `pop`。
+
 ## 18.9 文档站
 
 `apps/lawmind-docs/` 是 VitePress 站。构建前会跑 `sync-docs.mjs` 把根目录的文档同步进去。

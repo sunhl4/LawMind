@@ -18,6 +18,7 @@ function baseProps(overrides: Partial<LawmindAppSidebarProps> = {}): LawmindAppS
     onCloseSettings: () => {},
     settingsOpen: false,
     setFileExplorerHost: () => {},
+    setFileExplorerCasesHost: () => {},
     actionSummaryTotal: 0,
     matterSidebarRows: [],
     selectedMatterKey: null,
@@ -81,9 +82,36 @@ describe("LawmindAppSidebar", () => {
         />,
       );
     });
-    expect(host.querySelector('[aria-label="材料资源树"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="lm-side-explorer-work"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="lm-side-explorer-cases"]')).toBeTruthy();
     expect(host.textContent).toContain("合同审查");
     expect(host.textContent).not.toContain("测试案件");
+  });
+
+  it("左栏顺序：工作区 → 案件材料 → 当前案件 → 对话", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppSidebar
+          {...baseProps({
+            showSidebarWorkbenchFiles: true,
+            mainView: "workspace",
+            chatSessions: [{ sessionId: "s1", title: "合同审查" }],
+            onSelectChatSession: () => undefined,
+            onCreateNewChatSession: () => undefined,
+            onRenameChatSession: async () => undefined,
+            onDeleteChatSession: async () => undefined,
+          })}
+        />,
+      );
+    });
+    const work = host.querySelector('[data-testid="lm-side-explorer-work"]');
+    const cases = host.querySelector('[data-testid="lm-side-explorer-cases"]');
+    const scope = host.querySelector('[data-testid="lm-chat-scope-switcher"]');
+    const chats = host.querySelector('[data-testid="lm-side-chat-sessions"]');
+    expect(work && cases && scope && chats).toBeTruthy();
+    expect(work!.compareDocumentPosition(cases!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(cases!.compareDocumentPosition(scope!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(scope!.compareDocumentPosition(chats!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("会议室复用全局侧栏材料树（与对话同构）", async () => {

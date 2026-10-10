@@ -319,20 +319,6 @@ describe("legal-verify-middleware", () => {
     );
     expect((skipped.data as { verify?: unknown }).verify).toBeUndefined();
 
-    const fastLane = applyLegalVerifyToResult(
-      "draft_document",
-      {
-        ok: true,
-        data: {
-          deliverableType: "contract.review",
-          citationIntegrity: { checked: true, ok: true, missingSourceIds: [] },
-          sections: [{ heading: "依据", bodyPreview: "见《民法典》第577条" }],
-        },
-      },
-      { toolNameCallCounts: {}, contractFastLaneTurn: true },
-    );
-    expect((fastLane.data as { verify?: unknown }).verify).toBeUndefined();
-
     const tried = applyLegalVerifyToResult(
       "draft_document",
       {

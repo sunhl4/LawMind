@@ -47,7 +47,6 @@ describe("auto-statute-trial", () => {
   it("runs statute trial on mail and Word paths when the intent is eligible", () => {
     expect(shouldAutoTrialStatute({ intent, mailContractTurn: true })).toBe(true);
     expect(shouldAutoTrialStatute({ intent, wordRevisionTurn: true })).toBe(true);
-    expect(shouldAutoTrialStatute({ intent, contractFastLaneTurn: true })).toBe(true);
     expect(shouldAutoTrialStatute({ intent })).toBe(true);
   });
 

@@ -7,6 +7,7 @@ import {
   listOpenLawyerPlanItemsBefore,
   loadDailyPlan,
   localDateKey,
+  markDailyPlanSourceDone,
   setDailyPlanItemDone,
   shiftLocalDateKey,
 } from "./daily-plan.js";
@@ -83,5 +84,14 @@ describe("daily-plan", () => {
     });
     expect(carried.items.map((item) => item.text)).toEqual(["昨天的"]);
     expect(carried.omitted).toBe(0);
+  });
+
+  it("upserts a done sentinel when marking a mail source that has no plan row", async () => {
+    const date = "2026-10-10";
+    const plan = await markDailyPlanSourceDone(workspaceDir, "mail", "msg-new", date);
+    expect(plan.items).toHaveLength(1);
+    expect(plan.items[0]?.source).toBe("mail");
+    expect(plan.items[0]?.sourceRef).toBe("msg-new");
+    expect(plan.items[0]?.done).toBe(true);
   });
 });

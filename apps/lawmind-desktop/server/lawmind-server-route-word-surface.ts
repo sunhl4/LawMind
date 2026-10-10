@@ -8,8 +8,13 @@
  * POST /api/word-surface/tracked              { root, path, decision, revId? }
  * POST /api/word-surface/save                  { root, path, paragraphs }
  * POST /api/word-surface/export                 { root, path } or { taskId }
+ * POST /api/word-surface/compare                { root, path, otherRoot, otherPath }
+ * POST /api/word-surface/table-row              { root, path, tableIndex, afterRowIndex }
+ * POST /api/word-surface/export-pdf             { root, path }
  *
  * Save writes the open .docx. Export copies that file as a sibling 审阅稿.
+ * Compare writes a sibling *_比较稿.docx with tracked diffs toward the other file.
+ * Export-pdf writes a sibling .pdf via LibreOffice when available.
  */
 
 import fs from "node:fs/promises";
@@ -147,13 +152,39 @@ const revisionRunSchema = z.object({
       fontFamily: z.string().max(200).optional(),
     })
     .optional(),
+  /** Opaque `<w:r>…</w:r>` for drawings/fields — written back verbatim. */
+  preservedXml: z.string().max(500_000).optional(),
 });
+
+const paragraphWriteSchema = z.object({
+  sourceIndex: z.number().int().min(0).nullable().optional(),
+  runs: z.array(revisionRunSchema).max(4_000),
+  pPrInner: z.string().max(50_000).optional(),
+});
+
+const paragraphListSchema = z.union([
+  z.array(z.array(revisionRunSchema)).max(2_000),
+  z.array(paragraphWriteSchema).max(2_000),
+]);
 
 const saveSchema = z.object({
   root: z.enum(["workspace", "project"]),
   path: z.string().trim().min(1).max(2_000),
   projectDir: z.string().optional(),
-  paragraphs: z.array(z.array(revisionRunSchema)).max(2_000),
+  /** Prefer `{ sourceIndex, runs }[]`; bare `runs[][]` still accepted for older clients. */
+  paragraphs: paragraphListSchema,
+  /** Header / footer / footnote parts keyed by zip path. */
+  stories: z
+    .array(
+      z.object({
+        part: z
+          .string()
+          .regex(/^word\/(?:header\d+|footer\d+|footnotes|endnotes)\.xml$/),
+        paragraphs: paragraphListSchema,
+      }),
+    )
+    .max(40)
+    .optional(),
   comments: z
     .array(
       z.object({
@@ -172,6 +203,28 @@ const exportCopySchema = z.object({
   taskId: z.string().trim().min(1).max(200).optional(),
   root: z.enum(["workspace", "project"]).optional(),
   path: z.string().trim().min(1).max(2_000).optional(),
+  projectDir: z.string().optional(),
+});
+
+const compareSchema = z.object({
+  root: z.enum(["workspace", "project"]),
+  path: z.string().trim().min(1).max(2_000),
+  projectDir: z.string().optional(),
+  otherRoot: z.enum(["workspace", "project"]),
+  otherPath: z.string().trim().min(1).max(2_000),
+});
+
+const tableRowSchema = z.object({
+  root: z.enum(["workspace", "project"]),
+  path: z.string().trim().min(1).max(2_000),
+  projectDir: z.string().optional(),
+  tableIndex: z.number().int().min(0).max(500),
+  afterRowIndex: z.number().int().min(0).max(10_000),
+});
+
+const exportPdfSchema = z.object({
+  root: z.enum(["workspace", "project"]),
+  path: z.string().trim().min(1).max(2_000),
   projectDir: z.string().optional(),
 });
 
@@ -660,7 +713,23 @@ export async function handleWordSurfaceRoutes({
     }
     const saved = await saveParagraphRuns({
       absPath: found.abs,
-      paragraphs: body.paragraphs as WordRevisionRun[][],
+      paragraphs: body.paragraphs as
+        | WordRevisionRun[][]
+        | Array<{ sourceIndex?: number | null; runs: WordRevisionRun[]; pPrInner?: string }>,
+      ...(body.stories
+        ? {
+            stories: body.stories.map((story) => ({
+              part: story.part,
+              paragraphs: story.paragraphs as
+                | WordRevisionRun[][]
+                | Array<{
+                    sourceIndex?: number | null;
+                    runs: WordRevisionRun[];
+                    pPrInner?: string;
+                  }>,
+            })),
+          }
+        : {}),
       ...(body.comments
         ? {
             comments: body.comments.map((comment) => ({
@@ -678,6 +747,172 @@ export async function handleWordSurfaceRoutes({
       return true;
     }
     sendJson(res, 200, { ok: true }, c);
+    return true;
+  }
+
+  if (pathname === "/api/word-surface/export-pdf" && req.method === "POST") {
+    let body: z.infer<typeof exportPdfSchema>;
+    try {
+      body = await parseJsonBodyZod(req, exportPdfSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const found = resolveWordBaselineAbs({
+      workspaceDir: ctx.workspaceDir,
+      projectDir: safeOptionalProjectDir(body.projectDir),
+      raw: body.path,
+      preferredRoot: body.root,
+    });
+    if (!found || found.root !== body.root) {
+      sendJson(res, 404, { ok: false, error: "not_found" }, c);
+      return true;
+    }
+    const { exportDocxToPdf } = await import("../../../src/lawmind/drafts/docx-export-pdf.js");
+    const result = await exportDocxToPdf(found.abs);
+    if (!result.ok) {
+      sendJson(res, 400, { ok: false, error: result.error, message: result.error }, c);
+      return true;
+    }
+    const outRel =
+      body.root === "workspace"
+        ? path.relative(ctx.workspaceDir, result.outAbs).replace(/\\/g, "/")
+        : safeOptionalProjectDir(body.projectDir)
+          ? path
+              .relative(safeOptionalProjectDir(body.projectDir)!, result.outAbs)
+              .replace(/\\/g, "/")
+          : result.outFileName;
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        root: body.root,
+        path: outRel,
+        outputPath: result.outAbs,
+        outputFileName: result.outFileName,
+        tool: result.tool,
+      },
+      c,
+    );
+    return true;
+  }
+
+  if (pathname === "/api/word-surface/table-row" && req.method === "POST") {
+    let body: z.infer<typeof tableRowSchema>;
+    try {
+      body = await parseJsonBodyZod(req, tableRowSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const found = resolveWordBaselineAbs({
+      workspaceDir: ctx.workspaceDir,
+      projectDir: safeOptionalProjectDir(body.projectDir),
+      raw: body.path,
+      preferredRoot: body.root,
+    });
+    if (!found || found.root !== body.root) {
+      sendJson(res, 404, { ok: false, error: "not_found" }, c);
+      return true;
+    }
+    try {
+      const JSZip = (await import("jszip")).default;
+      const { insertEmptyTableRowInXml } = await import(
+        "../../../src/lawmind/drafts/word-revision/xml.js"
+      );
+      const buffer = await fs.readFile(found.abs);
+      const zip = await JSZip.loadAsync(buffer);
+      const documentXml = await zip.file("word/document.xml")?.async("string");
+      if (!documentXml) {
+        sendJson(res, 400, { ok: false, error: "no_document" }, c);
+        return true;
+      }
+      const patched = insertEmptyTableRowInXml(documentXml, body.tableIndex, body.afterRowIndex);
+      if (!patched.ok) {
+        sendJson(res, 400, { ok: false, error: patched.error }, c);
+        return true;
+      }
+      zip.file("word/document.xml", patched.xml);
+      const out = await zip.generateAsync({ type: "nodebuffer" });
+      const tmp = `${found.abs}.${process.pid}.tmp`;
+      await fs.writeFile(tmp, out);
+      await fs.rename(tmp, found.abs);
+      sendJson(res, 200, { ok: true }, c);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "table_row_failed";
+      sendJson(res, 400, { ok: false, error: message }, c);
+    }
+    return true;
+  }
+
+  if (pathname === "/api/word-surface/compare" && req.method === "POST") {
+    let body: z.infer<typeof compareSchema>;
+    try {
+      body = await parseJsonBodyZod(req, compareSchema);
+    } catch (err) {
+      if (isInvalidRequestBodyError(err)) {
+        sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+        return true;
+      }
+      throw err;
+    }
+    const projectDir = safeOptionalProjectDir(body.projectDir);
+    const base = resolveWordBaselineAbs({
+      workspaceDir: ctx.workspaceDir,
+      projectDir,
+      raw: body.path,
+      preferredRoot: body.root,
+    });
+    const other = resolveWordBaselineAbs({
+      workspaceDir: ctx.workspaceDir,
+      projectDir,
+      raw: body.otherPath,
+      preferredRoot: body.otherRoot,
+    });
+    if (!base || base.root !== body.root) {
+      sendJson(res, 404, { ok: false, error: "not_found" }, c);
+      return true;
+    }
+    if (!other || other.root !== body.otherRoot) {
+      sendJson(res, 404, { ok: false, error: "other_not_found" }, c);
+      return true;
+    }
+    const { writeDocxCompareCopy } = await import("../../../src/lawmind/drafts/docx-compare.js");
+    const result = await writeDocxCompareCopy({
+      baseAbs: base.abs,
+      otherAbs: other.abs,
+    });
+    if (!result.ok) {
+      sendJson(res, 400, { ok: false, error: result.error, message: result.error }, c);
+      return true;
+    }
+    const outRel =
+      body.root === "workspace"
+        ? path.relative(ctx.workspaceDir, result.outAbs).replace(/\\/g, "/")
+        : projectDir
+          ? path.relative(projectDir, result.outAbs).replace(/\\/g, "/")
+          : result.outFileName;
+    sendJson(
+      res,
+      200,
+      {
+        ok: true,
+        root: body.root,
+        path: outRel,
+        outputPath: result.outAbs,
+        outputFileName: result.outFileName,
+        changed: result.changed,
+        skippedInserts: result.skippedInserts,
+      },
+      c,
+    );
     return true;
   }
 

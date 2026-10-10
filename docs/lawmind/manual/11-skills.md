@@ -149,7 +149,7 @@ workflows: contract-review
 | `capital.markets`     | 资本市场     | 发行和信息披露核对，不编未披露数字 |
 | `corp.governance`     | 公司治理     | 决议和治理备忘，不走章程 Word 改稿 |
 
-`action` 只描述界面落点：`lock`、`contract-lane`、`research-lane`、`mail-lane`、`write-materials`。
+`action` 只描述界面落点：`lock`、`research-lane`、`mail-lane`、`write-materials`。（原 `contract-lane` 已移除，合同审查走 `lock`。）
 
 管线三类（声明在能力上，不是律师选的）：
 

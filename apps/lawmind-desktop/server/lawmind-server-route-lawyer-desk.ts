@@ -30,6 +30,7 @@ import { compileIntakeBrief, loadIntakeBrief, saveIntakeBrief, confirmIntakeBrie
 import { listSimilarCasesForDesk } from "../../../src/lawmind/desk/similar-cases.js";
 import { loadCauseLexicon, saveCauseLexicon } from "../../../src/lawmind/desk/cause-lexicon.js";
 import { buildMatterPulse, daysUntilIso } from "../../../src/lawmind/desk/matter-pulse.js";
+import { ensureMatterFromCasesDir } from "../../../src/lawmind/desk/ensure-matter-from-cases.js";
 import { listTaskRecords } from "../../../src/lawmind/tasks/index.js";
 import {
   deleteUserStandard,
@@ -51,6 +52,7 @@ import { buildAgentConfig, isDesktopModelConfigured, sendJson } from "./lawmind-
 const planPostSchema = z.object({
   texts: z.array(z.string().trim().min(1).max(500)).min(1).max(20),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  matterId: z.string().trim().min(1).max(200).optional(),
 });
 
 const planItemPatchSchema = z.object({
@@ -238,7 +240,10 @@ export async function handleLawyerDeskRoutes({
   if (pathname === "/api/desk/plan" && req.method === "POST") {
     try {
       const body = await parseJsonBodyZod(req, planPostSchema);
-      const plan = await appendDailyPlanItems(workspaceDir, body.texts, { date: body.date });
+      const plan = await appendDailyPlanItems(workspaceDir, body.texts, {
+        date: body.date,
+        matterId: body.matterId,
+      });
       sendJson(res, 200, { ok: true, plan, today: buildTodayWorkSnapshot(workspaceDir) }, c);
     } catch (err) {
       if (isInvalidRequestBodyError(err)) {
@@ -606,6 +611,10 @@ export async function handleLawyerDeskRoutes({
     const matterId = requireMatter(decodeURIComponent(pulseGet[1] ?? ""), res, c);
     if (!matterId) {
       return true;
+    }
+    // 左栏只有 cases/<id>/（含 mail）时也要能进案件管理：缺 matter.json 则按卷宗目录补登记。
+    if (!loadMatter(workspaceDir, matterId)) {
+      ensureMatterFromCasesDir(workspaceDir, matterId);
     }
     const pulse = buildMatterPulse(workspaceDir, matterId);
     if (!pulse) {

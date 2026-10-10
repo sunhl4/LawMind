@@ -74,8 +74,7 @@ describe("FileWorkbenchContextMenu", () => {
     expect(setContextMenu).toHaveBeenCalledWith(null);
   });
 
-  it("offers 送审本合同 for docx/pdf", async () => {
-    const onSend = vi.fn();
+  it("does not offer 送审本合同 for docx/pdf", async () => {
     const setContextMenu = vi.fn();
     await act(async () => {
       root.render(
@@ -94,7 +93,6 @@ describe("FileWorkbenchContextMenu", () => {
           canUseFilesystemBridge
           busy={false}
           onAddToChatContext={vi.fn()}
-          onSendContractForReview={onSend}
           setAddToMatterManualDraft={() => {}}
           setAddToMatterLastError={() => {}}
           setAddToMatterPick={() => {}}
@@ -109,14 +107,6 @@ describe("FileWorkbenchContextMenu", () => {
         />,
       );
     });
-    const btn = host.querySelector('[data-testid="lm-file-send-contract-review"]') as HTMLButtonElement;
-    expect(btn).toBeTruthy();
-    await act(async () => {
-      btn.click();
-    });
-    expect(onSend).toHaveBeenCalledWith({
-      root: "workspace",
-      relPath: "contracts/nda.docx",
-    });
+    expect(host.querySelector('[data-testid="lm-file-send-contract-review"]')).toBeNull();
   });
 });

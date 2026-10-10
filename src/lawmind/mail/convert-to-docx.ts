@@ -157,6 +157,16 @@ function siblingDocxRelative(relativePath: string): string {
   return dir === "." ? outName : path.posix.join(dir, outName);
 }
 
+/** Preview-only sibling: `合同.doc` → `合同.converted.docx` (never overwrites a peer `.docx`). */
+export function siblingConvertedDocxRelative(relativePath: string): string {
+  const posix = relativePath.replace(/\\/g, "/");
+  const dir = path.posix.dirname(posix);
+  const base = path.posix.basename(posix);
+  const stem = base.replace(/\.[^.]+$/i, "");
+  const outName = `${stem}.converted.docx`;
+  return dir === "." ? outName : path.posix.join(dir, outName);
+}
+
 function microsoftWordAppExists(): boolean {
   return (
     fs.existsSync("/Applications/Microsoft Word.app") ||
@@ -220,7 +230,7 @@ async function convertWithTextutil(absIn: string, absOut: string): Promise<boole
   return r.code === 0 && fs.existsSync(absOut) && fs.statSync(absOut).size > 0;
 }
 
-async function convertWithSoffice(absIn: string, absOut: string): Promise<boolean> {
+export async function convertWithSoffice(absIn: string, absOut: string): Promise<boolean> {
   const outDir = path.dirname(absOut);
   const candidates = [
     "soffice",
@@ -356,5 +366,73 @@ export async function ensureDocxForAttachment(
       process.platform === "darwin"
         ? "convert_failed（本机 Microsoft Word / LibreOffice / textutil 均未能生成审阅工作副本）"
         : "convert_failed（本机缺少 LibreOffice/soffice，无法生成审阅工作副本）",
+  };
+}
+
+/**
+ * Middle-column preview: convert binary `.doc` to a sibling `*.converted.docx`
+ * after the lawyer confirms. Prefer Word / LibreOffice; never use textutil here
+ * (lossy shells are not a safe preview stand-in for contract revision).
+ */
+export async function convertLegacyDocForPreview(
+  workspaceDir: string,
+  relativePath: string,
+): Promise<ConvertToDocxResult> {
+  const resolvedIn = resolveWorkspaceRelativePath(workspaceDir, relativePath);
+  if (!resolvedIn.ok) {
+    return { ok: false, error: resolvedIn.error === "empty" ? "invalid_path" : "path_escape" };
+  }
+  const rel = resolvedIn.rel;
+  const absIn = resolvedIn.abs;
+  if (!fs.existsSync(absIn) || !fs.statSync(absIn).isFile()) {
+    return { ok: false, error: "missing_file" };
+  }
+  if (!/\.doc$/i.test(rel) || /\.docx$/i.test(rel)) {
+    return { ok: false, error: "not_legacy_doc" };
+  }
+
+  if (looksLikeZipDocx(absIn)) {
+    const outRel = siblingConvertedDocxRelative(rel);
+    const resolvedOut = resolveWorkspaceRelativePath(workspaceDir, outRel);
+    if (!resolvedOut.ok) {
+      return { ok: false, error: "path_escape" };
+    }
+    fs.mkdirSync(path.dirname(resolvedOut.abs), { recursive: true });
+    fs.copyFileSync(absIn, resolvedOut.abs);
+    return { ok: true, relativePath: outRel, converted: true, tool: "zip-copy", fidelity: "high" };
+  }
+
+  const outRel = siblingConvertedDocxRelative(rel);
+  const resolvedOut = resolveWorkspaceRelativePath(workspaceDir, outRel);
+  if (!resolvedOut.ok) {
+    return { ok: false, error: "path_escape" };
+  }
+  const absOut = resolvedOut.abs;
+  if (fs.existsSync(absOut) && fs.statSync(absOut).size > 0 && looksLikeZipDocx(absOut)) {
+    return { ok: true, relativePath: outRel, converted: false, tool: "existing", fidelity: "high" };
+  }
+  fs.mkdirSync(path.dirname(absOut), { recursive: true });
+
+  if (await convertWithMicrosoftWord(absIn, absOut)) {
+    writeHighFidelityDocxCache(absIn, absOut, "msword");
+    return { ok: true, relativePath: outRel, converted: true, tool: "msword", fidelity: "high" };
+  }
+  if (await convertWithSoffice(absIn, absOut)) {
+    writeHighFidelityDocxCache(absIn, absOut, "soffice");
+    return { ok: true, relativePath: outRel, converted: true, tool: "soffice", fidelity: "high" };
+  }
+  try {
+    if (fs.existsSync(absOut)) {
+      fs.unlinkSync(absOut);
+    }
+  } catch {
+    /* ignore */
+  }
+  return {
+    ok: false,
+    error:
+      process.platform === "darwin"
+        ? "本机未能把这份 .doc 转成 .docx。请安装 LibreOffice，或用 Word/WPS 另存为 .docx 后再打开。"
+        : "本机缺少 LibreOffice/soffice，无法把这份 .doc 转成预览用的 .docx。",
   };
 }

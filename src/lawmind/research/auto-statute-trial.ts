@@ -15,7 +15,6 @@ export function shouldAutoTrialStatute(input: {
   intent: TaskIntent;
   wordRevisionTurn?: boolean;
   mailContractTurn?: boolean;
-  contractFastLaneTurn?: boolean;
 }): boolean {
   const type = input.intent.deliverableType;
   if (!type) {
@@ -67,7 +66,6 @@ export async function runAutoStatuteTrial(input: {
   signal?: AbortSignal;
   wordRevisionTurn?: boolean;
   mailContractTurn?: boolean;
-  contractFastLaneTurn?: boolean;
 }): Promise<AutoStatuteTrialResult> {
   if (!shouldAutoTrialStatute(input)) {
     return { attempted: false, bundle: input.bundle, sourceCount: 0, claimCount: 0 };

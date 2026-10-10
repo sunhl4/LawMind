@@ -128,7 +128,7 @@ function eventTargetIsField(target: EventTarget | null): boolean {
 }
 
 /**
- * Left-rail chat list (Cursor-style): third sidebar section under 工作区 / 案件材料.
+ * Left-rail chat list (Cursor-style): primary section under 工作区 / 案件材料 / 当前案件。
  */
 export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): ReactNode {
   const {
@@ -147,7 +147,8 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
     onShowUnbound,
   } = props;
   const [sectionOpen, setSectionOpen] = useState(true);
-  const [searchOpen, setSearchOpen] = useState(true);
+  /** 对话优先：搜索默认收起，⌘⇧O / 点「搜」再展开。 */
+  const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [remoteHits, setRemoteHits] = useState<SideChatSessionRow[] | null>(null);
   const [remotePending, setRemotePending] = useState(false);
@@ -418,8 +419,12 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
                 e.stopPropagation();
                 if (e.key === "Escape") {
                   e.preventDefault();
-                  setQuery("");
-                  setRemoteHits(null);
+                  if (query.trim()) {
+                    setQuery("");
+                    setRemoteHits(null);
+                  } else {
+                    setSearchOpen(false);
+                  }
                 }
               }}
             />
@@ -430,6 +435,26 @@ export function LawmindSideChatSessions(props: LawmindSideChatSessionsProps): Re
             </span>
           ) : null}
         </div>
+        <button
+          type="button"
+          className="lm-side-chat-search-toggle"
+          aria-label={searchOpen ? "关闭搜索" : "搜索对话"}
+          aria-pressed={searchOpen}
+          title="搜索对话（⌘⇧O）"
+          data-testid="lm-side-chat-search-toggle"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (searchOpen) {
+              setSearchOpen(false);
+              setQuery("");
+              setRemoteHits(null);
+            } else {
+              focusSearch();
+            }
+          }}
+        >
+          搜
+        </button>
         <button
           type="button"
           className="lm-fs-root-add"

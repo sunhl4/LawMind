@@ -3,7 +3,6 @@ import type { FileWorkbenchCasesNodeActions } from "../FileWorkbench";
 import type { RootKey } from "../file/file-workbench-types";
 import type { LawmindMainView } from "../lawmind-main-view";
 import { tryClarifyAttachFile } from "../lawmind-clarify-bring-in-bus";
-import { requestContractFastLaneOpen } from "../lawmind-contract-fast-lane-bus";
 import { useEdition } from "../use-edition";
 import type { LawmindAppRootDialogsProps } from "./LawmindAppRootDialogs";
 import type { LawmindFileWorkbenchHostProps } from "./LawmindFileWorkbenchHost";
@@ -163,13 +162,12 @@ export type UseLawmindFileWorkbenchHostPropsInput = {
   projectDir: string | null;
   onPickProject?: () => void | Promise<void>;
   fileExplorerHost: HTMLDivElement | null;
+  fileExplorerCasesHost: HTMLDivElement | null;
   fileEditorHost: HTMLDivElement | null;
   setFileExplorerPortaled: Dispatch<SetStateAction<boolean>>;
   addFileToChatContext: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
   setMainView: (view: LawmindMainView) => void;
   mainView: LawmindMainView;
-  setInput: (value: string) => void;
-  focusComposer: () => void;
   fileWorkbenchMattersPickList: Array<{ id: string; label: string }>;
   matterRefreshVersion: number;
   workspaceCasesMenu: FileWorkbenchCasesNodeActions | null;
@@ -187,13 +185,12 @@ export function useLawmindFileWorkbenchHostProps(
     projectDir,
     onPickProject,
     fileExplorerHost,
+    fileExplorerCasesHost,
     fileEditorHost,
     setFileExplorerPortaled,
     addFileToChatContext,
     setMainView,
     mainView,
-    setInput,
-    focusComposer,
     fileWorkbenchMattersPickList,
     matterRefreshVersion,
     workspaceCasesMenu,
@@ -212,6 +209,7 @@ export function useLawmindFileWorkbenchHostProps(
       projectDir,
       onPickProject,
       fileExplorerHost,
+      fileExplorerCasesHost,
       fileEditorHost,
       onExplorerPortaled: setFileExplorerPortaled,
       explorerVariant: isMeeting ? "meeting" : isAgents ? "agents" : "workspace",
@@ -231,17 +229,6 @@ export function useLawmindFileWorkbenchHostProps(
           setMainView("workspace");
         }
       },
-      onSendContractForReview: (payload) => {
-        addFileToChatContext({ ...payload, kind: "file" });
-        // 不预填固定交办：打开立场×深度芯片卡，避免跳过口径选择。
-        setInput("");
-        setMainView("workspace");
-        focusComposer();
-        requestContractFastLaneOpen({
-          materialsHint: `已引用：${payload.relPath}`,
-          preferCompact: true,
-        });
-      },
       mattersPickList: fileWorkbenchMattersPickList,
       workspaceTreeRefreshKey: matterRefreshVersion,
       casesNodeActions: workspaceCasesMenu,
@@ -255,13 +242,12 @@ export function useLawmindFileWorkbenchHostProps(
     projectDir,
     onPickProject,
     fileExplorerHost,
+    fileExplorerCasesHost,
     fileEditorHost,
     setFileExplorerPortaled,
     addFileToChatContext,
     setMainView,
     mainView,
-    setInput,
-    focusComposer,
     fileWorkbenchMattersPickList,
     matterRefreshVersion,
     workspaceCasesMenu,

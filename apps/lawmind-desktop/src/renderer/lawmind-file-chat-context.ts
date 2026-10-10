@@ -47,11 +47,6 @@ export function makeFileContextItemId(
   return `${p.root}|${p.kind}|${encodeURIComponent(p.relPath)}`;
 }
 
-/** docx/doc/pdf — Solo「送审本合同」/拖入短路径候选。 */
-export function isContractReviewCandidatePath(relPath: string | undefined | null): boolean {
-  return Boolean(relPath && /\.(docx?|pdf)$/i.test(relPath));
-}
-
 export function isFileChatExcerptCandidate(it: FileChatContextItem): boolean {
   if (it.kind !== "file") {
     return false;

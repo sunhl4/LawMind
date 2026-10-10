@@ -55,16 +55,11 @@ import {
   removeAtTokenFromInput,
   type ComposeContextMatterOption,
 } from "./lawmind-compose-context";
-import { LawmindContractFastLaneCard } from "./LawmindContractFastLaneCard";
 import { LawmindMailContractFastLaneCard } from "./LawmindMailContractFastLaneCard";
 import { LawmindResearchFastLaneCard } from "./LawmindResearchFastLaneCard";
-import { subscribeContractFastLaneOpen, installContractFastLaneE2eHook } from "./lawmind-contract-fast-lane-bus";
 import { subscribeDeskLaneOpen, installDeskLaneE2eHook } from "./lawmind-desk-lane-bus";
 import { requestOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
 import { requestFocusChatSearch } from "./lawmind-chat-search-focus";
-import {
-  isContractReviewCandidatePath,
-} from "./lawmind-file-chat-context";
 import { pinDroppedChatFiles } from "./lawmind-file-drop-context";
 import { pinPastedChatImages } from "./lawmind-chat-paste-images";
 import { useChatFileDropTarget } from "./useChatFileDropTarget";
@@ -105,8 +100,6 @@ export type LawmindChatWorkspaceProps = {
   onSendClarificationMessage: (text: string) => void | Promise<void>;
   /** Structured「填表交办」: send without requiring the composer textbox. */
   onDispatchJob?: (prompt: string) => void | Promise<void>;
-  /** 空态「5 分钟合同审查」一键交办（与 MessagesColumn 对齐）。 */
-  onDispatchPrompt?: (prompt: string) => void | Promise<void>;
   onClearContext: () => void;
   /** 关联案件标题（可空） */
   matterTitle: string | null;
@@ -314,20 +307,10 @@ export function LawmindChatComposeFooter({
     requireSignoffReview,
   });
 
-  const contractMaterialsHint = useMemo(() => {
-    const paths = fileChatPills
-      .map((p) => p.relPath?.trim() || "")
-      .filter((p) => isContractReviewCandidatePath(p));
-    return paths.length > 0 ? `已引用：${paths.join("、")}` : "";
-  }, [fileChatPills]);
-
-  const [compactFastLaneOpen, setCompactFastLaneOpen] = useState(false);
   const [compactMailFastLaneOpen, setCompactMailFastLaneOpen] = useState(false);
   const [compactResearchFastLaneOpen, setCompactResearchFastLaneOpen] = useState(false);
-  const [compactMaterialsOverride, setCompactMaterialsOverride] = useState("");
 
   useEffect(() => {
-    installContractFastLaneE2eHook();
     installDeskLaneE2eHook();
     // E2E hook on window (intentionally underscored).
     // eslint-disable-next-line no-underscore-dangle -- e2e window hook
@@ -340,15 +323,6 @@ export function LawmindChatComposeFooter({
   }, []);
 
   useEffect(() => {
-    return subscribeContractFastLaneOpen((req) => {
-      if (req.materialsHint?.trim()) {
-        setCompactMaterialsOverride(req.materialsHint.trim());
-      }
-      setCompactFastLaneOpen(true);
-    });
-  }, []);
-
-  useEffect(() => {
     return subscribeDeskLaneOpen((lane) => {
       if (lane === "mail") {
         setCompactMailFastLaneOpen(true);
@@ -357,9 +331,6 @@ export function LawmindChatComposeFooter({
       setCompactResearchFastLaneOpen(true);
     });
   }, []);
-
-  const effectiveCompactMaterials = compactMaterialsOverride || contractMaterialsHint;
-
 
   useEffect(() => {
     if (!loading) {
@@ -666,9 +637,6 @@ export function LawmindChatComposeFooter({
         onError: onFileDropError,
         onEachPin: (pin) => {
           injectPinsDuringTurn([encodeFileContextPin(pin)]);
-          if (pin.kind === "file" && isContractReviewCandidatePath(pin.relPath)) {
-            setCompactFastLaneOpen(true);
-          }
         },
       });
     },
@@ -789,20 +757,6 @@ export function LawmindChatComposeFooter({
         projectDir={projectDir}
         chatSessionId={chatSessionId}
       />
-      {compactFastLaneOpen ? (
-        <div className="lm-compose-fast-lane-wrap" data-testid="lm-compose-contract-fast-lane">
-          <LawmindContractFastLaneCard
-            compact
-            materialsHint={effectiveCompactMaterials}
-            onFillComposer={onApplyPrompt}
-            onDispatch={onDispatchJob}
-            onDismiss={() => {
-              setCompactFastLaneOpen(false);
-              setCompactMaterialsOverride("");
-            }}
-          />
-        </div>
-      ) : null}
       {compactMailFastLaneOpen && apiBase ? (
         <div className="lm-compose-fast-lane-wrap" data-testid="lm-compose-mail-fast-lane">
           <LawmindMailContractFastLaneCard
@@ -971,14 +925,11 @@ export function LawmindChatComposeFooter({
 export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   const openNeedsDecisionDesk = props.onOpenNeedsDecisionDesk ?? props.onOpenActionHub;
-  const onDispatchPrompt =
-    props.onDispatchPrompt ?? props.onDispatchJob ?? props.onSendClarificationMessage;
   return (
     <div className="lm-chat-workspace">
       <LawmindChatMessagesColumn
         {...props}
         onOpenNeedsDecisionDesk={openNeedsDecisionDesk}
-        onDispatchPrompt={onDispatchPrompt}
         planEditable={props.composeExtras.permissionMode === "readonly"}
         onLawyerEditPlan={(text) => {
           writePlanHandoff(props.chatSessionId, text, undefined, "lawyer");

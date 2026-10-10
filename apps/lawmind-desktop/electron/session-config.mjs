@@ -23,6 +23,8 @@ export function installLawmindContentSecurityPolicy(electronSession, opts = {}) 
     dev
       ? "connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* ws://localhost:* http://localhost:*"
       : "connect-src 'self' http://127.0.0.1:*",
+    // pdf.js draws on a worker. blob: covers Vite's dev worker; 'self' covers the built file.
+    "worker-src 'self' blob:",
     "frame-src 'none'",
     "object-src 'none'",
     "base-uri 'self'",

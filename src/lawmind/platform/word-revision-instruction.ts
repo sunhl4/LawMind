@@ -5,7 +5,6 @@
 
 import { extractDeliveryIntent, isOpinionMemoDelivery } from "../intent/delivery-intent.js";
 import type { ComposeContextPin } from "./compose-context-pin.js";
-import { isContractFastLaneInstruction } from "./contract-fast-lane-instruction.js";
 import { isMailContractFastPathInstruction } from "./mail-contract-short-path-instruction.js";
 
 /** Preferred Word-revision path (coaching). Not the advertised tool table. */
@@ -62,7 +61,10 @@ function historySuppliesWordFile(params: WordRevisionTurnInput): boolean {
     }
     return pin.relPath.trim().length > 0;
   });
-  if (filePins.length > 0 && !filePins.some((pin) => WORD_FILE_RE.test(pin.relPath))) {
+  if (
+    filePins.length > 0 &&
+    !filePins.some((pin) => "relPath" in pin && WORD_FILE_RE.test(pin.relPath))
+  ) {
     return false;
   }
   if (/\.pdf\b/i.test(params.instruction) && !WORD_FILE_RE.test(params.instruction)) {
@@ -98,9 +100,6 @@ export function isWordRevisionTurn(input: WordRevisionTurnInput | string): boole
   const params = typeof input === "string" ? { instruction: input } : input;
   const t = params.instruction.trim();
   if (!t || isMailContractFastPathInstruction(t)) {
-    return false;
-  }
-  if (isContractFastLaneInstruction(t) && !instructionLooksLikeWordEdit(t)) {
     return false;
   }
   if (/【Word 改稿|word-revision/i.test(t)) {

@@ -280,10 +280,13 @@ export function projectReadingGated(
     return { kind: "definite", id: projected.id };
   }
   if (base.kind === "definite") {
-    return {
-      kind: "mixed",
-      ids: projected.ids.length > 0 ? projected.ids : [base.id],
-    };
+    if (projected.kind === "mixed") {
+      return {
+        kind: "mixed",
+        ids: projected.ids.length > 0 ? projected.ids : [base.id],
+      };
+    }
+    return { kind: "mixed", ids: [base.id] };
   }
   return base;
 }

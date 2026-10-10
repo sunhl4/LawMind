@@ -720,13 +720,13 @@ export function isJudgmentItemUnlockable(input: {
 
 ### 6.4 桌面 UI 接线
 
-| 交付物               | 落点                                                                | 要点                                                                    |
-| -------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| 升级卡组件           | 新增 `LawmindJudgmentEscalationCard.tsx`                            | 照 `LawmindContractFastLaneCard.tsx` 的形状；**空/加载/错误三态都要有** |
-| 判定项明细面板       | 新增 `LawmindJudgmentItemsPanel.tsx`                                | 逐项显示：谁判的、依据是什么、可否一键定夺                              |
-| 决策头扩展           | `LawmindDecisionHeader.tsx`（已有）                                 | 加三项计数；不得暴露内部 id                                             |
-| Settings Doctor 扩展 | `LawmindSettingsDoctor.tsx`（已有，已 import `isAutonomyUnlocked`） | 分级覆盖率 / 已解锁项 / 证书有效期 / 回锁历史                           |
-| 文案                 | 全量过 `pnpm lawmind:ui-copy-lint`                                  | 禁词见 §8.3                                                             |
+| 交付物               | 落点                                                                | 要点                                                                        |
+| -------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 升级卡组件           | 新增 `LawmindJudgmentEscalationCard.tsx`                            | 照 `LawmindMailContractFastLaneCard.tsx` 的形状；**空/加载/错误三态都要有** |
+| 判定项明细面板       | 新增 `LawmindJudgmentItemsPanel.tsx`                                | 逐项显示：谁判的、依据是什么、可否一键定夺                                  |
+| 决策头扩展           | `LawmindDecisionHeader.tsx`（已有）                                 | 加三项计数；不得暴露内部 id                                                 |
+| Settings Doctor 扩展 | `LawmindSettingsDoctor.tsx`（已有，已 import `isAutonomyUnlocked`） | 分级覆盖率 / 已解锁项 / 证书有效期 / 回锁历史                               |
+| 文案                 | 全量过 `pnpm lawmind:ui-copy-lint`                                  | 禁词见 §8.3                                                                 |
 
 ### 6.5 律师可见面文案纪律（I12 + D12）
 

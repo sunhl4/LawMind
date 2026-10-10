@@ -1,6 +1,5 @@
 /**
- * Fast-lane bus: file「送审」or e2e hook → mail / research cards above compose.
- * Contract still uses lawmind-contract-fast-lane-bus（文件台「送审本合同」共用）。
+ * Fast-lane bus: e2e / slash → mail / research cards above compose.
  */
 
 export type DeskLane = "mail" | "research";

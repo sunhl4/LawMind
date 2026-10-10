@@ -74,6 +74,8 @@ export type LawmindAppRootLayoutInput = {
   wsChatColWidth: number;
   fileExplorerHost: HTMLDivElement | null;
   setFileExplorerHost: (el: HTMLDivElement | null) => void;
+  fileExplorerCasesHost: HTMLDivElement | null;
+  setFileExplorerCasesHost: (el: HTMLDivElement | null) => void;
   fileExplorerPortaled: boolean;
   setFileExplorerPortaled: React.Dispatch<React.SetStateAction<boolean>>;
   fileEditorHost: HTMLDivElement | null;
@@ -589,6 +591,7 @@ export function useLawmindAppRootLayout(
     showExplorerSkeleton: input.showSidebarWorkbenchFiles && !input.fileExplorerPortaled,
     onSidebarResizePointerDown: input.onSidebarResizePointerDown,
     setFileExplorerHost: input.setFileExplorerHost,
+    setFileExplorerCasesHost: input.setFileExplorerCasesHost,
     actionSummaryTotal: input.actionSummaryTotal,
     matterSidebarRows: recordsDeskMatters.sidebarRows,
     selectedMatterKey: recordsDeskMatters.selectedKey,
@@ -670,15 +673,12 @@ export function useLawmindAppRootLayout(
     projectDir,
     onPickProject: () => void pickProject(),
     fileExplorerHost: input.fileExplorerHost,
+    fileExplorerCasesHost: input.fileExplorerCasesHost,
     fileEditorHost: input.fileEditorHost,
     setFileExplorerPortaled: input.setFileExplorerPortaled,
     addFileToChatContext,
     setMainView,
     mainView,
-    setInput,
-    focusComposer: () => {
-      input.textareaRef.current?.focus();
-    },
     fileWorkbenchMattersPickList: input.fileWorkbenchMattersPickList,
     matterRefreshVersion,
     workspaceCasesMenu: input.workspaceCasesMenu,

@@ -410,6 +410,11 @@ export function gateWordSurfaceBeforeInput(event: InputEvent): boolean {
   if (!event.inputType.startsWith("insert")) {
     return false;
   }
+  // Non-engine surface cannot round-trip new paragraphs; swallow Enter.
+  if (event.inputType === "insertParagraph" || event.inputType === "insertLineBreak") {
+    event.preventDefault();
+    return true;
+  }
   // Leave the IME candidate alone. compositionend wraps the committed string.
   if (event.inputType === "insertCompositionText" || event.isComposing) {
     return false;

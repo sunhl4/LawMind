@@ -25,11 +25,21 @@ export type WordRevisionTrack = {
   disposition?: WordRevisionDisposition;
 };
 
+/** Object-replacement placeholder for a non-text preserved run (drawing/field). */
+export const WORD_PRESERVED_RUN_CHAR = "\uFFFC";
+
 export type WordRevisionRun = {
   text: string;
   track?: WordRevisionTrack;
   mark?: WordRunMark;
   commentIds?: string[];
+  /**
+   * Full `<w:r>…</w:r>` written back as-is by serializeRuns.
+   * When set, `text` is typically {@link WORD_PRESERVED_RUN_CHAR}.
+   */
+  preservedXml?: string;
+  /** Optional preview for a preserved drawing run. */
+  image?: { src: string; widthPx?: number; heightPx?: number };
 };
 
 export type ComposeAuthor = {
@@ -62,4 +72,5 @@ export type WordRevisionAtom = {
   track?: WordRevisionTrack;
   mark?: WordRunMark;
   commentIds?: string[];
+  preservedXml?: string;
 };

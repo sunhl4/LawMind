@@ -16,6 +16,7 @@ import { useLawmindDetailDomain, useLawmindRecordsDomain } from "./lawmind-app-s
 import { DEFAULT_ASSISTANT_ID } from "../../../../src/lawmind/assistants/constants.ts";
 import { DESK_WRITE_TOOL_NAMES } from "../../../../src/lawmind/agent/tool-name-sets.ts";
 import { notifyOutboundChanged } from "./lawmind-desk-outbound";
+import { requestOpenMatterOnDesk } from "./lawmind-desk-nav";
 import { contextMatterIdAfterCatalogChange } from "./lawmind-chat-scope";
 import { shouldSuggestContextFork } from "./LawmindContextForkSuggestion";
 import {
@@ -456,6 +457,10 @@ export function useLawmindAppShell() {
       // 对话里发生过工作台写穿（卷宗/期限/建案）时，立刻刷新案件管理列表与卷宗视图。
       if (info.toolNames.some((name) => DESK_WRITE_TOOL_NAMES.has(name))) {
         setMatterRefreshVersion((v) => v + 1);
+      }
+      // 模型查了案件摘要：中栏跟到该案（有绑定芯片时）。
+      if (info.toolNames.includes("get_matter_summary") && contextMatterId?.trim()) {
+        requestOpenMatterOnDesk(contextMatterId);
       }
       // send_email / prepare_outbound_mail 写入待发信后立刻刷新对话里的「本案有待发出」。
       if (

@@ -8,7 +8,6 @@
 
 ```bash
 pnpm exec vitest run \
-  src/lawmind/platform/contract-fast-lane-instruction.test.ts \
   src/lawmind/agent/prompt-protocol-gate.test.ts \
   src/lawmind/agent/turn-orchestrator-prompt.test.ts \
   src/lawmind/agent/turn-orchestrator-cassettes.test.ts \
@@ -154,12 +153,11 @@ pnpm exec vitest run \
 - **手改**：改检测正则会影响「改这份」是否走锁。改 `word-revision/*.md` 会改变该类型的看/改/停要点（注入「改稿要点」）。
 - **本次**：工具表由允许名单改为拒绝名单。单说「立场 / 导出」仍不进 Word 改稿锁。律师点名只要意见书时也不进锁。
 
-### 14. 合同审查快车道 — FIX（最大冲突）
+### 14. 合同审查快车道 — REMOVED（2026-10-10）
 
-- **路径**：`src/lawmind/platform/contract-fast-lane-instruction.ts`
-- **作用**：5 分钟交办 = 先出意见的**提示**。工具表不收窄。
-- **手改**：把识别写宽，普通办件审查会吃到「先出意见」的教练（不再会突然不能检索）。
-- **本次**：不再冻结工具表。只认「5 分钟合同审查」或带立场/重点的结构化【交办】意见。不把 `【办件】能力：contract.review` 当快车道。
+- **原路径**：`src/lawmind/platform/contract-fast-lane-instruction.ts`、桌面「送审本合同」/ `LawmindContractFastLaneCard`
+- **原因**：固定管道鲁棒性差，限制模型并在错任务上显得不智能；主路径改为对话引用 + 自然语言（意图编译）。
+- **现状**：代码与 e2e 已删除。律师主动打开「写材料」填表交办仍可用普通 `【交办】`，不注入快车道教练。
 
 ### 15. 最短锚定跨度硬门禁 — KEEP
 

@@ -69,8 +69,6 @@ export type LawmindChatMessagesColumnProps = {
   onOpenWorkflowLibrary?: () => void;
   /** Opens compose「写材料」template / job-intake gallery. */
   onOpenWriteMaterials?: () => void;
-  /** 空态「5 分钟合同审查」一键发送（有则显示开始审查）。 */
-  onDispatchPrompt?: (prompt: string) => void;
   showEmptyMatterGuide?: boolean;
   onDeleteChatMessage?: (uiIndex: number) => void | Promise<void>;
   onEditChatMessage?: (uiIndex: number, nextText: string) => void | Promise<void>;

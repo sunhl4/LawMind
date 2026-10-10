@@ -24,7 +24,6 @@
 ```text
 lm-chat-drop-zone        ← 对话主面板
 lm-compose-drop-zone     ← 输入区
-lm-compose-contract-fast-lane
 lm-compose-mail-fast-lane
 lm-compose-research-fast-lane
 ```

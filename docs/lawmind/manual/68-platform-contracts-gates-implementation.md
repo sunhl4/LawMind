@@ -1252,60 +1252,9 @@ matterId=`<id>`
 3. **「引擎会把每处重算成最短改动（一处输入可能拆成多处）」**——这句告诉模型：你改了整句也不会直接落盘，引擎会重算。**但它紧接着说「整句/整段删写的写法仍不允许」**——所以「引擎兜底」不是「你可以乱写」。
 4. **推荐路径那一节的标题**：「按任务选用，不要为走工具序丢掉判断」——**这是全仓反复出现的一句话**（第 61.1 节那份 `search_statute` 提示里也有同款）。
 
-### `contract-fast-lane-instruction.ts`：63 行
+### `contract-fast-lane-instruction.ts` — REMOVED（2026-10-10）
 
-头注释：
-
-```text
-Solo「5 分钟合同审查」交办识别 + 提示词教练。
-Does **not** freeze the tool table — the model may still search or redline
-if that helps finish the job. Leaf (no fs).
-```
-
-**「may still search or redline if that helps finish the job」**——所以这个快车道**一个工具都不禁**。
-
-它只做三件事：
-
-```text
-① 识别（isContractFastLaneInstruction）
-② 给一段教练话（CONTRACT_FAST_LANE_PROMPT / formatContractFastLanePrompt）
-③ 废弃的 allow 函数返回 undefined
-```
-
-### 识别规则
-
-```text
-含【完整合同审查专案组 → 假（那是专案组，不是快车道）
-含【交办】5 分钟合同审查 → 真
-含【交办】 且 含「交付物类型：合同审查意见」 且（含「己方立场」或「审查重点」）→ 真
-```
-
-**第一条是排除**——专案组走另一条路。**第二、三条都是「结构化交办」的特征**（带方括号标记）。
-
-### 那段教练话
-
-```text
-## 合同审查 · 快车道
-- 这是快速意见：材料与立场/重点已在交办里。先通读已给合同，按宏观交易结构、
-  中观文本、微观条款写完意见；每个风险点给推荐措辞。
-- 缺事实仍交付已完成部分并在意见里写缺口。不要为了找材料反复翻全所案卷。
-- 工具表不收窄。写条号需要核对时可以用 `search_statute`；律师若还要修订稿，
-  可以用改稿工具。不要改走邮件外发短路径，除非律师另开邮件合同审阅。
-```
-
-**第二句那句「不要为了找材料反复翻全所案卷」**——这是快车道的核心约束。「5 分钟」的意义就在这里：**材料已经给了，别再去全库找。**
-
-而三条「宏观/中观/微观」的分层是第 20 章那份 `contract-review-layers` 技能里的结构。
-
-**带 Word pin 时换一版结尾**：
-
-```text
-- 本回合钉选了 Word：默认交审查意见以及一份审阅修订稿（`apply_surgical_edits` → `render_tracked_draft`）。律师只要意见书时按指定。
-```
-
-**「律师只要意见书时按指定」**——默认两次交付，但听律师的。
-
-对话发送不再按关键词改走邮件短路径。律师的原话和附件直接进入回合；本案已绑定时，取信工具在本轮工具表里。自动办件仍由律师在设置里显式打开，映射见下一节。
+Solo「5 分钟合同审查」固定管道（识别 + 提示词教练、桌面「送审本合同」/ `LawmindContractFastLaneCard`）已删除。合同审查主路径改为对话引用 + 自然语言交办（意图编译）；不注入快车道教练、不收窄工具表。邮件合同短路径（`mail-contract-short-path-instruction.ts`）仍保留。
 
 ### `infer-automation-from-instruction.ts`：60 行
 

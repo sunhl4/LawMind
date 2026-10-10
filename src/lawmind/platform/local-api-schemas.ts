@@ -630,6 +630,24 @@ export const fsWritePostSchema = z.object({
 
 export type FsWritePostRequest = z.infer<typeof fsWritePostSchema>;
 
+export const fsXlsxSavePostSchema = z.object({
+  root: z.string().min(1),
+  path: z.string().min(1),
+  expectedMtimeMs: z.number().optional(),
+  edits: z
+    .array(
+      z.object({
+        sheet: z.string().min(1).max(31),
+        row: z.number().int().min(1).max(5000),
+        col: z.number().int().min(1).max(64),
+        value: z.union([z.string().max(8000), z.number(), z.boolean(), z.null()]),
+      }),
+    )
+    .max(8000),
+});
+
+export type FsXlsxSavePostRequest = z.infer<typeof fsXlsxSavePostSchema>;
+
 export const sourceAnnotationPostSchema = z.object({
   comment: trimmedNonEmptyString,
   taskId: z.string().optional(),

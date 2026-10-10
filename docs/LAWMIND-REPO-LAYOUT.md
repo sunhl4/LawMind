@@ -25,7 +25,7 @@
 | [LAWMIND-LEGAL-COMPILER-ROADMAP.md](./LAWMIND-LEGAL-COMPILER-ROADMAP.md) | 法律一致性编译器 500 人天计划（WS0–WS6）                                    |
 | [LAWMIND-FUTURE-ISSUES.md](./LAWMIND-FUTURE-ISSUES.md)                   | 已识别、长期回看项（sprint 以外）                                           |
 | [LAWMIND-REPO-LAYOUT.md](./LAWMIND-REPO-LAYOUT.md)                       | 本文：仓库职责划分与文档清单                                                |
-| [LAWMIND-ENGINEERING-REVIEW.md](./LAWMIND-ENGINEERING-REVIEW.md)         | 2026-09-26 工程审查：已修问题、不恢复的界面取舍、后续只动非界面项           |
+| [LAWMIND-ENGINEERING-REVIEW.md](./LAWMIND-ENGINEERING-REVIEW.md)         | 工程审查：界面取舍、手册对齐口径；文末「本机 git stash 存档」勿 pop 到 main |
 
 | [`LAWMIND-FORWARD-AGENT.md`](./LAWMIND-FORWARD-AGENT.md) | 下一轮方向合同：交件即测量。因子态与量子启发的后续优化以该文 §9 为准 |
 | [`LAWMIND-LEGAL-KERNEL-BENCH.md`](./LAWMIND-LEGAL-KERNEL-BENCH.md) | 律师向因子内核评测：外部标准链接、加题口径、复跑命令 |

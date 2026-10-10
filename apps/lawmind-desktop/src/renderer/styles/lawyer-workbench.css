@@ -268,7 +268,7 @@
   align-items: stretch;
   min-width: 0;
   /*
-   * IRON: the case list must stay visible. Parent .lm-lawyer-workbench
+   * IRON: agenda / case list must stay visible. Parent .lm-lawyer-workbench
    * scrolls; this column must not collapse to 0 when the window is short.
    */
   flex: 1 0 auto;
@@ -1079,5 +1079,334 @@
   .lm-matter-volume,
   .lm-matter-archive {
     width: 100%;
+  }
+}
+
+/* ── 今日提醒（工作台默认首页） ── */
+.lm-desk-agenda {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(760px, 100%);
+  margin-inline: auto;
+  min-width: 0;
+}
+
+.lm-desk-agenda-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 20px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--accent-border) 55%, var(--border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--accent-dim) 42%, var(--surface)) 0%,
+      var(--surface) 55%,
+      color-mix(in srgb, var(--accent-cool-dim, var(--surface-2)) 35%, var(--surface)) 100%
+    );
+  box-shadow: var(--shadow-xs);
+}
+
+.lm-desk-agenda-hero-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.lm-desk-agenda-eyebrow {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-hover, var(--accent));
+}
+
+.lm-desk-agenda-hero h2 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.lm-desk-agenda-sub {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-2);
+  max-width: 36rem;
+}
+
+.lm-desk-agenda-ring {
+  --agenda-pct: 0;
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background:
+    conic-gradient(
+      var(--accent) calc(var(--agenda-pct) * 1%),
+      color-mix(in srgb, var(--border) 80%, transparent) 0
+    );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-border) 40%, transparent);
+}
+
+.lm-desk-agenda-ring span {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.lm-desk-agenda-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.lm-desk-agenda-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.lm-desk-agenda-section-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+}
+
+.lm-desk-agenda-count {
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.lm-desk-agenda-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lm-desk-agenda-card {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 10px 12px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+
+.lm-desk-agenda-card:hover {
+  border-color: var(--accent-border);
+  transform: translateY(-1px);
+}
+
+.lm-desk-agenda-card.is-hot {
+  border-color: color-mix(in srgb, var(--danger-border, var(--error)) 70%, var(--border));
+  background: color-mix(in srgb, var(--danger-dim, rgba(180, 60, 50, 0.08)) 55%, var(--surface));
+}
+
+.lm-desk-agenda-card.is-done {
+  opacity: 0.72;
+}
+
+.lm-desk-agenda-card.is-done .lm-desk-agenda-title {
+  text-decoration: line-through;
+  color: var(--text-2);
+}
+
+.lm-desk-agenda-check {
+  display: grid;
+  place-items: center;
+  padding-top: 3px;
+}
+
+.lm-desk-agenda-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.lm-desk-agenda-card-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lm-desk-agenda-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lm-desk-agenda-kind {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.lm-desk-agenda-kind[data-kind="deadline"] {
+  background: color-mix(in srgb, var(--warn-dim) 70%, var(--surface));
+  border-color: var(--warn-border);
+  color: var(--warn);
+}
+
+.lm-desk-agenda-kind[data-kind="mail"] {
+  background: color-mix(in srgb, var(--accent-cool-dim, var(--info-dim, var(--surface-2))) 70%, var(--surface));
+  border-color: var(--accent-cool-border, var(--border));
+  color: var(--accent-cool, var(--info, var(--text-2)));
+}
+
+.lm-desk-agenda-kind[data-kind="approval"] {
+  background: color-mix(in srgb, var(--accent-dim) 55%, var(--surface));
+  border-color: var(--accent-border);
+  color: var(--accent-hover, var(--accent));
+}
+
+.lm-desk-agenda-title {
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.lm-desk-agenda-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.lm-desk-agenda-matter-link {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent-hover, var(--accent));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.lm-desk-agenda-matter-link:hover {
+  color: var(--accent);
+}
+
+.lm-desk-agenda-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.lm-desk-agenda-compose {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px dashed var(--border-md);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+
+.lm-desk-agenda-compose .lm-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.lm-desk-agenda-empty {
+  padding: 28px 16px;
+  border-radius: 16px;
+  border: 1px dashed var(--border-md);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+.lm-desk-agenda-empty .lm-desk-ico {
+  display: inline-flex;
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+
+.lm-desk-agenda-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.lm-desk-agenda-menu {
+  position: fixed;
+  z-index: 40;
+}
+
+.lm-desk-agenda-menu-backdrop {
+  appearance: none;
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.lm-desk-agenda-section--overdue .lm-desk-agenda-section-head h3 {
+  color: var(--danger, var(--error));
+}
+
+@media (max-width: 860px) {
+  .lm-desk-agenda {
+    width: 100%;
+  }
+
+  .lm-desk-agenda-card {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .lm-desk-agenda-card-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+
+  .lm-desk-agenda-hero {
+    align-items: flex-start;
   }
 }

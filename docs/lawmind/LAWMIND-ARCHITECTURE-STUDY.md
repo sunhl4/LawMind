@@ -139,7 +139,7 @@ export function toolRequiresLawyerPause(name?: string | null): boolean {
 2. **挂 MCP**：`attachEnabledMcpServers`，失败吞掉。
 3. **定预算与模式**：`resolveToolCallBudgets`、`maxHistory`、`toolTimeoutMs`、`permissionMode`、`strictDangerousToolApproval`。
 4. **加载/建 session**：assistant 不匹配直接 throw。然后 `pruneTurnPlanForNewInstruction` + `ensureLawyerWorkForTurn`（best-effort）。
-5. **生成 `turnId`，推导几个开关**：`wordRevisionTurn` / `deliveryIntent` / `mailContractTurn` / `contractFastLaneTurn` / `noTaskTurn`。
+5. **生成 `turnId`，推导几个开关**：`wordRevisionTurn` / `deliveryIntent` / `mailContractTurn` / `noTaskTurn`。（原 `contractFastLaneTurn` 已移除。）
 6. **构造 `AgentContext`**。这里埋了跨轮澄清门禁的种子：
    `clarificationBlockingHeavyTools = selectHardClarificationKeys(session.pendingClarificationKeys).length > 0`。
 7. **定工具表**：`resolveAssistantTooling`（Role ∩ preset ∩ 父级继承）、playbook lock（只禁误发、模板重建、只看、函件核对；目录钉选不拿掉改稿）、`peekPinnedDocuments`、`compileIntent`、已披露工具、隐藏工具。注意 `noTaskTurn` 会把**广告**层降到 `readonly`。

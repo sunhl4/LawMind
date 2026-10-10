@@ -1,11 +1,9 @@
 /**
  * Retrieval protocol: coach statute/case trial before writing 条号.
- * Skip only the 5-minute opinion fast lane, or when search tools are not on
- * the table. Mail/Word may still search; do not freeze them off retrieval.
+ * Skip only when search tools are not on the table.
  */
 
 import {
-  isOpinionOnlyFastLane,
   RESEARCH_PROTOCOL_TOOLS,
   toolsAllowAny,
   type PromptProtocolGate,
@@ -24,9 +22,6 @@ export function shouldInjectResearchProtocol(
   gate?: PromptProtocolGate,
 ): boolean {
   if (!bound) {
-    return false;
-  }
-  if (isOpinionOnlyFastLane(gate?.instruction)) {
     return false;
   }
   if (!toolsAllowAny(gate?.availableToolNames, RESEARCH_PROTOCOL_TOOLS)) {

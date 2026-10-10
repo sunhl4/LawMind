@@ -230,23 +230,54 @@ export async function setDailyPlanItemDone(
   return saveDailyPlan(workspaceDir, plan);
 }
 
+/**
+ * 按来源引用标记完成态。`done: true` 时若尚无 plan 行则补哨兵；
+ * `done: false` 时把已有哨兵改回未完成（用于今日提醒反勾）。
+ */
+export async function setDailyPlanSourceDone(
+  workspaceDir: string,
+  source: DailyPlanItemSource,
+  sourceRef: string,
+  done: boolean,
+  date = localDateKey(),
+): Promise<DailyPlan> {
+  const plan = loadDailyPlan(workspaceDir, date);
+  let changed = false;
+  let found = false;
+  plan.items = plan.items.map((item) => {
+    if (item.source === source && item.sourceRef === sourceRef) {
+      found = true;
+      if (item.done !== done) {
+        changed = true;
+        return { ...item, done };
+      }
+    }
+    return item;
+  });
+  // 今日提醒勾选邮件/期限时，未必事先有 plan 行——补一条已完成哨兵，供 today-work 消项。
+  if (!found && done && source !== "lawyer") {
+    plan.items.push({
+      id: randomUUID(),
+      text: `${source}:${sourceRef}`.slice(0, 500),
+      done: true,
+      source,
+      sourceRef,
+      createdAt: new Date().toISOString(),
+    });
+    changed = true;
+  }
+  if (!changed) {
+    return plan;
+  }
+  return saveDailyPlan(workspaceDir, plan);
+}
+
+/** @deprecated Prefer setDailyPlanSourceDone(..., true). Kept for call sites that only mark done. */
 export async function markDailyPlanSourceDone(
   workspaceDir: string,
   source: DailyPlanItemSource,
   sourceRef: string,
   date = localDateKey(),
 ): Promise<DailyPlan> {
-  const plan = loadDailyPlan(workspaceDir, date);
-  let changed = false;
-  plan.items = plan.items.map((item) => {
-    if (item.source === source && item.sourceRef === sourceRef && !item.done) {
-      changed = true;
-      return { ...item, done: true };
-    }
-    return item;
-  });
-  if (!changed) {
-    return plan;
-  }
-  return saveDailyPlan(workspaceDir, plan);
+  return setDailyPlanSourceDone(workspaceDir, source, sourceRef, true, date);
 }

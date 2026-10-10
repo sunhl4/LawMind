@@ -291,7 +291,6 @@ export const executeWorkflow: AgentTool = {
           signal: ctx.abortSignal,
           wordRevisionTurn: ctx.wordRevisionTurn,
           mailContractTurn: ctx.mailContractTurn,
-          contractFastLaneTurn: ctx.contractFastLaneTurn,
         });
         bundle = trial.bundle;
         if (trial.attempted) {
