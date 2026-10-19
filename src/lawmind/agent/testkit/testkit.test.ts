@@ -93,7 +93,7 @@ describe("TestLawMindBuilder", () => {
     );
   });
 
-  it("splits SSE content across chunks when onEvent is set", async () => {
+  it("工具轮不开上游流式，但 onEvent 仍收到整段 delta 补发", async () => {
     await withTestLawMind(
       (b) => b,
       async (h) => {
@@ -107,7 +107,9 @@ describe("TestLawMindBuilder", () => {
           },
         });
         expect(result.reply).toContain("流式收尾");
-        expect(h.request(0).streamed).toBe(true);
+        // 工具轮降噪设计（a763733dc 起）：广告了工具的决策轮不开上游 SSE，
+        // 收齐后由 emitQuietSegment 把文本整段补发成一条 delta。
+        expect(h.request(0).streamed).toBe(false);
         expect(deltas.join("")).toContain("流式收尾");
       },
     );

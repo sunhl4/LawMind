@@ -16,6 +16,15 @@
 
 **关键差异**：经典流水线的每一段都是**可以被单独调用、单独断言**的。所以它更适合测试与回归。而 Agent 循环的行为要靠 cassette 才测得清（第 18.3 节）。
 
+**接线事实（按 import 核对）**：`engine/` 不 import `agent/`；回合编排（`turn-orchestrator*`）也不 import `engine/` 的 plan / research / draft / review / render——**经典五段不是每轮对话的主循环**。`createLawMindEngine` 的生产装配点：
+
+1. `src/lawmind/agent/tools/engine/engine-tool-shared.ts` —— Agent 的引擎工具整段装配它；
+2. 根 barrel `src/lawmind/index.ts` —— 桌面 `lawmind-server-helpers.ts` 的 `getLawMindEngine` 经它拿引擎，审核路由直接调 `engine.review` / `engine.render` / `engine.reopenDraftReview`。CLI 的 `scripts/lawmind/lawmind-round.ts`、`lawmind-review.ts`、`lawmind-smoke.ts`、`lawmind-benchmark.ts` 也从这里或 `engine/factory.ts` 建引擎。
+
+`src/lawmind/evaluation/quality-seed.ts` 不建引擎。`seedQualityAfterTask` 在已有的 `LawMindEngine` 上调 `recordQuality`，给演示和发布检查灌质量快照。
+
+**报告类对话可以整轮不进主模型。** `agent/turn-orchestrator-shortcuts.ts` 的 `tryAutoDeliverableWorkflowShortcut`：`LAWMIND_AUTO_DELIVERABLE_WF` 默认开（`0` / `false` / `off` / `no`，或策略 `autoDeliverableWorkflow: false`，才关）。指令同时命中起草动词和报告名词，且关键词路由落到 `draft.word` 加上 `report.esg` / `report.general` / `report.compliance` / `report.learning`（`agent/deliverable-pipeline.ts` 的 `DELIVERABLE_TYPES_AUTO_WORKFLOW`）时，直接调 `execute_workflow`，不跑主模型循环。这条工具内部仍走上面的引擎装配。
+
 ## 53.2 工厂：`createLawMindEngine`
 
 `engine/factory.ts` 只导出一个函数，它的做法是「装配」：
@@ -32,7 +41,7 @@
 
 ### 配置面只有五个字段
 
-`LawMindEngineConfig`：
+类型在 `engine/types.ts`（`LawMindEngineConfig` 与 `LawMindEngine`）。`LawMindEngineConfig`：
 
 | 字段           | 说明                                                       |
 | -------------- | ---------------------------------------------------------- |
@@ -46,9 +55,9 @@
 
 ### 一处刻意的容错
 
-第 ② 步读工作区自定义规格时，注释写了一句话：
+第 ② 步读工作区自定义规格时，注释写明：
 
-> 一个坏 JSON 不应让事务所离线
+> Bad JSON → warnings, never abort startup.（与 CLI 同一门；Solo 默认开）
 
 所以：**读失败的规格只记警告（审计 `deliverable.spec.invalid`），不让工厂抛错**。坏一个文件的代价，不该是整个引擎起不来。
 
@@ -84,7 +93,7 @@
 
 1. `resolveDefaultAssignee` —— 按 kind / deliverableType 解析默认承办人（第 16.5 节的 `routing/defaults.json`）。
 2. `ensureTaskRecord` —— 建任务记录；如果新建了，发审计 `task.created`。
-3. 有案件时建交付物（`createPlannedDeliverable`，`deliverableId = taskId`）。
+3. 有案件时先确保案件 JSON（`createMatterIfMissing`），再建交付物（`createPlannedDeliverable`，`deliverableId = taskId`；写失败记审计 `matter.write_failed`）。
 4. 写今日日志（`## 任务计划`），并 upsert 一条工作记录（状态 `running`）。
 
 **注意 `deliverableId = taskId`**：在经典流水线里，一个任务对应一个交付物，所以直接拿 taskId 当 deliverableId。Agent 路径里不一定是一比一。
@@ -157,11 +166,11 @@ roleAllowsDeliverable(role, classifyDeliverableKindFromIntent(intent))
 
 不允许时抛 `DraftCreationError`，错误码 `draft_role_not_allowed`。
 
-**但有一个例外**（注释写明）：
+行为以文件头注释与 `ensureRoleAllowsDraft` 为准（两者一致）：
 
-> 若 EngineContext 关联到一个 Role，且该 Role 不允许当前交付物种类，则抛 `DraftCreationError`。没有 Role 就放行。代码里没有按 Solo 降成警告。
+> 若 EngineContext 关联到一个 Role，且该 Role 不允许当前交付物种类，则抛 `DraftCreationError`。没有 Role 就放行。
 
-文件头注释仍写着「Solo edition 仅 warn」，那句已经过时。行为以 `ensureRoleAllowsDraft` 为准：有岗位且不允许，就拒绝。
+代码里没有「按 Solo 版本降成警告」的分支：有岗位且不允许，就拒绝。
 
 ### 角色是怎么找到的
 
@@ -317,7 +326,7 @@ matterTheoryBlocksStrictExport(..., { requireAnchor: true })
 ⑧ 跑 lint + 记 lint 运行事件
 ⑨ 建决策头（buildDecisionHeader）
 ⑩ 自动交付判定（evaluateAutoDeliver）→ 满足就标 approved + 记 unattended
-⑪ `commitDraft`（`channel: "pipeline"`，缺检索快照则不写稿）+ 同步任务 + 工作记录状态；旁路写 `drafts/<taskId>.completion.json`
+⑪ `commitDraft`（`channel: "pipeline"`；缺检索快照时**抛错**、不写稿）+ 同步任务 + 工作记录状态；旁路写 `drafts/<taskId>.completion.json`（另写 `.review-head.json` 待签批索引）
 ⑫ 案件进展 + 关联交付物 + 强制互审 + 开队列项
 ```
 
@@ -416,7 +425,8 @@ shouldAutoDeliver && decisionHeader?.ready === "usable"
 - **`outputDirExplicit` 是单独的字段。** 别用 `outputDir` 的值去猜是不是显式的。
 - **读坏的交付物规格只警告不抛错。** 「一个坏 JSON 不应让事务所离线」。
 - **对话回合没有单独的确认界面。** Agent 把流水线当工具调用时仍会打到 `engine.confirm`。
-- **有岗位且不允许该交付物种类就抛错。** 没有「Solo 只警告」这条分支。文件头那句注释过时。
+- **报告类默认短路。** `LAWMIND_AUTO_DELIVERABLE_WF` 默认开时，`report.esg` / `report.general` / `report.compliance` / `report.learning` 的起草指令直接 `execute_workflow`，不进主模型循环。
+- **有岗位且不允许该交付物种类就抛错。** 没有「Solo 只警告」这条分支；没有 Role 则放行（文件头注释与行为一致）。
 - **`deliverableId = taskId`**（经典流水线里一比一）。
 - **自动交付需要两个条件同时成立**（`shouldAutoDeliver` + 决策头 `usable`）。
 - **自动交付的审计里必须保留「外发仍须签批」。**

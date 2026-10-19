@@ -93,6 +93,8 @@ describe("LawmindMsgAssistant word check", () => {
       apiBase: "http://127.0.0.1:9",
       taskId: "task-9",
       workspaceDir: undefined,
+      projectDir: undefined,
+      fallbackRelPath: "非技术相关/合同_20260928_01.docx",
     });
     expect(openDeliverableInWps).not.toHaveBeenCalled();
     await act(async () => {

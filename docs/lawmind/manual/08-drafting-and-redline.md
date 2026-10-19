@@ -123,13 +123,13 @@ B4 的处理最特别：纯插入会被改写成「插入点之后 6 字锚点�
 
 ## 8.5 律师侧：改稿工作面怎么用
 
-改稿工作面（视图 id `review`，界面标题「改稿」）是三栏结构：
+改稿工作面是三栏结构（`ReviewWorkbench.tsx`）。它不再有独立的顶层视图：`mainView === "review"` 现在直接重定向到 `workspace`；对话里点到一份还没有 Word 的草稿时，工作区中栏打开草稿台（`LawmindMiddleDraftDesk.tsx`），里面就是这套三栏：
 
 - **左栏：元信息**。验收门、独立审稿结论、出处、模板、审查专案组。
 - **中栏：打开的那份 Word**。按 Microsoft Word 审阅来画：谁改的、什么颜色、插入/删除/移动、接受拒绝、保存，都写回正在打开的 `.docx`。
 - **右栏：预览**。只读排版视图，和编辑区左右对照，可以拖出去独立开窗。
 
-三栏的显隐状态会**记住**（localStorage 键 `lawmind.ui.reviewPaneMeta` / `reviewPaneEditor` / `reviewPanePreview`），默认是元信息收起、编辑区和预览打开。有一条保护：**不允许三栏全关**（`hasVisibleReviewPaneAfter`）。
+三栏的显隐状态会**记住**（localStorage 键 `lawmind.ui.reviewPaneMeta` / `reviewPaneEditor` / `reviewPanePreview`），默认是元信息收起、编辑区和预览打开。有一条保护：**不允许三栏全关**——`stores/review-pane-visibility-store.ts` 的 `togglePane` 在 `countVisibleReviewPanes(next) === 0` 时拒绝写入。（`hasVisibleReviewPaneAfter` 是分栏之间分隔条的判断，不是这道保护。）
 
 正式的三个动作——通过、驳回、需修改——主路径在「在办」，不在改稿面。改稿面保留的是「必核清单走完之后的兜底签批」。这个分工在 `ReviewWorkbench.tsx` 的头部注释里写明了。
 
@@ -147,20 +147,21 @@ Surgical 类型的 hunk 会显示上下文——`SURGICAL_CONTEXT_CHARS = 30`，
 
 另外有一堆**侧车文件**（sidecar），都是同名不同后缀：
 
-| 文件                                | 内容         |
-| ----------------------------------- | ------------ |
-| `drafts/<taskId>.json`              | 草稿本体     |
-| `drafts/<taskId>.redline.json`      | 修订提案     |
-| `drafts/<taskId>.redline-plan.json` | 修订计划     |
-| `drafts/<taskId>.research.json`     | 检索快照     |
-| `drafts/<taskId>.reasoning.json`    | 推理快照     |
-| `drafts/<taskId>.clauses.json`      | 条款快照     |
-| `drafts/<taskId>.guardian.json`     | 独立审稿记录 |
-| `drafts/<taskId>.outline.json`      | 大纲         |
-| `drafts/<taskId>.completion.json`   | 交付完成记录 |
-| `drafts/<taskId>.redline.json.lock` | 修订提案锁   |
+| 文件                                | 内容                   |
+| ----------------------------------- | ---------------------- |
+| `drafts/<taskId>.json`              | 草稿本体               |
+| `drafts/<taskId>.redline.json`      | 修订提案               |
+| `drafts/<taskId>.redline-plan.json` | 修订计划               |
+| `drafts/<taskId>.research.json`     | 检索快照               |
+| `drafts/<taskId>.reasoning.json`    | 推理快照               |
+| `drafts/<taskId>.clauses.json`      | 条款快照               |
+| `drafts/<taskId>.guardian.json`     | 独立审稿记录           |
+| `drafts/<taskId>.outline.json`      | 大纲                   |
+| `drafts/<taskId>.completion.json`   | 交付完成记录           |
+| `drafts/<taskId>.review-head.json`  | 审核状态头（列表快读） |
+| `drafts/<taskId>.redline.json.lock` | 修订提案锁             |
 
-`listDrafts` **会排除**这些侧车，只列本体。`deleteDraft` 删本体，并删 `listDrafts` 排除的侧车：`research`、`reasoning`、`redline`、`redline-plan`、`clauses`、`guardian`、`outline`、`completion`，外加 `redline.json.lock`。修订计划必须一起删——否则下一次空的 `apply_surgical_edits` 会把已删草稿的计划又落回去。
+`listDrafts` **会排除**这些侧车，只列本体；`review-head.json` 随 `commitDraft` 和本体一起写，让列表不用解析整份草稿。`deleteDraft` 删本体，并删 `listDrafts` 排除的侧车：`research`、`reasoning`、`redline`、`redline-plan`、`clauses`、`guardian`、`outline`、`completion`、`review-head`，外加 `redline.json.lock`。修订计划必须一起删——否则下一次空的 `apply_surgical_edits` 会把已删草稿的计划又落回去。
 
 ## 8.7 修订提案：hunk 是怎么长出来的
 
@@ -173,11 +174,15 @@ type RedlineHunk = {
   sectionHeading?;
   before;
   after;
+  /** 模型第一次写出的改法；律师改 after 不覆盖这里（收口时记偏好用）。 */
+  proposedAfter?;
   rationale?;
   status: "pending" | "accepted" | "rejected";
   spanStart?;
   spanEnd?;
   granularity?: "surgical" | "section";
+  /** 这条修订写下的时间（旧提案可能没有）。 */
+  revisedAt?;
 };
 ```
 
@@ -265,11 +270,28 @@ export const MIN_TRACKED_RENDER_HUNKS = 1;
 
 路径二在没有合同基线时重新渲染再落修订。非合同稿这里不传报告变体，会按备忘录面拼一版，再往上叠修订。
 
-### 修订只认 .docx；.doc 须律师另存
+修订轨落不上时有两级兜底，都如实标 `degraded`：先用 `drafts/docx-visible-revisions.ts` 把改动按 `w:del`/`w:ins` 直接写进 XML；再不行退回不带修订轨的 `plain_fallback` 副本。兜底产物不能当「红线已落盘」交付。
 
-二进制 `.doc` 可以抽正文（`analyze_document` / 索引），但**不能**当作审阅痕迹基线。要在原稿上出修订时，引擎停下来，请律师用 Word 或 WPS 另存为同名 `.docx` 后再继续。不会自动 `textutil` / LibreOffice / 随包转换器去猜版式。
+PDF 导出走 `drafts/docx-export-pdf.ts`：用 LibreOffice（soffice，`external:soffice` 租约，120 秒超时）把已出的 `.docx` 转成同目录同名 `.pdf`。
 
-邮件短路径遇到 `.doc` 时同样不写审阅痕迹：先走意见书级审查，并在说明里提示另存后再交办「按原稿改稿」。
+### .doc：Word 另存为（律师机器上已有 Word）
+
+二进制 `.doc` 有两条互不冒充的路径：
+
+- **读正文**（中栏预览、`analyze_document`、索引、中栏显示已有修订）：`mail/read-word-binary.ts` 在进程内解析 OLE 复合文档（FIB + piece table），顺带读出修订的作者、删除/插入、时间。快、无依赖。
+- **出 `.docx` 交付稿**：`mail/convert-with-word.ts` 让**律师自己的 Microsoft Word 另存为**。页眉页脚、表格、图片、编号几何和已有修订（谁改的、什么时候、删还是插）全部原样过来，就是「另存为」的效果。没有 LibreOffice 也不需要额外安装。
+
+**为什么能不再弹「授予文件访问权限」**：Word for macOS 是沙盒应用。外部路径的 AppleScript 打开会被 macOS 拦下要授权；把文件**暂存进 Word 自己的容器**（`~/Library/Containers/com.microsoft.Word/Data/Documents`）后，Word 本来就有权限，授权框不再出现。转换完成即清掉暂存目录（连同 `~$` 锁文件），不碰 Word 里正在编辑的文档，也不抢焦点（不调 `activate`）。
+
+LibreOffice headless（`external:soffice` 租约）作为兜底，两个引擎都没有时**硬失败**：不出稿，明确告诉律师需要 Word 或 LibreOffice。绝不拿「只有正文」的替身冒充原件。
+
+产物要过三重校验才算成功：合法 ZIP、含 `word/document.xml`、非空。
+
+OLE 读不出正文时报 `doc_needs_docx`（`mail/doc-revision-gate.ts`）。常见原因是加密、Word 6/95 旧格式或文件损坏。
+
+已删除「WPS 加载项在 WPS 里另存」的作业队列：它要求律师装加载项、开着 WPS，一批混着 `.doc` / `.docx` 的材料会被反复挡下来。
+
+**颜色**：`w:ins` / `w:del` 只存 `w:author`、`w:date`，没有颜色字段。Word / WPS 打开时按作者名分配调色板颜色，所以同一份稿在不同软件里色号可能不同——这是显示层行为，不是转换丢字段。
 
 ## 8.10 落盘为什么必须从右到左
 
@@ -297,7 +319,7 @@ ops.toSorted((a, b) => (b.spanStart ?? 0) - (a.spanStart ?? 0));
 多处命中：该 hunk 整处跳过并明示（不得交付多处替换稿）。
 ```
 
-跳过时会记 `multi_match_skipped:<前30字>`，并且**整处回滚**。回滚也失败的话（`multi_match_rollback_failed`），这次导出**不算可交付**。
+跳过时会记 `multi_match_skipped:<前40字>`，并且**整处回滚**。回滚也失败的话（`multi_match_rollback_failed`），这次导出**不算可交付**。
 
 宁可不出稿，也不出一份「悄悄改了好几处」的稿。这条底线在代码里守得很死。
 
@@ -315,7 +337,7 @@ officecli 超时设的是 120 秒。修订作者默认写 `"LawMind"`。设置 �
 
 ### 回执清单
 
-每次导出会在产物旁边写一份清单文件 `.<taskId>.redline-manifest.json`，包含：
+每次导出会写一份清单文件 `.<taskId>.redline-manifest.json`。落点是 LawMind 工作区的 `cache/redline-manifests/`——刻意**不**写进律师的案件夹或交付目录，避免 Finder 里一堆 `.json`；只有没有工作区时（单测临时目录）才旁路到产物旁边。清单包含：
 
 - `applyResult`：`{applied, attempted, ambiguous, lastError}`
 - `applyStatus`：比如 `"ambiguous"`
@@ -331,10 +353,11 @@ officecli 超时设的是 120 秒。修订作者默认写 `"LawMind"`。设置 �
 
 前面四道边界管的是「要写什么」，难免有意外。所以最后有一道**成品复核**：读实际的 .docx，看 `w:del` 和 `w:ins` 标签。
 
-`qaTrackedDocxXml(filePath, expectedHunks)` 做两件事：
+`qaTrackedDocxXml(filePath, expectedHunks)` 做三件事：
 
 1. 数有几处 `w:ins` 和 `w:del`。
 2. 找出「整句删 + 整句增」的配对。
+3. 核对修订 run 的**直接格式**是否对齐邻接原稿 run（字体/字号/加粗等）——这道在 `drafts/tracked-format-gate.ts`。
 
 配对判定的三个门槛：
 
@@ -350,7 +373,9 @@ officecli 超时设的是 120 秒。修订作者默认写 `"LawMind"`。设置 �
 
 在文件级下结论比在内存里下结论风险更高（因为看不到配对关系），所以门槛要更严。
 
-复核失败时的两种警告：
+第三道（格式对齐）是硬控，代码在 `drafts/tracked-format-gate.ts`：officecli 落修订时可能在 `w:ins`/`w:del` 里写出不带 `w:rPr` 的裸 run，修订文字就和原稿字体不一致。导出路径会先跑 `repairTrackedDocxFormat`，把邻接原稿 run 的直接格式补进修订 run（donor 顺序：插入先看配对的删除 run，再取最近的普通 run，绝不跨修订簇借格式），然后 `qaTrackedDocxXml` 再复核一遍。删除 run 上原有的直接格式（比如仿宋段里夹的楷体）不会被覆盖。
+
+复核失败时的三种警告：
 
 ```text
 已报叠加修订，但 XML 未见 w:ins/w:del。不要当红线已落盘。
@@ -361,7 +386,11 @@ officecli 超时设的是 120 秒。修订作者默认写 `"LawMind"`。设置 �
 导出的修订轨里有 N 处「整句删+整句增」…
 ```
 
-前者对应的错误码是 `xml_qa_no_tracks`，后者是 `xml_qa_non_minimal_edits`。
+```text
+导出的修订文字有 N 处未对齐原稿直接格式（字体/字号/加粗等）…
+```
+
+三者对应的错误码分别是 `xml_qa_no_tracks`、`xml_qa_non_minimal_edits`、`xml_qa_format_mismatch`。
 
 ### 自动重试一次
 
@@ -424,7 +453,7 @@ LawMind 里的接受/拒绝不是 Word 菜单那一套：对署名是自己的�
 2. **桌面端自动跑这次审查**——律师不需要回桌面端点一次。
 3. 跑完后结果回填成逐条建议。律师点「写入这一处」或「全部写入」之后，才把修订落进当前文档。整节重写不落，窗格写「整节重写已放到桌面稿」。
 
-第 2 步是这整套设计的关键，文档里专门有一节解释「为什么这里可以自动跑」，还修正了此前文档的说法。原因是：`toolRequiresExplicitApproval` 只对 `toolRequiresLawyerPause` 命中的工具返回 true，而那只包含 `send_email`。所以插件里的 `apply_surgical_edits` 和 `render_tracked_draft` 本来就不需要额外弹出确认。
+第 2 步是这整套设计的关键，文档里专门有一节解释「为什么这里可以自动跑」，还修正了此前文档的说法。原因是：自 2026-10-01 起 `toolRequiresLawyerPause` **恒为 false**——没有 pause 工具了，`send_email` 也只写入本案「待发信」，批准动作在收件箱、不打断回合；`toolRequiresExplicitApproval` 因此对任何工具都不拦。插件里的 `apply_surgical_edits` 和 `render_tracked_draft` 本来就不需要额外弹出确认。
 
 ### 三条不许破的线
 
@@ -438,7 +467,7 @@ LawMind 里的接受/拒绝不是 Word 菜单那一套：对署名是自己的�
 
 > 硬不变量（最短改动）：**不**照抄 hunk 的粒度——历史 section hunk 的 before/after 可能是整节，直接塞给插件就会变成整节删+整节增。
 
-处理方式：最短改动重算之后，真替换都交给 Word，不按字数丢进 `skippedSectionHunks`。文末插入直接跳过——「插件不猜位置」。
+处理方式：最短改动重算之后，替换类片段直接交给 Word 查找；**重算后查找串仍超过 60 字**（`WORD_ADDIN_MAX_FIND_CHARS`）的整段替换不上插件，如实计入 `skippedSectionHunks`，窗格会写「整节重写已放到桌面稿」。文末插入直接跳过——「插件不猜位置」。
 
 ### 请求状态机
 
@@ -466,11 +495,12 @@ LawMind 里的接受/拒绝不是 Word 菜单那一套：对署名是自己的�
 
 真机实测律师会连点「审这份」。不折叠的后果是 N 倍模型开销——注释里写着「花两次模型钱（真机实测复现）」。
 
-折叠规则：
+折叠规则（窗口 10 分钟，`WORD_ADDIN_DEDUPE_WINDOW_MS`）：
 
-- 创建时折叠同文件同指令，窗口 10 分钟（`WORD_ADDIN_DEDUPE_WINDOW_MS`）。
+- 创建时先做**幂等复用**（`findReusableWordAddinReview`）：同文件 + 同指令 + **同内容指纹**的请求在途（`queued` 或 `running`）时，这次点击直接接在已跑的那条上，律师拿同一个 id 继续轮询，不再开新请求。
+- 接不上的才新建，并把同文件同指令、还没开跑的旧 `queued` 标成 `superseded`。
 - 取件时再折一次同口径的 `queued`。
-- **绝不折叠 `running`**。
+- **绝不折叠 `running`**——那一笔的模型钱已经花了，它的结果必须回到律师手上；幂等复用是「接上」，不是丢掉。
 
 还有一处真机踩到的细节：`pickWordAddinReviewForDocument` 优先返回最新的 `ready`，只有没有 `ready` 才返回最新那条。注释解释：
 
@@ -488,6 +518,7 @@ LawMind 里的接受/拒绝不是 Word 菜单那一套：对署名是自己的�
 | --------------------------- | ---------------------------------------- |
 | `interrupted_by_restart`    | 桌面端中途重启过，这次审查被中断         |
 | `cancelled_by_user`         | 你取消了这次审查                         |
+| `workflow_cancelled`        | 这次审查被取消                           |
 | `missing_workflow_snapshot` | 任务记录不完整（缺少流程定义），请重试   |
 | `source_file_missing`       | 源文件已被移动或删除                     |
 | `enqueue_unavailable`       | 桌面端尚未就绪（模型或工作流入队不可用） |
@@ -621,11 +652,12 @@ if (draft.contractEdit) return false; // 修订稿不跑
 
 ### 缓存
 
-审稿结果按证据包的哈希缓存（`shouldReuseGuardianRecord`）。三种情况**不**复用：
+审稿结果按证据包的哈希缓存（`shouldReuseGuardianRecord`）。四种情况**不**复用：
 
 - 没有哈希或哈希不同。
 - 结论是 `skipped`（注释：`Disabled / no_model must not cache-block a later usable model`——这次没跑成，不能因此挡住下次）。
 - 基础设施失败（`isInfraGuardianFail`）。
+- 上一轮只是**审稿层空包**失败（`isReviewLayerOnlyFail`：检查单为空、引用没挂标题这类）——证据包哈希没变，不复用就会把旧 fail 一直交回去，修订稿出不来。
 
 只有 `pass` 和 `fail` 才缓存。这条设计避免了「上次模型抽风失败，这次明明配好了还复用失败结论」。
 
@@ -649,7 +681,7 @@ if (draft.contractEdit) return false; // 修订稿不跑
 
 - 引号定义：`"XX"系指...`（动词有 `系指|是指|指|即为|即|为`）
 - 括号别名：`XX（以下简称YY）`
-- 角色词：一份 27 个词的清单（`CONTRACT_ROLE_WORDS`），涵盖甲方乙方丙方丁方、买方卖方、需方供方、发包人承包人、出租人承租人、出卖人买受人、委托方受托方、许可方被许可方、披露方接收方、出借人借款人、保证人、服务方、供应方、采购方。
+- 角色词：一份 27 个词的清单（`CONTRACT_ROLE_WORDS`），涵盖甲方乙方丙方丁方、买方卖方、需方供方、发包人承包人转包人、出租人承租人、出卖人买受人、委托方受托方、许可方被许可方、披露方接收方、出借人借款人、保证人、服务方、供应方、采购方。
 
 **第二层：对齐。** `alignTerminology` 做确定性替换。
 
@@ -677,7 +709,7 @@ if (draft.contractEdit) return false; // 修订稿不跑
 
 受众三种：`internal`、`client`、`court`。
 
-判定用正则：诉讼类文档（起诉状、答辩状、代理词、呈请法院、此致某人民法院）→ `court`；提到给客户、发给客户、给对方律师的 → `client`。
+判定用正则：诉讼类文档（起诉状、答辩状、代理词、给法院、呈请法院、此致某人民法院）→ `court`；提到给客户、发给客户、对外意见、给对方律师、可发给对方的 → `client`。
 
 适用的能力有七个（`letter.draft`、`litigation.draft`、`materials.draft`、`contract.review`、`contract.draft`、`research.memo`、`litigation.talk`），但在**修订轨路径和邮件短路径上排除**——因为那两条路径有自己的交付口径。
 
@@ -740,18 +772,21 @@ revision_not_persisted: 助手未将修订写入 drafts 文件，请查看对话
 
 ### Word 插件
 
-| 端点                                         | 方法     | 说明                             |
-| -------------------------------------------- | -------- | -------------------------------- |
-| `/word-addin/manifest.xml`                   | GET      | 清单（模板变量替换）             |
-| `/word-addin/taskpane.html` / `.js` / `.css` | GET      | 静态页                           |
-| `/word-addin/icon-32.png`                    | GET      | 图标                             |
-| `/word-addin/config.js`                      | GET      | 同源配置与凭据                   |
-| `/api/word-addin/reviews`                    | GET/POST | 列/建审查请求                    |
-| `/api/word-addin/reviews/:id`                | GET      | 读一个请求                       |
-| `/api/word-addin/reviews/:id/result`         | POST     | 回填结果                         |
-| `/api/word-addin/reviews/:id/matter`         | POST     | 指定案卷（旧 `needs_matter` 用） |
-| `/api/word-addin/reviews/:id/export`         | POST     | 取导出路径                       |
-| `/api/word-addin/matters`                    | GET      | 可选案卷列表                     |
+| 端点                                         | 方法     | 说明                                   |
+| -------------------------------------------- | -------- | -------------------------------------- |
+| `/word-addin/manifest.xml`                   | GET      | 清单（模板变量替换）                   |
+| `/word-addin/taskpane.html` / `.js` / `.css` | GET      | 静态页                                 |
+| `/word-addin/icon-32.png`                    | GET      | 图标                                   |
+| `/word-addin/config.js`                      | GET      | 同源配置与凭据                         |
+| `/api/word-addin/reviews`                    | GET/POST | 列/建审查请求                          |
+| `/api/word-addin/reviews/:id`                | GET      | 读一个请求                             |
+| `/api/word-addin/reviews/:id/decisions`      | POST     | 律师对一条建议的决定（写在本机请求上） |
+| `/api/word-addin/reviews/:id/revise`         | POST     | 改这一处的替换文字，写回修订清单       |
+| `/api/word-addin/reviews/:id/commit`         | POST     | 按清单覆盖已写出的审阅 Word            |
+| `/api/word-addin/reviews/:id/result`         | POST     | 回填结果                               |
+| `/api/word-addin/reviews/:id/matter`         | POST     | 指定案卷（旧 `needs_matter` 用）       |
+| `/api/word-addin/reviews/:id/export`         | POST     | 取导出路径                             |
+| `/api/word-addin/matters`                    | GET      | 可选案卷列表                           |
 
 静态面**免 bearer 鉴权**，但仍在回环 Host 门后面（第 14 章讲鉴权）。插件页面的凭据从同源 `config.js` 拿。
 
@@ -767,7 +802,9 @@ revision_not_persisted: 助手未将修订写入 drafts 文件，请查看对话
 | 修订提案           | `src/lawmind/drafts/redline-proposal.ts`                                                                                                                                                                                      |
 | 合同基线           | `src/lawmind/drafts/contract-edit-baseline.ts`                                                                                                                                                                                |
 | 空修订门           | `src/lawmind/drafts/tracked-render-hunk-gate.ts`                                                                                                                                                                              |
+| 修订格式门         | `src/lawmind/drafts/tracked-format-gate.ts`（修订 run 须继承邻接原稿 run 的直接格式，导出前先 repair 再复核）                                                                                                                 |
 | XML 复核与重试     | `src/lawmind/drafts/tracked-xml-qa.ts`、`xml-qa-auto-retry.ts`                                                                                                                                                                |
+| 修订兜底与 PDF     | `src/lawmind/drafts/docx-visible-revisions.ts`（officecli 落不上时直写 `w:del`/`w:ins`）、`src/lawmind/drafts/docx-export-pdf.ts`（soffice 出 PDF）                                                                           |
 | 跨文书             | `src/lawmind/drafts/cross-document-edits.ts`                                                                                                                                                                                  |
 | 术语               | `src/lawmind/drafts/terminology-adapt.ts`                                                                                                                                                                                     |
 | 出处与受众         | `src/lawmind/drafts/provenance.ts`、`audience-split.ts`、`source-boundary.ts`                                                                                                                                                 |
@@ -781,7 +818,7 @@ revision_not_persisted: 助手未将修订写入 drafts 文件，请查看对话
 | 插件资产           | `apps/lawmind-desktop/resources/word-addin/`                                                                                                                                                                                  |
 | 独立审稿           | `src/lawmind/guardian/`                                                                                                                                                                                                       |
 | HTTP               | `apps/lawmind-desktop/server/lawmind-server-route-redline.ts`、`-draft-revision.ts`、`-word-addin.ts`                                                                                                                         |
-| 桌面 UI            | `apps/lawmind-desktop/src/renderer/LawmindRedlinePanel.tsx`、`ReviewWorkbench.tsx`、`review/`、`LawmindDraftDocumentEditor.tsx`、`LawmindWordRevisionBar.tsx`、`stores/review-pane-visibility-store.ts`                       |
+| 桌面 UI            | `apps/lawmind-desktop/src/renderer/LawmindRedlinePanel.tsx`、`ReviewWorkbench.tsx`、`review/`、`LawmindDraftDocumentEditor.tsx`、`file/LawmindWordRevisionSurface.tsx`、`stores/review-pane-visibility-store.ts`              |
 
 ## 8.19 已知坑
 
@@ -790,6 +827,7 @@ revision_not_persisted: 助手未将修订写入 drafts 文件，请查看对话
 - **多处命中一律整处跳过。** 不要为了「尽量多改」退回「改第一处」的行为，那正是注释里点名禁止的。
 - **只读文件要 chmod。** 从 Finder 拷来的 0444 文件不改权限，officecli 会「0 处应用」且不报错。
 - **XML 复核的门槛（8 字 / 60%）比内存里的（6 字）严，这是有意的**，别为了少报而调低。
+- **修订文字也要对齐原稿格式。** `tracked-format-gate` 要求修订 run 继承邻接原稿 run 的直接格式（字体/字号/加粗），导出前先 repair，复核不过报 `xml_qa_format_mismatch`；别把这条当成「样式小事」关掉。
 - **计划跳过原因要按真实原因统计。** 只认「跨度硬门禁」会让审稿人看不到真正的漏改。
 - **Word 插件的端口是持久化契约。** 换端口会让已侧载的窗格找不到服务，表现还是误导性的 `unauthorized` 或 `Load failed`。
 - **`needs_matter` 是旧状态。** 新流程不该再用它拦人。

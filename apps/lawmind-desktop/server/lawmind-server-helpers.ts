@@ -41,6 +41,11 @@ import {
   isModelProviderErrorMessage,
 } from "../../../src/lawmind/agent/model-error-message.js";
 
+/** Ordinary chat advertises assistant delegation only when this is exactly `true`. */
+export function collaborationEnabledFromEnv(): boolean {
+  return process.env.LAWMIND_ENABLE_COLLABORATION?.trim().toLowerCase() === "true";
+}
+
 export const LAWMIND_LOCAL_HOST = "127.0.0.1";
 /**
  * 回环的 IPv6 面。`localhost` 在 macOS 上**同时**解析到 `::1` 与 `127.0.0.1`，
@@ -276,7 +281,7 @@ export function buildAgentConfig(
     };
   }
 
-  const enableCollaboration = process.env.LAWMIND_ENABLE_COLLABORATION?.trim().toLowerCase() !== "false";
+  const enableCollaboration = collaborationEnabledFromEnv();
   const policyState = readLawMindPolicyFile(workspaceDir);
   const policyForEdition: LawMindWorkspacePolicy | null = policyState.loaded
     ? (policyState.policy as LawMindWorkspacePolicy)

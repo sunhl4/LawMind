@@ -169,6 +169,7 @@ export async function handleAcceptanceSheetRoutes({
     try {
       const png = await renderPdfPagePng(located.abs, page);
       res.writeHead(200, {
+        ...c,
         "content-type": "image/png",
         "cache-control": "private, no-store",
       });

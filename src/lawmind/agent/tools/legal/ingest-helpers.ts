@@ -49,7 +49,7 @@ function isOcrImagePath(filePath: string): boolean {
 /** 在走 UTF-8 直读或误进二进制前给出明确说明（.docx/.xlsx/.pdf/图片/.doc 仍走专用分支）。 */
 function unsupportedOfficeIngestReason(filePath: string): string | null {
   const ext = path.extname(filePath).toLowerCase();
-  // .doc：analyze_document 走 readBinaryWordDocText（直接提取，不转格式）
+  // .doc：先由 WPS 加载项另存为 .docx，再读那份 .docx。
   if (ext === ".xls" || ext === ".ppt") {
     return "暂不支持从旧式 Office 二进制（.xls/.ppt）提取文本；请另存为 .xlsx/.pptx 后再读取。";
   }
@@ -209,8 +209,14 @@ function normalizeExtractedText(text: string): string {
     .trim();
 }
 
+function stripWordFieldInstructions(xml: string): string {
+  return xml
+    .replace(/<w:instrText\b[^>]*>[\s\S]*?<\/w:instrText>/g, "")
+    .replace(/<w:delInstrText\b[^>]*>[\s\S]*?<\/w:delInstrText>/g, "");
+}
+
 function extractTextFromDocxXml(xml: string): string {
-  let body = xml
+  let body = stripWordFieldInstructions(xml)
     .replace(/<w:p[^>]*>/g, "\n")
     .replace(/<w:br[^>]*\/>/g, "\n")
     .replace(/<w:tab[^>]*\/>/g, "\t")

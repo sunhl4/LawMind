@@ -3,8 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ToolRegistry } from "../agent/tools/registry.js";
+import type { AgentContext } from "../agent/types.js";
 import {
   attachEnabledMcpServers,
+  closePooledMcpForTests,
   isMcpWriteLikeTool,
   shouldExposeMcpTool,
 } from "./mcp-client-bridge.js";
@@ -56,7 +58,8 @@ rl.on("line", (line) => {
   return file;
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await closePooledMcpForTests();
   for (const d of dirs.splice(0)) {
     fs.rmSync(d, { recursive: true, force: true });
   }
@@ -92,6 +95,40 @@ describe("mcp client bridge", () => {
       await session.close();
       await Promise.all(attached.sessions.map((s) => s.close().catch(() => undefined)));
     }
+  });
+
+  it("shares one MCP process across two turns until both release it", async () => {
+    const ws = tmpWs();
+    const mock = writeMockServer(ws);
+    writeMcpServersConfig(ws, [
+      {
+        id: "mock",
+        label: "Mock",
+        transport: "stdio",
+        command: process.execPath,
+        args: [mock],
+        enabled: true,
+        allowWrites: false,
+      },
+    ]);
+    const first = new ToolRegistry();
+    const second = new ToolRegistry();
+    const a = await attachEnabledMcpServers({ registry: first, workspaceDir: ws });
+    const b = await attachEnabledMcpServers({ registry: second, workspaceDir: ws });
+    const call = async (registry: ToolRegistry) => {
+      const tool = registry.get("mcp__mock__echo_note");
+      expect(tool).toBeDefined();
+      const result = await tool!.execute({ text: "hi" }, {
+        workspaceDir: ws,
+        sessionId: "s",
+        actorId: "lawyer",
+      } as AgentContext);
+      expect(result.ok).toBe(true);
+    };
+    await call(first);
+    await Promise.all(a.sessions.map((s) => s.close()));
+    await call(second);
+    await Promise.all(b.sessions.map((s) => s.close()));
   });
 
   it("rejects reserved remote names", () => {

@@ -4,7 +4,7 @@
 
 这是「系统会写」升级为「系统会推理」的那一层。它有两个模式：默认**规则驱动**（不调模型就能出稿），可选**模型增强**（env 或桌面配置开了才用）。
 
-18 个实现文件，加 `compile/` 的 4 个，本章逐个讲。
+19 个实现文件（含 `draft-critic-prefix.ts`：只导出 `DRAFT_CRITIC_PREFIX`，渲染进程引用这一行，不把整份 critic 打进渲染包），加 `compile/` 的 5 个，本章逐个讲。`compile/legal-elements-fill.ts` 只有测试导入。
 
 ## 54.1 入口与两种模式
 
@@ -48,7 +48,9 @@ buildDraft(params: BuildDraftParams): ArtifactDraft
 骨架稿：模型未成稿，已用结构骨架。不能当作成稿外发，请补全或重试。
 ```
 
-**这句文案是本章最重要的一处设计**：模型失败时产出的不是「看起来像成稿的东西」，而是一份**明确标着「不能外发」的骨架稿**。
+**这句文案是本章最重要的一处设计**：模型失败时产出的不是「看起来像成稿的东西」，而是一份**明确标着「不能外发」的骨架稿**。骨架就是 `buildDraft` 已经写好的章节：占位符形如 `【出租人姓名/名称】`。
+
+**模型扩写并不重排结构。** `draftUserPrompt` 把规则稿的标题列出来，并写明「沿用这些章节标题，可改写正文，不要整表丢掉」。成功时正文换成模型段落，规则稿里「风险提示 / 待补充事项 / 冲突结论 / 附录：检索来源」等尾巴章节仍拼在后面。`report.esg` 且模型至少写出 4 节时，只补模型没写过的尾巴，不整表再贴一遍。
 
 ### 两种模式各在什么时候用
 
@@ -67,32 +69,40 @@ buildDraft(params: BuildDraftParams): ArtifactDraft
 
 ## 54.2 规则草稿：一份稿子怎么搭起来
 
-`keyword-draft.ts` 的做法是「按 `deliverableType` 分发」。它内部有一张**标题表**（我数了 27 条），把类型映射成中文标题：
+`keyword-draft.ts` 按 `deliverableType` 分发到 **20 个以上写死的章节骨架**（`buildRentalContractSections` 起；租赁合同是 9 节逐字模板，正文用 `buildPlaceholder` 填 `【标签】`）。`buildContractReviewSections` 是固定的审查栏目。家事、资本市场、治理、刑事、破产、广告合规、上诉、执行异议、立案包再交给 `scene-draft.ts`。交付物规格是另一张表：`deliverables/registry.ts` 11 份内建，加 `lawyer-work-specs.ts` 16 份，共 27，不是 30。
 
-| 类型                   | 标题                                   |
-| ---------------------- | -------------------------------------- |
-| `contract.rental`      | 房屋租赁合同                           |
-| `contract.review`      | 合同审查意见书                         |
-| `contract.general`     | 合同草案                               |
-| `contract.nda`         | 保密协议                               |
-| `letter.demand`        | 催告函 / 律师函                        |
-| `letter.reply`         | 回函稿                                 |
-| `litigation.complaint` | 民事起诉状                             |
-| `litigation.answer`    | 民事答辩状                             |
-| `litigation.brief`     | 代理词                                 |
-| `memo.opinion`         | 法律意见书                             |
-| `memo.research`        | 检索研究备忘                           |
-| `memo.internal`        | 内部备忘                               |
-| `labor.calc`           | 劳动补偿计算                           |
-| `period.calc`          | 程序期限计算                           |
-| `analysis.table`       | 核算对照                               |
-| `matter.timeline`      | 案件时间线                             |
-| `matter.exhibit_list`  | 证据目录                               |
-| `meeting.minutes`      | 会议纪要                               |
-| `report.compliance`    | 广告与产品合规备忘（另有合规卷宗路径） |
-| `report.general`       | 专项研究报告                           |
-| `ppt.training`         | （走模板变体）                         |
-| 兜底                   | LawMind 法律文书草稿                   |
+`defaultDraftTitle` 把类型映射成中文标题：
+
+| 类型                   | 标题                             |
+| ---------------------- | -------------------------------- |
+| `contract.rental`      | 房屋租赁合同                     |
+| `contract.review`      | 合同审查意见书                   |
+| `contract.general`     | 合同草案                         |
+| `contract.nda`         | 保密协议                         |
+| `letter.demand`        | 催告函                           |
+| `letter.counsel`       | 律师函                           |
+| `letter.reply`         | 回函稿                           |
+| `litigation.complaint` | 民事起诉状                       |
+| `litigation.answer`    | 民事答辩状                       |
+| `litigation.brief`     | 代理词                           |
+| `memo.opinion`         | 法律意见书                       |
+| `memo.research`        | 检索研究备忘                     |
+| `memo.internal`        | 治理备忘，或内部备忘             |
+| `labor.calc`           | 劳动补偿计算                     |
+| `period.calc`          | 程序期限计算                     |
+| `analysis.table`       | 核算对照                         |
+| `matter.timeline`      | 案件时间线                       |
+| `matter.exhibit_list`  | 证据目录                         |
+| `meeting.minutes`      | 会议纪要                         |
+| `report.compliance`    | 摘要，或合规卷宗备忘录           |
+| `report.learning`      | 摘要，或法律调研简报             |
+| `report.esg`           | 欧盟 / 新能源组合（第 54.12 节） |
+| `report.general`       | 广告合规专名，或专项研究报告     |
+| `document.general`     | 上诉状、执行异议或立案清单       |
+| `ppt.training`         | 摘要或主题，否则培训课件         |
+| 兜底                   | LawMind 法律文书草稿             |
+
+摘要不超过 80 字时，合规、学习、ESG、培训课件优先用摘要。合规否则按是否涉外写成「涉外合规卷宗备忘录」或「合规研究卷宗备忘录」。内部备忘遇到治理指令是「公司治理备忘」，LPM 种类另有专用标题。`document.general` 的三个专名是「民事上诉状」「执行异议」「立案材料清单」。
 
 ### 三个细节
 
@@ -337,6 +347,8 @@ ARTICLE_SPLIT = /(?=第[一二三四五六七八九十百千0-9]+条)/g
 
 ### 再上第二意见
 
+`draft-critic-prefix.ts` 只有一行：`DRAFT_CRITIC_PREFIX = "复核："`。`draft-critic.ts` 再把它 re-export。渲染进程只许引用前缀文件。
+
 `draft-critic.ts` 的头部注释两句讲清了边界：
 
 ```text
@@ -408,7 +420,7 @@ CompileFillIR   = { kind, slots, gaps, computed? }
 
 > When set, slot is incomplete; never invent a value.
 
-**「never invent a value」是这套 IR 的全部意义**：能算的算进 `computed`，算不出的留成 `gap`，中间没有「猜一个」。`legal.elements` 走 `compile/legal-elements-fill.ts`：九类槽里抽不到的留缺口，不把口语评价写成事实。
+**「never invent a value」是这套 IR 的全部意义**：能算的算进 `computed`，算不出的留成 `gap`，中间没有「猜一个」。`legal.elements` 这个 kind 的填充文件只有测试在用，见本节末。
 
 ### 两个格式化函数
 
@@ -419,7 +431,7 @@ formatSlotsAsLines(slots) → "label：value" 或 "label：【待补充】（gap
 
 **注意 `【待补充】` 是固定字面量**——所以「缺什么」在最终文书里是可检索、可统计的。
 
-### 四个 adapter
+### 三个生产 adapter
 
 | 文件                              | 产出 kind              | 槽位                                                                         |
 | --------------------------------- | ---------------------- | ---------------------------------------------------------------------------- |
@@ -450,9 +462,11 @@ Letter address slots from the instruction. Never invent 收函/委托人.
 
 **为什么不猜**：函件的收件人和委托人写错，是发错对象的低级错误。所以**宁可留占位符，也不猜一个**。
 
-### `legal.elements` 的适配器
+### `legal.elements` 的适配器（仅测试）
 
-`compile/legal-elements-fill.ts` 的 `extractLegalElementsCompileFill` 把 `reasoning/legal-elements.ts` 的九类槽收成 `CompileFillIR`。抽不到的槽留缺口，不把口语评价写成事实。
+`compile/legal-elements-fill.ts` 的 `extractLegalElementsCompileFill` 把 `reasoning/legal-elements.ts` 的九类槽收成 `CompileFillIR`。抽不到的槽留缺口。全仓只有 `compile/compile-fill.test.ts` 导入它。`CompileFillKind` 联合类型里仍留着 `"legal.elements"`。
+
+生产起草不走这个文件。`keyword-draft.ts` 直接调 `extractLegalElements`（意见书、内部备忘、合同审查骨架）。上面三个 adapter 文件经 `keyword-draft.ts` 的 import 活着。
 
 ## 54.8 场景骨架：九个 `build*Sections`
 
@@ -724,7 +738,7 @@ Issue → Rule → Application → Conclusion（口播，勿贴全文）
 ## 54.13 已知坑（本章相关）
 
 - **`reasoning/index.ts` 是纯 barrel。** 找实现去各文件。
-- **`index.ts` 不导出全部**：`norm-validity`、`legal-elements`、`scene-draft`、`quick-triage`、`chronology-extract`、`evidence-chain`、三个 draft 文件、`research-draft-gates`、`cn-date` 都不在 barrel 里。
+- **`index.ts` 不导出全部**：`norm-validity`、`legal-elements`、`scene-draft`、`quick-triage`、`chronology-extract`、`evidence-chain`、三个报告 draft 文件、`research-draft-gates`、`cn-date`、`draft-critic-prefix` 都不在 barrel 里。`DRAFT_CRITIC_PREFIX` 经 `draft-critic.ts` 再导出。
 - **`lawyer-work-draft.test.ts` 测的是 `keyword-draft.ts` 的律师工作骨架。** 没有同名实现文件。
 - **派生事实「没有拦停权」**，算不出就空数组，永不抛。
 - **派生事实丢整条不截半条。**
@@ -734,7 +748,9 @@ Issue → Rule → Application → Conclusion（口播，勿贴全文）
 - **大纲未确认的三类交付物不许被模型扩写。**
 - **`buildOutlineOnlySections` 把「怎么批准」写进稿子**，不是弹框。
 - **第二意见只加备注，不改正文。**
-- **`legal.elements` 的适配器在 `compile/legal-elements-fill.ts`。** 抽不到的九类槽留缺口，不补事实。
+- **`compile/legal-elements-fill.ts` 只有测试导入。** 生产骨架直接调 `reasoning/legal-elements.ts`。
+- **章节骨架是写死的。** 模型只被要求沿用标题、改写正文；失败就退回带 `【标签】` 的占位骨架。
+- **交付物规格是 27 份**（registry 11 + lawyer-work-specs 16），不是 30。标题函数和规格表不是同一张清单。
 - **函件的收件人/委托人宁可留占位符也不猜。**
 - **`contract-redline-craft` 那份技能正文来自代码常量**（第 20 章讲过），因为要和引擎门槛同步。
 - **`norm-validity` 的两处负向断言（`(?<!劳动)` / `(?!编)`）不能删。** 删了会说劳动合同法已废止。

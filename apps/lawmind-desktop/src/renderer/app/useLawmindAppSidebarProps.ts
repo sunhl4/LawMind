@@ -35,6 +35,11 @@ export type UseLawmindAppSidebarPropsInput = {
   chatMatterRows?: MatterSidebarRow[];
   onOpenChatScope?: (scope: string | null) => void;
   assistantDisplayById?: Record<string, string>;
+  workspaceFolderLabel?: string | null;
+  workspaceFolderPath?: string | null;
+  newChatHomePath?: string | null;
+  onNewChatInFolder?: (folderRel?: string) => void | Promise<void>;
+  onCreateChatWorkspace?: (workDir: string) => void | Promise<void>;
   onSelectChatSession?: (sessionId: string) => void | Promise<void>;
   onCreateNewChatSession?: () => void | Promise<void>;
   onRenameChatSession?: (sessionId: string, title: string) => void | Promise<void>;
@@ -74,6 +79,11 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
     chatMatterRows,
     onOpenChatScope,
     assistantDisplayById,
+    workspaceFolderLabel,
+    workspaceFolderPath,
+    newChatHomePath,
+    onNewChatInFolder,
+    onCreateChatWorkspace,
     onSelectChatSession,
     onCreateNewChatSession,
     onRenameChatSession,
@@ -112,6 +122,11 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       chatMatterRows,
       onOpenChatScope,
       assistantDisplayById,
+      workspaceFolderLabel,
+      workspaceFolderPath,
+      newChatHomePath,
+      onNewChatInFolder,
+      onCreateChatWorkspace,
       onSelectChatSession: onSelectChatSession
         ? async (sessionId) => {
             if (mainView === "meeting") {
@@ -162,6 +177,11 @@ export function useLawmindAppSidebarProps(input: UseLawmindAppSidebarPropsInput)
       chatMatterRows,
       onOpenChatScope,
       assistantDisplayById,
+      workspaceFolderLabel,
+      workspaceFolderPath,
+      newChatHomePath,
+      onNewChatInFolder,
+      onCreateChatWorkspace,
       onSelectChatSession,
       onCreateNewChatSession,
       onRenameChatSession,

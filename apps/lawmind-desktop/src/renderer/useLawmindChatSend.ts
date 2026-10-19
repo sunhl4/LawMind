@@ -85,9 +85,9 @@ import {
   clientHasLiveTurn,
   focusedSessionHasLiveTurn,
   reattachLiveTurn,
-  runningSessionIds,
+  partitionLiveSessions,
   sessionQueueKey,
-  setRunningChatSessionIds,
+  setLiveChatActivity,
   shouldDetachLiveTurn,
   turnStillOwnsComposer,
   type FocusedChat,
@@ -117,6 +117,8 @@ export type UseLawmindChatSendInput = {
   composeTruthPins: TruthSourceContextPin[];
   deskContractBatchDir: string;
   projectDir: string | null;
+  /** 这场对话若在新建时绑定了工作区，发送时用它，不用当前打开的文件夹。 */
+  chatWorkDirForSession?: (sessionId: string | undefined) => string | undefined;
   allowWebSearch: boolean;
   refreshChatSessionListForAssistant: (assistantId: string) => Promise<unknown>;
   /** 发送当下把占位标题换成这句话，左栏不用等本轮结束。 */
@@ -193,6 +195,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
     composeTruthPins,
     deskContractBatchDir,
     projectDir,
+    chatWorkDirForSession,
     allowWebSearch,
     refreshChatSessionListForAssistant,
     setChatSessionList,
@@ -250,7 +253,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
   }
 
   const publishRunning = useCallback(() => {
-    setRunningChatSessionIds(runningSessionIds(liveTurnsRef.current.values()));
+    setLiveChatActivity(partitionLiveSessions(liveTurnsRef.current.values()));
   }, []);
 
   const currentFocus = useCallback((): FocusedChat => {
@@ -458,10 +461,21 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         if (clientHasLiveTurn(liveTurnsRef.current.values(), background.sessionId)) {
           const focus = { assistantId: background.assistantId, sessionId: background.sessionId };
           const queued = [
+            ...(queuesRef.current.get(sessionQueueKey(background.sessionId, background.assistantId)) ??
+              []),
             text,
-            ...(queuesRef.current.get(sessionQueueKey(background.sessionId, background.assistantId)) ?? []),
           ];
           rememberQueue(focus, queued);
+          if (config.apiBase) {
+            void apiSendJson(
+              config.apiBase,
+              `/api/sessions/${encodeURIComponent(background.sessionId)}/followup`,
+              "POST",
+              { text },
+            ).catch(() => {
+              /* local queue still drains after the live turn */
+            });
+          }
           return;
         }
       } else if (
@@ -558,6 +572,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         abort: ac,
         uiDetached: Boolean(background),
         rebind: false,
+        phase: "running",
       };
       const turnKey = `turn-${++turnSeqRef.current}`;
       const turnQueueKey = sessionQueueKey(turn.boundSessionId, assistantId);
@@ -721,7 +736,9 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
             assistantId,
             allowWebSearch,
             matterId: background ? undefined : contextMatterId,
-            projectDir: background ? undefined : projectDir,
+            projectDir: background
+              ? undefined
+              : chatWorkDirForSession?.(turn.boundSessionId) || projectDir || undefined,
             contextPins: contextPins.length > 0 ? contextPins : undefined,
             linkedTaskId: background ? undefined : contextTaskId,
             permissionMode: readComposePermissionMode(),
@@ -736,6 +753,10 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
               }));
             },
             onDelta: (chunk) => {
+              if (turn.phase === "queued") {
+                turn.phase = "running";
+                publishRunning();
+              }
               updatePlaceholder((msg) => {
                 const activity = appendActivityDelta(msg.activity ?? createEmptyActivity(), chunk);
                 return {
@@ -825,6 +846,10 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
                 ...msg,
                 turnPlan: plan,
               }));
+            },
+            onTurnWait: (info) => {
+              turn.phase = info.active ? "queued" : "running";
+              publishRunning();
             },
           },
         );
@@ -1095,6 +1120,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       deskContractBatchDir,
       loading,
       projectDir,
+      chatWorkDirForSession,
       refreshAssistants,
       refreshChatSessionListForAssistant,
       setChatSessionList,

@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildMinimalChildEnv, runSafeCommand } from "../platform/safe-command.js";
+import { RESOURCE_LEASE_SOFFICE, withResourceLease } from "../runtime/turn-admission.js";
 
 export type ExportDocxPdfResult =
   | { ok: true; outAbs: string; outFileName: string; tool: "soffice" }
@@ -14,13 +15,14 @@ export type ExportDocxPdfResult =
 function runCommand(
   command: string,
   args: string[],
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<{ code: number | null }> {
   return runSafeCommand({
     command,
     args,
     env: buildMinimalChildEnv(),
     timeoutMs: opts.timeoutMs ?? 120_000,
+    signal: opts.signal,
     killSignal: "SIGKILL",
     stdio: ["ignore", "ignore", "pipe"],
     maxStderrBytes: 4_000,
@@ -30,7 +32,19 @@ function runCommand(
 }
 
 /** Convert `baseAbs` (.docx) to a sibling `*.pdf` next to it. */
-export async function exportDocxToPdf(baseAbs: string): Promise<ExportDocxPdfResult> {
+export async function exportDocxToPdf(
+  baseAbs: string,
+  opts?: { signal?: AbortSignal },
+): Promise<ExportDocxPdfResult> {
+  return withResourceLease(RESOURCE_LEASE_SOFFICE, () =>
+    exportDocxToPdfUnleased(baseAbs, opts?.signal),
+  );
+}
+
+async function exportDocxToPdfUnleased(
+  baseAbs: string,
+  signal?: AbortSignal,
+): Promise<ExportDocxPdfResult> {
   if (!/\.docx$/i.test(baseAbs)) {
     return { ok: false, error: "只能从 .docx 导出 PDF。" };
   }
@@ -47,16 +61,20 @@ export async function exportDocxToPdf(baseAbs: string): Promise<ExportDocxPdfRes
   for (const bin of candidates) {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-pdf-"));
     try {
-      const r = await runCommand(bin, [
-        "--headless",
-        "--nologo",
-        "--nolockcheck",
-        "--convert-to",
-        "pdf",
-        "--outdir",
-        tmpDir,
-        baseAbs,
-      ]);
+      const r = await runCommand(
+        bin,
+        [
+          "--headless",
+          "--nologo",
+          "--nolockcheck",
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          tmpDir,
+          baseAbs,
+        ],
+        { signal },
+      );
       if (r.code !== 0) {
         continue;
       }

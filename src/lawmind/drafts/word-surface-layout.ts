@@ -33,6 +33,11 @@ export type WordRunMark = {
   fontColor?: string;
   /** CSS font-family. Latin and East Asian faces are both listed so the browser can pick per glyph. */
   fontFamily?: string;
+  /**
+   * Raw `<w:rFonts …/>` (or paired open/close) from the source run.
+   * Prefer this on save so East-Asian / Latin faces round-trip exactly.
+   */
+  rFontsXml?: string;
 };
 
 /** Word revision kind. Colors are not stored in the file; the preview assigns them. */
@@ -1339,6 +1344,10 @@ function overlayMark(base: WordRunMark, block: string): WordRunMark {
   const fontFamily = fontFamilyOf(block);
   if (fontFamily) {
     next.fontFamily = fontFamily;
+  }
+  const rFontsXml = block.match(/<w:rFonts\b[^>]*\/>|<w:rFonts\b[^>]*>[\s\S]*?<\/w:rFonts>/)?.[0];
+  if (rFontsXml) {
+    next.rFontsXml = rFontsXml;
   }
   return next;
 }

@@ -462,24 +462,35 @@ export function LawmindChatComposeFooter({
         void deleteSessionPlanHandoff(apiBase, chatSessionId);
       }
     }
+    return onSend();
+  }, [apiBase, chatSessionId, input, onSend]);
+
+  const handleComposeSteer = useCallback(() => {
     const text = input.trim();
-    // Inbox: live turn + Enter is steer (same turn). 「下一轮再发」 must call onSend (followup).
-    // 「另起 / 重开对话并带上文」不能 steer：steer 只进当前回合的下一轮采样，模型开不了新会话。
-    // 改走 onSend，活回合会把它排成 followup，回合停稳后再 fork。
-    if (
-      loading &&
-      text &&
-      apiBase &&
-      chatSessionId &&
-      !parseForkContinueRequest(text)
-    ) {
-      turnInbox.post("steer", { text }, apiBase, chatSessionId);
-      onInputChange("");
-      writeComposeStash(contextMatterId, "");
+    if (!loading || !text) {
       return;
     }
-    return onSend();
-  }, [apiBase, chatSessionId, contextMatterId, input, loading, onInputChange, onSend, turnInbox.post]);
+    if (!apiBase || !chatSessionId) {
+      void onSend();
+      return;
+    }
+    if (parseForkContinueRequest(text)) {
+      void onSend();
+      return;
+    }
+    turnInbox.post("steer", { text }, apiBase, chatSessionId);
+    onInputChange("");
+    writeComposeStash(contextMatterId, "");
+  }, [
+    apiBase,
+    chatSessionId,
+    contextMatterId,
+    input,
+    loading,
+    onInputChange,
+    onSend,
+    turnInbox.post,
+  ]);
 
   const paletteActions: CommandPaletteAction[] = useMemo(
     () => [
@@ -838,7 +849,9 @@ export function LawmindChatComposeFooter({
             onChange={(e) => handleComposeInputChange(e.target.value)}
             onPaste={handleComposePaste}
             placeholder={
-              loading ? "可继续补充，Enter 发送" : "附上材料或直接说要办的事；Enter 发送，Shift+Enter 换行"
+              loading
+                ? "这一轮还在办。Enter 排到它结束后；要改正在办的，点「改这一轮」"
+                : "附上材料或直接说要办的事；Enter 发送，Shift+Enter 换行"
             }
             title="用平常说话的方式写即可"
             onKeyDown={(e) => {
@@ -859,7 +872,8 @@ export function LawmindChatComposeFooter({
             loading={loading}
             input={input}
             onSend={handleComposeSend}
-            onEnqueueNextTurn={() => void onSend()} // followup queue — not steer
+            onEnqueueNextTurn={() => void onSend()}
+            onSteerCurrentTurn={handleComposeSteer}
             onAbortChat={onAbortChat}
             permissionMode={extras.permissionMode}
             onPermissionModeChange={extras.onPermissionModeChange}

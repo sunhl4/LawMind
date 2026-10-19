@@ -71,16 +71,44 @@ lawmind/
   lawyer-identity.json         副本身份
   lawyer-keys.json             副本密钥对
   replica/inbox/               邀请收件箱
+  replica-cloud/<id>/          案件云本地数据面（删案随清）
+  agents/<id>.md               工作区 agent 预设（role/preset 来源）
+  deliverables/*.json          工作区私有交付物规范
   decision/decision-samples.jsonl
   decision/guardian-item-outcomes.jsonl
   metrics/true-manuscript-report.json
+  metrics/product-events.jsonl     产品事件账（派生指标的源）
+  metrics/runtime-events.jsonl     运行时事件账
   word-addin/reviews.json
+  desk-settings.json           桌面工作区偏好
+  memory-kernel.sqlite         记忆内核（SQLite 真相源）
   search-index.sqlite          索引（派生）
   daemon.json / daemon.pid / daemon.lock
   search-index 的 schema 版本现在是 3
 ```
 
 注意 `lawmind.policy.json` 在**工作区根**，不在 `lawmind/` 里。
+
+### `sessions/` 下（会话落盘）
+
+```text
+sessions/
+  <sessionId>.json                    会话本体（原子写）
+  <sessionId>.desk.json               侧栏瘦身索引
+  <sessionId>.turns.jsonl             每行一个完整回合
+  <sessionId>.transcript.jsonl        逐条历史消息追加
+  <sessionId>.events.jsonl            回合事件流
+  <sessionId>.pending-pins.json       下一轮采样的钉（inject）
+  <sessionId>.pending-steer.json      下一轮采样的纠正（steer）
+  <sessionId>.pending-followup.json   活回合排队的下一轮（回合后开新回合）
+  <sessionId>.turn-gate.json          会话租约（pid + hostname）
+  <sessionId>.spills/                 超长工具回包外溢
+  <sessionId>.drops/                  压缩丢掉的原话
+  assistant-<assistantId>.turn-gate.json  助手级租约（聊天 runTurn 不写）
+  delegations/<delegationId>.transcript.jsonl  协作子会话单独流水
+```
+
+三个 `pending-*.json` 写的时候都走 `.inflight` 临时文件。`deleteSession` 把上面这一整组（含 spills/ drops/）一起删掉。
 
 ## C.2 `cases/<matterId>/`
 
@@ -123,6 +151,7 @@ ops/
 campaigns/<id>.json        审查专案组（也可在 lawmind/campaigns/）
 obligations.jsonl          义务
 triage/                    分诊
+team-roster.json           案件默认参会人与汇总人
 RULES.md                   本案强制规则（提示词优先读这里）
 replica/
   membership.json          成员名册
@@ -147,6 +176,7 @@ mail-secrets.json          邮箱密钥（AES-256-GCM）
 assistants.json            助手档案
 assistant-stats.json       助手统计
 assistants/<id>/PROFILE.md 助手偏好档案
+models.json                本机模型目录与验证记录（schema 2）
 host-access.json           本机文件夹挂载
 local-api-clients.json     CLI 只读凭据（0600）
 local-api-installation-secret  安装密钥（0600）
@@ -158,7 +188,7 @@ local-api-installation-secret  安装密钥（0600）
 
 审计写在 `<工作区>/audit/YYYY-MM-DD.jsonl`（按天分文件），开了完整性链时每行带 `previousHash` / `eventHash` / `hashAlg`。
 
-**全表共 74 个事件**，即 `src/lawmind/types.ts` 的 `AuditEventKind` 联合成员数——**这份表是照那个联合一个成员一个成员抄的**，不是按名字猜的。判断某个字符串算不算审计事件，最快的办法就是去那个联合里搜。
+**全表共 75 个事件**，即 `src/lawmind/types.ts` 的 `AuditEventKind` 联合成员数——**这份表是照那个联合一个成员一个成员抄的**，不是按名字猜的。判断某个字符串算不算审计事件，最快的办法就是去那个联合里搜。
 
 ### 核心事件
 
@@ -201,12 +231,13 @@ local-api-installation-secret  安装密钥（0600）
 
 ### 案件
 
-| 事件                       | 什么时候                 |
-| -------------------------- | ------------------------ |
-| `matter.write_failed`      | 案件写入失败             |
-| `matter.projection_failed` | 投影（JSON→CASE.md）失败 |
-| `matter.spec.invalid`      | schema 校验失败          |
-| `deliverable.spec.invalid` | 交付物规格不合法         |
+| 事件                       | 什么时候                        |
+| -------------------------- | ------------------------------- |
+| `matter.write_failed`      | 案件写入失败                    |
+| `matter.projection_failed` | 投影（JSON→CASE.md）失败        |
+| `matter.spec.invalid`      | schema 校验失败                 |
+| `matter.deleted`           | 删卷留痕（级联范围写进 detail） |
+| `deliverable.spec.invalid` | 交付物规格不合法                |
 
 **`matter.field_set` 不是审计事件**——它是案件副本的操作 kind（`matter-replica/types.ts`）。名字像，但归属不同。
 
@@ -300,22 +331,25 @@ local-api-installation-secret  安装密钥（0600）
 
 **判断软项**：独立审稿给出的判断项可以不同意照样出。澄清门不算软项。
 
-### 工具管线的 18 道（第 5 章）
+门禁种类的完整集合是 `platform/contracts.ts` 的 `GateDecisionKind`，共 **12** 个：上面 7 个硬墙，再加 `clarification_gate`、`intake_gate`、`reasoning_gate`、`citation_integrity_gate`、`legal_guardian_gate`。分类规则在 `platform/gate-category.ts`：`reasoning_gate` 放行时算软项、拦截时算硬墙；`intake_gate` 仅放行时算软项。
 
-按顺序：`unknownTool` → `budget` → `noTaskTurnGate` → `permissionMode` → `discoveryLoop` → `hostFileLoop` → `roleAllowlist` → `matterScope` → `clarificationGate` → `folderExploreGate` → `argNormalize` → `argSchema` → `legalVerify` → `approval` → `audit` → `timeout` → `subprocessSandbox` → `execute`。`folderExploreGate` 目前是空操作，直接 `next()`。
+### 工具管线的 19 道（第 5 章）
+
+按顺序：`unknownTool` → `budget` → `noTaskTurnGate` → `permissionMode` → `discoveryLoop` → `hostFileLoop` → `roleAllowlist` → `matterScope` → `clarificationGate` → `folderExploreGate` → `argNormalize` → `argSchema` → `legalVerify` → `actionPreReview` → `approval` → `audit` → `timeout` → `subprocessSandbox` → `execute`。`folderExploreGate` 目前是空操作，直接 `next()`。`actionPreReview` 是动作级审前，默认只记影子，`shouldAsk` 时才返回 `approvalRequest`。
 
 ### 验收检查（第 12 章）
 
-| 检查 key                                   | 严重度               |
-| ------------------------------------------ | -------------------- |
-| `section.<序号>.<关键词>`                  | 按规格               |
-| `placeholders.resolved`                    | 需要就 blocker       |
-| `criteria.coverage`                        | warning              |
-| `clarifications.closed`                    | warning              |
-| `draft.body.placeholder_density_heuristic` | warning（阈值 0.38） |
-| `contract.review.clause_anchor`            | warning              |
-| `contract.review.recommended_wording`      | warning              |
-| `draft.scaffold_density`                   | 密集则 blocker       |
+| 检查 key                                   | 严重度                    |
+| ------------------------------------------ | ------------------------- |
+| `spec.not_found`                           | blocker（未登记验收规范） |
+| `section.<序号>.<关键词>`                  | warning（缺节不挡导出）   |
+| `placeholders.resolved`                    | 需要就 blocker            |
+| `criteria.coverage`                        | warning                   |
+| `clarifications.closed`                    | warning                   |
+| `draft.body.placeholder_density_heuristic` | warning（阈值 0.38）      |
+| `contract.review.clause_anchor`            | warning                   |
+| `contract.review.recommended_wording`      | warning                   |
+| `draft.scaffold_density`                   | 密集则 blocker            |
 
 ### 推理门检查
 
@@ -341,7 +375,7 @@ local-api-installation-secret  安装密钥（0600）
 | 门                           | 文案要点                         |
 | ---------------------------- | -------------------------------- |
 | `research_evidence_gate`     | 证据不足拒绝扩写正文             |
-| `research-write-bypass-gate` | 不许用 `write_document` 旁路交付 |
+| `research_write_bypass_gate` | 不许用 `write_document` 旁路交付 |
 
 ### 最短改动的五个落槌边界（第 8 章）
 
@@ -362,7 +396,7 @@ local-api-installation-secret  安装密钥（0600）
 | 必核清单没勾完不许签批                                 | `deliverables/verification-checklist.ts`       |
 | 治理路径不许改                                         | `runtime/protected-workspace-rels.ts`          |
 | 可写根白名单                                           | `electron/fs-bridge.mjs` / `server` 侧对应实现 |
-| 只读模式工具白名单（32 个）                            | `agent/permission-mode.ts`                     |
+| 只读模式工具白名单（33 个）                            | `agent/permission-mode.ts`                     |
 | 外发机械暂停含 `send_email` 与 `prepare_outbound_mail` | `platform/lawyer-outbound-decision.ts`         |
 | 伦理墙拦住外发                                         | `policy/ethics-wall.ts`                        |
 
@@ -384,11 +418,13 @@ local-api-installation-secret  安装密钥（0600）
 
 下面三处不进主审计链。`collab.*` 不在这张表里，它走主链。
 
-| 审计              | 位置                                            | 为什么不进主链                                                         |
-| ----------------- | ----------------------------------------------- | ---------------------------------------------------------------------- |
-| 桌面壳 shell 动作 | `<工作区>/audit/desktop-shell-YYYY-MM-DD.jsonl` | 避免「插入」事件打断引擎的哈希链                                       |
-| 助手间事件        | `<工作区>/collaboration-audit/YYYY-MM-DD.jsonl` | `delegation.*` / `consult.*`，不是 `AuditEventKind`。`collab.*` 走主链 |
-| 独立审稿          | `drafts/<taskId>.guardian.json`（侧车）         | 是审稿的输入输出，不是全局事件                                         |
+| 审计              | 位置                                            | 为什么不进主链                                              |
+| ----------------- | ----------------------------------------------- | ----------------------------------------------------------- |
+| 桌面壳 shell 动作 | `<工作区>/audit/desktop-shell-YYYY-MM-DD.jsonl` | 避免「插入」事件打断引擎的哈希链                            |
+| 助手间事件        | `<工作区>/collaboration-audit/YYYY-MM-DD.jsonl` | 协作事件（11 种），不是 `AuditEventKind`；`collab.*` 走主链 |
+| 独立审稿          | `drafts/<taskId>.guardian.json`（侧车）         | 是审稿的输入输出，不是全局事件                              |
+
+协作事件的 11 种 `CollaborationEventKind`：`delegation.*` 6 种、`consult.*` 2 种、`notify.sent`、`review.requested` / `review.completed`。旧版单文件 `collaboration-audit.jsonl` 仍会被读取合并。
 
 主链只有引擎自己的业务事件，这样链的语义干净。
 

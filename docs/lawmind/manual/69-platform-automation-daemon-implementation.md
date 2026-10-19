@@ -1,9 +1,10 @@
 # 第 69 章 实现精读：平台层（自动办件、守护进程、在办、改稿）
 
-第 68 章讲了平台层的契约与门禁。这一章讲另一半 17 个文件，分四块：
+第 68 章讲了平台层的契约与门禁。`platform/` 共 47 个非测试文件（鸟瞰在第 46.2 节）。这一章讲自动办件、守护进程、在办和 Word 改稿：
 
 ```text
-自动办件    6 个文件（定义、执行、路径、运行历史、派单台账、从办件转来）
+自动办件    11 个文件（定义、执行、路径、运行历史、派单台账、从办件转来、
+            事件触发、事件扫描、源缺口、频次提示、从指令推断预设）
 守护进程    3 个文件（状态、监督决策、日志）
 在办汇总    2 个文件（形状、装配）
 Word 改稿   6 个文件（五个 `word-revision-*` + 出网判定）
@@ -589,7 +590,7 @@ DAEMON_HEARTBEAT_STALE_MS = 30_000 × 3 = 90_000   （90 秒算陈旧）
 
 ### 环境变量的两张名单
 
-**继承宿主变量**（15 项，与第 68.17 节那张一样）：
+**继承宿主变量**（14 项，与第 68.17 节那张一样）：
 
 ```text
 PATH HOME TMPDIR TEMP TMP LANG LC_ALL NODE_PATH
@@ -618,7 +619,9 @@ LAWMIND_LOCAL_API_INSTANCE_ID
 
 而**传给守护进程**的是：宿主 `PATH` / `HOME` 等 + `LAWMIND_*` 与 `BRAVE_*` 前缀（联网检索与模型调用靠它们）+ `LAWMIND_WORKSPACE_DIR` / `LAWMIND_ENV_FILE` / `LAWMIND_REPO_ROOT` + 两把本地密钥 + `LAWMIND_DAEMON=1`；监督模式还要删 `LAWMIND_DAEMON` 并设 `LAWMIND_DAEMON_SUPERVISOR=1`。
 
-spawn 统一走 `safeCommand`（`platform/safe-command.ts`）：子进程**不继承父 env**；加载器钩子（`LD_PRELOAD` / `DYLD_*` / `NODE_OPTIONS` 等）与凭据根即使在显式 env 里也会被剥掉——`buildDaemonProcessEnv` 的显式 env 是一方调用方的刻意授予，所以 `LAWMIND_*` / `BRAVE_*` 保留，只剥凭据根与加载器钩子。
+守护进程 tick 间隔 30 秒（`DAEMON_TICK_INTERVAL_MS`）。工作流作业状态在 `apps/lawmind-desktop/server/lawmind-server-jobs.ts`：`scheduled` / `queued` / `running` / `completed` / `failed` / `cancelled` / `awaiting_lawyer`。同一工作区同时跑的工作流上限 `MAX_CONCURRENT_WORKFLOW_JOBS = 2`，多出来的留在 `queued`。
+
+spawn 统一走 `safeCommand`（`platform/safe-command.ts`）：没传 `env` 时不继承父进程环境。`buildDaemonProcessEnv` 的显式 env 是一方调用方的刻意授予，所以 `LAWMIND_*` / `BRAVE_*` 保留；仍剥 7 个凭据名和 17 个加载器钩子（`LD_PRELOAD`、`DYLD_INSERT_LIBRARIES`、`NODE_OPTIONS`、`PYTHONPATH`、`GIT_SSH_COMMAND` 等，名单在第 68.17 节）。厂商前缀那 19 个只在默认最小环境路径上剥。
 
 ## 69.7 监督决策：一个纯函数回答三个问题
 
@@ -774,9 +777,11 @@ Aggregates chat sessions, delegations, workflow jobs, queue items, and approvals
 
 **「Cursor Agents Window parity」**——又是一个明确对标。而它列出了**五种聚合来源**。
 
-### 十种状态、八种来源
+### 十种在办状态、九种来源
 
-**状态**：
+委派记录（`src/lawmind/agent/collaboration/types.ts` 的 `DelegationStatus`）是八种：`pending` / `running` / `completed` / `failed` / `timeout` / `cancelled` / `awaiting_lawyer` / `completed_after_timeout`。`awaiting_lawyer` 是子回合停在澄清或批准，等律师处理，不是失败。工作流步骤 `WorkflowStepStatus` 六种：`pending` / `running` / `completed` / `failed` / `skipped` / `awaiting_lawyer`。工作流本身 `WorkflowStatus` 六种：`draft` / `running` / `completed` / `failed` / `cancelled` / `awaiting_lawyer`。作业状态见第 69.6 节，同样含 `awaiting_lawyer`。在办把委派和工作流作业的 `awaiting_lawyer` 映射成 `awaiting_clarification`。
+
+**在办状态**（`AgentRunStatus`，十种）：
 
 ```text
 queued  running
@@ -786,12 +791,15 @@ completed  failed  cancelled
 scheduled
 ```
 
-**八种来源**（`AgentRunKind`）：
+**九种来源**（`AgentRunKind`）：
 
 ```text
 chat  delegation  workflow_job  queue_item
-tool_approval  matter_approval  pending_review  automation_send
+tool_approval  matter_approval  pending_review  word_check
+automation_send
 ```
+
+`word_check` 是已有 Word 修订写出审阅稿后，等律师打开同一修订窗口核对。不是签批。
 
 **后四种都是「待处置」类**——审批、待审稿、待发邮件。**它们不是「正在跑的活」，而是「等律师点头的活」。**
 
@@ -835,18 +843,18 @@ AssistantGrowthReportView   { windowDays, assistants }
 
 ### 优先级的具体数字
 
-| 来源                         | 优先级 |
-| ---------------------------- | ------ |
-| 案件审批 / 工具审批 / 待审稿 | **0**  |
-| 对话·等审批                  | 0      |
-| 对话·等澄清                  | 1      |
-| 派活·运行中                  | 1      |
-| 作业·运行中                  | 1      |
-| 对话·运行中                  | 2      |
-| 派活·其他                    | 2      |
-| 作业·其他                    | 3      |
-| 工作队列项                   | 4      |
-| 对话·其他                    | 5      |
+| 来源                                       | 优先级 |
+| ------------------------------------------ | ------ |
+| 案件审批 / 工具审批 / 待审稿 / 待核对 Word | **0**  |
+| 对话·等审批                                | 0      |
+| 对话·等澄清                                | 1      |
+| 派活·运行中                                | 1      |
+| 作业·运行中                                | 1      |
+| 对话·运行中                                | 2      |
+| 派活·其他                                  | 2      |
+| 作业·其他                                  | 3      |
+| 工作队列项                                 | 4      |
+| 对话·其他                                  | 5      |
 
 **三类「待处置」占了最高的 0**——所以侧栏最上面永远是「等你点头的」。
 
@@ -861,12 +869,15 @@ AssistantGrowthReportView   { windowDays, assistants }
 ### 四组状态集合
 
 ```text
-ACTIVE_JOB_STATUSES          = {scheduled, queued, running}
-ACTIVE_DELEGATION_STATUSES   = {pending, running}
+ACTIVE_DELEGATION_STATUSES   = {pending, running, awaiting_lawyer}
+作业是否还在办               = 映射后的 scheduled / queued / running，
+                                或原始 status === awaiting_lawyer
 AWAITING_ACTION_STATUSES     = {awaiting_approval, awaiting_clarification, awaiting_review,
                                 queued, running, scheduled}
 LAWYER_FACING_QUEUE_KINDS    = {"need_client_input"}
 ```
+
+文件里没有名为 `ACTIVE_JOB_STATUSES` 的常量。作业循环用上面那条内联条件。
 
 **第三组把「排队的」与「在跑的」也算进「等动作」**——因为它们都是「还没完」。
 
@@ -908,7 +919,7 @@ work:id
 
 所以增长数据是**另一个入口**（`/api/assistants/growth`）单独取的——不在这个汇总里。
 
-而 `byKind` 只统计**七种**（不含 `automation_send`）——因为待发邮件走的是自动办件那条链，不在这里分组。
+`byKind` 先数八种（含 `word_check`，不含待发），再把 `automation_send` 记成待发条数（待发不占在办名额，单独拼回 `runs`）。
 
 ## 69.10 Word 改稿：六个文件
 
@@ -1161,15 +1172,9 @@ Not a second pipeline. Not mandatory full-document rewrites.
 
 **三组名单分别对应「工具、自动办件预设、工作流模板」**——因为这三条路径都能触发外发。
 
-**而 `prepare_outbound_mail` 算「外发上下文」但不暂停**：
+自 2026-10-01 起没有 disposition=`pause` 的工具。`toolRequiresLawyerPause` 恒为 false（`lawyer-outbound-decision.ts`），`send_email` 也不再把回合停住。`prepare_outbound_mail` 与发信都写入本案「待发信」；律师在待发列表核对后点「批准发送」才真正发出。回合照常完成。
 
-```text
-toolRequiresLawyerPause 只在 name === "send_email" 时为真
-```
-
-**所以真正会停下来问的只有一个工具**：`send_email`。`prepare_outbound_mail` 只是**准备**（写进待发目录），它本身不发出任何东西。
-
-**这个区分很实际**：如果准备也要批准，那律师每封邮件要点两次。而现在**点一次**（在最后发的时候）。
+`isLawyerOutboundDecision` 仍决定侧栏「待我拍板」收哪些卡片（澄清、被门禁拦住的工作流、待发）。它不表示工具管线里还有 pause。
 
 ### 那个判定函数：九条分支
 
@@ -1240,7 +1245,9 @@ workflow blob 测 /prepare_outbound_mail|send_email/
 - **`buildAgentFleetSummary` 不设 `growth`**（增长数据是另一个入口）。
 - **优先级数字越小越优先**；三类「待处置」占最高优先。
 - **队列有九种 kind，但只把 `need_client_input` 一种给律师看。**
-- **`byKind` 不含 `automation_send`。**
+- **`byKind` 含 `word_check`，`automation_send` 按待发条数另记。**
+- **委派状态八种，含 `awaiting_lawyer`。** 工作流、步骤、作业同样有这个状态。作业并发上限是 2。
+- **自 2026-10-01 起没有 pause 工具。** `toolRequiresLawyerPause` 恒为 false。外发在待发列表里点一次批准发送。
 - **合成 id 是前缀式**（`chat:` / `job:` / `review:` …），可反推类型。
 - **Word 改稿真禁的只有三个工具**，而 `render_document` 是重点禁的那个。
 - **导出规则是「拷贝原文件 + 只叠加新修订」**，因为重建会丢原件格式与已有痕迹。

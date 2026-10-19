@@ -2,7 +2,7 @@
 
 这一章列出核心数据结构的字段定义。排查数据问题、写集成、或者想理解「为什么界面这一栏是空的」时，用它对照。
 
-字段名以代码为准（`src/lawmind/adapters/matter-storage/schema.ts`、`core/contracts.ts`、`agent/types.ts`）。
+字段名以代码为准（`src/lawmind/adapters/matter-storage/schema.ts`、`core/contracts.ts`、`agent/types.ts`、`src/lawmind/types.ts`、`memory/kernel/contract.ts`）。
 
 ## 28.1 案件（`MatterRecord`）
 
@@ -102,7 +102,35 @@
 
 结论上的定位在 `ResearchClaim.pin`：`article` / `clause` / `page` / `quote` 至少一项。没有 pin 的结论仍然只有 `sourceIds`。
 
-## 28.4 审批（`ApprovalRecord`）
+## 28.4 草稿（`ArtifactDraft`）
+
+存 `drafts/<taskId>.json`（`src/lawmind/types.ts`）。交付物账（28.3）记的是「哪条稿、第几版」，正文在这里。
+
+| 字段                                                        | 说明                                                                             |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `taskId` / `matterId`                                       | 任务 id / 关联案件                                                               |
+| `title` / `summary` / `audience`                            | 标题、执行摘要、受众                                                             |
+| `output`                                                    | `docx` / `pptx` / `markdown`                                                     |
+| `templateId` / `templateVersion`                            | 模板与渲染时解析到的模板 pin                                                     |
+| `deliverableType`                                           | 交付物类型（渲染与校验用）                                                       |
+| `sections`                                                  | 正文章节：`{heading, body, citations?, provenance?}`                             |
+| `reviewNotes`                                               | 律师审阅备注                                                                     |
+| `clarificationQuestions` / `acceptanceCriteria`             | 待确认问题与验收标准                                                             |
+| `reviewStatus`                                              | 四态：`pending` / `approved` / `rejected` / `modified`                           |
+| `reviewedBy` / `reviewedAt` / `outputPath`                  | 审核人、审核时间、渲染产物路径                                                   |
+| `hasLegalReasoningSnapshot`                                 | 是否已写推理图侧车                                                               |
+| `contractEdit`                                              | 原合同改稿上下文：`{baselineRelativePath, baselineRoot?, mode?, opinionTaskId?}` |
+| `contractRevisionCapture` / `contractRevisionAccumulatedId` | 签批后写合同修订积累包的上下文与防重 id                                          |
+| `contractReviewEdits`                                       | 结构化「意见 → 修订」交接（find/replace/priority/mode/reason）                   |
+| `pairedOpinionSections`                                     | 成套审查换基线前保留的意见稿章节                                                 |
+| `rewriteAmplitude`                                          | 最近一次改写幅度质控（字符/段落 delta）                                          |
+| `verificationChecklist`                                     | 签批时落盘的律师必核清单                                                         |
+| `decisionHeader`                                            | 决策头（改了什么 / 为什么 / 风险 / 可否直接用）                                  |
+| `createdAt`                                                 | —                                                                                |
+
+草稿旁边还有一圈**侧车**（不进 `ArtifactDraft` 本体）：检索快照、推理图快照、条款图快照、Guardian 审稿侧车（`drafts/<taskId>.guardian.json`）。排查「导出时被引用门拦住」先看侧车在不在。
+
+## 28.5 审批（`ApprovalRecord`）
 
 存 `approvals.jsonl`（追加 + 条件重写）。
 
@@ -122,9 +150,9 @@
 
 **`targetRole` 让审批可以指定「由谁批」**，而不只是「谁来批都行」。
 
-审批的**统一视图**（`UnifiedApprovalItem`，`GET /api/approvals` 返回）字段不同：`{id, kind, title, summary, matterId?, sessionId?, toolName?, toolArgs?, riskLevel, createdAt, expiresAt, decisions}`，其中 `kind` 是 `tool_approval` / `matter_approval`，有效期 24 小时。
+审批的**统一视图**（`UnifiedApprovalItem`，`GET /api/approvals` 返回）字段不同：`{id, kind, title, summary, matterId?, sessionId?, toolName?, toolArgs?, riskLevel, createdAt, expiresAt, decisions}`，其中 `kind` 是 `tool_approval` / `matter_approval`，`decisions` 固定 `approve` / `reject` / `more_info`，有效期 24 小时。
 
-## 28.5 待办队列（`QueueItemRecord`）
+## 28.6 待办队列（`QueueItemRecord`）
 
 存 `queue.jsonl`。
 
@@ -145,7 +173,7 @@
 
 **九种 `kind`**：`need_client_input`、`need_evidence`、`need_conflict_check`、`need_lawyer_review`、`need_partner_approval`、`ready_to_draft`、`ready_to_render`、`blocked_by_deadline`、`blocked_by_missing_strategy`。
 
-## 28.6 期限（`DeadlineRecord`）
+## 28.7 期限（`DeadlineRecord`）
 
 存 `deadlines.jsonl`。
 
@@ -188,39 +216,45 @@
 
 存 `matters/<id>/review-matrix-notes.json`（`src/lawmind/matter/review-matrix-notes-store.ts`）。案件审查矩阵的批注与「已核对」标记：`notes`（单元格键 → 批注文本）与 `verified`（单元格键 → true）两个字典。存在案件目录里，换机器仍在——不再只放浏览器 localStorage。
 
-## 28.7 会话（`AgentSession`，引擎字段）
+## 28.8 会话（`AgentSession`，引擎字段）
 
 这一节起是回合运行时，不是律师打开案件时要维护的档案。排查「为什么这一轮重放不对」再用。
 
-## 28.7.1 会话字段
+## 28.8.1 会话字段
 
 存 `sessions/<id>.json`。
 
-| 字段                                     | 说明                   |
-| ---------------------------------------- | ---------------------- |
-| `sessionId`                              | id                     |
-| `title`                                  | 标题                   |
-| `matterId`                               | 关联案件               |
-| `actorId`                                | 操作者                 |
-| `assistantId`                            | 助手                   |
-| `turns`                                  | 回合数组               |
-| `conversationHistory`                    | 消息历史               |
-| `pendingClarificationKeys`               | 待澄清的键             |
-| `pendingRequiresAction`                  | 待办动作               |
-| `alreadySurfacedMemoryPaths`             | 已提示过的记忆路径     |
-| `collaborationDelegationId`              | 关联委派               |
-| `lastSessionSummaryTurnCount`            | 上次摘要时的回合数     |
-| `needsCompactReinjection`                | 需要重注红线           |
-| `disclosedToolNames`                     | 本会话已披露的工具     |
-| `lastCompactBoundary`                    | 最近压缩边界           |
-| `planHandoff`                            | 计划交接               |
-| `turnPlan`                               | 当前计划               |
-| `worldStateBaseline` / `worldStateEpoch` | 世界状态基线           |
-| `legacyUpdateDraftBodyWarning`           | 历史遗留警告           |
-| `lastConfirmedAnswers`                   | 上次已确认的答案       |
-| `samplingPromptTail`                     | 采样提示尾             |
-| `lastBoundCapabilityId`                  | 上次绑定的能力         |
-| `forkedTo` / `carriedOverFrom`           | 分叉关系（含 `nonce`） |
+| 字段                                     | 说明                                     |
+| ---------------------------------------- | ---------------------------------------- |
+| `sessionId`                              | id                                       |
+| `title`                                  | 标题                                     |
+| `matterId`                               | 关联案件                                 |
+| `folderRel` / `workDir`                  | 文件夹归组与工作区路径（只在新建时写入） |
+| `actorId`                                | 操作者                                   |
+| `assistantId`                            | 助手                                     |
+| `turns`                                  | 回合数组                                 |
+| `conversationHistory`                    | 消息历史                                 |
+| `pendingClarificationKeys`               | 待澄清的键                               |
+| `pendingRequiresAction`                  | 待办动作                                 |
+| `alreadySurfacedMemoryPaths`             | 已提示过的记忆路径                       |
+| `collaborationDelegationId`              | 关联委派                                 |
+| `omitFromChatSwitcher`                   | 协作子回合，不进侧栏会话列表             |
+| `lastSessionSummaryTurnCount`            | 上次摘要时的回合数                       |
+| `needsCompactReinjection`                | 需要重注红线                             |
+| `disclosedToolNames`                     | 本会话已披露的工具                       |
+| `lastCompactBoundary`                    | 最近压缩边界                             |
+| `planHandoff`                            | 计划交接                                 |
+| `turnPlan`                               | 当前计划                                 |
+| `worldStateBaseline` / `worldStateEpoch` | 世界状态基线                             |
+| `legacyUpdateDraftBodyWarning`           | 历史遗留警告                             |
+| `lastConfirmedAnswers`                   | 上次已确认的答案                         |
+| `samplingPromptTail`                     | 采样提示尾                               |
+| `lastBoundCapabilityId`                  | 上次绑定的能力                           |
+| `taskPin`                                | 任务锚点（第一条真实任务指令原文，钉子） |
+| `factPin`                                | 事实台账钉子（四类硬事实）               |
+| `factorState`                            | 对角因子状态                             |
+| `forkedTo` / `carriedOverFrom`           | 分叉关系（含 `nonce`）                   |
+| `createdAt` / `updatedAt`                | —                                        |
 
 **几个字段的用途**：
 
@@ -228,34 +262,36 @@
 - `worldStateEpoch` 每次中途钉选递增，用来判断缓存是否有效。
 - `forkedTo.nonce` 让承前分叉幂等（同一 `clientNonce` 不重复分叉）。
 - `needsCompactReinjection` 是压缩后要重注红线的标记。
+- `taskPin` / `factPin` 必须**持久化**而不是每次从历史重推：原始发言在第一次压缩后就离开了历史，重推会抓到无关的填充发言并固化下来。钉子的价值就在于「任意次压缩后仍是同一句原文」。
 
-## 28.8 回合（`AgentTurn`）
+## 28.9 回合（`AgentTurn`）
 
-| 字段                        | 说明               |
-| --------------------------- | ------------------ |
-| `turnId` / `sessionId`      | id                 |
-| `instruction`               | 指令               |
-| `messages`                  | 消息               |
-| `toolCallsExecuted`         | 已执行的工具调用数 |
-| `toolNameCallCounts`        | 各工具调用次数     |
-| `status`                    | 见下               |
-| `clarificationQuestions`    | 待澄清问题         |
-| `executionState`            | 执行状态           |
-| `gateDecisions`             | 门禁决定           |
-| `sameTurnVerify`            | 同回合验证         |
-| `contextDeferralBounces`    | 上下文让渡次数     |
-| `requiresAction`            | 需要律师动作       |
-| `pendingToolApproval`       | 待审批的工具       |
-| `result`                    | 结果               |
-| `error`                     | 错误               |
-| `modelUsage`                | 模型用量           |
-| `startedAt` / `completedAt` | —                  |
+| 字段                        | 说明                     |
+| --------------------------- | ------------------------ |
+| `turnId` / `sessionId`      | id                       |
+| `instruction`               | 指令                     |
+| `messages`                  | 消息                     |
+| `toolCallsExecuted`         | 已执行的工具调用数       |
+| `toolNameCallCounts`        | 各工具调用次数           |
+| `status`                    | 见下                     |
+| `clarificationQuestions`    | 待澄清问题               |
+| `executionState`            | 执行状态                 |
+| `gateDecisions`             | 门禁决定                 |
+| `sameTurnVerify`            | 同回合验证               |
+| `factorState`               | 与会话同源的对角因子状态 |
+| `contextDeferralBounces`    | 上下文让渡次数           |
+| `requiresAction`            | 需要律师动作             |
+| `pendingToolApproval`       | 待审批的工具             |
+| `result`                    | 结果                     |
+| `error`                     | 错误                     |
+| `modelUsage`                | 模型用量                 |
+| `startedAt` / `completedAt` | —                        |
 
 **`status` 七态**：`running`、`completed`、`awaiting_approval`、`awaiting_clarification`、`paused`、`interrupted`、`error`。
 
 注意 `interrupted` 是**读取时的视图**，不是落盘的原始状态——它表示「这是一个孤儿占位轮次」（进程崩了留下的）。
 
-## 28.9 消息（`AgentMessage`）
+## 28.10 消息（`AgentMessage`）
 
 | 字段                | 说明                                     |
 | ------------------- | ---------------------------------------- |
@@ -265,15 +301,19 @@
 | `toolCallResponses` | 工具结果                                 |
 | `timestamp`         | 时间                                     |
 | `hiddenFromLawyer`  | 是否对律师隐藏                           |
+| `lawyerVisibleText` | 律师原话（气泡显示用，见下）             |
+| `reasoningContent`  | 思考轨迹（不进气泡，不作证据）           |
 | `liveTrace`         | 实时轨迹                                 |
 | `executionState`    | 执行状态                                 |
 | `turnPlan`          | 计划                                     |
 
 **`hiddenFromLawyer` 是「隐藏消息」的标记**——比如上下文让渡的回弹、同回合验证的说明都带这个标记，回合结束时会被清理掉。
 
+`lawyerVisibleText` 与 `reasoningContent` 分工：`content` 里混了文件摘录等注入上下文时，气泡只显示 `lawyerVisibleText` 里的律师原话，模型仍看完整 `content`；`reasoningContent` 是留给下一次带工具请求的思考轨迹，不进气泡，也不作证据。
+
 有个辅助函数 `isLawyerVisibleChatMessage` 专门判断一条消息该不该给律师看。
 
-## 28.10 工具定义（`ToolDefinition`）
+## 28.11 工具定义（`ToolDefinition`）
 
 | 字段                | 说明                                                                              |
 | ------------------- | --------------------------------------------------------------------------------- |
@@ -290,7 +330,7 @@
 
 工具结果（`ToolCallResult`）：`{ok, data?, error?, approvalRequest?, sandboxed?, aborted?, timedOut?}`。
 
-## 28.11 检索（`ResearchBundle`）
+## 28.12 检索（`ResearchBundle`）
 
 | 字段               | 说明                                             |
 | ------------------ | ------------------------------------------------ |
@@ -302,13 +342,13 @@
 | `requiresReview`   | 是否需要审核                                     |
 | `completedAt`      | —                                                |
 
-来源（`ResearchSource`）：`{id, title, kind, citation?, url?, date?, court?, caseNumber?, demo?, provider?, corpusId?, licenseNote?}`。
+来源（`ResearchSource`）：`{id, title, kind, citation?, excerpt?, url?, date?, court?, caseNumber?, demo?, provider?, corpusId?, licenseNote?}`。`excerpt` 是命中的原文段落，条目核对检查读它——它不是第二段引用格式。
 
 `kind` 八种：`statute`、`regulation`、`case`、`memo`、`contract`、`web`、`workspace`、`unknown`。
 
 结论（`ResearchClaim`）：`{text, sourceIds, confidence, pin?, model, demo?}`。`pin` 只记引用里已经写明的条、款、页或原文片段；对不上所引来源的条号会降级，不靠关键词把整条结论拒掉。`confidence` 是模型判断。`model` 是 `general` / `legal`。
 
-## 28.12 记忆采纳（`MemoryAdoptionRecord`）
+## 28.13 记忆采纳（`MemoryAdoptionRecord`）
 
 存 `memory-adoption/suggestions.jsonl`。
 
@@ -331,7 +371,34 @@
 
 **16 种 `kind`**：`case.core_issue`、`case.risk_note`、`case.task_goal`、`case.progress`、`case.artifact`、`playbook.clause_learning`、`lawyer.profile_learning`、`assistant.profile_section`、`firm.preference`、`client.profile_note`、`opponent.note`、`project.note`、`historical.knowledge`、`lawyer.habit_pattern`、`review_label`、`source.annotation`。
 
-## 28.13 立场（`StanceItem`）
+## 28.14 记忆内核（`MemoryRecord`）
+
+存 `lawmind/memory-kernel.sqlite`（契约在 `src/lawmind/memory/kernel/contract.ts`）。**SQLite 是真相源**，Markdown 与立场 JSON 是给人看的投影和旧数据的导入来源。进提示词的只有：已确认、当前有效、范围匹配、且与本案当事人不冲突的记录。
+
+| 字段                                           | 说明                                                                       |
+| ---------------------------------------------- | -------------------------------------------------------------------------- |
+| `id`                                           | id                                                                         |
+| `kind`                                         | 五种：`habit` / `stance` / `client_note` / `matter_fact` / `playbook_note` |
+| `scope` / `scopeId`                            | 四个范围之一（`lawyer` / `client` / `matter` / `firm`）与范围对象 id       |
+| `key`                                          | 槽位名（不是质量黑名单，表里没有的键也能写）                               |
+| `body`                                         | 正文                                                                       |
+| `confirmation`                                 | `pending` / `confirmed` / `dismissed`                                      |
+| `validity`                                     | `current` / `superseded` / `revoked`                                       |
+| `supersededBy`                                 | 被谁取代                                                                   |
+| `sourceMatterId` / `clientId` / `counterparty` | 来源案件、客户、对方当事人（冲突检查用）                                   |
+| `sourceTaskId`                                 | 来源任务                                                                   |
+| `origin`                                       | 七种来源（见下）                                                           |
+| `confidence`                                   | 置信度                                                                     |
+| `evidenceMatterIds`                            | 证据案件 id 数组                                                           |
+| `createdAt` / `updatedAt` / `revokedAt`        | —                                                                          |
+
+**七种 `origin`**：`lawyer`、`review`、`engine`、`migration`、`stance`、`firm_default`、`consolidation`。
+
+**单槽键**：`stance.*` 与 canonical 习惯键（`habit.voice`、`habit.structure`、`habit.citation`、`habit.redline`、`habit.risk`、`habit.format`、`habit.identity`）在同一范围下只保留一条「当前有效」，新确认会取代旧的；其余键可以并存。
+
+**默认确认态**：`matter_fact` 缺省 `confirmed`（它在记发生过的事，不在主路径上多一次确认），其余 kind 缺省 `pending`。
+
+## 28.15 立场（`StanceItem`）
 
 存 `lawmind/stance/items.json`。
 
@@ -358,87 +425,96 @@
 
 **证据条目**（`StanceEvidenceEntry`）：`{source, at, matterId?}`。
 
-## 28.14 委派（`DelegationRecord`）
+## 28.16 委派（`DelegationRecord`）
 
 存 `delegations/<id>.json`。
 
-| 字段                                        | 说明                                 |
-| ------------------------------------------- | ------------------------------------ |
-| `delegationId`                              | id                                   |
-| `fromAssistantId` / `toAssistantId`         | 从谁到谁                             |
-| `task`                                      | 任务                                 |
-| `matterId`                                  | 案件                                 |
-| `parentSessionId`                           | 父会话                               |
-| `priority`                                  | `normal` / `high` / `low`            |
-| `status`                                    | 七态（含 `completed_after_timeout`） |
-| `targetSessionId`                           | 目标会话                             |
-| `result` / `resultPath` / `resultTruncated` | 结果                                 |
-| `error`                                     | 错误                                 |
-| `depth`                                     | 深度                                 |
-| `startedAt` / `completedAt`                 | —                                    |
+| 字段                                        | 说明                         |
+| ------------------------------------------- | ---------------------------- |
+| `delegationId`                              | id                           |
+| `fromAssistantId` / `toAssistantId`         | 从谁到谁                     |
+| `task`                                      | 任务                         |
+| `matterId`                                  | 案件                         |
+| `parentSessionId`                           | 父会话                       |
+| `priority`                                  | `normal` / `high` / `low`    |
+| `status`                                    | 八态（含 `awaiting_lawyer`） |
+| `targetSessionId`                           | 目标会话                     |
+| `result` / `resultPath` / `resultTruncated` | 结果                         |
+| `error`                                     | 错误                         |
+| `depth`                                     | 深度                         |
+| `startedAt` / `completedAt`                 | —                            |
 
-## 28.15 工作流（`CollaborationWorkflow`）
+## 28.17 工作流（`CollaborationWorkflow`）
 
-| 字段                                  | 说明                                                       |
-| ------------------------------------- | ---------------------------------------------------------- |
-| `workflowId` / `name` / `description` | —                                                          |
-| `matterId`                            | 案件                                                       |
-| `steps`                               | 步骤数组                                                   |
-| `status`                              | `draft` / `running` / `completed` / `failed` / `cancelled` |
-| `createdBy`                           | 创建者                                                     |
-| `preApproveToolNames`                 | 预批准工具                                                 |
-| 时间戳                                | —                                                          |
+| 字段                                  | 说明         |
+| ------------------------------------- | ------------ |
+| `workflowId` / `name` / `description` | —            |
+| `matterId`                            | 案件         |
+| `steps`                               | 步骤数组     |
+| `status`                              | 六态（见下） |
+| `createdBy`                           | 创建者       |
+| `preApproveToolNames`                 | 预批准工具   |
+| 时间戳                                | —            |
 
-步骤（`WorkflowStep`）：`{stepId, assignee, assigneeRoleId?, task, dependsOn[], reviewBy?, autoApprove, status, delegationId?, result?, error?, startedAt?, completedAt?}`。
+**`status` 六态**：`draft` / `running` / `completed` / `failed` / `cancelled` / `awaiting_lawyer`。
 
-步骤状态五态：`pending` / `running` / `completed` / `failed` / `skipped`。
+步骤（`WorkflowStep`）：`{stepId, assignee, assigneeRoleId?, task, dependsOn[], reviewBy?, autoApprove, status, delegationId?, sessionId?, result?, error?, startedAt?, completedAt?, roleMissNote?, execution?, holdForLawyer?}`。`sessionId` 是子回合会话——律师稍后在「在办」里回答澄清/审批时，靠它把流程接着办完；`holdForLawyer` 是「写出结果后停住，等律师确认再跑后续步骤」。
 
-## 28.16 后台任务（`WorkflowJobRecord`）
+步骤状态六态：`pending` / `running` / `completed` / `failed` / `skipped` / `awaiting_lawyer`。
+
+## 28.18 后台任务（`WorkflowJobRecord`）
 
 存 `lawmind/jobs/<jobId>.json`。
 
-| 字段                           | 说明                                                                      |
-| ------------------------------ | ------------------------------------------------------------------------- |
-| `jobId`                        | id（安全单段）                                                            |
-| `kind`                         | 固定 `workflow_run`                                                       |
-| `status`                       | `scheduled` / `queued` / `running` / `completed` / `failed` / `cancelled` |
-| `workflowId` / `matterId`      | —                                                                         |
-| `workspaceDir`                 | **不出现在对外视图里**                                                    |
-| `idempotencyKey`               | **不出现在对外视图里**                                                    |
-| `scheduledTrigger`             | `{runAt, source: "local_schedule"}`                                       |
-| `workflowSnapshot`             | 流程快照（执行前删除）                                                    |
-| `templateId` / `workflowVars`  | 模板与变量                                                                |
-| `createdByAssistantId`         | 创建者                                                                    |
-| `memoryBundleSnapshot`         | 记忆快照（第 16 章）                                                      |
-| `progress` / `cancelRequested` | 进度与取消标记                                                            |
-| `result` / `error`             | 结果与错误                                                                |
+| 字段                           | 说明                                |
+| ------------------------------ | ----------------------------------- |
+| `jobId`                        | id（安全单段）                      |
+| `kind`                         | 固定 `workflow_run`                 |
+| `status`                       | 七态（见下）                        |
+| `workflowId` / `matterId`      | —                                   |
+| `workspaceDir`                 | **不出现在对外视图里**              |
+| `idempotencyKey`               | **不出现在对外视图里**              |
+| `scheduledTrigger`             | `{runAt, source: "local_schedule"}` |
+| `workflowSnapshot`             | 流程快照（执行前删除）              |
+| `templateId` / `workflowVars`  | 模板与变量                          |
+| `createdByAssistantId`         | 创建者                              |
+| `memoryBundleSnapshot`         | 记忆快照（第 16 章）                |
+| `progress` / `cancelRequested` | 进度与取消标记                      |
+| `result` / `error`             | 结果与错误                          |
+
+**`status` 七态**：`scheduled` / `queued` / `running` / `completed` / `failed` / `cancelled` / `awaiting_lawyer`。
 
 对外视图（`PublicWorkflowJob`）**去掉三个字段**：`workspaceDir`、`idempotencyKey`、`workflowSnapshot`。这是刻意的信息收窄。
 
-## 28.17 自动办件（`LawyerAutomation`）
+## 28.19 自动办件（`LawyerAutomation`）
 
 存 `lawmind/automations/<id>.json`。字段见第 17 章。
 
 关键字段回顾：`presetId`、`schedule`（四种）、`expectedResult`、`approvalBoundary`、`missingDataPolicy`（三态）、`notifyPolicy`（三态）、`allowSendEmailAfterApproval`、`notifyEmail`。
 
-## 28.18 三个「状态机」速查
+## 28.20 「状态机」速查
 
-| 对象          | 状态                                                                                                          |
-| ------------- | ------------------------------------------------------------------------------------------------------------- |
-| 交付物        | `planned` → `drafting` → `pending_review` → `approved` → `rendered` → `delivered` → `learned`，加 `blocked`   |
-| 审批          | `pending` → `approved` / `rejected` / `needs_changes`                                                         |
-| 待办          | `open` / `in_progress` / `resolved` / `dismissed`                                                             |
-| 期限          | `open` / `snoozed` / `completed` / `missed`                                                                   |
-| 回合          | `running` / `completed` / `awaiting_approval` / `awaiting_clarification` / `paused` / `interrupted` / `error` |
-| 后台任务      | `scheduled` / `queued` / `running` / `completed` / `failed` / `cancelled`                                     |
-| 委派          | `pending` / `running` / `completed` / `failed` / `timeout` / `cancelled` / `completed_after_timeout`          |
-| 记忆采纳      | `pending` / `adopted` / `auto_adopted` / `dismissed` / `recorded_noop`                                        |
-| 工作流步骤    | `pending` / `running` / `completed` / `failed` / `skipped`                                                    |
-| Word 插件请求 | `queued` / `running` / `ready` / `failed` / `stale` / `superseded` / `needs_matter`（旧）                     |
-| 类案就绪      | `sample-ready` / `configured` / `unset` / `invalid` / `unimplemented`                                         |
-| 伦理墙        | `clear` / `hold` / `disclosed`                                                                                |
+| 对象          | 状态                                                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 交付物        | `planned` → `drafting` → `pending_review` → `approved` → `rendered` → `delivered` → `learned`，加 `blocked`              |
+| 审批          | `pending` → `approved` / `rejected` / `needs_changes`                                                                    |
+| 待办          | `open` / `in_progress` / `resolved` / `dismissed`                                                                        |
+| 期限          | `open` / `snoozed` / `completed` / `missed`                                                                              |
+| 义务          | `open` / `done` / `waived`                                                                                               |
+| 回合          | `running` / `completed` / `awaiting_approval` / `awaiting_clarification` / `paused` / `interrupted` / `error`            |
+| 后台任务      | `scheduled` / `queued` / `running` / `completed` / `failed` / `cancelled` / `awaiting_lawyer`                            |
+| 委派          | `pending` / `running` / `completed` / `failed` / `timeout` / `cancelled` / `awaiting_lawyer` / `completed_after_timeout` |
+| 记忆采纳      | `pending` / `adopted` / `auto_adopted` / `dismissed` / `recorded_noop`                                                   |
+| 记忆内核      | 确认：`pending` / `confirmed` / `dismissed`；有效：`current` / `superseded` / `revoked`                                  |
+| 工作流        | `draft` / `running` / `completed` / `failed` / `cancelled` / `awaiting_lawyer`                                           |
+| 工作流步骤    | `pending` / `running` / `completed` / `failed` / `skipped` / `awaiting_lawyer`                                           |
+| Word 插件请求 | `queued` / `running` / `ready` / `failed`，加自动取件的三个如实终态 `needs_matter` / `stale` / `superseded`              |
+| 类案就绪      | `sample-ready` / `configured` / `unset` / `invalid` / `unimplemented`                                                    |
+| 伦理墙        | `clear` / `hold` / `disclosed`                                                                                           |
 
-## 28.19 已知坑（本章相关）
+**`awaiting_lawyer` 是后来统一加的一档**：委派、工作流、工作流步骤、后台任务都有。它表示「子回合停在澄清或批准，等律师处理」——不是失败，也还没办完。终态守卫保证已判 `timeout` 的委派迟到完成时翻成 `completed_after_timeout`，不再翻回 `completed`。
+
+## 28.21 已知坑（本章相关）
 
 - **`deadlineIds` / `deliverableIds` / `queueItemIds` 以子文件为准。** 只改 `matter.json` 里的数组，下次读取会被盖掉。
 - **`practiceTags` 的 12 条上限只在 API。** 直接写 `matter.json` 可以超过。
@@ -448,3 +524,4 @@
 - **委派结果太大会溢出到文件。** 读的是 `result` + `resultPath` 两处。
 - **`stance.evidenceScore` 由证据公式算出，只用于排序。** 有 `modelConfidence` 时，注入用后者。
 - **`matter.json` 的 `claimAmount` 是文本不是数字。**
+- **记忆采纳队列（jsonl）和记忆内核（SQLite）是两套东西。** 前者是「待律师确认的建议」，后者是「已生效的活记忆」；别把 `memory-adoption/suggestions.jsonl` 当成记忆库界面在读的那份。

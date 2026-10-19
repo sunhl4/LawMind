@@ -35,7 +35,7 @@ describe("LawmindTurnPlanCard", () => {
     host.remove();
   });
 
-  it("shows the working brief above the steps", async () => {
+  it("keeps the working brief off the card", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
@@ -54,10 +54,10 @@ describe("LawmindTurnPlanCard", () => {
         />,
       );
     });
-    expect(host.querySelector("[data-testid='lm-turn-plan-brief']")?.textContent).toContain(
-      "不要做：合同审查",
-    );
-    expect(host.textContent).toContain("完成标准：指出具体错误");
+    expect(host.querySelector("[data-testid='lm-turn-plan-brief']")).toBeNull();
+    expect(host.textContent).not.toContain("不要做：合同审查");
+    expect(host.textContent).not.toContain("完成标准：指出具体错误");
+    expect(host.textContent).toContain("读钉选合同");
     act(() => {
       root.unmount();
     });

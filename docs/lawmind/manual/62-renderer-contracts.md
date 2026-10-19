@@ -2,150 +2,124 @@
 
 第 50 章讲了渲染层的**架构模式**（props hook、pick 收窄、状态三层）。这一章讲**每个面板的交互契约**：它接受什么、点下去发生什么、什么被存进了浏览器。
 
-「契约」在这里是有意义的词——因为很多约束**被测试守着**（第 62.8 节列出所有相关测试）。
+「契约」在这里是有意义的词——因为很多约束**被测试守着**（第 62.7 节列出相关测试）。
+
+**本章口径**：2026-10 对照 `apps/lawmind-desktop/src/renderer/` 当前源码逐条核过。与旧版最大的差别：在办（fleet）、会议室、旧案件工作台、独立改稿页这一整簇组件**已不在主区挂载**（`docs/LAWMIND-CODE-AUDIT.md` 第 1.1 节，104 文件退役集群），本章不再把它们的契约当活契约写，只在第 62.1 节末尾与第 62.7 节如实标注。
 
 ## 62.1 律师能打开的工作面
 
-主内容区挂载五支：对话、工作台、在办、改稿、整理资料。类型里的 `meeting` 没有面板；`LawmindMainBodyContent` 不渲染 `MeetingView`。下面的 testid 按实际挂载的面板写。
+`LawmindMainView` 类型里有六个值（`lawmind-main-view.ts`）：`workspace` / `desk` / `agents` / `meeting` / `review` / `archive`。但**类型里有 ≠ 进得去**。实际能进入的工作面是这些：
+
+| 工作面                    | 入口                                                                        | 实际渲染                                                                                                                                                                                                                     |
+| ------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 对话（`workspace`，默认） | 顶栏 Tab `lm-tab-workspace`                                                 | `LawmindWorkspaceMainPane`（中栏 + 右侧对话列）                                                                                                                                                                              |
+| 工作台（`desk`）          | 顶栏 Tab `lm-tab-desk`                                                      | **不是另一页**：根壳把它收成「对话 + 中栏案卷」（`lawmind-app-root.tsx` 里 `setMainView("desk")` 实际置 `matterCockpitOpen`，中栏换成 `LawmindLawyerWorkbench`，testid `lm-desk-middle`）                                    |
+| 在办（`agents`）          | 全局搜索 `/agents`（`lawmind-app-root.tsx`）；**顶栏没有 Tab**              | 整页 `LawmindLawyerWorkbench`（错误边界文案「在办」）——和工作台中栏是**同一个组件**                                                                                                                                          |
+| 改稿                      | 对话命令 `/review`、工作台文书、自动办件「去审阅」                          | `LawmindMiddleDraftDesk`（`lm-middle-draft-desk`）叠在对话中栏，里面挂 `ReviewWorkbench`。`mainView` 仍是 `workspace`；`mainView === "review"` 会被根壳 effect 立刻拨回对话，`LawmindMainBodyContent` 对它直接 `return null` |
+| 整理资料（`archive`）     | 设置 → 工作区「整理电脑上的资料」（入口 testid `lm-archive-organize-open`） | 整页 `LawmindArchiveOrganizePage`；仅当已经在这个值上，顶栏才出现次级 Tab `lm-tab-archive`                                                                                                                                   |
+| 设置                      | 侧栏/顶栏齿轮                                                               | 整页替换主区，侧栏整段不渲染；Esc 或「← 返回」退出                                                                                                                                                                           |
+
+类型里的 `meeting` 没有可达路径：生产代码没有任何 `setMainView("meeting")`，深链处理器名为开会、实际落到对话。`LawmindMainBodyContent` 的 `meeting` 分支会落到对话主面板。
 
 ### 对话：三层拆分
 
 对话面在渲染层是三个组件叠起来的：
 
-| 文件                               | 导出                                           | testid                                  |
-| ---------------------------------- | ---------------------------------------------- | --------------------------------------- |
-| `app/LawmindWorkspaceMainPane.tsx` | `LawmindWorkspaceMainPane`                     | `lm-chat-drop-zone`                     |
-| `lawmind-chat-shell.tsx`           | `LawmindChatComposeFooter`、`LawmindChatShell` | `lm-compose-drop-zone` + 三条快车道     |
-| `lawmind-chat-messages-column.tsx` | `LawmindChatMessagesColumn`                    | `lm-chat-empty`、`lm-chat-messages-end` |
-| `LawmindChatMessageRow.tsx`        | `LawmindChatMessageRow`                        | 十一个（见下）                          |
+| 文件                               | 导出                                           | testid                                      |
+| ---------------------------------- | ---------------------------------------------- | ------------------------------------------- |
+| `app/LawmindWorkspaceMainPane.tsx` | `LawmindWorkspaceMainPane`                     | `lm-workspace-unified`、`lm-chat-drop-zone` |
+| `lawmind-chat-shell.tsx`           | `LawmindChatComposeFooter`、`LawmindChatShell` | `lm-compose-drop-zone` + 两条快车道         |
+| `lawmind-chat-messages-column.tsx` | `LawmindChatMessagesColumn`                    | `lm-chat-empty`、`lm-chat-messages-end`     |
+| `LawmindChatMessageRow.tsx`        | `LawmindChatMessageRow`                        | 十个（见下）                                |
 
-**四个 drop zone**：
+**两个 drop zone + 两条快车道**：
 
 ```text
-lm-chat-drop-zone        ← 对话主面板
-lm-compose-drop-zone     ← 输入区
-lm-compose-mail-fast-lane
-lm-compose-research-fast-lane
+lm-chat-drop-zone            ← 对话主面板（松手进本回合上下文）
+lm-compose-drop-zone         ← 输入区
+lm-compose-mail-fast-lane    ← 邮件/合同快车道（同一张卡 LawmindMailContractFastLaneCard）
+lm-compose-research-fast-lane ← 研究快车道
 ```
 
-**四条快车道**（合同/邮件/研究三条 + 输入区）——所以「丢文件进来」在不同位置会进不同的车道。
+丢文件进对话列走 `POST /api/sessions/{id}/inject`（body 带 `contextPins`，仅本轮还在跑且已有会话时）。
 
-### 消息行的十一个 testid
+### 消息行的十个 testid
 
-`LawmindChatMessageRow` 是交互最密的一个：
+`LawmindChatMessageRow` 是交互最密的一个。当前源码里恰好十个（`rg 'data-testid' LawmindChatMessageRow.tsx` 可复数）：
 
-| testid                                      | 干什么                                     |
-| ------------------------------------------- | ------------------------------------------ |
-| `lm-msg-edit` / `lm-msg-edit-submit`        | 编辑消息                                   |
-| `lm-msg-delete` / `lm-msg-delete-assistant` | 删消息（**两条，用户消息与助手消息分开**） |
-| `lm-msg-gate`                               | 门禁标记                                   |
-| `lm-authority-gap-banner`                   | 权威缺口横幅                               |
-| `lm-demo-corpus-banner`                     | **演示语料横幅**                           |
-| `lm-research-recovery-banner` + `-models`   | 检索失败恢复（两条：横幅 + 跳转）          |
-| `lm-clarify-open-desk`                      | 打开在办处理澄清                           |
+| testid                                      | 干什么                                            |
+| ------------------------------------------- | ------------------------------------------------- |
+| `lm-msg-edit` / `lm-msg-edit-submit`        | 编辑消息（入口与编辑框共用一个 id，确认单独一条） |
+| `lm-msg-delete` / `lm-msg-delete-assistant` | 删消息（**两条，用户消息与助手消息分开**）        |
+| `lm-msg-gate`                               | 门禁标记                                          |
+| `lm-chat-working`                           | 回合进行中的「正在办理…」                         |
+| `lm-authority-gap-banner`                   | 权威缺口横幅                                      |
+| `lm-demo-corpus-banner`                     | **演示语料横幅**                                  |
+| `lm-research-recovery-banner` + `-models`   | 检索失败恢复（两条：横幅 + 跳转）                 |
 
 **「演示语料横幅」单独一条**——第 10.5 节那条水印在界面上有专门的位置。
 
-**「检索失败恢复」有一条跳转**（去模型与连接；`open_settings_doctor` 等旧动作也落到同一个按钮）——**它不只报错，还给了去处**。
+**「检索失败恢复」有一条跳转**（去模型与连接；`open_settings_models` / `enable_web_search` / `open_settings_doctor` 三个动作都落到同一个按钮）——**它不只报错，还给了去处**。
+
+旧版本章还列过 `lm-clarify-open-desk`——**这个 testid 已不存在**，澄清卡现在是 `LawmindRequiresActionCard` / `LawmindClarificationForm` 直接画在消息行里。
 
 ### 三个「空态」分支
 
 `LawmindChatMessagesColumn` 的三条空态 testid：
 
 ```text
-lm-chat-empty                  ← 通用空态
+lm-chat-empty                     ← 通用空态
 lm-chat-empty-authority-boundary  ← 权威边界说明
-lm-chat-empty-create-matter    ← 建议建案
+lm-chat-empty-create-matter       ← 建议建案
 ```
 
-**空态有三个不同的版本**——而不是一句「还没有消息」。
+**空态有三个不同的版本**——而不是一句「还没有消息」。另有 `lm-chat-empty-examples` 与 `lm-chat-empty-example-<id>` 挂着可点的示例句。
 
 ### 工作台：一个巨型文件与一条不变量
 
-`LawmindLawyerWorkbench.tsx` 是渲染层最大的文件（约 95 KB、2418 行，冻结在文件大小棘轮里）。
+`LawmindLawyerWorkbench.tsx` 是渲染层最大的文件（约 2400 行），内部 `view` 为 `agenda | cases | matter`（组件内状态，不是 `mainView`）。它同时是**工作台中栏**与**整页在办**的渲染体。
 
-它的 testid 有 **27 条**，其中最能反映功能的是：
+它的 testid 约 30 条，其中最能反映功能的是：
 
-| testid                                                                                                               | 干什么                      |
-| -------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| `lm-lawyer-workbench`                                                                                                | 主容器                      |
-| `lm-lawyer-today-plan-input` / `lm-lawyer-today-progress`                                                            | 今日计划                    |
-| `lm-lawyer-today-item-deadline` / `lm-lawyer-today-item-mail-done`                                                   | 今日条目（期限 / 邮件）     |
-| `lm-desk-quick-summons` / `lm-desk-quick-talk`                                                                       | 两个快捷入口（传票 / 谈话） |
-| `lm-lawyer-deadlines-drop` / `lm-lawyer-talk-drop`                                                                   | 两个拖放区                  |
-| `lm-lawyer-matter-dossier` / `lm-lawyer-matter-materials` / `lm-lawyer-matter-parties` / `lm-lawyer-matter-timeline` | 卷宗四块                    |
-| `lm-materials-search-input` / `lm-materials-search-run` / `lm-materials-search-hits`                                 | 材料检索三件套              |
-| `lm-precedent-list`                                                                                                  | 先例列表                    |
-| `lm-lawyer-pulse-bar`                                                                                                | 案件快照条                  |
-| `lm-lawyer-stat-deadline` / `lm-lawyer-stat-mail`                                                                    | 两个统计                    |
-| `lm-lawyer-reconnect`                                                                                                | 重连按钮                    |
+| testid                                                                               | 干什么                             |
+| ------------------------------------------------------------------------------------ | ---------------------------------- |
+| `lm-lawyer-workbench`                                                                | 主容器                             |
+| `lm-desk-urgency-strip` / `lm-desk-replica-feed`                                     | 跨案紧急条 / 副本动态              |
+| `lm-matter-row` / `lm-matter-hotline` / `lm-matter-hot-reason`                       | 案件行与热线                       |
+| `lm-lawyer-matter-dossier` / `lm-matter-now`                                         | 卷宗容器与「现在」块               |
+| `lm-lawyer-matter-materials` + `lm-materials-search-input` / `-run` / `-hits`        | 卷内材料与检索三件套               |
+| `lm-lawyer-matter-parties` / `lm-lawyer-matter-timeline` / `lm-lawyer-matter-collab` | 档案折叠块（当事人 / 进展 / 协作） |
+| `lm-lawyer-deadlines-drop` / `lm-lawyer-talk-drop`                                   | 两个拖放区（期限 / 谈话）          |
+| `lm-precedent-list`                                                                  | 先例列表                           |
+| `lm-lawyer-reconnect`                                                                | 重连按钮                           |
 
 **注意两个「drop」是分开的**（`deadlines-drop` 与 `talk-drop`）——**丢给谁就进哪个功能**。这是「丢材料即交办」在工作台里的落点。
 
-### 在办：左栏 + 右栏
+今日提醒那块拆在 `LawmindDeskAgenda.tsx`：`lm-lawyer-today-plan-input`（今日计划输入）与 `lm-lawyer-today-item-<kind>`（按条目类型动态）在那里，不在主文件里。旧版本章列的 `lm-lawyer-today-progress`、`lm-desk-quick-summons`、`lm-desk-quick-talk`、`lm-lawyer-pulse-bar`、`lm-lawyer-stat-deadline/mail` **都已不存在**。
 
-| 文件                             | 导出                         | 职责                                      |
-| -------------------------------- | ---------------------------- | ----------------------------------------- |
-| `LawmindAgentFleetPanel.tsx`     | `LawmindAgentFleetPanel`     | 面板容器（testid `lm-agent-fleet-panel`） |
-| `LawmindAgentFleetListAside.tsx` | `LawmindAgentFleetListAside` | 左栏（四个 Tab 常量 + 十几个 testid）     |
-| `LawmindAgentFleetDetail.tsx`    | `LawmindAgentFleetDetail`    | 右栏（**20 条 testid**）                  |
-| `LawmindFleetPostApproveBar.tsx` | `LawmindFleetPostApproveBar` | 签批后的导出条（9 条 testid）             |
+### 改稿：中栏草稿台 + 三栏
 
-### 一处容易找错的地方
+| 文件                                       | 导出                            | testid 数                                  |
+| ------------------------------------------ | ------------------------------- | ------------------------------------------ |
+| `LawmindMiddleDraftDesk.tsx`               | `LawmindMiddleDraftDesk`        | 2（`lm-middle-draft-desk` + `-back`）      |
+| `ReviewWorkbench.tsx`                      | `ReviewWorkbench`               | 0（它是容器）                              |
+| `review/ReviewWorkbenchDocumentColumn.tsx` | `ReviewWorkbenchDocumentColumn` | 1（`lm-review-export-msg`）                |
+| `review/ReviewWorkbenchMetaColumn.tsx`     | `ReviewWorkbenchMetaColumn`     | 7                                          |
+| `LawmindDraftDocumentEditor.tsx`           | `LawmindDraftDocumentEditor`    | 0                                          |
+| `LawmindDraftDocumentPreview.tsx`          | `LawmindDraftDocumentPreview`   | 0                                          |
+| `LawmindRedlinePanel.tsx`                  | `LawmindRedlinePanel`           | 3                                          |
+| `LawmindReviewTableEditor.tsx`             | `LawmindReviewTableEditor`      | 3                                          |
+| `LawmindReviewCampaignPanel.tsx`           | `LawmindReviewCampaignPanel`    | **16**                                     |
+| `LawmindReviewDeliveryBar.tsx`             | `LawmindReviewDeliveryBar`      | 3                                          |
+| `LawmindAcceptanceGate.tsx`                | `LawmindAcceptanceGate`         | 0（用 DOM id `lm-review-acceptance-gate`） |
 
-**「待拍板 / 交出去的活 / 按流程办」这三个标签不在 `LawmindAgentFleetPanel` 里，而在 `app/AgentFleetView.tsx`。**
-
-它们的 tab id 定义在 `lawmind-agents-desk.ts`：
-
-| tab id        | 标签       |
-| ------------- | ---------- |
-| `active`      | 待拍板     |
-| `delegations` | 交出去的活 |
-| `workflows`   | 按流程办   |
-
-`AgentFleetView` 的 testid 是 `lm-agents-desk`、`lm-agents-tab-active`、`lm-agents-tab-delegations`、`lm-agents-tab-workflows`。
-
-**三个标签的措辞都避开了术语表禁词**：没有用「待办」（禁）、「进行中」（禁），而是「待拍板」「交出去的活」「按流程办」——都是律师语言。
-
-### 左栏的 Tab 常量是导出的
-
-`LawmindAgentFleetListAside` 导出四个常量（`FLEET_TAB_TEAM_ID` 等），值就是 testid 字符串。**导出它们是为了让测试与 e2e 引用同一个常量**，而不是各处手抄字符串。
-
-四个常量分两组：Tab 按钮与 Tab 面板（`role="tab"` 与 `role="tabpanel"` 配对，所以各要一个 id）。
-
-### 那三个「空态」分支
-
-`LawmindAgentFleetPanel` 有两种空态：
-
-```text
-allQueue 与 teamRows 都空 → <LawmindAgentFleetEmpty kind="decision">
-allQueue 非空但本案队列空 → <LawmindAgentFleetEmpty kind="filter">
-```
-
-**第二种是「筛出来了但都不属于本案」**——和第 62.2 节那条「先教怎么用」提示呼应。
-
-### 改稿：三栏 + 四个专用编辑器
-
-| 文件                                       | 导出                            | testid 数      |
-| ------------------------------------------ | ------------------------------- | -------------- |
-| `ReviewWorkbench.tsx`                      | `ReviewWorkbench`               | 0（它是容器）  |
-| `review/ReviewWorkbenchDocumentColumn.tsx` | `ReviewWorkbenchDocumentColumn` | 0              |
-| `review/ReviewWorkbenchMetaColumn.tsx`     | `ReviewWorkbenchMetaColumn`     | **7**          |
-| `LawmindDraftDocumentEditor.tsx`           | `LawmindDraftDocumentEditor`    | 0              |
-| `LawmindDraftDocumentPreview.tsx`          | `LawmindDraftDocumentPreview`   | 0              |
-| `LawmindRedlinePanel.tsx`                  | `LawmindRedlinePanel`           | 3              |
-| `LawmindReviewTableEditor.tsx`             | `LawmindReviewTableEditor`      | 3              |
-| `LawmindReviewCampaignPanel.tsx`           | `LawmindReviewCampaignPanel`    | **16**         |
-| `LawmindReviewDeliveryBar.tsx`             | `LawmindReviewDeliveryBar`      | 3              |
-| `LawmindAcceptanceGate.tsx`                | `LawmindAcceptanceGate`         | 0（用 DOM id） |
-
-**注意三个组件的 testid 数是 0**（`ReviewWorkbench`、两个列组件、两个编辑器、`AcceptanceGate`）——它们靠**内部结构**而不是 testid 被测试（比如 `AcceptanceGate` 用 `lm-review-acceptance-gate` 这个 DOM `id`）。
+**注意几个组件的 testid 数是 0**——它们靠**内部结构**而不是 testid 被测试。
 
 **而 `LawmindReviewCampaignPanel` 有 16 条**——因为它的交互最多（选 playbook、快速/并行开关、跑、取消、重跑角色、下载报告、看指标、看问题）。
 
 ### 整理资料：三步页
 
-`LawmindArchiveOrganizePage.tsx`（从设置 → 工作区「整理电脑上的资料」进入，入口 testid `lm-archive-organize-open`）：指定范围 → 查看分类 → 勾选确认，确认后才复制。
+`LawmindArchiveOrganizePage.tsx`：指定范围 → 查看分类 → 勾选确认，确认后才复制（注释写明不改原文件、不把正文发给模型）。
 
 | testid                                              | 干什么                                       |
 | --------------------------------------------------- | -------------------------------------------- |
@@ -156,21 +130,38 @@ allQueue 非空但本案队列空 → <LawmindAgentFleetEmpty kind="filter">
 | `lm-archive-organize-create` / `-into` / `-library` | 三类去向：新建案件 / 归入已有案件 / 一般资料 |
 | `lm-archive-organize-file`                          | 勾选确认后执行复制                           |
 
-### 助手席、守护回执与全局错误弹窗
+数据走 `GET /api/historical-scan` 与 `POST /api/historical-scan/{roots,run,apply,common-places,roots/remove}`。
 
-| 组件                                                              | 挂点                                                                       | testid                                                    | 读什么                                                                                                 |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `LawmindAssistantDesk.tsx`                                        | 对话消息栏（`lawmind-chat-messages-column.tsx`）                           | `lm-assistant-desk`                                       | `GET /api/assistants/:id/desk`：在场状态、职责与禁令、常设工作近况；`visible` 为假时不渲染             |
-| `LawmindDaemonRecap.tsx`                                          | 工作台与在办（`LawmindLawyerWorkbench.tsx`、`LawmindAgentFleetPanel.tsx`） | `lm-fleet-daemon-recap`                                   | `GET /api/daemon` 的 `recap`（「你走后发生了什么」）；设置 → 工作区里同一份回执用 `lm-daemon-recap`    |
-| `LawmindErrorReportDialog.tsx` + `LawmindUnexpectedErrorHost.tsx` | 全局（`main.tsx`）                                                         | `lm-error-report-dialog` / `-body` / `-copy` / `-dismiss` | 渲染层未捕获错误的说明弹窗，详情只带错误本身（类型 / 说明 / 堆栈，不含案件内容与密钥），可复制后发出去 |
+### 守护回执与全局错误弹窗
 
-## 62.2 六个「有判定逻辑」的组件
+| 组件                                                              | 挂点                                                    | testid                                                    | 读什么                                                                                                            |
+| ----------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `LawmindDaemonRecap.tsx`                                          | 工作台（`LawmindDeskAgenda`、`LawmindLawyerWorkbench`） | `lm-fleet-daemon-recap`                                   | `GET /api/daemon` 的 `recap`（「你走后发生了什么」）；设置 → 工作区里同一份回执是另一个元素，用 `lm-daemon-recap` |
+| `LawmindErrorReportDialog.tsx` + `LawmindUnexpectedErrorHost.tsx` | 全局（`main.tsx`）                                      | `lm-error-report-dialog` / `-body` / `-copy` / `-dismiss` | 渲染层未捕获错误的说明弹窗，详情只带错误本身（类型 / 说明 / 堆栈，不含案件内容与密钥），可复制后发出去            |
 
-这一节是这一章的核心：那些**有明确分支判断**的组件。
+旧版本章这里的第三行「助手席 `LawmindAssistantDesk`」**已经整个删掉**——组件文件不存在，`lm-assistant-desk` 这个 testid 全仓为 0。
 
-### 输入工具栏：四档权限与三种按钮
+### 类型里还在、主区进不去的面板（退役集群）
 
-权限模式是四个选项（存 `lawmind.ui.permissionMode.v1`）：
+下面这些组件**文件还在树里，但没有任何生产路径把它们挂进主区**（`docs/LAWMIND-CODE-AUDIT.md` 第 1.1 节）。本章不再写它们的交互契约；第 62.7 节标注了还在断言它们的测试。
+
+| 组件                                                                                                                                   | 情况                                                                                                                                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/AgentFleetView.tsx` + `LawmindAgentFleet*.tsx`（在办队列、签批条 `LawmindFleetPostApproveBar`、`useLawmindFleetCeremonyActions`） | 「待拍板 / 交出去的活 / 按流程办」三个 Tab（`lawmind-agents-desk.ts`）随整个视图退役；`/agents` 现在打开整页律师工作台。协作桌活在设置「协作」里的 `LawmindCollaborationDesk` |
+| `app/MeetingView.tsx` + `MatterTeamMeeting*.tsx`                                                                                       | 会议室不出现；`mainView: "meeting"` 没有生产赋值                                                                                                                              |
+| `app/MatterView.tsx` + `matter/MatterWorkbench*`                                                                                       | 旧案件工作台；现行案卷是 `LawmindLawyerWorkbench`                                                                                                                             |
+| `app/ReviewView.tsx`                                                                                                                   | 独立改稿页；改稿改走中栏 `LawmindMiddleDraftDesk`                                                                                                                             |
+| `HelpPanel.tsx`                                                                                                                        | 接在 `LawmindAppOverlays` 里但 `showHelp` 初值 false 且**全树没有人把它设成 true**——没有入口                                                                                  |
+| `MemoryInspector.tsx`                                                                                                                  | 只被自己的批量采纳测试 import；设置「记忆库」用的是 `LawmindMemoryLibrary`                                                                                                    |
+| `LawmindChatThoughtPanel.tsx` / `LawmindChatExecutionTrace.tsx`                                                                        | 思考面板与执行轨迹都只被自身测试 import；对话里的过程条是 `LawmindMsgToolGroup`（`lm-msg-tool-group`）                                                                        |
+
+## 62.2 有判定逻辑的组件
+
+这一节是这一章的核心：那些**有明确分支判断**、且**今天真的挂在渲染树里**的组件。退役组件里的判定逻辑挪到本节末尾单独标注。
+
+### 输入工具栏：四档权限与两种按钮
+
+权限模式是四个选项（存 `lawmind.ui.permissionMode.v1`，`lawmind-chat-compose-toolbar.tsx`）：
 
 ```text
 readonly   计划模式
@@ -186,27 +177,26 @@ strict     严格审批
 | `readonly` | 显示「开始执行」（`lm-compose-start-execute`）    |
 | `strict`   | 显示「恢复标准」（`lm-compose-restore-standard`） |
 
-「开始执行」的行为是**先写执行权限再切模式**：
+「开始执行」的行为是**优先走计划注入，否则切回记住的执行权限**：
 
 ```text
-onStartExecuteFromPlan ?? onPermissionModeChange(readExecutePermissionMode())
+onStartExecuteFromPlan ? 调它（注入计划确认）
+                       : onPermissionModeChange(readExecutePermissionMode())
 ```
 
-也就是：**点「开始执行」不只是切模式，还把这个选择持久化了**——所以下次还是标准模式。
-
-而「恢复标准」同理（写 `standard` 再切）。
+而「恢复标准」是**先写 `standard` 再切**（`writeExecutePermissionMode("standard"); onPermissionModeChange("standard")`）——所以下次还是标准模式。
 
 **这两个按钮的设计意图**：计划模式下不能写，但律师看完计划要能一键进入执行。所以给一个「开始执行」，走完再给一个「恢复标准」兜底。
 
-### 联网开关的三个状态
+### 联网开关：禁用只看策略
 
 ```text
-value = allowWebSearch ? "web" : "local"
-options = 仅本地 / 联网
-disabled = webSearchPolicyBlocked || loading
+value    = allowWebSearch ? "web" : "local"
+options  = 仅本地 / 联网
+disabled = Boolean(webSearchPolicyBlocked)
 ```
 
-**`disabled` 有两个原因**：策略拦了（`webSearchPolicyBlocked`），或者正在加载。而且**策略拦时会禁用**——律师改不了。这对应第 15.9 节那条「策略是上限」。
+**`disabled` 只有一个原因：策略拦了**（`webSearchPolicyBlocked`）。回合进行中（`loading`）**不禁用**，只改 title 提示「本轮联网不变；改选从下一句或新对话起生效」。策略拦时律师改不了——这对应第 15.9 节那条「策略是上限」。
 
 ### 模型选择器的三处提示
 
@@ -215,35 +205,45 @@ disabled = webSearchPolicyBlocked || loading
 | 情况       | 行为                                          |
 | ---------- | --------------------------------------------- |
 | 行没配 Key | 点击 → 打开配置向导（或设置）                 |
-| 同上       | 行的 title：`未填 API Key，将打开配置向导`    |
+| 同上       | 行的 title：`还没填密钥，将打开连接向导`      |
 | 目录为空   | 触发按钮 title：`Loading models…`             |
 | 其他不可用 | 触发按钮 title：`Model switching unavailable` |
 
 **「点未配置的模型 → 去配置」**是很好的交互：**它把「这个不能用」变成「去把它配好」**。
 
-### 发送与中途指示的分叉
+### 回合进行中的三个按钮：改这一轮 / 发送 / 停止
 
-这一处很值得单独看。输入区发送按钮的行为是：
+这一处旧版本章写错了，值得单独看。回合进行中且输入框有字时，输入区右侧是**三个并存的按钮**，不是「发送变成中途指示」：
 
-```text
-loading && 有文本 && 有 apiBase && 有 sessionId
-  → POST /api/sessions/:id/steer   { text }     ← 中途指示
-  并清空输入 + 清 compose stash
-否则
-  → onSend()                                    ← 正常发一条
-```
+| 按钮                                   | 条件                        | 行为                                                                                                                                                                                                               |
+| -------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 改这一轮（`lm-compose-steer-current`） | 提供了 `onSteerCurrentTurn` | `turnInbox.post("steer", { text })` → `POST /api/sessions/:id/steer`，**并清空输入 + 清 compose stash**（那段文本已经作为 steer 送出去了）。`parseForkContinueRequest` 命中或缺 apiBase/sessionId 时回落成普通发送 |
+| 发送（title「这一轮结束后接着办」）    | 总是                        | 走 `onSend`；`useLawmindChatSend` 里回合在跑时排成 **followup**（注释写明：Inbox followup 是下一轮，**不发 /steer**）                                                                                              |
+| 停止                                   | 回合进行中                  | `onAbortChat`，若已关联指派任务尽量一并取消                                                                                                                                                                        |
 
-**同一个「发送」按钮在回合进行中会变成「中途指示」**。这就是第 3.2 节那条「中途指示（steer）」的界面落点。
+「+」输入选项面板里还有第四个：**下一轮再发**（`lm-compose-enqueue-next`，`loading && 有文本 && onEnqueueNextTurn` 时出现）——它与发送同走 `onSend`，title 写明「和回车、发送是同一件事」。
 
-而且它做了一件看着小但要紧的事：**清掉 compose stash**。因为那段文本已经作为中途指示送出去了（第 62.4 节讲 stash）。
+**「中途插话」（steer）和「排队下一条」（followup）是两条路**，界面、注释、发送目标都分开了。
 
-**另一个按钮是不同的**：`onEnqueueNextTurn`（`lm-compose-enqueue-next`）走的是**跟进队列**（`onSend`），不是 steer。**「排队下一条」和「中途插话」是两件事。**
+### `LawmindChatMessageRow`：无铬不画与横幅分支
+
+消息行的判定（`LawmindChatMessageRow.tsx`）：
+
+| 条件                                                                                               | 渲染                                                                                                            |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 助手消息没有任何可见铬（无正文、无计划、无澄清、无缺源/演示/研究恢复、不在进行中、无关联任务状态） | **整行 `return null`**                                                                                          |
+| 用户消息是门禁句                                                                                   | `parseLawyerGateMessage` 改画 `lm-msg-gate`                                                                     |
+| `msg.turnPlan`                                                                                     | `LawmindTurnPlanCard`（`lm-turn-plan`；可编辑时能勾掉步骤、改步骤字、「开始执行」`lm-turn-plan-start-execute`） |
+| 最后一条助手 + 本轮在跑 + 非模型失败                                                               | 只显示「正在办理…」`lm-chat-working`，正文先藏                                                                  |
+| `authorityGapNotice` / `demoCorpusNotice` / `researchNextActions`                                  | 三条横幅（testid 见第 62.1 节）                                                                                 |
+| 最后一条助手且 `chatThreadDecisionActions` 非空                                                    | `LawmindRequiresActionCard` 待拍板卡                                                                            |
+| `awaiting_clarification` 或带 `clarificationQuestions`，且无 `requiresAction`                      | 澄清卡：阻塞且非短确认 → `LawmindClarificationForm`；短确认用 compact 表单                                      |
+
+助手正文走 `LawmindMsgAssistant`（markdown、失败态、Word 检查菜单 `lm-word-check-*`）。头像字：用户「我」，助手「助」。
 
 ### `LawmindComposeContextUsage`：对话长度，不是十二个桶
 
-短对话不显示这个入口。`effectiveLimit <= 0` 时也不显示。变长或已经整理过才出现按钮，文案是「对话较长」「对话已很长」「已整理过」。打开后可以「整理这场对话」或另开一段。
-
-水位仍用 `warn` / `compact`：前者是「这场对话开始变长」，后者是「这场对话已经很长」。整理前若提供了 `onPreviewCompact`，先出预览再执行。
+短对话不显示这个入口。`effectiveLimit <= 0` 时也不显示（`!budget || budget.effectiveLimit <= 0` 直接 `return null`）。水位到 `warn` / `compact`，或已经整理过（`compactCount > 0`）才出现，文案是「对话较长」「对话已很长」「已整理过」。打开后可以「整理这场对话」（`lm-compose-compact`）、蒸馏（`lm-compose-distill`）或另开一段并带上文（`lm-compose-fork-carryover`）。
 
 **确认流程**：
 
@@ -256,16 +256,16 @@ loading && 有文本 && 有 apiBase && 有 sessionId
 
 ### `LawmindSettingsConversationLength`：对话长度三档
 
-对话输入栏工具条里的档位选择（`lawmind-chat-compose-toolbar.tsx`，**不是设置页**）：200K / 500K / 1M（`src/lawmind/agent/context-preset.ts`）。testid 是 `lm-compose-context-length` 与 `lm-compose-context-length-select`。
+对话输入栏工具条里的档位选择（`LawmindSettingsConversationLength.tsx`，**不是设置页**）：200K / 500K / 1M（`src/lawmind/agent/context-preset.ts`）。testid 是 `lm-compose-context-length` 与 `lm-compose-context-length-select`。
 
 - 改写走 `PATCH /api/policy/workspace`（键 `conversationLength`），读取走 `GET /api/policy/workspace`。
-- 硬天花板 = min(模型自己的窗口, 所选档)。历史整理不随 500K / 1M 推迟，仍按 200K 质量带。
+- 硬天花板 = min(模型自己的窗口, 所选档)（`contextTokensForConversation`）。历史整理不随 500K / 1M 推迟——三档的 detail 都写明「较早的来回仍会整理」。
 - 旧策略值 `daily` / `dossier` 读出时自动迁移成 200K / 1M（`normalizeConversationLength`）。
 - 它和上面的用量按钮是两件事：档位定本轮硬天花板，用量按钮仍只在「变长或整理过」时才出现。
 
 ### `LawmindClarificationForm`：三条提交路径
 
-它的提交分支（`desk` / `compact` 两个变体）是三级回落：
+它的提交分支（`desk` / `compact` 等变体）是三级回落：
 
 | 情况               | 提交什么                                          |
 | ------------------ | ------------------------------------------------- |
@@ -325,46 +325,34 @@ pct            = requiredTotal > 0 ? round(requiredDone / requiredTotal × 100) 
 
 未完成时的提示是 `完成必核后方可签批`，带 `role="status"`（**无障碍上是个状态区**，读屏会播报）。
 
-### 宿主侧那道「null 算没完成」的门
+### 签批门禁在宿主侧怎么算（活着的版本）
 
-`LawmindAgentFleetDetail` / `useLawmindFleetCeremonyActions` 里有一句：
-
-```text
-deskChecklistComplete = Boolean(view && view.spec.items.filter(i => i.required).every(i => checked[i.id]))
-```
-
-**`view` 为 null 时结果也是 false**（因为 `Boolean(null && ...)`）——这条注释写明了是刻意的：
+清单组件如今挂在 `review/ReviewWorkbenchMetaColumn.tsx`（高级 · 签批折叠区），门禁在 `ReviewWorkbench.tsx` 里算：
 
 ```text
-null view is treated as not complete
+checklistBlocksApprove =
+  有 checklistView 且 reviewStatus === "pending"
+  且 required 里存在未勾项
 ```
 
-**「查不到清单」不等于「没有必核项」**。所以签批按钮会被禁用（`primaryDisabled` 里带了 `!deskChecklistComplete`）。这是一个安全方向的默认值。
+它同时喂给清单的 `disableApproveHint` 与交付条的 `approveDisabled`。**注意这里的默认值方向**：`checklistView` 为 null 时 `checklistBlocksApprove` 是 **false**（不拦）——与退役 fleet 代码里「null 算没完成」那道门**正好相反**。两条路都是刻意写的，但含义不同，别再引用旧那一版。
 
-而「一键勾选必核」（`lm-fleet-checklist-check-all`）的 disabled 条件有四个：
-
-```text
-busy || deskChecklistLoading || deskChecklistComplete || !deskAcceptanceReady
-```
-
-最后一个的 title 是 `验收未过，请逐项过目`——**验收没过时不许一键勾**。这是很细的一处保护：**批量勾选不能让律师跳过验收**。
-
-### `LawmindAcceptanceGate`：五条展开判据
+### `LawmindAcceptanceGate`：展开判据
 
 它的核心是一个导出的纯函数（**所以能单独测**）：
 
 ```ts
 acceptanceGateShouldExpand(report, reasoning) {
-  if (!report.deliverableType) return false;             // 没类型 → 不展开
-  if (!report.ready) return true;                        // 没过 → 展开
-  if ((report.blockerCount ?? 0) > 0) return true;       // 有阻塞 → 展开
-  if ((report.placeholderCount ?? 0) > 0) return true;   // 有占位 → 展开
+  if (!report.deliverableType && report.ready) return false;  // 没类型但已通过 → 不展开（渲染成一句提示）
+  if (!report.ready) return true;                             // 没过 → 展开
+  if ((report.blockerCount ?? 0) > 0) return true;            // 有阻塞 → 展开
+  if ((report.placeholderCount ?? 0) > 0) return true;        // 有占位 → 展开
   if (reasoning && reasoning.required && !reasoning.ready) return true;  // 推理门没过 → 展开
   return false;
 }
 ```
 
-**五条都是「有问题就展开」**。所以律师不用手动点开才看到问题。
+**除第一条外都是「有问题就展开」**——律师不用手动点开才看到问题。注意第一条与旧版不同：**没类型且未通过现在会展开**（落到正常出稿清单），旧版是没类型一律不展开。
 
 而 effect 的写法有一处细节：
 
@@ -374,16 +362,13 @@ useEffect 里每当 shouldExpand 为真就展开，忽略 defaultCollapsed
 
 **「忽略 defaultCollapsed」**——如果出了问题，即使调用方说「默认收起」也要展开。
 
-**三个早退分支**：
+**两个早退分支**：
 
-| 条件                                        | 渲染                                                   |
-| ------------------------------------------- | ------------------------------------------------------ |
-| 没有 `report`                               | `null`                                                 |
-| 没有 `deliverableType` 且 `ready === false` | 与有类型时同一张出稿清单（「未标明这是哪一类文书」）   |
-| 没有 `deliverableType` 且 `ready === true`  | `未标明文书类型。导出前会再按已登记的文书规范核一次。` |
-| —                                           | 正常渲染                                               |
-
-**没类型且未通过时展开同一张出稿清单**，不静默，也不写成放行。`ready === true` 的空类型只提醒导出前还会再核一次。
+| 条件                                       | 渲染                                                             |
+| ------------------------------------------ | ---------------------------------------------------------------- |
+| 没有 `report`                              | `null`                                                           |
+| 没有 `deliverableType` 且 `ready === true` | 一句提示：`未标明文书类型。导出前会再按已登记的文书规范核一次。` |
+| 其他（含没类型且未通过）                   | 正常出稿清单                                                     |
 
 **摘要行**：
 
@@ -413,7 +398,7 @@ hardBlockExport = !writing && approved && readiness && !readyToExport
                   && blockers 里有 checklist 或 citation
 ```
 
-**`hardBlockExport` 只认 `checklist` 与 `citation` 两种 blocker**——其他 blocker（比如 `review_pending`）不会走这条硬拦。
+**`hardBlockExport` 只认 `checklist` 与 `citation` 两种 blocker**——其他 blocker 不会走这条硬拦。
 
 **六个分支的按钮文案**（有顺序）：
 
@@ -437,97 +422,33 @@ hardBlockExport = !writing && approved && readiness && !readyToExport
 **跟单里有一条明确的注释**：
 
 ```text
-导出始终走 strict 验收门禁；UI 不再提供 ?strict=false 绕过入口。
+验收门禁是核心卖点：UI 不提供绕过入口，阻塞时禁导出并提示补齐。
 ```
 
 **界面上没有绕过验收的按钮**——第 8.14 节讲过这条，这里是它的代码出处。
 
-### `MemoryInspector`：两种模式与四组动作
+### 退役组件里的判定逻辑（只被测试引用）
 
-作用域有两套：
+以下逻辑**代码还在、测试还跑，但组件不进渲染树**。写出来是为了如实，不是契约：
 
-```text
-SCOPES        = [matter, lawyer, playbook, client, firm, assistant, opponent, project]   ← 八个
-SIMPLE_SCOPES = [lawyer, matter, firm]                                                   ← 三个
-```
+- `MemoryInspector` 的两段式批量采纳（先 `dryRun: true` 预览、确认后才落盘）仍被 `MemoryInspector.batch.test.tsx` 守着；设置「记忆库」的现行组件是 `LawmindMemoryLibrary`。
+- 退役 fleet 宿主的「`view` 为 null 时必核清单按未完成处理」（`LawmindAgentFleetDetail` / `useLawmindFleetCeremonyActions`）与「待拍板」分组标签（`fleetGroupLabel`）随在办集群一起不在主区渲染；它与上面活着的 `checklistBlocksApprove` 默认方向相反，引用时别搞混。
 
-**简单模式只给三个**——因为「playbook / opponent / project」这些对多数律师太抽象。
+## 62.3 首跑：单步（只选身份）
 
-### 动作分两组
+### 单步流程
 
-**默认动作**（一直可见）：
-
-| 按钮 | 行为                                                                  |
-| ---- | --------------------------------------------------------------------- |
-| 确认 | `onAdopt(item.id)`                                                    |
-| 改写 | 打开 textarea，预填 `item.payload`，要求非空否则报 `改写内容不能为空` |
-
-**「更多」里的三个**：
-
-| 按钮                | 行为                                               |
-| ------------------- | -------------------------------------------------- |
-| 预览变更 / 收起预览 | 切 `loadPreviewDiff`                               |
-| 稍后再说            | `onSnooze`（**只存会话内 `ReadonlySet`，零写入**） |
-| 忽略                | `onDismiss(item.id, "ignored")`                    |
-
-**「稍后再说」是纯界面状态**——注释与实现都说明了它不写盘。这是个好设计：**「我现在不想决定」不该产生副作用**。
-
-### 差异预览的显示
-
-预览拉 `GET /api/memory/adoption/:id/preview-diff`，显示三样：
+首跑窗口没有进度条，也没有 `Step` 状态：屏幕上只有身份卡。点任意一张身份卡即完成——
 
 ```text
-写入后约 <N> 字
-<code><目标路径></code>        ← 简单模式下隐藏
-<差异 hunk 列表>               ← equal / add / remove 三种，前缀分别是空格 / + / -
+选身份 → POST /api/matters/create { matterId: "演示案件" }
+       → POST /api/onboarding/firstrun-wizard（审计，失败不阻断）
+       → applyPostFirstrunPermissionDefaults({ executable: true })
+       → onSeedReady({ matterId, seedPrompt: 按身份拼的默认交办 })
+       → 关窗并 dismissForever
 ```
 
-**「目标路径」在简单模式下隐藏**——因为路径对律师是噪音（第 32 章那条禁词规范）。
-
-失败时的回落链是 `hint ?? error ?? "无法加载变更预览"`——**三级兜底文案**。
-
-### 批量采纳的两段式
-
-```text
-① POST /api/memory/adoption/adopt-batch { mode: "low_risk_style", dryRun: true }   ← 预览
-② POST 同上 { dryRun: false }                                                      ← 真的写
-```
-
-**`dryRun` 默认 true 在服务端和界面两侧都是**（第 6.5 节讲过）。
-
-按钮文案带数量：`确认采纳 N 条`。而被跳过的会单列：
-
-```text
-N 条不在待审列表，已跳过
-```
-
-**「已跳过」要显示出来**——否则律师会以为「点了 10 条就该写 10 条」。
-
-### 排序规则
-
-```text
-[...list].toSorted((a, b) => (a.createdAt < b.createdAt ? 1 : -1))   ← 新的在前
-```
-
-**用的是 `toSorted`（不改原数组）**——第 44.1 节也见过这个用法，这是这个仓库的偏好。
-
-## 62.3 首跑：三步（无习惯问卷）
-
-### 三步流程
-
-```text
-type Step = "role" | "spec" | "confirm"
-```
-
-界面上的进度是 `<ol>`：
-
-```text
-1. 身份  2. 文书  3. 开始
-```
-
-**回退顺序**是 `confirm → spec → role`——**完整回退链**。
-
-首跑**不再**收集行文风格 / 风险口径 / 对客语气，也**不**向 `POST /api/lawyer-profile/learning` 写「冷启动偏好：…」。写作习惯改由记忆库（确认后写入）与改稿/对话沉淀；避免无证据的风格标签静默偏置模型。
+首跑**不再**收集文书类型，也**不**收集行文风格 / 风险口径 / 对客语气，更**不**向 `POST /api/lawyer-profile/learning` 写「冷启动偏好：…」。写作习惯改由记忆库（确认后写入）与改稿/对话沉淀；避免无证据的风格标签静默偏置模型。
 
 ### 角色选项
 
@@ -539,54 +460,42 @@ type Step = "role" | "spec" | "confirm"
 | `associate` | 律所协办 |
 | `partner`   | 合伙人   |
 
-角色只影响可选的第一句 seed prompt（按文书类型拼装），不写入可执行偏好。
+角色只影响第一句 seed prompt（`DEFAULT_SEED_PROMPT_BY_ROLE`：solo 默认起草初稿、associate 标合伙人留白、partner 全要素审核），不写入可执行偏好。
 
-### 自动弹出的三个条件
+### 自动弹出的判定链
 
 ```text
 ① open 已经是 true → 不重复弹
 ② suppressAutoOpen → 不弹
-③ localStorage 有 dismissed 标记 → 不弹
+③ 本会话已关过（dismissedThisSessionRef）→ 不弹
 否则：
-  localStorage/sessionStorage 的 requestOpen 是 "1" → 弹
+  sessionStorage 或 localStorage 的 lm.firstRun.requestOpen 是 "1" → 弹（读后即清）
+  否则 GET /api/onboarding/firstrun 说已关闭 → 不弹
+    （服务端读不到时回落：localStorage 有 lm.firstRun.dismissed 标记 → 不弹）
   否则 GET /api/matters/overviews 空 → 弹
 ```
 
-**第 ③ 步与后面的两个分支是「要么被要求弹，要么没有案件就弹」**——所以首跑只在「新环境」出现。
+**已关闭的真源在服务端**（按工作区记），浏览器里那份只是网络失败时的兜底——关掉时先 `POST /api/onboarding/firstrun-dismiss`，写成才清浏览器副本，写不成才补写浏览器副本。所以换工作区首跑会回来，换浏览器不会丢记录。
 
-### 起始交付物的排名规则
+### 起始交付物没有选择步骤
 
-```text
-rank(spec):
-  contract.review  → 0
-  source 是 workspace → 1
-  其他 → 2
-取前 6 个
-```
+文书类型不进首跑：渲染层不再拉 `/api/deliverables/specs`，也没有 spec 卡片与排名逻辑（曾经的 `contract.review` 恒排第一那条规则随文书步骤一起删除）。要办什么文书，由对话判断。
 
-**`contract.review` 恒排第一**——因为它是最高频的办件。而工作区自定义的排在前面（比内置更贴合本所）。
+### 演示案件名
 
-### 演示案件名的构造
-
-```text
-演示案件-<sanitized displayName>
-```
-
-保留的字符集是 `\p{L}\p{N}._-` 加空格；兜底 `演示案件-示例`。
-
-而「直接开始」那条路用的是**固定名 `演示案件`**（不拼业务名），并且**不往输入框放说明**。示例句在空对话里点选后才填入。
+两条路（选身份、直接开始）都用**固定名 `演示案件`**（`FIRST_RUN_DEMO_MATTER_ID`，不拼业务名）。选身份那条路会往输入框放一句按身份拼的默认交办；「直接开始」（跳过向导，`lm-firstrun-skip-wizard`）不放说明（`seedPrompt: ""`）。示例句在空对话里点选后才填入。
 
 ### 首跑仍写什么（与模型风格无关）
 
-提交与跳过**都会调** `applyPostFirstrunPermissionDefaults({ executable: true })`——**首跑直接给可执行权限**（第 2.2 节那条「不再弹首跑向导」的配套）。这是 UI 权限默认，不是风格/风险口径提示，不进入「已按你的习惯」块。
+提交与跳过**都会调** `applyPostFirstrunPermissionDefaults({ executable: true })`——**首跑直接给可执行权限**。这是 UI 权限默认，不是风格/风险口径提示，不进入「已按你的习惯」块。
 
-## 62.4 存储：本节逐条列出的 33 个 localStorage 键与 2 个 sessionStorage 键
+对话框自身的 testid：`lm-firstrun-authority-boundary`、`lm-firstrun-skip-wizard`。曾经的 `lm-firstrun-skip-spec`（先不选文书）与 `lm-firstrun-create-matter`（顺手建案勾选）随文书步骤一起删除。
 
-**先说清口径**：渲染层里形如 `lawmind.*` / `lm.*` 的存储键字面量，2026-09-23 静态数出约 **44 个**（非测试文件）。本节只逐条讲**有行为含义**的那些，不去凑总数——边角键（面板宽度之类）列全了没有增量信息。
+## 62.4 存储：活着的 46 个 localStorage 键族与 3 个 sessionStorage 键
 
-下面按用途分六组。
+**先说清口径**：下面按 2026-10 的源码逐个数。动态后缀（按案件/任务分键）算一个**键族**。旧版标题里的「33 + 2」与正文里的「约 44 个」都不准；而且旧版把 `lawmind.postApproveExport.v1.<taskId>` 错记成 localStorage——**它其实是 sessionStorage**，且只属于退役的 fleet 集群。
 
-### localStorage 按用途分六组
+### localStorage：活着的 46 个键族
 
 **开发与连接**（2 个）：
 
@@ -606,26 +515,33 @@ lawmind.ui.executePermissionMode.v1
 
 **注意 `byAssistant` 那个**——**模型可以按助手分别记**。所以「合同助手用贵模型、通用助手用便宜模型」是支持的。
 
-**输入区与上下文**（4 个）：
+**输入区与上下文**（5 个）：
 
 ```text
 lawmind.compose.stash.<matterId|_global>
 lawmind.compose.recentFileContext
 lawmind.ui.allowWebSearch
 lawmind.ui.briefOnly.v1
+lawmind.includeTurnDiagnostics
 ```
 
-**会话与工作流**（5 个）：
+**会话**（4 个）：
 
 ```text
 lawmind.chat.activeSession.v1
-lawmind.planHandoff.v1
-lawmind.postApproveExport.v1.<taskId>
-lawmind.ui.forkSuggestDismissed.v1
-lawmind.fleet.collapsedGroups.v1
+lawmind.chat.listScope.v1
+lawmind.chat.collapsedFolders.v1
+lawmind.chat.homeDir.v1
 ```
 
-**审稿与出稿**（7 个）：
+**工作流**（2 个）：
+
+```text
+lawmind.planHandoff.v1
+lawmind.ui.forkSuggestDismissed.v1
+```
+
+**审稿与出稿**（9 个）：
 
 ```text
 lawmind.review.autoExportOnApprove
@@ -635,23 +551,59 @@ lawmind.ui.reviewPaneEditor
 lawmind.ui.reviewPanePreview
 lawmind.ui.reviewWorkbenchMetaWidth
 lawmind.ui.reviewWorkbenchEditorWidth
+lm.campaignPreferFast
+lm.campaignPreferParallel
 ```
 
-**界面与版面**（十几个）：
+**界面与版面**（14 个）：
 
 ```text
-lawmind.ui.sidebarCollapsed / sidebarWidth
-lawmind.ui.wsPaneChat / wsPaneEditor / wsChatColumnWidth
+lawmind.ui.sidebarCollapsed
+lawmind.ui.sidebarWidth
+lawmind.ui.wsPaneChat
+lawmind.ui.wsPaneEditor
+lawmind.ui.wsChatColumnWidth
 lawmind.ui.filesExplorerWidth
-lawmind.ui.matterWorkbenchListWidth
+lawmind.ui.wordSurfaceRailWidth
 lawmind.ui.chatComposeHeight.v3
-lawmind.ui.meetingMaterialsCollapsed
-lawmind.ui.showToolTrace.v1
-lawmind.ui.test                     ← 测试专用
+lawmind.settings.lastSection
 lm.ui.fontScale.v1 / density.v1 / reducedMotion.v1 / theme.v1
+lm.privilegeSentinel
+```
+
+**案件缓存**（2 个）：
+
+```text
+lawmind.matterBrief.<matterId>
+lawmind.hotline.<matterId>.<hot>.<yyyy-mm-dd>
+```
+
+**画布**（2 个）：
+
+```text
+lawmind.canvas.file.<root>:<path>
+lawmind.canvas.state.<key>
+```
+
+**首跑**（2 个）：
+
+```text
+lm.firstRun.dismissed          ← 服务端写不成时的兜底副本
+lm.firstRun.requestOpen        ← 向导配完后请求再弹一次（两个存储都查）
 ```
 
 **分组的规律很清楚**：`lawmind.ui.*` 是界面偏好，`lawmind.<功能>.*` 是功能偏好。
+
+### 退役/垂死的 localStorage 键（代码还在，组件不进主区）
+
+```text
+lawmind.teamMeeting.session.<matterId>        ← 会议室（退役）
+lawmind.teamMeeting.participants.<matterId>   ← 会议室（退役）
+lawmind.ui.matterWorkbenchListWidth           ← 旧案件工作台（退役）
+lawmind.reviewMatrix.notes.v1.<matterId>      ← 旧案件工作台审阅矩阵（退役）
+lawmind-agents-snooze:v1                      ← 在办 fleet「稍后看」（退役）
+lawmind.ui.meetingMaterialsCollapsed          ← 只出现在「重置布局」的删除清单里，没有活写入方
+```
 
 ### 三个 `.v1` / `.v3` 的意义
 
@@ -665,26 +617,27 @@ lawmind.ui.chatComposeHeight.v3          ← 第 3 版
 
 `chatComposeHeight.v3` 到第 3 版说明这个值改过两次结构。
 
-### 两个 sessionStorage 键
+### 三个 sessionStorage 键（活着）
 
 ```text
-lawmind-lawyer-review-sig:<key>
-lm.firstRun.requestOpen
+lm.firstRun.requestOpen                ← 也查 localStorage 同键
+lawmind-lawyer-review-sig:<key>        ← 审阅桌面通知去重
+lawmind-daemon-incident-sig:<key>      ← 后台掉线通知去重
 ```
 
-会议室的参会会话和参会人键还在 localStorage（`lawmind.teamMeeting.session.<matterId>`、`lawmind.teamMeeting.participants.<matterId>`），只被未挂载的会议室组件读写。关掉应用还在，换机器就没了。律师界面没有写入入口。
+**两条 `*-sig:` 都是「桌面通知」的去重签名**——避免同一个事件重复弹通知；会话级，关掉应用就清。
 
-**`lawmind-lawyer-review-sig` 是「律师审核通知」的去重签名**——避免同一个审核重复弹通知。
+另有一个退役的：`lawmind.postApproveExport.v1.<taskId>`（签批后导出条状态），**它是 sessionStorage**——旧版本章记成 localStorage 是错的；它的唯一读写方是退役的 fleet 签批条。会议室旧键也曾在 sessionStorage，现在的模块只是「读到就迁到 localStorage」。
 
 ### 三个「按案件/任务分键」的
 
 ```text
 lawmind.compose.stash.<matterId|_global>
-lawmind.postApproveExport.v1.<taskId>
-lawmind.reviewMatrix.notes.v1.<matterId>
+lawmind.matterBrief.<matterId>
+lawmind.hotline.<matterId>.<hot>.<yyyy-mm-dd>
 ```
 
-**分键的原因各不相同**：草稿按案件（切案时草稿该分开）、导出去重按任务、矩阵批注按案件。
+**分键的原因各不相同**：草稿按案件（切案时草稿该分开）、摘要与热线按案件缓存。
 
 ### `lm.` 与 `lawmind.` 两个前缀
 
@@ -693,15 +646,15 @@ lawmind.reviewMatrix.notes.v1.<matterId>
 | 前缀       | 用在哪                                 |
 | ---------- | -------------------------------------- |
 | `lawmind.` | 大部分（较新）                         |
-| `lm.`      | 外观四件套、特权提示、专案组开关、首跑 |
+| `lm.`      | 外观四件套、专案组偏好、特权提示、首跑 |
 
 **这是历史演进**：早期用 `lm.`，后来统一成 `lawmind.`。改的时候要注意两边都在用。
 
-## 62.5 四个「不算 drag-drop」的地方（一处容易误判）
+## 62.5 FileWorkbench：没有拖放导入（一处容易误判）
 
-我在核对时发现一个容易误判的点：**`FileWorkbench` 没有拖放导入。**
+核对时发现一个容易误判的点：**`FileWorkbench` 没有拖放导入。**
 
-`file/` 下的树行是拖放的**来源**（`encodeLawmindFsDrag` + `LAWMID_FS_DRAG_MIME`），不是目标。整个 `FileWorkbenchView` / `FileWorkbenchTree` / `FileWorkbenchImpl` 里**没有 `onDrop` / `onDragOver`**。
+`file/` 下的树行是拖放的**来源**（`encodeLawmindFsDrag` + `LAWMID_FS_DRAG_MIME`——常量名里的 `LAWMID` 少个 N，是源码原样），不是目标。整个 `FileWorkbenchView` / `FileWorkbenchTree` / `FileWorkbenchImpl` 里**没有 `onDrop` / `onDragOver`**。
 
 **导入的入口是另一条路**：
 
@@ -711,7 +664,7 @@ casesNodeActions.onImportMatters / canImportMatters / importMattersBusy
 
 也就是**「导入案件」菜单项**，不是拖放。
 
-而**聊天侧的拖放是有的**（第 62.1 节那四个 drop zone）。
+而**聊天侧的拖放是有的**（第 62.1 节那两个 drop zone）。
 
 **这个区别**：拖文件进对话 = 钉选上下文；拖文件进文件工作台 = 不行，要用菜单。
 
@@ -719,7 +672,7 @@ casesNodeActions.onImportMatters / canImportMatters / importMattersBusy
 
 两个根（`RootKey`）：`workspace` / `project`。
 
-**五个受保护路径**（删除时要求输入文件名确认）：
+**五个受保护路径**（删除时要求输入文件名确认，`file/file-workbench-fs.tsx` 的 `PROTECTED_WORKSPACE`）：
 
 | 路径              | 保护理由（文案）                            |
 | ----------------- | ------------------------------------------- |
@@ -760,11 +713,11 @@ casesNodeActions.onImportMatters / canImportMatters / importMattersBusy
 
 输案件名 → 校验 `isValidMatterId` → 建 `cases/<名>/` → **再调 `POST /api/matters/create`**。
 
-**先建目录再建案件**——所以目录结构与案件记录是一致的。
+**先建目录再建案件**——所以目录结构与案件记录是一致的。目录建成而登记失败时错误文案会明说「文件夹已创建，但案件登记失败」。
 
 ### 快速打开的打分
 
-`scoreMatch` 五档：
+`scoreMatch` 五档（`file/file-workbench-fs.tsx`）：
 
 ```text
 精确匹配        100
@@ -775,19 +728,25 @@ casesNodeActions.onImportMatters / canImportMatters / importMattersBusy
 结果最多 14 条
 ```
 
-### 图片与 Office 的处理
+### 打开文件：按预览种类分派，不再是「Office 一律拦下」
 
-`openFile` 的顺序：
+旧版本章说「Office 类不开 tab，拦下来而不是给烂预览」——**这已经过时**。现在 `openFile` 先问 `resolvePreviewKind`（`file/preview-kind.ts`），十一个种类各有面板：
 
-| 情况                    | 处理                                    |
-| ----------------------- | --------------------------------------- |
-| Office 类（7 种扩展名） | `officeBlock`（不开 tab）               |
-| 已有 tab                | 激活                                    |
-| 读失败且含 `"binary"`   | `officeBlock`（mode: office 或 binary） |
-| 是图片                  | `imagePreview`（data URL）              |
-| 其他                    | 文本 tab                                |
+| 扩展                          | kind       | 面板                                                           |
+| ----------------------------- | ---------- | -------------------------------------------------------------- |
+| `.docx`                       | `word`     | Word 修订面（`LawmindWordRevisionSurface`，`lm-word-surface`） |
+| `.pdf`                        | `pdf`      | `PdfFileView`（pdf.js，视口附近才挂页）                        |
+| `.xlsx`                       | `xlsx`     | `XlsxFileView`（网格编辑 + 保存）                              |
+| `.pptx`                       | `pptx`     | `PptxFileView`（幻灯片图 + 本页文字编辑）                      |
+| 音频/视频 10 种               | `media`    | `MediaFileView`                                                |
+| `.eml`                        | `eml`      | `EmlFileView`                                                  |
+| `.zip`                        | `zip`      | `ZipFileView`（只列条目不解压）                                |
+| `.doc`                        | `doc`      | `DocFileView`（让 Word/WPS 存成同名 docx 再打开）              |
+| 图片 8 种                     | `image`    | `ImagePreviewPanel`（data URL）                                |
+| `.xls` / `.ppt` 等其他 Office | `fallback` | `FallbackPreviewPanel`（版式预览不支持的说明）                 |
+| 其他                          | `text`     | textarea（`.md` 可切预览；`.canvas.tsx` 走 `CanvasFileView`）  |
 
-**Office 类不开 tab 是个明确选择**：这些格式在这个界面里读不了（要用 `analyze_document`）。所以**拦下来而不是给个烂预览**。
+**顺序**：已有 tab → 激活；二进制种类（`kind !== "text"`，图片除外）→ **不读文本直接开 tab**；读失败且错误含 `binary` → fallback tab；是图片 → data URL；其余 → 文本 tab。活动预览容器的 testid 是 `lm-preview-active-<kind>`。
 
 保存到工作区外的提示也值得一提：
 
@@ -799,9 +758,9 @@ casesNodeActions.onImportMatters / canImportMatters / importMattersBusy
 
 ## 62.6 三处「组件之间」的约定
 
-### 会议室存储键（组件未挂载）
+### 会议室存储键（组件已退役）
 
-这些键只被未挂载的会议室组件读写。律师界面没有入口。委派留痕走工作区里的 `team-meeting.jsonl`，不走这组键。
+这些键只被退役的会议室组件读写。律师界面没有入口。
 
 ```text
 MEETING_SESSION_STORAGE_PREFIX = "lawmind.teamMeeting.session."
@@ -834,17 +793,6 @@ Ad-hoc meetings keep the API sentinel id but store under workspace/meetings/adho
 
 **「API 用 sentinel、磁盘用独立目录」**——两套表示，一处转换。
 
-### 记忆来源面板的 sentinel
-
-`LawmindMemorySourcesPanel` 处理客户档案时有两个特殊值：
-
-```text
-client_profile_root
-CLIENT_PROFILE.md
-```
-
-**根级客户档案不是某个客户**，所以用 sentinel 而不是 `clients/<id>/` 那种路径。
-
 ### 设置导航的三个常量
 
 | 常量                               | 内容                                               |
@@ -853,15 +801,17 @@ CLIENT_PROFILE.md
 | `LAWMIND_SETTINGS_SCROLL_ANCHORS`  | `{ memoryTruth: "lawmind-settings-memory-truth" }` |
 | `SETTINGS_LAST_SECTION_KEY`        | `"lawmind.settings.lastSection"`                   |
 
-侧栏是一条 8 项平铺目录（账号 / 模型与连接 / 工作区 / 外观 / 自动办件 / 记忆库 / 助手编制 / 免责声明），没有「更多设置」折叠桶。退役但可深链的分区有专门的常量：
+侧栏是一条平铺目录（源码里分三组只是书写顺序，UI 拍平）：**账号 / 模型与连接 / 工作区 / 外观 / 协作 / 自动办件 / 记忆库 / 免责声明**，共 8 项，没有「更多设置」折叠桶。Firm / `private_deploy` 且多助手编制开启时，「办案」组末尾再挂一项**助手编制**；Solo 侧栏没有这项。旧版本章把「协作」漏掉、把「助手编制」当常驻项——两个都错了。
+
+退役但可深链的分区有专门的常量：
 
 ```text
-SETTINGS_NAV_LEGACY_SECTION_IDS  = ["review-prefs", "host", "roles", "collaboration", "skills",
+SETTINGS_NAV_LEGACY_SECTION_IDS  = ["review-prefs", "host", "assistants", "roles", "skills",
                                     "edition", "doctor", "tools", "templates", "app-update"]
-RETIRED_LAST_SECTION_IDS         = { roles, collaboration, skills, edition, doctor, tools, templates }
+RETIRED_LAST_SECTION_IDS         = { roles, skills, edition, doctor, tools, templates }
 ```
 
-**两组的差别**：`review-prefs` / `host` / `doctor` / `tools` / `app-update` 是「旧分区名」，存进 lastSection 时**会被重定向**（分别到外观、工作区、工作区、模型与连接、账号）；`RETIRED_LAST_SECTION_IDS` 里的七个只深链只读，lastSection 存了会回落到默认分区 `models`。
+**两组的差别**：`review-prefs` / `host` / `doctor` / `tools` / `app-update` 是「旧分区名」，存进 lastSection 时**会被重定向**（分别到外观、工作区、工作区、模型与连接、账号）；`RETIRED_LAST_SECTION_IDS` 里的六个只深链只读，lastSection 存了会回落到默认分区 `models`。`assistants` 在 LEGACY 里但不在 RETIRED 里——它是 firm 深链用的活分区。
 
 **默认分区是 `models`** 的注释写明了原因：
 
@@ -878,35 +828,57 @@ Day-1 landing: connect models first, not a health dashboard.
 | `LawmindSettingsAccount.tsx`       | `lm-settings-account`、`lm-account-name` / `-plan` / `-subscription` / `-license` / `-model-source` / `-model-name` / `-included-models` / `-usage`、`lm-account-open-models`、`lm-reopen-firstrun` | 账号页：登录身份、订阅、许可、模型来源与用量               |
 | `LawmindSettingsWorkspaceCare.tsx` | `lm-workspace-search` / `lm-workspace-rebuild-search` / `lm-workspace-matter-repair`                                                                                                                | 工作区页里的「查找重建」与「案件档案整理」，只在需要时渲染 |
 
+### 记忆来源面板（sentinel 已移除）
+
+旧版本章写过 `LawmindMemorySourcesPanel` 处理「根级客户档案」的两个 sentinel（`client_profile_root` / `CLIENT_PROFILE.md`）——**这对字符串已不在渲染层**，全仓为 0。面板本身还活着（`ReviewWorkbenchMetaColumn` 在用，退役的旧案件认知面板也用），但不再有这条特殊分支。
+
 ## 62.7 测试守着的那些契约
 
-第 62.2 节讲的判定逻辑里，有几条被单测直接守着。我列一下（这一节的作用是告诉你**哪些改动会撞测试**）：
+第 62.2 节讲的判定逻辑里，有几条被单测直接守着。我列一下（这一节的作用是告诉你**哪些改动会撞测试**）。
 
-| 测试文件                                     | describe                                                       | 守什么                       |
-| -------------------------------------------- | -------------------------------------------------------------- | ---------------------------- |
-| `LawmindAcceptanceGate.test.tsx`             | `acceptanceGateShouldExpand`、`LawmindAcceptanceGate`          | 五条展开判据                 |
-| `LawmindReviewDeliveryBar.test.tsx`          | `LawmindReviewDeliveryBar`                                     | 六分支的按钮文案             |
-| `LawmindReviewPaneToggles.test.tsx`          | `LawmindReviewPaneToggles`                                     | 三栏至少留一栏               |
-| `LawmindReviewSelfCheckSummary.test.tsx`     | `LawmindReviewSelfCheckSummary`                                | 交卷核对的显示               |
-| `MemoryInspector.batch.test.tsx`             | `MemoryInspector · 批量采纳`                                   | **预览不写入、确认后才落盘** |
-| `LawmindReviewCampaignPanel.test.tsx`        | `LawmindReviewCampaignPanel`                                   | 专案组面板                   |
-| `LawmindComposeContextUsage.test.tsx`        | `LawmindComposeContextUsage`                                   | 用量环与桶                   |
-| `LawmindComposeAttachments.test.tsx`         | `LawmindComposeAttachments`                                    | 附件                         |
-| `LawmindChatComposeFooter.drop.test.tsx`     | `LawmindChatComposeFooter file drop`                           | 丢文件进输入区               |
-| `LawmindComposeModelWarn.test.tsx`           | `LawmindChatComposeFooter model warn`                          | 模型未配时的提示             |
-| `LawmindClarificationForm`（同目录）         | —                                                              | 澄清表单                     |
-| `LawmindFirstRunDialog.test.tsx`             | `LawmindFirstRunDialog 演示案件名`                             | **演示案件名的构造**         |
-| `LawmindLawyerWorkbench.test.tsx`            | `LawmindLawyerWorkbench`                                       | 工作台                       |
-| `LawmindJudgmentPanel.test.tsx`              | 四条（含「待定夺卡 · 旁路展示」）                              | 判定项面板                   |
-| `LawmindToolArgsEditDialog.test.tsx`         | `LawmindToolArgsEditDialog`                                    | 审批参数编辑                 |
-| `matter/MatterWorkbenchTabs.test.tsx`        | `MatterWorkbenchTabs`                                          | 案件工作台 Tab               |
-| `matter/MatterCognitionPanel.test.tsx`       | `MatterCognitionPanel density`                                 | 认知面板                     |
-| `review/ReviewWorkbenchMetaColumn.test.tsx`  | **`ReviewWorkbenchMetaColumn 律师语言`**、`· 待定夺项旁路展示` | **律师语言**                 |
-| `review/useReviewWorkbenchActions.test.tsx`  | `useReviewWorkbenchActions.submitReview`                       | 提交审核                     |
-| `app/LawmindFileWorkbenchHost.test.tsx`      | `LawmindFileWorkbenchHost`                                     | 文件工作台挂载               |
-| `app/LawmindWorkspaceBootstrapGate.test.tsx` | `LawmindWorkspaceBootstrapGate`                                | 引导门                       |
-| `file/FileWorkbenchDialogs.test.tsx`         | `FileWorkbenchDialogs`                                         | 对话框                       |
-| `file/FileWorkbenchContextMenu.test.tsx`     | `FileWorkbenchContextMenu`                                     | 右键菜单                     |
+**活组件的测试**：
+
+| 测试文件                                                                                               | 守什么                                                     |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| `LawmindAcceptanceGate.test.tsx`                                                                       | 展开判据                                                   |
+| `LawmindReviewDeliveryBar.test.tsx`                                                                    | 六分支的按钮文案                                           |
+| `LawmindReviewPaneToggles.test.tsx`                                                                    | 改稿三栏显隐（至少留一栏）                                 |
+| `LawmindReviewSelfCheckSummary.test.tsx`                                                               | 交卷核对的显示                                             |
+| `LawmindReviewCampaignPanel.test.tsx`                                                                  | 专案组面板                                                 |
+| `LawmindComposeContextUsage.test.tsx`                                                                  | 用量入口的出现条件                                         |
+| `LawmindComposeAttachments.test.tsx`                                                                   | 附件                                                       |
+| `LawmindChatComposeFooter.drop.test.tsx`                                                               | 丢文件进输入区                                             |
+| `LawmindComposeModelWarn.test.tsx`                                                                     | 模型未配时的提示                                           |
+| `lawmind-chat-compose-toolbar.test.tsx`                                                                | 权限档与工具栏按钮                                         |
+| `LawmindClarificationForm.test.tsx`                                                                    | 澄清表单                                                   |
+| `LawmindFirstRunDialog.test.tsx`                                                                       | **演示案件名的构造**等首跑逻辑                             |
+| `LawmindLawyerWorkbench.test.tsx`                                                                      | 工作台                                                     |
+| `LawmindMiddleDraftDesk.test.tsx`                                                                      | 中栏草稿台挂载条件                                         |
+| `LawmindTurnPlanCard.test.tsx`                                                                         | 计划卡                                                     |
+| `LawmindMsgAssistant.test.tsx`                                                                         | 助手正文                                                   |
+| `LawmindModelPicker.test.tsx` + `lawmind-model-picker-utils.test.ts`                                   | 模型选择器                                                 |
+| `LawmindSettingsConversationLength.test.tsx`                                                           | 对话长度档                                                 |
+| `LawmindToolArgsEditDialog.test.tsx`                                                                   | 审批参数编辑                                               |
+| `review/ReviewWorkbenchMetaColumn.test.tsx`                                                            | **`ReviewWorkbenchMetaColumn 律师语言`**、待定夺项旁路展示 |
+| `review/useReviewWorkbenchActions.test.tsx`                                                            | 提交审核                                                   |
+| `app/LawmindMainBodyContent.test.tsx`                                                                  | 主区分支（哪个 view 渲染什么）                             |
+| `app/LawmindFileWorkbenchHost.test.tsx`                                                                | 文件工作台挂载                                             |
+| `app/LawmindWorkspaceBootstrapGate.test.tsx`                                                           | 引导门                                                     |
+| `file/FileWorkbenchDialogs.test.tsx`                                                                   | 对话框                                                     |
+| `file/FileWorkbenchContextMenu.test.tsx`                                                               | 右键菜单                                                   |
+| `file/PptxFileView.test.tsx`、`file/XlsxFileView.test.tsx`、`file/LawmindWordRevisionSurface.test.tsx` | 预览面板                                                   |
+
+**还在断言退役组件的测试**（如实标注：这些测试是绿的，但它们守的组件不进渲染树；按 `docs/LAWMIND-CODE-AUDIT.md` 第 1.1 节删除集群时它们要同批处理）：
+
+| 测试文件                                                                                                                                                                                                                        | 情况                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MemoryInspector.batch.test.tsx`                                                                                                                                                                                                | `MemoryInspector` 只被这个测试 import；「预览不写入、确认后才落盘」的断言还在跑，但守的是死组件                                                                 |
+| `LawmindChatThoughtPanel.test.tsx`                                                                                                                                                                                              | 思考面板只被测试 import                                                                                                                                         |
+| `LawmindAgentFleetDetail.test.tsx`、`LawmindAgentFleetListAside.test.tsx`、`lawmind-fleet-*.test.ts`、`lawmind-post-approve-export.test.ts`                                                                                     | 在办 fleet 集群                                                                                                                                                 |
+| `app/MeetingView.test.tsx`、`lawmind-meeting-*.test.ts`                                                                                                                                                                         | 会议室集群                                                                                                                                                      |
+| `matter/MatterWorkbenchTabs.test.tsx`、`matter/MatterCognitionPanel.test.tsx`、`matter/MatterOverviewBody.test.tsx` 等                                                                                                          | 旧案件工作台集群                                                                                                                                                |
+| `LawmindJudgmentPanel.test.tsx`                                                                                                                                                                                                 | **混合**：`LawmindDecisionHeader` / `LawmindJudgmentEscalationCard` 是活的（挂在 `ReviewWorkbenchMetaColumn`），`LawmindJudgmentItemsPanel` 只被这个测试 import |
+| `LawmindDeskDashboardSummary.test.tsx`、`lawmind-chat-thought-view.test.ts`、`lawmind-chat-trace.test.ts`、`lawmind-execution-state-label.test.ts`、`lawmind-model-service-status.test.ts`、`lawmind-lawyer-vocabulary.test.ts` | 退役散件                                                                                                                                                        |
 
 ### 那个「律师语言」测试
 
@@ -923,27 +895,27 @@ Day-1 landing: connect models first, not a health dashboard.
 没有待确认项时不提供批量入口
 ```
 
-**第一条是「零写入」姿态在界面层的守卫**——它断言预览阶段**一个写入请求都没发**。这类测试（断言「什么都没发生」）比断言「发生了什么」更难写，也更有价值。
+**第一条是「零写入」姿态在界面层的守卫**——它断言预览阶段**一个写入请求都没发**。这类测试（断言「什么都没发生」）比断言「发生了什么」更难写，也更有价值。只是要知道：它守的组件今天不在渲染树里（见上表）。
 
 ## 62.8 已知坑（本章相关）
 
-- **「待拍板 / 交出去的活 / 按流程办」在 `AgentFleetView.tsx`，不在 `LawmindAgentFleetPanel.tsx`。**
+- **「工作台」不是另一页**：`setMainView("desk")` 被根壳收成「对话 + 中栏案卷」；整页「在办」（`/agents`）与工作台中栏是同一个 `LawmindLawyerWorkbench`。
+- **改稿不在 `mainView`**：`review` 会被拨回对话；真正的入口是中栏 `LawmindMiddleDraftDesk`。
+- **在办 fleet、会议室、旧案件工作台、独立改稿页整簇退役**（第 62.1 节末尾那张表）——别给它们写新契约；它们的测试还是绿的，删集群时要同批删。
 - **`FileWorkbench` 没有拖放导入。** 树行是拖放来源；导入走「导入案件」菜单。
-- **同一条「发送」按钮在回合进行中会变成「中途指示」。**
-- **「排队下一条」和「中途插话」是两个按钮、两条路。**
+- **回合进行中是三个按钮**：「改这一轮」（steer）、「发送」（排成下一轮 followup）、「停止」——发送不再变身成 steer。
+- **联网下拉的禁用只看策略**，loading 只改 title。
 - **对话长度入口在变长或已整理过后才出现。** 界面不再列十二个用量桶。
 - **`effectiveLimit <= 0` 时用量环整个不渲染。**
-- **`view` 为 null 时「必核清单」按未完成处理。**
-- **验收没过时不许「一键勾选必核」。**
-- **`AcceptanceGate` 的展开逻辑忽略 `defaultCollapsed`**（有问题就必须展开）。
+- **活着的签批门禁：查不到清单（null）不拦签批**；退役 fleet 那版是「null 算没完成」——两版方向相反，别引用错。
+- **`AcceptanceGate` 的展开逻辑忽略 `defaultCollapsed`**（有问题就必须展开）；没类型但未通过现在会展开。
 - **界面上没有绕过验收的入口。**
-- **「稍后再说」不写盘**（只存会话内）。
-- **批量采纳的 `dryRun` 默认 true。**
-- **首跑不再写冷启动风格偏好**（无习惯问卷、无「冷启动偏好：」笔记）。
+- **首跑不再写冷启动风格偏好**（无习惯问卷、无「冷启动偏好：」笔记）；已关闭标记的真源在服务端。
 - **`chatComposeHeight` 已经到 `.v3`**（换过两次结构）。
+- **`lawmind.postApproveExport.v1.<taskId>` 是 sessionStorage**，且属退役集群——旧版本章两处都记错了。
 - **localStorage 有 `lm.` 与 `lawmind.` 两个前缀在混用。**
 - **`cases` 与 `assistants.json` 只在根这一层受保护**（案件内的文件是普通的）。
-- **Office 类文件在文件工作台不开 tab**（拦下来而不是给烂预览）。
-- **会议室的打断检测靠回复文本匹配**，没有状态通道。
-- **`chatComposeHeight` / 三栏显隐 / 工作区宽度这些是「记住也没关系」的**；审批状态、筛选条件不落盘。
-- **改这些有测试守着的组件（第 62.7 节那张表）会撞测试。** 先想清是约束过时还是代码错了。
+- **Office 文件现在按预览种类开面板**（word/pdf/xlsx/pptx/media/eml/zip/doc），只剩 `.xls`/`.ppt` 等落 fallback——「Office 一律拦下」已是旧闻。
+- **会议室的打断检测靠回复文本匹配**，没有状态通道（组件已退役）。
+- **一批测试还在断言退役组件**（第 62.7 节第二张表）——绿 ≠ 活。
+- **改这些有测试守着的组件（第 62.7 节第一张表）会撞测试。** 先想清是约束过时还是代码错了。

@@ -4,18 +4,18 @@
 
 ```text
 route-chat.ts            2 条路由   对话回合 + 续跑
-route-sessions.ts       14 条路由   会话控制面
+route-sessions.ts       15 条路由   会话控制面
 route-intent.ts          1 条路由   意图预览
-route-review.ts         16 条路由   文书台
-route-matters.ts        24 条路由   案件
+route-review.ts         18 条路由   文书台
+route-matters.ts        31 条路由   案件
 route-records.ts        11 条路由   任务/会话/草稿列表
 route-draft-revision.ts  1 条路由   后台改稿
 route-acceptance.ts      6 条路由   验收门（只读）
-route-lawyer-desk.ts    24 条路由   律师工作台
+route-lawyer-desk.ts    31 条路由   律师工作台
 route-bootstrap.ts       1 条路由   首屏载荷
 ```
 
-一共 100 条路由。这一章按「一条请求进来怎么走」的顺序讲。
+一共 117 条路由（附录 B 的计数：`GET/PATCH`、`PUT/POST` 各算两条）。这一章按「一条请求进来怎么走」的顺序讲。
 
 ## 64.1 对话：一个回合的十九步
 
@@ -217,26 +217,30 @@ catch 块的四级判定（有顺序）：
 
 `chatPostRequestSchema.message` 是 `z.string().optional()`，字段上没有 `.max()`。请求仍走 `parseJsonBodyZod` → `readJsonBody`，整段 JSON 超过 `MAX_JSON_BODY_BYTES`（256000 字节）时返回 413 `body_too_large`。过了这一关，上下文预算与压缩才接着起作用（第 3 章、第 63.3 节）。
 
-## 64.2 会话控制面：十四条路由
+## 64.2 会话控制面：十五条路由
 
 `route-sessions.ts` 里的路径**全是正则**，因为它都要取 `:id`。
 
-### 十四条
+### 十五条
 
-| 方法                | 路径                      | 副作用的落盘                           |
-| ------------------- | ------------------------- | -------------------------------------- |
-| GET                 | `.../context-budget`      | 只读                                   |
-| POST                | `.../fork-with-carryover` | **新建会话**（可带 LLM 蒸馏）          |
-| POST                | `.../inject`              | 写待处理钉选                           |
-| POST                | `.../steer`               | 写待处理中途指示                       |
-| POST                | `.../followup`            | 写待处理跟进                           |
-| POST                | `.../followup/claim`      | 领取待处理跟进                         |
-| POST                | `.../abort`               | 请求中止                               |
-| POST                | `.../messages/mutate`     | 改历史 + **saveSession**               |
-| POST                | `.../compact`             | 改历史 + **saveSession**（+ 摘要文件） |
-| POST                | `.../resume-paused`       | 继续暂停的回合                         |
-| POST                | `.../resume`              | 重写历史 + **saveSession**             |
-| GET/PUT/POST/DELETE | `.../plan-handoff`        | 会话上的清单交接                       |
+| 方法     | 路径                      | 副作用的落盘                           |
+| -------- | ------------------------- | -------------------------------------- |
+| GET      | `.../context-budget`      | 只读                                   |
+| POST     | `.../fork-with-carryover` | **新建会话**（可带 LLM 蒸馏）          |
+| POST     | `.../inject`              | 写待处理钉选                           |
+| POST     | `.../steer`               | 写待处理中途指示                       |
+| POST     | `.../followup`            | 写待处理跟进                           |
+| POST     | `.../followup/claim`      | 领取待处理跟进                         |
+| POST     | `.../abort`               | 请求中止                               |
+| POST     | `.../messages/mutate`     | 改历史 + **saveSession**               |
+| POST     | `.../compact`             | 改历史 + **saveSession**（+ 摘要文件） |
+| POST     | `.../resume-paused`       | 继续暂停的回合（已注册但产品未调用）   |
+| POST     | `.../resume`              | 重写历史 + **saveSession**             |
+| GET      | `.../plan-handoff`        | 读清单交接                             |
+| PUT/POST | `.../plan-handoff`        | 写清单交接（两个方法各算一条）         |
+| DELETE   | `.../plan-handoff`        | 清除清单交接                           |
+
+上表 11 条具名路径加上 plan-handoff 的 4 个方法，共 15 条。`POST .../resume-paused` 已注册但产品未调用（渲染层与引擎都不打这个后缀）。
 
 **三条路由会改历史并落盘**（mutate / compact / resume）——它们是最敏感的三条。
 
@@ -358,11 +362,11 @@ historyText 为空 → 从 session.conversationHistory.slice(-8) 拼
 
 **这段注释的写法值得学**：它没有把「类型不一致」讲成「bug」，而是明确说清了实际影响范围。**这是「不夸大影响」的写法。**
 
-## 64.4 文书台：十六条路由与三道门
+## 64.4 文书台：十八条路由与三道门
 
-`route-review.ts` 是最大的路由文件（1326 行）。
+`route-review.ts` 是最大的路由文件（1354 行）。
 
-### 十六条
+### 十八条
 
 ```text
 GET    /api/learning/suggestions              学习建议列表
@@ -371,7 +375,7 @@ POST   /api/learning/suggestions/:id/dismiss  忽略
 GET    /api/lawyer-profile/applied-preferences   已生效偏好
 DELETE /api/lawyer-profile/applied-preferences/:id  清除
 POST   /api/lawyer-profile/learning           律师档案学习
-POST   /api/assistants/profile/learning       助手档案学习
+POST   /api/assistants/profile/learning       助手档案学习（已注册但产品未调用）
 GET    /api/tasks/:id                         任务详情（含 checkpoints）
 POST   /api/drafts/:id/review                 签批（通过/驳回/需修改）
 POST   /api/drafts/:id/render-tracked         导出修订轨 Word
@@ -379,9 +383,12 @@ POST   /api/drafts/:id/render                 导出
 POST   /api/drafts/:id/reopen-review          恢复待审核
 GET    /api/drafts/:id/table.xlsx             审查表 xlsx
 GET/PATCH /api/drafts/:id/table               审查表读写
-PATCH  /api/drafts/:id/content                律师编辑正文
-DELETE/GET /api/drafts/:id                    删草稿 / 读草稿
+PATCH  /api/drafts/:id/content                律师编辑正文（只有 PATCH，没有 GET）
+DELETE /api/drafts/:id                        删草稿
+GET    /api/drafts/:id                        读草稿
 ```
+
+`GET/PATCH` 审查表是两条，删与读也是两条，合计 18。
 
 ### 门一：严格导出（`strict` 查询参数）
 
@@ -564,9 +571,9 @@ recordRewriteAmplitude({ source: "lawyer_edit", assistantId: actorId })
 - 验收没过 → 补章节 / 回答待确认问题
 - 清单没勾完 → 去改稿页补勾
 
-## 64.5 案件：二十四条路由与一份聚合
+## 64.5 案件：三十一条路由与一份聚合
 
-`route-matters.ts` 是第二大的路由文件（1094 行）。
+`route-matters.ts` 是第二大的路由文件（1176 行）。可达 31 条。本文件还写了 `GET /api/approvals`，但 approvals 先注册，这条分支到不了，不计入 31。
 
 ### 三张分组
 
@@ -603,11 +610,13 @@ recordRewriteAmplitude({ source: "lawyer_edit", assistantId: actorId })
 **另外两条挂在别的前缀下**：
 
 ```text
-GET /api/approvals   审批列表
-GET /api/queues      工作队列
+GET /api/approvals   写在本文件，运行时到不了（活实现在 route-approvals.ts）
+GET /api/queues      工作队列（已注册但产品未调用）
 ```
 
-**这两条放在案件文件里有点意外**——它们是「跨案件的」，但按「案件索引」的形状返回。所以实现上归到这里了。
+上面分组没单列、但计入 31 的还有：`GET /api/matters/delete-plan`、`GET`/`PUT /api/matters/review-matrix/notes`、`GET /api/matters/:matterId/audit-tail`。`/ops` 与 `/theory` 的写方法各是两条（PATCH/POST、PUT/POST）。
+
+**`GET /api/queues` 放在案件文件里有点意外**——它是跨案件的，但按案件索引的形状返回。审批列表的活实现不在这里。
 
 ### `/detail` 那一份聚合
 
@@ -1001,7 +1010,7 @@ citationHints：正则 /《[^》]+》第?[零一二三四五六七八九十百�
 
 **它从正文里抓「《法律名》第X条」这种引用**——用来在验收报告里提示「这里引了法条」。
 
-## 64.9 律师工作台：二十四条路由
+## 64.9 律师工作台：三十一条路由
 
 `route-lawyer-desk.ts` 的头注释只有一行，但它的路由覆盖了工作台的全部功能。
 
@@ -1011,14 +1020,14 @@ Lawyer 工作台 APIs: today, deadlines, events, standards, intake, similar case
 
 ### 五组
 
-| 组         | 路由                                                                                                                                       |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 今日与案件 | `/desk/today`、`/desk/replica-feed`、`/desk/matters`                                                                                       |
-| 今日计划   | `POST /desk/plan`、`PATCH /desk/plan/items/:id`、`POST /desk/plan/source-done`                                                             |
-| 期限       | `GET/POST /matters/:id/deadlines`、`/deadlines.ics`、`PATCH /matters/:id/deadlines/:deadlineId`                                            |
-| 期限抽取   | `POST /desk/events/extract`、`/desk/events/extract-file`、`/desk/events/confirm`                                                           |
-| 标准与口径 | `GET/POST /workspace/standards`、`DELETE /workspace/standards/:id`、`POST /desk/standards/match`、`GET/POST /workspace/cause-lexicon`      |
-| 案件侧车   | `/matters/:id/pulse`、`/intake-brief`、`/intake-brief/confirm`、`/similar-cases`、`/materials/search`、`/precedents`、`/matters/:id/cause` |
+| 组         | 路由                                                                                                                                                                           |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 今日与案件 | `/desk/today`、`/desk/replica-feed`、`/desk/matters`                                                                                                                           |
+| 今日计划   | `POST /desk/plan`、`PATCH /desk/plan/items/:id`、`DELETE` 与等价的 `POST .../delete`、`POST /desk/plan/source-done`                                                            |
+| 期限       | `GET/POST /matters/:id/deadlines`、`/deadlines.ics`、`PATCH /matters/:id/deadlines/:deadlineId`                                                                                |
+| 期限抽取   | `POST /desk/events/extract`、`/desk/events/extract-file`、`/desk/events/confirm`                                                                                               |
+| 标准与口径 | `GET/POST /workspace/standards`、`DELETE /workspace/standards/:id`、`POST /desk/standards/match`、`GET/POST /workspace/cause-lexicon`                                          |
+| 案件侧车   | `/matters/:id/brief`、`POST /desk/hotlines`、`/pulse`、`/intake-brief`（GET 与 POST）、`/intake-brief/confirm`、`/similar-cases`、`/materials/search`、`/precedents`、`/cause` |
 
 ### 期限的三处设计
 

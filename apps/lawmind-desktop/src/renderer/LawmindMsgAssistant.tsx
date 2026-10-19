@@ -11,6 +11,7 @@ type Props = {
   className?: string;
   apiBase?: string;
   workspaceDir?: string;
+  projectDir?: string;
   onOpenDraft?: (taskId: string) => void;
   onOpenError?: (message: string) => void;
 };
@@ -43,6 +44,7 @@ export function LawmindMsgAssistant({
   className,
   apiBase,
   workspaceDir,
+  projectDir,
   onOpenDraft,
   onOpenError,
 }: Props): ReactNode {
@@ -82,7 +84,12 @@ export function LawmindMsgAssistant({
       onOpenError?.("本地服务未就绪，请稍后再打开审核。");
       return;
     }
-    void openContractRevisionForTask({ apiBase, taskId, workspaceDir }).then((result) => {
+    void openContractRevisionForTask({
+      apiBase,
+      taskId,
+      workspaceDir,
+      ...(projectDir ? { projectDir } : {}),
+    }).then((result) => {
       if (!result.ok) {
         onOpenError?.(result.error);
       }
@@ -97,6 +104,7 @@ export function LawmindMsgAssistant({
         ? renderLegalMarkdown(body, {
             apiBase,
             workspaceDir,
+            projectDir,
             onOpenDraft,
             onOpenError,
             reviewByPath,

@@ -1,13 +1,13 @@
 /**
- * Revision export only accepts `.docx`. Binary `.doc` may still be read for text,
- * but must not be a tracked-change baseline.
+ * `.doc` is read in-process from its OLE container. This message only shows when
+ * that read yields nothing: encrypted, Word 6/95, or a corrupt container.
  */
 
 import path from "node:path";
 
-/** Lawyer-facing copy when a revision needs a `.docx` and the file is still `.doc`. */
+/** Lawyer-facing copy when the container cannot be read. */
 export const DOC_NEEDS_DOCX_MESSAGE =
-  "这份文件是旧版 Word（.doc）。修订只能写在 .docx 上。请用 Word 或 WPS 将它另存为同名的 .docx 后再继续；原 .doc 不用改。";
+  "这份是旧版 Word（.doc），但正文没能读出来。常见原因是文档加密、Word 6/95 旧格式或文件损坏。请用 WPS 或 Word 打开确认后，另存为 .docx 再试；原 .doc 不用改。";
 
 export const DOC_NEEDS_DOCX_CODE = "doc_needs_docx";
 

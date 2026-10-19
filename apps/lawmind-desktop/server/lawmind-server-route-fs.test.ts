@@ -161,6 +161,62 @@ describe("lawmind-server-route-fs", () => {
     expect(sheets[0]?.cells[1]?.[1]?.v).toBe(12000);
   });
 
+  it("returns slide text for /api/fs/pptx-preview", async () => {
+    const JSZip = (await import("jszip")).default;
+    const zip = new JSZip();
+    zip.file(
+      "ppt/presentation.xml",
+      `<?xml version="1.0"?>` +
+        `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" ` +
+        `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+        `<p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst></p:presentation>`,
+    );
+    zip.file(
+      "ppt/_rels/presentation.xml.rels",
+      `<?xml version="1.0"?>` +
+        `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+        `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>` +
+        `</Relationships>`,
+    );
+    zip.file(
+      "ppt/slides/slide1.xml",
+      `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" ` +
+        `xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">` +
+        `<p:cSld><p:spTree><p:sp><p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>` +
+        `<p:txBody><a:p><a:r><a:t>庭审策略</a:t></a:r></a:p></p:txBody></p:sp>` +
+        `</p:spTree></p:cSld></p:sld>`,
+    );
+    await fs.writeFile(
+      path.join(workspaceDir, "brief.pptx"),
+      await zip.generateAsync({ type: "nodebuffer" }),
+    );
+    const res = mockRes();
+    const handled = await handleFilesystemRoute({
+      ctx,
+      req: { method: "GET", headers: {} } as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/fs/pptx-preview?root=workspace&path=brief.pptx"),
+      pathname: "/api/fs/pptx-preview",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, truncatedSlides: false });
+    const body = res.body as {
+      mode?: "visual" | "text";
+      slides: Array<{
+        title?: string;
+        blocks?: Array<{ role: string; text: string }>;
+        shapes?: Array<{ text: string; isTitle: boolean }>;
+      }>;
+    };
+    if (body.mode === "visual") {
+      expect(body.slides[0]?.title).toContain("庭审策略");
+    } else {
+      expect(body.slides[0]?.blocks?.[0]).toMatchObject({ role: "title", text: "庭审策略" });
+    }
+  });
+
   it("lists zip entries for /api/fs/zip-listing", async () => {
     const JSZip = (await import("jszip")).default;
     const zip = new JSZip();
@@ -184,7 +240,7 @@ describe("lawmind-server-route-fs", () => {
     expect(entries.some((e) => e.path.includes("判决书.pdf"))).toBe(true);
   });
 
-  it("converts misnamed OOXML .doc via /api/fs/convert-doc", async () => {
+  it("copies a misnamed zip .doc to .docx via /api/fs/convert-doc", async () => {
     const JSZip = (await import("jszip")).default;
     const zip = new JSZip();
     zip.file(
@@ -210,11 +266,33 @@ describe("lawmind-server-route-fs", () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       ok: true,
-      relativePath: "旧稿.converted.docx",
+      relativePath: "旧稿.docx",
       converted: true,
       tool: "zip-copy",
     });
-    await expect(fs.stat(path.join(workspaceDir, "旧稿.converted.docx"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(workspaceDir, "旧稿.docx"))).resolves.toBeTruthy();
+  });
+
+  it("returns .doc body text for the middle column without converting", async () => {
+    const fixture = path.resolve(
+      __dirname,
+      "../../../src/lawmind/mail/fixtures/tracked-changes-5-authors.doc",
+    );
+    await fs.copyFile(fixture, path.join(workspaceDir, "施工合同.doc"));
+    const res = mockRes();
+    const handled = await handleFilesystemRoute({
+      ctx,
+      req: mockJsonRequest("POST", { root: "workspace", path: "施工合同.doc" }),
+      res,
+      url: new URL("http://127.0.0.1/api/fs/convert-doc"),
+      pathname: "/api/fs/convert-doc",
+      c: {},
+    });
+    expect(handled).toBe(true);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, relativePath: "施工合同.doc", converted: false });
+    expect(String((res.body as { text?: string }).text)).toContain("履约保函");
+    await expect(fs.stat(path.join(workspaceDir, "施工合同.docx"))).rejects.toThrow();
   });
 
   it("rejects /api/fs/xlsx-preview for non-xlsx", async () => {

@@ -40,55 +40,61 @@
 
 ## 3.4 边界：什么会打断律师
 
-只有**真授权**才进「待我拍板」：外发（`send_email`）、改原稿、以及明确的跨度硬门禁与不可逆外部操作。工具预算不足或步骤很多都**不会**打断——硬顶只防空转，对话里可以接着办。`shouldCheckpointToolBudget` 现已恒返回 `false`（历史 `continue_tools` 卡片仅用于恢复旧会话）。
+会打断回合的只有少数**显式举手**：工具自己举的审批（`request_approval`）、协作工作流的 `holdForLawyer` 步骤、以及验收 / 跨度类硬门禁（被挡时该次调用直接失败，而不是停下来问）。自 2026-10-01 起**没有 disposition 为 `pause` 的工具**（`src/lawmind/agent/tool-name-sets.ts`）：外发（`send_email` / `prepare_outbound_mail`）只写入本案「待发信」，回合不中断，律师在待发列表点「批准发送」才真正发出；`delete_matter` 与 `render_document` 是 `deny_at_source`，在场景 / 工具内硬拒。工具预算不足或步骤很多都**不会**打断——硬顶只防空转，对话里可以接着办。`shouldCheckpointToolBudget` 现已恒返回 `false`（历史 `continue_tools` 卡片仅用于恢复旧会话）。
 
 ## 3.5 实现：一个回合的完整生命周期
 
 入口是 `runTurn(opts)`，核心参数包括 `config`、`registry`、`sessionId`、`instruction`、`matterId`、`onEvent`、`permissionMode`、`contextPins`、`preApproveToolName/Args/Names`、`confirmedAnswers` 等；返回 `{ turn, reply, sessionId, memoryContext }`。执行顺序：
 
-1. **会话回合门**：若已有 `sessionId` 且未跳过，用 `withSessionTurnGate` 串行化同会话回合。
+1. **会话回合门**：若已有 `sessionId` 且未跳过，用 `withSessionTurnGate` 串行化同会话回合（进程内 promise 链；跨进程靠租约文件，见 3.10）。
 2. **挂载 MCP**：`attachEnabledMcpServers`，包在 try/catch 中（MCP 故障不允许拖垮核心工具表），结束时统一关闭。
-3. **预算与模式解析**：`resolveToolCallBudgets(config.maxToolCalls)` 得到软 / 硬上限，解析 `maxHistory`、工具超时、是否允许危险工具免审批、权限模式。
-4. **会话装载 / 创建**：`loadSession` / `createSession`；校验助手一致性（`session_assistant_mismatch`）；本轮显式带新案件时重绑 `matterId`；按新指示裁剪旧计划 `pruneTurnPlanForNewInstruction`。
-5. **工作记录覆盖层**：`ensureLawyerWorkForTurn`（best-effort）。
-6. **回合分类**：`wordRevisionTurn`（Word 改稿）、`deliveryIntent`、`mailContractTurn`（邮件合同短路径），合并 `confirmedAnswers`，判定 `noTaskTurn`。（原 Solo「5 分钟合同审查」固定快车道已移除；合同审查走对话引用 + 自然语言交办。）
-7. **构造 `AgentContext`**：本轮运行环境（工作区、案件、助手、权限、钉选、授权预批准、沙箱开关、abort signal、模型等）。
-8. **算出本轮工具表**（唯一真相源，见 3.7）。
-9. **组装系统提示**：`prepareTurnPromptContext` + `buildSystemPrompt`，按 `LAWMIND_PROMPT_DYNAMIC_BOUNDARY` 切静态前缀与会话 / 回合后缀。
-10. **写入用户消息**：原样入历史，不做二次改写；据此生成 `openAITools`。
-11. **冻结回合上下文**：`freezeTurnContext` 产出 `TurnContext`；创建 `status:"running"` 的 `AgentTurn`，并**立即落盘占位轮次**（`upsertSessionTurn` + `saveSession`），避免出现「有历史但没有回合」的会话。
-12. **接中断信号**：`bindTurnAbortSignal`。组装期间（MCP、材料预读、提示组装）已经点过停止的，信号一绑上就是已中止，**不会把这次停止清掉**；本轮在压缩和模型采样之前结束，用户那句不进历史，占位轮次直接落成 `aborted_by_user`。之后每 200ms 把外部 `shouldAbort` 镜像到 abort signal。`beginLiveTurnProgress` 开启实时进度。
-13. **事件发射器**：`emitEvent` 同时做三件事——写会话事件日志（`appendSessionEvent`）、更新实时进度（`applyLiveTurnEvent`）、回调给消费者（`opts.onEvent`，消费者异常被吞掉）。
-14. **开场事件 + 首次压缩**：`turn_begin` → `intent`（能力、说明、置信、来源、备选、链、softAsk）→ `token_budget` → `autoCompactSessionHistory`；若发生压缩则重注红线、记录 `session.lastCompactBoundary`、发 `compact_boundary`。
-15. **短路链**（按序）：模型身份询问 → 模型连通性自检 → 公开网络事实捷径 → Intake 澄清捷径 → 自动交付物工作流捷径；命中即结束回合。
-16. **主循环**：`runModelToolLoop`，带工具预算、策略提示、事件与中断回调。
-17. **收尾**：用户中断 → `finishAbortedByUser`；正常完成 → 必要时 `autoDeliverWordRevisionIfNeeded`，再 `finalizeAgentTurn`。
-18. **异常路径**：`catch` → `cleanupFailedTurn`；会话落盘错误会返回错误回合而不是抛出。`finally` 清理定时器、abort 绑定与 MCP 会话。
+3. **预算与模式解析**：`resolveToolCallBudgets(config.maxToolCalls ?? 80)` 得到软 / 硬上限（软上限 < 8 时硬上限等于软上限——委派分片；否则 `max(软上限, 80)`）；解析 `maxHistory`（默认 100 条）、工具墙钟（默认 180 秒，长任务工具升到 12 分钟）、权限模式（默认 `standard`）。
+4. **会话装载 / 创建**：`loadSession` / `createSession`；本轮显式带新案件时重绑 `matterId`（已删且目录不在的编号会摘掉）；按新指示裁剪旧计划 `pruneTurnPlanForNewInstruction`；`resetIsolationBudget`。助手编号只对齐、不是续跑条件（对不上也不拒绝）。
+5. **上下文调参**：`resolveContextTuning(readWorkspacePolicyFile(...))`，预算 / 压缩 / 摘要 / 钉子 / 续接一整组默认值本回合复用（见 3.8）。
+6. **工作记录覆盖层**：`ensureLawyerWorkForTurn`（best-effort）。
+7. **回合分类**：`wordRevisionTurn`（Word 改稿）、`deliveryIntent`、`mailContractTurn`（邮件合同短路径），合并 `confirmedAnswers`，判定 `noTaskTurn`（无任务话、且没有预批准、也不是「从检查点继续」）。
+8. **任务钉与事实台账**：`selectTaskPinText` 钉住本轮任务锚点（无任务回合不动钉子；换任务时更新），`accumulateFactPin` 把律师原话里的期限 / 硬约束 / 引用 / 金额收到即钉（见 3.8）。
+9. **构造 `AgentContext`**：本轮运行环境（工作区、案件、助手、权限、钉选、授权预批准、沙箱开关、abort signal、模型等）。`clarificationBlockingHeavyTools` 写死 `false`：跨轮硬澄清键只进提示词，不拦截起草 / 工作流 / 渲染。
+10. **算出本轮工具表**（唯一真相源，见 3.7）：其间 `peekPinnedDocuments` 预读钉选文档、`compileIntent` 编译意图（第 4 章），高置信多意图链自动写两步 `turnPlan`；无任务回合把广告层权限收成 `readonly`。
+11. **组装系统提示**：`prepareTurnPromptContext`，按 `LAWMIND_PROMPT_DYNAMIC_BOUNDARY` 切静态前缀与会话 / 回合后缀；「可用工具」段与发给模型的 `tools` 同源（见 3.17）。
+12. **写入用户消息**：原样入历史，不做二次改写；组装期间已经点过停止的，不落这句。
+13. **冻结回合上下文**：`freezeTurnContext` 产出 `TurnContext`；创建 `status:"running"` 的 `AgentTurn`，并**立即落盘占位轮次**（`upsertSessionTurn` + `saveSession`），避免出现「有历史但没有回合」的会话。纠正语会先 `revertProposals` 并 `revertWrittenEdits`。
+14. **接中断信号**：`bindTurnAbortSignal`。组装期间（MCP、材料预读、提示组装）已经点过停止的，信号一绑上就是已中止，**不会把这次停止清掉**；本轮在压缩和模型采样之前结束，用户那句不进历史，占位轮次直接落成 `aborted_by_user`。之后每 200ms 把外部 `shouldAbort` 镜像到 abort signal。`beginLiveTurnProgress` 开启实时进度。事件发射器 `emitEvent` 同时做三件事——写会话事件日志（`appendSessionEvent`）、更新实时进度（`applyLiveTurnEvent`）、回调给消费者（`opts.onEvent`，消费者异常被吞掉）。
+15. **开场检查 + 首次压缩**：已中止则弹出本句 user、落 `aborted_by_user`、回复「已停止生成。」。否则 `turn_begin` → `intent`（能力、说明、置信、来源、备选、链、softAsk）→ `token_budget` → `autoCompactSessionHistory`；若发生压缩则重注红线、记录 `session.lastCompactBoundary`、发 `compact_boundary`。
+16. **短路链**（按序，命中即结束回合）：模型身份询问 `tryBuildModelIdentityReply` → 模型连通性自检 `tryBuildModelConnectivityCheckReply` → 公开网络事实捷径 `tryPublicWebFactShortcut` → 自动交付物工作流捷径 `tryAutoDeliverableWorkflowShortcut` → iCloud 下载 `runApprovedIcloudDownloads`（要律师确认下载时回合置 `awaiting_clarification`，不进模型循环）。
+17. **主循环**：`runModelToolLoop`，带工具预算、策略提示、事件与中断回调。
+18. **中断收口与 Word 自动交件**：用户中断 → `finishAbortedByUser`；正常完成（且仅 `completed`）→ `autoDeliverWordRevisionIfNeeded` + `appendOpenWordCheckMarkers`，澄清 / 只读 / 暂停不绕过工具管线落盘。
+19. **收尾**：`finalizeAgentTurn`；`catch` → `cleanupFailedTurn`，会话落盘错误会返回错误回合而不是抛出；`finally` 清隔离预算、停 abort 镜像、`clearTurnAbort`、关闭 MCP 会话。
 
 用户中断的分叉逻辑：有进度时落 `status:"paused"` 并给检查点回复 + `requiresAction`；无进度时落 `status:"error"`、`error:"aborted_by_user"`，并丢弃悬空的用户消息，回复「已停止生成。」。
 
 ## 3.6 实现：模型↔工具循环
 
-`runModelToolLoop`（`src/lawmind/agent/turn-orchestrator-model-loop.ts`）的骨架是 `while (loopCount < hardCeiling + 1)`，`hardCeiling = max(maxToolCalls × 2, maxToolCalls)`。
+`runModelToolLoop`（`src/lawmind/agent/turn-orchestrator-model-loop.ts`）的骨架是 `while (loopCount < hardCeiling + 1)`。`hardCeiling` 来自第 3.5 节第 3 步的预算解析（`toolBudgets.hard`）；循环内的缺省回落才是 `max(maxToolCalls × 2, maxToolCalls)`。
 
 **每轮前奏**（顺序固定）：中断检查 → `claimAndApplyPendingContextPins`（重算工具表、写 world state、`worldStateEpoch` 递增）→ 应用待处理的稿面补丁 → `noTaskTurn` 时清空计划 → 应用回合计划 → `claimAndApplyPendingSteer`（中途指示）→ 应用工作目标 → 同步权限模式与案件 → 中途压缩 `compactMidTurn`（处于待审批或有待澄清问题时跳过）。
 
 **工具表重建**：`rebuildStepContext` 得到本步 `toolNames`，据此生成 `openAITools`，再 `applyToolDisclosureDelta` 对比上一轮并发出 `tool_delta` 事件与生命周期钩子，最后发 `round_start`。
 
-**模型调用**：对同一回合内重复的验证结果做历史折叠（`applySameTurnVerifyHistoryCollapse`）。采样一律用律师选的主模型 `config.model`：选工具、读结果、写回复都是判断，不改走更快模型。配了 `workerModel` 时，它只做回合内摘要和审稿。`callModelRound` = 估算预算 → `deriveModelMessagesForSampling` → `callModelWithRetry`。若模型返回的工具调用无法与结果配对，`onToolPairingReject` 会自愈：归一化 + 修复配对 + 重存会话 + 重新派生消息。供应商这一轮没有 `choices[0]` 时，同一回合重试一次再失败。
+**模型调用**：对同一回合内重复的验证结果做历史折叠（`applySameTurnVerifyHistoryCollapse`）。采样一律用律师选的主模型 `config.model`：选工具、读结果、写回复都是判断，不改走更快模型。配了 `workerModel` 时，它只做回合内摘要和审稿。`callModelRound` = 估算预算 → `deriveModelMessagesForSampling` → `callModelWithRetry`。若模型返回的工具调用无法与结果配对，`onToolPairingReject` 会自愈：归一化 + 修复配对 + 重存会话 + 重新派生消息。供应商这一轮没有 `choices[0]` 时，同一回合重试一次再失败。工具决策因输出上限被截断时，改用 `deliverable` 模式（抬高 max tokens、可流式）重采样一次。排队等模型空位时发 `turn_wait` / `turn_wait_end`。
 
 **失败处理**：用户中断 → 中断结果；上下文溢出（`isContextOverflowError`）→ 裁剪工具结果一次后重试；其他 → `closeOnModelFailure` 发 `model_error` 并落助手错误气泡。
 
-**同一调用连着重复**：工具批次的签名（工具名 + 参数，忽略键顺序）连续相同 3 次，插入一条律师看不见的 `【重复调用】` 提醒，让模型换做法或直接写回复。提醒之后仍原样再调一次，就停住并说明已有结果都还在，不向律师提问要不要继续。签名一变，计数清零。
+**同一调用连着重复**：工具批次的签名（工具名 + 参数，忽略键顺序）连续相同 3 次，插入一条律师看不见的 `【重复调用】` 提醒，让模型换做法或直接写回复。提醒之后仍原样再调一次，就停住并说明已有结果都还在，不向律师提问要不要继续。签名一变，计数清零。唯一例外：Word 改稿回合刚把文档完整重读过一遍时，可以再给一次「继续」而不是停（每回合最多一次）。
 
-**模型没调工具**的四种分支：
+**模型没调工具**的收口分支（按代码顺序，命中即 `continue` 或 `break`）：
 
-- 有待澄清问题 → `awaiting_clarification`。
-- 同一回合验证未过 → 转 `paused`，或插入一条对律师隐藏的回弹说明后 `continue`。
-- 命中上下文预算让渡（deferral）→ 强制一次 `compactMidTurn`，插入隐藏回弹，发 `context_deferral_bounce` 后 `continue`（最多 2 次）。
+- 散文综合症：`applyProseSyndrome` 判 bounce / deliver → 回合 `completed`。
+- 仍有待澄清问题：回复里列出【待核实】要点，回合 **`completed` 并清空 pending 列表，不进 `awaiting_clarification`**（iCloud 下载提问不走这里——短路链那一步已直接把回合置为 `awaiting_clarification`）。
+- 同一回合验证未过 → 发 `verify_gap`，插入一条对律师隐藏的回弹说明后 `continue`；回弹次数用尽则 `completed` 并交付已有正文与缺口（Word 改稿用专门话术），不转 `paused`。
+- 命中上下文预算让渡（deferral）→ 强制一次 `compactMidTurn`，插入隐藏回弹，发 `context_deferral_bounce` 后 `continue`（最多 2 次）；用尽则 `completed`，换成可核对的交接说明（不挂 `continue_tools` 卡）。
+- Word 改稿回合还没调 `render_tracked_draft` → 隐藏 nudge 一次。
+- 「审核台放行」式推诿（该出 Word 却叫律师去审核台放行）→ 隐藏回弹，最多 1 次。
+- 点名的交付物还没落盘 → 隐藏 nudge 一次。
+- 收尾这句生成期间又到了一条中途指示（`peekPendingSteer` 非空）→ 再采样一次，不把纠正留到下一场。
 - 以上都不是 → 回合 `completed`，以该段文本作为回复。
 
-**模型调了工具**：`beginSessionToolBatch` → `executeToolBatches`（`turn-orchestrator-tool-round.ts`）→ `commitSessionToolBatch`（fail-closed；提交抛错时用嵌套 try 保住原始错误）。之后合并待澄清问题与回复文本、应用补丁、再次 `rebuildStepContext`、检查工具预算，若进入待审批则跳出循环。
+**模型调了工具**：`beginSessionToolBatch` → `executeToolBatches`（`turn-orchestrator-tool-round.ts`）→ `commitSessionToolBatch`（fail-closed；提交抛错时用嵌套 try 保住原始错误）。之后合并待澄清问题与回复文本、应用补丁、再次 `rebuildStepContext`、检查工具预算，若进入待审批或待澄清则跳出循环。继续采样前还有几道**写前 steer**（都是对律师隐藏的 user 消息）：检索够了仍缺点名交付物 → `formatWriteSynthesisNudge`；诉状 / 咨询清单 / 备忘录缺节 → 对应的补节 nudge；`calculate` 参数连错 2 次 → 停手改法 nudge。被策略禁掉的 shell 调用累计 ≥ 4 次直接完成并停，≥ 2 次先 nudge 一次。工具预算撞硬顶（`shouldHardStopToolBudget`）时完成回合、交付已有正文或硬停话术，不把回合停成「问律师要不要继续」。
 
 退出前 `collapseHistoryForEnd()` 会清掉本回合合成的隐藏消息（验证回弹、预算让渡）。`【重复调用】` 留下，下一轮采样还能看见。没有散文回复时用 `buildTurnReplyFallback(turn)` 兜底。
 
@@ -117,7 +123,7 @@
 
 ## 3.8 实现：上下文预算与压缩
 
-**预算估算**（`src/lawmind/agent/context-budget.ts`）：`estimateTextTokens` 对中日韩字符按 1 字符 ≈ 1 token，其他按字符数 ÷ 4；`effectiveLimit = contextTokens − min(summaryOutputTokenReserve + autoCompactBufferTokens, floor(contextTokens × SMALL_WINDOW_RESERVE_RATIO))`，默认预留 `13000 / 20000`、`SMALL_WINDOW_RESERVE_RATIO = 0.25`（小窗口按比例封顶预留：写死 20k+13k 时 32k 窗口只剩 8k 可用，回合内压缩会腾不出空间）。水位：`TOKEN_BUDGET_WARN_RATIO = 0.85`、`DEFAULT_MID_TURN_COMPACT_TRIGGER_RATIO = 0.9`。`resolveContextPolicy` 读 `lawmind.policy.json` 的 `context` 覆盖。模型调用的硬天花板由对话长度档给出（`context-preset.ts` 的 `contextTokensForConversation`：min(模型目录窗口, 所选档上限)）。历史水位不用这扇天花板的全长：`historyNominalTokens` 再收进 200K 质量带，小窗口仍以模型为准。`estimateTokenBudgetBreakdown` 按 `TOKEN_BUDGET_BUCKET_ORDER`（律师 / 助手 / 工具结果 / 摘要 / 回合上下文 / 钉选 / 计划 / 稿面 / 工作区 / 强制规则 / 工具清单 / 系统说明）拆解用量，读取系统消息里的 `<!--lm-ws:id-->` 片段和若干 `## ` 标题，各桶之和严格等于 `used`。
+**预算估算**（`src/lawmind/agent/context-budget.ts`）：`estimateTextTokens` 对中日韩字符按 1 字符 ≈ 1 token，其他按字符数 ÷ 4；`effectiveLimit = contextTokens − min(summaryOutputTokenReserve + autoCompactBufferTokens, floor(contextTokens × SMALL_WINDOW_RESERVE_RATIO))`，默认预留 `13000 / 20000`、`SMALL_WINDOW_RESERVE_RATIO = 0.25`（小窗口按比例封顶预留：写死 20k+13k 时 32k 窗口只剩 8k 可用，回合内压缩会腾不出空间）。水位：`TOKEN_BUDGET_WARN_RATIO = 0.85`、`DEFAULT_MID_TURN_COMPACT_TRIGGER_RATIO = 0.9`。`resolveContextPolicy` 读 `lawmind.policy.json` 的 `context` 覆盖。模型调用的硬天花板由对话长度档给出（`context-preset.ts` 的 `contextTokensForConversation`：min(模型目录窗口, 所选档上限)）。历史水位不用这扇天花板的全长：`historyNominalTokens` 再收进 200K 质量带，小窗口仍以模型为准。`estimateTokenBudgetBreakdown` 按 `TOKEN_BUDGET_BUCKET_ORDER`（律师 / 助手 / 工具结果 / 摘要 / 回合上下文 / 钉选 / 计划 / 稿面 / 工作区 / 强制规则 / 工具清单 / 系统说明）拆解用量，读取系统消息里的 `<!--lm-ws:id-->` 片段和若干 `##` 标题，各桶之和严格等于 `used`。
 
 **回合间压缩**（`compact.ts`）：`autoCompactSessionHistory` 在 `level === "compact"` 或历史条数超上限时触发。保留首条系统消息。切点由 `cutIndexForTokenTail` 从最新消息往前装，装到「有效窗口 − 即将写入的摘要字符帽」用尽；一组工具调用整组进或整组出。至少留下当前尾部（`context.midTurn.elideKeepTail`，默认 2 条，超预算也留），条数上限仍是 `maxHistoryMessages`。对被丢弃的区段生成提取式摘要（`buildDroppedSpanDigest`，字符上限由 `resolveCompactDigestCharCap` 决定，并跟历史质量带走）。原文落到 `sessions/<id>.drops/`，整理稿里只留相对路径；上一轮整理稿不再嵌进下一轮。`compact-digest.md` 仍给人读。案件档案、案件会话摘要和草稿只给路径，不把正文贴进提示。这些路径说明是合成用户消息（`【案件材料路径】`），插在**最后一条真实用户消息之前**。回合开始和回合内的自动整理不调用模型摘要。手动整理和承前分叉可以调用 `enhanceCompactDigestWithLlm`，摘要接在提取式原文之后，超限先截摘要。压缩后：
 
@@ -134,7 +140,7 @@
 
 ## 3.9 实现：事件流与持久化
 
-`RunTurnEvent` 联合类型（`turn-orchestrator-events.ts`）是前后端共同的事件契约，成员包括：`round_start`、`tool_call_start`、`tool_call_end`、`tool_progress`、`delta`、`clarification`、`final`、`token_budget`、`tool_budget`、`compact_boundary`、`overflow_prune`、`context_deferral_bounce`、`model_error`、`tool_delta`、`requires_action`、`approval_request`、`plan_update`、`intent`。
+`RunTurnEvent` 联合类型（`turn-orchestrator-events.ts`）是前后端共同的事件契约，共 21 个成员：`round_start`、`turn_wait`、`turn_wait_end`、`tool_call_start`、`tool_call_end`、`tool_progress`、`delta`、`clarification`、`final`、`token_budget`、`tool_budget`、`compact_boundary`、`overflow_prune`、`context_deferral_bounce`、`verify_gap`、`model_error`、`tool_delta`、`requires_action`、`approval_request`、`plan_update`、`intent`。另有 `turn_begin` 只写会话事件日志，不在这个联合类型里。
 
 消费方有三条：
 
@@ -144,12 +150,13 @@
 
 会话持久化以 `sessions/<id>.json` 为真相源（`session.ts`）。会话结构里几个关键字段：`disclosedToolNames`（已披露工具）、`lastCompactBoundary`（最近压缩边界）、`worldStateBaseline` / `worldStateEpoch`（世界状态基线）、`lastConfirmedAnswers`、`forkedTo` / `carriedOverFrom`、`planHandoff`、`turnPlan`。
 
-两条回合中途的注入通道都走**侧车文件**，因为它们必须在 `saveSession` 之后仍然存在：
+回合中途的三条注入通道都走**侧车文件**（`session-inbox.ts` 按 followup / steer / inject 分类），因为它们必须在 `saveSession` 之后仍然存在：
 
-- 中途指示：`sessions/<id>.pending-steer.json`，上限 8 条 / 2000 字符（`session-context-steer.ts`）。超出条数时丢掉最早的，并在响应里带回 `dropped`；超出字数时保留换行并在末尾标明截断（`truncated`）。
-- 中途钉选：`sessions/<id>.pending-pins.json`（`pendingContextPinsPath`，`session-context-inject.ts`），上限 16 份。超出时丢掉最早的钉选（`dropped`），刚补上的材料留在队列里。
+- 中途指示（steer）：`sessions/<id>.pending-steer.json`，上限 8 条 / 2000 字符（`session-context-steer.ts`）。超出条数时丢掉最早的，并在响应里带回 `dropped`；超出字数时保留换行并在末尾标明截断（`truncated`）。
+- 中途钉选（inject）：`sessions/<id>.pending-pins.json`（`pendingContextPinsPath`，`session-context-inject.ts`），上限 16 份。超出时丢掉最早的钉选（`dropped`），刚补上的材料留在队列里。
+- 跟进队列（followup）：`sessions/<id>.pending-followup.json`（`session-context-followup.ts`），上限 8 条 / 8000 字符。活回合期间排队，回合结束后才开**新**回合，不插进本轮。
 
-两者都只在**模型轮次开始时**被 claim 并并入历史，保证「本轮说的」不会插到已经发出的采样中间。claim 先把侧车改名为同路径的 `.inflight`，等这条内容已经出现在会话历史里再删掉。进程在 `saveSession` 之前退出时，下一轮会把同一批重新交进历史，而不是丢掉律师刚补的话或材料。
+steer 与钉选都只在**模型轮次开始时**被 claim 并并入历史，保证「本轮说的」不会插到已经发出的采样中间。claim 先把侧车改名为同路径的 `.inflight`，等这条内容已经出现在会话历史里再删掉。进程在 `saveSession` 之前退出时，下一轮会把同一批重新交进历史，而不是丢掉律师刚补的话或材料。
 
 事件日志追加在独占锁里完成，并 `fsync`。半行修复和下一行写入不会被另一次追加截断。
 
@@ -274,7 +281,7 @@ tool 消息（带 toolCallResponses）
 | ----------------------- | ---------------------------- | -------- |
 | 身份与原则              | 「你是 LawMind」+ 核心原则   | static   |
 | 自主工作流程 / 审核闭环 | 怎么把指令办到交付           | static   |
-| 回答风格 / 安全边界     | 话术和硬边界                 | static   |
+| 回答风格 / 安全边界     | 话术、交件口吻和硬边界       | static   |
 | 运行模型                | 当前模型信息                 | session  |
 | 强制规则                | 工作区级 + 案件级            | session  |
 | 交付物管线              | 本条指令要求什么交付物       | session  |
@@ -310,6 +317,6 @@ tool 消息（带 toolCallResponses）
 | 工具清单   | 工具清单       | 「可用工具」「可按需启用」                    | 解释披露变多之后为什么涨一截     |
 | 系统说明   | 系统说明       | 身份、流程、安全边界等固定文字                | 改不了；不要把它当成规则去删     |
 
-世界状态段仍按 `<!--lm-ws:id-->` 归桶。强制规则、工具清单、案件标题按行首 `## ` 切开。切剩的正文归「系统说明」，不再整段叫「规则」。
+世界状态段仍按 `<!--lm-ws:id-->` 归桶。强制规则、工具清单、案件标题按行首 `##` 切开。切剩的正文归「系统说明」，不再整段叫「规则」。
 
 **排查「为什么很快就被压缩」时看这张表**：先看「工具回包」和「钉选材料」。若「工具清单」突然变大，是本轮披露的工具变多，不是规则文件变长。

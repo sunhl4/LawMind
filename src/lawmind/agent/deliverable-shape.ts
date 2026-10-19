@@ -194,7 +194,7 @@ export function formatPleadingSectionNudge(missing: readonly string[]): string {
     `稿里还缺：${missing.join("、")}。`,
     "用 write_document 把同一份起诉状、答辩状或保全/异议申请要点补全。",
     "必须出现「当事人」「管辖」「诉讼请求」（或「请求事项」）节标题原文；起诉状另补事实、理由、证据。",
-    "检索结果里已经出现的条号照写。本回合不要再检索。",
+    "检索结果里已经出现的条号照写。",
   ].join("\n");
 }
 

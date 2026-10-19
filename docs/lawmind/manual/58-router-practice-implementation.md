@@ -2,7 +2,7 @@
 
 这一章讲「**这句话是什么活、该按什么标准办**」这件事的完整实现：`router/`（分类）、`routing/`（派给谁）、`triage/`（先干什么）、`contracts/`（合同分类）、`practice/`（执业口径）、`templates/`（模板）。
 
-六个目录，25 个实现文件，但逻辑上是一条链：
+六个目录，23 个实现文件（`router/` 7、`routing/` 2、`triage/` 4、`contracts/` 1、`practice/` 6、`templates/` 3），逻辑上是一条链：
 
 ```text
 指令 → 分类（router）→ 交付物类型（deliverable-meta）→ 承办人（routing）
@@ -31,23 +31,26 @@ draft.ppt  summarize.case  analyze.contract  unknown
 
 我把三十二条里最能说明设计意图的挑出来：
 
-| #    | 命中什么                                 | kind               | 说明                                                                          |
-| ---- | ---------------------------------------- | ------------------ | ----------------------------------------------------------------------------- |
-| 1    | `起草/拟定/撰写… × 合同/协议`            | `draft.word`       | 起草合同                                                                      |
-| 2    | `计算 × 经济补偿/赔偿金/加班费/N+1/2N`   | `draft.word`       | 劳动计算                                                                      |
-| 3–17 | **十五个 `EXPLICIT_*` 正则**             | `draft.word`       | 期限/案卷/发票/传票/知产/并购/数据/广告/LPM/家事/资本/破产/刑事/民事阶段/治理 |
-| 18   | `修改合同\|合同改稿\|审阅痕迹\|红线稿`   | `draft.word`       | 改稿                                                                          |
-| 19   | `合同审查\|审查.*合同\|条款审查`         | `analyze.contract` | 合同审查                                                                      |
-| 20   | `催告函\|催款函\|demand letter`          | `draft.word`       | 催告                                                                          |
-| 21   | `写/起草… × 意见书/答辩状/代理词/…`      | `draft.word`       | 各类文书                                                                      |
-| 22   | `律师函\|催款\|通知函`                   | `draft.word`       | 函件                                                                          |
-| 23   | `合同\|协议\|条款`（**带负向先行断言**） | `analyze.contract` | 见下                                                                          |
-| 27   | `起诉状\|答辩状\|代理词\|诉讼大纲`       | `draft.word`       | 诉讼文书                                                                      |
-| 28   | `摘要\|案情\|summarize`                  | `summarize.case`   | 案件摘要                                                                      |
-| 29   | `汇报\|PPT\|幻灯片\|培训课件`            | `draft.ppt`        | PPT                                                                           |
-| 30   | `合规卷宗\|调研简报\|学习简报`           | `draft.word`       | **放在 31 之前**，见下                                                        |
-| 31   | `检索\|调研\|整理\|背景\|研究`           | `research.hybrid`  | 兜底检索                                                                      |
-| 32   | `文件\|文书\|报告\|word\|docx`           | `draft.word`       | 最宽                                                                          |
+| #    | 命中什么                                             | kind               | 说明                                                                          |
+| ---- | ---------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------- |
+| 1    | `起草/拟定/撰写… × 合同/协议`                        | `draft.word`       | 起草合同                                                                      |
+| 2    | `计算 × 经济补偿/赔偿金/加班费/N+1/2N`               | `draft.word`       | 劳动计算                                                                      |
+| 3–17 | **十五个 `EXPLICIT_*` 正则**                         | `draft.word`       | 期限/案卷/发票/传票/知产/并购/数据/广告/LPM/家事/资本/破产/刑事/民事阶段/治理 |
+| 18   | `修改合同\|合同改稿\|审阅痕迹\|红线稿`               | `draft.word`       | 改稿                                                                          |
+| 19   | `合同审查\|审查.*合同\|条款审查`                     | `analyze.contract` | 合同审查                                                                      |
+| 20   | `催告函\|催款函\|demand letter`                      | `draft.word`       | 催告                                                                          |
+| 21   | `写/起草… × 意见书/答辩状/代理词/…`                  | `draft.word`       | 各类文书                                                                      |
+| 22   | `律师函\|催款\|通知函`                               | `draft.word`       | 函件                                                                          |
+| 23   | `合同\|协议\|条款`（**带负向先行断言**）             | `analyze.contract` | 见下                                                                          |
+| 24   | `COMPUTE_TABLE_PACK_RE`                              | `draft.word`       | 核算对照；注释写明不含裸 `.xlsx`                                              |
+| 25   | `QUICK_TRIAGE_RE`                                    | `research.legal`   | 违法吗 / 能不能告 一类短问                                                    |
+| 26   | `查一下\|法律意见\|法规\|法条\|类案\|裁判\|司法解释` | `research.legal`   | 法律检索                                                                      |
+| 27   | `起诉状\|答辩状\|代理词\|诉讼大纲`                   | `draft.word`       | 诉讼文书                                                                      |
+| 28   | `摘要\|案情\|summarize`                              | `summarize.case`   | 案件摘要                                                                      |
+| 29   | `汇报\|PPT\|幻灯片\|培训课件`                        | `draft.ppt`        | PPT                                                                           |
+| 30   | `合规卷宗\|调研简报\|学习简报`                       | `draft.word`       | **放在 31 之前**，见下                                                        |
+| 31   | `检索\|调研\|整理\|背景\|研究`                       | `research.hybrid`  | 兜底检索                                                                      |
+| 32   | `文件\|文书\|报告\|word\|docx`                       | `draft.word`       | 最宽                                                                          |
 
 ### 两处刻意安排的位置
 
@@ -69,7 +72,7 @@ draft.ppt  summarize.case  analyze.contract  unknown
 
 ### 十五个 `EXPLICIT_*` 正则从哪来
 
-它们**不是写在 router 里的**，而是从 `skills/capability-patterns.ts` import 的（第 4 章讲过那个共享叶子模块）。
+规则 3–17 里，14 条来自 `skills/capability-patterns.ts`（第 4 章那个共享叶子模块）。夹在中间的 `LPM_MEMO_INSTRUCTION_RE` 来自 `practice/lpm-matter-columns.ts`。`COMPUTE_TABLE_PACK_RE` 与 `QUICK_TRIAGE_RE` 也从 `capability-patterns.ts` 来，但排在第 24、25 条。
 
 这是「三处判定不许漂」的落点：**router 的 keyword 表、意图编译、交付物元数据用的是同一批正则**。
 
@@ -134,6 +137,20 @@ draft.* / analyze.contract / summarize.case → docx
 
 **「未识别」那条的标签是「任务类型未识别，需人工确认」**——它把不确定性写进了摘要，而不是含糊地说一句「处理一下」。
 
+### `route()` 不是只给模型失败用的
+
+`route()` 是同步函数。这些生产路径直接调用它，不经过 `routeAsync`：
+
+| 调用方           | 文件                                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------- |
+| 深度研究         | `src/lawmind/agent/tools/lawmind-deep-research.ts`                                                |
+| 研究产物恢复任务 | `src/lawmind/agent/tools/engine/engine-pipeline-tools.ts` 的 `recoverIntentFromResearchArtifacts` |
+| 交付物流水线     | `src/lawmind/agent/deliverable-pipeline.ts`                                                       |
+| 交办门           | `src/lawmind/router/intake-gate.ts`（`collectMetaQuestions`、`deliverableTypeFromInstruction`）   |
+| 引擎同步计划     | `src/lawmind/engine/planning.ts` 的 `planSync`                                                    |
+
+`planAsyncImpl` 才走 `routeAsync`。模型分类是 `routeAsync` 在凭据可用时的一条路，关键词表同时是这些同步入口的全部分类。
+
 ## 58.2 模型路由：一个 strict schema 与三条回落
 
 `router/model-route.ts` 的定位：
@@ -156,6 +173,8 @@ Model-driven instruction routing (default on when LLM credentials exist).
 | `output`    | `markdown` / `docx` / `pptx` / `none`               |
 
 **注意 `output` 多了 `none`**——关键词路没有这一档。**它表达的是「这次不产出文书」**（纯检索类）。
+
+**schema 没有 `deliverableType`。** 六个必填字段到 `output` 为止。模型 JSON 填不了交付物类型。`route()` 和 `routeWithModel` 都会把意图交给 `enrichIntentWithDeliverableMeta`：先跑 `detectDeliverableType(kind, instruction)`。调用方事先带上的 `deliverableType` 只在锁定研究类、`report.esg`、`report.general` 这几种时保留；其余情况用正则结果盖掉。
 
 ### system prompt 里那句「只做分类」
 
@@ -389,7 +408,7 @@ next.requiresConfirmation = false
 
 **这两张表是「类型 → 该怎么办」的权威**。它们和第 12 章的规格表有重叠但不完全一样——**规格表管「验收」，这里管「计划阶段的提示」**。
 
-## 58.5 交办门：Soft Ask 与硬闸的同一段代码
+## 58.5 交办门：Soft Ask
 
 `router/intake-gate.ts` 的两句话定义了它的全部：
 
@@ -1177,7 +1196,9 @@ key 校验：/^[a-zA-Z][a-zA-Z0-9_]*$/，不匹配就跳过这个 key
 
 ## 58.12 已知坑（本章相关）
 
-- **关键词表是三十二条有序规则，第一个命中即取。** 顺序不能随意调。
+- **关键词表是三十二条有序规则，第一个命中即取。** 顺序不能随意调。第 24–26 条是核算对照、短问法律检索、`查一下`/法规。
+- **同步 `route()` 有自己的调用方**（深度研究、研究恢复、交付物流水线、交办门、`planSync`）。模型路由不是唯一入口。
+- **`deliverableType` 来自 `detectDeliverableType`。** 模型 schema 没有这个字段。锁定研究类和两份 report 预设可以留下来，其余被正则盖掉。
 - **第 23 条的负向先行断言不能删**（否则函件会被判成合同审查）。
 - **第 30 条必须排在泛化检索之前**（否则「合规卷宗」会被「调研」抢走）。
 - **起草类算高风险。** `requiresConfirmation` 因此为真。
@@ -1189,7 +1210,7 @@ key 校验：/^[a-zA-Z][a-zA-Z0-9_]*$/，不匹配就跳过这个 key
 - **`deliverable-meta` 里那三处「且非」都是踩过坑的。**
 - **`COMPLIANCE_DOSSIER_RE` 必须排在三个 ESG 正则之前。**
 - **显式类型代码优先于一切推断。**
-- **Soft Ask 与硬闸共用前四步，只在第 ④ 步分岔。** 改一处要看另一处。
+- **交办提问入口是 `resolveIntakeAdvisoryQuestions`。** `resolveIntakeClarificationQuestions` 已不在文件里。`HARD_CLARIFICATION_KEYS` 仍导出，高风险空跑只升级 Soft Ask 文案，不暂停回合。
 - **高风险空跑只有七类**（全是对外文书）。
 - **`intake-craft` 的正文来自内置技能文件**（单一来源）。
 - **默认承办人只配了合同相关**，其他走 `fallback` / `none`。

@@ -245,7 +245,7 @@ pendingWorkGoalPath → queueWorkGoal → claimPendingWorkGoal → applyClaimedW
 
 **和第 43 章那三个侧车注入通道（steer / inject / followup）是同一个模式**：排队 → claim → 并入历史。
 
-而 `ensureLawyerWorkForTurn` 是回合开始时调的那个（第 3.5 节第 ⑤ 步）。
+而 `ensureLawyerWorkForTurn` 是回合开始时调的那个（第 3.5 节第 ⑥ 步）。
 
 ### `store.ts`：十三个函数
 
@@ -306,7 +306,7 @@ computeRoadmapCards           ← 跨案件积累 → 路线图决策卡
 | `session-timeline.ts`          | `buildMatterSessionTimeline` / `buildMatterUnifiedTimeline` → 案件时间线 |
 | `session-history-integrity.ts` | `scanSessionHistoryIntegrity` + `repairSessionHistoryIntegrity`          |
 
-**第三个是 `pnpm lawmind:doctor --fix` 的实现**（第 31.6 节讲过）。它有一个扫描上限常量 `SESSION_INTEGRITY_SCAN_LIMIT`——**扫描是有限的**，不会遍历所有历史会话。
+**第三个是 `pnpm lawmind:doctor --fix` 的实现**（第 31.1 节讲过）。它有一个扫描上限常量 `SESSION_INTEGRITY_SCAN_LIMIT`——**扫描是有限的**，不会遍历所有历史会话。
 
 ## 59.5 黄金旅程（`product/`）
 

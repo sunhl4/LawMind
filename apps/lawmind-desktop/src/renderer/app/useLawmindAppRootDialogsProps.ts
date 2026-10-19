@@ -191,6 +191,8 @@ export type UseLawmindFileWorkbenchHostPropsInput = {
   fileEditorHost: HTMLDivElement | null;
   setFileExplorerPortaled: Dispatch<SetStateAction<boolean>>;
   addFileToChatContext: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
+  onNewChatInFolder?: (folderRel: string) => void | Promise<void>;
+  onCreateChatWorkspace?: (workDir: string) => void | Promise<void>;
   setMainView: (view: LawmindMainView) => void;
   mainView: LawmindMainView;
   fileWorkbenchMattersPickList: Array<{ id: string; label: string }>;
@@ -214,6 +216,8 @@ export function useLawmindFileWorkbenchHostProps(
     fileEditorHost,
     setFileExplorerPortaled,
     addFileToChatContext,
+    onNewChatInFolder,
+    onCreateChatWorkspace,
     setMainView,
     mainView,
     fileWorkbenchMattersPickList,
@@ -238,6 +242,8 @@ export function useLawmindFileWorkbenchHostProps(
       fileEditorHost,
       onExplorerPortaled: setFileExplorerPortaled,
       explorerVariant: isMeeting ? "meeting" : isAgents ? "agents" : "workspace",
+      onNewChatInFolder,
+      onCreateChatWorkspace,
       onAddToChatContext: (payload) => {
         if (
           tryClarifyAttachFile({
@@ -271,6 +277,8 @@ export function useLawmindFileWorkbenchHostProps(
     fileEditorHost,
     setFileExplorerPortaled,
     addFileToChatContext,
+    onNewChatInFolder,
+    onCreateChatWorkspace,
     setMainView,
     mainView,
     fileWorkbenchMattersPickList,

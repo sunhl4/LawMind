@@ -433,6 +433,12 @@ export function useLawmindAppShell() {
     composeTruthPins,
     deskContractBatchDir,
     projectDir,
+    chatWorkDirForSession: (sessionId) => {
+      if (!sessionId) {
+        return undefined;
+      }
+      return chatSessionList.find((row) => row.sessionId === sessionId)?.workDir;
+    },
     allowWebSearch,
     refreshChatSessionListForAssistant,
     setChatSessionList,

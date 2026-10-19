@@ -3,16 +3,16 @@
 这三个模块从来没进过手册：
 
 ```text
-intent/            13 个文件、3434 行   把律师的话编译成一个能力绑定
-skills/            11 个 .ts + 37 份 md 能力注册表与技能运行时
-historical-scan/   10 个文件、1250 行   扫历史材料、挖习惯、整理进案件
+intent/            14 个实现文件、2613 行   把律师的话编译成一个能力绑定
+skills/            13 个实现 .ts + 37 份 md   能力注册表与技能运行时
+historical-scan/   10 个实现文件、1276 行   扫历史材料、挖习惯、整理进案件
 ```
 
 第 4 章从产品角度讲了意图，第 11 章讲了技能机制，第 20 章列了 37 份技能。这一章讲**实现**。
 
 ## 70.1 意图编译：七级的书面顺序
 
-`compile-intent.ts` 760 行。它的头注释是整个模块的骨架：
+`compile-intent.ts` 790 行。它的头注释是整个模块的骨架：
 
 ```text
 Intent compiler — Signal Extractor + ranker.
@@ -366,7 +366,7 @@ analysis.quick：…正式文书不要走这里。
 
 ## 70.3 金标集：75 行剧本与那一对致命组合
 
-`gold-set.ts` 375 行。头注释两句：
+`gold-set.ts` 388 行，导出 `INTENT_GOLD_CASES`（75 条）。`gold-set.test.ts` 逐条调用 `compileIntent`，它是意图编译的活测试夹具，不是一份搁置的样例表。头注释两句：
 
 ```text
 Routing gold set for the intent compiler (P0 measurement).
@@ -628,9 +628,9 @@ rejectsContractReview 单独算
 
 **而 `wantsPleading` 不用剥**——因为没有人会说「不是诉状」。
 
-## 70.6 文件类型：十三条规则与一份粘性排名
+## 70.6 文件类型：十一个文件名规则与一份粘性排名
 
-`document-genre.ts` 182 行。头注释是四条「准确性规则」：
+`document-genre.ts` 190 行。判定先走文件名正则（`FILENAME_RULES`，十一条，顺序不可换），再看扩展名是不是表格，最后才用正文。头注释是四条「准确性规则」：
 
 ```text
 Deterministic document-genre classifier.
@@ -1144,7 +1144,7 @@ enabled        = enabledDefault && 验签通过
 
 ## 70.11 注入预算：最多两份正文
 
-`skill-prompt-budget.ts` 101 行。头注释一行：
+`skill-prompt-budget.ts` 90 行。头注释一行：
 
 ```text
 Lean skill injection: dump up to 2 primary stage bodies, index the rest.
@@ -1156,17 +1156,32 @@ Lean skill injection: dump up to 2 primary stage bodies, index the rest.
 
 每个能力最多两个「主技能」：
 
-| 能力              | 主技能                                                |
-| ----------------- | ----------------------------------------------------- |
-| `contract.review` | `contract-review-layers` + `contract-redline-craft`   |
-| `contract.draft`  | `contract-drafting-route` + `practice-defaults`       |
-| `mail.contract`   | `contract-review-layers` + `citation-grounding`       |
-| `research.memo`   | `research-query-matrix` + `citation-grounding`        |
-| `letter.draft`    | `delivery-language` + `legal-element-extraction`      |
-| `labor.calc`      | `labor-compensation-calc`（**只有一个**）             |
-| `period.calc`     | `legal-period-calc`（只有一个）                       |
-| `ops.invoice`     | `invoice-organizer`（只有一个）                       |
-| `matter.status`   | `matter-status-report` + `matter-status-scope-budget` |
+| 能力                  | 主技能                                                |
+| --------------------- | ----------------------------------------------------- |
+| `contract.review`     | `contract-review-layers` + `contract-playbook-review` |
+| `contract.draft`      | `contract-drafting-route` + `practice-defaults`       |
+| `mail.contract`       | `contract-review-layers` + `citation-grounding`       |
+| `letter.draft`        | `delivery-language` + `legal-element-extraction`      |
+| `research.memo`       | `research-query-matrix` + `citation-grounding`        |
+| `materials.draft`     | `delivery-language` + `legal-element-extraction`      |
+| `analysis.quick`      | `quick-legal-triage` + `legal-element-extraction`     |
+| `labor.calc`          | `labor-compensation-calc`（**只有一个**）             |
+| `period.calc`         | `legal-period-calc`（只有一个）                       |
+| `chronology.timeline` | `chronology-two-stage` + `chronology-from-materials`  |
+| `matter.intake`       | `matter-from-materials` + `matter-budget-lite`        |
+| `ops.invoice`         | `invoice-organizer`（只有一个）                       |
+| `ops.court_sms`       | `court-sms-intake` + `legal-event-extract`            |
+| `litigation.talk`     | `client-talk-intake` + `legal-element-extraction`     |
+| `ip.dispute`          | `ip-dispute-route` + `evidence-argument-chain`        |
+| `deal.ma`             | `ma-diligence-route` + `legal-element-extraction`     |
+| `compliance.data`     | `data-compliance-route` + `norm-validity`             |
+| `compliance.ads`      | `ads-compliance-route` + `norm-validity`              |
+| `matter.status`       | `matter-status-report` + `matter-status-scope-budget` |
+| `family.matter`       | `family-matter-route` + `legal-element-extraction`    |
+| `capital.markets`     | `capital-markets-route` + `citation-grounding`        |
+| `corp.governance`     | `governance-route` + `norm-validity`                  |
+
+`litigation.draft` 不在这张表里，按下一节六路选。`contract.review` 的默认两份是分层审查加 Playbook。只有 `pipeline === "tracked_redline"` 时，`primarySkillIdsForBound` 才改成 `contract-review-layers` + `contract-redline-craft`。Word 改稿还会用 `skillIdsOverride` 钉住同一对（第 70.1 节）。
 
 **三个「只有一个」的能力**是劳动计算、期限计算、整理发票。办案周报要两份：进度和范围预算对着干时，第二份必须进正文。
 
@@ -1177,8 +1192,8 @@ Lean skill injection: dump up to 2 primary stage bodies, index the rest.
 | 命中                                                 | 主技能                                                |
 | ---------------------------------------------------- | ----------------------------------------------------- |
 | 家事类词                                             | `family-matter-route` + `legal-element-extraction`    |
-| 刑事类词                                             | （刑事那条）                                          |
-| 破产类词                                             | （破产那条）                                          |
+| 刑事类词                                             | `criminal-stage-route` + `evidence-argument-chain`    |
+| 破产类词                                             | `bankruptcy-stage-route` + `legal-period-calc`        |
 | 知产类词                                             | `ip-dispute-route` + `evidence-argument-chain`        |
 | 答辩状、质证、保全、管辖异议、再审（先于「起诉状」） | `litigation-stage-route` + `evidence-argument-chain`  |
 | 交付物是起诉状，或同一段里先出现「起诉状」           | `complaint-elements-fill` + `evidence-argument-chain` |
@@ -1199,7 +1214,7 @@ Lean skill injection: dump up to 2 primary stage bodies, index the rest.
 
 ## 70.12 播种：37 个 id，与 builtin 目录对齐
 
-`ensure-builtin-skill-seeds.ts` 133 行。
+`ensure-builtin-skill-seeds.ts` 135 行。
 
 ### 升级规则四步
 
@@ -1230,7 +1245,7 @@ Lean skill injection: dump up to 2 primary stage bodies, index the rest.
 
 ### 名单与目录等长
 
-`skills/builtin/` 有 37 份 `.md`，`BUILTIN_SKILL_SEED_IDS` 也是 37 个 id，含 `client-talk-intake` 与 `legal-event-extract`。测试要求两边相等。早先「35 个 id、两份不播种」已经不成立。
+`skills/builtin/` 有 37 份 `.md`，`BUILTIN_SKILL_SEED_IDS` 也是 37 个 id，含 `client-talk-intake` 与 `legal-event-extract`。`ensure-builtin-skill-seeds.test.ts` 要求名单与目录相等。
 
 ### 两条路径的差别
 
@@ -1247,7 +1262,7 @@ Lean skill injection: dump up to 2 primary stage bodies, index the rest.
 ② 其余 id 只读 builtin/*.md
 ```
 
-工作区里同名 `SKILL.md`（包括篡改过的）不会进入提示词。`client-talk-intake` 与 `legal-event-extract` 已在播种名单里，和另外 35 份一样只是副本。
+工作区里同名 `SKILL.md`（包括篡改过的）不会进入提示词。37 份播种副本都一样，含 `client-talk-intake` 与 `legal-event-extract`。
 
 ### 内置注册表与诉状路由
 

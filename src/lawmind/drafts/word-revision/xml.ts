@@ -239,6 +239,10 @@ function serializePlainRun(run: WordRevisionRun, deleted = false): string {
 
 function rPrXml(run: WordRevisionRun, extra = ""): string {
   const parts: string[] = [extra];
+  const rFonts = run.mark?.rFontsXml?.trim() || rFontsXmlFromCss(run.mark?.fontFamily);
+  if (rFonts) {
+    parts.push(rFonts);
+  }
   if (run.mark?.bold) {
     parts.push("<w:b/>");
   }
@@ -257,6 +261,34 @@ function rPrXml(run: WordRevisionRun, extra = ""): string {
   }
   const inner = parts.join("");
   return inner ? `<w:rPr>${inner}</w:rPr>` : "";
+}
+
+/** Best-effort when only a CSS stack is available (no raw OOXML tag). */
+function rFontsXmlFromCss(fontFamily: string | undefined): string | undefined {
+  if (!fontFamily?.trim()) {
+    return undefined;
+  }
+  const faces = fontFamily
+    .split(",")
+    .map((part) => part.trim().replace(/^["']|["']$/g, ""))
+    .filter(
+      (name) => name && !/^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/i.test(name),
+    );
+  if (faces.length === 0) {
+    return undefined;
+  }
+  const ascii = faces[0] ?? "";
+  const eastAsia =
+    faces.find((name) =>
+      /[\u4e00-\u9fff]|SimSun|Songti|KaiTi|FangSong|微软|宋体|黑体|楷体/i.test(name),
+    ) ?? ascii;
+  if (!ascii) {
+    return undefined;
+  }
+  return (
+    `<w:rFonts w:ascii="${encodeXml(ascii)}" w:hAnsi="${encodeXml(ascii)}"` +
+    ` w:eastAsia="${encodeXml(eastAsia)}"/>`
+  );
 }
 
 function isDeletedKind(kind: WordRevisionTrack["kind"] | undefined): boolean {

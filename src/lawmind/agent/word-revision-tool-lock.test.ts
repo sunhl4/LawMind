@@ -140,6 +140,9 @@ describe("word-revision tool lock", () => {
       },
     });
     stubModelWithToolCall(server, "search_statute");
+    // 文件页改稿回合有完成验收弹回（要求先把带修订的 Word 写到原文件旁），
+    // 允许路径需要第三条录音带；弹回本身在其余用例（工具被拒）不出现。
+    server.enqueue(cassetteAssistant("已查看修订面。"));
 
     const result = await runTurn({
       config: baseConfig(workspaceDir, server.url),

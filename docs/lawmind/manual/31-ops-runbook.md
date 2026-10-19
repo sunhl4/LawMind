@@ -22,7 +22,7 @@
 pnpm lawmind:doctor
 ```
 
-它打印三行：
+人读的输出先是三行巡检（签名未通过的自定义技能会多打一行；执行面清单和记忆索引条目附在后面）：
 
 | 行   | 完好时长什么样                           | 不完好时                                                             |
 | ---- | ---------------------------------------- | -------------------------------------------------------------------- |
@@ -32,9 +32,9 @@ pnpm lawmind:doctor
 
 投影对不上，或有自定义技能因签名未通过而停用时，退出码是 1。签名失败不会在对话里报错，所以巡检必须说出来。会话损坏和索引缺失不因此失败：它们会在下一次对话或检索里自己好。
 
-`pnpm lawmind:ops doctor` 打的是同一份三行。`--deep` 额外跑开发用的 smoke，**不是**每周巡检，也不再检查 `MEMORY.md` 在不在、环境变量严不严。安装包把密钥放在密钥链里，终端里的环境检查经常是红的，应用却是通的。模型通不通看设置 → 模型与连接的「验证模型」。
+`pnpm lawmind:ops doctor` 打的是同一份巡检。`--deep` 额外跑开发用的 smoke（`lawmind:smoke --fail-on-empty-claims`），**不是**每周巡检，也不检查 `MEMORY.md` 在不在、环境变量严不严。安装包把密钥放在密钥链里，终端里的环境检查经常是红的，应用却是通的。模型通不通看设置 → 模型与连接的「验证模型」。
 
-工作区不是仓库里的 `workspace/` 时，两条命令都认 `LAWMIND_WORKSPACE_DIR`。
+工作区不是仓库里的 `workspace/` 时，两条命令都认 `LAWMIND_WORKSPACE_DIR`（`lawmind:ops` 另认 `--workspace <目录>`）。
 
 ## 31.2 重建检索索引
 
@@ -72,7 +72,7 @@ CASE.md 里的争点、风险、进展不写回 JSON。它们对不上不算漂�
 LAWMIND_WORKSPACE_DIR=<工作区> pnpm lawmind:backup -- /path/to/backup-$(date +%F).tar.gz
 ```
 
-默认不含工作区根上的 `.env` 和 `.env.lawmind`。要打进包里才设 `LAWMIND_BACKUP_INCLUDE_ENV=1`，并且加密归档。密钥链和 `~/.lawmind/keys/` 不在这个包里。索引（`lawmind/search-index.sqlite`）是派生的，不进备份。
+默认不含工作区根上的 `.env` 和 `.env.lawmind`。要打进包里才设 `LAWMIND_BACKUP_INCLUDE_ENV=1`，并且加密归档。密钥链和 `~/.lawmind/keys/` 不在这个包里（它们在工作区外）。索引（`lawmind/search-index.sqlite`）是派生的：它若存在会随包走，但恢复不靠它——缺了会在检索时重建。
 
 **确认**：解开后有 `BACKUP-MANIFEST.txt`，以及 `matters/`、`cases/`、`drafts/`。
 
@@ -92,7 +92,7 @@ LAWMIND_WORKSPACE_DIR=<工作区> pnpm lawmind:backup -- /path/to/backup-$(date 
 | ---------- | --------------------------------------------------------------------------------------------------------- |
 | 刚起不久   | 等它跑                                                                                                    |
 | 卡很久     | `POST /api/jobs/:id/cancel`。`running` 只是请求取消，在步骤批次之间生效，不会掐断已经发出的那一次模型调用 |
-| 进程重启过 | 非终态任务会被标成 `interrupted_by_restart`，不用手工改状态                                               |
+| 进程重启过 | 上次排队或在跑的任务标成 `failed`（`interrupted_by_restart`）；`scheduled` / `awaiting_lawyer` 保留       |
 
 自动办件的失败必须出现在收件箱里。不要用「运行次数正常」判断它还在干活。
 
@@ -104,7 +104,7 @@ Word 或 WPS 报无法加载加载项、端口变了、或换了机器：设置 
 
 **确认**：任务窗格能打开，输入框里点「开始」能建出请求。这一步在本机还没有验收记录。缺什么、还要提供什么，见 [LAWMIND-WORD-ADDIN.md](../LAWMIND-WORD-ADDIN.md) 的「现状：半成品」。
 
-卡住的审查请求：服务在跑时，超过 30 分钟仍是 `running` 的会被标成 `failed`。窗口关着且守护进程也没起，就没有 tick，清理不会发生。先按 31.8 确认有一个 tick 主人，不要去手改 `word-addin/reviews.json`。
+卡住的审查请求：服务在跑时，每个 tick 都会清理——任务已经终态（失败、取消，或完成但没回填）的按实标 `failed`；任务记录找不到且领走超过 30 分钟的按记录丢失标 `failed`；还在跑的不动。窗口关着且守护进程也没起，就没有 tick，清理不会发生。先按 31.8 确认有一个 tick 主人，不要去手改 `lawmind/word-addin/reviews.json`。
 
 ## 31.7 升级
 
@@ -155,7 +155,7 @@ pnpm lawmind:daemon -- start --workspace <工作区>
 
 要归档时见第 27.6 节：`GET /api/audit/export` 可加 `compliance=1` 或 `integrity=1`，摘要用 `GET /api/audit/export-summary?format=text`。外锚是 `LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL`（`file://` 原子写，或 HTTPS PUT），也可以写在 `lawmind/desk-settings.json` 的 `auditExternalAnchorUrl`。大约每 24 小时推一次摘要；失败只警告，不影响写入。验外锚：`POST /api/audit/verify-external`。
 
-不要删中间某一天的审计文件，哈希链会断。外锚地址不要写进 `lawmind.policy.json`，那个键会被忽略。
+不要删中间某一天的审计文件，哈希链会断。外锚地址不要写进 `lawmind.policy.json`，那个键会被拒（列进 `policy.rejected`），不生效。
 
 ## 31.12 轮换密钥（有需要时，不是季检）
 
@@ -179,7 +179,7 @@ pnpm lawmind:skills:sign --workspace <工作区> --check
 
 ## 31.13 许可
 
-设置里看许可状态，或 `GET /api/license`。激活：`POST /api/license/activate`，正文 `{ "code": "<激活码>" }`。机器指纹：`GET /api/license/fingerprint`。清除：`POST /api/license/clear`。
+设置 → 许可里看状态，或 `GET /api/license`。激活码由发行侧用 `pnpm lawmind:license -- --licensee <名> --edition <档> [--days N] [--bind-machine]` 签发（发行方内部工具，不装机到律师机器）；律师在设置 → 许可里粘贴，等价于 `POST /api/license/activate`，正文 `{ "code": "<激活码>" }`。机器指纹：`GET /api/license/fingerprint`。清除：`POST /api/license/clear`。
 
 试用到期或未激活只提醒，不锁交办。`machine_mismatch` 表示激活码绑的不是这台机器。
 

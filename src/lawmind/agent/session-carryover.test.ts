@@ -309,7 +309,9 @@ describe("forkSessionWithCarryover", () => {
     expect(second.reused).toBe(true);
     expect(second.session.sessionId).toBe(first.session.sessionId);
     expect(
-      fs.readdirSync(path.join(ws, "sessions")).filter((n) => n.endsWith(".json")),
+      fs
+        .readdirSync(path.join(ws, "sessions"))
+        .filter((n) => n.endsWith(".json") && !n.endsWith(".desk.json")),
     ).toHaveLength(2);
   });
 
@@ -373,7 +375,9 @@ describe("forkSessionWithCarryover", () => {
     expect(blocked.blockingActions).toEqual(["tool_approval"]);
 
     expect(
-      fs.readdirSync(path.join(ws, "sessions")).filter((n) => n.endsWith(".json")),
+      fs
+        .readdirSync(path.join(ws, "sessions"))
+        .filter((n) => n.endsWith(".json") && !n.endsWith(".desk.json")),
     ).toHaveLength(1);
   });
 

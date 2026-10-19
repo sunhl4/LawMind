@@ -2,7 +2,7 @@
 
 这一章讲本地服务：它怎么起来、请求进来要过几道、事件怎么推给界面、后台任务怎么跑。
 
-> 这一章是**从协议看**（有哪些端点、过哪些关、发什么事件）。逐文件的实现精读在第 63–65 章：第 63 章讲骨架（启动编排、请求十三步、鉴权两道门、作业注册表、SSE 总线），第 64 章讲 100 条主路由（对话、会话、文书台、案件、工作台、首屏），第 65 章讲其余 49 个路由文件。
+> 这一章是**从协议看**（有哪些端点、过哪些关、发什么事件）。逐文件的实现精读在第 63–65 章：第 63 章讲骨架（启动编排、请求十三步、鉴权两道门、作业注册表、SSE 总线），第 64 章讲主链路的十个路由文件（对话、会话、文书台、案件、工作台、首屏），第 65 章讲其余路由文件。
 
 ## 14.1 定位：它是唯一的写侧
 
@@ -50,38 +50,45 @@
 
 环境变量契约：
 
-| 变量                           | 说明                            |
-| ------------------------------ | ------------------------------- |
-| `LAWMIND_WORKSPACE_DIR`        | 必填                            |
-| `LAWMIND_DESKTOP_PORT`         | 非 headless 时必填              |
-| `LAWMIND_ENV_FILE`             | 可选                            |
-| `LAWMIND_DAEMON`               | `1` 表示守护（tick）模式        |
-| `LAWMIND_DAEMON_SUPERVISOR`    | `1` 表示监督模式                |
-| `LAWMIND_DESKTOP_ACTOR_ID`     | 审计归属，默认 `lawyer:desktop` |
-| `LAWMIND_ENABLE_COLLABORATION` | `false` 关闭协作                |
-| `LAWMIND_REPO_ROOT`            | 仓库根（开发态用）              |
+| 变量                                    | 说明                            |
+| --------------------------------------- | ------------------------------- |
+| `LAWMIND_WORKSPACE_DIR`                 | 必填                            |
+| `LAWMIND_DESKTOP_PORT`                  | 非 headless 时必填              |
+| `LAWMIND_ENV_FILE`                      | 可选                            |
+| `LAWMIND_DAEMON`                        | `1` 表示守护（tick）模式        |
+| `LAWMIND_DAEMON_SUPERVISOR`             | `1` 表示监督模式                |
+| `LAWMIND_DESKTOP_ACTOR_ID`              | 审计归属，默认 `lawyer:desktop` |
+| `LAWMIND_ENABLE_COLLABORATION`          | `false` 关闭协作                |
+| `LAWMIND_REPO_ROOT`                     | 仓库根（开发态用）              |
+| `LAWMIND_LOCAL_API_TOKEN`               | 旧式令牌（dev/E2E；打包忽略）   |
+| `LAWMIND_LOCAL_API_INSTALLATION_SECRET` | 派生凭据根密钥（主进程注入）    |
+| `LAWMIND_SKIP_API_AUTH`                 | `1` 跳过鉴权（仅非打包生效）    |
+| `LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL`     | 审计外锚同步地址（可空）        |
+| `LAWMIND_STRICT_TOOL_STREAM`            | 未设则启动写 `0`                |
 
 启动顺序（简化版但保持顺序）：
 
 1. 判定模式（普通 / 守护 / 监督）。
-2. 校验工作区与端口，非法就退出（守护/监督模式不需要端口）。
-3. **监督模式先分支**：`runDaemonSupervisor` 然后直接返回（不能在前面做重活）。
+2. 校验工作区与端口，非法就退出（守护/监督模式不需要端口）；`mkdirSync` 工作区。
+3. **监督模式先分支**：`runDaemonSupervisor` 然后直接返回（不能在前面做重活，否则监督进程会重复干一遍子进程的活，还持有两份状态）。
 4. 非守护模式：先 `stopDaemonProcess`（窗口开着时由桌面端负责 tick）。
-5. 守护模式：抢守护锁（抢不到就打印「已在运行，本进程让位」并退出 0），记 pid，装退出记账。
-6. **加载环境变量**（`bootstrapLawMindDesktopEnv`）。注释说明这是硬顺序：「env must load before any key consumer」。
-7. 播种内置工作流模板。
-8. 解析技能签名密钥；如果是 `derived` 来源就打警告（提示用 `LAWMIND_SKILL_SIGNING_SECRET`）。
-9. 用这个密钥播种内置技能。
-10. **加载并应用策略文件**（`lawmind.policy.json`）。注释解释了为什么在环境变量之后：「applied after `.env.lawmind` so IT can enforce guardrails without editing secrets」。
-11. 恢复磁盘上的委派记录。
-12. 从磁盘加载后台任务。
-13. 定义定时 tick：到期的定时任务 → 到期的自动办件 → 期限提醒 → Word 插件取件。
-14. 自动重建索引（只在策略允许且索引陈旧时）。
+5. 守护模式：抢守护锁（抢不到就打印「已在运行，本进程让位」并退出 0），记 pid，清掉旧的「已停止重试」标记，装退出记账与 SIGTERM/SIGINT。
+6. **加载环境变量**（`bootstrapLawMindDesktopEnv`）。
+7. 播种内置工作流模板（`ensureBuiltinWorkflowSeeds`）。
+8. `LAWMIND_STRICT_TOOL_STREAM` 未设置时写 `0`（桌面默认开全轮次 token 流式，便于对话区展示模型真实输出）。
+9. **加载并应用策略文件**（`lawmind.policy.json`）。注释解释了为什么在环境变量之后：「applied after `.env.lawmind` so IT can enforce guardrails without editing secrets」。
+10. 恢复磁盘上的委派记录。
+11. 从磁盘加载后台任务。
+12. 给工作流调度器注册 `buildAgentConfig`（`setWorkflowJobSchedulerContext`，排期到点的工作流靠它拿到运行配置）。
+13. 定义定时 tick：到期的定时任务 → 到期的自动办件 → 期限提醒 → Word 插件取件；并注册插件 POST 后的即时唤醒器。
+14. 立刻跑第一拍并挂 30 秒 `setInterval`：守护模式**不** unref（它是唯一存活句柄），桌面模式 unref；索引自动重建挂在 tick 上（只在策略允许且索引陈旧时）。
 15. 启动案件副本自动同步。
-16. 如果配了审计外锚地址，启动外锚同步。
+16. 如果配了审计外锚地址，启动外锚同步（每日一拍，外加启动时立即同步一次）。
 17. 守护模式若索引不存在，在这里后台补一次（守护进程不起 HTTP）。
 18. 守护模式在这里返回（不起 HTTP 服务）。
-19. 初始化凭据，建限流桶，起两个 `http.createServer`（IPv4 + IPv6）。桌面进程在监听成功之后才补缺索引，避免挡在端口前面。
+19. 初始化凭据（派生凭据与旧式令牌都没有时现造一把旧式令牌兜底），建限流桶，起两个 `http.createServer`（IPv4 + IPv6）。桌面进程在监听成功之后才补缺索引，避免挡在端口前面。
+
+旧版在第 7 步之后还有「解析技能签名密钥 → 播种内置技能」两步，**已经移除**：作业标准在安装包的 `builtin/` 里，启动不再往工作区抄 `SKILL.md`，也不再因为缺 `LAWMIND_SKILL_SIGNING_SECRET` 打警告（第 11 章）。
 
 桌面壳判定「服务起来了」打的是 `GET /.well-known/lawmind-local`，而且要求 `credentialModel` 为 `derived-hmac-sha256`。发现端点不含密钥，返回就说明回环已经在听。全量体检走 `GET /api/health` 与 `pnpm lawmind:doctor`（界面不再单设体检页）。
 
@@ -155,7 +162,7 @@
 | 认不出凭据     | `401 { error:"unauthorized", code:"invalid_api_token" }`             |
 | 认出来了但越权 | `403 { error:"forbidden", code:"client_scope_forbidden", clientId }` |
 
-豁免有两种：`/word-addin/*` 的静态页（`GET` 免 bearer，因为页面要从同源 `config.js` 自己取凭据），以及开发态的 `LAWMIND_SKIP_API_AUTH=1`（打包态强制忽略）。
+豁免与旁路有三种：`/word-addin/*` 的静态页（`GET` 免 bearer，因为页面要从同源 `config.js` 自己取凭据，身份直接标成 `word-addin`）；旧式单一令牌 `LAWMIND_LOCAL_API_TOKEN` 仍被接受，身份记为 `shared`（只是 dev/E2E 覆盖路径，不参与派生、轮换与吊销）；以及开发态的 `LAWMIND_SKIP_API_AUTH=1`（打包态强制忽略，身份同样记为 `shared`）。
 
 **第六道：开发态 CSRF 缓释。** 只有在跳过鉴权时才生效：变更类方法（POST/PUT/PATCH/DELETE）必须带 `Content-Type: application/json`，否则：
 
@@ -173,12 +180,12 @@
 
 在分发之前还有一个令牌桶：速率 100/秒、容量 200。对话、写稿、导出、体检、任务列表、历史和案件概览都进这一个桶。扫盘的 GET 若豁免，失控客户端会把事件循环打满。
 
-不进桶的只有预检，以及打开窗口时的两条轻请求：
+不进桶的只有预检，以及打开窗口时的两条轻请求（`GET` 或 `HEAD`）：
 
 ```text
 OPTIONS
-GET /.well-known/lawmind-local
-GET /api/bootstrap
+GET|HEAD /.well-known/lawmind-local
+GET|HEAD /api/bootstrap
 ```
 
 超了返回：
@@ -191,7 +198,7 @@ GET /api/bootstrap
 
 ### 404 与错误
 
-路由都不匹配时返回 404。给界面的句子是：
+路由都不匹配时返回 404，`code` 是 `no_route`，给界面的句子放在 `hint` 字段：
 
 ```text
 这一步没能完成。请退出 LawMind 后重新打开。
@@ -199,17 +206,17 @@ GET /api/bootstrap
 
 开发者要的那句（忘了重新打包本地服务）只打在服务日志：`[LawMind] no_route` 后面跟着 `pnpm lawmind:bundle:desktop-server`。律师界面不出现命令名。
 
-其他错误走统一信封：`{ ok:false, code, message, error, ...extra }`。已知错误码还有 `body_too_large`（413）、`invalid_json`（400）、`invalid_request_body`（400）。
+其他错误走统一信封：`{ ok:false, code, message, error, ...extra }`。已知错误码还有 `body_too_large`（413）、`invalid_json`（400）、`invalid_request_body`（400）。两个体积上限都是硬编码：JSON 请求体 256 KB（`MAX_JSON_BODY_BYTES`，超了就是那个 413），文本读取 1 MB（`MAX_TEXT_READ_BYTES`）。
 
-## 14.5 路由注册表：59 个 handler
+## 14.5 路由注册表：62 个 handler
 
-`lawmind-server-route-registry.ts` 里是一个**有序数组**，第一个匹配的赢。顺序本身有讲究，比如 e2e 测试路由放最前面（只在开关打开时生效），SSE 和健康检查放很前面。`GET /api/tasks/:id` 的权威实现在审查路由里，它注册在记录路由之前；不能为了少走几步把某条路径提前交给后面的 handler。
+`lawmind-server-route-registry.ts` 里是一个**有序数组**，第一个匹配的赢。数组有 **62 个 handler**（60 个路由文件——`audit-export` 一个文件挂 3 个 handler），全服务可达端点 367 个。顺序本身有讲究，比如 e2e 测试路由放最前面（只在开关打开时生效），SSE 和健康检查放很前面。`GET /api/tasks/:id` 的权威实现在审查路由里，它注册在记录路由之前；不能为了少走几步把某条路径提前交给后面的 handler。源码里另有两条被更早 handler 吃掉、运行时到不了的分支：matters 里的 `GET /api/approvals`（approvals 先注册）和 memory-templates 里的 `GET /api/templates/built-in`（templates 先注册）。
 
 完整顺序（按代码里的次序）：
 
 ```text
-e2e → sse → health → bootstrap → templates → acceptance → triage →
-review-campaign → skills → intent → mcp → sources → integrations →
+e2e → sse → health → bootstrap → templates → acceptance-sheet → acceptance →
+triage → review-campaign → skills → intent → mcp → sources → integrations →
 tools-registry → draft-revision → redline → search → review → models →
 chat → approvals → action-summary → judgment → agent-fleet → mail →
 automations → assistants → lawyer-desk → license → support →
@@ -217,8 +224,9 @@ matter-replica → matter-cloud → matters → onboarding → daemon →
 desk-settings → practice-playbook → contract-review → learning-contract →
 sessions → works → records → jobs → collaboration → host-access →
 platform → audit-export-summary → audit-verify-external → audit-export →
-memory-templates → memory-preview → memory-adoption → word-addin →
-metrics → historical-scan → roles → routing → audit-event → fs
+memory-templates → memory-preview → memory-adoption → memory-library →
+word-surface → word-addin → metrics → historical-scan → roles →
+routing → audit-event → fs
 ```
 
 每个 handler 的签名是 `(args) => boolean | Promise<boolean>`：返回真表示「我处理了」，分发停止。
@@ -264,7 +272,7 @@ data: <json>
 scheduled → queued → running → completed | failed | cancelled
 ```
 
-`scheduled` 是已排期未到点；`queued` 是可以跑了；终态有三个。
+`scheduled` 是已排期未到点；`queued` 是可以跑了；终态有三个。另有一个非终态 `awaiting_lawyer`：工作流跑到需要律师确认大纲/澄清时停在这里，律师确认后由 `POST /api/jobs/:id/continue` 把它翻回 `queued` 继续跑。种类只有 `kind: "workflow_run"`。
 
 ### 存哪
 
@@ -272,7 +280,7 @@ scheduled → queued → running → completed | failed | cancelled
 <工作区>/lawmind/jobs/<jobId>.json
 ```
 
-上限 200 个（`MAX_JOBS`），超了按创建时间淘汰最旧的，并把文件删掉。
+上限 200 个（`MAX_JOBS`），超了按创建时间淘汰最旧的，并把文件删掉。同一工作区同时最多 2 个 `running`（`MAX_CONCURRENT_WORKFLOW_JOBS`），多出来的留在 `queued` 等空位。
 
 job id 有安全校验：长度 ≤128、不含 `/`、`\`、`..`，必须匹配 `/^[a-zA-Z0-9._-]+$/`。不合法直接 400 `invalid_job_id`——这是防路径拼接。
 
@@ -281,7 +289,7 @@ job id 有安全校验：长度 ≤128、不含 `/`、`\`、`..`，必须匹配 
 `loadJobsFromDiskOnStartup` 的行为：
 
 - 上次进程留下的**非终态**任务（`queued` / `running`）会被标成 `failed`，错误是 `interrupted_by_restart`，并写明完成时间。
-- `scheduled` 的任务**保留**（排期还有效）。
+- `scheduled` 与 `awaiting_lawyer` 的任务**保留**（排期与待确认状态都还有效）。
 
 也就是说：跑到一半的任务不会假装还在跑，也不会自动续跑，而是如实告诉你「进程重启过，这次中断了」。
 
@@ -297,12 +305,12 @@ job id 有安全校验：长度 ≤128、不含 `/`、`\`、`..`，必须匹配 
 
 ### 取消
 
-| 当时状态               | 行为                                                         |
-| ---------------------- | ------------------------------------------------------------ |
-| `scheduled` / `queued` | 立即转 `cancelled`，错误写 `cancelled_by_user`               |
-| `running`              | 只置 `cancelRequested = true`，等执行器的 `shouldAbort` 检查 |
-| 已终态                 | 409 `job_already_terminal`                                   |
-| 找不到                 | 404 `job_not_found`                                          |
+| 当时状态                                   | 行为                                                         |
+| ------------------------------------------ | ------------------------------------------------------------ |
+| `scheduled` / `queued` / `awaiting_lawyer` | 立即转 `cancelled`，错误写 `cancelled_by_user`               |
+| `running`                                  | 只置 `cancelRequested = true`，等执行器的 `shouldAbort` 检查 |
+| 已终态                                     | 409 `job_already_terminal`                                   |
+| 找不到                                     | 404 `job_not_found`                                          |
 
 **注意「running 只能请求取消」这件事。** 注释也说了当前实现不中止已经发出的单次调用——它只在步骤批次之间检查。
 
@@ -313,6 +321,7 @@ GET /api/jobs?limit=20&status=&since=&matterId=
 GET /api/jobs/:id
 GET /api/jobs/:id/stream
 POST /api/jobs/:id/cancel
+POST /api/jobs/:id/continue
 ```
 
 `limit` 默认 20，夹在 1–100。`status` 可重复传，非法值会被丢掉（不报错）。`since` 是 ISO 时间下界。
@@ -366,7 +375,7 @@ POST /api/jobs/:id/cancel
 这是配置排障的核心，记顺序：
 
 ```text
-① 用户环境文件（<应用数据根>/.env.lawmind）—— override: true（覆盖 process.env）
+① 用户环境文件（`LAWMIND_ENV_FILE`，通常是 `<应用数据根>/.env.lawmind`）—— override: true（覆盖 process.env）
 ② 仓库环境文件（<仓库根>/.env.lawmind）—— override: false（只补空缺）
 ③ lawmind.policy.json —— 加载后把若干策略键写进 process.env
 ```
@@ -377,7 +386,7 @@ POST /api/jobs/:id/cancel
 - **信任分两阶段。** 首跑之前（Phase A）只认用户环境文件；首跑之后（Phase B）才允许仓库文件补缺。
 - **策略文件在最后应用**，而且它的用途是「下硬约束」而不是存密钥。注释：「applied after `.env.lawmind` so IT can enforce guardrails without editing secrets」。
 
-策略文件能覆盖的环境变量有四个方向：`egressOffline` / `forceNoWebSearch` → 设 `LAWMIND_POLICY_FORCE_NO_WEB_SEARCH=1`；`retrievalMode` → `LAWMIND_RETRIEVAL_MODE`；`enableCollaboration: false` → `LAWMIND_ENABLE_COLLABORATION=false`；`edition` → `LAWMIND_EDITION`。
+策略文件真正写进 `process.env` 的只有三个方向：`egressMode: "offline"`（含旧键 `highSecurityMode: true`）或 `allowWebSearch: false` → 设 `LAWMIND_POLICY_FORCE_NO_WEB_SEARCH=1`（两个条件都不成立时**删掉**这个变量）；`enableCollaboration: false` → 设 `LAWMIND_ENABLE_COLLABORATION=false`；`edition` 合法 → 设 `LAWMIND_EDITION`。注意 `retrievalMode` **不再**被写进 `LAWMIND_RETRIEVAL_MODE`——类型注释里还留着旧话，但测试明确断言不写；检索模式由桌面主进程注入子进程环境。
 
 `lawmind.policy.json` **必须有 `schemaVersion` 且 ≥1**，否则整份文件被忽略（这是最常踩的坑）。
 
@@ -391,7 +400,7 @@ POST /api/jobs/:id/cancel
 
 也就是说：离线模式应该**临时压住**联网偏好，而不是把偏好改成 false。否则律师想恢复联网时，发现偏好已经被写死了。
 
-对应的接口注释也提了一条：`PATCH /api/policy/workspace` 曾经静默写 `false`，现在是只读不写。
+对应的引擎与接口注释各提了一条：`resolveEgressMode` 只读不写，调用方不得为了让联网关闭而回写 `allowWebSearch`；`PATCH /api/policy/workspace` 曾经静默写 `false`，现在只写「总模式」键，不再回写律师的联网偏好。
 
 ## 14.11 Word 插件的取件循环
 
@@ -457,7 +466,7 @@ POST /api/jobs/:id/cancel
 | Word 插件取件    | `lawmind-server-word-addin-runner.ts`                                                                 |
 | 环境与策略加载   | `lawmind-desktop-env-bootstrap.ts`、`lawmind-policy.ts`                                               |
 | 体检载荷         | `lawmind-health-payload.ts`                                                                           |
-| 各路由文件       | `lawmind-server-route-*.ts`（59 个 handler）                                                          |
+| 各路由文件       | `lawmind-server-route-*.ts`（60 个路由文件，注册表共 62 个 handler）                                  |
 
 ## 14.14 已知坑
 
@@ -465,7 +474,7 @@ POST /api/jobs/:id/cancel
 - **回环 Host 门不能去掉。** 它是防 DNS 重绑定的唯一手段，浏览器伪造不了 `Host`。
 - **打包态忽略 `LAWMIND_SKIP_API_AUTH`。** 别指望在生产上用它省事。
 - **开发态跳鉴权时变更请求必须带 JSON Content-Type。** 这层是为了缓释 CSRF，别当普通校验删掉。
-- **限流桶罩住扫盘请求。** 对话、写稿、导出、体检、任务列表、历史、案件概览共用 100/秒。只有 `OPTIONS`、发现端点和 `/api/bootstrap` 不进桶。
+- **限流桶罩住扫盘请求。** 对话、写稿、导出、体检、任务列表、历史、案件概览共用 100/秒。只有 `OPTIONS` 以及 `GET`/`HEAD` 的发现端点和 `/api/bootstrap` 不进桶。
 - **探活用发现端点，不用 `/api/health`。** 响应还要带 `credentialModel: derived-hmac-sha256`，避免把别的进程当成 LawMind。全量体检留在设置页。
 - **`/api/bootstrap` 不扫任务、草稿和会话完整性。** 那些计数在 `/api/tasks`、`/api/history` 和 `/api/health`。引导接口再扫一遍会和列表请求抢事件循环。
 - **缺索引时守护进程和桌面进程都会补建。** 桌面进程在 `listen` 成功之后补，守护进程不起 HTTP，在返回前补。

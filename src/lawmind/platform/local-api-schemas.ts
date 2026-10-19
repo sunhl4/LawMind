@@ -263,6 +263,10 @@ export type TemplateEnabledPostRequest = z.infer<typeof templateEnabledPostSchem
 export const sessionCreatePostSchema = z.object({
   assistantId: z.string().trim().optional(),
   matterId: z.string().trim().optional(),
+  /** 本机文件夹内的相对路径。缺省表示这场对话不挂文件夹。 */
+  folderRel: z.string().trim().max(400).optional(),
+  /** 新建时绑定的工作区绝对路径。不回填旧对话。 */
+  workDir: z.string().trim().max(500).optional(),
   title: z.string().trim().optional(),
 });
 
@@ -647,6 +651,27 @@ export const fsXlsxSavePostSchema = z.object({
 });
 
 export type FsXlsxSavePostRequest = z.infer<typeof fsXlsxSavePostSchema>;
+
+export const fsPptxSavePostSchema = z.object({
+  root: z.string().min(1),
+  path: z.string().min(1),
+  expectedMtimeMs: z.number().optional(),
+  edits: z
+    .array(
+      z.object({
+        path: z
+          .string()
+          .min(1)
+          .max(240)
+          .regex(/^\/slide\[\d+\]\//i, "shape path must be under /slide[N]/"),
+        text: z.string().max(8000),
+      }),
+    )
+    .min(1)
+    .max(200),
+});
+
+export type FsPptxSavePostRequest = z.infer<typeof fsPptxSavePostSchema>;
 
 export const sourceAnnotationPostSchema = z.object({
   comment: trimmedNonEmptyString,

@@ -396,7 +396,9 @@ describe("lawmind-server-route-sessions extended", () => {
     const replayBody = JSON.parse(replay.get().raw) as { sessionId: string; reused?: boolean };
     expect(replayBody.reused).toBe(true);
     expect(replayBody.sessionId).toBe(body.sessionId);
-    expect(fs.readdirSync(path.join(ws, "sessions")).filter((n) => n.endsWith(".json"))).toHaveLength(
+    expect(
+      fs.readdirSync(path.join(ws, "sessions")).filter((n) => n.endsWith(".json") && !n.endsWith(".desk.json")),
+    ).toHaveLength(
       2,
     );
 
@@ -421,7 +423,9 @@ describe("lawmind-server-route-sessions extended", () => {
     };
     expect(blockedBody.code).toBe("pending_authorization");
     expect(blockedBody.blockingActions).toEqual(["tool_approval"]);
-    expect(fs.readdirSync(path.join(ws, "sessions")).filter((n) => n.endsWith(".json"))).toHaveLength(
+    expect(
+      fs.readdirSync(path.join(ws, "sessions")).filter((n) => n.endsWith(".json") && !n.endsWith(".desk.json")),
+    ).toHaveLength(
       2,
     );
   });

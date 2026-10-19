@@ -14,6 +14,8 @@ export type LiveTurn = {
   uiDetached: boolean;
   /** Next delta should land on the latest assistant bubble after a session reload. */
   rebind: boolean;
+  /** `queued` means this chat is waiting for a model slot, not generating. */
+  phase?: "running" | "queued";
 };
 
 export type FocusedChat = {
@@ -21,23 +23,21 @@ export type FocusedChat = {
   sessionId: string | undefined;
 };
 
-export function sessionQueueKey(sessionId: string | undefined, assistantId: string): string {
+/** Queue and focus follow the conversation. Assistant id is not a second key. */
+export function sessionQueueKey(sessionId: string | undefined, _assistantId?: string): string {
   const id = sessionId?.trim();
-  return id ? id : `pending:${assistantId}`;
+  return id ? id : "pending";
 }
 
 /** The composer input belongs to this turn only while that conversation is on screen. */
 export function turnStillOwnsComposer(
-  turn: { assistantId: string; boundSessionId: string | undefined },
-  focus: FocusedChat,
+  turn: { boundSessionId: string | undefined },
+  focus: { sessionId: string | undefined },
 ): boolean {
-  return focus.assistantId === turn.assistantId && focus.sessionId === turn.boundSessionId;
+  return focus.sessionId === turn.boundSessionId;
 }
 
 export function shouldDetachLiveTurn(turn: LiveTurn, focus: FocusedChat): boolean {
-  if (turn.assistantId !== focus.assistantId) {
-    return true;
-  }
   if (turn.boundSessionId == null) {
     return focus.sessionId != null;
   }
@@ -50,9 +50,6 @@ export function focusedSessionHasLiveTurn(
   focus: FocusedChat,
 ): boolean {
   for (const turn of turns) {
-    if (turn.assistantId !== focus.assistantId) {
-      continue;
-    }
     if (focus.sessionId) {
       if (turn.boundSessionId === focus.sessionId) {
         return true;
@@ -70,7 +67,7 @@ export function focusedSessionHasLiveTurn(
 export function reattachLiveTurn(turns: Iterable<LiveTurn>, focus: FocusedChat): boolean {
   let found = false;
   for (const turn of turns) {
-    if (turn.assistantId !== focus.assistantId || turn.boundSessionId !== focus.sessionId) {
+    if (turn.boundSessionId !== focus.sessionId) {
       continue;
     }
     turn.uiDetached = false;
@@ -89,20 +86,42 @@ export function clientHasLiveTurn(turns: Iterable<LiveTurn>, sessionId: string):
   return false;
 }
 
-export function runningSessionIds(turns: Iterable<LiveTurn>): ReadonlySet<string> {
-  const ids = new Set<string>();
+export function partitionLiveSessions(turns: Iterable<LiveTurn>): {
+  running: ReadonlySet<string>;
+  queued: ReadonlySet<string>;
+} {
+  const running = new Set<string>();
+  const queued = new Set<string>();
   for (const turn of turns) {
     const id = turn.boundSessionId?.trim();
-    if (id) {
-      ids.add(id);
+    if (!id) {
+      continue;
+    }
+    if (turn.phase === "queued") {
+      queued.add(id);
+    } else {
+      running.add(id);
     }
   }
-  return ids;
+  return { running, queued };
+}
+
+export function runningSessionIds(turns: Iterable<LiveTurn>): ReadonlySet<string> {
+  return partitionLiveSessions(turns).running;
+}
+
+export function queuedSessionIds(turns: Iterable<LiveTurn>): ReadonlySet<string> {
+  return partitionLiveSessions(turns).queued;
 }
 
 type Listener = () => void;
 
-let runningIds: ReadonlySet<string> = new Set();
+type LiveChatActivity = {
+  running: ReadonlySet<string>;
+  queued: ReadonlySet<string>;
+};
+
+let activity: LiveChatActivity = { running: new Set(), queued: new Set() };
 const listeners = new Set<Listener>();
 
 function setsEqual(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
@@ -117,18 +136,29 @@ function setsEqual(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   return true;
 }
 
-export function setRunningChatSessionIds(ids: ReadonlySet<string>): void {
-  if (setsEqual(runningIds, ids)) {
+export function setLiveChatActivity(next: LiveChatActivity): void {
+  if (setsEqual(activity.running, next.running) && setsEqual(activity.queued, next.queued)) {
     return;
   }
-  runningIds = ids;
+  activity = {
+    running: next.running,
+    queued: next.queued,
+  };
   for (const listener of listeners) {
     listener();
   }
 }
 
+export function setRunningChatSessionIds(ids: ReadonlySet<string>): void {
+  setLiveChatActivity({ running: ids, queued: new Set() });
+}
+
 export function getRunningChatSessionIds(): ReadonlySet<string> {
-  return runningIds;
+  return activity.running;
+}
+
+export function getQueuedChatSessionIds(): ReadonlySet<string> {
+  return activity.queued;
 }
 
 export function subscribeRunningChatSessionIds(listener: Listener): () => void {
@@ -143,5 +173,13 @@ export function useRunningChatSessionIds(): ReadonlySet<string> {
     subscribeRunningChatSessionIds,
     getRunningChatSessionIds,
     getRunningChatSessionIds,
+  );
+}
+
+export function useQueuedChatSessionIds(): ReadonlySet<string> {
+  return useSyncExternalStore(
+    subscribeRunningChatSessionIds,
+    getQueuedChatSessionIds,
+    getQueuedChatSessionIds,
   );
 }

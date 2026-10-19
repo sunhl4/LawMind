@@ -125,25 +125,46 @@ STALE_MARKERS 示例：
 
 代码里能看到的「历史残留」有几类，遇到时不要以为是 bug：
 
-| 名称                              | 现状                                                            |
-| --------------------------------- | --------------------------------------------------------------- |
-| `shouldCheckpointToolBudget`      | 恒返回 `false`；`skipToolBudgetCheckpoint` 只为恢复旧会话保留   |
-| `continue_tools`                  | 旧的「继续」卡；只在恢复旧会话时出现                            |
-| `legacy_update_draft_body`        | 旧的改稿路径警告                                                |
-| `highSecurityMode`                | 策略里的旧键，等价 `egressMode: "offline"`                      |
-| `needs_matter`（Word 插件）       | 旧状态；现在改成 ad-hoc 直跑                                    |
-| `mailContractFastPathAllowNames`  | 废弃函数（返回 `undefined`），因为「Playbook 不再冻结允许清单」 |
-| `LEGACY_SHARED_CLIENT = "shared"` | 历史共享令牌，仅开发/E2E                                        |
-| `executeCampaignSerial`           | 标了 `@deprecated`                                              |
-| `scoreCase`                       | 标了 `@deprecated`                                              |
-| `useMatterSessionTimeline`        | 标了 `@deprecated`                                              |
-| `history.log` 之类                | —                                                               |
+| 名称                              | 现状                                                                           |
+| --------------------------------- | ------------------------------------------------------------------------------ |
+| `shouldCheckpointToolBudget`      | 恒返回 `false`；`skipToolBudgetCheckpoint` 只为恢复旧会话保留                  |
+| `continue_tools`                  | 旧的「继续」卡；只在恢复旧会话时出现                                           |
+| `legacy_update_draft_body`        | 旧的改稿路径警告                                                               |
+| `highSecurityMode`                | 策略里的旧键，等价 `egressMode: "offline"`                                     |
+| `needs_matter`（Word 插件）       | 旧状态；现在改成 ad-hoc 直跑                                                   |
+| `mailContractFastPathAllowNames`  | 废弃函数（返回 `undefined`），因为「Playbook 不再冻结允许清单」                |
+| `LEGACY_SHARED_CLIENT = "shared"` | 历史共享令牌，仅开发/E2E                                                       |
+| `executeCampaignSerial`           | 标了 `@deprecated`                                                             |
+| `scoreCase`                       | 标了 `@deprecated`                                                             |
+| `useMatterSessionTimeline`        | 标了 `@deprecated`；仅存的消费方在下面那片退役渲染集群里                       |
+| `matterCockpitOpen`               | 名字来自退役 cockpit，但状态驱动现行 header/sidebar/律师工作台——**在用，勿删** |
+| `LEGACY_FINAL_SSE_ALIAS`          | 名字含 LEGACY，但双端都在用的 SSE 事件别名                                     |
+| `history.log` 之类                | —                                                                              |
 
-**判断方法**：看到 `@deprecated` 注释或名字里带 `legacy`/`_OLD`/`老` 的，先确认是不是兼容用的。
+**判断方法**：看到 `@deprecated` 注释或名字里带 `legacy`/`_OLD`/`老` 的，先确认是不是兼容用的——`matterCockpitOpen` 和 `LEGACY_FINAL_SSE_ALIAS` 就是「名字像遗留、其实在用」的反例。
 
-## 39.6 两处「结构性兼容问题」
+### 已退役但未删除的一整片（2026-10-17 代码审计）
 
-这两个不是字段级的，是结构级的，值得单独提。
+`docs/LAWMIND-CODE-AUDIT.md` 做了一次全仓静态审计（import 图 + 全仓 fixed-string 检索调用方），圈出了一大批「**仍在源码、已退役未挂载**」的东西。审计**只出结论、未动代码**——所以下面这些都是「还能在仓库里翻到、但没有任何活路径可达」，不是「已删除」：
+
+| 类别                      | 规模                      | 状态                                                                                                                                     |
+| ------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 渲染层退役集群            | 104 文件 ≈18,020 LOC      | 旧 Matter 工作台、在办/Fleet、会议室、ReviewView、HelpPanel、MemoryInspector 等；唯一入口均无人渲染，三个 e2e 规格自述「断言入口不存在」 |
+| 无调用方 HTTP 端点        | 35 处定义 / 38 个端点实例 | 仍注册在 route-registry（「活着但无人用」），全仓 fixed-string 检索调用方为 0                                                            |
+| 引擎零导入 / 测试孤岛文件 | 10 文件 ≈1,465 LOC        | 含 4 个死桶文件（`intent/index.ts` 等）与 5 个 `*-worker.mjs`（生产路径已拆除）                                                          |
+| 完全死导出符号            | 65 个（45 文件）          | 定义后全仓 0 引用、文件内 0 自用                                                                                                         |
+
+另有三种「管道型」遗留值得点名：
+
+- **`softAsk` 死管线**：类型声明 + 透传穿过 5 个文件（`intent/types.ts` → `turn-orchestrator` → `route-chat` → 渲染层 `lawmind-chat`），所有赋值都是 `...(x.softAsk ? {softAsk} : {})` 式透传——**全仓不存在生产者**，数据从未流动。可能是预留特性接缝。
+- **`GET /api/templates/built-in` 双路由**：route-registry 是「first match wins」，`route-templates.ts:39` 注册在前，所以 `route-memory-templates.ts:56` 的同名端点**永不可达**（被 shadow）。
+- **删除时的爆炸半径**：渲染层集群连着 37 个测试文件，要删得同批删/改写；审计报告给了建议顺序（先集群、再端点块 + 注册行、再零导入文件、最后死符号）。
+
+**对照组：真删过的东西也有。** 比如 `/api/assistants/:id/desk` 端点就已经从代码里移除——它和上面那批的区别是：上面那批是「退役未删」，它是「已删除」。看历史遗留时先分清自己在看哪一种。
+
+## 39.6 「结构性兼容问题」三例
+
+这三个不是字段级的，是结构级的，值得单独提。**到 2026-10，后两个已经修复**——留在这里是当「漂移长什么样、怎么收口」的案例；第一个仍在。
 
 ### 两份清单手工同步
 
@@ -153,25 +174,19 @@ STALE_MARKERS 示例：
 
 **风险**：改一处漏另一处会出现安全口子。**有守卫测试**：`electron/fs-bridge.test.ts` 逐项比对（见第 29.22 与 34.10）。
 
-### 两套 schema 的细微差异
+### 两套 schema 的细微差异（已修复）
 
-`adapters/matter-storage/schema.ts` 和 `schemas.ts` 是两套 zod 定义，有差异：
+`adapters/matter-storage/schema.ts` 和 `schemas.ts` 曾经是两套各自维护的 zod 定义，字段有漂移（`currentReviewStatus` 一边允许 `redacted` 一边不允许、`queueItemSchema` 额外字段只对一边、`approvalSchema.requestedAt` 的 `min(1)` 只对一边）。
 
-| 字段                         | 差异                                                              |
-| ---------------------------- | ----------------------------------------------------------------- |
-| `currentReviewStatus`        | `schema.ts` 允许 `redacted`，`schemas.ts` 不允许                  |
-| `queueItemSchema` 的额外字段 | `schemas.ts` 多了 `dependsOn`/`blockedBy`/`blockedReason`/`phase` |
-| `approvalSchema.requestedAt` | `schemas.ts` 有 `min(1)`                                          |
+**现在 `schemas.ts` 已经收敛成纯名字兼容层**：不再定义任何字段，只把 `schema.ts` 的定义按旧名字 re-export 出去（`MatterRecordSchema as matterSchema`、`QueueRecordSchema as queueItemSchema` …）。文件头注释写明了动机：「字段只定义在 schema.ts。这里保留 matterSchema 等旧名字，避免写侧再长出第二份 zod。」
 
-按注释说 `schema.ts` 是「W3 真相源」，1:1 对应 `core/contracts.ts`。所以 `schemas.ts` 更像是另一条线的产物。
+**实践建议**（也随之简化）：改数据模型只动 `schema.ts`；`schemas.ts` 只是别名层，不用再看。
 
-**实践建议**：改数据模型时两处都要看。
+### 内置技能与种子清单的漂移（已修复）
 
-### 内置技能与种子清单的漂移
+曾经是 37 份正文 vs 35 个 id（`BUILTIN_SKILL_SEED_IDS` 缺 `client-talk-intake`、`legal-event-extract`），而且**没有测试拦**——「注册」是「已消化」五项要求之一，漏了注册等于两篇技能正文白写。
 
-37 份正文 vs 35 个 id（缺 `client-talk-intake`、`legal-event-extract`）。
-
-**没有测试拦**。而「注册」是「已消化」五项要求之一。
+**现在漂移已收敛**：`BUILTIN_SKILL_SEED_IDS` 补齐到 37 个，与 `skills/builtin/` 下 37 份正文一一对应；`skills/ensure-builtin-skill-seeds.test.ts` 守住「种子写出后可被发现且签名有效」，再漏 id 会在测试里炸出来。
 
 ## 39.7 怎么加一个新版本号
 
@@ -230,8 +245,8 @@ STALE_MARKERS 示例：
 - **迁移要幂等。** 可能被跑两次。
 - **迁移只改该改的，不整份替换。**
 - **「明文不再滞留该路径」不等于物理擦除。** SSD 上可能有残留，这类边界要写出来。
-- **两份清单手工同步，无测试。**
-- **两套 schema 有差异。** 改数据模型两处都看。
+- **两份清单手工同步，有一道守卫测试。** `electron/fs-bridge.test.ts` 逐项比对 TS 与 JS 镜像——但守卫只拦「改了不同步」，不拦「两边一起改错」。
+- **两套 schema 的双份定义已收敛。** `schemas.ts` 现在只是别名层，改字段只动 `schema.ts`（见 39.6）。
 - **索引版本变了要重建**（但它是派生数据，不丢信息）。
 - **看到 `legacy` / `@deprecated` 先确认是不是兼容用的**，别当死代码删。
 - **`GOALS.md` 里的 `[ ]` 有些是外部依赖**，不是没做。

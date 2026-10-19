@@ -458,6 +458,12 @@ export async function handleChatRoute({
             case "round_start":
               sseWriteEvent("round_start", { roundIndex: event.roundIndex });
               break;
+            case "turn_wait":
+              sseWriteEvent("turn_wait", { reason: event.reason, label: event.label });
+              break;
+            case "turn_wait_end":
+              sseWriteEvent("turn_wait_end", { reason: event.reason });
+              break;
             case "tool_call_start":
               sseWriteEvent("tool_call_start", {
                 roundIndex: event.roundIndex,

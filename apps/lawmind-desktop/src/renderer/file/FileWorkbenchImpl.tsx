@@ -51,6 +51,8 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     onPickProject,
     canUseFilesystemBridge,
     onAddToChatContext,
+    onNewChatInFolder,
+    onCreateChatWorkspace,
     addToContextLabel,
     portalHosts,
     workspaceExplorerToolbar,
@@ -84,7 +86,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
   /** 是否存在 `cases/`（用于案件目录区块提示） */
   const [casesDirProbe, setCasesDirProbe] = useState<"unknown" | "ok" | "missing">("unknown");
   /** 默认折叠：主栏留给「对话」；会议室传入 materialsDefaultOpen 时先展开。 */
-  const [workSectionOpen, setWorkSectionOpen] = useState(false);
+  const [workSectionOpen, setWorkSectionOpen] = useState(true);
   const [casesSectionOpen, setCasesSectionOpen] = useState(materialsDefaultOpen);
   useEffect(() => {
     if (materialsDefaultOpen) {
@@ -921,6 +923,8 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       onPickProject={onPickProject}
       canUseFilesystemBridge={canUseFilesystemBridge}
       onAddToChatContext={onAddToChatContext}
+      onNewChatInFolder={onNewChatInFolder}
+      onCreateChatWorkspace={onCreateChatWorkspace}
       addToContextLabel={addToContextLabel}
       portalHosts={portalHosts}
       workspaceExplorerToolbar={workspaceExplorerToolbar}

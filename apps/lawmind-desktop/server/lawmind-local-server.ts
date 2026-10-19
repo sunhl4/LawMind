@@ -9,7 +9,7 @@
  * - LAWMIND_DESKTOP_PORT (required)
  * - LAWMIND_ENV_FILE (optional path to .env.lawmind)
  * - LAWMIND_DESKTOP_ACTOR_ID (optional; default `lawyer:desktop`) — audit attribution for desktop review/agent
- * - LAWMIND_ENABLE_COLLABORATION (optional; default enabled) — set `false` to disable multi-assistant collaboration
+ * - LAWMIND_ENABLE_COLLABORATION (optional; default off) — set `true` to enable multi-assistant collaboration
  *
  * Optional workspace policy: `lawmind.policy.json` in the workspace root (see docs/archive/LAWMIND-POLICY-FILE.md).
  *

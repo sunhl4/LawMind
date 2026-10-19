@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
 import { appendTranscriptLines } from "../adapters/session-transcript/index.js";
+import { normalizeChatFolderRel, normalizeChatWorkDir } from "./chat-folder.js";
 import { isCompactSyntheticUserMessage } from "./compact-insert.js";
 import {
   projectAssistantProseForSampling,
@@ -167,15 +168,23 @@ function turnsFilePath(workspaceDir: string, sessionId: string): string {
 export function createSession(opts: {
   workspaceDir: string;
   matterId?: string;
+  /** 本机文件夹内的相对路径。不传则这场对话不挂文件夹。 */
+  folderRel?: string;
+  /** 新建时绑定的工作区绝对路径。不回填旧对话。 */
+  workDir?: string;
   actorId: string;
   assistantId?: string;
   title?: string;
 }): AgentSession {
   const rawTitle = opts.title?.trim();
+  const folderRel = normalizeChatFolderRel(opts.folderRel);
+  const workDir = normalizeChatWorkDir(opts.workDir);
   const session: AgentSession = {
     sessionId: randomUUID(),
     title: rawTitle && rawTitle.length > 0 ? rawTitle.slice(0, 200) : DEFAULT_CHAT_SESSION_TITLE,
     matterId: opts.matterId,
+    ...(folderRel ? { folderRel } : {}),
+    ...(workDir ? { workDir } : {}),
     actorId: opts.actorId,
     assistantId: opts.assistantId,
     turns: [],

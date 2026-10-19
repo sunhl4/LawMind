@@ -62,6 +62,8 @@
 | `letter.draft`     | `delivery-language`、`legal-element-extraction`    | 交办 intake、引用锚定                                                                                    |
 | `litigation.draft` | 见下                                               | 家事、刑事、破产、知产、起诉状母版都还在索引里                                                           |
 
+这张表说的是修订轨。**不钉 Word 的默认合同审查**走另一对：分层审查加 `contract-playbook-review`（Playbook 正文直接进提示，见 22.5、22.9）。
+
 诉讼的主阶段不按「凡是诉状就用起诉状母版」：
 
 1. 原话在最后一个「改 / 写 / 起草 / 拟」之后点了文书种类，跟第 20 章那张表。
@@ -75,9 +77,10 @@
 `primarySkillIdsForBound` 在能力已经绑好之后再选，最多两份：
 
 1. `mail.contract` 固定分层审查加引用锚定。最短改动由邮件短路径另注入，不占这两个名额。
-2. 诉讼文书且已经是修订轨：取 `skillIds` 最前两份（22.4 钉上的那对）。不再用「帮我改一下」去跑诉讼分流，否则文件名选中的起诉状会被默认路由盖掉。
-3. 其他诉讼文书：`litigationPrimary(原话)`。
-4. 其余能力：`PRIMARY_BY_CAPABILITY`，再滤到该能力自己的 `skillIds` 里。
+2. 合同审查且已经是修订轨：固定分层审查加最短改动（22.4 钉上的那对）。
+3. 诉讼文书且已经是修订轨：取 `skillIds` 最前两份（22.4 钉上的那对）。不再用「帮我改一下」去跑诉讼分流，否则文件名选中的起诉状会被默认路由盖掉。
+4. 其他诉讼文书：`litigationPrimary(原话)`。
+5. 其余能力：`PRIMARY_BY_CAPABILITY`，再滤到该能力自己的 `skillIds` 里。
 
 `planLeanSkillPrompt` 把没选中的做成「其余技能（索引，不要通读）」。
 
@@ -101,13 +104,13 @@
 
 ## 22.7 一条原话里的两件活
 
-`compileIntent` 的 `chain` 在高置信、且来源是锁、短路径、改稿、专用或联合时，可以多于一个 id。例如「审查这份合同并写催告函」是合同审查再加函件起草。提示里写成：
+`compileIntent` 的 `chain` 可以多于一个 id：专用、联合、关键词、体裁默认、案件门类这几条路径都会用 `chainFor` 补链（例如合同审查加上「写函」信号就追加 `letter.draft`）。锁、邮件短路径和 Word 改稿不补链，`chain` 恒为单条。但「组合」提示只在硬绑定时拼进系统提示，而锁/短路径/改稿的链又是单条，所以实际能看到组合的就是**高置信的专用或联合**。例如「审查这份合同并写催告函」是合同审查再加函件起草。提示里写成：
 
 ```text
 组合（可调整顺序）：合同审查 → 函件起草。
 ```
 
-用办事清单上的中文名，不用裸 id。顺序可以调。关键词和案件门类猜出来的绑定不播种这串步骤，避免把猜测写成必须完成的清单（铁律 5）。`compiledIntentPlanItems` 同样只在这条高置信链上给律师看步骤名。
+用办事清单上的中文名，不用裸 id。顺序可以调。关键词和案件门类猜出来的绑定即使补了链也不播种这串步骤，避免把猜测写成必须完成的清单（铁律 5）。`compiledIntentPlanItems` 同样只在这条高置信链上给律师看步骤名。
 
 ## 22.8 额外工具和软绑定目录
 
@@ -119,35 +122,36 @@
 
 交付物类型来自办事清单的 `defaultDeliverableType`，编译器可以按原话改掉（例如对照表变成 `analysis.table`，催款函变成 `letter.demand`）。
 
-| id                    | 名称         | 管线                  | 默认交付物           | 主阶段                 | 入口       |
-| --------------------- | ------------ | --------------------- | -------------------- | ---------------------- | ---------- |
-| `contract.review`     | 合同审查     | `execute_workflow`    | `contract.review`    | 分层审查、最短改动     | 办件锁     |
-| `contract.draft`      | 合同起草     | `execute_workflow`    | `contract.general`   | 起草路由、开箱口径     | 办件锁     |
-| `mail.contract`       | 邮件合同审阅 | `tracked_redline`     | `contract.review`    | 分层审查、引用锚定     | 邮件快车道 |
-| `letter.draft`        | 函件起草     | `execute_workflow`    | `letter.counsel`     | 交付用语、要素提取     | 办件锁     |
-| `research.memo`       | 检索研究     | `research_then_draft` | `memo.research`      | 命题矩阵、引用锚定     | 研究快车道 |
-| `analysis.quick`      | 法律快问     | `research_then_draft` | `memo.internal`      | 快问、要素提取         | 办件锁     |
-| `litigation.draft`    | 诉讼文书     | `execute_workflow`    | `litigation.outline` | 按原话，见 22.4        | 办件锁     |
-| `litigation.talk`     | 谈话整理     | `execute_workflow`    | `memo.internal`      | 谈话整理、要素提取     | 办件锁     |
-| `materials.draft`     | 写材料       | `execute_workflow`    | `document.general`   | 交付用语、要素提取     | 写材料     |
-| `labor.calc`          | 劳动计算     | `execute_workflow`    | `labor.calc`         | 劳动补偿计算           | 办件锁     |
-| `period.calc`         | 期限计算     | `execute_workflow`    | `period.calc`        | 程序期限               | 办件锁     |
-| `chronology.timeline` | 时间轴       | `execute_workflow`    | `matter.timeline`    | 两阶段、从材料抽       | 办件锁     |
-| `matter.intake`       | 整理案卷     | `execute_workflow`    | `document.general`   | 从材料建事项、范围预算 | 办件锁     |
-| `ops.invoice`         | 整理发票     | `execute_workflow`    | `document.general`   | 发票整理               | 办件锁     |
-| `ops.court_sms`       | 法院短信     | `execute_workflow`    | `matter.timeline`    | 短信识别、事件抽取     | 办件锁     |
-| `ip.dispute`          | 知产争议     | `execute_workflow`    | `litigation.outline` | 知产路由、证据链       | 办件锁     |
-| `deal.ma`             | 并购尽调     | `execute_workflow`    | `report.general`     | 尽调提纲、要素提取     | 办件锁     |
-| `compliance.data`     | 数据合规     | `research_then_draft` | `report.compliance`  | 数据合规、规范现行     | 办件锁     |
-| `compliance.ads`      | 广告产品合规 | `research_then_draft` | `report.general`     | 广告合规、规范现行     | 办件锁     |
-| `matter.status`       | 办案周报     | `execute_workflow`    | `memo.internal`      | 周报、范围与预算       | 办件锁     |
-| `family.matter`       | 家事继承     | `execute_workflow`    | `litigation.outline` | 家事路由、要素提取     | 办件锁     |
-| `capital.markets`     | 资本市场     | `execute_workflow`    | `report.general`     | 资本市场、引用锚定     | 办件锁     |
-| `corp.governance`     | 公司治理     | `execute_workflow`    | `memo.internal`      | 治理路由、规范现行     | 办件锁     |
+| id                    | 名称         | 管线                  | 默认交付物           | 主阶段                                              | 入口       |
+| --------------------- | ------------ | --------------------- | -------------------- | --------------------------------------------------- | ---------- |
+| `contract.review`     | 合同审查     | `execute_workflow`    | `contract.review`    | 分层审查、Playbook 审查（修订轨换成分层、最短改动） | 办件锁     |
+| `contract.draft`      | 合同起草     | `execute_workflow`    | `contract.general`   | 起草路由、开箱口径                                  | 办件锁     |
+| `mail.contract`       | 邮件合同审阅 | `tracked_redline`     | `contract.review`    | 分层审查、引用锚定                                  | 邮件快车道 |
+| `letter.draft`        | 函件起草     | `execute_workflow`    | `letter.counsel`     | 交付用语、要素提取                                  | 办件锁     |
+| `research.memo`       | 检索研究     | `research_then_draft` | `memo.research`      | 命题矩阵、引用锚定                                  | 研究快车道 |
+| `analysis.quick`      | 法律快问     | `research_then_draft` | `memo.internal`      | 快问、要素提取                                      | 办件锁     |
+| `litigation.draft`    | 诉讼文书     | `execute_workflow`    | `litigation.outline` | 按原话，见 22.4                                     | 办件锁     |
+| `litigation.talk`     | 谈话整理     | `execute_workflow`    | `memo.internal`      | 谈话整理、要素提取                                  | 办件锁     |
+| `materials.draft`     | 写材料       | `execute_workflow`    | `document.general`   | 交付用语、要素提取                                  | 写材料     |
+| `labor.calc`          | 劳动计算     | `execute_workflow`    | `labor.calc`         | 劳动补偿计算                                        | 办件锁     |
+| `period.calc`         | 期限计算     | `execute_workflow`    | `period.calc`        | 程序期限                                            | 办件锁     |
+| `chronology.timeline` | 时间轴       | `execute_workflow`    | `matter.timeline`    | 两阶段、从材料抽                                    | 办件锁     |
+| `matter.intake`       | 整理案卷     | `execute_workflow`    | `document.general`   | 从材料建事项、范围预算                              | 办件锁     |
+| `ops.invoice`         | 整理发票     | `execute_workflow`    | `document.general`   | 发票整理                                            | 办件锁     |
+| `ops.court_sms`       | 法院短信     | `execute_workflow`    | `matter.timeline`    | 短信识别、事件抽取                                  | 办件锁     |
+| `ip.dispute`          | 知产争议     | `execute_workflow`    | `litigation.outline` | 知产路由、证据链                                    | 办件锁     |
+| `deal.ma`             | 并购尽调     | `execute_workflow`    | `report.general`     | 尽调提纲、要素提取                                  | 办件锁     |
+| `compliance.data`     | 数据合规     | `research_then_draft` | `report.compliance`  | 数据合规、规范现行                                  | 办件锁     |
+| `compliance.ads`      | 广告产品合规 | `research_then_draft` | `report.general`     | 广告合规、规范现行                                  | 办件锁     |
+| `matter.status`       | 办案周报     | `execute_workflow`    | `memo.internal`      | 周报、范围与预算                                    | 办件锁     |
+| `family.matter`       | 家事继承     | `execute_workflow`    | `litigation.outline` | 家事路由、要素提取                                  | 办件锁     |
+| `capital.markets`     | 资本市场     | `execute_workflow`    | `report.general`     | 资本市场、引用锚定                                  | 办件锁     |
+| `corp.governance`     | 公司治理     | `execute_workflow`    | `memo.internal`      | 治理路由、规范现行                                  | 办件锁     |
 
 几条容易看错的：
 
 - **合同审查和合同起草**：已有合同要改，走审查。从零写骨架，走起草。审查在钉了 Word 且律师要改原文时才抬修订轨；「只要意见、不要改原稿」不抬。
+- **合同审查的第二份主阶段分路径**：默认意见路径是 `contract-playbook-review`（三档正文直接进提示）；修订轨才换成 `contract-redline-craft`，Playbook 回索引、由流程提示点名 `read_skill`。
 - **邮件合同**：和审查共用门禁，但附件路径已经在指令里，不许发信，不许用模板重建原件。它不参加隐式目录。
 - **法律快问**：管线名是 `research_then_draft`，提示是直接给结论、依据和缺口。能检索就先试检，不要编法条原文，也不要改成表单。这不是研究备忘的六节结构。
 - **谈话整理**：交付物是内部备忘。律师点用前不要写入本案事实。
@@ -162,7 +166,7 @@
 
 Cursor 和 Codex 的 Skill 是操作者安装的 `SKILL.md`，模型按 description 决定要不要读。LawMind 的用户是律师，安装面已删。对应物是上面那份 8000 字目录加 `read_skill`，主阶段最多两份正文。
 
-Harvey 的 Playbook 是审查数据（标准 / 可接受回退 / 绝不接受），改稿时还在，不把长文塞进每一轮。合同 Word 改稿因此保留 `contract-playbook-review` 在索引里，并在流程提示里点名去读。不把 Playbook 正文升成第三份主阶段。
+Harvey 的 Playbook 是审查数据（标准 / 可接受回退 / 绝不接受），改稿时还在，不把长文塞进每一轮。LawMind 分两条路：默认意见路径直接把 `contract-playbook-review` 升成第二份主阶段（三档正文进提示）；合同 Word 改稿时保留它在索引里，并在流程提示里点名去读。两条路都不把 Playbook 加成第三份主阶段。
 
 Harvey 的 Workflow 容易做成律师必须走完的步骤。LawMind 的 `pipeline` 和组合链都写成可调整的提示。工具表仍按第 3 章那条单链。硬拦截只留空修订不得导出、禁止重建原件、禁止误发。
 
@@ -179,6 +183,7 @@ Harvey 的 Workflow 容易做成律师必须走完的步骤。LawMind 的 `pipel
 ## 22.11 已知坑
 
 - **能力不冻结工具表。** 在某个能力下看到别的工具是正常的。
+- **`contract.review` 的主阶段有两个版本。** 默认意见路径是分层 + Playbook；修订轨是分层 + 最短改动。改 `PRIMARY_BY_CAPABILITY` 只动默认那条，修订轨那条写死在 `primarySkillIdsForBound` 的特判里。
 - **`litigation.draft` 的技能按原话和文件名分。** 改 `PRIMARY_BY_CAPABILITY` 不影响它。Word 改稿看 `litigationRevisionSkillIds`。
 - **改稿覆盖是并集，不是替换。** 想让某份在改稿时成为主阶段，改 `wordRevisionSkillIds` 返回的前两份。想让它只在索引里出现，放进能力的 `skillIds` 即可。
 - **`analysis.quick` 的管线名容易误导。** 它要求试检，不要求研究备忘的章节。

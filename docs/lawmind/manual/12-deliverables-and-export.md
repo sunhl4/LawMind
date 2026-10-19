@@ -73,10 +73,10 @@
 
 有些交付物在导出前必须把占位符填掉。占位符有两类模式：
 
-| 模式                           | 匹配什么                              |
-| ------------------------------ | ------------------------------------- |
-| `EXPLICIT_TODO_PLACEHOLDER`    | 显式的「待补」类标记                  |
-| `SCAFFOLD_PLACEHOLDER_PATTERN` | 骨架字段占位（比如「合同编号：___」） |
+| 模式                           | 匹配什么                                                       |
+| ------------------------------ | -------------------------------------------------------------- |
+| `EXPLICIT_TODO_PLACEHOLDER`    | 显式的「待补」类标记（`【待补充：…】`）                        |
+| `SCAFFOLD_PLACEHOLDER_PATTERN` | 骨架字段占位（`【…】`，不换行、≤40 字，如【出租人姓名/名称】） |
 
 要求填掉的（`mustResolveBeforeRender: true`）有这些类型：`contract.rental`、`contract.general`、`letter.demand`、`letter.counsel`、`letter.reply`、`memo.opinion`、`contract.nda`、`report.compliance`。
 
@@ -191,7 +191,7 @@ if (!acceptanceReport.ready) → 拒绝
 | `facts_grounded`               | **永远 warning** | 事实数够不够（默认 0） |
 | `authority_conflicts_resolved` | **warning**      | 权威冲突解决了没       |
 | `issues_have_authority`        | **永远 warning** | 每个争点有没有依据     |
-| `confidence_ok`                | **永远 warning** | 整体置信度 ≥0.4        |
+| `confidence_ok`                | **永远 warning** | 恒过；报告置信度供排序 |
 
 `facts_grounded` 为什么仍然只是 warning？只有结论引用了的案件材料才计入事实。未被引用的材料写在交付风险里，请起草自行判断，不把某条争点标成已经用过这些材料。2026-09-22 的旧快照里这项几乎总是 0。设成 blocker 会在模型还没引用材料时拦住高风险交付。
 
@@ -248,11 +248,13 @@ checklist_incomplete: missing <缺失的项 id>
 
 这张表有 150 项（其中 125 项来自 Word 改稿清单，25 项来自验收清单）。分级解析有三条 fail-closed 纪律（第 8 章讲过）：键不在表里当 `judge`；`machine` 缺验证器退成 `judge`；`lawyer` 缺理由仍保留 `lawyer`（往安全方向退）。
 
-界面上给律师看的覆盖说明是：
+界面上给律师看的覆盖说明（`formatJudgmentCoverage`）是：
 
 ```text
-本次机械核对 N 项，其中 M 项由确定性规则判定，K 项需您定夺。通过核对 ≠ 法律正确。
+本次核对 N 项，M 项由确定性规则判定，K 项待您定夺。通过核对 ≠ 法律正确。
 ```
+
+三个计数都是「本次实际发生的判定数」；全零时不输出这行——没有核对项不等于「核对了 0 项」。
 
 ## 12.8 交付档位：三档，且外发永不自动
 
@@ -270,7 +272,7 @@ checklist_incomplete: missing <缺失的项 id>
 
 ### 自动交付的条件很严
 
-`evaluateAutoDeliver` 要求：**没有 blocker，也一条 warning 都没有**（`blockerCount === 0 && warningCount === 0`）。有一条 warning 就不自动。
+`evaluateAutoDeliver` 要求：对草稿正文跑一次机械 lint，**没有 blocker，也一条 warning 都没有**（`lint.blockerCount === 0 && lint.warningCount === 0`）。有一条 warning 就不自动。
 
 外发判定（`isOutboundDraft`）看两个正则：受众里出现「客户\|对方\|法院\|仲裁\|外发\|client\|court」，或者类型以 `letter.`、`email.`、`mail.` 开头。
 

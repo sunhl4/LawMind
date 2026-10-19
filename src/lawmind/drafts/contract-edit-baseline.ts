@@ -1,7 +1,7 @@
 /**
  * Auto-wire contract body edit baseline (uploaded `.docx`) onto ArtifactDraft.
  * Stamps contractEdit; optionally seeds paragraph sections from the baseline file.
- * Binary `.doc` is not a revision baseline — the lawyer must save as `.docx` first.
+ * Binary `.doc` is kept as a path only. Seed and export ask Word or WPS to save a sibling `.docx` before reading.
  */
 
 import fs from "node:fs";
@@ -84,8 +84,8 @@ export function resolveExistingWordBaseline(params: {
 
 /**
  * Pull likely workspace-relative Word paths (`.docx` / `.doc`) from free text
- * (chat pins, clarification, instructions). Callers that stamp a revision
- * baseline must still refuse `.doc`.
+ * (chat pins, clarification, instructions). A `.doc` path may be kept on the draft;
+ * reading and revision wait until Word or WPS has saved a sibling `.docx`.
  */
 export function extractDocxRelativePathsFromText(text: string): string[] {
   if (!text.trim()) {
@@ -256,8 +256,8 @@ export function stampContractEditBaselineIfNeeded(params: {
   if (draft.contractEdit?.baselineRelativePath?.trim()) {
     const existingRel = draft.contractEdit.baselineRelativePath.trim();
     if (isBinaryWordDocBaseline(existingRel)) {
-      const { contractEdit: _drop, ...rest } = draft;
-      return rest;
+      // 同步盖章不读 .doc。异步 seed / 导出再让 Word 或 WPS 另存。
+      return draft;
     }
     const existing = resolveExistingWordBaseline({
       workspaceDir: params.workspaceDir,
@@ -341,39 +341,43 @@ export async function seedDraftSectionsFromContractBaseline(params: {
   }
   try {
     let text = "";
-    if (isBinaryWordDocBaseline(rel)) {
-      return {
-        draft: params.draft,
-        warning: DOC_NEEDS_DOCX_MESSAGE,
-      };
+    let nextDraft = params.draft;
+    let readRel = rel;
+    if (isBinaryWordDocBaseline(rel) || isBinaryWordDocBaseline(abs)) {
+      const { readBinaryWordDocText } = await import("../mail/read-word-binary.js");
+      text = await readBinaryWordDocText(abs);
+      if (!text.trim()) {
+        return { draft: params.draft, warning: DOC_NEEDS_DOCX_MESSAGE };
+      }
+    } else {
+      const { readDocxText } = await import("../agent/tools/legal/ingest-helpers.js");
+      text = await readDocxText(abs);
     }
-    const { readDocxText } = await import("../agent/tools/legal/ingest-helpers.js");
-    text = await readDocxText(abs);
     if (!text.trim()) {
       return {
-        draft: params.draft,
-        warning: `合同基线无可读正文，未能填入段落（请确认文件未损坏）：${rel}`,
+        draft: nextDraft,
+        warning: `合同基线无可读正文，未能填入段落（请确认文件未损坏）：${readRel}`,
       };
     }
     const sections = buildContractBodySectionsFromText(text);
     if (sections.length === 0) {
       return {
-        draft: params.draft,
-        warning: `合同基线未能切出可用段落：${rel}`,
+        draft: nextDraft,
+        warning: `合同基线未能切出可用段落：${readRel}`,
       };
     }
-    const sourceName = path.basename(rel).replace(/\.docx?$/i, "");
+    const sourceName = path.basename(readRel).replace(/\.docx?$/i, "");
     const seededSections = sections.map((section) => ({
       ...section,
       provenance: appendProvenanceEvent(
         undefined,
         createProvenanceEvent("upload", "system", {
-          sourceId: rel,
+          sourceId: readRel,
           comment: sourceName,
         }),
       ),
     }));
-    return { draft: { ...params.draft, sections: seededSections } };
+    return { draft: { ...nextDraft, sections: seededSections } };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {

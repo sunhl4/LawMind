@@ -40,7 +40,7 @@ type ResearchBundle = {
 };
 ```
 
-来源（`ResearchSource`）带这些字段：`id`、`title`、`kind`、`citation?`、`url?`、`date?`、`court?`、`caseNumber?`，以及三个和「诚实」直接相关的：
+来源（`ResearchSource`）带这些字段：`id`、`title`、`kind`、`citation?`、`excerpt?`、`url?`、`date?`、`court?`、`caseNumber?`，以及四个和「诚实」直接相关的：
 
 | 字段          | 含义                                                                          |
 | ------------- | ----------------------------------------------------------------------------- |
@@ -55,7 +55,7 @@ type ResearchBundle = {
 
 来源类型（`SourceKind`）八种：`statute`、`regulation`、`case`、`memo`、`contract`、`web`、`workspace`、`unknown`。
 
-结论（`ResearchClaim`）有五个字段：`text`、`sourceIds`、`confidence`、`model`（`general` 或 `legal`），以及一个可选的 `demo`（标记这条结论来自演示语料）。注意 `sourceIds` 是**数组且有来源**，这是上面那条约束的落地形式。
+结论（`ResearchClaim`）：`text`、`sourceIds`、`confidence`、`model`（`general` 或 `legal`），加两个可选字段——`pin`（出处定位：article / clause / page / quote；注释原话是「有条、款、页或原文片段时，结论才算钉在来源上」）和 `demo`（标记这条结论来自演示语料）。注意 `sourceIds` 是**数组且有来源**，这是上面那条约束的落地形式。
 
 ## 10.3 适配器机制
 
@@ -190,7 +190,7 @@ CLI 入口：`pnpm lawmind:open-law:convert`，参数 `--in/--out/--format/--lim
 | `invalid`       | 配了但非法                                |
 | `unimplemented` | 占位（比如 Lexis）                        |
 
-`configured` 的说明里特意加了「仍不等于「已接法宝」」。这条注释防的是把「我配了个语料库」说成「我接了商业法源」。
+两种「就绪」的口径文案（`authority-health.ts`）：外部 CORPUS 就绪时是「公开法规已接上，本地 N 条。正式引用请核对官方法条。」；只有 sample 时是「已接上演示语料 N 条。这不是完整法库，正式引用请核对官方法条。」——都不提「法宝」。这套措辞防的是把「我配了个语料库」说成「我接了商业法源」。
 
 ## 10.6 商业法源
 
@@ -309,12 +309,13 @@ export function isPrecedentIngestEnabled(): boolean {
 
 注释解释了为什么默认关：「Cross-matter precedent ingestion is opt-in (ethical-wall posture by default).」跨案件读取涉及伦理墙，默认不开放。
 
-关闭时，工具**不报错**，而是返回 `ok: true` 加一句说明：
+关闭时，工具**不报错**，而是返回 `ok: true`、`hits: []`、`precedentSearchEnabled: false` 加一句说明：
 
 ```text
-先例检索未开启：跨案读取需律师显式授权（LAWMIND_ALLOW_CROSS_MATTER_SEARCH=1）。
-开启并重建索引后可用。
+先例检索还没打开。这台电脑尚未允许对照其他案件的已签批文书。
 ```
+
+注意这句说明**不提环境变量**：工具描述里有一条配套纪律——「若尚未允许对照其他案件，只说明还没打开，不要把配置步骤讲给律师。」要开的人是操作这台电脑的部署者，不是坐在界面前的律师。
 
 返回 `ok: true` 而不是报错，是因为「没开这个功能」不是失败。这一点和「查了但查不到」在语义上要分开。
 
@@ -391,26 +392,27 @@ LawMind 的索引是 SQLite 的 **FTS5 全文检索**，位置 `<工作区>/lawm
 
 问题是这样：模型可以在没检索的情况下，凭记忆写「根据《民法典》第五百七十七条……」。这类引用看着很专业，实际可能是错的。
 
-所以 `research-protocol.ts` 干一件事：**写条号之前先试检**。它注入的提示块有两条纪律：
+所以 `research-protocol.ts` 干一件事：**写条号之前先试检**。它注入的提示块有一条硬纪律：
 
 ```text
-无命中：栏目保留并标【待核实】，不得把模型记忆写成条号。
+无命中：栏目保留并标【待核实】，不得把模型记忆写成条号。废止法名单见 Skill · 规范现行有效。
 ```
 
 以及 `formatUnretrievedStatuteBody()` 返回的整段：
 
 ```text
-本回合尚未试检 search_statute / search_case_law。不得把模型记忆写成现行法条。
-先检索；无工具或仅演示语料则标【待核实】并继续分析框架，不得写成已核对。
+本回合尚未试检 `search_statute` / `search_case_law`。不得把模型记忆写成现行法条。先检索；无工具或仅演示语料则标【待核实】并继续分析框架，不得写成已核对。
 ```
 
 注意最后半句：「继续分析框架」——没有检索不等于不干活，只是引用要标「待核实」。
 
-它**跳过的场景**只有一类：纯意见书的快速通道（`isOpinionOnlyFastLane`）。注释：「Skip only the 5-minute opinion fast lane」。其余情况（包括邮件和 Word 改稿）不冻结检索：
+它**跳过的条件**只有一个：本轮工具表上没有检索工具（`RESEARCH_PROTOCOL_TOOLS` 一个都不在就跳过）。文件头注释写得很短：
 
-> Mail/Word may still search; do not freeze them off retrieval.
+> Skip only when search tools are not on the table.
 
-适用于六种管线：`research.memo`、`analysis.quick`、`contract.review`、`letter.draft`、`litigation.draft`、`mail.contract`。
+测试同时盯住了「邮件和 Word 改稿不冻结检索」——`mail.contract` 和修订轨下的 `contract.review` 同样注入这条协议。
+
+适用于六种绑定：`research.memo`、`analysis.quick`、`contract.review`、`letter.draft`、`litigation.draft`、`mail.contract`。
 
 ### 深度研究的执行链
 
@@ -424,7 +426,7 @@ LawMind 的索引是 SQLite 的 **FTS5 全文检索**，位置 `<工作区>/lawm
 6. 按主题相关性过滤掉跑题的命中。
 7. 出大纲，并在同一轮用于写正文（律师写了「先出大纲」才停在大纲）。
 
-问题树有五个视角（`ResearchPerspective`）：监管方、执法、商业、比较法、实务。
+问题树有五个视角（`ResearchPerspective`）：`regulator`（立法与规范层级）、`enforcement`（执法与案例）、`business`（业务场景影响）、`comparative`（比较法 / 跨境对照）、`practice`（执业操作清单）。默认先拿 regulator + practice；指令里出现「执法 / 处罚 / 案例 / 裁判 / 调查」加 enforcement，「客户 / 业务 / 合规项目 / 尽调 / 投融资」加 business，「跨境 / 涉外 / 欧盟 / 美国 / 香港 / 新加坡 / 比较」加 comparative。
 
 如果 `allowWebSearch` 是 false，出站适配器会被过滤掉，并加一条风险标记——**如实告诉你「这次没联网」**，而不是假装搜过了。
 
@@ -487,7 +489,12 @@ LawMind 的索引是 SQLite 的 **FTS5 全文检索**，位置 `<工作区>/lawm
 请使用 draft_document（经证据门禁），勿用 write_document 旁路交付。
 ```
 
-它盯的扩展名是 `.md`、`.markdown`、`.txt`、`.docx`、`.pptx`、`.html`、`.htm`。也就是说，研究类任务想交付这些格式，必须走 `draft_document`，不能拿 `write_document` 绕过门禁。
+判定分两层（`isResearchDeliverableWritePath` + 任务关联）：
+
+1. `artifacts/` 下的路径**一律拦**——注释写明「write_document 不按扩展名开口子：xlsx/json 同样不能旁路交付」。
+2. 其他位置只拦 `.md` / `.docx` / `.pptx` 且文件名带「合规 / 调研 / 培训 / 卷宗 / outline / research / esg / 报告」的写入；并且还要能关联到一个走大纲门的交付物、或已有检索快照 / 已存大纲的任务（路径里含任务 id 也算）。
+
+也就是说，研究类任务想交付成稿，必须走 `draft_document`，不能拿 `write_document` 绕过门禁。
 
 ### 立案试检
 
@@ -613,7 +620,7 @@ LawMind 的索引是 SQLite 的 **FTS5 全文检索**，位置 `<工作区>/lawm
 | 脱敏             | `desensitize-matter.ts`                                                                                                                                                                                                     |
 | 索引             | `src/lawmind/indexing/`（`fts-*.ts`、`knowledge-search.ts`、`embeddings/`）                                                                                                                                                 |
 | 工具             | `src/lawmind/agent/tools/lawmind-deep-research.ts`、`lawmind-web-search.ts`、`lawmind-legal-web-search.ts`、`lawmind-url-dossier.ts`、`tools/legal/search-tools.ts`、`precedent-search-tool.ts`、`company-registry-tool.ts` |
-| HTTP             | `apps/lawmind-desktop/server/lawmind-server-route-search.ts`、`-sources.ts`、`-health.ts`                                                                                                                                   |
+| HTTP             | `apps/lawmind-desktop/server/lawmind-server-route-search.ts`、`-sources.ts`、`-health.ts`、`-lawyer-desk.ts`（材料检索与先例）                                                                                              |
 | 桌面 UI          | `LawmindSourcePreview.tsx`、`LawmindSourceAnnotations.tsx`、`LawmindCitationBanner.tsx`、`LawmindAuthoritySetup.tsx`、`LawmindResearchFastLaneCard.tsx`                                                                     |
 
 ## 10.16 已知坑

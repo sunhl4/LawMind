@@ -39,7 +39,7 @@
 | 看什么                       | 有什么用                                             |
 | ---------------------------- | ---------------------------------------------------- |
 | `runTurn` 的参数             | 一个回合能带什么（权限模式、钉选、预批准、澄清答案） |
-| 前面几十行的分步注释         | 第 3 章那 18 步的原文                                |
+| 前面几十行的分步注释         | 第 3 章那 19 步的原文                                |
 | 「算出本轮工具表」那一段     | 第 3.7 节那条 7 级收窄链                             |
 | `emitEvent`                  | 事件是怎么发出去的（三条消费方）                     |
 | 短路链那几行                 | 哪五种情况会提前结束回合                             |
@@ -78,7 +78,7 @@
 → 执行工具批次
 ```
 
-**为什么中途注入只在轮次开始 claim**：因为不能在已经发出的采样中间塞东西。所以侧车文件（`pending-steer.json`、`pending-context-pins.json`）是「排队」，claim 才是「生效」。
+**为什么中途注入只在轮次开始 claim**：因为不能在已经发出的采样中间塞东西。所以侧车文件（`pending-steer.json`、`pending-pins.json`）是「排队」，claim 才是「生效」。
 
 **调试建议**：如果你在查「为什么模型没看到我刚补的材料」，先确认那个 claim 有没有跑到——看有没有 `worldStateEpoch` 递增。
 
@@ -137,7 +137,7 @@ lawmind-local-server.ts            进程入口、启动顺序、双协议族监
   ↓
 lawmind-server-dispatch.ts         六道关（CORS → Host → OPTIONS → 豁免 → 鉴权 → CSRF）
   ↓
-lawmind-server-route-registry.ts   59 个 handler 的有序数组
+lawmind-server-route-registry.ts   62 个 handler 的有序数组
   ↓
 lawmind-server-route-*.ts          各领域路由
 ```
@@ -167,11 +167,12 @@ app/LawmindAppRootView.tsx       骨架（侧栏 + 顶栏 + 主体）
   ↓
 app/LawmindMainBodyContent.tsx   按当前视图分支
   ↓
-律师能打开的五支：LawmindWorkspaceMainPane / LawmindLawyerWorkbench /
-            AgentFleetView / ReviewView / LawmindArchiveOrganizePage
+律师能打开的三支：LawmindWorkspaceMainPane（workspace/desk，可内嵌
+            LawmindLawyerWorkbench 作 deskPane）/ LawmindLawyerWorkbench
+            （agents 在办）/ LawmindArchiveOrganizePage（整理资料）
 ```
 
-`MeetingView` 不在这棵树上。`mainView === "meeting"` 没有自己的分支，会落到对话主面板。`pickMeetingViewProps` 只被单测调用。
+`mainView === "review"` 现在直接渲染 `null`（审核走「在办 / 文书台」入口）；旧的 `AgentFleetView`、`ReviewView`、`MeetingView` 与整个旧 Matter 工作台都已在渲染层退役集群里标为 SAFE-DELETE（`docs/LAWMIND-CODE-AUDIT.md` 1.1，104 个文件），读代码时别进去。`mainView === "meeting"` 没有自己的分支，会落到对话主面板。`pickMeetingViewProps` 只被单测调用。
 
 **数据怎么来**：
 
@@ -181,7 +182,7 @@ app/LawmindMainBodyContent.tsx   按当前视图分支
 | 路由常量    | `lawmind-api-routes.ts`                           | 路径集中管理            |
 | 查询        | `lawmind-query-hooks.ts`、`lawmind-query-keys.ts` | TanStack Query          |
 | 事件        | `sse-client.ts`、`useSseSubscription.ts`          | SSE 订阅                |
-| 局部状态    | `stores/*.ts`                                     | zustand（五个域 store） |
+| 局部状态    | `stores/*.ts`                                     | zustand（按域分文件）   |
 | 桥          | `lawmind-desktop-bridge.ts`                       | 访问 preload 暴露的 API |
 
 **约定**（`stores/README.md`）：一个域一个文件、actions 跟 state 一起、临时态与持久态分开、组件用 selector 订阅。
@@ -224,6 +225,8 @@ app/LawmindMainBodyContent.tsx   按当前视图分支
 | 本地 API           | `apps/lawmind-desktop/server/`                                        |
 | 界面               | `apps/lawmind-desktop/src/renderer/`                                  |
 | CLI                | `scripts/lawmind/`                                                    |
+| 死代码与退役清单   | `docs/LAWMIND-CODE-AUDIT.md`                                          |
+| 硬编码参数与管线   | `docs/LAWMIND-HARDCODED-CATALOG.md`                                   |
 
 ## 34.10 阅读技巧
 
@@ -253,9 +256,11 @@ rg "^describe|^\s+it\(" src/lawmind/memory/adoption-service.test.ts
 
 每个目录的 `index.ts` 是它的公开面。想知道「这个模块对外提供什么」，看 `index.ts` 比读实现快。
 
+**例外**：`intent/`、`lint/`、`research/`、`host-access/` 这四个 `index.ts` 是已无人引用的退役桶——消费方全部直引子模块（`docs/LAWMIND-CODE-AUDIT.md` 1.3）。别从这四个文件判断模块门面。
+
 ### 技巧五：小心「绕过协议」的模块
 
-工程研究笔记里列了几个已知问题，读代码时别把它们当范例：
+工程研究笔记里列了几个已知问题，读代码时别把它们当范例。更大范围的两份清单值得放在手边：`docs/LAWMIND-CODE-AUDIT.md`（死代码 / 退役集群 / 无调用方端点）和 `docs/LAWMIND-HARDCODED-CATALOG.md`（硬编码管线与参数全表）——读一块代码前先查它有没有被标退役或已被更好的路径取代。
 
 | 模块                          | 问题                                                                     |
 | ----------------------------- | ------------------------------------------------------------------------ |
@@ -279,6 +284,7 @@ rg "^describe|^\s+it\(" src/lawmind/memory/adoption-service.test.ts
 ## 34.12 已知坑（本章相关）
 
 - **`agent/tool-name-sets.ts` 在 `agent/` 下，不在 `tools/` 下。**
+- **引擎侧也有退役件。** `src/lawmind/insights/` 6 个文件（只服务已退役的 insights UI）、`src/lawmind/json/omit-top-level-keys.ts`、`src/lawmind/ingest/ocr/` 都已标 SAFE-DELETE；`intent/`、`lint/`、`research/`、`host-access/` 的 `index.ts` 是无人引用的死桶。清单见 `docs/LAWMIND-CODE-AUDIT.md` 1.1 / 1.3。
 - **`integration/`（单数）只有测试；`integrations/`（复数）才是连接器。**
 - **`matter-ops/storage.ts` 已接写协议。** 新代码继续走原子写和锁，不要退回裸 `writeFileSync`。
 - **两份清单要手工同步。** 改一处看另一处——`electron/fs-bridge.test.ts` 会替你抓漏改的一侧。

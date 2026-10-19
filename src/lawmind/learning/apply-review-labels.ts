@@ -4,6 +4,11 @@
 
 import { emit } from "../audit/index.js";
 import { promoteGoldenExample } from "../evaluation/golden.js";
+import {
+  appendClausePlaybookLearning,
+  buildClausePlaybookReviewLine,
+  reviewLabelsTriggerPlaybook,
+} from "../memory/index.js";
 import { commitMemory } from "../memory/kernel/gateway.js";
 import type { ArtifactDraft, ReviewLabel, ReviewStatus } from "../types.js";
 
@@ -51,6 +56,21 @@ export async function applyReviewLabelsMemoryWrites(
       auditDir,
       auditTaskId: draft.taskId,
     }).catch(() => undefined);
+  }
+
+  if (reviewLabelsTriggerPlaybook(labels)) {
+    const playbookLine = buildClausePlaybookReviewLine(draft.taskId, labels, note);
+    try {
+      await appendClausePlaybookLearning(workspaceDir, playbookLine);
+      await emit(auditDir, {
+        taskId: draft.taskId,
+        kind: "memory.playbook_updated",
+        actor: "system",
+        detail: `clause playbook：${playbookLine.slice(0, 500)}`,
+      });
+    } catch {
+      /* ignore */
+    }
   }
 
   if (labels.includes("质量范例")) {

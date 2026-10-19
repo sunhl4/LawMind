@@ -42,7 +42,7 @@ period.calc：届满日必须有公式；中断顺延标缺口。
 
 ### 约束二：参数必须带出处与生效日
 
-`statute-params.ts` 的每一行都是这个形状：
+`statute-params.ts` 的数值行（`StatuteParamRow`）都是这个形状：
 
 ```ts
 {
@@ -52,6 +52,8 @@ period.calc：届满日必须有公式；中断顺延标缺口。
   noteZh: "...",
 }
 ```
+
+另有一类非数值默认规则（`StatuteDefaultRow`，如「保证方式没有约定时按一般保证」），只有 `id` / `effectiveFrom` / `source` / `noteZh`，不参与数值比较。
 
 而且这份表有版本号：`STATUTE_PARAMS_VERSION = 3`。
 
@@ -130,24 +132,26 @@ N    → "20000 × 3"
 
 时薪的口径写在文件头：「月工资 ÷ 21.75 ÷ 8 unless overridden」。21.75 是月计薪天数，`workdaysPerMonth` 参数可以覆盖。
 
-**两条 `notes`**：休息日和法定节假日对「补休」的处理**不一样**——休息日补休了就不给加班费，法定节假日补休也照给。这是实践中常被搞混的地方，代码把它写进了备注。
+**三种类型各写一条 `notes`，其中两条讲「补休」**：休息日和法定节假日对补休的处理**不一样**——休息日补休了就不给加班费，法定节假日补休也照给（工作日的备注只是重申 150%）。这是实践中常被搞混的地方，代码把它写进了备注。
 
 ### 法定期限（六种）
 
-`labor/legal-period.ts`，`LEGAL_PERIOD_KINDS` 六种：
+`labor/legal-period.ts`，`LEGAL_PERIOD_KINDS` 六种。届满日按种类写死（目录 B.4）：
 
-| kind                      | 场景               |
-| ------------------------- | ------------------ |
-| `civil_appeal`            | 民事上诉期         |
-| `civil_answer`            | 民事答辩期         |
-| `labor_award_sue`         | 劳动仲裁裁决起诉期 |
-| `labor_arbitration_apply` | 劳动仲裁申请期     |
-| `civil_retrial`           | 民事再审申请期     |
-| `execution`               | 申请执行期         |
+| kind                      | 场景               | 算法                                  |
+| ------------------------- | ------------------ | ------------------------------------- |
+| `civil_appeal`            | 民事上诉期         | `addCalendarDays(start, 15)`          |
+| `civil_answer`            | 民事答辩期         | 同上，15 日                           |
+| `labor_award_sue`         | 劳动仲裁裁决起诉期 | 同上，15 日                           |
+| `labor_arbitration_apply` | 劳动仲裁申请期     | 未导出的 `addCalendarYears(start, 1)` |
+| `civil_retrial`           | 民事再审申请期     | `addCalendarMonths(start, 6)`         |
+| `execution`               | 申请执行期         | `addCalendarYears(start, 2)`          |
 
-返回 `{ kind, start, expires, formula, notes }`。
+返回 `{ kind, start, expires, formula, notes }`。节假日顺延写在 `notes` 里，由律师判断，函数不顺延。
 
-配套两个日期工具：`addCalendarDays`、`addCalendarMonths`。**「日历月」与「天」是两回事**——「三个月内」不是「90 天」，所以需要 `addCalendarMonths`。
+对外日期工具只有 `addCalendarDays`、`addCalendarMonths`（另有 `isLegalPeriodKind`、`computeLegalPeriod`）。**「日历月」与「天」是两回事**——再审的「六个月」走 `addCalendarMonths`，不是 180 天。年数走文件内的 `addCalendarYears`。
+
+`labor/` 里还有两份填表，不改上面的公式：`labor-calc-fill.ts`（`extractLaborCalcFill`、`formatLaborCalcBody`、`formatLaborArbitrationBody`）和 `period-calc-fill.ts`（`extractPeriodCalcFill`、`formatPeriodCalcBody`）。它们从指令里抽出数字，正文仍要求带来源公式。
 
 ## 51.4 诉讼费：一张带版本的费率表
 
@@ -162,6 +166,8 @@ export const LITIGATION_FEE_VERSION = 1;
 ```
 
 **三件事一起声明：依据什么、什么时候生效、这份表第几版。**
+
+`LITIGATION_FEE_VERSION` 已导出，但全仓没有读取点（审计 1.4；第 39 章记过「纯人工标记」）。改费率时仍应在源文件里把这个数抬上去，它目前不是运行时开关。
 
 ### 财产案件受理费：十档
 
@@ -184,7 +190,7 @@ export const LITIGATION_FEE_VERSION = 1;
 
 ### 保全费：三段 + 封顶
 
-四个常量：
+五个常量：
 
 | 常量                     | 值     | 含义             |
 | ------------------------ | ------ | ---------------- |
@@ -233,6 +239,8 @@ export const LITIGATION_FEE_VERSION = 1;
 
 **为什么需要它**：标的额在诉讼材料里经常写成「约 200 万元」「人民币壹佰万元整」这种形式，而不是纯数字。所以有一个专门的解析器。
 
+同目录还有三份诉状辅助，不算费：`litigation-stage.ts`（`inferLitigationStage`）、`complaint-master.ts`（主表模板）、`complaint-fill-plan.ts`（要素式填表计划）。费率仍只在 `litigation-fee.ts`。
+
 ## 51.5 条款解析：`clause/`
 
 `clause/` 有一套独立的小体系，目标是**把合同解析成结构，而不是正则扫**。
@@ -245,7 +253,7 @@ export const LITIGATION_FEE_VERSION = 1;
 | `pattern.ts` | 模式引擎：`ClausePattern`、`ClauseTrigger`、`matchesTrigger`、`extractCaptureBody`                                                |
 | `dsl.ts`     | 用来看得懂的方式定义模式：`defineClause`、`definitions`、`obligations`、`rights`、`liability`、`dispute`、`defaultClausePatterns` |
 | `extract.ts` | `extractClauses(docText, patterns?)`                                                                                              |
-| `lint.ts`    | `runClauseLint` → 转成 `LegalLintFinding`                                                                                         |
+| `lint.ts`    | `runClauseLint` 出 `ClauseFinding`；`clauseFindingToLegalLint` 转成 `LegalLintFinding`                                            |
 
 **`ClauseType` 是封闭集合**：`definition`、`obligation`、`right`、`liability`、`dispute`、`general`（从 `CLAUSE_TYPES` 看）。
 
@@ -279,16 +287,19 @@ export const LITIGATION_FEE_VERSION = 1;
 
 ### 规则的组织
 
-| 文件                       | 规则数 | 管什么                                 |
-| -------------------------- | ------ | -------------------------------------- |
-| `general.ts`               | 12     | 通用规则（`GENERAL_EXTRA_LINT_RULES`） |
-| `families/sale.ts`         | 8      | 买卖                                   |
-| `families/loan.ts`         | 8      | 借款                                   |
-| `families/lease.ts`        | 9      | 租赁                                   |
-| `families/employment.ts`   | 10     | 劳动/用工                              |
-| `families/equity.ts`       | 8      | 股权                                   |
-| `families/construction.ts` | 9      | 建设工程                               |
-| `citation-validity.ts`     | 3      | 引用有效性                             |
+| 文件                       | 规则数 | 管什么                                                        |
+| -------------------------- | ------ | ------------------------------------------------------------- |
+| `rules.ts`                 | 10     | 核心规则（`CORE_LINT_RULES`：金额大写、交叉引用、定金上限等） |
+| `general.ts`               | 12     | 通用规则（`GENERAL_EXTRA_LINT_RULES`）                        |
+| `families/sale.ts`         | 8      | 买卖                                                          |
+| `families/loan.ts`         | 8      | 借款                                                          |
+| `families/lease.ts`        | 9      | 租赁                                                          |
+| `families/employment.ts`   | 10     | 劳动/用工                                                     |
+| `families/equity.ts`       | 8      | 股权                                                          |
+| `families/construction.ts` | 9      | 建设工程                                                      |
+| `citation-validity.ts`     | 3      | 引用有效性                                                    |
+
+`LEGAL_LINT_RULES`（`rules.ts` 末尾）就是「核心 10 + 通用 12 + 六族」按顺序展开（10+12+8+8+9+10+8+9 = 74）。引用有效性 3 条（`CITATION_VALIDITY_RULE_COUNT`）不在这个数组里，由 `lintCitationValidity` 单独跑。入口是 `run-lint.ts` 的 `runLegalLint`（消费方直引这个文件）。`lint/index.ts` 桶零导入者（审计 1.3）。`finding.ts` 只导出 `lintFinding`。`live-citation-hits.ts` 导出 `extractCitedStatuteTitles` 与 `fetchLiveCitationHits`。
 
 **六个族各有自己的 `*FamilyApplies` 判定**（`saleFamilyApplies` 等），加上 `family-gate.ts` 的 `familyDeliverableMatches`——**先判断「这份文书属不属于这个族」，再跑该族的规则**。
 
@@ -296,7 +307,7 @@ export const LITIGATION_FEE_VERSION = 1;
 
 ### 法条参数表（`statute-params.ts`）
 
-第 51.2 节讲了它的形状。十条具体参数（下面列主要的）：
+第 51.2 节讲了它的形状。九条数值参数加一条非数值默认规则（`listStatuteParams` / `listStatuteDefaults`），下面列主要的：
 
 | id                                | 值    | 依据                 |
 | --------------------------------- | ----- | -------------------- |
@@ -369,7 +380,9 @@ export const LITIGATION_FEE_VERSION = 1;
 - **`N+1` 的公式写成 `(n + 1)` 而不是 `n+1` 的结果**，这是有意为之。
 - **休息日补休可免加班费，法定节假日补休不免。** 这条在 `notes` 里。
 - **「日历月」与「天」不同。** 用 `addCalendarMonths`。
-- **诉讼费表带版本号与生效日。** 改费率要抬 `LITIGATION_FEE_VERSION`。
+- **诉讼费表带版本号与生效日。** 改费率要在源文件里抬 `LITIGATION_FEE_VERSION`。这个导出目前没有外部读取点，抬版本是留给人看的留痕，不是运行时分支。
+- **`lint/index.ts` 没有生产导入者。** 调 lint 用 `run-lint.ts` 或具体规则文件。
+- **`LPR_QUOTES_VERSION` 与 `LPR_QUOTES_SOURCE` 已导出但无外部引用**（审计 1.4）。核对用的是 `ONE_YEAR_LPR_QUOTES` 与 `LPR_SERIES_VALID_THROUGH`。
 - **减半返回数组**（两种减半可能同时适用）。
 - **保全费超过上限时在公式后追加说明**，不是直接换个数字。
 - **定金比例要处理中文数字。**

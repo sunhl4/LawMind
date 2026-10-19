@@ -107,6 +107,8 @@ export function buildTurnReplyFallback(turn: AgentTurn): string {
 
 export type RunTurnEvent =
   | { type: "round_start"; roundIndex: number }
+  | { type: "turn_wait"; reason: "model_slot"; label: string }
+  | { type: "turn_wait_end"; reason: "model_slot" }
   | {
       type: "tool_call_start";
       roundIndex: number;

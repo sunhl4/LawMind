@@ -6,18 +6,16 @@ test.describe("LawMind dialogs", () => {
     await installE2eBrowserPrefs(page);
   });
 
-  test("新建案件 opens the create dialog from the sidebar", async ({
+  test("新建案件 opens the create dialog from search", async ({
     page,
   }) => {
     await gotoShell(page);
-    // 对话侧栏把「新建案件」放在「当前案件」菜单里；无会话列表时按钮直接在案件列表上。
-    const scopeSwitcher = page.getByTestId("lm-chat-scope-switcher");
-    if (await scopeSwitcher.isVisible().catch(() => false)) {
-      await scopeSwitcher.click();
-    }
-    const createBtn = page.getByTestId("lm-matter-sidebar-create");
-    await expect(createBtn).toBeVisible({ timeout: 30_000 });
-    await createBtn.click();
+    await expect(page.getByTestId("lm-side-new-chat")).toBeVisible({ timeout: 30_000 });
+    await page.keyboard.press("Meta+k");
+    const search = page.getByRole("combobox", { name: "全局搜索" });
+    await expect(search).toBeVisible({ timeout: 15_000 });
+    await search.fill("新建案件");
+    await page.getByRole("option", { name: "新建案件" }).click();
     const dialog = page.getByRole("dialog", { name: /新建案件|创建案件/i });
     await expect(dialog).toBeVisible({ timeout: 15_000 });
     await expect(page.locator(".lm-wizard-backdrop")).toBeVisible();

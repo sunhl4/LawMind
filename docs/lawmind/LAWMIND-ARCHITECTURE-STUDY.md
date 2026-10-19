@@ -140,19 +140,18 @@ export function toolRequiresLawyerPause(name?: string | null): boolean {
 3. **定预算与模式**：`resolveToolCallBudgets`、`maxHistory`、`toolTimeoutMs`、`permissionMode`、`strictDangerousToolApproval`。
 4. **加载/建 session**：assistant 不匹配直接 throw。然后 `pruneTurnPlanForNewInstruction` + `ensureLawyerWorkForTurn`（best-effort）。
 5. **生成 `turnId`，推导几个开关**：`wordRevisionTurn` / `deliveryIntent` / `mailContractTurn` / `noTaskTurn`。（原 `contractFastLaneTurn` 已移除。）
-6. **构造 `AgentContext`**。这里埋了跨轮澄清门禁的种子：
-   `clarificationBlockingHeavyTools = selectHardClarificationKeys(session.pendingClarificationKeys).length > 0`。
+6. **构造 `AgentContext`**。`clarificationBlockingHeavyTools` 固定为 false。残留硬键只进提示词，缺口标【待核实】，不拦截起草、工作流或渲染。iCloud 下载确认仍把回合置为 `awaiting_clarification`。
 7. **定工具表**：`resolveAssistantTooling`（Role ∩ preset ∩ 父级继承）、playbook lock（只禁误发、模板重建、只看、函件核对；目录钉选不拿掉改稿）、`peekPinnedDocuments`、`compileIntent`、已披露工具、隐藏工具。注意 `noTaskTurn` 会把**广告**层降到 `readonly`。
 8. **拼 prompt**：`prepareTurnPromptContext` → `{ memory, systemPromptFinal, lawMindRoot }`。
 9. **把用户消息原样压进历史**，然后 `freezeTurnContext`、建一个 `status:"running"` 的占位 turn 并落盘。**为什么先落盘**：进程被杀时能看出「这一轮没结束」。
 10. **绑中断**：`bindTurnAbortSignal` + 一个 200ms 的 `abortMirror` 轮询 `shouldAbort`。
 11. **事件出口**：`emitEvent = appendSessionEvent + applyLiveTurnEvent + onEvent`；发 `turn_begin` 和 `intent`。
 12. **压缩**：`autoCompactSessionHistory`，被压缩则做 reinjection 并记录 `lastCompactBoundary`，发 `compact_boundary`。
-13. **四个短路**（按顺序，命中即结束，不调模型）：模型身份问答、模型连通性自检、公开事实快问、**intake 澄清硬门禁**、自动交付工作流。
+13. **短路**（按顺序，命中即结束，不调模型）：模型身份问答、模型连通性自检、公开事实快问、自动交付工作流（工作区开启时）。Intake 不再在这里硬停。
 14. **进采样循环** `runModelToolLoop`。
 15. **收尾**：中断走 `finishAbortedByUser`；completed 时补做 Word 修订；最后 `finalizeAgentTurn`。
 
-第 13 步里的 intake 门禁值得单独说：它在**任何模型调用之前**跑。如果律师的指令缺 `addressee / claim_facts / claim_deadline / parties / claims` 这类硬键（`src/lawmind/router/intake-gate.ts:106`），引擎会直接推一张澄清卡，不浪费一次采样。这是「先理解再执行」的工程版：不理解就别开始。
+第 13 步不再因缺收件人、当事人或诉请而跳过模型。高风险空跑走 Soft Ask：按合理假设起草，文中标【待核实】。身份问答、连通性自检、公开事实快问，以及开启时的自动交付工作流，仍会在采样前结束回合。
 
 ### 3.3 采样循环：`runModelToolLoop`
 
@@ -170,7 +169,7 @@ while (loopCount < hardCeiling + 1):
      └ 其他错误 → status=error 收尾（不抛）
   记录 usage；把 assistant 消息（含 tool_calls）写进历史
   没有 tool_calls？
-     ├ 有待澄清问题 → awaiting_clarification，退出
+     ├ 工具带回的待核实缺口 → 回合完成，缺口标【待核实】
      ├ 需要同轮 bounce → 注入隐藏 user 消息继续
      └ 否则 → completed，finalReply = content，退出
   执行工具批次（并发分批 → 串行收口）
@@ -274,20 +273,11 @@ sequenceDiagram
 
 也就是：律师中途插话，**不会**打断当前 turn、不会开新 turn，只是让下一次采样带上这条指示。这避免了「律师一打字，正在跑的工作流就被打断」的体验灾难。cassette 断言：steer 出现在第 1 次请求里、不在第 0 次里，且**不产生新 session**。
 
-**Clarification（澄清门禁）**——这是三个里最硬的
+**Clarification（澄清）**
 
-分两层，别混：
-
-- **Intake 门禁**：模型调用前，靠 `intake-gate.ts` 的硬键判断，直接出卡片。
-- **跨轮写门禁**：上一轮以 `awaiting_clarification` 结束且存在硬键时，本轮 `ctx.clarificationBlockingHeavyTools = true`，由 `clarificationGateMiddleware`（`tool-pipeline.ts:523`）拦截 `WRITE_HEAVY_TOOL_NAMES`（= `WRITE_TOOLS` + `draft_worker`）。
-
-被拦的是**写和交付**，读和检索照常放行。注释写得很清楚：
-
-> research_task and other read/analyze tools stay allowed so the model can gather facts before the lawyer answers.
-
-门禁的**清除**只有两条路：律师在卡片里逐条作答（结构化 resume 显式清键，`runtime-resume.ts:96`），或者本轮以带硬键的 `awaiting_clarification` 结束（此时键被持久化到 `session.pendingClarificationKeys`，`turn-orchestrator-finalize.ts:187`）。软性问题（advisory）从不冻结任何东西。
-
-一个真实的粗糙处：`clarificationBlockingHeavyTools` 挂在共享的 `AgentContext` 上，而同一批次里并发的工具可能一个返回硬键、另一个还在跑。第一个把 flag 翻起来时，兄弟工具已经在执行了。这是**已知的时序窗口**，不是漏洞，但写并发工具时要心里有数。
+- **Intake**：不暂停回合。问题进提示词，模型按合理假设起草并标【待核实】。
+- **残留硬键**：`pendingClarificationKeys` 里的收件人、当事人、诉请等只注入「可以继续写」。产品回合不把 `clarificationBlockingHeavyTools` 置真。`clarificationGateMiddleware` 仍在，只服务显式打开该标志的调用方。
+- **iCloud**：文件未下载到本地时，工具轮把回合置为 `awaiting_clarification`。
 
 ### 3.6 收尾：`finalizeAgentTurn`
 

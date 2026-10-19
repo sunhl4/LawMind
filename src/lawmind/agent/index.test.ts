@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import {
@@ -272,24 +273,26 @@ describe("Legal Tool Registry", () => {
     expect((result.data as { content: string }).content).toContain("LawMind XLSX Cell");
   });
 
-  it("analyze_document reads legacy .doc via native text extraction", async () => {
+  it("analyze_document reads a .doc in-process without any Save As", async () => {
     const ws = tmpDir();
     const registry = createLegalToolRegistry();
     const tool = registry.get("analyze_document")!;
-    // 纯文本伪装 .doc：macOS textutil 可直接读出；本机无转换工具时也应返回结构化错误。
-    fs.writeFileSync(path.join(ws, "legacy.doc"), "placeholder", "utf8");
+    fs.copyFileSync(
+      fileURLToPath(new URL("../mail/fixtures/tracked-changes-5-authors.doc", import.meta.url)),
+      path.join(ws, "legacy.doc"),
+    );
 
     const result = await tool.execute(
       { file_path: "legacy.doc" },
       { workspaceDir: ws, sessionId: "s", actorId: "a" },
     );
 
+    expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(JSON.stringify(result.data)).toContain("placeholder");
-    } else {
-      // 无 textutil/soffice 的环境：明确提示，而不是「另存为」旧口径。
-      expect(String(result.error)).toMatch(/\.doc|LibreOffice|textutil/);
+      expect(JSON.stringify(result.data)).toContain("新建太仓市");
+      expect(JSON.stringify(result.data)).toContain("履约保函");
     }
+    expect(fs.existsSync(path.join(ws, "legacy.docx"))).toBe(false);
   });
 
   it("analyze_document still rejects legacy .xls with clear message", async () => {
@@ -574,10 +577,11 @@ describe("System Prompt", () => {
   });
 
   it("requires clear draft vs post-review delivery wording in system prompt", () => {
+    // AGENTS.md：assembler 单测只允许断言 section 标题与工具名这类结构锚点，
+    // 不得断言「这句中文还在提示词里」——部署措辞随版本演进，行为由 cassette 把守。
     const prompt = buildSystemPrompt({ availableTools: [] });
     expect(prompt).toContain("律师审核与交付闭环（对用户可见话术强制）");
     expect(prompt).toContain("交付原则");
-    expect(prompt).toContain("初稿/讨论稿/供审核稿");
     expect(prompt).toContain("安全硬红线");
     expect(prompt).toContain("send_email");
   });

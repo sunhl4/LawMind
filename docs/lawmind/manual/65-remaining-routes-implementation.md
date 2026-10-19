@@ -1,23 +1,27 @@
-# 第 65 章 实现精读：其余路由（四十九文件）
+# 第 65 章 实现精读：其余路由（五十二文件）
 
-第 64 章讲了主链路的十个文件（100 条路由）。这一章讲**其余 49 个文件**。
+第 64 章讲了主链路的十个文件（117 条路由）。这一章讲**其余 52 个 `lawmind-server-route-*.ts`**：其中 50 个是路由实现，`registry` 与 `types` 只有分发逻辑、没有自己的路径。
 
 这些文件的特点是「一个文件管一个功能面」。所以这一章按**功能集群**分组，每个集群先说它解决什么问题，再列路由，再挑要紧的判定逻辑。
 
-先给一张总表，看每个集群有多少条路由：
+先对一次总账。全服务 **367 条可达端点** = 第 64 章 10 个文件 **117 条** + 本章 52 个文件 **249 条** + 分发层的发现端点 `GET /.well-known/lawmind-local` **1 条**（在 `lawmind-server-dispatch.ts` 里，不属于这 52 个文件）。所以「其余文件」这一侧是 **250 条**，减去不在这 52 个文件里的发现端点，落到文件上是 249 条。
 
-| 集群             | 文件                                                                                                                                                              | 大致路由数 |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| A 健康与诊断     | health / daemon / metrics / support                                                                                                                               | 12         |
-| B 本机与文件     | host-access / fs                                                                                                                                                  | 6          |
-| C Word 插件      | word-addin                                                                                                                                                        | 9          |
-| D 自动办件与邮件 | automations / mail                                                                                                                                                | 19         |
-| E 协作与专案组   | collaboration / agent-fleet / review-campaign / routing                                                                                                           | 20         |
-| F 案件副本与云   | matter-replica / matter-cloud                                                                                                                                     | 19 + 通配  |
-| G 学习与记忆     | learning-contract / contract-review / memory-adoption / memory-preview / memory-templates / historical-scan / redline                                             | 20         |
-| H 判定与审计     | judgment / audit-event / audit-export                                                                                                                             | 7          |
-| I 审批与设置     | approvals / action-summary / desk-settings / integrations / e2e / jobs / assistants / templates                                                                   | 27         |
-| J 其余单点       | registry / types / tools-registry / platform / license / models / mcp / onboarding / practice-playbook / roles / search / skills / sources / sse / triage / works | 45         |
+计数口径与附录 B 一致：一行写 `GET/PATCH`、`PUT/POST` 的各算两条；`PATCH 或 POST` 同理。源码里另有 2 条被更早的处理器吃掉的分支（`GET /api/templates/built-in` 的 memory-templates 版、`GET /api/approvals` 的 matters 版），不计入 249。
+
+先给一张总表，看每个集群有多少条路由（合计 249）：
+
+| 集群                  | 文件                                                                                                                                                              | 可达路由数 |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| A 健康与诊断          | health / daemon / metrics / support                                                                                                                               | 12         |
+| B 本机与文件          | host-access / fs                                                                                                                                                  | 17         |
+| C Word 插件与文书预览 | word-addin / word-surface                                                                                                                                         | 28         |
+| D 自动办件与邮件      | automations / mail                                                                                                                                                | 19         |
+| E 协作与专案组        | collaboration / agent-fleet / review-campaign / routing                                                                                                           | 25         |
+| F 案件副本与云        | matter-replica / matter-cloud                                                                                                                                     | 28         |
+| G 学习与记忆          | learning-contract / contract-review / memory-adoption / memory-library / memory-preview / memory-templates / historical-scan / redline                            | 31         |
+| H 判定、采信与审计    | judgment / acceptance-sheet / audit-event / audit-export                                                                                                          | 13         |
+| I 审批与设置          | approvals / action-summary / desk-settings / integrations / e2e / jobs / assistants / templates                                                                   | 32         |
+| J 其余单点            | registry / types / tools-registry / platform / license / models / mcp / onboarding / practice-playbook / roles / search / skills / sources / sse / triage / works | 44         |
 
 ## 65.1 A 集群：健康与诊断
 
@@ -64,6 +68,8 @@ POST /api/daemon        四个动作：enable / disable / start / stop
 
 **它解释了「为什么现在不跑」**——律师点「启用后台」可能期待立刻跑，但桌面开着时是窗口自己在跑。
 
+`GET /api/daemon/log` **已注册但产品未调用**：守护日志一直在写，可今天的界面没有读它的入口（排障时只能自己去看文件）。
+
 ### `route-metrics.ts`：六个仪表盘
 
 ```text
@@ -76,6 +82,8 @@ GET  /api/metrics/lawyer-dashboard
 ```
 
 窗口参数统一：默认 30 天，夹在 `[1, 365]`。而基线那条的 `note` 上限 500 字。
+
+六条里 **`GET /api/metrics/north-star-trend` 已注册但产品未调用**：北极星快照有调用，趋势没有。
 
 **`context-pressure` 里那句「缺来源 → present:false」**（在头注释里）是个诚实设计：**没有数据就不假装有数据**（第 12 章那条诚实 null）。
 
@@ -98,7 +106,7 @@ GET  /api/metrics/lawyer-dashboard
 
 **它把「不含什么」列出来**——这比「已脱敏」有信息量得多。
 
-两条路由：`GET /api/support/bundle`（预览）与 `?download=1`（下载）。**同一个路径用查询参数区分**——所以预览不需要单独的路径。
+**一条路由、两种形态**：`GET /api/support/bundle` 是预览；加 `?download=1` 才出 zip。所以预览不需要单独的路径。
 
 ## 65.2 B 集群：本机与文件
 
@@ -113,18 +121,31 @@ GET  /api/metrics/lawyer-dashboard
 
 **注意它没有授权端点、没有搜索/读取/收进端点。**
 
-第 61.4 节讲的那套「授权舞步」（`grant_duration`、三种时长、`hit_id`）**服务于模型工具**，实现全在引擎的 `host-access/access-broker.ts`。界面这边只有「看策略、看日志、重建索引、允许命令」四件事。
+第 61.4 节讲的那套「授权舞步」（`grant_duration`、三种时长、`hit_id`）**服务于模型工具**，实现全在引擎的 `host-access/access-broker.ts`。这个文件只把「看策略、看日志、重建索引、允许命令」四件事摊成 HTTP。
 
-**`sessionId: "settings"` 那个字面量**说明这条路由是给设置页用的——所以它不需要真会话 id。
+但这四条**全部「已注册但产品未调用」**：桌面走 Electron IPC，本机访问的读写也在引擎进程内完成，渲染层不打 `/api/host-access*`。`sessionId: "settings"` 那个字面量只说明它按「设置页」这个伪会话构造运行时——不是真会话 id，也不代表界面在用。
 
-### `route-fs.ts`：四条路由与五条路径围栏
+### `route-fs.ts`：十三条路由与路径围栏
 
-| 方法 | 路径            | 围栏                                     |
-| ---- | --------------- | ---------------------------------------- |
-| GET  | `/api/artifact` | `safeArtifactPath`（只放 artifacts）     |
-| GET  | `/api/fs/tree`  | `resolveFsPath(..., { access: "read" })` |
-| GET  | `/api/fs/read`  | 同上 + `MAX_TEXT_READ_BYTES`             |
-| POST | `/api/fs/write` | `access: "write"` + 三道路径检查         |
+| 方法 | 路径                   | 作用                                  | 围栏                                     |
+| ---- | ---------------------- | ------------------------------------- | ---------------------------------------- |
+| GET  | `/api/artifact`        | 读产物（octet-stream）                | `safeArtifactPath`（只放 artifacts）     |
+| GET  | `/api/fs/tree`         | 目录树                                | `resolveFsPath(..., { access: "read" })` |
+| GET  | `/api/fs/read`         | 读文本                                | 同上 + `MAX_TEXT_READ_BYTES`             |
+| GET  | `/api/fs/raw`          | 原始字节，支持 Range                  | read + MIME 白名单                       |
+| GET  | `/api/fs/pdf-preview`  | PDF 页数 / 第 N 页 PNG                | read + 必须 `.pdf`                       |
+| GET  | `/api/fs/zip-listing`  | zip 目录（最多 2000 条）              | read + 必须 `.zip`                       |
+| POST | `/api/fs/convert-doc`  | 旧 `.doc` 转成可预览的 docx           | read + 同根写权限 + 仅 workspace 根      |
+| GET  | `/api/fs/xlsx-preview` | 表格预览                              | read + 必须 `.xlsx`                      |
+| GET  | `/api/fs/pptx-preview` | 幻灯片预览（visual 失败回落文本）     | read + 必须 `.pptx`                      |
+| GET  | `/api/fs/pptx-slide`   | 单页 PNG（page 夹在 [1, 80]，带缓存） | read + 必须 `.pptx`                      |
+| POST | `/api/fs/pptx-save`    | 写回幻灯片文字编辑                    | `access: "write"` + 治理路径             |
+| POST | `/api/fs/xlsx-save`    | 把单元格编辑写回 xlsx                 | write + 治理路径 + mtime                 |
+| POST | `/api/fs/write`        | 写文本文件                            | write + 三道路径检查                     |
+
+**`GET /api/fs/pdf-preview` 已注册但产品未调用**：桌面 PDF 预览是渲染进程里的 pdf.js（`lm-pdf-preview` 是 CSS 类名，不是这条 API）。**`POST /api/fs/write` 同样没有产品调用方**——桌面的写文件走 Electron IPC（`window.lawmindDesktop.fsWrite`），这条路只留在服务端。其余十一条都有界面入口。
+
+预览类的 415 是先按扩展名粗筛（`not_pdf` / `not_zip` / `not_legacy_doc` / `not_xlsx` / `not_pptx`），解析失败再回 400 带引擎的原始错误；`convert-doc` 只接受 `.doc`（`.docx` 直接 415），且只支持 `workspace` 根。
 
 **七条拒绝**：
 
@@ -166,28 +187,43 @@ PROTECTED_BASENAMES    = [.lawmind-dms.json, RULES.md, ethics-wall.json]
 
 **三类：精确路径、前缀、文件名**。最后一类（`RULES.md`、`ethics-wall.json`）是「不管在哪个目录都不许改」的那种。
 
-### 唯一的写操作会发 SSE
+### 两条写操作会发 SSE
 
 ```text
 type: "fs:change", data: { root, rel, mtimeMs, size }
 ```
 
-**所以文件被改后，其他界面能立刻知道**（文件工作台与对话的钉选都订阅它）。
+发它的是 `POST /api/fs/write` 与 `POST /api/fs/xlsx-save`；`pptx-save` 只回 `mtimeMs`，不发事件。
 
-## 65.3 C 集群：Word 插件
+**所以文本或表格被改后，其他界面能立刻知道**（文件工作台与对话的钉选都订阅它）。幻灯片与旧 `.doc` 转换则要靠重新打开或刷新。
 
-`route-word-addin.ts` 的头注释是一份完整的端点清单：
+## 65.3 C 集群：Word 插件与文书预览
+
+这一组两个文件：`route-word-addin.ts`（13 条，插件面）与 `route-word-surface.ts`（15 条，对话中间栏的 docx 预览）。
+
+### `route-word-addin.ts`：十三条，头注释没列全
+
+头注释列了数据面的主路径，但**不是完整清单**——保存作业与案卷下拉都不在里面。完整清单是 12 条数据面 + 1 条静态前缀：
 
 ```text
-- GET  /word-addin/manifest.xml          侧载清单（{{BASE}} 按本次请求的实际回环地址替换）
-- GET  /word-addin/taskpane.html|.js|.css 任务窗格静态资源
-- GET  /word-addin/icon-32.png           清单图标
-- GET  /api/word-addin/reviews           就地审查请求列表（?state=&since=）
-- POST /api/word-addin/reviews           { path, matterId?, instruction? } 建请求（审这份）
-- GET  /api/word-addin/reviews/:id       单条状态（插件轮询）
-- POST /api/word-addin/reviews/:id/result  桌面端回填：{ task_id } 或 { outputPath, hunks, ... }
-- POST /api/word-addin/reviews/:id/export  导出：返回产物路径与存在性
+- GET  /word-addin/{file}                    静态前缀：manifest.xml / taskpane.html|.js|.css / config.js / icon-32.png
+- GET  /api/word-addin/matters               可选案卷列表
+- POST /api/word-addin/doc-save/:id/result   回填保存作业结果（{ ok } 或 { ok:false, error }）
+- GET  /api/word-addin/matters               案卷下拉：只回 id 与标题
+- GET  /api/word-addin/reviews               就地审查列表（?state=&since=&path=；按路径问时附 picked）
+- POST /api/word-addin/reviews               建请求（审这份）；同文件同内容同指令在途则 200 复用，否则 201
+- POST /api/word-addin/reviews/:id/matter    补选案卷并把请求放回队首
+- POST /api/word-addin/reviews/:id/decisions 律师对一条建议的决定
+- POST /api/word-addin/reviews/:id/revise    改一处替换文字
+- POST /api/word-addin/reviews/:id/commit    按清单覆盖已写出的审阅 Word
+- GET  /api/word-addin/reviews/:id           单条状态（插件轮询）
+- POST /api/word-addin/reviews/:id/result    桌面端回填：{ task_id } 或 { outputPath, hunks, ... }
+- POST /api/word-addin/reviews/:id/export    导出：返回产物路径与存在性
 ```
+
+**`GET /api/word-addin/matters` 已注册但产品未调用**：任务窗格脚本不调它（`taskpane.js` 与 `wps/main.js` 都没有），只有路由测试在用。其余 12 条都在插件与桌面的调用链上。
+
+静态面是一整个前缀算一条：`manifest.xml` 由 `manifest.template.xml` 填 `{{BASE}}` 生成，`config.js` 是**同源脚本**而不是内联 `<script>`（Word 任务窗格的 CSP 会挡内联脚本，令牌与 base 就变成空 → 401）。
 
 **三条自我说明值得单独记**：
 
@@ -223,10 +259,10 @@ queued  running  ready  failed  needs_matter  stale  superseded
 405 method_not_allowed
 503 word_addin_assets_missing  + hint：未找到 Word 插件资源目录（<相对路径>）。
                                    开发态请确认仓库完整；打包版请确认 extraResources 已含 word-addin。
-400 asset_not_found / unsupported_asset_type / invalid_json / unknown_matter
-404 not_found
-409 not_awaiting_matter:<当前状态>
-400 redline_proposal_not_found
+400 invalid_asset_path / asset_outside_addin_dir / invalid_json / unknown_matter / redline_proposal_not_found
+404 asset_not_found / not_found
+409 not_awaiting_matter:<当前状态> / 修订清单状态冲突
+415 unsupported_asset_type
 ```
 
 **`not_awaiting_matter:<状态>` 这个格式很有用**——把当前状态拼在错误码里，所以界面能显示「当前是 running，不能再选案件」。
@@ -251,6 +287,56 @@ cache-control: "no-store"      ← 全部静态资源
 
 **`no-store`**：因为插件在开发期会反复更新，缓存会导致「改了没生效」。
 
+### `route-word-surface.ts`：十五条，对话中间栏的 docx 预览
+
+这是「文件工作台/对话中间栏直接看 Word」的服务端：读快照、记律师改动、写回 docx、导出与比较。
+
+```text
+GET    /api/word-surface                      预览快照（root、path、projectDir、fileMtime、proposalAt、codeStamp）
+POST   /api/word-surface/tracked              对一条 docx 修订做接受/拒绝
+POST   /api/word-surface/sync                 把律师改过的段落同步回文书台草稿
+POST   /api/word-surface/hunks                提交一处律师修改（before/after，可带 format）
+POST   /api/word-surface/hunks/:hunkId/undo   撤销一处
+POST   /api/word-surface/hunks/:hunkId/revise 改某一块的替换文字
+GET    /api/word-surface/comments             读批注（?taskId=）
+POST   /api/word-surface/comments             新建批注
+POST   /api/word-surface/comments/:id         更新批注
+DELETE /api/word-surface/comments/:id         删除批注
+POST   /api/word-surface/save                 把段落写回打开的 docx（含 stories 与批注）
+POST   /api/word-surface/export               复制为同目录审阅稿，或按 taskId 导出修订稿
+POST   /api/word-surface/export-pdf           旁路导出 PDF（有 LibreOffice 时）
+POST   /api/word-surface/compare              与另一份文件比较，写出 *_比较稿.docx
+POST   /api/word-surface/table-row            在指定表后插入一行
+```
+
+**第一条设计是「开发态跟随源码」**：
+
+```text
+LAWMIND_PACKAGED === "1" → 直接用静态 import
+否则 → 按 word-surface.ts / word-surface-layout.ts / word-surface-tracked.ts 的 mtime 重新 import(...?mtime=)
+```
+
+注释把原因写清了：服务端进程会把第一次 `import` 留住，而页面在 docx mtime 没变时会跳过工作——结果就是「改了源码，已经开着的预览永远不变」。所以响应带 `codeStamp`，客户端回传它才算命中缓存。
+
+**第二条是「所有路径都过同一个解析器」**：`resolveWordBaselineAbs` 只认 `workspace` / `project` 两个根；文件不存在、或解析出来的根与请求的 `root` 不一致，一律 **404 而不是 403**（不告诉你「路径存在但根不对」）。
+
+**第三条是四种写入的语义分工**：
+
+| 端点      | 写什么                                       |
+| --------- | -------------------------------------------- |
+| `tracked` | docx 里的修订标记（接受/拒绝），不碰草稿     |
+| `sync`    | 把段落差异写回草稿（返回 removed / updated） |
+| `hunks`   | 向红线清单追加一处律师修改，并捕获学习       |
+| `save`    | 直接改打开的 docx：段落 runs、stories、批注  |
+
+`hunks` 那条在记完之后会调 `captureParagraphEditLearning`——**但学习捕获失败不阻断保存**（`try/catch` 里只留一句注释）。这是「主操作不被副作用拖垮」的写法。
+
+**第四条是导出的三种形态**：`export` 给 `path` 时只复制成 `_审阅稿.docx`（`mode: "copy"`）；给 `taskId` 时走 `exportTrackedSiblingForTask`（可能降级，带 `degraded` / `trackWarning`）。`export-pdf` 依赖 LibreOffice，客户端断开就 `abort`。`compare` 写 `*_比较稿.docx`，会报告 `skippedInserts`——**插叙型差异不硬塞**。
+
+上限：`before` / `after` 各 50 000 字；`paragraphs` 最多 2 000 条、`moves` 最多 40 条；批注正文 8 000 字、锚文本 2 000 字；路径 2 000 字。
+
+错误码很薄：`invalid_request`（400）、`invalid_task_id` / `invalid_hunk_id`（400）、`unreadable_docx`（400）、`no_document`（400）、`not_found` / `other_not_found`（404）；hunk 找不到是 404，其余修订状态冲突是 409。
+
 ## 65.4 D 集群：自动办件与邮件
 
 ### `route-automations.ts`：十条路由与六个确认项
@@ -269,6 +355,8 @@ POST   /api/automations/inbox/:id/action
 ```
 
 **那一处 `?runNow` 的实现很有意思**：它把 `nextRunAt` 设成 `new Date(0).toISOString()`（1970 年）。**所以「立刻跑」不是特殊路径，而是「把下次时间设到很久以前」**——tick 一跑就认为是过期的。这是一个很省事的技巧。
+
+而 `POST /api/automations/mail/seed` **已注册但产品未调用**：它是演示用的假数据注入口，除了要显式打开 `LAWMIND_MAIL_SEED=1`，界面也没有按钮会打它。
 
 ### 五个预设与三组策略
 
@@ -340,6 +428,8 @@ DELETE /api/mail/accounts/:id
 POST /api/mail/accounts/:id/test
 POST /api/mail/accounts/:id/sync
 ```
+
+前两条伦理墙路由（`GET /api/ethics-wall` 与 `POST /api/ethics-wall/acknowledge`）**已注册但产品未调用**：引擎里的 `src/lawmind/policy/ethics-wall.ts` 仍在用，但渲染层不打这两条 HTTP。剩下七条邮箱配置路由有界面入口。
 
 **六个邮箱服务商**：
 
@@ -481,6 +571,8 @@ PUT /api/routing/defaults
 POST /api/routing/resolve
 ```
 
+**`POST /api/routing/resolve` 已注册但产品未调用**：界面只用 `GET` / `PUT` 读写默认分派，「按事项解析承办人」这条没有入口（引擎侧的分派逻辑不经过这条 HTTP）。
+
 **写入形状很精简**：
 
 ```text
@@ -493,7 +585,7 @@ forcePeerReview: boolean | null
 
 ## 65.6 F 集群：案件副本与云
 
-### `route-matter-replica.ts`：十九条 + 一道版本门
+### `route-matter-replica.ts`：二十一条 + 一道版本门
 
 头注释一句：
 
@@ -503,20 +595,24 @@ Matter Replica HTTP routes — multi-lawyer matter collaboration (on for solo un
 
 成员协作各版本默认开。策略把 `matterReplica.enabled` 设成 `false`，或功能键关掉时，其余路由才 403。
 
-四个端点**不需要**过版本门（因为要看状态就得能问）：
+**五条端点不需要**过版本门（因为要看状态、要能报身份，就得能问）：
 
 ```text
-/status  /identity  /audit-report  /scheduler
+GET /status   GET /identity   PUT /identity   GET /audit-report   GET /scheduler
 ```
 
-其余十五条都要 `gate.enabled`，否则：
+`PUT /cloud` 与 `PUT /relay` 各自判一次 403（不是统一门）：
 
 ```text
 403 案件成员协作未开启（可在 lawmind.policy.json 里把 matterReplica.enabled 设为 true）
 + { reason: gate.reason }
 ```
 
+剩下的 **十四条**统一走这道门：`scheduler/tick`、`membership`、`invites`（发/收/撤）、`members/revoke`、`locks`（列/取/放）、`ops`、`feed`、`materials`（读/发布）、`sync`。
+
 **`reason` 是分开给的**——所以界面能解释为什么关着（不只是「没开」）。
+
+其中**七条「已注册但产品未调用」**：`GET /audit-report`、`POST /scheduler/tick`、`POST /members/revoke`、`GET /ops`、`GET /feed`、`GET /materials`、`POST /materials/publish`。产品只用状态、身份、调度器状态与检出锁这一子集；运维面留在路由表里。
 
 ### 三条路径常量
 
@@ -539,19 +635,26 @@ owner  lead  associate  paralegal  readonly  external
 ### 邀请码的形状与分享文案
 
 ```text
-邀请码：LMC-<...>
-分享文案：邀请你加入 LawMind 案件「<案件名>」。打开 LawMind → 案件 → 成员协作，粘贴邀请码：<码>
+云邀请码：LMC-<...>（大写前缀，走云）
+本地邀请码：共享中继里的 token（不带 LMC-）
 ```
 
-**分享文案给了完整的三步路径**——所以收到码的人知道去哪粘。
+前缀决定走哪条路：`LMC-` 走云，其余按本地邀请码处理（兼容旧部署）。分享文案（原文）：
+
+```text
+邀请你加入 LawMind 案件「<案件名>」。请打开 LawMind，进入任一案件的「协作」，
+选择同一个共享文件夹（<文件夹名>），保存姓名后粘贴邀请码：<码>
+```
+
+**它把「选同一个共享文件夹」也写进去了**——本地协作的前提不是同一个账号，而是同一块盘。
 
 ### 两处「失败但要报」的地方
 
 ```text
-警告：成员已移除，但密钥轮换失败：<原因>
+成员已移除，但密钥轮换失败：<原因>
 ```
 
-**「已移除但轮换失败」是一个危险状态**——因为那个成员理论上还能解密。所以它单独报警告而不是静默。
+**「已移除但轮换失败」是一个危险状态**——因为那个成员理论上还能解密。所以它单独回 `warning`（HTTP 仍是 200）而不是静默。
 
 而 `keyRotated` / `rotationSkipped` / `wrappedFor` 三个响应字段就是为这件事准备的。
 
@@ -561,16 +664,25 @@ owner  lead  associate  paralegal  readonly  external
 自动同步调度器未运行
 ```
 
-**这条只在 `/scheduler/tick` 上**——手动触发时需要调度器在场。
+**这条只在 `/scheduler/tick` 上**——手动触发时需要调度器在场（而这条本身没有产品调用方）。
 
-### `route-matter-cloud.ts`：一条通配 + 一道门
+### `route-matter-cloud.ts`：七条 + 一道门
 
 ```text
 匹配任何 pathname.startsWith("/v1/matters") → 交给引擎的 handleMatterCloudRequest
 门关着 → 403 { ok: false, error: "matter cloud disabled" }
 ```
 
-**「路径归引擎所有」**（注释原文）——所以这个文件只做挂载与门禁，具体端点不在这里。
+**「路径归引擎所有」**——所以这个文件只做挂载与门禁，具体七条端点不在这里：
+
+```text
+GET         /v1/matters/:matterId                          探活
+GET | PUT   /v1/matters/:matterId/ops                      读 / 写操作日志
+GET | PUT   /v1/matters/:matterId/materials/manifest       读 / 写材料清单
+GET | PUT   /v1/matters/:matterId/blobs/:sha256            取 / 存 blob（新建 201，已存在 409）
+```
+
+`sha256` 必须是 64 位十六进制，`matterId` 是 1–128 位 `[A-Za-z0-9_-]`。
 
 而存储位置有三层回落：
 
@@ -622,6 +734,31 @@ adopt 的 note：改写后写入时的落盘正文覆盖
 
 **「改写」这个动作会把 note 变成字面量 `"rewritten"`**——这是一个标记，不是内容。所以「改写过的」在数据里能认出来。
 
+### `route-memory-library.ts`：五条，三种视图
+
+这是「记忆库」面板的服务端（与 adoption 那条路不同：adoption 是**待审建议**，library 是**已经记下的条目**）。
+
+```text
+GET  /api/memory/library?view=habits|matter|revoked&matterId=
+POST /api/memory/library/confirm   { id, body?, key?, scope?, scopeId? }
+POST /api/memory/library/revoke    { id }
+POST /api/memory/library/restore   { id }
+POST /api/memory/library/dismiss   { id }
+```
+
+三种视图：`habits`（习惯）、`matter`（本案）、`revoked`（已撤销）。列表前会先 `ensureMemoryImported`——**老工作区的记忆在第一次打开面板时自动迁进来**，不需要单独跑迁移。
+
+四条写操作的状态码分工很清楚：
+
+| 动作      | 成功 | 不成立时          |
+| --------- | ---- | ----------------- |
+| `confirm` | 200  | 400 `not_pending` |
+| `revoke`  | 200  | 400 `not_current` |
+| `restore` | 200  | 400 `not_revoked` |
+| `dismiss` | 200  | 400 `not_pending` |
+
+**三个 `not_*` 说的是「当前状态不对」，不是「找不到」**——所以统一 400 而不是 404。
+
 ### `route-memory-preview.ts`：一条只读 + 四个码
 
 ```text
@@ -633,13 +770,15 @@ maxChars 夹在 [200, 16000]，默认 4000
 
 **路径围栏是 `safeRelativePath`**——拒 `..` 开头与绝对路径。
 
-### `route-memory-templates.ts`：三条，两个上限
+### `route-memory-templates.ts`：二条可达 + 一条被遮蔽
 
 ```text
-GET /api/templates/built-in
+GET /api/templates/built-in      ← 源码里有，但 templates 文件先注册，这条到不了
 GET /api/memory/sources
-GET /api/memory/adoptions     最多 40 条
+GET /api/memory/adoptions        最多 40 条
 ```
+
+**`GET /api/templates/built-in` 在这个文件里是死代码**：`lawmind-server-route-templates.ts` 在注册表里更靠前，先返回 true。端点本身由 templates 文件正常提供（第 65.9 节），不是缺功能。
 
 而「认知升级建议」的过滤是：
 
@@ -647,7 +786,7 @@ GET /api/memory/adoptions     最多 40 条
 字符串 "认知升级建议：" + 正则 /^-\s+\[([^\]]+)\]\s+\[source:[^\]]+\]\s+(.+)$/
 ```
 
-**它是从 `LAWYER_PROFILE.md` 的文本里解析出来的**——所以那些条目是**文本行**，不是结构化数据。这个正则定义了它们的格式。
+**它是从 `LAWYER_PROFILE.md` 的文本里解析出来的**——所以那些条目是**文本行**，不是结构化数据。这个正则定义了它们的格式。助手档案那一侧同理，按分节的 `body` 里是否含「认知升级建议：」来筛。
 
 ### `route-historical-scan.ts`：七条，四个上限
 
@@ -723,7 +862,7 @@ initial_not_found / final_not_found / invalid_matter_id / finalize_failed → 40
 
 **它明说了「这份没有要点，是从草稿转来的」**——而不是留空。
 
-## 65.8 H 集群：判定与审计
+## 65.8 H 集群：判定、采信与审计
 
 ### `route-judgment.ts`：四条与一条输出纪律
 
@@ -760,6 +899,26 @@ coverageNote
 **`counts` 的六个数把每一项都归了类**——机器判 / 已判 / 律师判过 / 未覆盖 / 不可用。**没有「正确率」**（第 68.15 节那条口径）。
 
 而 `notCovered` / `unavailable` 是**两个独立数组**——所以「没覆盖到」与「数据没有」不混在一起。
+
+四条里 **`GET /api/judgment/summary` 已注册但产品未调用**：单份、待定夺、分档三条有界面入口，全工作区汇总这条没有。
+
+### `route-acceptance-sheet.ts`：五条采信纸与一个歧义根
+
+「采信纸」是把材料主张逐条标成「采信 / 过强 / 剔除」的那张纸。服务端五条：
+
+```text
+GET  /api/sessions/:sessionId/acceptance-sheet?taskId=   按会话取采信纸
+GET  /api/acceptance-sheet/locate?path=&root=            材料在哪个根下（workspace/project）
+GET  /api/acceptance-sheet/page?path=&page=&root=        把材料某一页渲成 PNG
+GET  /api/drafts/:taskId/acceptance-sheet                读该草稿的采信标记
+POST /api/drafts/:taskId/acceptance-sheet                写标记，或 restoreRemoved 恢复
+```
+
+标记只有三个值加一个 null：`accepted` / `too_strong` / `removed` / `null`（清掉）。`claimId` 最长 80，`taskId` 走 `isSafeTaskIdSegment`，`sessionId` 最长 128。
+
+**两个位置解析的 409 是同一个理由**：`locate` 与 `page` 不给 `root` 时会在 `workspace` 与 `project` 两个根下找；**两边都命中就是 `ambiguous_root` → 409**，而不是随便选一个。`page` 只接受 `.pdf`，`cache-control: private, no-store`；PDF 太大是 413 `pdf_too_large`，页不存在是 404 `page_not_found`。
+
+按附录 B.62，`locate` 与 `page` 是「已注册但产品未调用」。今天的渲染层与引擎里也搜不到 `acceptance-sheet` 的调用点（只有 e2e mock），**整组没有产品入口**——`acceptance-canvas.ts` 已退役，这条链目前只剩服务端与测试。
 
 ### `route-audit-event.ts`：一条，五种枚举
 
@@ -803,11 +962,12 @@ audit_integrity_export_disabled
 
 ## 65.9 I 集群：审批与设置
 
-### `route-approvals.ts`：两条与一个 24 小时
+### `route-approvals.ts`：三条与一个 24 小时
 
 ```text
 GET  /api/approvals                   ?matterId=
-POST /api/approvals/:id/(approve|reject)
+POST /api/approvals/:id/approve
+POST /api/approvals/:id/reject
 ```
 
 **那一小时数是 `APPROVAL_TTL_MS = 24 × 60 × 60 × 1000`**——`expiresAt = createdAt + 24h`。
@@ -877,11 +1037,12 @@ LAWYER_FACING_QUEUE_KINDS = new Set(["need_client_input"])
 
 **只有「等客户提供材料」这一类才进律师可见队列**——其他几类是内部状态。
 
-### `route-jobs.ts`：四条 + 一条手写 SSE
+### `route-jobs.ts`：五条 + 一条手写 SSE
 
 ```text
 GET  /api/jobs/:id/stream    手写 SSE
 POST /api/jobs/:id/cancel
+POST /api/jobs/:id/continue  从 awaiting_lawyer 继续（无模型配置 503）
 GET  /api/jobs               默认 limit 20
 GET  /api/jobs/:id
 ```
@@ -897,19 +1058,32 @@ Chat / resume / live-turn speak embed-turn-events.ts.
 
 而它的帧格式是 `data: {json}\n\n`（**没有 `event:` 行**），心跳 `: ping\n\n` 每 25000ms。**所以它和 SSE 总线是两套实现**（总线用 `id/event/data` 三行）。
 
-### 七个作业状态短语
+### 六个作业状态短语
 
 服务端把作业状态翻成执行态（`executionState`）：
 
 ```text
-phase plan    + detail：已预约执行：<时间> / 已预约本地定时执行。/ 任务已入队，等待后台执行。
-phase research + "工作流执行中。"
-phase complete + "工作流已完成。"
-phase error    + "工作流已取消。"
-其他           + error ?? "工作流执行失败。"
+scheduled       phase plan     + "已预约执行：<时间>" / "已预约本地定时执行。"
+queued          phase plan     + "任务已入队，等待后台执行。"
+awaiting_lawyer phase plan     + job.error ?? "请确认后再继续后续步骤。"
+running         phase research + "工作流执行中。"
+completed       phase complete + "工作流已完成。"
+cancelled       phase error    + "工作流已取消。"
+其他             phase error    + job.error ?? "工作流执行失败。"
 ```
 
-**注意 `phase` 只有四个值，但 `detail` 有六种**——因为 `plan` 阶段有三种细节（预约了/排期了/入队了）。
+**`phase` 只有四个值，但 `detail` 有七种**——因为 `plan` 阶段有四种细节（预约了/排期了/入队了/等律师确认）。
+
+`awaiting_lawyer` 不是终态：跑到需要律师确认大纲或澄清时停下，等 `POST /api/jobs/:id/continue`（没有模型配置时回 503）。取消这条路径上它和 `scheduled` / `queued` 一样**立刻变 `cancelled`**；只有 `running` 才是打 `cancelRequested` 等中断点。
+
+而 `awaiting_lawyer` 还会让 `gateDecisions` 多出一条：
+
+```text
+gate: clarification_gate, decision: awaiting_confirmation,
+reason: job.error ?? "请确认后再继续后续步骤。"
+```
+
+**所以「为什么停着」在状态与门禁两处都能读到**，界面不用自己拼。
 
 而取消请求的 gate decision：
 
@@ -919,20 +1093,21 @@ reason: "已请求取消，等待当前步骤可中断点。"
 
 **这句与第 63.6 节那个 `queued_abort` 是同一件事的两种表述**（一个给界面，一个给审计）。
 
-### `route-assistants.ts`：十条
+### `route-assistants.ts`：九条
 
 ```text
 GET    /api/assistant-presets
 GET    /api/assistants
-GET    /api/assistants/roster-search      跨助手检索（q 参数）
-GET    /api/assistants/:id/desk           对话消息栏助手席：在场、职责禁令、常设工作近况
+GET    /api/assistants/roster-search      跨助手检索（q 参数，返回分组）
+POST   /api/assistants                    新建（名册上限受 multiAssistantRoster 约束）
 GET    /api/assistants/:id/profile-sections
-POST   /api/assistants
 POST   /api/assistants/:id/share-template 导出岗位模板（密钥硬拦、电话证件需确认）
-POST   /api/assistants/:id/duplicate
+POST   /api/assistants/:id/duplicate      复制（同样受名册上限）
 PATCH  /api/assistants/:id
 DELETE /api/assistants/:id
 ```
+
+**原先的 `GET /api/assistants/:id/desk` 已整体移除**——助手席的在场与职责不再走一条独立 HTTP，路由表里也不再留这个分支。上表 9 条是当前全部。
 
 **一条特殊拒绝**：
 
@@ -942,10 +1117,10 @@ cannot delete default or unknown assistant
 
 **「默认助手不能删」**——因为它是兜底（`DEFAULT_ASSISTANT_ID`）。
 
-### `route-templates.ts`：六条，上传已退役
+### `route-templates.ts`：七条，上传已退役
 
 ```text
-GET    /api/templates              { builtIn, uploaded: [] }
+GET    /api/templates              { builtIn, uploaded: [] }     ← 产品在用（ReviewWorkbench）
 POST   /api/templates/scan         → 405 UPLOAD_RETIRED
 POST   /api/templates/register     → 405 UPLOAD_RETIRED
 POST   /api/templates/enabled      → 405 UPLOAD_RETIRED
@@ -953,6 +1128,8 @@ DELETE /api/templates/uploaded     → 405 UPLOAD_RETIRED
 GET    /api/templates/built-in
 GET    /api/templates/uploaded     恒为空数组
 ```
+
+**七条里只有 `GET /api/templates` 有产品调用方**，其余六条「已注册但产品未调用」：四条写路径固定 405，`GET /api/templates/uploaded` 恒空，`GET /api/templates/built-in` 只在 CHANGELOG 里出现过（界面要内置清单时用的是 `GET /api/templates`）。
 
 **上传 / 扫描 / 启停已退役**（文件头注释：「只读内置清单……避免用户自带稿解析失败」）。四条写路径统一回 405 与同一句文案：
 
@@ -1064,6 +1241,8 @@ GET/PUT /api/mcp/servers
 POST    /api/mcp/servers/:id/test
 ```
 
+三条**全部「已注册但产品未调用」**：渲染层没有 MCP 设置面，今天没有任何界面会读写 `workspace/lawmind/mcp-servers.json`。它们仍可被 curl / 脚本使用，安全规则也还在。
+
 **那条安全提示是常量**（原文）：
 
 ```text
@@ -1078,19 +1257,22 @@ confirm_command_execution_required
 <安全提示> 确认风险后请在请求体中带 confirmCommandExecution: true 再提交。
 ```
 
-**「必须带一个显式布尔」**——这是一道防手滑的门。而高安全模式下直接 403：
+**「必须带一个显式布尔」**——这是一道防手滑的门。而高安全模式下 **`PUT` 与 `test` 直接 403**（`GET` 仍可读，只回一个 `highSecurityMode` 标志）：
 
 ```text
 高安全模式下不可配置 MCP 客户端。
+高安全模式下 MCP 客户端已关闭。
 ```
 
-### `route-platform.ts`：三条与一条「不强制」
+### `route-platform.ts`：四条与一条「不强制」
 
 ```text
 GET/PATCH /api/policy/workspace
 POST      /api/policy/workspace/recommended-allowlist
 GET       /api/platform/gate-history    默认 60 条
 ```
+
+`GET` / `PATCH /api/policy/workspace` 是两条，所以这个文件是四条。**`POST .../recommended-allowlist` 已注册但产品未调用**：设置页没有这个按钮，合并推荐名单目前只能手工打。
 
 **那条注解说清了合并推荐名单的边界**：
 
@@ -1191,6 +1373,8 @@ strictDangerousToolApproval: true
 
 **「默认严格」**——所以这条只读接口在不传配置时给的是最保守的口径。
 
+但这条 **`GET /api/tools/registry` 已注册但产品未调用**：治理信息由引擎在装配工具表时直接用，界面不读这条 HTTP（路径只在 CHANGELOG 里出现过）。
+
 ### `route-sse.ts`：一条
 
 ```text
@@ -1203,13 +1387,15 @@ GET /api/events
 
 总线没起来时 `503 sse_bus_unavailable`。
 
-### `route-onboarding.ts`：一条
+### `route-onboarding.ts`：三条
 
 ```text
-POST /api/onboarding/firstrun-wizard
+GET  /api/onboarding/firstrun          首次向导是否已完成/已关闭（含 pendingMatterId）
+POST /api/onboarding/firstrun-dismiss  关闭首次向导
+POST /api/onboarding/firstrun-wizard   记录向导完成，并挂上验收漏斗待办
 ```
 
-而它的案件目录围栏有两条：
+后一条的案件目录围栏有两条：
 
 ```text
 cases/<matterId> 必须存在且是目录
@@ -1220,35 +1406,36 @@ cases/<matterId> 必须存在且是目录
 
 ### `route-registry.ts` 与 `route-types.ts`
 
-这两个是第 63 章讲过的（59 个 handler 的有序数组、两个上下文类型）。
+这两个是第 63 章讲过的（62 个 handler 的有序数组、两个上下文类型）。60 个实现文件为什么是 62 个 handler：`lawmind-server-route-audit-export.ts` 一个文件挂了 3 个（summary / verify-external / export 分三次注册），其余 59 个各 1 个。
 
 **这里只补一条**：`route-types.ts` 里 `clientId` 的注释列了五种身份：`desktop` / `renderer` / `word-addin` / `cli` / `shared`。**而 `LOCAL_API_CLIENTS` 只有四个**（没有 `shared`）——因为 `shared` 是那个开发跳过的身份。
 
-## 65.11 十一个跨文件的环境变量
+## 65.11 十个跨文件的环境变量
 
-把这一章的 49 个文件扫一遍，只出现十一个 `LAWMIND_*`：
+把这一章的 52 个文件扫一遍，出现十个**真的读 `process.env`** 的 `LAWMIND_*`：
 
-| 变量                             | 文件          | 作用                  |
-| -------------------------------- | ------------- | --------------------- |
-| `LAWMIND_MAIL_SEED`              | automations   | `=1` 才允许播演示邮件 |
-| `LAWMIND_ENABLE_COLLABORATION`   | collaboration | `=false` 关协作       |
-| `LAWMIND_AUTHORITY_ENDPOINT`     | health        | 法源端点              |
-| `LAWMIND_REPO_ROOT`              | health        | 仓库根                |
-| `LAWMIND_REASONING_MODE`         | health        | 推理模式              |
-| `LAWMIND_PROJECT_DIR`            | host-access   | 项目目录              |
-| `LAWMIND_ALLOW_INDEX_REBUILD`    | search        | `=1` 允许重建索引     |
-| `LAWMIND_ENABLE_E2E_TEST_ROUTES` | e2e           | `=1` 开测试路由       |
-| `LAWMIND_DAEMON`                 | daemon        | `=1` 是守护模式       |
+| 变量                             | 文件          | 作用                          |
+| -------------------------------- | ------------- | ----------------------------- |
+| `LAWMIND_MAIL_SEED`              | automations   | `=1` 才允许播演示邮件         |
+| `LAWMIND_ENABLE_COLLABORATION`   | collaboration | `=false` 关协作               |
+| `LAWMIND_AUTHORITY_ENDPOINT`     | health        | 法源端点                      |
+| `LAWMIND_REPO_ROOT`              | health        | 仓库根                        |
+| `LAWMIND_REASONING_MODE`         | health        | 推理模式                      |
+| `LAWMIND_PROJECT_DIR`            | host-access   | 项目目录                      |
+| `LAWMIND_ALLOW_INDEX_REBUILD`    | search        | `=1` 允许重建索引             |
+| `LAWMIND_ENABLE_E2E_TEST_ROUTES` | e2e           | `=1` 开测试路由               |
+| `LAWMIND_DAEMON`                 | daemon        | `=1` 是守护模式               |
+| `LAWMIND_PACKAGED`               | word-surface  | `=1` 时预览不再跟随源码 mtime |
 
-**只有九个**（另两个是常量的名字，不是环境变量）。
+另外三个同名风格的大写标识**不是环境变量**，别混进配置清单：`LAWMIND_AGENT_BEHAVIOR_EPOCH`（提示词里的行为版本常量）、`LAWMIND_ROUTE_HANDLERS`（注册表数组）、`window.LAWMIND_ADDIN`（插件页面里的注入对象）。`LAWMIND_POLICY_FORCE_NO_WEB_SEARCH` 只在一句注释里出现（说明旧策略要重启才生效），这一层没有读它。
 
 **这个数字说明一件事**：**这一层的配置入口是「设置界面」而不是环境变量**。九成的功能开关走 `/api/workspace/*`、`/api/policy/*`、`/api/workspace/desk-settings` 这些端点，写进工作区文件。
 
 ## 65.12 已知坑（本章相关）
 
 - **没有 `/api/doctor` 或 `/api/repair`**——doctor 数据在 `/api/health` 里。
-- **`/api/host-access` 没有授权端点**——授权舞步全在模型工具那侧。
-- **`/api/fs/write` 用 409 + `mtimeMs` 做并发保护。**
+- **`/api/host-access` 没有授权端点**——授权舞步全在模型工具那侧；而且这四条 HTTP 都没有产品调用方（桌面走 IPC）。
+- **`/api/fs/write` 与 `/api/fs/xlsx-save` / `/api/fs/pptx-save` 用 409 + `mtimeMs` 做并发保护**；前两条写成功还会发 `fs:change`，`pptx-save` 不发。
 - **`protected_workspace_path` 的文案里点名了「请使用对应的设置入口」。**
 - **Word 插件七个状态里四个是异常态。**
 - **`not_awaiting_matter:<状态>` 把状态拼进错误码。**
@@ -1257,8 +1444,8 @@ cases/<matterId> 必须存在且是目录
 - **邮件测试失败返回 HTTP 200**（业务结果 vs 请求错误的区分）。
 - **删委派会同时请求中止会话。**
 - **工作流异步分支返回 202。**
-- **`matter-replica` 有四个端点不过版本门**（否则没法问「为什么关着」）。
-- **密钥轮换失败会单独报警告**（成员已移除但仍能解密的危险状态）。
+- **`matter-replica` 有五条端点不过版本门**（否则没法问「为什么关着」），`cloud` / `relay` 各判一次，其余十四条统一 403。
+- **密钥轮换失败会单独回 `warning`**（HTTP 仍 200；成员已移除但仍能解密的危险状态）。
 - **`learning:` 前缀让两类建议共用一个端点。**
 - **「稍后再说」在服务端也是明确不存在的路。**
 - **`adopt` 的 note 在改写时变成字面量 `"rewritten"`。**
@@ -1281,4 +1468,76 @@ cases/<matterId> 必须存在且是目录
 - **重建索引需要 `LAWMIND_ALLOW_INDEX_REBUILD=1`。**
 - **`route-sources` 里「没 taskId 就扫全工作区」那条分支是罕见路径**（自己标注了）。
 - **`route-tools-registry` 的默认口径是最保守的**（危险工具要批准 + 严格审批）。
-- **这一层的功能开关九成走工作区文件，只有九个环境变量。**
+- **`/api/assistants/:id/desk` 已移除**，助手名册只剩 9 条路由。
+- **作业有一个非终态 `awaiting_lawyer`**：`continue` 才往下跑，取消则立刻 `cancelled`。
+- **模板组里只有 `GET /api/templates` 有产品调用方**，其余六条是退役面（四条 405 + 一条恒空 + 一条只在 CHANGELOG）。
+- **`fs` 现在有 13 条**：raw（带 Range）、zip 目录、`.doc` 转 docx、xlsx/pptx 预览与写回都在这个文件里。
+- **`word-surface` 的预览在开发态跟随源码 mtime**（打包态 `LAWMIND_PACKAGED=1` 才固定），所以响应里带 `codeStamp`。
+- **`word-surface` 的路径不匹配一律 404**（根不对也是 404，不是 403）。
+- **记忆库的三种视图是 `habits` / `matter` / `revoked`**，列表前会自动迁移老工作区记忆。
+- **这一层的功能开关九成走工作区文件，只有十个环境变量。**
+
+## 65.13 已注册但产品未调用的端点
+
+「已注册」= 在 `LAWMIND_ROUTE_HANDLERS` 里、能被 curl 打通、有测试；「未调用」= 完整路径（含模板字符串拼接）在 `apps/lawmind-desktop/src/renderer/` 与 `src/lawmind/` 里都找不到调用方。**IT 排障时别等一个永远不会来的调用。** 完整判法与反向清单（仓库别处在用的端点）见附录 B.62。
+
+按集群列：
+
+**A 健康与诊断**
+
+- `GET /api/daemon/log`——日志一直在写，界面没有读入口。
+- `GET /api/metrics/north-star-trend`——快照有调用，趋势没有。
+
+**B 本机与文件**
+
+- `GET /api/fs/pdf-preview`——桌面 PDF 预览是渲染进程的 pdf.js。
+- `POST /api/fs/write`——桌面写文件走 Electron IPC `window.lawmindDesktop.fsWrite`（附录 B.62 未收这一条，按今天的工作树核对补入）。
+
+**C Word 插件**
+
+- `GET /api/word-addin/matters`——任务窗格脚本不调它，只有路由测试。
+
+**D 自动办件与邮件**
+
+- `POST /api/automations/mail/seed`——还要 `LAWMIND_MAIL_SEED=1`。
+- `GET /api/ethics-wall`、`POST /api/ethics-wall/acknowledge`——引擎有伦理墙，界面不打这两条 HTTP。
+
+**E 协作与专案组**
+
+- `POST /api/routing/resolve`——`GET` / `PUT /api/routing/defaults` 有调用。
+
+**F 案件副本与云**
+
+- `GET /api/matter-replica/audit-report`
+- `POST /api/matter-replica/scheduler/tick`
+- `POST /api/matter-replica/members/revoke`
+- `GET /api/matter-replica/ops`、`GET /api/matter-replica/feed`
+- `GET /api/matter-replica/materials`、`POST /api/matter-replica/materials/publish`
+
+**G 学习与记忆**
+
+- 这一组不在附录 B.62 的清单里（adoption / library / preview / templates / historical-scan / redline / 合同修订）。
+
+**H 判定、采信与审计**
+
+- `GET /api/judgment/summary`——单份 / 待定夺 / 分档三条有调用。
+- `GET /api/acceptance-sheet/locate`、`GET /api/acceptance-sheet/page`（附录 B.62 已收）；按今天的检索，同组另三条——`GET /api/sessions/:sessionId/acceptance-sheet`、`GET` / `POST /api/drafts/:taskId/acceptance-sheet`——也只有 e2e mock 在用，**整组没有产品入口**。
+
+**I 审批与设置**
+
+- `POST /api/templates/scan`、`POST /api/templates/register`、`POST /api/templates/enabled`、`DELETE /api/templates/uploaded`——固定 405。
+- `GET /api/templates/uploaded`——恒空数组。
+- `GET /api/templates/built-in`——界面要清单用 `GET /api/templates`。
+
+**J 其余单点**
+
+- `GET /api/mcp/servers`、`PUT /api/mcp/servers`、`POST /api/mcp/servers/:id/test`——渲染层没有 MCP 设置面。
+- `GET /api/tools/registry`——治理信息由引擎在装配工具表时直接用。
+- `POST /api/policy/workspace/recommended-allowlist`——`GET` / `PATCH /api/policy/workspace` 有调用。
+
+**不在本章文件里、但同属这张清单的两条**（第 64 章已提，列在这里便于一次查完）：
+
+- `GET /api/queues`（`route-matters.ts`，第 64.5 节）。
+- `POST /api/sessions/:sessionId/resume-paused`（`route-sessions.ts`，第 64.2 节）。
+
+反过来，下面这些**不在上面那两棵树里，但仓库别处确实在用**，不算未调用：`GET /.well-known/lawmind-local`（Electron 主进程与 `scripts/lawmind/lawmind-local-token.ts`）、两条 e2e、`GET /api/support/bundle`、`GET /api/agent-presets`、`/word-addin/` 静态面。

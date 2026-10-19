@@ -3,7 +3,7 @@
 第 66 章讲了进程与桥面。这一章讲三块：
 
 ```text
-local-server.mjs              端口选择、子进程 spawn、环境注入、崩溃监督（1178 行）
+local-server.mjs              端口选择、子进程 spawn、环境注入、崩溃监督（1428 行）
 local-api-port-contract.mjs   端口漂移与清单落点的纯函数
 local-api-credentials.mjs     凭据派生（唯一真相源）
 server-supervision.mjs        退避策略纯函数
@@ -97,6 +97,8 @@ Word 的侧载清单把回环端口**钉死**在文件里：清单由服务端�
 **第 ② 步只管诊断，不管绑定**（注释：`这一步只为诊断，绑定仍交给 pickPort`）——所以「查出谁占着」与「换端口」是两件事。
 
 **第 ③ 步那个「listen 成功再 close」是实现细节**：Node 没有「试绑」API，只能真绑一次再放掉。**这制造了一个竞态窗口**——所以外层有三次重试（见下）。
+
+这五步只发生在**桌面进程**里。服务端子进程从不自己挑端口：非 headless 启动时 `LAWMIND_DESKTOP_PORT` 是必填（缺失就报 `LAWMIND_WORKSPACE_DIR and LAWMIND_DESKTOP_PORT are required` 并退出）；headless（`LAWMIND_DAEMON=1` / `LAWMIND_DAEMON_SUPERVISOR=1`）反而**不要求**端口——它不监听回环 API。
 
 ### 「持久化端口」的由来
 
@@ -198,7 +200,7 @@ Word 加载项的侧载清单把端口钉死（http://localhost:<持久端口>/w
 根因治理见 `main.mjs` 的单实例锁。
 ```
 
-**「静默违反持久化契约」**——这是对问题的准确定性。而最后一句指出：**真正的根治是单实例锁**（第 66.1 节第 ⑦ 步）——**不允许多实例，就不会有别人占着端口**。
+**「静默违反持久化契约」**——这是对问题的准确定性。而最后一句指出：**真正的根治是单实例锁**（第 66.1 节第 ⑧ 步）——**不允许多实例，就不会有别人占着端口**。
 
 漂移记录的形状是 `{ requestedPort, actualPort, occupant }`——而它经 `lawmind:get-config` 直达界面。
 
@@ -214,7 +216,7 @@ Word 加载项的侧载清单把端口钉死（http://localhost:<持久端口>/w
 
 ### 端口落盘在哪
 
-**没有 `lawmind-port` 这样的握手文件**（全仓 0 处命中）。端口只写一个地方：
+**没有 `lawmind-port` 这样的握手文件**（除本章这句以外，全仓 0 处命中）。端口只写一个地方：
 
 ```text
 <userData>/LawMind/desktop-config.json  →  { ...原内容, apiPort: <数字> }
@@ -228,7 +230,7 @@ Word 加载项的侧载清单把端口钉死（http://localhost:<持久端口>/w
 
 **「写盘失败绝不能影响启动」**——所以它是 try/catch 的。
 
-## 67.3 子进程：spawn 与二十五项环境注入
+## 67.3 子进程：spawn 与二十七项环境注入
 
 ### 两条启动路径
 
@@ -259,7 +261,7 @@ Server script not found: <路径>
 
 `serverEnv` 是「`process.env` + 下表」的合并。
 
-**第一类：坐标与开关（十一项）**
+**第一类：坐标与开关（十二项）**
 
 | 变量                                | 值                               |
 | ----------------------------------- | -------------------------------- |
@@ -274,6 +276,7 @@ Server script not found: <路径>
 | `LAWMIND_PACKAGED`                  | 仅打包态 `"1"`                   |
 | `LAWMIND_RESOURCES_PATH`            | 仅打包态                         |
 | `LAWMIND_OFFICECLI`                 | officecli 可执行文件路径         |
+| `LAWMIND_ALLOW_INDEX_REBUILD`       | 桌面拉起时默认 `1`（见下）       |
 
 桌面拉起本机 API 时，若环境变量和 `.env.lawmind` 都没写 `LAWMIND_ALLOW_INDEX_REBUILD`，主进程会把它设成 `1`。用户已经写过的值会保留。单独启动的服务进程仍默认关闭。
 
@@ -286,7 +289,7 @@ LAWMIND_LOCAL_API_REVOKED_CLIENTS
 LAWMIND_LOCAL_API_INSTANCE_ID
 ```
 
-**第三类：从密钥链取的密钥（八类）**
+**第三类：密钥环里的密钥（十一项）**
 
 ```text
 LAWMIND_AGENT_API_KEY
@@ -294,6 +297,7 @@ LAWMIND_QWEN_API_KEY
 LAWMIND_DEEPSEEK_API_KEY
 LAWMIND_PROVIDER_OPENAI_API_KEY
 LAWMIND_WEB_SEARCH_API_KEY / BRAVE_API_KEY
+LAWMIND_AUTHORITY_API_KEY
 LAWMIND_CUSTOM_<大写 UUID>_API_KEY
 LAWMIND_MCP_<大写 ID>_SECRET
 LAWMIND_AUDIT_CHAIN_KEY
@@ -301,6 +305,8 @@ LAWMIND_MAIL_SECRETS_KEY
 ```
 
 **每一条都有「且 env 文件未设」的前置条件**——所以 **`.env.lawmind` 里的显式配置优先于密钥链**。
+
+`LAWMIND_AUTHORITY_API_KEY`（北大法宝 / 商业法源令牌）还多一道条件：只有当前 `LAWMIND_AUTHORITY_PROVIDER` 用的是「存储密钥」那种接法时才注入（`authorityProviderUsesStoredKey`）。选错接法时注入了也没人读，所以这里按 provider 判断，不无条件下发。
 
 而自定义模型与 MCP 的变量名是**动态生成**的：
 
@@ -324,6 +330,8 @@ LAWMIND_MCP_<id 同上>_SECRET
 ```
 
 **这是第 63.4 节那条「打包版忽略 dev 开关」的**第二道**保险**：服务端自己会忽略，主进程还会**根本不给**。
+
+dev 态真的关掉鉴权时还有一层缓释：变更类方法（`MUTATION_METHODS` = `POST` / `PUT` / `PATCH` / `DELETE`）必须带 `Content-Type: application/json`（`validateLoopbackMutationContentType`）。跨站表单发不出这个头，simple request 又过不了预检的来源白名单——这是把「关鉴权」的爆炸半径收在开发机上的做法，不是新的鉴权。
 
 ### 为什么用户密钥要绕一圈经密钥链
 
@@ -440,6 +448,7 @@ LEGACY_SHARED_CLIENT = "shared"
 desktop / renderer  全量
 word-addin          只碰 /word-addin/ 与 /api/word-addin/
 cli                 只读（GET / HEAD / OPTIONS）
+shared              全量（旧式令牌，仅 dev/E2E 覆盖路径）
 其他                拒绝
 ```
 
@@ -519,6 +528,8 @@ cli                 只读（GET / HEAD / OPTIONS）
 
 **只写 `cli` 一个客户端**（注释：`只写「没有别的投递通道」的客户端 —— 不全量落盘`）。
 
+读取端是 `pnpm lawmind:local:token`（`scripts/lawmind/lawmind-local-token.ts`）：默认只打印凭据本身，`--json` 给出 base / epoch / instanceId，`--status` 探一次发现端点。它按顺序试 `LAWMIND_LOCAL_API_CLIENTS_FILE`、`LAWMIND_USER_DATA_DIR`、打包态 userData、开发态 `<appData>/Electron`——所以开发栈与打包版各写各的文件时都能读到。
+
 ### 删除时必须比对 instanceId
 
 ```text
@@ -537,7 +548,8 @@ cli                 只读（GET / HEAD / OPTIONS）
 ### 安装密钥本身的三级回落
 
 ```text
-① 密钥链（service `ai.lawmind.desktop`，account `localApi.installationSecret`）
+① 密钥环（命名空间 `ai.lawmind.desktop` 下的 account `localApi.installationSecret`；
+   密文落在 `<userData>/lawmind-secrets.json`）
 ② 不可用 → `<userData>/LawMind/local-api-installation-secret`（0600，64 位 hex）
 ③ 都失败 → 进程内临时密钥（打警告）
 ```
@@ -573,7 +585,7 @@ cli                 只读（GET / HEAD / OPTIONS）
 
 **「密钥才需要藏」**——所以判断标准是「是秘密吗」，不是「重要吗」。
 
-## 67.6 崩溃监督：两层结构
+## 67.6 崩溃监督：两条监督线
 
 ### `server-supervision.mjs` 只有两个纯函数
 
@@ -590,7 +602,7 @@ SERVER_SUPERVISION_DEFAULTS = { baseDelayMs: 500, factor: 2, maxDelayMs: 30000, 
 正常停止（killLocalServer / 手动重启 / 应用退出）不触发监督重启。
 ```
 
-**「表面化给用户」**——第 5 次失败会弹一个对话框：
+**「表面化给用户」**——第 5 次监督重启也失败之后（下一次调度发现 `attempt > maxAttempts`）才放弃并弹对话框：
 
 ```text
 message: LawMind 本地服务多次崩溃，已停止自动重启。
@@ -721,9 +733,11 @@ roots["mount:<id>"] = 每个挂载点
 
 ## 67.8 macOS 签名与公证
 
-### 先记一个否定事实
+### 先记两个否定事实
 
-**代码里完全不做隔离属性（quarantine）处理。** 全仓搜 `xattr` / `quarantine` / `spctl` 在打包文件里 0 处命中。
+**应用自身完全不做隔离属性（quarantine）处理。** 在 `apps/lawmind-desktop/electron/` 里搜 `xattr` / `quarantine` / `spctl` 是 0 处命中——没有「解掉 quarantine 再重启自己」这类动作。
+
+**唯一一处 `xattr` 在 vendor 脚本里**：`scripts/vendor-officecli.mjs` 的 `stripQuarantine` 会对刚下载的 officecli 二进制执行 `xattr -d com.apple.quarantine`，否则下载物带隔离标记，连 `officecli --version` 都跑不起来。这是「让随包二进制可执行」，不是「让 app 绕过 Gatekeeper」。
 
 而 `README.md` 里那句话说明了预期行为：
 
@@ -767,6 +781,8 @@ LAWMIND_REQUIRE_NOTARIZED=1 but no Developer ID Application identity was found. 
 
 **「而不是悄悄降级」**——这是发布流程该有的姿态：**要发布就得签，签不了就别发**。
 
+代码只读 `CSC_NAME` 与 `LAWMIND_MAC_SIGN_IDENTITY` 两个显式变量；报错文案里顺带提到的 `CSC_LINK` 属于 electron-builder 的证书导入链路，`pickMacSignIdentity` 并不解析它。
+
 ### 签名的命令数组
 
 ```text
@@ -806,6 +822,8 @@ listBundledHelperBinaries(appPath)
 
 **为什么自己写**：因为要支持三种凭据来源，并要能对**多个产物**（dmg + zip）逐个提交与装订。
 
+**默认不要求公证**：`mac` 段里是 `notarize: false` + `hardenedRuntime: true` + `gatekeeperAssess: false`，没有 Developer ID 就是 adhoc 包。`LAWMIND_REQUIRE_NOTARIZED=1` 只在 tag 构建且配了 `MAC_CSC_LINK` 时由 CI 传入（`.github/workflows/lawmind-desktop-build.yml`），本机 `pnpm lawmind:desktop:dist` 仍是 `--publish never` 的 adhoc 包。所以「不公证」是默认路径，「必须公证」是发布时的显式开关。
+
 ### 三种公证凭据来源
 
 | 优先级           | 需要的变量                                                   |
@@ -813,7 +831,8 @@ listBundledHelperBinaries(appPath)
 | ① 密钥链 profile | `APPLE_KEYCHAIN_PROFILE`（+ 可选 `APPLE_KEYCHAIN`）          |
 | ② API Key        | `APPLE_API_KEY` + `APPLE_API_KEY_ID` + `APPLE_API_ISSUER`    |
 | ③ Apple ID       | `APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID` |
-| 都没有           | 抛 `missing Apple notary credentials`                        |
+
+一个都没有时是**跳过**而不是报错：`afterAllArtifactBuild` 打一行警告就返回；只有 `LAWMIND_REQUIRE_NOTARIZED=1` 才抛「notary credentials are not set」。直接调用 `notarizeAndStapleArtifacts` 的那个函数本身会抛 `missing Apple notary credentials`——钩子层已经先挡过一次，所以生产路径通常看不到它。
 
 **三种都支持是为了适配本机开发与 CI 两种场景**（CI 用 ③ 或 ②，本机用 ①）。
 
@@ -829,10 +848,10 @@ listBundledHelperBinaries(appPath)
 日志格式：
 
 ```text
-[lawmind-mac] <adhoc|developer-id> sign: nodes=<节点数> identity=<env|keychain|adhoc>
+[lawmind-mac] <adhoc|developer-id|named> sign: nodes=<节点数> identity=<env|keychain|adhoc>
 ```
 
-`after-all-artifact-build-mac.mjs`（48 行）：**所有产物出来之后公证**。四步：
+`after-all-artifact-build-mac.mjs`（48 行）：**所有产物出来之后公证**。五步：
 
 ```text
 ① 非 darwin → 返回
@@ -886,15 +905,33 @@ resources/word-addin           → word-addin
 
 **五项都是「必须随包」的东西**：服务端代码、技能种子、Node 运行时、officecli、Word 插件。**任何一项漏了功能就会缺一块。**
 
-而 `files` 只收三样：
+而 `files` 只收三处：
 
 ```text
-electron/**/*（排除测试）
+electron/**/*（排除 electron/**/*.test.ts）
+branding/manifest.json
 dist/**/*
-（排除 sourcemap）
+（全局排除 **/*.map）
 ```
 
+`branding/manifest.json` 不是可选项：`electron/brand.mjs` 启动时读它拿 `productName` / `appId`，漏了应用直接起不来。
+
 **「排除 .map」**——所以打包版不带 sourcemap。
+
+### 随包运行时是钉版本拉下来的
+
+`resources/node-runtime` 与 `resources/officecli` 都不是仓内产物：`pnpm lawmind:desktop:dist` 先 bundle 服务端、跑两个 vendor 脚本，把二进制拉进 `apps/lawmind-desktop/resources/<名字>/<platform-arch>/`，再由上面那五项 `extraResources` 整目录搬进 app。目录布局必须与读取端一致（`resolveNodeExecutable`、`resolveOfficeCliExecutable`），否则打包后找不到。
+
+| 脚本                                      | 钉版本的变量                                          | 当前缺省值  | 校验                                        |
+| ----------------------------------------- | ----------------------------------------------------- | ----------- | ------------------------------------------- |
+| `scripts/vendor-lawmind-desktop-node.mjs` | `LAWMIND_DESKTOP_NODE_VERSION`（或 `--node-version`） | **22.23.2** | 拉完跑 `node --version`，必须等于 `v<版本>` |
+| `scripts/vendor-officecli.mjs`            | `LAWMIND_OFFICECLI_VERSION`（或 `--version`）         | **1.0.149** | 必须过 release 的 `SHA256SUMS`              |
+
+Node 侧：从 `nodejs.org/dist` 下载当前构建机同平台/架构的**官方独立构建**（自带 libnode，不依赖 Homebrew 那种带共享 dylib 的安装），落到 `resources/node-runtime/<platform-arch>/bin/node`（Windows 是 `node.exe`）。幂等规则是「目标已存在且 `--version` 与期望一致就跳过」。内网/离线用 `--node <独立二进制>` 直接复制——它也认 `LAWMIND_NODE_BIN`，与运行时覆盖是同一个变量名。
+
+officecli 侧：按平台/架构选资产（`officecli-mac-arm64`、`officecli-linux-alpine-x64`、`officecli-win-x64.exe` 等，Linux 会用 `isMusl()` 区分 glibc 与 alpine），先试镜像 `d.officecli.ai` 再试 GitHub Release；下载后写一个 `VERSION` 旁车文件，并把 `third_party/officecli` 的 LICENSE / NOTICE 复制到旁边。它的 `--postinstall` 在 CI 里默认跳过（`CI` / `GITHUB_ACTIONS`，除非 `LAWMIND_VENDOR_OFFICECLI=1`，另可用 `LAWMIND_SKIP_OFFICECLI_VENDOR=1` 强制跳）：装依赖不该因为下载二进制失败而红，真正需要它的是 dist 脚本。
+
+**所以「升级随包 Node / officecli」不是改一行依赖版本**：改脚本缺省值（或传环境变量 / `--version`），再重跑 vendor；`dist` 之前两者都必须成功，否则 `extraResources` 里对应目录是空的。
 
 ### 发布渠道
 
@@ -922,7 +959,7 @@ publish: [{ provider: "github", owner: "sunhl4", repo: "LawMind" }]
 - **`LAWMIND_NODE_BIN` 优先于随包 Node。**
 - **`.env.lawmind` 里的键会盖住密钥链**——所以保存新 Key 时要先把明文键删掉。
 - **自定义模型与 MCP 的环境变量名是动态生成的**，必须与引擎侧命名规则一致。
-- **`LAWMIND_SKIP_API_AUTH` 有两道保险**：服务端忽略 + 主进程不注入。
+- **`LAWMIND_SKIP_API_AUTH` 有两道保险**：服务端忽略 + 主进程不注入；dev 下另要求变更类方法带 `Content-Type: application/json`。
 - **`shared` 那个旧身份不在 `LOCAL_API_CLIENTS` 里**，所以它不受轮换与吊销管辖。
 - **Word 插件只拿到自己那两条路径的权限**（数据面；静态面本就免令牌）。
 - **`cli` 只读**，写操作必须走桌面端。
@@ -939,13 +976,14 @@ publish: [{ provider: "github", owner: "sunhl4", repo: "LawMind" }]
 - **审计链密钥要跨进程复用**（否则链验不过）。
 - **`host-access.json` 的 `schemaVersion !== 1` 就整个重置**（不做迁移）。
 - **`roots.project` 取第一个挂载点。**
-- **代码不做 quarantine 处理**；未签名/adhoc 构建首次打开要右键。
+- **应用本身不做 quarantine 处理**；只有 vendor 脚本对下载的 officecli 执行 `xattr -d`。未签名/adhoc 包首次打开要右键。
 - **adhoc 签名过不了 Gatekeeper**（只能本地跑）。
 - **`LAWMIND_REQUIRE_NOTARIZED=1` 是硬门**：签不了就直接失败，不降级。
 - **adhoc 签名不加 `--timestamp`。**
 - **签名顺序是「先辅助二进制，最后 `--deep` 整个 app」**。
-- **electron-builder 的 `notarize` 被关掉**，改由 `afterAllArtifactBuild` 手写（为了支持三种凭据来源 + 多个产物）。
+- **electron-builder 的 `notarize` 被关掉**（默认不公证），改由 `afterAllArtifactBuild` 手写（为了支持三种凭据来源 + 多个产物）；只有 tag + `MAC_CSC_LINK` 才传 `LAWMIND_REQUIRE_NOTARIZED=1`。
 - **两份 entitlements 只差「用户选择文件读写」一项。**
 - **LawMind 不走 App Sandbox**（强化运行时 + 不沙箱）。
-- **打包漏了 extraResources 任何一项，功能就会缺一块**。
+- **打包漏了 extraResources 任何一项，功能就会缺一块**；`files` 还必须带 `branding/manifest.json`（启动时要读）。
+- **随包 Node 与 officecli 是钉版本下载的**（`22.23.2` / `1.0.149`）：升级改脚本缺省值或环境变量后要重跑 vendor，再 dist。
 - **缺 `latest*.yml` 会导致客户端无法自动更新**（CI 有门禁）。

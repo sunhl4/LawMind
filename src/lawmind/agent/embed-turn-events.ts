@@ -8,6 +8,8 @@ import type { RunTurnEvent } from "./turn-orchestrator-events.js";
 
 export const EMBED_TURN_EVENT_TYPES = [
   "round_start",
+  "turn_wait",
+  "turn_wait_end",
   "tool_call_start",
   "tool_call_end",
   "tool_progress",

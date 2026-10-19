@@ -10,6 +10,13 @@ import {
 
 export const LAWMIND_PREPARE_WORKSPACE_FILE_EVENT = "lawmind:prepare-workspace-file";
 
+/** 草稿还没有 Word 时，中栏改开草稿台，而不是停在「找不到原件」。 */
+export const LAWMIND_OPEN_DRAFT_DESK_EVENT = "lawmind:open-draft-desk";
+
+export type OpenDraftDeskDetail = { taskId: string };
+
+let pendingDraftDeskId: string | null = null;
+
 export function prepareWorkspaceForFileOpen(): void {
   if (typeof window === "undefined") {
     return;
@@ -17,10 +24,47 @@ export function prepareWorkspaceForFileOpen(): void {
   window.dispatchEvent(new CustomEvent(LAWMIND_PREPARE_WORKSPACE_FILE_EVENT));
 }
 
+export function requestOpenDraftDesk(taskId: string): boolean {
+  const id = taskId.trim();
+  if (!id || typeof window === "undefined") {
+    return false;
+  }
+  pendingDraftDeskId = id;
+  prepareWorkspaceForFileOpen();
+  window.dispatchEvent(
+    new CustomEvent<OpenDraftDeskDetail>(LAWMIND_OPEN_DRAFT_DESK_EVENT, { detail: { taskId: id } }),
+  );
+  return true;
+}
+
+/** 不取走。重挂载时仍能回到同一份草稿，直到律师打开文件或点「回到文件」。 */
+export function peekPendingDraftDesk(): string | null {
+  return pendingDraftDeskId;
+}
+
+export function clearPendingDraftDesk(): void {
+  pendingDraftDeskId = null;
+}
+
+function openMiddleColumnFile(relPath: string): void {
+  const path = normPath(relPath);
+  if (!path || typeof window === "undefined") {
+    return;
+  }
+  prepareWorkspaceForFileOpen();
+  requestOpenWorkspaceFile(path, path.startsWith("cases/") ? "workspace" : "project");
+  if (/\.docx?$/i.test(path)) {
+    window.dispatchEvent(new CustomEvent(LAWMIND_SHOW_WORD_SURFACE_EVENT));
+  }
+}
+
 export async function openContractRevisionForTask(opts: {
   apiBase: string;
   taskId: string;
   workspaceDir?: string;
+  projectDir?: string;
+  /** 草稿没有可打开的 Word 时，改开用户点的这份文件。 */
+  fallbackRelPath?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const taskId = opts.taskId?.trim();
   if (!taskId) {
@@ -35,16 +79,28 @@ export async function openContractRevisionForTask(opts: {
       ok?: boolean;
       draft?: Parameters<typeof revisionColumnTarget>[0];
     }>(opts.apiBase, `/api/drafts/${encodeURIComponent(taskId)}`);
-    const target = body.draft ? revisionColumnTarget(body.draft, opts.workspaceDir) : null;
-    if (!target) {
-      return {
-        ok: false,
-        error: "找不到合同原件路径。请确认这份草稿已绑定 Word 原件。",
-      };
+    const target = body.draft
+      ? revisionColumnTarget(body.draft, opts.workspaceDir, opts.projectDir)
+      : null;
+    if (target) {
+      requestOpenWorkspaceFile(target.relPath, target.root);
+      window.dispatchEvent(new CustomEvent(LAWMIND_SHOW_WORD_SURFACE_EVENT));
+      return { ok: true };
     }
-    requestOpenWorkspaceFile(target.relPath, target.root);
-    window.dispatchEvent(new CustomEvent(LAWMIND_SHOW_WORD_SURFACE_EVENT));
-    return { ok: true };
+    const fallback = normPath(opts.fallbackRelPath ?? "");
+    if (fallback) {
+      openMiddleColumnFile(fallback);
+      return { ok: true };
+    }
+    if (body.draft && requestOpenDraftDesk(taskId)) {
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      error: body.draft
+        ? "找不到合同原件路径。请确认这份草稿已绑定 Word 原件。"
+        : "找不到这份草稿。",
+    };
   } catch {
     return { ok: false, error: "打开修订窗失败，请稍后重试。" };
   }
@@ -54,7 +110,7 @@ type ReviewDraftRef = {
   taskId?: string;
   title?: string;
   outputPath?: string;
-  contractEdit?: { baselineRelativePath?: string };
+  contractEdit?: { baselineRelativePath?: string; baselineRoot?: string };
 };
 
 function normPath(value: string): string {
@@ -127,11 +183,12 @@ export function taskIdForReviewFile(drafts: readonly ReviewDraftRef[], relPath: 
   return titled ?? sameStem;
 }
 
-/** 对话里点一份 Word：打开中间栏的核对画面。项目目录里的稿不在工作区根上。 */
+/** 对话里点一份 Word：有绑定原件就开修订，否则打开点到的这份文件。 */
 export async function openDocxInReviewSurface(opts: {
   relPath: string;
   apiBase?: string;
   workspaceDir?: string;
+  projectDir?: string;
   /** 找到绑了修订的任务后，交给审核台，而不是只打开预览。 */
   onTask?: (taskId: string) => void;
 }): Promise<void> {
@@ -142,26 +199,31 @@ export async function openDocxInReviewSurface(opts: {
   if (opts.apiBase?.trim()) {
     try {
       const body = await apiGetJson<{ ok?: boolean; drafts?: ReviewDraftRef[] }>(opts.apiBase, "/api/drafts");
-      const taskId = taskIdForReviewFile(body.drafts ?? [], path);
-      if (taskId && opts.onTask) {
+      const drafts = body.drafts ?? [];
+      const taskId = taskIdForReviewFile(drafts, path);
+      const draft = taskId ? drafts.find((row) => row.taskId === taskId) : undefined;
+      const target = draft ? revisionColumnTarget(draft, opts.workspaceDir, opts.projectDir) : null;
+      if (taskId && target && opts.onTask) {
         opts.onTask(taskId);
         return;
       }
-      if (taskId) {
-        await openContractRevisionForTask({
+      if (taskId && target) {
+        const opened = await openContractRevisionForTask({
           apiBase: opts.apiBase,
           taskId,
           workspaceDir: opts.workspaceDir,
+          projectDir: opts.projectDir,
+          fallbackRelPath: path,
         });
-        return;
+        if (opened.ok) {
+          return;
+        }
       }
     } catch {
       /* 对不上草稿时仍打开这份文件。 */
     }
   }
-  prepareWorkspaceForFileOpen();
-  requestOpenWorkspaceFile(path, path.startsWith("cases/") ? "workspace" : "project");
-  window.dispatchEvent(new CustomEvent(LAWMIND_SHOW_WORD_SURFACE_EVENT));
+  openMiddleColumnFile(path);
 }
 
 /** 对话里点非 Word 交付件：打开中间栏。项目目录里的稿不在工作区根上。 */
@@ -182,6 +244,7 @@ export async function openBoundBaselineIfDifferent(opts: {
   apiBase: string;
   relPath: string;
   workspaceDir?: string;
+  projectDir?: string;
 }): Promise<void> {
   const path = normPath(opts.relPath);
   if (!path || !opts.apiBase?.trim() || typeof window === "undefined") {
@@ -198,10 +261,16 @@ export async function openBoundBaselineIfDifferent(opts: {
     if (!baseline || baseline === path) {
       return;
     }
+    const target = draft ? revisionColumnTarget(draft, opts.workspaceDir, opts.projectDir) : null;
+    if (!target || target.relPath === path) {
+      return;
+    }
     await openContractRevisionForTask({
       apiBase: opts.apiBase,
       taskId,
       workspaceDir: opts.workspaceDir,
+      projectDir: opts.projectDir,
+      fallbackRelPath: path,
     });
   } catch {
     /* 对不上就留在当前这份文件上。 */

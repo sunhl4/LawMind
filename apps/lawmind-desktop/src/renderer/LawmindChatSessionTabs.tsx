@@ -8,7 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { useRunningChatSessionIds } from "./lawmind-live-turns";
+import { useQueuedChatSessionIds, useRunningChatSessionIds } from "./lawmind-live-turns";
 import {
   chatSessionDeleteLabel,
   chatSessionListKeyAction,
@@ -85,6 +85,7 @@ export function LawmindChatSessionTabs({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const runningSessionIds = useRunningChatSessionIds();
+  const queuedSessionIds = useQueuedChatSessionIds();
   const orderedIds = sessions.map((row) => row.sessionId);
   const selection = useChatSessionMultiSelect(orderedIds, activeSessionId);
 
@@ -269,6 +270,7 @@ export function LawmindChatSessionTabs({
           const active = s.sessionId === activeSessionId;
           const selected = selection.selectedSet.has(s.sessionId);
           const running = runningSessionIds.has(s.sessionId);
+          const queued = queuedSessionIds.has(s.sessionId);
           if (editingId === s.sessionId) {
             return (
               <div key={s.sessionId} className="lm-chat-session-tab-edit-wrap">
@@ -307,8 +309,14 @@ export function LawmindChatSessionTabs({
                 aria-selected={active}
                 aria-controls={panelId}
                 aria-haspopup="menu"
-                aria-label={running ? `切换到对话：${s.title}，执行中` : `切换到对话：${s.title}`}
-                className={`lm-chat-session-tab${running ? " is-running" : ""}`}
+                aria-label={
+                  queued
+                    ? `切换到对话：${s.title}，排队`
+                    : running
+                      ? `切换到对话：${s.title}，执行中`
+                      : `切换到对话：${s.title}`
+                }
+                className={`lm-chat-session-tab${running ? " is-running" : ""}${queued ? " is-queued" : ""}`}
                 title={
                   running
                     ? `${s.title} — 执行中；左键切换；右键可重命名或删除`

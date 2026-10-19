@@ -2,7 +2,7 @@
 
 第 23 章讲的是「每个工具干什么」。这一章讲**工具是怎么被组装起来、怎么写一个工具、以及有哪些共用的机制**。
 
-`src/lawmind/agent/tools/` 有 66 个实现文件。这一章不逐个列（第 23 章已按用途分过组），而是按**机制**讲。
+`src/lawmind/agent/tools/` 有 70 个非测试实现文件。这一章不逐个列（第 23 章已按用途分过组），而是按**机制**讲。静态生产名默认 72 个；`allowWebSearch` 再加 3 个联网工具，`enableCollaboration` 再加 7 个协作工具，两开关都开是 82。运行时还有 `mcp__*`，不在这 82 里。
 
 ## 49.1 组装：一个注册表的诞生
 
@@ -10,11 +10,11 @@
 
 ```text
 ① 建一个空 ToolRegistry
-② 一个大的 tools 数组（约 50 个工具，分七组写在一起）
-③ tools.push(lawMindDeepResearchTool)          ← 无条件
-④ if (allowWebSearch) push 三个联网工具
+② tools 数组 55 个：检索 / 案件与 deskTools / 材料整理 / 文书计算邮件 / 审计与元工具
+③ tools.push(lawMindDeepResearchTool)          ← 无条件；到这里是 56
+④ if (allowWebSearch) push web_search、search_statute_web、url_dossier
 ⑤ if (enableCollaboration && baseConfig) push 七个协作工具
-⑥ tools.push(...engineTools)
+⑥ tools.push(...engineTools)                   ← 16 个；默认定 72，两开关都开是 82
 ⑦ for (const tool of tools) registry.register(tool)
 ```
 
@@ -112,9 +112,33 @@ if (!matterId) {
 
 ### 参数校验的两个层次
 
-**第一层：中间件**（`argSchemaMiddleware`）按 `parameters` 做的通用校验。
+**第一层：中间件。** 生产链不在 `agent/tools/` 里，而在 `buildDefaultToolPipeline`（`src/lawmind/runtime/tool-pipeline.ts`），由 `getRunToolPipeline` 合成。`composeToolPipeline` 按数组下标调用 `next()`，同一层不能 `next()` 两次。19 段顺序即语义（硬编码目录 B1.1）：
 
-**第二层：工具自己**。有一些共享的校验助手，比如 `engine-tool-shared.ts` 里的：
+| #   | 阶段                          | 做什么                                                                                                                                                                                                                                                                                                                                                                   |
+| --- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | `unknownToolMiddleware`       | 未注册即拒绝                                                                                                                                                                                                                                                                                                                                                             |
+| 2   | `budgetMiddleware`            | `usedToolCalls > maxToolCalls` 拒绝；这个 max 是调用方传入的硬天花板                                                                                                                                                                                                                                                                                                     |
+| 3   | `noTaskTurnGateMiddleware`    | 无任务回合拒绝写类工具与 `update_plan`                                                                                                                                                                                                                                                                                                                                   |
+| 4   | `permissionModeMiddleware`    | `readonly` / `research` 白名单硬门                                                                                                                                                                                                                                                                                                                                       |
+| 5   | `discoveryLoopMiddleware`     | 检索/列表次数帽。单工具：`search_workspace` 3，`read_project_file` 与 `analyze_document` 各 8，其余列表类多为 2。合计默认 8，随窗口 `ceil(contextTokens/8000)`，夹在 8–32。`analyze_document` / `read_project_file` 不计入合计                                                                                                                                           |
+| 6   | `hostFileLoopMiddleware`      | 本机账本：`search_host`、`read_host_file`、`list_dir`、`read_folder_documents`、`digest_materials`；有项目目录、挂载或目录钉时 `analyze_document` 与 `read_project_file` 也进账。单工具默认 24，随窗口夹在 12–48。合计硬顶来自 host access 的 `fileTaskReadHardCap`（缺省参数 32）                                                                                       |
+| 7   | `roleAllowlistMiddleware`     | playbook deny，以及非空 allow 之外即拒                                                                                                                                                                                                                                                                                                                                   |
+| 8   | `matterScopeMiddleware`       | `MATTER_SCOPE_REQUIRED` 没有案件则拒                                                                                                                                                                                                                                                                                                                                     |
+| 9   | `clarificationGateMiddleware` | 仅当 `clarificationBlockingHeavyTools` 为真才拦重型写工具。`runTurn` 把该标志设为 false，聊天回合上不触发                                                                                                                                                                                                                                                                |
+| 10  | `folderExploreGateMiddleware` | **空操作**，直接 `next()`。文件夹钉选不再冻结写工具，槽位留着是为了序号稳定                                                                                                                                                                                                                                                                                              |
+| 11  | `argNormalizeMiddleware`      | 参数别名与缺省                                                                                                                                                                                                                                                                                                                                                           |
+| 12  | `argSchemaMiddleware`         | 未知键剥离（不因此失败），再校验 required / type / enum                                                                                                                                                                                                                                                                                                                  |
+| 13  | `legalVerifyMiddleware`       | 外发与同轮核对。被挡则不 `next()`                                                                                                                                                                                                                                                                                                                                        |
+| 14  | `actionPreReviewMiddleware`   | 插在法律核对与审批之间。默认可只记影子；`shouldAsk` 时返回 `approvalRequest`                                                                                                                                                                                                                                                                                             |
+| 15  | `approvalMiddleware`          | 要显式审批，或（风险超过岗位上限 **且** `toolRequiresLawyerPause`）时，没有服务端注入的 `__approved` 就 Ask。自 2026-10-01 起 `toolRequiresLawyerPause` 恒为 false，所以这条「因风险上限而暂停」不会发生。`send_email` / `prepare_outbound_mail` 是 `inbox_signoff`（写入待发信，律师在待发列表点「批准发送」）。`delete_matter` / `render_document` 是 `deny_at_source` |
+| 16  | `auditMiddleware`             | `next()` 之后 best-effort 写审计；异常改写成 `{ ok: false }`                                                                                                                                                                                                                                                                                                             |
+| 17  | `timeoutMiddleware`           | 每调用一份 AbortSignal，不改共享 `ctx.abortSignal`                                                                                                                                                                                                                                                                                                                       |
+| 18  | `subprocessSandboxMiddleware` | 沙箱开着且工具在子进程名单里才 fork，否则透传                                                                                                                                                                                                                                                                                                                            |
+| 19  | `executeMiddleware`           | `tool.execute()`。只读幂等工具不占工具空位                                                                                                                                                                                                                                                                                                                               |
+
+**第二层仍是工具自己。**
+
+有一些共享的校验助手，比如 `engine-tool-shared.ts` 里的：
 
 | 导出                                        | 作用                                                  |
 | ------------------------------------------- | ----------------------------------------------------- |
@@ -160,11 +184,13 @@ if (!matterId) {
 
 **注意它导出了 `buildLawMindRetrievalAdaptersFromEnvForTest`**——说明有一个「为了测试而导出」的函数。这是刻意的口子。
 
-### `legal/ingest-helpers.ts` / `platform/ingest-helpers.ts`
+### `platform/ingest-helpers.ts` 与 `legal/ingest-helpers.ts`
 
-摄取结果的统一封装：`ingestFailure`、`ingestSuccess`、`toolFailureFromIngest`、`toolDataFromIngestSuccess`。
+这是两个文件，职责不叠。
 
-**为什么需要两层**：摄取（读文件）这一层有自己的成功/失败语义（含 `IngestSourceType`、`IngestStage`），要映射成工具的 `{ ok, data }`。有这一层，**所有读文件的工具报告的失败原因格式一致**。
+`src/lawmind/platform/ingest-helpers.ts` 做结果封装：`ingestFailure`、`ingestSuccess`、`toolFailureFromIngest`、`toolDataFromIngestSuccess`。摄取层自己的成功/失败（含 `IngestSourceType`、`IngestStage`）在这里映射成工具的 `{ ok, data }`，读文件工具的失败原因格式因此一致。
+
+`src/lawmind/agent/tools/legal/ingest-helpers.ts` 做正文抽取：docx / pdf / xlsx、OCR 与视觉回退、按页切片（`sliceDocumentPage`、`DOCUMENT_PAGE_DEFAULT_CHARS`）。它不导出上面那四个封装函数。
 
 ## 49.4 文件访问的四道围栏
 
@@ -200,7 +226,7 @@ No fs, child_process, fetch, or network. Not an OS jail — string codegen is of
 
 **第一：它是「客房」不是「牢房」。** 注释自己写明「Not an OS jail」。它提供的是**可用性**（让模型能当场写脚本算数、读表、出图），不是**安全隔离**。真正的隔离靠别的层（子进程沙箱、工具管线）。
 
-**第二：宿主 I/O 是一份小 API。** 只有六个：读表、读 CSV、读 JSON、统计、写表、出图。脚本**不能**直接 `fs`。
+**第二：宿主 I/O 是一份小 API。** 文件头注释仍写六个名字（`readTable` / `readCsv` / `readJson` / `stats` / `writeTable` / `emitChart`）。`runAnalysisScriptInVm` 实际绑进沙箱的还有 `readText`、`listFiles`、`writeText`。脚本**不能**直接 `fs`。
 
 **第三：语言是普通 JS + 安全全局。** 用的是 Node 的 `vm` 模块，且**关掉了字符串代码生成**（`string codegen is off`）——这是防「用 `Function` 或 `eval` 逃出沙箱」的常规手段。
 
@@ -211,6 +237,8 @@ No fs, child_process, fetch, or network. Not an OS jail — string codegen is of
 ### 谁用它
 
 `run-compute-tool.ts`（`COMPUTE_SOURCE_MAX_CHARS = 80_000`）与 `run-analysis-tool.ts`。前者是「当场写脚本算」；后者是「跑预置脚本」（需要策略开 `allowAnalysisScripts`）。
+
+两条都经 `legal/analysis-runner.ts`。测试里（`VITEST`）在当前进程跑 VM；否则 `analysis-runner.ts` 按文件名找 `analysis-sandbox-child.ts` / `.js` / `.cjs` 并 fork。`analysis-sandbox-child.ts` **没有**被 `import`，它是子进程入口，不是死代码。桌面打包把它打成 `apps/lawmind-desktop/server/dist/analysis-sandbox-child.cjs`。
 
 `run-compute-tool.ts` 还导出 `summarizeComputeForLawyer`——把结果翻译成律师语言（「已出核算对照 表.xlsx」这种），因为**模型写脚本这件事本身不该暴露给律师**。
 
@@ -252,24 +280,21 @@ LPR / 牌价 must be supplied by the lawyer — never invented.
 
 `draft-worker-tool.ts` 与 `explore-folder-tool.ts` 共用同一个模式。
 
-`draft-worker-tool` 的**描述文本**（给模型看的）把规则说得很清楚：
+`draft-worker-tool` 的**描述文本**（给模型看的）把规则说得很清楚：子工看不到本对话，`goal` 必须自包含；`role=review` 交结论，`role=draft` 写条款片段，`role=explore` 只读探查；同一次回复里可并行，`section` 必须互不相同；不要用于改原件、导出或外发；续跑传 `resume_id` 和 `follow_up`。
 
-> 并行写稿工：根据任务书起草一份文书片段。**子会话看不到对话历史，必须传入自包含任务书**。工会自己读 path/钉选源文件，并可用只读工具（`list_dir` / `analyze_document` / `search_statute` / `search_case_law`）。返回草稿片段、引用出处和待补缺口。不要用于改原件。多章可并行多次调用，由父会话汇总后再 `draft_document`。
+只读名单在 `draft-worker-loop.ts` 的 `DRAFT_WORKER_READONLY_TOOL_NAMES`，六个：`analyze_document`、`explore_folder`、`list_dir`、`read_project_file`、`search_case_law`、`search_statute`。
 
-拆解这段话，里面规定了六件事：
-
-| 规定                                 | 为什么                                |
-| ------------------------------------ | ------------------------------------- |
-| 看不到对话历史                       | 所以任务书必须自包含                  |
-| 自己能读文件                         | 不用父会话把内容塞进任务书            |
-| 只能用六个只读工具                   | 见 `DRAFT_WORKER_READONLY_TOOL_NAMES` |
-| 返回三样（片段、引用出处、待补缺口） | 出处的责任在 worker，不在父会话       |
-| 不要用于改原件                       | 改稿是另一条路（最短改动）            |
-| 多章可并行                           | 所以「多写几章」能提速                |
+| 规定                       | 为什么                     |
+| -------------------------- | -------------------------- |
+| 看不到对话历史             | 所以任务书必须自包含       |
+| 自己能读文件               | 不用父会话把全文塞进任务书 |
+| 只能用上面六个只读工具     | 写与外发留在父会话         |
+| 不要用于改原件、导出或外发 | 改稿是另一条路             |
+| 多支可并行                 | `section` 互不相同才能分片 |
 
 **参数里的 `goal` 是必填**，而它的说明是「要做的事（自包含，不要只写「帮我看看」）」——**把「任务书要写清楚」这个要求写进了参数说明**。
 
-`explore-folder-tool` 是同一套（`EXPLORE_FOLDER_READONLY_TOOL_NAMES`），只是它的产出是「看清目录 + 摘录要点」。
+`explore-folder-tool` 是同一套，只读名单在 `explore-folder-worker.ts` 的 `EXPLORE_FOLDER_READONLY_TOOL_NAMES`，五个：`analyze_document`、`list_dir`、`read_project_file`、`search_case_law`、`search_statute`（没有 `explore_folder` 自己）。产出是目录树、候选文件和摘录。
 
 **这一模式的价值**：写一份长文书时，父会话的上下文不会被中间稿挤爆；而且多个章节可以并行。
 
@@ -311,24 +336,26 @@ LPR / 牌价 must be supplied by the lawyer — never invented.
 
 `chart-tool.ts` 还导出 `LM_CHART_FENCE_HINT` 与 `persistChartSpec`——前者是给模型看的「怎么在正文里嵌入图表」的提示（用一个代码围栏标记），后者把规格落盘。
 
-## 49.10 八组工具，一句话各是什么
+## 49.10 工具文件归位
 
-按 `legal-tools.ts` 里注释的分组，把 66 个文件归一下位：
+按 `legal-tools.ts` 的注册顺序，把 70 个实现文件归一下位。带 `name` 的是生产工具；其余是库、预览或子进程入口。
 
-| 组           | 文件                                                                                                                                | 一句话                                        |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| 检索         | `search-tools.ts`、`search-authority.ts`、`precedent-search-tool.ts`                                                                | 工作区/案件/法源/类案/先例                    |
-| 文件读写     | `file-tools.ts`、`list-dir-tool.ts`、`read-folder-documents-tool.ts`、`explore-folder-tool.ts`、`compare-documents.ts`              | 读、列、批量读、探查、对比                    |
-| 本机         | `host-tools.ts`                                                                                                                     | 授权后的本机查找/读取/收进/命令               |
-| 案件与工作台 | `matter-tools.ts`、`desk-tools.ts`                                                                                                  | 摘要/列案/读档案/加笔记 + 事件/期限/谈话/卷宗 |
-| 材料整理     | `organize-materials-tool.ts`、`relocate-materials-tool.ts`、`workspace-file-ops-tool.ts`                                            | 提计划/执行/搬移/文件操作                     |
-| 表格图表计算 | `spreadsheet-tools.ts`、`chart-tool.ts`、`calculate-tool.ts`、`run-compute-tool.ts`、`run-analysis-tool.ts`、`analysis-sandbox*.ts` | 见上两节                                      |
-| 交付物       | `review-table-tool.ts`、`xlsx-workbook.ts`、`compute-deliverable.ts`                                                                | 审查表与核算产物                              |
-| 邮件         | `mail-tools.ts`                                                                                                                     | 收件匣、附件、准备外发、发送                  |
-| 流程与状态   | `list-more-tools.ts`、`update-plan-tool.ts`、`read-skill-tool.ts`、`audit-tools.ts`、`draft-worker-tool.ts`                         | 渐进披露、计划、技能、审计、并行写稿          |
-| 引擎桥       | `engine/*.ts`（8 个）                                                                                                               | 五阶段流水线的工具化 + 模板 + 治理 + 跨文书   |
+| 组           | 文件                                                                                                                                                                                                                                                                      | 一句话                                                                                                    |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 检索         | `search-tools.ts`、`search-authority.ts`、`precedent-search-tool.ts`、`company-registry-tool.ts`                                                                                                                                                                          | 工作区/案件/法源/类案/先例/企业登记（`search_company_registry`）                                          |
+| 文件读写     | `file-tools.ts`、`list-dir-tool.ts`、`read-folder-documents-tool.ts`、`explore-folder-tool.ts`、`digest-materials-tool.ts`、`compare-documents.ts`、`ingest-helpers.ts`                                                                                                   | 读、列、批量读、探查、一堆短卡（`digest_materials`）、对比；`ingest-helpers.ts` 是正文抽取，见 49.3       |
+| 本机         | `host-tools.ts`                                                                                                                                                                                                                                                           | 授权后的本机查找/读取/收进/命令                                                                           |
+| 案件与工作台 | `matter-tools.ts`、`desk-tools.ts`                                                                                                                                                                                                                                        | 摘要/列案/读档案/加笔记 + 事件/期限/谈话/卷宗；含 `delete_matter`                                         |
+| 材料整理     | `organize-materials-tool.ts`、`relocate-materials-tool.ts`、`workspace-file-ops-tool.ts`、`workspace-file-ops.ts`                                                                                                                                                         | 提计划/执行/搬移；解算与落盘分开                                                                          |
+| 表格图表计算 | `spreadsheet-tools.ts`、`chart-tool.ts`、`chart-spec.ts`、`chart-svg.ts`、`calculate-tool.ts`、`calculate-lib.ts`、`calculate-litigation-fee.ts`、`run-compute-tool.ts`、`run-analysis-tool.ts`、`analysis-sandbox.ts`、`analysis-runner.ts`、`analysis-sandbox-child.ts` | 见上两节；child 是 fork 入口                                                                              |
+| 交付与预览   | `review-table-tool.ts`、`xlsx-workbook.ts`、`xlsx-preview.ts`、`compute-deliverable.ts`、`pptx-preview.ts`、`pptx-officecli.ts`                                                                                                                                           | 审查表、核算产物、桌面 xlsx/pptx 预览（预览文件没有 `AgentTool.name`）                                    |
+| 邮件         | `mail-tools.ts`                                                                                                                                                                                                                                                           | 收件匣、附件、准备外发、发送；外发是待发信，不暂停回合                                                    |
+| 流程与状态   | `list-more-tools.ts`、`update-plan-tool.ts`、`read-skill-tool.ts`、`audit-tools.ts`、`draft-worker-tool.ts`、`governance.ts`、`disclosed-turn-tools.ts`、`reserved-tool-names.ts`                                                                                         | 渐进披露、计划、技能、审计、并行写稿、治理元数据                                                          |
+| 引擎桥       | `engine/*.ts`（8 个）、`engine-tools.ts`                                                                                                                                                                                                                                  | 五阶段流水线的工具化 + 模板 + 治理 + 跨文书                                                               |
+| 联网         | `lawmind-web-search.ts`、`lawmind-legal-web-search.ts`、`lawmind-url-dossier.ts`、`lawmind-deep-research.ts`、`native-web-search.ts`                                                                                                                                      | 三个联网工具有开关；`deep_research` 无联网也注册；`native-web-search.ts` 是供应商搜索适配，没有单独工具名 |
+| 协作与注册表 | `collaboration-tools.ts`、`coordination/`（5 个，含无工具名的 `utils.ts`）、`legal-tools.ts`、`registry.ts`、`index.ts`、`matter-required.ts`、`render-tool-messages.ts`                                                                                                  | 协作工厂、组装入口、注册表、软失败与渲染话术                                                              |
 
-再加根目录四个：`lawmind-web-search.ts`、`lawmind-legal-web-search.ts`、`lawmind-url-dossier.ts`、`lawmind-deep-research.ts`（联网与研究），以及 `collaboration-tools.ts`（协作，实现在 `coordination/`）。
+`coordination/` 五个文件：`delegate.ts`、`handoff.ts`、`meeting.ts`、`index.ts`、`utils.ts`。`cross-document-edits-tool.ts` 导出的是函数 `executeCrossDocumentEdits`，没有独立工具名。
 
 ## 49.11 引擎桥工具（`engine/`）
 
@@ -339,12 +366,12 @@ LPR / 牌价 must be supplied by the lawyer — never invented.
 | `engine-pipeline-tools.ts`                                     | `planTask`、`researchTask`、`updateDraft`、`applySurgicalEdits`、`draftDocument`、`renderDocument`、`renderTrackedDraft` |
 | `engine-workflow-tool.ts`                                      | `executeWorkflow`                                                                                                        |
 | `engine-template-tools.ts`                                     | `registerTemplate`、`listTemplates`、`setTemplateEnabled`                                                                |
-| `engine-governance-tools.ts`                                   | `openWorkQueueItem`、`requestApprovalTool`、`recordDeadlineTool`、`appendSessionSummaryTool`                             |
+| `engine-governance-tools.ts`                                   | `openWorkQueueItem`、`requestApprovalTool`、`recordDeadlineTool`、`recordObligationTool`、`appendSessionSummaryTool`     |
 | `engine-tool-shared.ts`                                        | 引擎工厂与检索适配器装配                                                                                                 |
 | `engine-governance-shared.ts`                                  | 治理类共享                                                                                                               |
 | `apply-surgical-edits-tool.ts`、`cross-document-edits-tool.ts` | 改稿工具（薄壳，调 `drafts/`）                                                                                           |
 
-**注意 `engine-pipeline-tools.ts` 有 1570 行**——它在文件大小棘轮里登记着（冻结上限 1570）。这是全仓最大的工具文件之一，因为它把五个阶段的工具都放在一起。
+**`engine-pipeline-tools.ts` 现为 1698 行。** 预提交棘轮仍把它冻在 `scripts/pre-commit/file-size-baseline.json` 的 1547 行（容差 10）。它把五个阶段的工具放在一起，所以仍是工具目录里最大的文件之一。`search-tools.ts` 现为 1082 行，同一份基线把它冻在 1001。
 
 **`apply-surgical-edits-tool.ts` 是薄壳**：真正的实现在 `drafts/apply-surgical-edits.ts`（第 44 章）。工具层只做参数处理与结果包装。
 
@@ -375,7 +402,10 @@ LPR / 牌价 must be supplied by the lawyer — never invented.
 ## 49.13 已知坑（本章相关）
 
 - **常驻工具与工厂工具的区别是「要不要本轮配置」。** 加工具前先想清楚。
-- **`run_analysis` 读脚本前做真实路径围栏。** 符号链接不能把工作区外的文件当脚本执行。`requiresApproval` 仍写在定义上，回合里真正暂停的仍只有外发。
+- **`run_analysis` 读脚本前做真实路径围栏。** 符号链接不能把工作区外的文件当脚本执行。定义上的 `requiresApproval` 不会让回合停住：`toolRequiresLawyerPause` 恒为 false，`toolRequiresExplicitApproval` 因此直接返回 false。
+- **自 2026-10-01 起没有工具暂停回合。** `send_email` / `prepare_outbound_mail` 写入待发信（`inbox_signoff`），律师点「批准发送」才真正发出。`delete_matter` / `render_document` 是 `deny_at_source`。
+- **`folderExploreGateMiddleware` 是空槽。** 直接 `next()`，序号仍占第 10 段。
+- **`analysis-sandbox-child.ts` 是 fork 入口**，静态 import 图里看不到它。
 - **协作工具的初始化是 best-effort。** 读不到助手档案不影响主链路。
 - **`collaboration-tools.ts` 只是兼容 re-export**，实现在 `coordination/`。
 - **`matterRequiredResult` 是结构化软失败**（带 `needsMatter` 与候选列表），不是纯报错。
@@ -386,5 +416,5 @@ LPR / 牌价 must be supplied by the lawyer — never invented.
 - **`calculate` 是调度器，算法在 `labor/`、`litigation/` 等领域模块。**
 - **worker 类工具的子会话看不到对话历史。** 任务书必须自包含，这是硬要求。
 - **文件操作是「先解算后应用」。** 别把校验挪到应用阶段。
-- **`engine-pipeline-tools.ts` 在文件大小棘轮里冻结着**，加东西要考虑拆。
+- **`engine-pipeline-tools.ts` 仍在文件大小棘轮里**，基线上限 1547 行，文件现为 1698 行。加东西要考虑拆。
 - **改稿工具是薄壳。** 算法在 `drafts/`。

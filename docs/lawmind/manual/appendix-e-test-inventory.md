@@ -1,11 +1,11 @@
 # 附录 E 测试清单与分布
 
-本附录的**数量统计是机械生成的**（`rg --files -g '*.test.ts' ...`）；「关键测试说明」是人工挑选的。**数字是 2026-09-25 的快照，会随提交漂移**。
+本附录的**数量统计是机械生成的**（`rg --files -g '*.test.ts' ...`）；「关键测试说明」是人工挑选的。**数字是 2026-10-17 的快照，会随提交漂移**。
 
 ## E.1 总量
 
 ```text
-测试文件总数：940
+测试文件总数：1095
 ```
 
 这个数字远超「一个产品」的常规规模——它反映的是这个仓库对**门禁类、诚实类、边界类**逻辑的测试密度。
@@ -16,86 +16,88 @@
 rg --files -g '*.test.ts' -g '*.test.tsx' -g '*.spec.ts' -g '!**/node_modules/**' | wc -l
 ```
 
-**注意口径**：这条命令是「测试入口文件数」，不是「用例数」（一个文件里常有几十个 `it`）。E.2 的表按**目录递归**计数，所以父目录的数字包含子目录（`src/lawmind/agent/` 的 141 里含 `agent/tools/legal/` 那 29 个）。「根目录零散文件」实际在 `src/lawmind/` 根，不在仓库根。
+**注意口径**：这条命令是「测试入口文件数」，不是「用例数」（一个文件里常有几十个 `it`）。E.2 的表按**目录递归**计数，所以父目录的数字包含子目录（`src/lawmind/agent/` 的 182 里含 `agent/tools/legal/` 那 33 个）。「根目录零散文件」实际在 `src/lawmind/` 根，不在仓库根。
 
 ## E.2 按目录分布
 
-| 目录                                                                                                                                                  | 测试文件数                   |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `apps/lawmind-desktop/src/renderer/`                                                                                                                  | 191                          |
-| `src/lawmind/agent/`                                                                                                                                  | 141                          |
-| `apps/lawmind-desktop/server/`                                                                                                                        | 70                           |
-| `src/lawmind/platform/`                                                                                                                               | 35                           |
-| `apps/lawmind-desktop/e2e/`                                                                                                                           | 33                           |
-| `src/lawmind/drafts/`                                                                                                                                 | 32                           |
-| `src/lawmind/retrieval/`                                                                                                                              | 27                           |
-| `apps/lawmind-desktop/electron/`                                                                                                                      | 22                           |
-| `src/lawmind/evaluation/`                                                                                                                             | 20                           |
-| `src/lawmind/memory/`                                                                                                                                 | 19                           |
-| `src/lawmind/desk/`                                                                                                                                   | 17                           |
-| `src/lawmind/reasoning/`                                                                                                                              | 16                           |
-| `src/lawmind/runtime/`                                                                                                                                | 16                           |
-| `src/lawmind/deliverables/`                                                                                                                           | 14                           |
-| `src/lawmind/models/`                                                                                                                                 | 13                           |
-| `src/lawmind/learning/`                                                                                                                               | 12                           |
-| `src/lawmind/research/`                                                                                                                               | 12                           |
-| `src/lawmind/audit/`                                                                                                                                  | 11                           |
-| `src/lawmind/lint/`                                                                                                                                   | 12                           |
-| `src/lawmind/mail/`                                                                                                                                   | 11                           |
-| `src/lawmind/metrics/`                                                                                                                                | 12                           |
-| `src/lawmind/policy/`                                                                                                                                 | 11                           |
-| `src/lawmind/skills/`                                                                                                                                 | 12                           |
-| `src/lawmind/application/`                                                                                                                            | 11                           |
-| `src/lawmind/artifacts/`                                                                                                                              | 9                            |
-| `src/lawmind/guardian/`                                                                                                                               | 9                            |
-| `src/lawmind/cases/`                                                                                                                                  | 8                            |
-| `src/lawmind/integrations/`                                                                                                                           | 8                            |
-| `src/lawmind/intent/`                                                                                                                                 | 8                            |
-| `src/lawmind/matter-replica/`                                                                                                                         | 8                            |
-| `src/lawmind/delivery/`                                                                                                                               | 7                            |
-| `src/lawmind/clause/`                                                                                                                                 | 6                            |
-| `src/lawmind/engine/`                                                                                                                                 | 7                            |
-| `src/lawmind/historical-scan/`                                                                                                                        | 6                            |
-| `src/lawmind/adapters/`                                                                                                                               | 5                            |
-| `src/lawmind/core/`                                                                                                                                   | 5                            |
-| `src/lawmind/host-access/`                                                                                                                            | 5                            |
-| `src/lawmind/indexing/`                                                                                                                               | 5                            |
-| `src/lawmind/labor/`                                                                                                                                  | 5                            |
-| `src/lawmind/litigation/`                                                                                                                             | 5                            |
-| `src/lawmind/practice/`                                                                                                                               | 5                            |
-| `src/lawmind/review-campaign/`                                                                                                                        | 5                            |
-| `src/lawmind/tasks/`                                                                                                                                  | 5                            |
-| `src/lawmind/router/`                                                                                                                                 | 4                            |
-| `src/lawmind/assistants/`                                                                                                                             | 3                            |
-| `src/lawmind/insights/`                                                                                                                               | 3                            |
-| `src/lawmind/integration/`                                                                                                                            | 3 （只有测试，无运行时代码） |
-| `src/lawmind/mcp/`                                                                                                                                    | 3                            |
-| `src/lawmind/work/`                                                                                                                                   | 3                            |
-| `src/lawmind/llm/`                                                                                                                                    | 2                            |
-| `src/lawmind/matter/`                                                                                                                                 | 3                            |
-| `src/lawmind/matter-cloud/`                                                                                                                           | 2                            |
-| `src/lawmind/routing/`                                                                                                                                | 2                            |
-| `src/lawmind/sources/`                                                                                                                                | 2                            |
-| `src/lawmind/templates/`                                                                                                                              | 2                            |
-| 其他单文件目录（`license/`、`onboarding/`、`ops/`、`stance/`、`triage/`、`text/`、`product/`、`compile/`、`contracts/`、`ingest/`、`matter-ops/` 等） | 各 1                         |
-| `scripts/`                                                                                                                                            | 2                            |
-| 根目录零散文件（`build-channel.test.ts`、`engine-actor.test.ts`、`index.test.ts`、`review-labels.test.ts`）                                           | 各 1                         |
+| 目录                                                                                                                                            | 测试文件数                   |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `apps/lawmind-desktop/src/renderer/`                                                                                                            | 249                          |
+| `src/lawmind/agent/`                                                                                                                            | 182                          |
+| `apps/lawmind-desktop/server/`                                                                                                                  | 72                           |
+| `src/lawmind/drafts/`                                                                                                                           | 50                           |
+| `src/lawmind/platform/`                                                                                                                         | 37                           |
+| `apps/lawmind-desktop/e2e/`                                                                                                                     | 32                           |
+| `src/lawmind/retrieval/`                                                                                                                        | 28                           |
+| `apps/lawmind-desktop/electron/`                                                                                                                | 24                           |
+| `src/lawmind/desk/`                                                                                                                             | 22                           |
+| `src/lawmind/evaluation/`                                                                                                                       | 21                           |
+| `src/lawmind/memory/`                                                                                                                           | 20                           |
+| `src/lawmind/runtime/`                                                                                                                          | 18                           |
+| `src/lawmind/reasoning/`                                                                                                                        | 16                           |
+| `src/lawmind/deliverables/`                                                                                                                     | 14                           |
+| `src/lawmind/models/`                                                                                                                           | 13                           |
+| `src/lawmind/audit/`                                                                                                                            | 12                           |
+| `src/lawmind/learning/`                                                                                                                         | 12                           |
+| `src/lawmind/lint/`                                                                                                                             | 12                           |
+| `src/lawmind/mail/`                                                                                                                             | 12                           |
+| `src/lawmind/metrics/`                                                                                                                          | 12                           |
+| `src/lawmind/policy/`                                                                                                                           | 12                           |
+| `src/lawmind/research/`                                                                                                                         | 12                           |
+| `src/lawmind/skills/`                                                                                                                           | 12                           |
+| `src/lawmind/application/`                                                                                                                      | 11                           |
+| `src/lawmind/artifacts/`                                                                                                                        | 11                           |
+| `src/lawmind/guardian/`                                                                                                                         | 10                           |
+| `src/lawmind/integrations/`                                                                                                                     | 9                            |
+| `src/lawmind/intent/`                                                                                                                           | 9                            |
+| `src/lawmind/cases/`                                                                                                                            | 8                            |
+| `src/lawmind/delivery/`                                                                                                                         | 8                            |
+| `src/lawmind/historical-scan/`                                                                                                                  | 8                            |
+| `src/lawmind/matter-replica/`                                                                                                                   | 8                            |
+| `src/lawmind/engine/`                                                                                                                           | 7                            |
+| `src/lawmind/assistants/`                                                                                                                       | 6                            |
+| `src/lawmind/clause/`                                                                                                                           | 6                            |
+| `src/lawmind/core/`                                                                                                                             | 6                            |
+| `src/lawmind/adapters/`                                                                                                                         | 5                            |
+| `src/lawmind/host-access/`                                                                                                                      | 5                            |
+| `src/lawmind/indexing/`                                                                                                                         | 5                            |
+| `src/lawmind/labor/`                                                                                                                            | 5                            |
+| `src/lawmind/litigation/`                                                                                                                       | 5                            |
+| `src/lawmind/practice/`                                                                                                                         | 5                            |
+| `src/lawmind/review-campaign/`                                                                                                                  | 5                            |
+| `src/lawmind/tasks/`                                                                                                                            | 5                            |
+| `src/lawmind/router/`                                                                                                                           | 4                            |
+| `src/lawmind/acceptance-sheet/`                                                                                                                 | 3                            |
+| `src/lawmind/insights/`                                                                                                                         | 3                            |
+| `src/lawmind/integration/`                                                                                                                      | 3 （只有测试，无运行时代码） |
+| `src/lawmind/matter/`                                                                                                                           | 3                            |
+| `src/lawmind/matter-cloud/`                                                                                                                     | 3                            |
+| `src/lawmind/mcp/`                                                                                                                              | 3                            |
+| `src/lawmind/product/`                                                                                                                          | 3                            |
+| `src/lawmind/sources/`                                                                                                                          | 3                            |
+| `src/lawmind/work/`                                                                                                                             | 3                            |
+| `src/lawmind/llm/`                                                                                                                              | 2                            |
+| `src/lawmind/routing/`                                                                                                                          | 2                            |
+| `src/lawmind/templates/`                                                                                                                        | 2                            |
+| 其他单文件目录（`compile/`、`contracts/`、`ingest/`、`json/`、`license/`、`matter-ops/`、`onboarding/`、`ops/`、`stance/`、`text/`、`triage/`） | 各 1                         |
+| `scripts/`                                                                                                                                      | 2                            |
+| 根目录零散文件（`build-channel.test.ts`、`engine-actor.test.ts`、`index.test.ts`、`review-labels.test.ts`）                                     | 各 1                         |
 
 ## E.3 三个密度最高的地方说明什么
 
-### `renderer/`（191 个）
+### `renderer/`（249 个）
 
 渲染层测试最多，因为**组件多**（几百个组件文件）而且**文案与交互都要测**。比如 `MemoryInspector.batch.test.tsx` 测的是「预览不写入、确认后才落盘」这种交互契约。
 
-### `agent/`（141 个）
+### `agent/`（182 个）
 
-这是引擎最复杂的一块（174 个非测试实现文件）。测试集中在：工具行为、回合编排、压缩、会话、协作、委派。
+这是引擎最复杂的一块（207 个非测试实现文件）。测试集中在：工具行为、回合编排、压缩、会话、协作、委派。
 
 **其中最特别的是** `turn-orchestrator-cassettes.test.ts`（编排器准入，第 35 章详解）。
 
-### `server/`（70 个）
+### `server/`（72 个）
 
-`lawmind-server-route-*.ts` 非测试实现仍是 59 个，同名测试约 52 个。不是一路由文件必有一个同名测试。70 个测试里还含辅助模块。
+`lawmind-server-route-*.ts` 非测试实现仍是 62 个，同名测试约 52 个。不是一路由文件必有一个同名测试。72 个测试里还含辅助模块。
 
 ## E.4 值得单独知道的测试
 
@@ -134,20 +136,31 @@ rg --files -g '*.test.ts' -g '*.test.tsx' -g '*.spec.ts' -g '!**/node_modules/**
 | `drafts/minimal-edit-script.test.ts`              | 最短改动算法 + 200 组随机对照                                     |
 | `drafts/apply-surgical-edits.test.ts`             | 落改与收窄                                                        |
 | `drafts/tracked-xml-qa.test.ts`                   | 成品复核（整句删增检测）                                          |
+| `drafts/tracked-format-gate.test.ts`              | 修订前后 run 格式签名一致，缺失时注入                             |
 | `drafts/cross-document-edits.test.ts`             | 整批预检                                                          |
 | `artifacts/render-docx-tracked.test.ts`           | 多处命中与回滚工作副本。原件只读和从右到左排序没有直接断言        |
 | `integrations/word-addin/review-requests.test.ts` | 最短锚点。同路径第二次创建测的是优先 ready，没有锁「折叠 queued」 |
+| `integrations/word-addin/review-requests.test.ts` | 就地审查请求：状态机、去重、suggestion 决定                       |
 
 ### 编排类
 
 | 测试                                        | 守什么                 |
 | ------------------------------------------- | ---------------------- |
 | `agent/turn-orchestrator-cassettes.test.ts` | 编排器准入（第 35 章） |
+| `agent/turn-orchestrator-parallel.test.ts`  | 并发会话的回合隔离     |
 | `agent/tools/disclosed-turn-tools.test.ts`  | 披露集合               |
 | `agent/tools/legal/list-more-tools.test.ts` | 菜单与提示词同源       |
 | `agent/context-budget.test.ts`              | 预算与桶               |
 | `agent/compact.test.ts`                     | 压缩                   |
 | `agent/session-carryover.test.ts`           | 承载分叉               |
+
+### PPTX 类（2026-10 新增）
+
+| 测试                                                           | 守什么                           |
+| -------------------------------------------------------------- | -------------------------------- |
+| `agent/tools/legal/pptx-officecli.test.ts`                     | PPTX 读改走 officecli 的辅助函数 |
+| `agent/tools/legal/pptx-preview.test.ts`                       | PPTX 预览缓冲解析与 UI 预览加载  |
+| `apps/lawmind-desktop/src/renderer/file/PptxFileView.test.tsx` | 渲染层 PPTX 文件视图             |
 
 ### 顺序被锁住的（红了通常是你动了约束）
 
@@ -159,22 +172,23 @@ rg --files -g '*.test.ts' -g '*.test.tsx' -g '*.spec.ts' -g '!**/node_modules/**
 | `apps/lawmind-desktop/electron/e2e-spec-partition.test.ts`          | 两套 E2E 互斥            |
 | `apps/lawmind-desktop/server/lawmind-server-cors-structure.test.ts` | CORS 载体                |
 
-## E.5 真机端到端（33 个）
+## E.5 真机端到端（32 个）
 
 真机套件的清单在 `apps/lawmind-desktop/e2e/electron-specs.ts`（`ELECTRON_SPEC_FILES`），八个：`app-driver`、`bundle-download-electron`、`daemon-supervision`、`electron-golden-path`、`electron-file-deeplink`、`first-matter-journey`、`judgment-escalation-electron`、`server-crash-recovery`。
 
 按「测什么」分类：
 
-| 类别           | 例子                                                                           |
-| -------------- | ------------------------------------------------------------------------------ |
-| 首跑与全旅程   | `first-matter-journey`（首跑 → 建案 → 交办 → 草稿 → 签批 → 导出）              |
-| 生命周期与自愈 | `daemon-supervision`、`server-crash-recovery`                                  |
-| 门禁与决策     | `judgment-escalation-electron`、`review-entry`、`delivery-redline`             |
-| 工作台与协作   | `agent-fleet`、`meeting-flow`、`matter-cockpit`、`review-campaign`             |
-| 交办入口       | `job-intake`、`solo-research-fast-lane`（原 `solo-contract-fast-lane` 已移除） |
-| 信任与安全     | `skills-trust`、`contract-review-trust`、`approval-queue`                      |
-| 设置与对话框   | `settings`、`dialogs`、`smoke`、`authority-mock`、`triage-nda`                 |
-| 布局与文件     | `workspace-layout`、`workspace-chat`、`electron-file-deeplink`                 |
+| 类别           | 例子                                                                               |
+| -------------- | ---------------------------------------------------------------------------------- |
+| 首跑与全旅程   | `first-matter-journey`（首跑 → 建案 → 交办 → 草稿 → 签批 → 导出）、`golden-path`   |
+| 生命周期与自愈 | `daemon-supervision`、`server-crash-recovery`                                      |
+| 门禁与决策     | `judgment-escalation-electron`、`review-entry`、`delivery-redline`                 |
+| 工作台与协作   | `agent-fleet`、`meeting-flow`、`matter-cockpit`、`review-campaign`、`context-fork` |
+| 交办入口       | `job-intake`、`solo-research-fast-lane`（原 `solo-contract-fast-lane` 已移除）     |
+| 自动办件       | `automations-hub`、`automations-deeplink`                                          |
+| 信任与安全     | `skills-trust`、`contract-review-trust`、`approval-queue`                          |
+| 设置与对话框   | `settings`、`dialogs`、`smoke`、`authority-mock`、`triage-nda`                     |
+| 布局与文件     | `workspace-layout`、`workspace-chat`、`electron-file-deeplink`                     |
 
 **注意两套配置互斥**（浏览器 mock vs 真机 Electron），有测试专门守这个分区。
 
@@ -200,7 +214,7 @@ rg --files -g '*.test.ts' -g '*.test.tsx' -g '*.spec.ts' -g '!**/node_modules/**
 
 ## E.8 已知坑（本附录相关）
 
-- **940 是 2026-09-25 的快照，会变。** 用 E.1 的命令核对当前值。
+- **1095 是 2026-10-17 的快照，会变。** 用 E.1 的命令核对当前值。
 - **`renderer/` 测试多不等于渲染层最重要**，只是组件多。
 - **`integration/` 只有测试。** 别以为那里有运行时代码。
 - **`scripts/` 有 2 个测试**（`lawmind-benchmark.test.ts` 与 `check-coverage-ratchet.test.ts`）——CLI 脚本的测试覆盖仍然薄。

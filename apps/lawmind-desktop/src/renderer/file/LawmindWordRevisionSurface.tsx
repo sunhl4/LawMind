@@ -340,7 +340,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       }
       if ((body.hunks?.length ?? 0) === 0 && !body.taskId && reboundRef.current !== relPath) {
         reboundRef.current = relPath;
-        void openBoundBaselineIfDifferent({ apiBase, relPath });
+        void openBoundBaselineIfDifferent({ apiBase, relPath, projectDir: projectDir ?? undefined });
       }
       const nextKey = snapshotKey(body);
       if (nextKey !== keyRef.current) {

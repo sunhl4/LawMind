@@ -30,7 +30,7 @@
 ### `contract-review-layers` 合同分层审查
 
 - **说明**：宏观交易结构、中观文本形式、微观条款；风险带推荐措辞；缺事实仍出已完成部分。
-- **主推于**：`contract.review`、`mail.contract`。
+- **主推于**：`contract.review`（默认意见路径与 Word 修订轨都是第一份）、`mail.contract`。
 - **边界**：「缺事实仍出已完成部分」是关键——它不许因为资料不全就交白卷。这和第 12 章「缺项标注但仍出稿」的口径一致。
 
 **为什么分三层**：一份合同的「问题」有三个层级——交易结构不对（宏观）、文本形式不规范（中观）、某个条款表述有漏洞（微观）。混在一起说，律师读起来累，而且容易漏掉结构性风险。分层之后，每层的问题不会被另一层的噪音淹没。
@@ -38,7 +38,7 @@
 ### `contract-redline-craft` 合同审阅改稿手艺
 
 - **说明**：合同 tracked 改稿：最短锚定硬门禁（字/词级），条数不限；数字以 `surgical-span-gate` 为准。
-- **主推于**：`contract.review`（配合 `contract-review-layers` 一起）。
+- **主推于**：Word 修订轨的 `contract.review`（与 `contract-review-layers` 一起）；`mail.contract` 的索引里也有它，正文由邮件短路径以代码常量另注入（不占主阶段两个名额）。默认意见路径的合同审查**不**注入它。
 - **特别处理**：这份技能的正文在读取时**会被代码里的常量版本替换**（`CONTRACT_REDLINE_CRAFT_SKILL`），不读文件。
 
 **为什么会被替换**：这份技能的内容和引擎实现强绑定（最短改动的具体门槛比如「含句读的 find ≤ 12 字」）。如果从 Markdown 文件读，改引擎不改文件就会出现「技能说的和引擎做的不一致」。从代码常量取，两者天然同步。
@@ -46,7 +46,7 @@
 ### `contract-playbook-review` 合同 Playbook 审查
 
 - **说明**：标准/可接受回退/永不接受三档；己方纸与对方纸分开；偏离必须落到具体条款与改法。
-- **主推于**：不默认注入（它在索引里）。
+- **主推于**：`contract.review` 的默认意见路径（第二份主阶段，正文直接进提示）。钉了 Word 走修订轨时它回到索引里，流程提示会点名「出档位前用 `read_skill` 读取」。
 - **来源**：这是从 Anthropic 的 playbook 实践消化来的三份之一（Apache-2.0）。
 
 **三档是什么意思**：审合同时每条条款有三种处置——「符合本所标准」「可以接受但有回退空间」「绝不接受」。这个分法比「有风险/无风险」有用得多，因为它直接告诉你**要做什么**。
@@ -80,7 +80,7 @@
 ### `evidence-argument-chain` 证据论证链
 
 - **说明**：主张→要件→待证事实→证据→证明力；缺证写待补不停工。
-- **主推于**：知产争议、刑事、起诉状，以及答辩等非起诉状诉讼分支（和对应路由技能并列）。**家事主阶段仍是例外**：`family.matter` 注入 `family-matter-route` + `legal-element-extraction`。证据链在该能力的索引里，需要时 `read_skill`。
+- **主推于**：`ip.dispute` 能力，以及 `litigation.draft` 的刑事、知产、答辩类、起诉状和默认分支（和对应路由技能并列）。**两个分支例外**：家事分支注入 `family-matter-route` + `legal-element-extraction`，破产分支注入 `bankruptcy-stage-route` + `legal-period-calc`。`family.matter` 能力的主阶段同样是家事路由加要素提取；证据链在该能力的索引里，需要时 `read_skill`。
 
 **这条链的价值**：它把「我觉得应该赢」变成「哪个要件缺证据」。五步走完，缺哪一环一眼可见。
 
@@ -122,6 +122,7 @@
 ### `ma-diligence-route` 并购尽调提纲
 
 - **说明**：股权/资产收购尽调提纲与交割清单；缺口标清，不编未看到的文件。
+- **主推于**：`deal.ma`。
 
 **「不编未看到的文件」**：尽调清单最容易被「补全」——模型知道标准清单长什么样，于是把没看到的文件也列上。这样清单看着很完整，但分不清「有」和「应该有」。所以必须标清缺口。
 
@@ -129,11 +130,13 @@
 
 - **说明**：发行/信息披露核对清单；数字只用来源页；不是股权融资 Word 改稿。
 - **版本**：3（改过几次）。
+- **主推于**：`capital.markets`。
 - **边界**：明确「不是股权融资 Word 改稿」——这条防的是和 `equity` 那一族 Word 改稿清单混淆。
 
 ### `governance-route` 公司治理路由
 
 - **说明**：决议和治理备忘按公司法程序写；不是章程 Word 改稿。
+- **主推于**：`corp.governance`。
 - **边界**：同样是划清和 Word 改稿的界限。
 
 ## 20.5 劳动与期限（3 份）
@@ -169,6 +172,7 @@
 ### `data-compliance-route` 数据合规备忘
 
 - **说明**：个保法/数据安全法/网安法栏目；新闻不当现行法；缺口标【待核实】。
+- **工具**：`search_case_law`。
 - **主推于**：`compliance.data`。
 
 **「新闻不当现行法」**是很具体的一条纪律。数据合规领域新闻多、解读多，但新闻不是法律依据。这条技能明确要求区分。
@@ -176,6 +180,7 @@
 ### `ads-compliance-route` 广告与产品合规
 
 - **说明**：广告用语和标签核对；绝对化用语标出；给出可替换措辞。
+- **工具**：`search_case_law`。
 - **主推于**：`compliance.ads`。
 
 **「给出可替换措辞」**是实用要求：光说「『最』字违规」没用，得给出能用的替代说法。
@@ -255,21 +260,21 @@
 
 ### `intake-required-inputs` 交办 Intake（Soft Ask）
 
-- **说明**：材料齐备时不冻写；高风险空跑才硬澄清；Required Inputs 原则。
-- **主推于**：不默认注入（索引里，但系统会在高风险空跑时注入）。
+- **说明**：材料齐备时不冻写；空跑也不暂停，按假设起草并标【待核实】；Required Inputs 原则。
+- **主推于**：不占任何能力的主阶段（只在索引里）。但正文就是 `INTAKE_CRAFT_SKILL`：只要本轮出现交办软问（`intakeAdvisoryQs` 非空），整份正文会作为 craft 块注入；高风险空跑（律师函/诉讼文书且无档案无材料）时再附一段「不暂停、不冻写」的 Soft Ask 块。
 
-**这份技能定义了 clarify 的度**。「材料齐备时不冻写」意味着**不许没事找事问律师**；「高风险空跑才硬澄清」意味着**明显要动手但缺输入时才问**。这条界线（第 1 章讲的引导原则）就是靠这份技能的表达来落地的。
+**这份技能定义了 clarify 的度**。「材料齐备时不冻写」意味着**不许没事找事问律师**；「空跑也不暂停」意味着高风险空跑同样不硬澄清——按合理假设起草，缺口留在文内【待核实】并在回复末尾列出假设，律师在修订里改或回一句补充。这条界线（第 1 章讲的引导原则）就是靠这份技能的表达来落地的。
 
 ## 20.9 起草与交付通用（4 份）
 
 ### `legal-element-extraction` 法律要素提取
 
 - **说明**：生活叙事先变成要件事实再分析；评价性用语还原为客观事实。
-- **主推于**：多个能力的第二技能（`letter.draft`、`materials.draft`、`analysis.quick`、`litigation.talk`、`ip.dispute`、`deal.ma`、`family.matter`）。
+- **主推于**：六个能力的第二份主阶段（`letter.draft`、`materials.draft`、`analysis.quick`、`litigation.talk`、`deal.ma`、`family.matter`）；`litigation.draft` 的家事分支也注入它。`ip.dispute` 的第二份是 `evidence-argument-chain`，不是这份。
 
 **「评价性用语还原为客观事实」**是一条很实用的纪律。客户说的「他太不要脸了」「这明显是骗人」要还原成「未按约定期限付款 30 天」这种可举证的事实表述。
 
-它是**被复用最广的一份技能**——七个能力把它列为第二主阶段技能。原因是：不管办什么案子，第一步都是把生活语言变成法律语言。
+它是**被复用最广的一份技能**——六个能力把它列为第二主阶段技能，诉讼家事分支也算上它。原因是：不管办什么案子，第一步都是把生活语言变成法律语言。
 
 ### `citation-grounding` 引用锚定
 
@@ -309,7 +314,7 @@
 ```text
 ① 写在 src/lawmind/skills/builtin/<id>.md（带 frontmatter）。目录即登记表。
 ② 回合只读这份。工作区副本和 enabled.json 不参与。
-③ 列在 PRIMARY_BY_CAPABILITY 里 → 绑定对应能力时注入正文（最多 2 份）
+③ 列在主阶段名单里（PRIMARY_BY_CAPABILITY，或邮件 / 修订轨特判、诉讼分流）→ 绑定对应能力时注入正文（最多 2 份）
    否则 → 只出现在索引里
 ④ 模型需要时用 read_skill 按需取（单份上限 12000 字）
 ⑤ 同一会话里可以反复调 read_skill（幂等只读）
@@ -323,47 +328,50 @@
 
 如果你想知道「某个能力会看到哪两份技能」，这张表就是第 11 章那张映射表的反查：
 
-| 能力                  | 主阶段技能                                           |
-| --------------------- | ---------------------------------------------------- |
-| `contract.review`     | `contract-review-layers`、`contract-redline-craft`   |
-| `contract.draft`      | `contract-drafting-route`、`practice-defaults`       |
-| `mail.contract`       | `contract-review-layers`、`citation-grounding`       |
-| `letter.draft`        | `delivery-language`、`legal-element-extraction`      |
-| `research.memo`       | `research-query-matrix`、`citation-grounding`        |
-| `materials.draft`     | `delivery-language`、`legal-element-extraction`      |
-| `analysis.quick`      | `quick-legal-triage`、`legal-element-extraction`     |
-| `labor.calc`          | `labor-compensation-calc`                            |
-| `period.calc`         | `legal-period-calc`                                  |
-| `chronology.timeline` | `chronology-two-stage`、`chronology-from-materials`  |
-| `matter.intake`       | `matter-from-materials`、`matter-budget-lite`        |
-| `ops.invoice`         | `invoice-organizer`（`spreadsheet-analysis` 在索引） |
-| `ops.court_sms`       | `court-sms-intake`、`legal-event-extract`            |
-| `litigation.talk`     | `client-talk-intake`、`legal-element-extraction`     |
-| `ip.dispute`          | `ip-dispute-route`、`evidence-argument-chain`        |
-| `deal.ma`             | `ma-diligence-route`、`legal-element-extraction`     |
-| `compliance.data`     | `data-compliance-route`、`norm-validity`             |
-| `compliance.ads`      | `ads-compliance-route`、`norm-validity`              |
-| `matter.status`       | `matter-status-report`、`matter-status-scope-budget` |
-| `family.matter`       | `family-matter-route`、`legal-element-extraction`    |
-| `capital.markets`     | `capital-markets-route`、`citation-grounding`        |
-| `corp.governance`     | `governance-route`、`norm-validity`                  |
-| `litigation.draft`    | 按细分场景（见第 11 章）                             |
+| 能力                  | 主阶段技能                                                                                                                          |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `contract.review`     | 默认（意见）：`contract-review-layers`、`contract-playbook-review`；Word 修订轨：`contract-review-layers`、`contract-redline-craft` |
+| `contract.draft`      | `contract-drafting-route`、`practice-defaults`                                                                                      |
+| `mail.contract`       | `contract-review-layers`、`citation-grounding`                                                                                      |
+| `letter.draft`        | `delivery-language`、`legal-element-extraction`                                                                                     |
+| `research.memo`       | `research-query-matrix`、`citation-grounding`                                                                                       |
+| `materials.draft`     | `delivery-language`、`legal-element-extraction`                                                                                     |
+| `analysis.quick`      | `quick-legal-triage`、`legal-element-extraction`                                                                                    |
+| `labor.calc`          | `labor-compensation-calc`                                                                                                           |
+| `period.calc`         | `legal-period-calc`                                                                                                                 |
+| `chronology.timeline` | `chronology-two-stage`、`chronology-from-materials`                                                                                 |
+| `matter.intake`       | `matter-from-materials`、`matter-budget-lite`                                                                                       |
+| `ops.invoice`         | `invoice-organizer`（`spreadsheet-analysis` 在索引）                                                                                |
+| `ops.court_sms`       | `court-sms-intake`、`legal-event-extract`                                                                                           |
+| `litigation.talk`     | `client-talk-intake`、`legal-element-extraction`                                                                                    |
+| `ip.dispute`          | `ip-dispute-route`、`evidence-argument-chain`                                                                                       |
+| `deal.ma`             | `ma-diligence-route`、`legal-element-extraction`                                                                                    |
+| `compliance.data`     | `data-compliance-route`、`norm-validity`                                                                                            |
+| `compliance.ads`      | `ads-compliance-route`、`norm-validity`                                                                                             |
+| `matter.status`       | `matter-status-report`、`matter-status-scope-budget`                                                                                |
+| `family.matter`       | `family-matter-route`、`legal-element-extraction`                                                                                   |
+| `capital.markets`     | `capital-markets-route`、`citation-grounding`                                                                                       |
+| `corp.governance`     | `governance-route`、`norm-validity`                                                                                                 |
+| `litigation.draft`    | 按原话和文件名分流（见 20.15）                                                                                                      |
 
 ## 20.13 哪些技能没被主推
 
-有几份技能**不在任何能力的 `PRIMARY_BY_CAPABILITY` 里**，也就是说它们永远只在索引里：
+只有两份技能**不在任何能力的主阶段名单里**，也就是说它们永远只在索引里：
 
-`contract-playbook-review`、`spreadsheet-analysis`、`intake-required-inputs`（除了高风险空跑时）。
+`spreadsheet-analysis`、`intake-required-inputs`。
+
+`intake-required-inputs` 虽不占主阶段，但有另一条注入通道：它的正文就是 `INTAKE_CRAFT_SKILL`，只要本轮出现交办软问（含高风险空跑），整份正文作为 craft 块进系统提示（见 20.8）。
 
 `chronology-two-stage` 和 `matter-status-scope-budget` 以前也在这张名单里。能力说明已经要求两阶段时间轴和范围/预算栏，只放索引时模型会跟着另一份正文走（时间轴那份还写过「不要另开确认」）。这两份现在占主阶段的第二个名额。
 
-合同 Playbook 仍不占主阶段：审查的两个名额是分层和最短改动。档位口径已经写在能力说明里。纸别或底线拿不准时再 `read_skill` 读取 `contract-playbook-review`，不为读技能停掉已能写的意见。正文里「没写纸别就停下来问」已改成标【待定】继续给条件式档位。
+`contract-playbook-review` 也曾经在这张名单里，现在是 `contract.review` 默认意见路径的第二份主阶段。钉了 Word 走修订轨时它回到索引：修订轨的两个名额是分层审查和最短改动，流程提示会点名「出档位前用 `read_skill` 读取 `contract-playbook-review`」，纸别没写时标【待定】继续给条件式档位，不为读技能停掉已能写的意见。
 
 ## 20.14 已知坑（本章相关）
 
-- **技能存在 ≠ 技能生效。** 没被主推就得靠 `read_skill`，而且 `read_skill` 要模型自己想到去调。合同审查只在档位边界拿不准时点名去读 `contract-playbook-review`。
+- **技能存在 ≠ 技能生效。** 没被主推就得靠 `read_skill`，而且 `read_skill` 要模型自己想到去调。`spreadsheet-analysis` 是典型：钉了 `.xlsx` 会带出表格工具，但这份正文仍要模型自己 `read_skill` 才看得到。
 - **`contract-redline-craft` 的正文来自代码常量。** 改 `builtin/contract-redline-craft.md` 不会生效。
-- **`legal-element-extraction` 是最被复用的技能**（七个能力把它列为第二技能）。改它影响面很大。家事能力的索引里现在有 `evidence-argument-chain`，主阶段仍是家事路由加要素提取。
+- **`contract-playbook-review` 的位置分路径。** 默认意见路径它是 `contract.review` 的第二份主阶段；Word 修订轨它在索引里，流程提示点名出档位前 `read_skill`。
+- **`legal-element-extraction` 是最被复用的技能**（六个能力把它列为第二技能，诉讼家事分支也用它）。改它影响面很大。家事能力的索引里现在有 `evidence-argument-chain`，主阶段仍是家事路由加要素提取。
 - **改 `builtin/*.md` 会改变下一轮模型行为。** 这些 md 是运行时说明书，不是文档。播种清单与 37 个 id 对齐，含 `client-talk-intake` 和 `legal-event-extract`。
 
 ## 20.15 实现：主阶段正文怎么选出来
@@ -371,9 +379,11 @@
 `primarySkillIdsForBound`（`src/lawmind/skills/skill-prompt-budget.ts`）在能力已经绑好之后再选最多两份正文。能力绑定本身在 `bindLawyerCapability` → `compileIntent`（第 4 章）。选正文的顺序：
 
 1. `mail.contract` 固定 `contract-review-layers` + `citation-grounding`。最短改动正文由邮件短路径另注入代码常量，不占这里的两个名额。
-2. `litigation.draft` 走 `litigationPrimary`，不走下面那张静态表。
-3. 其余能力读 `PRIMARY_BY_CAPABILITY`。
-4. 选出的 id 必须落在该能力自己的 `skillIds` 里，然后 `.slice(0, 2)`。一个都对不上时，退回 `skillIds` 的前两份。
+2. 修订轨的 `contract.review` 固定 `contract-review-layers` + `contract-redline-craft`（即 22.4 钉上的那对；第 22 章讲的是同一张图）。
+3. 修订轨的 `litigation.draft` 取 `skillIds` 最前两份——Word 改稿时钉选的那对已被并到最前（`litigationRevisionSkillIds`，见下）。不再用「帮我改一下」去跑诉讼分流，否则文件名选中的起诉状会被默认路由盖掉。
+4. 其余 `litigation.draft`（意见/起草路径）走 `litigationPrimary`，不走下面那张静态表。
+5. 其余能力读 `PRIMARY_BY_CAPABILITY`。
+6. 选出的 id 必须落在该能力自己的 `skillIds` 里，然后 `.slice(0, 2)`。一个都对不上时，退回 `skillIds` 的前两份。
 
 `litigationPrimary` 按原话选择注入哪两份说明，命中即返回。这一步不调用工具，也不拒绝起草。分错了，律师用 `【办件】` 或 `$skill` 覆盖；模型仍可用 `read_skill` 另读一份。
 
@@ -389,7 +399,7 @@
 
 第 7 步以前的默认是诉讼阶段路由加起诉状母版。写答辩状、代理词、保全时，母版正文会把文书拉成起诉状。分流只看起草动词后面的文书：「根据起诉状写答辩状」走答辩；「针对答辩状写起诉状」仍走起诉状母版。没有这些动词时，才在整句里找。
 
-Word 改稿不把「帮我改一下」再跑一遍这张表。`litigationRevisionSkillIds` 先看「改 / 写」之后有没有点文书种类；没有就跟文件名。钉了答辩状时主阶段是阶段路由加证据链，起诉状母版留在索引里。选中的两份放在 `skillIds` 最前。
+Word 改稿不把「帮我改一下」再跑一遍这张表。`litigationRevisionSkillIds` 先看「改 / 写 / 起草 / 拟」之后有没有点文书种类；没有就跟文件名。钉了答辩状时主阶段是阶段路由加证据链，起诉状母版留在索引里。选中的两份放在 `skillIds` 最前。
 
 `planLeanSkillPrompt` 把没选中的 `skillIds` 做成索引行：`id：description`。`formatBoundCapabilityBlock`（`lawyer-capabilities.ts`）把能力说明、主阶段正文和索引拼进系统提示。索引标题是「其余技能（索引，不要通读）」，末尾要求调用 `read_skill`。
 
@@ -399,7 +409,7 @@ Word 改稿不把「帮我改一下」再跑一遍这张表。`litigationRevisio
 
 Cursor 和 Codex 把 `SKILL.md` 交给操作者安装，模型按 description 自己决定要不要 `read`。那条路适合配置 Agent 的人。LawMind 的用户是律师，安装面已经删掉（第 11 章）。
 
-Harvey 把审查立场做成 Playbook 数据（标准 / 可接受回退 / 绝不接受），不把长文塞进每一轮。LawMind 的对应物是 `contract-playbook-review` 加能力说明里的三档要求。两个主阶段名额留给分层审查和最短改动；档位边界拿不准时再 `read_skill`。纸别没写时标【待定】继续给条件式档位，不先停下来问，也不为了读技能停掉已能写的意见。这是铁律 1（少打断）和铁律 5（判断交给模型，硬停只留空交付）。
+Harvey 把审查立场做成 Playbook 数据（标准 / 可接受回退 / 绝不接受），不把长文塞进每一轮。LawMind 的对应物是 `contract-playbook-review` 加能力说明里的三档要求。默认意见路径下，两个主阶段名额就是分层审查加这份 Playbook——三档正文直接在提示里，不用赌模型想起来去读。钉了 Word 走修订轨时，名额换成分层审查和最短改动，Playbook 回到索引，流程提示点名出档位前 `read_skill`；纸别没写时标【待定】继续给条件式档位，不先停下来问，也不为了读技能停掉已能写的意见。这是铁律 1（少打断）和铁律 5（判断交给模型，硬停只留空交付）。
 
 时间轴和周报走另一条：能力说明已经规定了完成条件（先预览再出正式件；范围变更四要素；预算对照），第二份正文却不注入，模型会执行另一份与之相反的说明书。这两份因此升为主阶段。仍保持两份上限，不把 37 份正文一次塞进上下文。
 

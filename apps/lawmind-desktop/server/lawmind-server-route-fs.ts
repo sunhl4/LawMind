@@ -10,7 +10,11 @@ import {
   isProtectedWorkspaceRel,
 } from "../../../src/lawmind/runtime/protected-workspace-rels.js";
 import { parseJsonBodyZod } from "./lawmind-api-parse.js";
-import { fsWritePostSchema, fsXlsxSavePostSchema } from "./lawmind-api-schemas.js";
+import {
+  fsPptxSavePostSchema,
+  fsWritePostSchema,
+  fsXlsxSavePostSchema,
+} from "./lawmind-api-schemas.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   MAX_TEXT_READ_BYTES,
@@ -22,6 +26,9 @@ import {
   safeArtifactPath,
   sendJson,
 } from "./lawmind-server-helpers.js";
+
+/** 中栏 `.doc` 文本预览上限；超过就截断并回报 `truncated`。 */
+const DOC_PREVIEW_MAX_CHARS = 200_000;
 
 export async function handleFilesystemRoute({
   ctx,
@@ -297,12 +304,16 @@ export async function handleFilesystemRoute({
         );
         return true;
       }
-      void full;
       const result = await convertLegacyDocForPreview(workspaceDir, rel);
       if (!result.ok) {
         sendJson(res, 400, { ok: false, error: result.error }, c);
         return true;
       }
+      // 中栏直接显示正文：不再让律师「确认转换」，也不再打开同一份 `.doc`（那会自己套娃）。
+      const { readBinaryWordDocText } = await import(
+        "../../../src/lawmind/mail/read-word-binary.js"
+      );
+      const text = await readBinaryWordDocText(full).catch(() => "");
       sendJson(
         res,
         200,
@@ -311,6 +322,8 @@ export async function handleFilesystemRoute({
           relativePath: result.relativePath,
           converted: result.converted,
           ...(result.tool ? { tool: result.tool } : {}),
+          text: text.slice(0, DOC_PREVIEW_MAX_CHARS),
+          truncated: text.length > DOC_PREVIEW_MAX_CHARS,
         },
         c,
       );
@@ -356,6 +369,185 @@ export async function handleFilesystemRoute({
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : "xlsx_preview_failed";
+      sendJson(res, 400, { ok: false, error: message }, c);
+    }
+    return true;
+  }
+
+  if (pathname === "/api/fs/pptx-preview" && req.method === "GET") {
+    const roots = resolveFsRoots(workspaceDir);
+    const root = url.searchParams.get("root") ?? "workspace";
+    const relPath = url.searchParams.get("path") ?? "";
+    if (!/\.pptx$/i.test(relPath)) {
+      sendJson(res, 415, { ok: false, error: "not_pptx" }, c);
+      return true;
+    }
+    let full: string;
+    try {
+      ({ full } = resolveFsPath(roots, root, relPath, { access: "read" }));
+    } catch {
+      sendJson(res, 400, { ok: false, error: "invalid_path" }, c);
+      return true;
+    }
+    try {
+      const mtimeMs = fs.statSync(full).mtimeMs;
+      try {
+        const { loadPptxVisualPreview } = await import(
+          "../../../src/lawmind/agent/tools/legal/pptx-officecli.js"
+        );
+        const visual = await loadPptxVisualPreview({ absPath: full });
+        sendJson(
+          res,
+          200,
+          {
+            ok: true,
+            mode: "visual",
+            slideCount: visual.slideCount,
+            truncatedSlides: visual.truncatedSlides,
+            slides: visual.slides,
+            cacheKey: visual.cacheKey,
+            mtimeMs,
+          },
+          c,
+        );
+        return true;
+      } catch {
+        /* fall through to text extract */
+      }
+      const { loadPptxUiPreview } = await import(
+        "../../../src/lawmind/agent/tools/legal/pptx-preview.js"
+      );
+      const loaded = await loadPptxUiPreview(full);
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          mode: "text",
+          slideCount: loaded.slides.length,
+          slides: loaded.slides,
+          truncatedSlides: loaded.truncatedSlides,
+          slideWidthEmu: loaded.slideWidthEmu,
+          slideHeightEmu: loaded.slideHeightEmu,
+          mtimeMs: fs.statSync(full).mtimeMs,
+        },
+        c,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "pptx_preview_failed";
+      sendJson(res, 400, { ok: false, error: message }, c);
+    }
+    return true;
+  }
+
+  if (pathname === "/api/fs/pptx-slide" && req.method === "GET") {
+    const roots = resolveFsRoots(workspaceDir);
+    const root = url.searchParams.get("root") ?? "workspace";
+    const relPath = url.searchParams.get("path") ?? "";
+    const page = Number(url.searchParams.get("page") ?? "1");
+    if (!/\.pptx$/i.test(relPath)) {
+      sendJson(res, 415, { ok: false, error: "not_pptx" }, c);
+      return true;
+    }
+    if (!Number.isFinite(page) || page < 1 || page > 80) {
+      sendJson(res, 400, { ok: false, error: "invalid_page" }, c);
+      return true;
+    }
+    let full: string;
+    try {
+      ({ full } = resolveFsPath(roots, root, relPath, { access: "read" }));
+    } catch {
+      sendJson(res, 400, { ok: false, error: "invalid_path" }, c);
+      return true;
+    }
+    try {
+      const {
+        pptxPreviewCacheKey,
+        pptxSlideCachePath,
+        renderPptxSlideScreenshot,
+      } = await import("../../../src/lawmind/agent/tools/legal/pptx-officecli.js");
+      const mtimeMs = fs.statSync(full).mtimeMs;
+      const cacheKey = pptxPreviewCacheKey(full, mtimeMs);
+      const outPng = pptxSlideCachePath(workspaceDir, cacheKey, page);
+      if (!fs.existsSync(outPng)) {
+        await renderPptxSlideScreenshot({ absPath: full, page1Based: page, outPng });
+      }
+      const buf = fs.readFileSync(outPng);
+      res.writeHead(200, {
+        ...c,
+        "Content-Type": "image/png",
+        "Content-Length": String(buf.length),
+        "Cache-Control": "private, max-age=30",
+      });
+      res.end(buf);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "pptx_slide_failed";
+      sendJson(res, 400, { ok: false, error: message }, c);
+    }
+    return true;
+  }
+
+  if (pathname === "/api/fs/pptx-save" && req.method === "POST") {
+    const body = await parseJsonBodyZod(req, fsPptxSavePostSchema);
+    const roots = resolveFsRoots(workspaceDir);
+    const root = body.root;
+    const relPath = body.path;
+    if (!/\.pptx$/i.test(relPath)) {
+      sendJson(res, 415, { ok: false, error: "not_pptx" }, c);
+      return true;
+    }
+    let resolved: { full: string; rel: string };
+    try {
+      resolved = resolveFsPath(roots, root, relPath, { access: "write" });
+    } catch (err) {
+      if (err instanceof FsWriteNotAllowedError) {
+        sendJson(res, 403, { ok: false, code: err.code, error: err.message }, c);
+        return true;
+      }
+      sendJson(res, 400, { ok: false, error: "invalid_path" }, c);
+      return true;
+    }
+    const { full, rel } = resolved;
+    if (root === "workspace" && isProtectedWorkspaceRel(rel)) {
+      sendJson(
+        res,
+        403,
+        {
+          ok: false,
+          code: PROTECTED_WORKSPACE_WRITE_CODE,
+          error: PROTECTED_WORKSPACE_WRITE_REFUSAL,
+        },
+        c,
+      );
+      return true;
+    }
+    if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
+      sendJson(res, 404, { ok: false, error: "not_found" }, c);
+      return true;
+    }
+    try {
+      await ensureLocalFile(full);
+      const prior = fs.statSync(full);
+      if (
+        body.expectedMtimeMs !== undefined &&
+        Math.abs(prior.mtimeMs - body.expectedMtimeMs) > 1
+      ) {
+        sendJson(
+          res,
+          409,
+          { ok: false, error: "conflict", mtimeMs: prior.mtimeMs },
+          c,
+        );
+        return true;
+      }
+      const { applyPptxTextEdits } = await import(
+        "../../../src/lawmind/agent/tools/legal/pptx-officecli.js"
+      );
+      const result = await applyPptxTextEdits({ absPath: full, edits: body.edits });
+      const mtimeMs = fs.statSync(full).mtimeMs;
+      sendJson(res, 200, { ok: true, applied: result.applied, mtimeMs }, c);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "pptx_save_failed";
       sendJson(res, 400, { ok: false, error: message }, c);
     }
     return true;

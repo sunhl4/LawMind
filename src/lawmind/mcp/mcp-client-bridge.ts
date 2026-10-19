@@ -192,6 +192,87 @@ export async function testMcpServer(record: McpServerRecord): Promise<{
   }
 }
 
+type LiveMcp = {
+  session: McpSession;
+  refs: number;
+};
+
+const pooledMcp = new Map<string, Promise<LiveMcp>>();
+
+function mcpPoolKey(workspaceDir: string, serverId: string): string {
+  return `${path.resolve(workspaceDir)}\0${serverId}`;
+}
+
+/** One stdio/HTTP session per server. Calls on that session run one at a time. */
+function serializeMcpSession(session: McpSession): McpSession {
+  let chain: Promise<unknown> = Promise.resolve();
+  const run = <T>(fn: () => Promise<T>): Promise<T> => {
+    const next = chain.then(fn, fn);
+    chain = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  };
+  return {
+    listTools: () => run(() => session.listTools()),
+    callTool: (name, args) => run(() => session.callTool(name, args)),
+    close: () => session.close(),
+  };
+}
+
+async function acquireSharedMcpSession(
+  record: McpServerRecord,
+  workspaceDir: string,
+): Promise<McpSession> {
+  const key = mcpPoolKey(workspaceDir, record.id);
+  let pending = pooledMcp.get(key);
+  if (!pending) {
+    pending = openSession(record).then((raw) => ({ session: serializeMcpSession(raw), refs: 0 }));
+    pooledMcp.set(key, pending);
+    pending.catch(() => {
+      if (pooledMcp.get(key) === pending) {
+        pooledMcp.delete(key);
+      }
+    });
+  }
+  const entry = await pending;
+  entry.refs += 1;
+  let released = false;
+  return {
+    listTools: () => entry.session.listTools(),
+    callTool: (name, args) => entry.session.callTool(name, args),
+    close: async () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      entry.refs -= 1;
+      if (entry.refs > 0) {
+        return;
+      }
+      if (pooledMcp.get(key) === pending) {
+        pooledMcp.delete(key);
+      }
+      await entry.session.close();
+    },
+  };
+}
+
+/** Test helper: drop pooled sessions left open by a failed test. */
+export async function closePooledMcpForTests(): Promise<void> {
+  const pending = [...pooledMcp.values()];
+  pooledMcp.clear();
+  for (const item of pending) {
+    const entry = await item.catch(() => null);
+    if (!entry) {
+      continue;
+    }
+    entry.refs = 0;
+    await entry.session.close().catch(() => undefined);
+  }
+}
+
 export async function attachEnabledMcpServers(opts: {
   registry: ToolRegistry;
   workspaceDir: string;
@@ -205,7 +286,7 @@ export async function attachEnabledMcpServers(opts: {
   const servers = readMcpServersConfig(opts.workspaceDir).filter((s) => s.enabled);
   for (const record of servers) {
     try {
-      const session = await openSession(record);
+      const session = await acquireSharedMcpSession(record, opts.workspaceDir);
       try {
         const listed = await session.listTools();
         let any = false;

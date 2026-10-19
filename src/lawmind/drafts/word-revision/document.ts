@@ -330,6 +330,7 @@ function markFromRun(run: WordLayoutRun): Pick<WordRevisionRun, "mark"> {
     ...(run.fontSizePx ? { fontSizePx: run.fontSizePx } : {}),
     ...(run.fontColor ? { fontColor: run.fontColor } : {}),
     ...(run.fontFamily ? { fontFamily: run.fontFamily } : {}),
+    ...(run.rFontsXml ? { rFontsXml: run.rFontsXml } : {}),
   };
   return Object.keys(mark).length > 0 ? { mark } : {};
 }

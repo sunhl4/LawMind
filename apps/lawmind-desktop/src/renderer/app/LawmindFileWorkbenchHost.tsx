@@ -13,6 +13,9 @@ export type LawmindFileWorkbenchHostProps = {
   fileEditorHost: HTMLDivElement | null;
   onExplorerPortaled?: (portaled: boolean) => void;
   onAddToChatContext: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
+  /** 在本机文件夹上新建一场挂在该文件夹的对话。 */
+  onNewChatInFolder?: (folderRel: string) => void | Promise<void>;
+  onCreateChatWorkspace?: (workDir: string) => void | Promise<void>;
   /** workspace = chat materials; meeting = agenda; agents = 在办补充带入 */
   explorerVariant?: "workspace" | "meeting" | "agents";
   mattersPickList: Array<{ id: string; label: string }>;
@@ -32,6 +35,8 @@ function LawmindFileWorkbenchHostImpl({
   fileEditorHost,
   onExplorerPortaled,
   onAddToChatContext,
+  onNewChatInFolder,
+  onCreateChatWorkspace,
   explorerVariant = "workspace",
   mattersPickList,
   workspaceTreeRefreshKey,
@@ -40,14 +45,12 @@ function LawmindFileWorkbenchHostImpl({
   materialsDefaultOpen = false,
 }: LawmindFileWorkbenchHostProps) {
   useEffect(() => {
-    const portaled = Boolean(
-      showSidebarWorkbenchFiles && fileExplorerHost && fileExplorerCasesHost,
-    );
+    const portaled = Boolean(showSidebarWorkbenchFiles && fileExplorerHost);
     onExplorerPortaled?.(portaled);
     return () => onExplorerPortaled?.(false);
-  }, [showSidebarWorkbenchFiles, fileExplorerHost, fileExplorerCasesHost, onExplorerPortaled]);
+  }, [showSidebarWorkbenchFiles, fileExplorerHost, onExplorerPortaled]);
 
-  if (!showSidebarWorkbenchFiles || !fileExplorerHost || !fileExplorerCasesHost) {
+  if (!showSidebarWorkbenchFiles || !fileExplorerHost) {
     return null;
   }
 
@@ -66,10 +69,14 @@ function LawmindFileWorkbenchHostImpl({
       onPickProject={onPickProject}
       canUseFilesystemBridge
       onAddToChatContext={onAddToChatContext}
+      onNewChatInFolder={onNewChatInFolder}
+      onCreateChatWorkspace={onCreateChatWorkspace}
       addToContextLabel={addToContextLabel}
       portalHosts={{
         explorer: fileExplorerHost,
-        explorerCases: fileExplorerCasesHost,
+        ...(fileExplorerCasesHost
+          ? { explorerCases: fileExplorerCasesHost, explorerSections: "split" as const }
+          : { explorerSections: "work" as const }),
         editor: isMeeting || isAgents ? null : (fileEditorHost ?? null),
         explorerLayout: "embedded",
       }}

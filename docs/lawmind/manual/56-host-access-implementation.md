@@ -2,6 +2,10 @@
 
 第 15 章从「机制清单」的角度讲过本机访问。这一章从**实现**的角度讲：13 个文件的 `host-access/` 是怎么把「律师的整台电脑」变成「一个受控的、只读的、带案件围栏的资源池」。
 
+`host-access/index.ts` 会再导出各子模块，仓库里没有生产代码 import 这个 barrel。调用方按路径引 `access-broker.ts`、`host-store.ts`、`host-index.ts` 等。
+
+桌面产品不走 HTTP。`apps/lawmind-desktop/server/lawmind-server-route-host-access.ts` 仍挂着 `GET /api/host-access`、`GET /api/host-access/log`、`POST /api/host-access/index/rebuild`、`POST /api/host-access/session-command`，渲染进程没有调用方。本机文件夹走 IPC：`lawmind:list-host-folders`、`lawmind:add-host-folder`、`lawmind:remove-host-folder`、`lawmind:bind-host-folder`（`apps/lawmind-desktop/electron/ipc-handlers.mjs`），磁盘镜像在 `electron/host-access-store.mjs`。
+
 ## 56.1 解析固定为 command
 
 `host-access/types.ts` 仍保留枚举：
@@ -609,7 +613,9 @@ locateHitStore: Map<sessionId, Map<hitId, abs>>    ← 定位命中的路径
 
 ## 56.12 摄取：OCR 为什么要律师确认
 
-`ingest/ocr/index.ts` 是这条链路的入口。它的头部注释讲了四件事，其中最关键的是一句：
+`ingest/ocr/index.ts` 把本地 tesseract、云占位和 `confirmOcrExtraction` 放在一起。生产代码不 import 它：全仓库只有 `src/lawmind/ingest/ocr/index.test.ts` 引用 `confirmOcrExtraction`。律师工具读图片走的是另一份私有实现，`src/lawmind/agent/tools/legal/ingest-helpers.ts` 里的 `createOcrWorker` / `readImageTextByOcr`（语言变量同为 `LAWMIND_OCR_LANGS`，默认 `chi_sim+eng`）。下面仍按 `ingest/ocr/index.ts` 里写着的确认门描述；那道门目前没有产品调用方。
+
+它的头部注释里最关键的是一句：
 
 ```text
 Confirmation gate: callers should not auto-commit OCR text into matter
@@ -707,5 +713,7 @@ needsLawyerConfirmation: true;
 - **officecli 的 cwd 必须在工作区内。**
 - **命令档位代码仍按 `rank` 比较**，解析结果固定为 `session`，律师不用在设置里升档。
 - **用户中断、日志失败都不许影响主流程。**
-- **OCR 结果必须律师确认才能入库**（`needsLawyerConfirmation` 是常量）。
-- **PDF 光栅化还没做。** 云 OCR 是占位。
+- **`host-access/index.ts` 这个 barrel 没有生产导入者。**
+- **`/api/host-access*` 没有产品调用方。** 桌面用 IPC 管本机文件夹。
+- **`ingest/ocr/index.ts` 没有生产导入者。** 工具侧 OCR 在 `ingest-helpers.ts`。`confirmOcrExtraction` 只被自己的测试调用；`needsLawyerConfirmation` 在该模块里仍是常量。
+- **PDF 光栅化在 `ingest/ocr/index.ts` 里仍标为 future work。** 云 OCR 在该文件里是占位。

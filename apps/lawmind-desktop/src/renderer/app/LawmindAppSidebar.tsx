@@ -42,6 +42,16 @@ export type LawmindAppSidebarProps = {
   chatListScope?: string | null;
   onOpenChatScope?: (scope: string | null) => void;
   assistantDisplayById?: Record<string, string>;
+  /** 当前本机文件夹的显示名，对话列表用来给未挂子文件夹的对话起标题。 */
+  workspaceFolderLabel?: string | null;
+  /** 本机文件夹全路径，悬停对话所属文件夹时显示。 */
+  workspaceFolderPath?: string | null;
+  /** 最上面「新建对话」实际放入的目录。 */
+  newChatHomePath?: string | null;
+  /** 在对话所属文件夹下新建。不传路径是工作区根目录。 */
+  onNewChatInFolder?: (folderRel?: string) => void | Promise<void>;
+  /** 用绝对路径新建一场工作区对话。不改已有对话。 */
+  onCreateChatWorkspace?: (workDir: string) => void | Promise<void>;
   /** 切换器用全量案件，不受工作台搜索过滤。 */
   chatMatterRows?: MatterSidebarRow[];
   chatMattersReady?: boolean;
@@ -74,89 +84,6 @@ function matterTitleByIdFromRows(rows: MatterSidebarRow[]): Record<string, strin
   return titles;
 }
 
-function ChatScopeSwitcher(props: {
-  open: boolean;
-  onToggle: () => void;
-  scope: string | null;
-  rows: MatterSidebarRow[];
-  onOpenScope: (scope: string | null) => void;
-  onCreateMatter?: () => void;
-}) {
-  const rootRef = React.useRef<HTMLDivElement>(null);
-  const matters = props.rows.filter((row) => row.matterId?.trim());
-  const current = props.scope
-    ? matters.find((row) => row.matterId === props.scope)?.title || props.scope
-    : "未归案";
-  React.useEffect(() => {
-    if (!props.open) {
-      return undefined;
-    }
-    const onPointerDown = (event: PointerEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) {
-        return;
-      }
-      props.onToggle();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [props.open, props.onToggle]);
-  return (
-    <div className="lm-chat-scope" ref={rootRef}>
-      <button
-        type="button"
-        className="lm-chat-scope-btn"
-        aria-haspopup="listbox"
-        aria-expanded={props.open}
-        data-testid="lm-chat-scope-switcher"
-        onClick={props.onToggle}
-      >
-        <span className="lm-chat-scope-copy">
-          <span className="lm-chat-scope-kicker">当前案件</span>
-          <span className="lm-chat-scope-name">{current}</span>
-        </span>
-        <span aria-hidden>▾</span>
-      </button>
-      {props.open ? (
-        <ul className="lm-chat-scope-menu" role="listbox" aria-label="切换案件">
-          {matters.map((row) => (
-            <li key={row.key}>
-              <button
-                type="button"
-                className={`lm-chat-scope-item${row.matterId === props.scope ? " is-active" : ""}`}
-                onClick={() => props.onOpenScope(row.matterId)}
-              >
-                {row.title}
-              </button>
-            </li>
-          ))}
-          <li>
-            <button
-              type="button"
-              className={`lm-chat-scope-item${props.scope === null ? " is-active" : ""}`}
-              data-testid="lm-chat-scope-unbound"
-              onClick={() => props.onOpenScope(null)}
-            >
-              未归案
-            </button>
-          </li>
-          {props.onCreateMatter ? (
-            <li>
-              <button
-                type="button"
-                className="lm-chat-scope-item"
-                data-testid="lm-matter-sidebar-create"
-                onClick={props.onCreateMatter}
-              >
-                新建案件
-              </button>
-            </li>
-          ) : null}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
 function LawmindAppSidebarImpl({
   showAppSidebar,
   sidebarCollapsed,
@@ -168,7 +95,6 @@ function LawmindAppSidebarImpl({
   onCloseSettings,
   settingsOpen,
   setFileExplorerHost,
-  setFileExplorerCasesHost,
   matterSidebarRows,
   selectedMatterKey,
   onSelectMatterKey,
@@ -180,9 +106,12 @@ function LawmindAppSidebarImpl({
   activeChatSessionId,
   chatSessionsLoading,
   chatAssistantId,
-  chatListScope,
-  onOpenChatScope,
   assistantDisplayById,
+  workspaceFolderLabel,
+  workspaceFolderPath,
+  newChatHomePath,
+  onNewChatInFolder,
+  onCreateChatWorkspace,
   chatMatterRows,
   chatMattersReady = false,
   onSelectChatSession,
@@ -191,7 +120,6 @@ function LawmindAppSidebarImpl({
   onDeleteChatSession,
   onCreateMatter,
 }: LawmindAppSidebarProps) {
-  const [scopeMenuOpen, setScopeMenuOpen] = React.useState(false);
   // Settings owns the full shell width; do not keep the workspace rail beside it.
   if (!showAppSidebar || settingsOpen) {
     return null;
@@ -266,25 +194,36 @@ function LawmindAppSidebarImpl({
           </button>
         </div>
 
-        {/* 对话优先（A）：工作区 → 案件材料（均默认折叠）→ 当前案件 → 对话（占主高度） */}
-        {showWorkbenchExplorer ? (
-          <div
-            ref={setFileExplorerHost}
-            className="lm-side-explorer-host lm-side-explorer-host--work"
-            aria-label="工作区"
-            data-testid="lm-side-explorer-work"
+        {/* 本机文件夹在上。最上面的新建放进工作区根目录，或设置里另选的目录。 */}
+        {showSideChat && onCreateNewChatSession ? (
+          <button
+            type="button"
+            className="lm-fs-dual-root-header lm-side-new-chat"
+            data-testid="lm-side-new-chat"
+            title={
+              (newChatHomePath || workspaceFolderPath)
+                ? `新建对话，放在默认工作区 ${newChatHomePath || workspaceFolderPath}`
+                : "新建对话，放在默认工作区"
+            }
+            onClick={() => void onCreateNewChatSession()}
           >
-            {showExplorerSkeleton ? <LawmindSideExplorerSkeleton /> : null}
-          </div>
+            <span className="lm-side-new-chat-spacer" aria-hidden="true" />
+            <span className="lm-section-label">新建对话</span>
+            <span className="lm-fs-root-add" aria-hidden="true">
+              ＋
+            </span>
+          </button>
         ) : null}
 
         {showWorkbenchExplorer ? (
           <div
-            ref={setFileExplorerCasesHost}
-            className="lm-side-explorer-host lm-side-explorer-host--cases"
-            aria-label="案件材料"
-            data-testid="lm-side-explorer-cases"
-          />
+            ref={setFileExplorerHost}
+            className="lm-side-explorer-host lm-side-explorer-host--work"
+            aria-label="本机目录"
+            data-testid="lm-side-explorer-work"
+          >
+            {showExplorerSkeleton ? <LawmindSideExplorerSkeleton /> : null}
+          </div>
         ) : null}
 
         {showSideChat &&
@@ -292,48 +231,24 @@ function LawmindAppSidebarImpl({
         onCreateNewChatSession &&
         onRenameChatSession &&
         onDeleteChatSession ? (
-          <>
-            <ChatScopeSwitcher
-              open={scopeMenuOpen}
-              onToggle={() => setScopeMenuOpen((value) => !value)}
-              scope={chatListScope === undefined ? null : chatListScope}
-              rows={chatMatterRows ?? matterSidebarRows}
-              onOpenScope={(scope) => {
-                setScopeMenuOpen(false);
-                onOpenChatScope?.(scope);
-              }}
-              onCreateMatter={
-                onCreateMatter
-                  ? () => {
-                      setScopeMenuOpen(false);
-                      onCreateMatter();
-                    }
-                  : undefined
-              }
-            />
-            <LawmindSideChatSessions
-              sessions={chatSessions ?? []}
-              activeSessionId={activeChatSessionId}
-              loading={chatSessionsLoading}
-              apiBase={apiBase}
-              assistantId={chatAssistantId}
-              scopeMatterId={chatListScope}
-              knownMatterIds={knownMatterIdsFromRows(chatMatterRows ?? matterSidebarRows, chatMattersReady)}
-              matterTitleById={matterTitleByIdFromRows(chatMatterRows ?? matterSidebarRows)}
-              assistantDisplayById={assistantDisplayById}
-              onShowUnbound={
-                onOpenChatScope
-                  ? () => {
-                      onOpenChatScope(null);
-                    }
-                  : undefined
-              }
-              onSelect={onSelectChatSession}
-              onNewChat={onCreateNewChatSession}
-              onRename={onRenameChatSession}
-              onDelete={onDeleteChatSession}
-            />
-          </>
+          <LawmindSideChatSessions
+            sessions={chatSessions ?? []}
+            activeSessionId={activeChatSessionId}
+            loading={chatSessionsLoading}
+            apiBase={apiBase}
+            assistantId={chatAssistantId}
+            knownMatterIds={knownMatterIdsFromRows(chatMatterRows ?? matterSidebarRows, chatMattersReady)}
+            matterTitleById={matterTitleByIdFromRows(chatMatterRows ?? matterSidebarRows)}
+            assistantDisplayById={assistantDisplayById}
+            workspaceFolderLabel={workspaceFolderLabel}
+            workspaceFolderPath={workspaceFolderPath}
+            preferredWorkDir={newChatHomePath}
+            onNewChatInFolder={onNewChatInFolder}
+            onCreateChatWorkspace={onCreateChatWorkspace}
+            onSelect={onSelectChatSession}
+            onRename={onRenameChatSession}
+            onDelete={onDeleteChatSession}
+          />
         ) : null}
 
         {showMatterList ? (

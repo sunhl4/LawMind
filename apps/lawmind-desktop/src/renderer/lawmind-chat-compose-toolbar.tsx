@@ -24,6 +24,8 @@ export type LawmindChatComposeToolbarProps = {
   onSend: () => void | Promise<void>;
   /** While a turn is running: queue this text as the next full turn (not a mid-turn correction). */
   onEnqueueNextTurn?: () => void | Promise<void>;
+  /** While a turn is running: inject this text into the current conversation's next sample. */
+  onSteerCurrentTurn?: () => void | Promise<void>;
   onAbortChat?: () => void;
   permissionMode: ComposePermissionMode;
   onPermissionModeChange: (mode: ComposePermissionMode) => void;
@@ -61,6 +63,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
     input,
     onSend,
     onEnqueueNextTurn,
+    onSteerCurrentTurn,
     onAbortChat,
     permissionMode,
     onPermissionModeChange,
@@ -243,7 +246,7 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
                 className="lm-btn lm-btn-ghost lm-btn-small"
                 data-testid="lm-compose-enqueue-next"
                 aria-label="下一轮再发"
-                title="等这一轮办完，再把这句话当作下一轮交办"
+                title="等这一轮办完，再把这句话当作下一轮。和回车、发送是同一件事"
                 onClick={() => {
                   setComposeOptionsOpen(false);
                   void onEnqueueNextTurn();
@@ -290,15 +293,29 @@ export function LawmindChatComposeToolbar(props: LawmindChatComposeToolbarProps)
         {loading ? (
           <>
             {input.trim() ? (
-              <button
-                type="button"
-                className="lm-btn"
-                aria-label="发送"
-                title="带入本轮，不必等结束再重讲"
-                onClick={() => void onSend()}
-              >
-                发送
-              </button>
+              <>
+                {onSteerCurrentTurn ? (
+                  <button
+                    type="button"
+                    className="lm-btn lm-btn-ghost"
+                    data-testid="lm-compose-steer-current"
+                    aria-label="改这一轮"
+                    title="插进正在办的这一轮。已经派出去的子工不会各自改口，这一轮接下来的汇总会按这句话调整"
+                    onClick={() => void onSteerCurrentTurn()}
+                  >
+                    改这一轮
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="lm-btn"
+                  aria-label="发送"
+                  title="这一轮结束后接着办"
+                  onClick={() => void onSend()}
+                >
+                  发送
+                </button>
+              </>
             ) : null}
             <button
               type="button"

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   resolveDocumentPageChars,
@@ -148,18 +149,22 @@ describe("read_project_file", () => {
     }
   });
 
-  it(".doc 不再硬拒：二进制正文主路径是 analyze_document，文本可读时 read_project_file 也可读", async () => {
+  it("read_project_file reads a .doc in-process without any Save As", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "lm-proj-doc-read-"));
     try {
-      // 纯文本伪装 .doc：read_project_file 按文本路径读取不报错；
-      // 真实 OLE2 .doc 的正文提取由 analyze_document（readBinaryWordDocText）承担。
-      await fs.writeFile(path.join(root, "legacy.doc"), "租赁合同纠纷补充说明", "utf8");
+      await fs.copyFile(
+        fileURLToPath(
+          new URL("../../../mail/fixtures/tracked-changes-5-authors.doc", import.meta.url),
+        ),
+        path.join(root, "legacy.doc"),
+      );
       const result = await readProjectFile.execute(
         { relative_path: "legacy.doc" },
         makeCtx("/tmp", { projectDir: root }),
       );
       expect(result.ok).toBe(true);
-      expect(JSON.stringify(result.data)).toContain("租赁合同");
+      expect(JSON.stringify(result.data)).toContain("履约保函");
+      await expect(fs.stat(path.join(root, "legacy.docx"))).rejects.toThrow();
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

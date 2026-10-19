@@ -31,7 +31,10 @@ import { readSessionEvents } from "../../../src/lawmind/agent/session-event-log.
 import { forkSessionWithCarryover } from "../../../src/lawmind/agent/session-carryover.js";
 import { getLiveTurnProgress } from "../../../src/lawmind/agent/live-turn-progress.js";
 import { queuePendingContextPins } from "../../../src/lawmind/agent/session-context-inject.js";
-import { queuePendingSteer } from "../../../src/lawmind/agent/session-context-steer.js";
+import {
+  discardUnclaimedSteer,
+  queuePendingSteer,
+} from "../../../src/lawmind/agent/session-context-steer.js";
 import {
   claimPendingFollowup,
   queuePendingFollowup,
@@ -448,6 +451,7 @@ export async function handleSessionExtendedRoutes({
       return true;
     }
     requestTurnAbort(sessionId);
+    discardUnclaimedSteer(workspaceDir, sessionId);
     sendJson(res, 200, { ok: true, aborted: true, sessionId }, c);
     return true;
   }

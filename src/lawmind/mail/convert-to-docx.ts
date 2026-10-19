@@ -1,25 +1,33 @@
 /**
- * Convert alternate Word-like attachments (wps/rtf/odt) for OpenXML tooling.
+ * Legacy `.doc` handling.
  *
- * Binary `.doc` is not auto-converted for revision. Lawyers save as `.docx` in
- * Word or WPS. Misnamed OOXML (zip bytes with a `.doc` name) is copied as-is.
- *
- * Converter preference for wps/rtf/odt:
- *   1. Microsoft Word via AppleScript (macOS)
- *   2. LibreOffice `soffice` when available
- *   3. macOS `textutil` — **lossy** last resort
+ * Two different jobs, deliberately kept apart:
+ *   - **Read** (preview / analyze / index): `read-word-binary.ts` parses the OLE
+ *     container in-process. Fast, no dependency, no permission prompt.
+ *   - **Convert** (produce a faithful `.docx`): the lawyer's own Microsoft Word
+ *     does Save As. On macOS the file is staged inside Word's container so the
+ *     sandbox file-access dialog never appears. LibreOffice headless is only a
+ *     fallback when Word is not installed; it is not something we ask lawyers to
+ *     install.
  */
 
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import JSZip from "jszip";
 import { buildMinimalChildEnv, runSafeCommand } from "../platform/safe-command.js";
+import { RESOURCE_LEASE_SOFFICE, withResourceLease } from "../runtime/turn-admission.js";
 import { resolveWorkspaceRelativePath } from "../runtime/workspace-path.js";
+import { convertDocToDocxWithWord, microsoftWordInstalled } from "./convert-with-word.js";
 import { DOC_NEEDS_DOCX_MESSAGE } from "./doc-revision-gate.js";
 import { classifyContractAttachment } from "./mail-contract-formats.js";
+import { readBinaryWordDocText } from "./read-word-binary.js";
 
-export type ConvertToDocxTool = "msword" | "soffice" | "textutil" | "zip-copy" | "existing";
+/**
+ * `.doc` → `.docx`：Word 优先（律师机器上一般都有，等于真正的另存为），
+ * LibreOffice headless 兜底。两者都不可用时显式失败，绝不交正文替身。
+ */
+export type ConvertToDocxTool = "msword" | "soffice" | "zip-copy" | "existing";
 
 export type ConvertToDocxResult =
   | {
@@ -27,114 +35,28 @@ export type ConvertToDocxResult =
       relativePath: string;
       converted: boolean;
       tool?: ConvertToDocxTool;
-      /**
-       * `lossy` when textutil (or similar) produced a shell that drops original
-       * revisions/fonts — callers must warn and must not claim format fidelity.
-       */
-      fidelity?: "high" | "lossy";
+      /** `high` = 排版引擎转换；`text-only` = 仅正文，调用方必须显式提示。 */
+      fidelity?: "high" | "text-only";
     }
   | { ok: false; error: string };
 
-type DocxCacheMeta = {
-  tool: ConvertToDocxTool;
-  fidelity: "high";
-  sourceSize: number;
-  sourceMtimeMs: number;
-  createdAt: string;
-};
+/** 本机没有 Word（LibreOffice 也没装）时的律师话术。不静默降级、不假装成功。 */
+export const CONVERTER_NEEDED_MESSAGE =
+  "这份 .doc 要转成保留页眉页脚、表格、图片和已有修订的 .docx，需要本机的 Microsoft Word。请安装 Word 后重试，或在 Word 里将这份 .doc 另存为 .docx。";
 
-function docOoxmlCachePaths(absIn: string): { docx: string; meta: string } {
-  const st = fs.statSync(absIn);
-  const hash = createHash("sha256")
-    .update(absIn)
-    .update(String(st.size))
-    .update(String(Math.trunc(st.mtimeMs)))
-    .digest("hex")
-    .slice(0, 24);
-  const root = path.join(os.homedir(), "Library", "Caches", "LawMind", "doc-ooxml");
-  return {
-    docx: path.join(root, `${hash}.docx`),
-    meta: path.join(root, `${hash}.json`),
-  };
-}
+/** Word 在，但另存没做成（修复框、密码、损坏）。不要再叫律师去装别的软件。 */
+export const WORD_CONVERT_FAILED_MESSAGE =
+  "本机 Word 没能把这份 .doc 另存为 .docx。常见原因是文件需要密码，或 Word 认为文件损坏、必须人工确认修复。请在 Word 里打开这份文件，另存为 .docx 后再交给 LawMind。";
 
-/** Reuse a prior high-fidelity .doc→.docx conversion (avoids re-launching Word). */
-export function tryReadHighFidelityDocxCache(
-  absDocPath: string,
-): { docxPath: string; tool: ConvertToDocxTool } | null {
-  try {
-    const st = fs.statSync(absDocPath);
-    const { docx, meta } = docOoxmlCachePaths(absDocPath);
-    if (!fs.existsSync(docx) || !fs.existsSync(meta)) {
-      return null;
-    }
-    const parsed = JSON.parse(fs.readFileSync(meta, "utf8")) as DocxCacheMeta;
-    if (
-      parsed.sourceSize !== st.size ||
-      parsed.sourceMtimeMs !== Math.trunc(st.mtimeMs) ||
-      parsed.fidelity !== "high" ||
-      !looksLikeZipDocx(docx) ||
-      fs.statSync(docx).size < 1_000
-    ) {
-      return null;
-    }
-    return { docxPath: docx, tool: parsed.tool };
-  } catch {
-    return null;
-  }
-}
+/** @deprecated 旧的 LibreOffice 专用文案，保留给已有调用方。 */
+export const SOFFICE_NEEDED_MESSAGE = CONVERTER_NEEDED_MESSAGE;
 
-export function writeHighFidelityDocxCache(
-  absDocPath: string,
-  absDocx: string,
-  tool: ConvertToDocxTool,
-): void {
-  if (tool === "textutil" || tool === "existing") {
-    return;
-  }
-  try {
-    const st = fs.statSync(absDocPath);
-    const { docx, meta } = docOoxmlCachePaths(absDocPath);
-    fs.mkdirSync(path.dirname(docx), { recursive: true });
-    fs.copyFileSync(absDocx, docx);
-    const payload: DocxCacheMeta = {
-      tool,
-      fidelity: "high",
-      sourceSize: st.size,
-      sourceMtimeMs: Math.trunc(st.mtimeMs),
-      createdAt: new Date().toISOString(),
-    };
-    fs.writeFileSync(meta, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-  } catch {
-    /* cache is best-effort */
-  }
-}
-
-function runCommand(
-  command: string,
-  args: string[],
-  opts: { cwd?: string; timeoutMs?: number } = {},
-): Promise<{ code: number | null; stderr: string }> {
-  const timeoutMs = opts.timeoutMs ?? 60_000;
-  return runSafeCommand({
-    command,
-    args,
-    cwd: opts.cwd,
-    env: buildMinimalChildEnv(),
-    timeoutMs,
-    killSignal: "SIGKILL",
-    stdio: ["ignore", "ignore", "pipe"],
-    maxStderrBytes: 4_000,
-  })
-    .then((result) => ({
-      code: result.exitCode,
-      stderr: result.stderr,
-    }))
-    .catch((err) => ({
-      code: 127,
-      stderr: err instanceof Error ? err.message : String(err),
-    }));
-}
+const SOFFICE_CANDIDATES = [
+  "soffice",
+  "libreoffice",
+  "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+  "C:\\Program Files\\LibreOffice\\program\\soffice.exe",
+];
 
 function looksLikeZipDocx(abs: string): boolean {
   try {
@@ -148,7 +70,24 @@ function looksLikeZipDocx(abs: string): boolean {
   }
 }
 
-function siblingDocxRelative(relativePath: string): string {
+/** 不只看退出码：包必须是合法 ZIP，且确实含 `word/document.xml`。 */
+async function isValidDocxPackage(abs: string): Promise<boolean> {
+  try {
+    if (!looksLikeZipDocx(abs) || fs.statSync(abs).size === 0) {
+      return false;
+    }
+    const zip = await JSZip.loadAsync(await fs.promises.readFile(abs));
+    return Object.hasOwn(zip.files, "word/document.xml");
+  } catch {
+    return false;
+  }
+}
+
+export async function reusableDocx(abs: string): Promise<boolean> {
+  return isValidDocxPackage(abs);
+}
+
+export function siblingDocxRelative(relativePath: string): string {
   const posix = relativePath.replace(/\\/g, "/");
   const dir = path.posix.dirname(posix);
   const base = path.posix.basename(posix);
@@ -157,134 +96,88 @@ function siblingDocxRelative(relativePath: string): string {
   return dir === "." ? outName : path.posix.join(dir, outName);
 }
 
-/** Preview-only sibling: `合同.doc` → `合同.converted.docx` (never overwrites a peer `.docx`). */
-export function siblingConvertedDocxRelative(relativePath: string): string {
-  const posix = relativePath.replace(/\\/g, "/");
-  const dir = path.posix.dirname(posix);
-  const base = path.posix.basename(posix);
-  const stem = base.replace(/\.[^.]+$/i, "");
-  const outName = `${stem}.converted.docx`;
-  return dir === "." ? outName : path.posix.join(dir, outName);
-}
-
-function microsoftWordAppExists(): boolean {
-  return (
-    fs.existsSync("/Applications/Microsoft Word.app") ||
-    fs.existsSync(`${os.homedir()}/Applications/Microsoft Word.app`)
-  );
+export function siblingDocxAbs(absDoc: string): string {
+  return path.join(path.dirname(absDoc), `${path.basename(absDoc).replace(/\.doc$/i, "")}.docx`);
 }
 
 /**
- * High-fidelity .doc → .docx via Microsoft Word (macOS).
- * Preserves track-changes, comments, styles, headers/footers far better than textutil.
- * Save may succeed even when AppleScript `close` returns a benign -1728.
+ * Convert with LibreOffice headless. Returns false when no converter is installed
+ * or its output fails package validation. Never writes a partial file at `absOut`.
  */
-export async function convertWithMicrosoftWord(absIn: string, absOut: string): Promise<boolean> {
-  if (process.platform !== "darwin" || !microsoftWordAppExists()) {
+export async function convertDocToDocxWithSoffice(
+  absIn: string,
+  absOut: string,
+  opts?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<boolean> {
+  if (/[\r\n]/.test(absIn) || /[\r\n]/.test(absOut)) {
     return false;
   }
-  const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-msword-"));
-  const scriptPath = path.join(scriptDir, "convert.applescript");
-  // Embed paths as AppleScript string literals (escape backslash + quote).
-  const q = (p: string) => `"${p.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-  const script = [
-    `set inPath to POSIX file ${q(absIn)}`,
-    `set outPath to POSIX file ${q(absOut)}`,
-    `tell application "Microsoft Word"`,
-    `  set theDoc to open file name inPath with read only without confirm conversions`,
-    `  save as theDoc file name outPath file format format document`,
-    `  try`,
-    `    close theDoc saving no`,
-    `  end try`,
-    `end tell`,
-    "",
-  ].join("\n");
-  try {
-    fs.writeFileSync(scriptPath, script, "utf8");
-    // Word UI automation can be slow on first launch.
-    await runCommand("osascript", [scriptPath], { timeoutMs: 180_000 });
-    return fs.existsSync(absOut) && looksLikeZipDocx(absOut) && fs.statSync(absOut).size > 1_000;
-  } finally {
-    try {
-      fs.rmSync(scriptDir, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-    // Word lock sidecar
-    try {
-      const lock = path.join(path.dirname(absOut), `~$${path.basename(absOut)}`);
-      if (fs.existsSync(lock)) {
-        fs.unlinkSync(lock);
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-async function convertWithTextutil(absIn: string, absOut: string): Promise<boolean> {
-  if (process.platform !== "darwin") {
-    return false;
-  }
-  const r = await runCommand("textutil", ["-convert", "docx", "-output", absOut, absIn]);
-  return r.code === 0 && fs.existsSync(absOut) && fs.statSync(absOut).size > 0;
-}
-
-export async function convertWithSoffice(absIn: string, absOut: string): Promise<boolean> {
-  const outDir = path.dirname(absOut);
-  const candidates = [
-    "soffice",
-    "libreoffice",
-    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
-  ];
-  for (const bin of candidates) {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-soffice-"));
-    try {
-      const r = await runCommand(
-        bin,
-        [
-          "--headless",
-          "--nologo",
-          "--nolockcheck",
-          "--convert-to",
-          "docx",
-          "--outdir",
-          tmpDir,
-          absIn,
-        ],
-        { timeoutMs: 90_000 },
-      );
-      if (r.code !== 0) {
-        continue;
-      }
-      const produced = fs.readdirSync(tmpDir).find((n) => n.toLowerCase().endsWith(".docx"));
-      if (!produced) {
-        continue;
-      }
-      fs.mkdirSync(outDir, { recursive: true });
-      fs.copyFileSync(path.join(tmpDir, produced), absOut);
-      if (fs.existsSync(absOut) && fs.statSync(absOut).size > 0) {
-        return true;
-      }
-    } finally {
+  return withResourceLease(RESOURCE_LEASE_SOFFICE, async () => {
+    for (const bin of SOFFICE_CANDIDATES) {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-soffice-"));
       try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        const result = await runSafeCommand({
+          command: bin,
+          args: [
+            "--headless",
+            "--nologo",
+            "--nolockcheck",
+            "--nodefault",
+            "--norestore",
+            "--convert-to",
+            "docx",
+            "--outdir",
+            tmpDir,
+            absIn,
+          ],
+          env: buildMinimalChildEnv(),
+          timeoutMs: opts?.timeoutMs ?? 180_000,
+          signal: opts?.signal,
+          killSignal: "SIGKILL",
+          stdio: ["ignore", "ignore", "pipe"],
+          maxStderrBytes: 4_000,
+        }).catch(() => null);
+        if (!result || result.exitCode !== 0) {
+          continue;
+        }
+        const produced = fs.readdirSync(tmpDir).find((n) => n.toLowerCase().endsWith(".docx"));
+        if (!produced) {
+          continue;
+        }
+        const candidate = path.join(tmpDir, produced);
+        if (!(await isValidDocxPackage(candidate))) {
+          continue;
+        }
+        fs.mkdirSync(path.dirname(absOut), { recursive: true });
+        fs.copyFileSync(candidate, absOut);
+        return await isValidDocxPackage(absOut);
       } catch {
-        /* ignore */
+        continue;
+      } finally {
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
       }
     }
-  }
-  return false;
+    return false;
+  });
 }
 
 /**
- * Ensure a workspace-relative attachment has a .docx form suitable for tracked redlines.
- * No-op when already .docx. Binary `.doc` is not converted — lawyer saves as `.docx`.
- * Misnamed OOXML and wps/rtf/odt may still materialize a sibling `.docx`.
+ * Make sure a workspace-relative attachment has a `.docx` form.
+ *
+ * `.doc` is converted by the lawyer's own Microsoft Word first (real Save As —
+ * headers, tables, images, numbering and existing tracked changes come across),
+ * then LibreOffice headless when Word is unavailable. A misnamed OOXML `.doc` is
+ * copied as-is. With neither engine this fails loudly; it never hands back a
+ * text-only stand-in that looks like the original layout.
  */
 export async function ensureDocxForAttachment(
   workspaceDir: string,
   relativePath: string,
+  opts?: { signal?: AbortSignal },
 ): Promise<ConvertToDocxResult> {
   const resolvedIn = resolveWorkspaceRelativePath(workspaceDir, relativePath);
   if (!resolvedIn.ok) {
@@ -302,22 +195,7 @@ export async function ensureDocxForAttachment(
   }
 
   const isLegacyDoc = kind === "legacy_doc" || (/\.doc$/i.test(rel) && !/\.docx$/i.test(rel));
-  // Misnamed OOXML: copy bytes to .docx
-  if (isLegacyDoc && looksLikeZipDocx(absIn)) {
-    const outRel = siblingDocxRelative(rel);
-    const resolvedOut = resolveWorkspaceRelativePath(workspaceDir, outRel);
-    if (!resolvedOut.ok) {
-      return { ok: false, error: "path_escape" };
-    }
-    fs.mkdirSync(path.dirname(resolvedOut.abs), { recursive: true });
-    fs.copyFileSync(absIn, resolvedOut.abs);
-    return { ok: true, relativePath: outRel, converted: true, tool: "zip-copy", fidelity: "high" };
-  }
-  if (isLegacyDoc) {
-    return { ok: false, error: DOC_NEEDS_DOCX_MESSAGE };
-  }
-
-  if (kind !== "convertible_word") {
+  if (!isLegacyDoc) {
     return { ok: false, error: "not_convertible" };
   }
 
@@ -326,57 +204,70 @@ export async function ensureDocxForAttachment(
   if (!resolvedOut.ok) {
     return { ok: false, error: "path_escape" };
   }
-  const absOut = resolvedOut.abs;
 
-  if (fs.existsSync(absOut) && fs.statSync(absOut).size > 0) {
+  if (looksLikeZipDocx(absIn)) {
+    if (await isValidDocxPackage(absIn)) {
+      fs.mkdirSync(path.dirname(resolvedOut.abs), { recursive: true });
+      fs.copyFileSync(absIn, resolvedOut.abs);
+      return {
+        ok: true,
+        relativePath: outRel,
+        converted: true,
+        tool: "zip-copy",
+        fidelity: "high",
+      };
+    }
+    return { ok: false, error: DOC_NEEDS_DOCX_MESSAGE };
+  }
+
+  if (await isValidDocxPackage(resolvedOut.abs)) {
     return { ok: true, relativePath: outRel, converted: false, tool: "existing", fidelity: "high" };
   }
-
-  fs.mkdirSync(path.dirname(absOut), { recursive: true });
-
-  const wordInstalled = microsoftWordAppExists();
-  if (await convertWithMicrosoftWord(absIn, absOut)) {
-    return { ok: true, relativePath: outRel, converted: true, tool: "msword", fidelity: "high" };
-  }
-  if (wordInstalled && (await convertWithMicrosoftWord(absIn, absOut))) {
-    return { ok: true, relativePath: outRel, converted: true, tool: "msword", fidelity: "high" };
-  }
-  if (await convertWithSoffice(absIn, absOut)) {
-    return { ok: true, relativePath: outRel, converted: true, tool: "soffice", fidelity: "high" };
-  }
-  if (await convertWithTextutil(absIn, absOut)) {
-    return {
-      ok: true,
-      relativePath: outRel,
-      converted: true,
-      tool: "textutil",
-      fidelity: "lossy",
-    };
-  }
-  try {
-    if (fs.existsSync(absOut)) {
-      fs.unlinkSync(absOut);
+  const result = await convertLegacyDocToDocx(absIn, resolvedOut.abs, { signal: opts?.signal });
+  if (!result.ok) {
+    try {
+      fs.rmSync(resolvedOut.abs, { force: true });
+    } catch {
+      /* ignore */
     }
-  } catch {
-    /* ignore */
+    return { ok: false, error: result.error };
   }
   return {
-    ok: false,
-    error:
-      process.platform === "darwin"
-        ? "convert_failed（本机 Microsoft Word / LibreOffice / textutil 均未能生成审阅工作副本）"
-        : "convert_failed（本机缺少 LibreOffice/soffice，无法生成审阅工作副本）",
+    ok: true,
+    relativePath: outRel,
+    converted: true,
+    tool: result.tool,
+    fidelity: "high",
   };
 }
 
 /**
- * Middle-column preview: convert binary `.doc` to a sibling `*.converted.docx`
- * after the lawyer confirms. Prefer Word / LibreOffice; never use textutil here
- * (lossy shells are not a safe preview stand-in for contract revision).
+ * The single conversion entry point: Word first (no install, real Save As),
+ * LibreOffice second. Both are validated packages; failures are explicit.
+ */
+export async function convertLegacyDocToDocx(
+  absIn: string,
+  absOut: string,
+  opts?: { signal?: AbortSignal },
+): Promise<{ ok: true; tool: "msword" | "soffice" } | { ok: false; error: string }> {
+  const wordPresent = microsoftWordInstalled();
+  if (await convertDocToDocxWithWord(absIn, absOut, { signal: opts?.signal })) {
+    return { ok: true, tool: "msword" };
+  }
+  if (await convertDocToDocxWithSoffice(absIn, absOut, { signal: opts?.signal })) {
+    return { ok: true, tool: "soffice" };
+  }
+  return { ok: false, error: wordPresent ? WORD_CONVERT_FAILED_MESSAGE : CONVERTER_NEEDED_MESSAGE };
+}
+
+/**
+ * Middle-column preview: read the `.doc` body in-process. Text only — this is a
+ * reading aid, not the deliverable; export always goes through the converter.
  */
 export async function convertLegacyDocForPreview(
   workspaceDir: string,
   relativePath: string,
+  _opts?: { signal?: AbortSignal },
 ): Promise<ConvertToDocxResult> {
   const resolvedIn = resolveWorkspaceRelativePath(workspaceDir, relativePath);
   if (!resolvedIn.ok) {
@@ -390,9 +281,11 @@ export async function convertLegacyDocForPreview(
   if (!/\.doc$/i.test(rel) || /\.docx$/i.test(rel)) {
     return { ok: false, error: "not_legacy_doc" };
   }
-
   if (looksLikeZipDocx(absIn)) {
-    const outRel = siblingConvertedDocxRelative(rel);
+    if (!(await isValidDocxPackage(absIn))) {
+      return { ok: false, error: DOC_NEEDS_DOCX_MESSAGE };
+    }
+    const outRel = siblingDocxRelative(rel);
     const resolvedOut = resolveWorkspaceRelativePath(workspaceDir, outRel);
     if (!resolvedOut.ok) {
       return { ok: false, error: "path_escape" };
@@ -401,38 +294,9 @@ export async function convertLegacyDocForPreview(
     fs.copyFileSync(absIn, resolvedOut.abs);
     return { ok: true, relativePath: outRel, converted: true, tool: "zip-copy", fidelity: "high" };
   }
-
-  const outRel = siblingConvertedDocxRelative(rel);
-  const resolvedOut = resolveWorkspaceRelativePath(workspaceDir, outRel);
-  if (!resolvedOut.ok) {
-    return { ok: false, error: "path_escape" };
+  const text = await readBinaryWordDocText(absIn);
+  if (!text.trim()) {
+    return { ok: false, error: DOC_NEEDS_DOCX_MESSAGE };
   }
-  const absOut = resolvedOut.abs;
-  if (fs.existsSync(absOut) && fs.statSync(absOut).size > 0 && looksLikeZipDocx(absOut)) {
-    return { ok: true, relativePath: outRel, converted: false, tool: "existing", fidelity: "high" };
-  }
-  fs.mkdirSync(path.dirname(absOut), { recursive: true });
-
-  if (await convertWithMicrosoftWord(absIn, absOut)) {
-    writeHighFidelityDocxCache(absIn, absOut, "msword");
-    return { ok: true, relativePath: outRel, converted: true, tool: "msword", fidelity: "high" };
-  }
-  if (await convertWithSoffice(absIn, absOut)) {
-    writeHighFidelityDocxCache(absIn, absOut, "soffice");
-    return { ok: true, relativePath: outRel, converted: true, tool: "soffice", fidelity: "high" };
-  }
-  try {
-    if (fs.existsSync(absOut)) {
-      fs.unlinkSync(absOut);
-    }
-  } catch {
-    /* ignore */
-  }
-  return {
-    ok: false,
-    error:
-      process.platform === "darwin"
-        ? "本机未能把这份 .doc 转成 .docx。请安装 LibreOffice，或用 Word/WPS 另存为 .docx 后再打开。"
-        : "本机缺少 LibreOffice/soffice，无法把这份 .doc 转成预览用的 .docx。",
-  };
+  return { ok: true, relativePath: rel, converted: false, tool: "existing", fidelity: "text-only" };
 }

@@ -116,7 +116,13 @@ function jsonRpcErrorMessage(body: unknown): string | undefined {
   return undefined;
 }
 
-export async function pkulawRetrieve(opts: {
+export async function pkulawRetrieve(
+  opts: Parameters<typeof retrievePkulaw>[0],
+): Promise<Awaited<ReturnType<typeof retrievePkulaw>>> {
+  return retrievePkulaw(opts);
+}
+
+async function retrievePkulaw(opts: {
   endpointNormalized: string;
   query: string;
   apiKey?: string;

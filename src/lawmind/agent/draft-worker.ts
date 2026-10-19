@@ -784,7 +784,10 @@ export async function runDraftWorker(
             },
           ],
           [],
-          { signal: ctx?.abortSignal },
+          {
+            signal: ctx?.abortSignal,
+            admission: ctx?.sessionId ? { sessionId: ctx.sessionId, kind: "worker" } : undefined,
+          },
         );
         const fixedText = extractAssistantText(fix).text.trim();
         const fixedParsed = parseDraftWorkerModelText(fixedText);
@@ -843,7 +846,10 @@ export async function runDraftWorker(
           { role: "user", content: userContent },
         ],
         [],
-        { signal: ctx?.abortSignal },
+        {
+          signal: ctx?.abortSignal,
+          admission: ctx?.sessionId ? { sessionId: ctx.sessionId, kind: "worker" } : undefined,
+        },
       );
       const view = extractAssistantText(response);
       lastText = view.text.trim();

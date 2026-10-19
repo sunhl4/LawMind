@@ -164,6 +164,10 @@ export type ChatSessionListEntry = {
   updatedAt: string;
   lastPreview?: string;
   matterId?: string;
+  /** 本机文件夹内的相对路径。没有则是从侧栏最上面开的对话。 */
+  folderRel?: string;
+  /** 新建时绑定的工作区绝对路径。旧对话没有这一项。 */
+  workDir?: string;
   assistantId?: string;
   /**
    * 这条对话已被「另起新对话（带上文）」承前到哪条。侧栏据此显示「→ 由此续接」，

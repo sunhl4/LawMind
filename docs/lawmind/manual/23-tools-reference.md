@@ -21,7 +21,7 @@
 | 按案件 / 钉选 / 原话追加                    | 绑了案件、钉了表或文件夹、原话对得上能力     | 同函数后半段、`extraToolsForInstruction`           |
 | 仍要点名                                    | MCP、`send_email`、`deep_research`、多数协作 | `list_more_tools`，或原话里的深度检索 / 公开网页   |
 
-**每轮都广告、不必先 `list_more_tools` 的**有：`run_compute`（高安全模式除外）、`list_dir`、`explore_folder`、`search_workspace`、`search_conversations`、`read_conversation`、`read_skill`、`search_company_registry`，以及档案写穿一整组（`DESK_WRITE_ALWAYS_TOOLS`：收材料、整理、建案、记期限、撤销上一次档案写入）。绑了案件再加 `get_matter_summary`、`read_case_file`、`search_matter`、`list_matters`、`list_mail_inbox`、`list_mail_attachments`。邮件匣必须有案件，没绑案件时不广告，避免模型调用后只得到「请先选案件」。
+**每轮都广告、不必先 `list_more_tools` 的**有：`run_compute`（高安全模式除外）、`list_dir`、`explore_folder`、`search_workspace`、`search_conversations`、`read_conversation`、`read_skill`、`search_company_registry`，以及档案写穿一整组（`DESK_WRITE_ALWAYS_TOOLS`：收材料、整理、建案、记期限与义务、撤销上一次档案写入）。绑了案件再加 `get_matter_summary`、`read_case_file`、`search_matter`、`list_matters`、`list_mail_inbox`、`list_mail_attachments`。邮件匣必须有案件，没绑案件时不广告，避免模型调用后只得到「请先选案件」。
 
 闲聊回合把权限收成只读，写类即使在披露名单里也不会进模型工具表（第 3.7 节）。无任务不靠关键词把工具冻掉。
 
@@ -79,7 +79,7 @@
 
 细节都在第 10 章。
 
-## 23.3 文件与本机访问类（8 个）
+## 23.3 文件与本机访问类（9 个）
 
 | 工具                    | 干什么                                         | 备注                           |
 | ----------------------- | ---------------------------------------------- | ------------------------------ |
@@ -87,6 +87,7 @@
 | `read_project_file`     | 读工作区文件                                   | 核心工具                       |
 | `explore_folder`        | 只读探查文件夹：看清树、找出相关文件并摘录     | 丢文件夹时的第一步             |
 | `read_folder_documents` | 批量读取文件夹内正文                           | 配合 explore_folder            |
+| `digest_materials`      | 一次分头读很多份材料，只交回要点卡片           | 材料堆的第一眼                 |
 | `search_host`           | 在本机文件夹或本机查找中定位材料               | 默认可用；工作区外先回文件名   |
 | `read_host_file`        | 阅读已授权的本机文件                           | 已选文件夹直接读；区外当次允许 |
 | `import_host_file`      | 把本机文件收进本案（复制到案件材料目录）       | 写入的是工作区                 |
@@ -96,9 +97,9 @@
 
 第 15 章讲了这套网关。
 
-## 23.4 案件与工作台类（13 个）
+## 23.4 案件与工作台类（15 个）
 
-这些工具从对话写入工作台的真实数据，写错可以撤。
+这些工具从对话写入工作台的真实数据，写错可以撤（删卷不在撤销范围，执行前先盘点）。
 
 | 工具                         | 干什么                      | 需绑案件 |
 | ---------------------------- | --------------------------- | -------- |
@@ -114,6 +115,8 @@
 | `compile_intake_brief`       | 整理谈话为结构化摘要        | ✓        |
 | `apply_intake_brief`         | 把谈话摘要写入本案档案      | ✓        |
 | `record_deadline`            | 口播登记一项期限            | —        |
+| `record_obligation`          | 口播登记一项义务            | —        |
+| `delete_matter`              | 删除点名的卷宗（可先盘点）  | ✓        |
 | `revert_desk_write`          | 撤销刚才一次档案写入        | ✓        |
 
 **`revert_desk_write` 是这一组的兜底**：每次写入都在 `desk-writes.jsonl` 留记录，说错了能撤（第 7 章）。
@@ -175,16 +178,16 @@ import_materials_metadata / extract_batch / set_review / to_draft
 
 ## 23.8 邮件类（4 个）
 
-| 工具                    | 干什么                                 |
-| ----------------------- | -------------------------------------- |
-| `list_mail_inbox`       | 查看本案邮件匣                         |
-| `list_mail_attachments` | 列附件                                 |
-| `prepare_outbound_mail` | 写待发邮件（不发送）                   |
-| `send_email`            | 发送已准备的外发邮件（**须律师签批**） |
+| 工具                    | 干什么                           |
+| ----------------------- | -------------------------------- |
+| `list_mail_inbox`       | 查看本案邮件匣                   |
+| `list_mail_attachments` | 列附件                           |
+| `prepare_outbound_mail` | 写待发邮件（不发送）             |
+| `send_email`            | 写入本案「待发信」（批准后发出） |
 
-**`send_email` 是唯一会机械暂停的工具**（第 5 章）。`prepare_outbound_mail` 只是准备，审批发生在你看邮件的时候。`list_mail_inbox` 和 `list_mail_attachments` 要先绑案件才进入这一轮的工具表。
+**自 2026-10-01 起没有任何工具会机械暂停回合**（第 5.2 节）。`send_email` 和 `prepare_outbound_mail` 都只是把邮件写进本案「待发信」，回合照常完成；律师在案件页 / 待发列表核对后点「批准发送」才真正发出，批准的是那封邮件，不是恢复回合。`send_email` 没有批准旗标时同样只写入待发队列并直接返回成功；带 `__approved` 立即发送的分支只服务 2026-10-01 之前旧会话留下的「待我拍板」恢复路径。`list_mail_inbox` 和 `list_mail_attachments` 要先绑案件才进入这一轮的工具表。
 
-审批是**参数绑定**的：`prepare_outbound_mail` 的哈希只算收件人和附件列表，改正文不用重新批准。
+预批准与旧会话恢复仍是**参数绑定**的：`prepare_outbound_mail` 的哈希只算收件人和附件列表，改正文不用重新批准。
 
 ## 23.9 协作类（7 个）
 
@@ -200,7 +203,7 @@ import_materials_metadata / extract_batch / set_review / to_draft
 
 细节在第 16 章。要点：异步那两个会把结果**自动回传到父会话**，而且结果会被包上「不可信内容」标记。
 
-## 23.10 引擎与流程类（6 个）
+## 23.10 引擎与流程类（8 个）
 
 | 工具                     | 干什么                                   |
 | ------------------------ | ---------------------------------------- |
@@ -209,6 +212,8 @@ import_materials_metadata / extract_batch / set_review / to_draft
 | `research_task`          | 跑一次检索任务                           |
 | `append_session_summary` | 追加会话摘要                             |
 | `open_work_queue_item`   | 打开一条在办事项                         |
+| `list_tasks`             | 列出工作区任务记录（可按案件/状态筛选）  |
+| `list_drafts`            | 列出工作区草稿（可按案件筛选）           |
 | `get_audit_trail`        | 看审计轨迹                               |
 
 `execute_workflow` 是唯一的 `background_job` 模式工具——因为它跑得久，必须暴露 job 状态、支持取消、有审计（第 5 章讲的运行模式）。
@@ -238,7 +243,7 @@ solo 版没有内置工商数据源。接法：`LAWMIND_COMPANY_REGISTRY_URL` + 
 
 三条约束：
 
-1. **不许占用保留名。** `RESERVED_AGENT_TOOL_NAMES` 有 25 个，外部实现不许顶替。这和常驻的 12 个不是同一份名单。
+1. **不许占用保留名。** `RESERVED_AGENT_TOOL_NAMES` 有 26 个，外部实现不许顶替。这和常驻的 12 个不是同一份名单。
 2. **写类 MCP 工具默认剥离，除非显式 `allowWrites`，而且仍要审批。**
 3. **MCP 故障不许拖垮核心工具表。** 挂载 MCP 的调用被 try/catch 包着，失败只影响它自己。
 
@@ -268,13 +273,13 @@ MCP 密钥存在密钥链（`mcp.<服务器id>.secret`），MCP 服务器配置�
 
 ### 幂等与并行
 
-`IDEMPOTENT_READ_TOOLS` 里的 36 个是只读且可重放的。可以安全重试，也不会触发写类审批。能不能并行看 `isToolConcurrencySafe`，顺序是：要批准的单独排队；工具自己标了 `isConcurrencySafe: true` 的可以并行（`draft_worker` 不在这 36 个里，仍然并行）；标了 `false` 的单独排队（`update_plan`）；没标的，才用这 36 个做兜底。所以连续的 `read_case_file` 与 `search_precedents` 会同一批执行。
+`IDEMPOTENT_READ_TOOLS` 里的 37 个是只读且可重放的。可以安全重试，也不会触发写类审批。能不能并行看 `isToolConcurrencySafe`，顺序是：要批准的单独排队；工具自己标了 `isConcurrencySafe: true` 的可以并行（`draft_worker` 不在这 37 个里，仍然并行）；标了 `false` 的单独排队（`update_plan`）；没标的，才用这 37 个做兜底。所以连续的 `read_case_file` 与 `search_precedents` 会同一批执行。
 
 默认并行上限是 4，环境变量 `LAWMIND_MAX_TOOL_CONCURRENCY` 可调，最高 16。
 
 ### 超时
 
-默认超时是 0（不限），可用 `LAWMIND_TOOL_TIMEOUT_MS` 设。中断和超时都返回「已停止」或超时错误。
+默认墙钟 180 秒（`DEFAULT_TOOL_WALL_TIMEOUT_MS`）。长任务工具——`draft_worker`、`explore_folder`、`deep_research`、`research_task`、`delegate_task`、`render_document`、`render_tracked_draft`——在未改动默认值时放宽到 12 分钟。`LAWMIND_TOOL_TIMEOUT_MS` 可覆盖；显式设 0 表示不按时间杀掉（只剩用户停止 / 回合中止）。中断和超时都返回「已停止」或超时错误。
 
 ## 23.15 工具的调用计数与限流
 
@@ -318,7 +323,7 @@ MCP 密钥存在密钥链（`mcp.<服务器id>.secret`），MCP 服务器配置�
 | 把活派给别人       | `delegate_task` / `delegate_to_role`                                      |
 | 问别人一个问题     | `consult_assistant`                                                       |
 | 让人审一下         | `request_review`                                                          |
-| 发邮件             | `prepare_outbound_mail` → 律师签批 → `send_email`                         |
+| 发邮件             | `prepare_outbound_mail` → 写入「待发信」→ 律师批准发送                    |
 | 撤销刚才的档案写入 | `revert_desk_write`                                                       |
 | 想用没见过的能力   | `list_more_tools`                                                         |
 | 读某份技能正文     | `read_skill`                                                              |
@@ -326,11 +331,11 @@ MCP 密钥存在密钥链（`mcp.<服务器id>.secret`），MCP 服务器配置�
 ## 23.17 已知坑（本章相关）
 
 - **`write_document` 不过验收门。** 正式交件一律用 `draft_document`。
-- **`send_email` 是唯一机械暂停的工具。** 别的写工具只是被审计，不会弹卡片。
-- **MCP 工具不许占用那 25 个保留名。** 不要把它说成「核心 12 个」。
+- **没有任何工具会机械暂停回合。** 自 2026-10-01 起 `send_email` / `prepare_outbound_mail` 只写本案「待发信」，律师在待发列表点「批准发送」（第 5.2 节）；别的写工具只是被审计，不会弹卡片。
+- **MCP 工具不许占用那 26 个保留名。** 不要把它说成「核心 12 个」。
 - **MCP 写类工具默认被剥离。** 要开 `allowWrites`，而且仍要审批。
 - **`search_precedents` 关闭时返回成功而非报错。** 别把「没开」当「没找到」。
 - **`draft_worker` 只读，不能落正式稿。** 子工不能改原件、不能导出、不能外发。正式稿仍由父会话 `draft_document`。任务书必须自包含，子工看不到父会话。见 3.1.1 与 23.7。
 - **金额和届满日要带来源公式。** 缺公式是提醒，不挡导出。口算假数不是质量；模型应调 `calculate`，这不是关键词硬拒。
 - **`matter_id` 省略时会用本轮上下文里的案件。** 两个都没有才报错。
-- **工具超时默认不限。** 生产环境如果担心卡死，设 `LAWMIND_TOOL_TIMEOUT_MS`。
+- **工具默认有 180 秒墙钟**（长任务工具放宽到 12 分钟）。想关掉时间杀，把 `LAWMIND_TOOL_TIMEOUT_MS` 显式设为 0。

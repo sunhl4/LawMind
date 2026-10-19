@@ -150,6 +150,7 @@ export function keepsMountedWhileInactive(kind: FilePreviewKind): boolean {
     kind === "image" ||
     kind === "pdf" ||
     kind === "xlsx" ||
+    kind === "pptx" ||
     kind === "media" ||
     kind === "eml" ||
     kind === "zip" ||

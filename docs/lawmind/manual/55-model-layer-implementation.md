@@ -1,6 +1,8 @@
 # 第 55 章 实现精读：模型层
 
-`src/lawmind/models/`（16 个实现文件）加 `src/lawmind/llm/`（3 个）回答一个问题：**模型是怎么被选出来、被限制住、被调用的。**
+`src/lawmind/models/`（17 个实现文件）加 `src/lawmind/llm/`（3 个）回答一个问题：**模型是怎么被选出来、被限制住、被调用的。**
+
+17 个里，`models/index.ts` 再导出目录、解析、包络、探测、决策模型、起草与路由开关。`model-tier.ts`、`model-usage.ts`、`model-usage-format.ts` 不经这个 barrel（用量格式化要给界面用，账本留在 Node）。
 
 这一层不负责「写什么」，只负责「用谁写、能用多少 token、失败怎么重试」。
 
@@ -56,7 +58,7 @@ LAWMIND_DEFAULT_PLATFORM_MODEL_ID = "platform:deepseek-flash"
 DEEPSEEK_FLASH_RETIRED_ALIASES = ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"];
 ```
 
-`builtinIdForEnvModelName` 会把这两个名字映射回默认模型。注释没写原因，但意图清楚：**老配置里写的旧模型名不该让系统跑不起来**。
+`builtinIdForEnvModelName` 会把这两个名字映射回默认模型。`catalog.ts` 的注释写明：这两个退役 id 接口仍接受，请求由 DeepSeek-V4.1-Flash 承接，按 Flash 计费。`DEEPSEEK_FLASH_CONTEXT_TOKENS = 1_048_576`。
 
 还有两个特殊映射：`qwen3.5-plus` 和 `qwen-plus-latest` 都指向 `builtin:qwen3.5-plus`。
 
@@ -195,15 +197,18 @@ provider: "openai-compatible";
 
 也就是说：**不再用固定的硬上限，而是按模型窗口算**。这条设计直接影响了「换个大窗口模型为什么能办更多事」。
 
-### 五个基础常量
+### 基础常量
 
-| 常量                     | 值                            |
-| ------------------------ | ----------------------------- |
-| `DEFAULT_CONTEXT_TOKENS` | 128000                        |
-| `MAX_OUTPUT_HARD_CAP`    | 65536                         |
-| `MIN_OUTPUT_TOKENS`      | 4096                          |
-| 上下文下限               | 4096（`Math.max(4096, ...)`） |
-| 默认字符/token 换算      | 4                             |
+| 常量                       | 值                                                   |
+| -------------------------- | ---------------------------------------------------- |
+| `DEFAULT_CONTEXT_TOKENS`   | 128000                                               |
+| `MAX_OUTPUT_HARD_CAP`      | 65536（chat / classify / plan）                      |
+| `REVIEW_OUTPUT_HARD_CAP`   | 131072（draft / review；注释写明不是厂商 384k 上限） |
+| `MIN_OUTPUT_TOKENS`        | 4096                                                 |
+| `DEFAULT_MODEL_TIMEOUT_MS` | 120000                                               |
+| `REVIEW_MODEL_TIMEOUT_MS`  | 480000（8 分钟，draft / review）                     |
+| 上下文下限                 | 4096（`Math.max(4096, ...)`）                        |
+| 默认字符/token 换算        | 4                                                    |
 
 ### 输出上限按任务类型定比例
 
@@ -217,10 +222,12 @@ provider: "openai-compatible";
 算式：
 
 ```text
-maxOutputTokens = min(65536, max(4096, override ?? env ?? floor(contextTokens × ratio)))
+outputCap = draft 或 review ? 131072 : 65536
+maxOutputTokens = min(outputCap, max(4096, override ?? env ?? floor(contextTokens × ratio)))
+modelTimeoutMs = override ?? LAWMIND_AGENT_TIMEOUT_MS ?? (draft 或 review ? 480000 : 120000)
 ```
 
-**为什么 `classify` 只有 5%**：分类任务的输出是一个小 JSON，给太多是浪费。而 `draft` 给 25%——写文书确实需要长输出。
+**为什么 `classify` 只有 5%**：分类任务的输出是一个小 JSON，给太多是浪费。而 `draft` / `review` 给 25%，并且硬顶放到 131072、超时放到 8 分钟——审阅和起草可以比对话想得更久。chat / classify / plan 仍顶在 65536、默认 120 秒。
 
 ### 工具调用上限按窗口分三档
 
@@ -263,7 +270,7 @@ promptWindowScale = min(8, max(0.5, contextTokens / 128000))
 
 也就是说：以 128k 为基准，**最多放大 8 倍、最多缩小 0.5 倍**。1M 窗口约为 7.8 倍，落在这个夹里。
 
-**这个系数作用在哪**：第 43 章讲的 `prompt-fragments.ts` 的 `scaleFragmentCapTokens` —— 每种提示片段（钉选、稿面、协议、技能索引、案件索引、偏好指纹、交付物）的字符上限会按这个系数缩放。所以**窗口越大，每段提示能给的字越多**。
+**这个系数作用在哪**：夹取函数是 `memory/prompt-windows.ts` 的 `clampPromptWindowScale`（包络直接 import）。同一系数交给 `agent/prompt-fragments.ts` 的 `scaleFragmentCapTokens`，放大钉选、稿面、协议、技能索引、案件索引、偏好指纹、交付物这几段的 token 帽。记忆正文窗（案件索引 1600 字、指纹 800 字、gist 180 字，见第 48.4 节）用 `scalePromptWindows`，同一套夹。窗口越大，这些段能给的字越多。
 
 **为什么要夹在 0.5–8**：下限避免小窗口把指纹再砍得太狠；上限停在约 1M 的线性倍率，再大的窗口不再把注入段继续放大。
 
@@ -359,6 +366,8 @@ Not a billing system — no dollar costs.
 
 `mergeUsageSnapshots` 与 `usageFromProvider` 处理「把不同来源的用量合并」。
 
+`model-usage-format.ts` 的 `formatUsageSummaryForLawyer` 把摘要收成一句中文（近 N 天、次数、token、分档）。零记录返回 `null`。文件头写明它不碰 `node:fs`，给界面用；账本本体留在 `model-usage.ts`。
+
 **「本地账本」的定位**：头部注释写的是「agentsview-style, workspace-local only」——**只在本工作区，不上报**。
 
 ## 55.7 两个「开关型」模型配置
@@ -381,7 +390,7 @@ temperature: 0.2
 timeoutMs: model.timeoutMs ?? 90000
 ```
 
-**0.2 的温度**说明：起草用模型时温度调低了（对比包络里 draft 的 0.5）。这两个数字不一致——**包络的 0.5 是通用默认，起草这份配置更保守**。
+**0.2 的温度、90 秒的回落超时**走的是 `resolveDraftReasoningLlmConfigUnlocked` 这条起草扩展配置。能力包络里 draft / review 的默认是温度 0.5、超时 480 秒。两条路径各用各的数字，看调用落到哪一个函数。
 
 ### 路由用模型（`router-reasoning.ts`）
 
@@ -403,7 +412,7 @@ timeoutMs: model.timeoutMs ?? 90000
 - model / unset：具备 LLM 凭据时启用（关键词仅作失败回退）
 ```
 
-**「关键词仅作失败回退」**——这是设计意图。关键词路由表（第 58 章那 32 条）是兜底，不是主路。
+这句只描述 `routeAsync`：凭据在、模型分类成功时用模型结果，失败才用已经算好的关键词 `route()`。同步 `route()` 自己还有入口，深度研究、引擎恢复、交付物流水线、交办门和 `planSync` 直接调它，不经过模型（第 58.1 节）。关键词表仍是 32 条，第一个命中即取。
 
 ## 55.8 检索分流：single vs dual
 
@@ -674,8 +683,9 @@ err.name === "ModelCallUserAbortError" → false
 - **`env:current` 不是模型，是「环境变量里那套配置」的虚拟项。**
 - **默认模型的选择要求「Key 存在」。** 没 Key 的不会被选成默认。
 - **自定义模型名会拒绝「像密钥」的值**（纯十六进制长串、UUID 形态）。
-- **输出上限按任务类型有比例**（classify 5%、draft 25%）。
-- **温度：分类 0.15、起草 0.5。** 但起草那份独立配置用的是 0.2（不一致，按使用的路径为准）。
+- **输出硬顶按任务分两档**：chat / classify / plan 65536；draft / review 131072。比例仍是 classify 5%、plan 15%、chat 20%、draft / review 25%。
+- **超时默认 120 秒；draft / review 为 480 秒**（`REVIEW_MODEL_TIMEOUT_MS`）。起草扩展那条配置仍是温度 0.2、超时回落 90 秒。
+- **温度：分类 / 计划 0.15，对话 0.35，起草 / 审阅 0.5。** 包络这条和起草扩展那条分开看。
 - **提示窗口缩放夹在 0.5–8。** 别去掉这个夹。
 - **探测的 `max_tokens` 是 8。** 那是刻意的小。
 - **探测超时最多 60 秒**（比正常调用更急）。

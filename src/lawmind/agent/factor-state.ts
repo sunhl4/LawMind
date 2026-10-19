@@ -33,7 +33,11 @@ export const REJECTED_PROSE_MARKER = "【未采纳】该稿未通过稳定子，
 export const ENGINE_READINGS_HEADER = "【引擎核定】";
 export const FREE_SKELETON_HEADER = "未从已验证骨架变形";
 
-const XML_QA_CODES = new Set(["xml_qa_no_tracks", "xml_qa_non_minimal_edits"]);
+const XML_QA_CODES = new Set([
+  "xml_qa_no_tracks",
+  "xml_qa_non_minimal_edits",
+  "xml_qa_format_mismatch",
+]);
 const SOURCE_TOOLS = new Set([
   "search_statute",
   "search_case_law",
@@ -867,7 +871,7 @@ export function bindSkeletonSlot(state: FactorState, anchor: string): boolean {
   return true;
 }
 
-const JUDGMENT_RE = /建议|主张|倾向|宜写|继续履行|若[^。；]{0,40}则/;
+const JUDGMENT_RE = /建议|主张|倾向|宜写|不宜|有权|无权|不构成|继续履行|若[^。；]{0,40}则/;
 const JUDGMENT_SKIP_RE =
   /(?:¥|￥|人民币)?\s*[0-9][0-9,，]*(?:\.[0-9]+)?\s*(?:万|亿)?\s*元|《[^》]+》|权威来源|现行有效|〔[^〕]+〕/;
 const KEPT_JUDGMENT_CAP = 8;

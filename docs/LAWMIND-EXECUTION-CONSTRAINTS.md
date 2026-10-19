@@ -115,14 +115,15 @@ pnpm exec vitest run \
 - **手改**：提示词是软的。真拦外发看 `toolRequiresExplicitApproval` 和 `toolRequiresLawyerPause`。
 - **本次**：未改硬政策。
 
-### 10. 未决澄清硬拦 — DROP（2026-10-01）
+### 10. 未决澄清硬拦 — DROP（2026-10-01；2026-10-12 跨轮写门一并关掉）
 
-- **路径**（机制保留，仅服务旧会话遗留的 `pendingClarificationKeys`）：
+- **路径**：
   - 键集合：`src/lawmind/router/intake-gate.ts`（`HARD_CLARIFICATION_KEYS`）
-  - 下一轮拦工具：`src/lawmind/agent/turn-orchestrator.ts` → `src/lawmind/runtime/tool-pipeline.ts`（`clarificationGateMiddleware`）
-- **新口径（交办即终稿）**：intake 硬闸与 `tryIntakeClarificationShortcut` 已删除——高风险空跑（律师函/诉讼文书且无档案无材料）不再暂停，Soft Ask 块升级为「按合理假设起草 + 文中标【待核实】」（`intake-craft.ts`）。工具返回的 `draft_with_placeholders` 缺口也不再暂停回合：回合完成、缺口以非阻塞「建议补充」卡给出、不写 `pendingClarificationKeys`；同轮批内也不再因硬键截断后续调用（`outcomeNeedsElicitation` 只认 approval 与 iCloud 下载提问）。
-- **手改**：想恢复某类缺口的硬停，要同时恢复 intake 短路、模型循环两处 pause 点与批内截断，并按 AGENTS.md 补 cassette。
-- **本次**：随「交办即终稿」P0 落地；iCloud 文件未下载到本地仍暂停（真阻塞）。
+  - 提示词：`src/lawmind/agent/turn-orchestrator-prompt.ts`（硬键只注入「缺口标【待核实】，可以继续写」）
+  - `clarificationGateMiddleware` 仍在 `src/lawmind/runtime/tool-pipeline.ts`，但产品回合不再把 `clarificationBlockingHeavyTools` 置真
+- **新口径（交办即终稿）**：intake 硬闸与 `tryIntakeClarificationShortcut` 已删除——高风险空跑（律师函/诉讼文书且无档案无材料）不再暂停，Soft Ask 块升级为「按合理假设起草 + 文中标【待核实】」（`intake-craft.ts`）。工具返回的 `draft_with_placeholders` 缺口也不再暂停回合：回合完成、缺口以非阻塞「建议补充」卡给出、不写 `pendingClarificationKeys`；同轮批内也不再因硬键截断后续调用（`outcomeNeedsElicitation` 只认 approval 与 iCloud 下载提问）。旧会话残留硬键同样不拦 `draft_document` / `execute_workflow` / `render_document`。
+- **手改**：想恢复某类缺口的硬停，要同时恢复 intake 短路、模型循环两处 pause 点、orchestrator 置位与批内截断，并按 AGENTS.md 补 cassette。
+- **本次**：硬键只进提示词。iCloud 文件未下载到本地仍暂停（真阻塞）。
 
 ### 11. 工作区/本案强制规则 — KEEP
 

@@ -5,7 +5,6 @@
 
 import { withLeafToolSlot } from "../runtime/tool-concurrency.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
-import { formatSteerUserMessage, peekPendingSteer } from "./session-context-steer.js";
 import {
   resolveToolDecisionMaxTokens,
   shouldRaiseToolDecisionOutput,
@@ -16,6 +15,9 @@ import { ToolRegistry } from "./tools/registry.js";
 import type { AgentContext, AgentModelConfig, AgentTool, ToolCallResult } from "./types.js";
 
 export const DEFAULT_READONLY_WORKER_MAX_TOOL_ROUNDS = 5;
+
+/** Shown on the parent tool card while this sidecar waits for a model slot. */
+export const WORKER_MODEL_WAIT_LABEL = "子工在等模型空位";
 
 const MAX_TOOL_RESULT_CHARS = 8_000;
 
@@ -114,6 +116,29 @@ function openaiTools(registry: ToolRegistry, names: readonly string[]): unknown[
   return registry.toOpenAITools({ names: [...names] });
 }
 
+function raceAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) {
+    return work;
+  }
+  if (signal.aborted) {
+    return Promise.reject(new ModelCallUserAbortError());
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(new ModelCallUserAbortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
+  });
+}
+
 async function executeAllowlistedTool(
   call: AssistantToolCall,
   ctx: AgentContext,
@@ -121,6 +146,9 @@ async function executeAllowlistedTool(
   allowlist: readonly string[],
   roleLabel: string,
 ): Promise<ToolCallResult> {
+  if (ctx.abortSignal?.aborted) {
+    throw new ModelCallUserAbortError();
+  }
   if (!allowlist.includes(call.name)) {
     return {
       ok: false,
@@ -133,14 +161,22 @@ async function executeAllowlistedTool(
   }
   try {
     ctx.emitToolProgress?.(formatSidecarProgressLabel(call.name, call.arguments, "start"));
-    const result = await withLeafToolSlot(() =>
-      tool.execute(call.arguments, { ...ctx, inReadonlyWorkerLoop: true }),
+    const result = await withLeafToolSlot(
+      () =>
+        raceAbort(
+          tool.execute(call.arguments, { ...ctx, inReadonlyWorkerLoop: true }),
+          ctx.abortSignal,
+        ),
+      { signal: ctx.abortSignal },
     );
     ctx.emitToolProgress?.(
       formatSidecarProgressLabel(call.name, call.arguments, result.ok ? "ok" : "fail"),
     );
     return result;
   } catch (err) {
+    if (err instanceof ModelCallUserAbortError || ctx.abortSignal?.aborted) {
+      throw err instanceof ModelCallUserAbortError ? err : new ModelCallUserAbortError();
+    }
     const message = err instanceof Error ? err.message : String(err);
     ctx.emitToolProgress?.(formatSidecarProgressLabel(call.name, call.arguments, "fail"));
     return { ok: false, error: `只读工具失败：${message}` };
@@ -202,6 +238,9 @@ export async function runReadonlyWorkerLoop(opts: {
   onStep?: (step: { tool: string; ok: boolean }) => void;
 }): Promise<ReadonlyWorkerLoopResult> {
   const allowlist = opts.allowlist;
+  const workerCtx: AgentContext = opts.abortSignal
+    ? { ...opts.ctx, abortSignal: opts.abortSignal }
+    : opts.ctx;
   const messages = [...opts.messages];
   const toolsUsed: string[] = [];
   const steps: Array<{ tool: string; ok: boolean }> = [];
@@ -215,37 +254,45 @@ export async function runReadonlyWorkerLoop(opts: {
     maxRetries: 0,
   };
 
-  const sample = async (tools: unknown[], maxTokens: number) =>
-    callModelWithRetry({ ...modelCfg, maxTokens }, messages, tools, { signal: opts.abortSignal });
+  const sample = async (tools: unknown[], maxTokens: number) => {
+    let waited = false;
+    return callModelWithRetry({ ...modelCfg, maxTokens }, messages, tools, {
+      signal: opts.abortSignal,
+      admission: { sessionId: opts.ctx.sessionId, kind: "worker" },
+      onAdmissionWait: () => {
+        waited = true;
+        workerCtx.emitToolProgress?.(WORKER_MODEL_WAIT_LABEL);
+      },
+      onAdmissionGranted: () => {
+        if (!waited) {
+          return;
+        }
+        waited = false;
+        workerCtx.emitToolProgress?.(sidecarWaitLabel(opts.roleLabel));
+      },
+    });
+  };
 
-  const appliedSteer = new Set<string>();
   const done = (partial: Omit<ReadonlyWorkerLoopResult, "messages">): ReadonlyWorkerLoopResult => ({
     ...partial,
     messages,
   });
-  const pullSteer = () => {
-    const workspaceDir = opts.ctx.workspaceDir?.trim();
-    const sessionId = opts.ctx.sessionId?.trim();
-    if (!workspaceDir || !sessionId) {
-      return;
-    }
-    const fresh = peekPendingSteer(workspaceDir, sessionId).filter(
-      (note) => !appliedSteer.has(note),
-    );
-    if (fresh.length === 0) {
-      return;
-    }
-    for (const note of fresh) {
-      appliedSteer.add(note);
-    }
-    messages.push({ role: "user", content: formatSteerUserMessage(fresh) });
-    opts.ctx.emitToolProgress?.("已带入中途指示");
-  };
+
+  const stopped = (): ReadonlyWorkerLoopResult =>
+    done({
+      text: "",
+      grounding: groundingParts.join("\n"),
+      toolsUsed,
+      steps,
+      aborted: true,
+    });
 
   try {
     for (let round = 0; round < maxRounds; round += 1) {
-      pullSteer();
-      opts.ctx.emitToolProgress?.(sidecarWaitLabel(opts.roleLabel));
+      if (opts.abortSignal?.aborted) {
+        return stopped();
+      }
+      workerCtx.emitToolProgress?.(sidecarWaitLabel(opts.roleLabel));
       const tools = openaiTools(opts.registry, allowlist);
       const decisionMax =
         resolveToolDecisionMaxTokens(opts.maxTokens, tools.length > 0) ?? opts.maxTokens;
@@ -259,7 +306,7 @@ export async function runReadonlyWorkerLoop(opts: {
           finishReason: firstChoice.finish_reason,
         })
       ) {
-        opts.ctx.emitToolProgress?.(
+        workerCtx.emitToolProgress?.(
           opts.roleLabel === "写稿工" ? "正在写成交件" : sidecarWaitLabel(opts.roleLabel),
         );
         response = (await sample(tools, opts.maxTokens)) as ModelChoice;
@@ -295,10 +342,16 @@ export async function runReadonlyWorkerLoop(opts: {
         ...(reasoning ? { reasoning_content: reasoning } : {}),
       });
 
-      const results = await Promise.all(
-        calls.map((call) =>
-          executeAllowlistedTool(call, opts.ctx, opts.registry, allowlist, opts.roleLabel),
+      if (opts.abortSignal?.aborted) {
+        return stopped();
+      }
+      const results = await raceAbort(
+        Promise.all(
+          calls.map((call) =>
+            executeAllowlistedTool(call, workerCtx, opts.registry, allowlist, opts.roleLabel),
+          ),
         ),
+        opts.abortSignal,
       );
       for (const [index, call] of calls.entries()) {
         const result = results[index] ?? { ok: false, error: "工具无返回" };
@@ -320,12 +373,14 @@ export async function runReadonlyWorkerLoop(opts: {
       }
     }
 
-    pullSteer();
+    if (opts.abortSignal?.aborted) {
+      return stopped();
+    }
     messages.push({
       role: "user",
       content: opts.closePrompt,
     });
-    opts.ctx.emitToolProgress?.(
+    workerCtx.emitToolProgress?.(
       opts.roleLabel === "写稿工" ? "正在写成交件" : sidecarWaitLabel(opts.roleLabel),
     );
     const closing = (await sample([], opts.maxTokens)) as ModelChoice;

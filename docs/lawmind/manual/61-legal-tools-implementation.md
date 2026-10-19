@@ -2,7 +2,18 @@
 
 第 49 章讲了工具层的**机制**（组装、共同形状、四道围栏）。这一章讲**每个工具自己的判定逻辑**：它怎么判、上限多少、什么情况下拒。
 
-`agent/tools/legal/` 有 38 个实现文件。按「判定逻辑的性质」分十组。
+`agent/tools/legal/` 有 42 个实现文件（不含测试）。按「判定逻辑的性质」分十组。
+
+名字集合不在这个目录里，在 `agent/tool-name-sets.ts` 与 `agent/permission-mode.ts`：
+
+| 集合                        | 个数 | 落点                                                       |
+| --------------------------- | ---- | ---------------------------------------------------------- |
+| `WRITE_TOOLS`               | 38   | `lawyer_approved_write` 分类。分类不等于弹窗，也不打断回合 |
+| `DESK_WRITE_TOOL_NAMES`     | 13   | 对话里执行过后，桌面端刷新案件列表与卷宗                   |
+| `MATTER_SCOPE_REQUIRED`     | 16   | 必须带案件。含 `delete_matter`                             |
+| `READONLY_AGENT_TOOL_NAMES` | 33   | 只读权限模式的工具名白名单                                 |
+
+`IRREVERSIBLE_TOOLS` 里没有 `pause`。`send_email` 与 `prepare_outbound_mail` 是 `inbox_signoff`；`delete_matter` 与 `render_document` 是 `deny_at_source`。`toolRequiresLawyerPause` 恒为 false。
 
 ## 61.1 检索类：四条「检索上限」与三条「隔离」
 
@@ -188,11 +199,11 @@ PDF 无可提取文本（OCR/视觉兜底后仍为空）
 
 **「换个办法但标准不变」**——不管走哪条路，都得标待核实。
 
-## 61.2 案件与工作台：七个写穿工具
+## 61.2 案件与工作台：八个工作台工具
 
-`desk-tools.ts` 是「对话补档案」那一波的核心（第 18 期）。七个工具的共同形状是**「写穿 + 可撤销」**。
+`desk-tools.ts` 是「对话补档案」那一波的核心（第 18 期）。八个工具里，抽取是只读，删除是硬确认，其余是**「写穿 + 可撤销」**。`DESK_WRITE_TOOL_NAMES` 有 13 个名字，比这个文件多出笔记、期限、义务、本机导入、材料搬移和文件操作。
 
-### 一张表看七个工具的严格程度
+### 一张表看八个工具的严格程度
 
 | 工具                      | 名称                    | 风险   | 要不要审批                      |
 | ------------------------- | ----------------------- | ------ | ------------------------------- |
@@ -203,8 +214,9 @@ PDF 无可提取文本（OCR/视觉兜底后仍为空）
 | `updateMatterProfileTool` | `update_matter_profile` | medium | 否                              |
 | `revertDeskWriteTool`     | `revert_desk_write`     | medium | 否                              |
 | `createMatterTool`        | `create_matter`         | medium | 否                              |
+| `deleteMatterTool`        | `delete_matter`         | high   | 否（`requiresApproval: false`） |
 
-这七个都不弹审批。`extract_legal_events` 是只读，不在 `WRITE_TOOLS` 里。其余六个写穿工具在 `WRITE_TOOLS` 里，会进 `lawyer_approved_write` 这个治理分类。分类不等于弹窗。
+这八个都不弹审批。`extract_legal_events` 是只读，不在 `WRITE_TOOLS` 里。其余七个在 `WRITE_TOOLS` 里，会进 `lawyer_approved_write`。分类不等于弹窗。`delete_matter` 的不可逆处置是 `deny_at_source`：`confirm_matter_id` 必须与 `matter_id` 完全一致，否则「未删除」；`preview: true` 只盘点。卷里还有材料时，不传 `delete_materials=true` 就按空卷要求拒绝。审计链与已交付、已批准草稿保留。
 
 ### 三条「写完之后怎么撤」的提示
 
@@ -277,18 +289,18 @@ trackAdoption: true, origin: "agent", actorId: ctx.actorId
 
 **`origin: "agent"`** 说明这条笔记是模型写的（不是律师手输），审计里能区分。
 
-## 61.3 邮件：唯一带审批的本地工具
+## 61.3 邮件：写入待发信，不打断回合
 
-`mail-tools.ts` 的四个工具里，只有 `send_email` 带 `requiresApproval: true` 且 `riskLevel: "high"`。
+`mail-tools.ts` 的四个工具都不带 `requiresApproval`。`send_email` 的风险是 high，处置是 `inbox_signoff`，不是回合中暂停。
 
-| 工具                    | 风险     | 审批             |
-| ----------------------- | -------- | ---------------- |
-| `list_mail_inbox`       | low      | —                |
-| `list_mail_attachments` | low      | —                |
-| `prepare_outbound_mail` | medium   | **无**（只准备） |
-| `send_email`            | **high** | **有**           |
+| 工具                    | 风险     | 回合                                         |
+| ----------------------- | -------- | -------------------------------------------- |
+| `list_mail_inbox`       | low      | 只读                                         |
+| `list_mail_attachments` | low      | 只读                                         |
+| `prepare_outbound_mail` | medium   | 写入待拍板，不发送                           |
+| `send_email`            | **high** | 写入本案「待发信」，`ok: true`，回合照常完成 |
 
-**这张表就是第 5.2 节那条设计的实现**：外发唯一硬闸门。
+外发的硬闸门在待发列表的「批准发送」（`approve_send`），不在工具调用中间。`toolRequiresLawyerPause("send_email")` 为 false。
 
 ### 两条「路径已经给了」的提示
 
@@ -319,17 +331,19 @@ trackAdoption: true, origin: "agent", actorId: ctx.actorId
 
 **四种分开报**——因为「不存在」和「越界」是完全不同的问题。
 
-### `send_email` 的两条特殊路径
+### `send_email` 的两条路径
 
-**未批准时**：
+工具定义写明：拟好邮件并写入本案「待发信」，不真正发出；调用后回合照常完成，不要等待批准。律师在案件页或待发列表点「批准发送」才会发出。
+
+**未带服务端 `__approved === true` 时**（新回合都走这里）：先做伦理墙。墙挡住且未批准，返回 `approvalRequest: true` 与 `ETHICS_WALL_HOLD_LAWYER_MESSAGE`，不入待发。墙没挡，则写入交办收件箱（`pendingSend`）并 `queueOutboundMail`，返回：
 
 ```text
-发送邮件需律师批准。已写入 outbox/<id>；请在待我拍板中签批发送，签批后将继续发送。
+已写入本案「待发信」，律师核对后点「批准发送」才会发出。请直接完成本轮回复，不要等待批准。
 ```
 
-**注意它先写了 outbox**——所以「待发邮件」这个事实是落盘的，批准只是让它真的发出去。
+同时带 `queued: true`、`inboxId`、`outboxId`。真正发送走 `/api/automations/inbox/:id/action` 的 `approve_send`，不恢复本回合。
 
-**批准时要做伦理墙复核**（注释说明）：即使已批准，仍要再确认伦理墙放行状态。
+**`__approved === true` 只服务旧会话遗留的恢复路径。** 伦理墙若仍挡住，先 `acknowledgeEthicsWall`，再 `commitOutboundMail` 并按已配置邮箱走 SMTP/Graph。
 
 ### 邮件发送格式会统一附加
 
@@ -435,15 +449,15 @@ data: {
 
 **第 ④ 步的阶梯**（八级）：
 
-| 扩展名         | 阶梯                            |
-| -------------- | ------------------------------- |
-| 二进制 `.doc`  | 直接读（`isBinaryWordDocPath`） |
-| 其他不支持格式 | `unsupportedOfficeIngestReason` |
-| `.docx`        | `readDocxText`                  |
-| `.xlsx`        | `readXlsxPlainText`             |
-| 图片           | OCR → 视觉兜底                  |
-| `.pdf`         | 抽文本 → OCR → 视觉（三跳）     |
-| 文本           | `readSafe`                      |
+| 扩展名         | 阶梯                                                                                                                 |
+| -------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 二进制 `.doc`  | 预览/分析：进程内 OLE 解析；出 `.docx`：本机 Word 另存为（容器内暂存，无授权框），LibreOffice 兜底；两者皆无则硬失败 |
+| 其他不支持格式 | `unsupportedOfficeIngestReason`                                                                                      |
+| `.docx`        | `readDocxText`                                                                                                       |
+| `.xlsx`        | `readXlsxPlainText`                                                                                                  |
+| 图片           | OCR → 视觉兜底                                                                                                       |
+| `.pdf`         | 抽文本 → OCR → 视觉（三跳）                                                                                          |
+| 文本           | `readSafe`                                                                                                           |
 
 **PDF 那三跳是有条件的**：第三跳（视觉）要过 `shouldUseVisionFallback()` 这个开关（受 `LAWMIND_DOC_READ_MODE` 控制）。
 
@@ -1110,9 +1124,9 @@ unsignedMonthsAfterFirst 应在 0–11（未签合同第二个月起，最多十
 - **两条「不要编造」的提示在工具结果里，不在提示词里**（只在真调用时出现）。
 - **`checkConflictOfInterest` 两次说「这不是伦理墙」。** 它只列可疑命中。
 - **工商查询永远带 `unverified: true`。**
-- **`extract_legal_events` 不在 `WRITE_TOOLS`。** 其余六个工作台写穿工具在里面，且不弹审批。
+- **`extract_legal_events` 不在 `WRITE_TOOLS`。** `desk-tools.ts` 其余七个（含 `delete_matter`）在里面，且不弹审批。`WRITE_TOOLS` 共 38 个名字；`DESK_WRITE_TOOL_NAMES` 13 个；`MATTER_SCOPE_REQUIRED` 16 个（含 `delete_matter`）；只读白名单 33 个。
 - **已有案件时不许新建案件。**
-- **`send_email` 未批准时会先写 outbox。**
+- **`send_email` 不是回合中暂停。** 未批准时写入待发信（`inbox_signoff`），返回 `ok: true`，并要求本轮直接回复。伦理墙挡住时才拒绝入队。
 - **附件路径已经给了就别再 `search_workspace`**（两条提示都在说这件事）。
 - **本机授权请求只给文件名与父目录名**，不给全路径。
 - **`hit_id` 是会话级的**，所以会有「已失效」这种拒绝。

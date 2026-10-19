@@ -136,10 +136,14 @@ export async function handleRecordRoutes({
       const body = await parseJsonBodyZod(req, sessionCreatePostSchema);
       const assistantId = body.assistantId?.trim() || DEFAULT_ASSISTANT_ID;
       const matterId = body.matterId?.trim() || undefined;
+      const folderRel = body.folderRel?.trim() || undefined;
+      const workDir = body.workDir?.trim() || undefined;
       const title = body.title?.trim() ? body.title.trim().slice(0, 200) : undefined;
       const session = createSession({
         workspaceDir,
         matterId,
+        folderRel,
+        workDir,
         actorId: resolveDesktopActorId(),
         assistantId,
         title,
@@ -257,6 +261,8 @@ export async function handleRecordRoutes({
         title: displayChatSessionTitle(session),
         assistantId: session.assistantId?.trim() || DEFAULT_ASSISTANT_ID,
         matterId: session.matterId,
+        ...(session.folderRel ? { folderRel: session.folderRel } : {}),
+        ...(session.workDir ? { workDir: session.workDir } : {}),
         messages: sessionHistoryToSimpleMessages(session),
         // 「续接来源」卡片（律师可核对带过来了什么）与「→ 由此续接」双向指针。
         ...(session.carriedOverFrom ? { carriedOverFrom: session.carriedOverFrom } : {}),
@@ -335,6 +341,8 @@ export async function handleRecordRoutes({
         sessionId: session.sessionId,
         title: displayChatSessionTitle(session),
         matterId: session.matterId,
+        ...(session.folderRel ? { folderRel: session.folderRel } : {}),
+        ...(session.workDir ? { workDir: session.workDir } : {}),
         assistantId: session.assistantId,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,

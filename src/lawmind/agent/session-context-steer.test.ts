@@ -6,8 +6,10 @@ import {
   applyClaimedSteerToHistory,
   claimAndApplyPendingSteer,
   claimPendingSteer,
+  discardUnclaimedSteer,
   formatSteerUserMessage,
   normalizeSteerNote,
+  peekPendingSteer,
   queuePendingSteer,
 } from "./session-context-steer.js";
 import type { AgentSession } from "./types.js";
@@ -34,6 +36,18 @@ describe("session-context-steer", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
     dirs.length = 0;
+  });
+
+  it("drops an unclaimed correction and leaves a claimed batch in inflight", () => {
+    const ws = tmpWs();
+    dirs.push(ws);
+    queuePendingSteer(ws, "s-stop", "不要写解除");
+    discardUnclaimedSteer(ws, "s-stop");
+    expect(peekPendingSteer(ws, "s-stop")).toEqual([]);
+    queuePendingSteer(ws, "s-stop", "保留这条");
+    expect(claimPendingSteer(ws, "s-stop")).toEqual(["保留这条"]);
+    discardUnclaimedSteer(ws, "s-stop");
+    expect(claimPendingSteer(ws, "s-stop", { alreadyApplied: () => false })).toEqual(["保留这条"]);
   });
 
   it("queues then claims notes from sidecar without touching session.json", () => {

@@ -1,6 +1,6 @@
 # 第 60 章 实现精读：协作层与工作流执行器
 
-第 16 章从产品角度讲过协作。这一章讲实现：`agent/collaboration/`（13 个文件）、`agent/orchestrator/`（4 个）、`agent/tools/coordination/`（5 个）。
+第 16 章从产品角度讲过协作。这一章讲实现：`agent/collaboration/`（15 个实现文件，不含测试）、`agent/orchestrator/`（4 个）、`agent/tools/coordination/`（5 个）。多出来的两份是 `isolated-worker.ts`（隔离只读工人）和 `settle-child-turn.ts`（律师答完子回合后收口委派）。
 
 三块的分工是：
 
@@ -35,28 +35,31 @@ Adapted from reference stack's fire-wait-read pattern (src/agents/tools/agent-st
 and subagent announce flow (src/agents/subagent-announce.ts).
 ```
 
-### `sendAndWait` 的十二个参数
+### `sendAndWait` 的十五个参数
 
-四个必需参数是 `baseConfig`、`fromAssistantId`、`toAssistantId`、`message`。其余都是继承父回合的约束：
+四个必需参数是 `baseConfig`、`fromAssistantId`、`toAssistantId`、`message`。其余是超时、执行形态和签名兼容字段：
 
-| 参数                       | 作用                                      |
-| -------------------------- | ----------------------------------------- |
-| `matterId?`                | 案件                                      |
-| `timeoutMs?`               | 超时（默认 60000）                        |
-| `preApproveToolNames?`     | 模板级工具预批准（已按白名单过滤）        |
-| `kind?`                    | 指令头标签：`consult` 或 `review_request` |
-| `permissionMode?`          | 继承父的权限模式                          |
-| `allowedToolNames?`        | 工具白名单（只收窄）                      |
-| `toolSandboxEnabled?`      | 沙箱开关                                  |
-| `remainingToolCallBudget?` | **父回合剩余工具预算快照**                |
+| 参数                       | 作用                                                                  |
+| -------------------------- | --------------------------------------------------------------------- |
+| `matterId?`                | 案件                                                                  |
+| `timeoutMs?`               | 超时（默认 60000）                                                    |
+| `execution?`               | `isolated`（默认，只读答复）或 `deliver`（完整回合，改稿 / 待发准备） |
+| `preApproveToolNames?`     | 只在 `deliver` 时生效，且只收模板白名单里的改稿工具                   |
+| `delegationId?`            | 写进子会话，律师稍后回答时能对上这次交办                              |
+| `onSession?`               | 子会话一创建就回调                                                    |
+| `kind?`                    | 指令头标签：`consult` 或 `review_request`                             |
+| `permissionMode?`          | 留在签名上；隔离工人固定只读                                          |
+| `allowedToolNames?`        | 留在签名上                                                            |
+| `toolSandboxEnabled?`      | 留在签名上                                                            |
+| `remainingToolCallBudget?` | **留在签名上。函数体不读它，不再按父回合剩余预算切子回合**            |
 
-最后那个参数的注释写明了规则：
+`execution === "deliver"` 走 `beginDeliverCollaborationTurn`：完整 `agent.chat`，并且 `enableCollaboration: false`，子回合不能再派活。咨询和互审保持默认的隔离工人（`runIsolatedCollaborationWorker`），不跑 `runTurn`。注释写明了预算字段为什么还在：
 
 ```text
-父 turn 剩余工具预算快照；子助手 maxToolCalls 取 min(自身配置, 分片)。
+保留签名兼容。工人不走 runTurn，不再分片子回合工具预算。
 ```
 
-**`min(自身配置, 分片)`**——子助手不能借「被派活」来绕过预算。这是第 43.7 节 `child-gates` 那条「只收窄不放大」在协作上的落点。
+`fireAndForget` 的类型注释仍写着「子助手 maxToolCalls 取 min(自身配置, 分片)」。**函数体同样不读 `remainingToolCallBudget`。** 交办（`kind === "delegate"`）走上面那条完整回合；其余异步 kind 走隔离工人。
 
 ### `fireAndForget` 的十四个参数
 
@@ -107,10 +110,18 @@ kindLabels = {
 
 <message>
 
-请根据你的岗位职责处理上述请求，完成后给出完整回复。
+<收尾一句，三选一>
 ```
 
-**三行结构**：来源标签、原消息、以及一句「按你的岗位职责处理」。最后那句不是客套——它把「我是谁」这件事指向了**岗位职责**（`buildRoleDirectiveFromProfile`），而不是父助手的临时要求。
+收尾按这次是不是要办完来选：
+
+| 条件                        | 收尾                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------ |
+| `delegateWork`（异步交办）  | 请按任务书把这件事办完。可以检索、起草和修改文稿。不要再派给其他助手，不要自行发出邮件。         |
+| `deliver`（工作流点名改稿） | 请按任务书处理文稿。可以做已预批准的改稿和待确认外发准备。不要再派给其他助手，不要自行发出邮件。 |
+| 其余（咨询、互审、通知）    | 只根据任务书给出完整回复。不要改原件，不要外发，不要再派给其他助手。落稿由主办会话完成。         |
+
+岗位语气不写进这三句。隔离工人另把 `roleTitle` / `roleDirective` 放在系统提示里，并注明那只是组织答复的语气，不是自检清单。
 
 ### 超时后要真的中止
 
@@ -140,7 +151,7 @@ Assistant not found: <toAssistantId>（当前可读助手：A、B；请确认桌
 
 **括号里两件事**：列出当前能读到的助手（方便核对拼写），以及提示两种可能的错因（配置不对 / 工作区路径不对）。
 
-## 60.2 委派注册表：七个状态与一次「终态守卫」
+## 60.2 委派注册表：八个状态与一次「终态守卫」
 
 `delegation-registry.ts` 的头部注释列了四条设计：
 
@@ -151,13 +162,13 @@ Assistant not found: <toAssistantId>（当前可读助手：A、B；请确认桌
 - Frozen result capture for completed delegations
 ```
 
-### 七个状态
+### 八个状态
 
 ```text
-pending  running  completed  failed  timeout  cancelled  completed_after_timeout
+pending  running  completed  failed  timeout  cancelled  awaiting_lawyer  completed_after_timeout
 ```
 
-**第七个 `completed_after_timeout` 是特殊的那一个**——第 16.3 节讲过它的存在理由。这里补实现：它来自一条**终态守卫**（源码注释原文）：
+`awaiting_lawyer` 是子回合停在澄清或批准上等律师处置（第 16.3 节）。**最后那个 `completed_after_timeout` 是特殊的那一个**——第 16.3 节讲过它的存在理由。这里补实现：它来自一条**终态守卫**（源码注释原文）：
 
 ```text
 终态守卫：completed/failed/cancelled 后到达的迟到完成直接忽略；
@@ -257,6 +268,10 @@ peerReviewDefault is set, pairs become an allowlist.
 // send_email 仍须律师在在办拍板，不在此列。
 ```
 
+注释里的「在办拍板」是旧说法。`send_email` 不在预批准名单里，调用后写入待发信，不打断回合（第 61.3 节）。
+
+注释里的「在办拍板」是旧说法。`send_email` 不在预批准名单里，调用后写入待发信，不打断回合（第 61.3 节）。
+
 2. **只有两份可排期**（`client-update-memo`、`renewal-monitor`）——它们都是「定期产出」型。
 3. **`audience` 字段有 `solo` / `firm` 之分**：`vendor-agreement-review`、`due-diligence-review`、`compliance-research-memo` 是 firm 专属。
 
@@ -270,7 +285,9 @@ peerReviewDefault is set, pairs become an allowlist.
 | 2      | `nda-triage`（draft → peer）、`contract-review`（draft → peer）、`mail-contract-redline`（redline → handoff）、`due-diligence-review`（inventory → review） |
 | 3      | `training-ppt`、`office-research-report`、`compliance-research-memo`（都是 research → outline_confirm → 产出）                                              |
 
-**三个三步模板的结构完全一样**，而且中间那一步都叫 `outline_confirm`。**这对应第 54.5 节那道「大纲先行」的门**——工作流层面把它显式化成一个步骤。
+**三个三步模板的结构完全一样**，而且中间那一步都叫 `outline_confirm`，并写了 `holdForLawyer: true`。**这对应第 54.5 节那道「大纲先行」的门**——工作流层面把它显式化成一个步骤。
+
+执行器 `workflowStepHoldsForLawyer`：`holdForLawyer === true`，或任务书里含 `research_outline_confirm`。命中且律师还没确认时，步骤停在 `awaiting_lawyer`，错误文案是「大纲已写出。确认后才会写正文。」`releaseWorkflowLawyerHold` 把停住的步骤标成 `completed`，工作流回到 `running`。子回合自己停在澄清或批准上时，走另一句：「这一步在等你确认。请在「在办」里回答；未确认前不会开始后续步骤。」并 `markDelegationAwaitingLawyer`。这句文案还写着「在办」；产品上挂出来的协作台在设置 → 协作（`LawmindCollaborationDesk`），在办 fleet 面板不挂主界面。
 
 ### 只有两步是 `autoApprove: true`
 
@@ -669,7 +686,7 @@ content.match(/\{[\s\S]*\}/);
 
 ## 60.7 七个协作工具
 
-`coordination/` 的三个文件对应七个工具。第 16.3 节列过清单，这里补实现。
+`delegate.ts`、`handoff.ts`、`meeting.ts` 三个工具文件（另有 `utils.ts` 与 `index.ts`）对应七个工具。第 16.3 节列过清单，这里补实现。
 
 ### 四个委派类（`delegate.ts`）
 
@@ -680,18 +697,21 @@ content.match(/\{[\s\S]*\}/);
 | `list_delegations`      | `status`                              | 最多 20 条            |
 | `get_delegation_result` | `delegation_id`                       | 优先读溢出文件        |
 
-`delegate_to_role` 的按角色解析有个细节：
+`delegate_to_role` 的按角色解析：
 
 ```text
-candidates.find(c => c.assistantId !== fromId) ?? candidates[0]
+未知 role_id → ok: false，「未知 Role：<id>」
+candidates.find(c => c.assistantId !== fromId)
+没有别人 → ok: true，fallback: "work_style_pack"
+有别人 → validateDelegation，再 startDelegation
 ```
 
-**优先选不是自己的那一个**——避免「派给自己」。找不到别的才用第一个（那种情况下会被 `validateDelegation` 拦下）。
+**没有对应岗位助手时不报错。** 它返回工作方式包（`workStylePackFromRole`），`hint` 让本对话按 `message` 继续，或调用 `draft_worker`。不要要求律师新建助手。
 
-它给任务加的头部是：
+有目标助手时，任务头是：
 
 ```text
-[岗位委派 <角色显示名>] <简报>
+[工作方式 <角色显示名>] <简报>
 ```
 
 ### `startDelegation` 的九步
@@ -699,35 +719,35 @@ candidates.find(c => c.assistantId !== fromId) ?? candidates[0]
 ```text
 ① registerDelegation
 ② 发事件 delegation.created
-③ 有案件时往会议室写一条系统行
+③ 有案件时往 cases/<matterId>/team-meeting.jsonl 写一条系统行
 ④ 超时取策略默认（300000）
 ⑤ fireAndForget（深度 +1，超时回调里标 timeout + requestTurnAbort）
 ⑥ markDelegationRunning + 发 delegation.started
-⑦ 成功 → markDelegationCompleted + 注入父会话 + 发事件 + 会议室记一行
-⑧ 失败 → markDelegationFailed + 注入父会话 + 发事件 + 会议室记一行
+⑦ 成功 → markDelegationCompleted + 注入父会话 + 发事件 + jsonl 再记一行
+⑧ 失败 → markDelegationFailed + 注入父会话 + 发事件 + jsonl 再记一行
 ⑨ 返回（状态是 running，不是 completed）
 ```
 
-**第 ⑤ 步的超时回调做两件事**：标超时状态 + `requestTurnAbort(sid)`（**真的去中断那个会话**）。这与第 60.1 节那条「超时后协作式中止底层子会话」是同一个机制。
+**第 ⑤ 步的超时回调做两件事**：标超时状态 + `requestTurnAbort(sid)`（**真的去中断那个会话**）。这与第 60.1 节那条「超时后协作式中止底层子会话」是同一个机制。交办这条 `fireAndForget` 走完整回合（`beginDeliverCollaborationTurn`），不是隔离工人。
 
-**第 ③⑧ 步的会议室行**：委派会在案件会议室留痕——创建一条、完成/失败各一条。所以会议室时间线里能看到协作的来龙去脉。
+**第 ③⑦⑧ 步写的是 `team-meeting.jsonl`**（`appendTeamMeetingLinesSync`）：创建一条，完成或失败再各一条。会议室界面不挂在主路径上，设置里的协作台也不靠这份时间线当入口。文件仍在写。临时讨论若落盘，路径是 `meetings/adhoc/team-meeting.jsonl`。
 
 ### 回传到父会话的那段文本
 
 ```text
-【委派结果 · 已自动回传】      ← 或【委派结果 · 未成功】
+【委派结果 · 已自动回传】      ← 或【委派结果 · 未成功】/【委派结果 · 等你确认】
 - 目标助手：**<toAssistantId>**
 - 委派 ID：`<delegationId>`
-- 状态：**<status>**
+- 状态：**<awaiting_lawyer 显示成「待确认」，其余用原状态>**
+- 子会话：`sessions/<id>.json`（等你确认时不写这一行）
+- 全文：`<resultPath>`，或提示用 get_delegation_result
 
----
-
-<正文或「（子助手未返回正文）」/「（无错误详情）」>
+<正文摘录>
 ```
 
-**整个包 `.slice(0, 48000)`**——48 KB 上限。
+正文摘录上限是 `DELEGATION_PARENT_EXCERPT_CHARS = 1200`。超出时截到 1200 字再加省略号，并提示全文用 `get_delegation_result` 读。配额用尽（上限传 0）时不贴正文，只写「本轮并行上下文配额已用完」。
 
-**为什么带委派 ID**：因为律师看到这条消息时，可以用 `get_delegation_result` 拿全文（如果被截断了）。
+**为什么带委派 ID**：律师看到摘录时，可以用 `get_delegation_result` 拿全文。溢出文件仍按第 60.2 节那条 100 KB 规则落盘。
 
 而注入方式是 `appendSyntheticAssistantReply`——**一条合成助手消息**，不是往用户消息里塞。
 
@@ -865,7 +885,7 @@ const selected = files.length > 120 ? files.slice(-120) : files;
 | 通知 | `notify.sent`                                                                                                                         |
 | 审查 | `review.requested`、`review.completed`                                                                                                |
 
-**它和 `DelegationStatus` 的七态不是一回事**：状态是「记录现在什么状态」，事件是「发生过什么」。所以六种委派事件覆盖七种状态（`completed_after_timeout` 没有独立事件）。
+**它和 `DelegationStatus` 的八态不是一回事**：状态是「记录现在什么状态」，事件是「发生过什么」。六种委派事件盖不住 `completed_after_timeout` 和 `awaiting_lawyer`（后一个只改记录，没有独立事件）。
 
 ### 共享上下文：两个上限
 
@@ -952,6 +972,8 @@ riskLevel      = template.riskLevel ?? "unspecified"
 
 ## 60.10 已知坑（本章相关）
 
+- **咨询和互审走隔离只读工人**；交办以及 `execution: "deliver"` 走完整回合，并关掉协作工具，避免再派一层。
+- **`remainingToolCallBudget` 留在 `sendAndWait` / `fireAndForget` 签名上，函数体不读。** 不再按父回合剩余预算切子回合。
 - **`delegationId` 是三个系统的连接键**（注册表/转录/取消），必须传同一个。
 - **助手结果必须包不可信标记。** 报告里也要包。
 - **超时后子会话是「协作式中止」**，模型轮间生效，不是立即。
@@ -959,7 +981,11 @@ riskLevel      = template.riskLevel ?? "unspecified"
 - **迟到的完成可以盖住 `timeout`，状态变成 `completed_after_timeout`。** `failed`、`completed`、`cancelled` 不被后到事件覆盖。
 - **`allowedPairs` 为空 = 不限制。** 一旦配了组织关系就变成白名单。
 - **委派结果超 100 KB 溢出到文件**，内联只留头部 8 KB。
-- **只有 `mail-contract-redline` 带预批准工具，且不含 `send_email`。**
+- **只有 `mail-contract-redline` 带预批准工具，且不含 `send_email`。** 模板注释仍写「在办拍板」；发送本身不打断回合，见第 61.3 节。
+- **`holdForLawyer` 或任务书里的 `research_outline_confirm` 会把步骤停在 `awaiting_lawyer`。** 三个大纲步都显式写了这个字段。
+- **父会话回传摘录是 1200 字**（`DELEGATION_PARENT_EXCERPT_CHARS`），不是整包 48 KB。
+- **`delegate_to_role` 找不到别的助手时返回工作方式包**（`fallback: "work_style_pack"`），不把这当成错误。
+- **会议室界面不挂主路径。** 委派仍写 `cases/<matterId>/team-meeting.jsonl`。设置 → 协作是 `LawmindCollaborationDesk`。在办 fleet 面板不挂主界面。本地 API 没有 `/api/assistants/:id/desk`。
 - **`contract-review` 的 peer 步骤刻意不配 `reviewBy`**（那是防套娃）。
 - **工作流种子升级靠「像不像旧版」，不靠版号。**
 - **`{{instruction}}` / `{{automationId}}` 会被强制替空**；未知 key 原样保留。

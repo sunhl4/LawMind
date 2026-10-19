@@ -54,6 +54,46 @@ if (typeof Element !== "undefined" && typeof Element.prototype.scrollIntoView !=
   };
 }
 
+// 3) `DOMMatrix` / `Path2D` —— pdfjs-dist 在模块顶层就读取它们（display/canvas.js），
+//    渲染层测试经由 PdfFileView 间接引入时没有就会整文件假红。
+if (typeof (globalThis as { DOMMatrix?: unknown }).DOMMatrix === "undefined") {
+  class DOMMatrixStub {
+    a = 1;
+    b = 0;
+    c = 0;
+    d = 1;
+    e = 0;
+    f = 0;
+    constructor(init?: unknown) {
+      if (Array.isArray(init) && init.length === 6) {
+        [this.a, this.b, this.c, this.d, this.e, this.f] = init as number[];
+      } else if (init instanceof DOMMatrixStub) {
+        Object.assign(this, init);
+      }
+    }
+    scale(): DOMMatrixStub {
+      return new DOMMatrixStub();
+    }
+    translate(): DOMMatrixStub {
+      return new DOMMatrixStub();
+    }
+    rotate(): DOMMatrixStub {
+      return new DOMMatrixStub();
+    }
+  }
+  (globalThis as { DOMMatrix?: unknown }).DOMMatrix = DOMMatrixStub as unknown;
+}
+if (typeof (globalThis as { Path2D?: unknown }).Path2D === "undefined") {
+  class Path2DStub {
+    moveTo(): void {}
+    lineTo(): void {}
+    arc(): void {}
+    rect(): void {}
+    closePath(): void {}
+  }
+  (globalThis as { Path2D?: unknown }).Path2D = Path2DStub as unknown;
+}
+
 afterEach(async () => {
   await drainMatterProjections();
   vi.unstubAllGlobals();

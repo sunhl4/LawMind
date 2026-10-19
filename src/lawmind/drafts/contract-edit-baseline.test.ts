@@ -108,7 +108,7 @@ describe("contract-edit-baseline", () => {
     expect(paths).toContain("uploads/甲方协议.docx");
   });
 
-  it("does not stamp binary .doc as a revision baseline", async () => {
+  it("keeps a .doc baseline path and does not read or convert it while stamping", async () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-baseline-doc-"));
     dirs.push(ws);
     const rel = "uploads/旧稿.doc";
@@ -121,7 +121,8 @@ describe("contract-edit-baseline", () => {
       }),
       instruction: `审查 \`${rel}\``,
     });
-    expect(stamped.contractEdit).toBeUndefined();
+    expect(stamped.contractEdit?.baselineRelativePath).toBe(rel);
+    expect(fs.existsSync(path.join(ws, "uploads/旧稿.docx"))).toBe(false);
   });
 
   it("stamps contractEdit from a compose Word pin without a path in the instruction", async () => {

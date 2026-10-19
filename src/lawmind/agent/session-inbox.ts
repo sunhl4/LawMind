@@ -5,7 +5,8 @@
  * - steer:    POST /api/sessions/:id/steer — next model round, no new turn
  * - inject:   POST /api/sessions/:id/inject — pins for the next round, no new turn
  *
- * Compose Enter while a turn is running is steer. 「下一轮再发」 is followup.
+ * Compose Enter while a turn is running queues a followup (next turn).
+ * 「改这一轮」 is steer: the parent conversation's next sample, not each subagent.
  */
 
 export const SESSION_INBOX_KINDS = ["followup", "steer", "inject"] as const;

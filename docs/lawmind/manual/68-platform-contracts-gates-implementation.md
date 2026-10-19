@@ -1,6 +1,6 @@
 # 第 68 章 实现精读：平台层（契约、门禁、出网、待办）
 
-`src/lawmind/platform/` 有 **41 个非测试文件**——比大多数目录都大。这一章讲其中 22 个：契约类型、门禁分类、内容信任、出网、待办卡片、参数编辑、密钥与安全命令。第 69 章讲 17 个：自动办件、守护进程、在办汇总、Word 改稿。剩下 2 个（`ingest-helpers.ts`、`local-api-schemas.ts`）两章都只顺带提到，`local-api-schemas.ts` 在 ch14/ch63 有更合适的位置。
+`src/lawmind/platform/` 有 **47 个非测试文件**。这一章讲契约类型、十二种 `GateDecisionKind`（不是工具管线的 19 级中间件，那条链在第 46.1 节）、门禁分类、内容信任、出网、待办卡片、审批仲裁、参数编辑、密钥与安全命令。第 69 章讲自动办件、守护进程、在办汇总、Word 改稿。`ingest-helpers.ts`、`local-api-schemas.ts`、`execution-surface.ts`、`ops-doctor.ts` 只在第 46.2 节的鸟瞰里点名：`local-api-schemas.ts` 的请求体在第 14 / 63 章，`execution-surface.ts` 是本机执行面清单，`ops-doctor.ts` 给 `pnpm lawmind:doctor` 用同一份巡检。
 
 **这一层为什么叫「platform」**：它不是某个业务模块，而是**被多个模块共用的契约层**。桌面端、本地服务、引擎、渲染层都要读同一份类型与同一套判定。所以它的特点是——**叶子模块多、纯函数多、几乎不碰 fs**。
 
@@ -25,7 +25,7 @@ outbound_recipient_gate     发前需确认收件人
 legal_guardian_gate         独立审稿
 ```
 
-**右边那列中文是代码里的原文**（在 `review-gates.ts` 的 `gateDecisionLabel` 里）。**十二个门禁名全部是律师话**——没有一个是 `xxx_validation_failed` 这种工程词。
+**右边那列中文是代码里的原文**（在 `review-gates.ts` 的 `gateDecisionLabel` 里）。**十二个门禁名全部是律师话**——没有一个是 `xxx_validation_failed` 这种工程词。这十二个是 `GateDecisionKind`。工具执行链是另一张表：`buildDefaultToolPipeline` 有 19 级中间件（第 46.1 节）。
 
 而每个门禁只有**三种判定**：
 
@@ -864,6 +864,14 @@ buildContextPinsPayload 打包成请求体
 
 ## 68.13 审批与参数编辑
 
+### `approval-arbitration.ts`：顺序写死的纯函数
+
+`resolveApprovalArbitration` 把中间件链已经保证的顺序收成可测函数：`denied` → `block` → `askFirst` → `allowAutomatically` → 都没有则 `ask`。Deny / block 永远排在 Ask / Allow 前面。`approvalMiddleware` 调用时把 `denied` 和 `blocked` 传 false（那两档已由上游中间件处理），只裁 Ask 与 Allow。
+
+自 2026-10-01 起没有 disposition=`pause` 的工具。`toolRequiresLawyerPause` 恒为 false，`toolRequiresExplicitApproval` 因此直接返回 false。`approvalMiddleware` 里的 `askFirst` 不会因为工具名再变成真。外发走待发信，不在这条链上把回合停住。
+
+`action-pre-review.ts` 是链上 `actionPreReview` 那一级的分类器。`LAWMIND_ACTION_PRE_REVIEW` 默认 `off`；`shadow` 只记不改行为；`on` 才对 `run_host_command` 加问。它不替代 permission / playbook deny / legalVerify。
+
 ### `pending-tool-approvals.ts`：51 行的一件事
 
 它从所有会话里捞出待批准的工具调用：
@@ -1017,6 +1025,8 @@ draft_worker
 
 **默认 false 的意思是「通道默认不通」**——而不通的时候**不退化成消失，而是退化成让模型判**。
 
+分级模式本身在 `policy/judgment-tiering.ts`，默认 `shadow`（`off` 全部按 judge；`shadow` 双跑只记一致率；`on` 才让 machine 项不进提示词）。`resolveJudgmentTieringMode` 先读进程内 policy 对象，再读 `LAWMIND_JUDGMENT_TIERING`，缺省 `shadow`。把 `judgmentTiering`、`judgmentDisabledVerifiers`、`judgmentEscalation`、`judgmentEscalationPosture` 写进 `lawmind.policy.json` 会被 `commercial-policy.ts` 拒收，文件不生效。环境变量 `LAWMIND_JUDGMENT_TIERING` 与 `LAWMIND_JUDGMENT_ESCALATION` 仍然生效。函数注释写明：`lawmind.policy.json` 里的 `judgmentEscalation` 不会从文件打开这条通道。
+
 **这是一个很好的默认方向**：宁可让模型继续判（有输出、有风险），也不要让项消失（无输出、无风险但也没价值）。
 
 ### 那个「不返回空数组」的约定
@@ -1137,15 +1147,29 @@ NODE_PATH  SYSTEMROOT  COMSPEC  APPDATA  LOCALAPPDATA
 
 **是白名单**（默认不继承）——所以新环境变量默认不会漏进去。
 
-### 四个密钥检测规则
+### 密钥与加载器：默认路径剥前缀，显式 env 保留授予
 
 ```text
 ① 精确拒绝七项（LAWMIND_LOCAL_API_TOKEN / SKIP_API_AUTH / DESKTOP_PORT
    / INSTALLATION_SECRET / EPOCH / REVOKED_CLIENTS / INSTANCE_ID）
-② 前缀匹配：SAFE_COMMAND_SECRET_PREFIX_RE（19 家服务商）
-③ LAWMIND_ 前缀里的密钥：/^LAWMIND_.*(_KEY|_TOKEN|_SECRET|_PASSWORD)$/
-④ 可选放行：allowLawmindSecrets（显式打开才继承 LAWMIND_*）
+   显式 env、extra、默认路径都剥这七个名字。
+② 厂商前缀 SAFE_COMMAND_SECRET_PREFIX_RE：正则交替 19 个
+   （OPENAI / ANTHROPIC / AZURE / GOOGLE / GEMINI / DEEPSEEK / DASHSCOPE
+   / QWEN / MOONSHOT / ZHIPU / MISTRAL / GROQ / COHERE / XAI / PERPLEXITY
+   / BRAVE / TAVILY / SERPER / EXA）。只在默认最小环境
+   （buildSafeChildEnv 继承 source，以及 extra）里剥掉。
+③ LAWMIND_ 密钥正则：/^LAWMIND_.*(_KEY|_TOKEN|_SECRET|_PASSWORD)$/
+   拦的是从当前进程继承的项。
+④ allowLawmindSecrets：沙箱才继承过滤后的 LAWMIND_*；MCP 的
+   buildMinimalChildEnv 不继承。
+⑤ 加载器钩子 17 个（LD_PRELOAD / LD_LIBRARY_PATH / LD_AUDIT /
+   DYLD_INSERT_LIBRARIES / DYLD_LIBRARY_PATH / DYLD_FRAMEWORK_PATH /
+   DYLD_FALLBACK_LIBRARY_PATH / NODE_OPTIONS / NODE_DEBUG / PYTHONPATH /
+   PYTHONSTARTUP / PYTHONINSPECT / BASH_ENV / ENV / GIT_SSH_COMMAND /
+   GIT_EXEC_PATH / SSLKEYLOGFILE）。extra 和显式 env 都剥，调用方带上也不放行。
 ```
+
+没传 `env` 时 `envForChild` 走 `buildMinimalChildEnv`，厂商前缀在这条默认路径上被剥掉。显式传入的 `env`（例如 lawmindd 的 `buildDaemonProcessEnv`）是一方调用方的刻意授予：`LAWMIND_*` / `BRAVE_*` **原样保留**，只剥上面的七个凭据名和十七个加载器钩子。`extra` 仍然剥厂商前缀、凭据名和加载器钩子；MCP 可以把自己的 `LAWMIND_MCP_SECRET` 放进 extra（它不匹配厂商前缀，也不在七个精确名里）。
 
 **第 ① 项里那条注释值得单独读**：
 
@@ -1156,7 +1180,7 @@ NODE_PATH  SYSTEMROOT  COMSPEC  APPDATA  LOCALAPPDATA
 
 **「比单个 token 更敏感」**——因为安装密钥是**派生根**，泄了等于全泄。这是第 67.4 节那个派生式设计的直接后果。
 
-**第 ② 项那 19 家服务商前缀**列得很全（OPENAI / ANTHROPIC / AZURE / GOOGLE / GEMINI / DEEPSEEK / DASHSCOPE / QWEN / MOONSHOT / ZHIPU / MISTRAL / GROQ / COHERE / XAI / PERPLEXITY / BRAVE / TAVILY / SERPER / EXA）——**所以「换一家模型服务」不需要改代码**，只要它的 key 前缀在这张表里。
+**第 ② 项那 19 个前缀**（含 `EXA_`）只作用于默认最小环境和 `extra`。显式 `env` 不走这张表。
 
 ### 命令路径解析的四种情况
 
@@ -1316,7 +1340,9 @@ allowSendEmailAfterApproval: /发信|发送|邮件给客户/.test(raw)
 - **挡 shell 要两张名单**（禁 shell 命令 + 禁代码执行参数），缺一不可。
 - **宿主环境变量是白名单继承**（默认不继承）。
 - **安装密钥比单个 token 更敏感**（它是派生根）。
-- **密钥前缀表列了 19 家服务商**——换模型服务不用改代码。
+- **默认路径剥 19 个厂商前缀（含 `EXA_`）**。显式 `env` 保留授予，只剥 7 个凭据名和 17 个加载器钩子。
+- **加载器钩子即使写在 extra 里也进不了子进程。**
+- **`LAWMIND_SKIP_API_AUTH` 打包版忽略**；`LAWMIND_ALLOW_DANGEROUS_TOOLS_WITHOUT_APPROVAL`、`LAWMIND_ALLOW_CHECKLIST_BYPASS`、`LAWMIND_ALLOW_RENDER_GATE_BYPASS` 打包版仍读。后两条在审阅路由，分别放开清单与 `?strict=false`。
 - **邮件短路径的教练话里那个「条数不限」是特意加的**（防模型漏改）。
 - **快车道一个工具都不禁。**
 - **自由对话拿不到邮件**，所以随口提邮件合同会被分流到自动办件。

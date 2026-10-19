@@ -70,6 +70,9 @@ describe("builtin and OOXML skeletons", () => {
       "综合证据，我方主张继续履行。根据权威来源〔npc-1〕，应当付款。经济补偿为 99999 元。",
     );
     expect(state.keptJudgments).toEqual(["综合证据，我方主张继续履行。"]);
+    rememberJudgments(state, "某甲有权主张惩罚性赔偿。两种路径不宜收成一句。");
+    expect(state.keptJudgments).toContain("某甲有权主张惩罚性赔偿。");
+    expect(state.keptJudgments).toContain("两种路径不宜收成一句。");
     expect(state.factors).toEqual([]);
     const readings = renderEngineReadings(state);
     expect(readings).toContain("【判断保留】");

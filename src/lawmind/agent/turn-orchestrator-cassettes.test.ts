@@ -202,7 +202,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("write synthesis: after four searches the next request drops search and uses max effort", async () => {
+  it("write synthesis: after four searches the nudge sample keeps search and uses max effort", async () => {
     await withTestLawMind(
       (b) =>
         b
@@ -231,20 +231,100 @@ describe("turn-orchestrator cassettes (admission)", () => {
         const result = await h.runTurn("把分析写入 case-note.md。");
         expect(h.request(0).body.reasoning_effort).toBe("high");
         expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
-        expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(false);
-        expect(h.request(1).hasAdvertisedTool("search_case_law")).toBe(false);
+        expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(1).hasAdvertisedTool("search_case_law")).toBe(true);
         expect(h.request(1).hasAdvertisedTool("write_document")).toBe(true);
         expect(h.request(1).body.reasoning_effort).toBe("max");
         expect(h.request(1).allText()).toContain(WRITE_SYNTHESIS_MARKER);
         expect(fs.existsSync(path.join(h.workspaceDir, "case-note.md"))).toBe(true);
-        expect(h.request(2).hasAdvertisedTool("search_statute")).toBe(false);
-        expect(h.request(2).hasAdvertisedTool("search_case_law")).toBe(false);
+        expect(h.request(2).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(2).hasAdvertisedTool("search_case_law")).toBe(true);
         expect(result.turn.status).toBe("completed");
       },
     );
   });
 
-  it("pleading frame: search stays until the file lands, then a missing section is rewritten without search", async () => {
+  it("write synthesis: demo-only searches stay available until the longer cap", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withLegalTools().withToolExecute("search_statute", async () => ({
+          ok: true,
+          data: { demoCorpus: true, hits: [{ title: "演示", snippet: "第三十六条" }] },
+        })),
+      async (h) => {
+        const four = (prefix: string) =>
+          cassetteToolCalls(
+            ["一", "二", "三", "四"].map((label) => ({
+              name: "search_statute",
+              arguments: { query: `${prefix}${label}` },
+            })),
+          );
+        h.enqueue(
+          four("前"),
+          four("后"),
+          cassetteToolCall("write_document", {
+            file_path: "case-note.md",
+            content: "结论：可以解除。条号【待核实】。",
+          }),
+          cassetteAssistant("稿已交。"),
+        );
+        const result = await h.runTurn("把分析写入 case-note.md。");
+        expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(1).allText()).not.toContain(WRITE_SYNTHESIS_MARKER);
+        expect(h.request(2).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(2).allText()).toContain(WRITE_SYNTHESIS_MARKER);
+        expect(h.request(2).allText()).toContain("不要整段改成待核实");
+        expect(h.request(3).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(result.turn.status).toBe("completed");
+      },
+    );
+  });
+
+  it("write synthesis: a named search call is rejected after the nudge sample misses the file", async () => {
+    await withTestLawMind(
+      (b) =>
+        b
+          .withLegalTools()
+          .withConfig((config) => {
+            config.model.model = "deepseek-flash";
+          })
+          .withToolExecute("search_statute", async () => ({
+            ok: true,
+            data: { hits: [{ title: "劳动合同法", snippet: "第三十六条" }] },
+          })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCalls([
+            { name: "search_statute", arguments: { query: "一" } },
+            { name: "search_statute", arguments: { query: "二" } },
+            { name: "search_statute", arguments: { query: "三" } },
+            { name: "search_statute", arguments: { query: "四" } },
+          ]),
+          cassetteToolCall("search_statute", { query: "再补一条" }),
+          cassetteToolCall("search_statute", { query: "点名再搜" }),
+          cassetteToolCall("write_document", {
+            file_path: "case-note.md",
+            content: "《劳动合同法》第三十六条。结论：可以解除。",
+          }),
+          cassetteAssistant("稿已交。"),
+        );
+        const result = await h.runTurn("把分析写入 case-note.md。");
+        expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(1).allText()).toContain(WRITE_SYNTHESIS_MARKER);
+        expect(h.request(2).hasAdvertisedTool("search_statute")).toBe(false);
+        expect(h.request(2).hasAdvertisedTool("search_case_law")).toBe(false);
+        expect(h.request(2).hasAdvertisedTool("write_document")).toBe(true);
+        expect(h.request(3).hasAdvertisedTool("search_statute")).toBe(false);
+        expect(h.request(3).hasAdvertisedTool("write_document")).toBe(true);
+        expect(toolErrors(result)).toContain("search_statute");
+        expect(toolErrors(result)).toContain("不能使用");
+        expect(fs.existsSync(path.join(h.workspaceDir, "case-note.md"))).toBe(true);
+        expect(result.turn.status).toBe("completed");
+      },
+    );
+  });
+
+  it("pleading frame: search stays while a missing section is rewritten", async () => {
     await withTestLawMind(
       (b) =>
         b.withLegalTools().withConfig((config) => {
@@ -268,12 +348,12 @@ describe("turn-orchestrator cassettes (admission)", () => {
         );
         expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("write_document")).toBe(true);
-        expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(false);
-        expect(h.request(1).hasAdvertisedTool("search_case_law")).toBe(false);
+        expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(1).hasAdvertisedTool("search_case_law")).toBe(true);
         expect(h.request(1).hasAdvertisedTool("write_document")).toBe(true);
         expect(h.request(1).body.reasoning_effort).toBe("max");
         expect(h.request(1).allText()).toContain(PLEADING_SECTION_MARKER);
-        expect(h.request(2).hasAdvertisedTool("search_statute")).toBe(false);
+        expect(h.request(2).hasAdvertisedTool("search_statute")).toBe(true);
         expect(result.turn.status).toBe("completed");
         expect(fs.readFileSync(path.join(h.workspaceDir, "答辩状-5.md"), "utf8")).toContain("证据");
       },
@@ -601,6 +681,40 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(first.turn.gateDecisions?.some((g) => g.gate === "intake_gate")).toBe(false);
         expect(h.request(0).contains("待核实")).toBe(true);
         expect(h.request(0).contains("不要停下等律师回答")).toBe(true);
+      },
+    );
+  });
+
+  it("leftover hard clarification keys stay in the prompt and still allow draft_document", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        const now = new Date().toISOString();
+        const seeded = h.seedHistory(
+          [
+            { role: "user", content: "起草起诉状。", timestamp: now },
+            { role: "assistant", content: "缺当事人。", timestamp: now },
+          ],
+          { matterId: "m-hard-keys" },
+        );
+        seeded.pendingClarificationKeys = ["parties"];
+        saveSession(h.workspaceDir, seeded);
+        h.enqueue(
+          cassetteToolCall("draft_document", { title: "备忘" }),
+          cassetteAssistant("已起草，当事人标【待核实】。"),
+        );
+        const result = await h.runTurn("继续不澄清。请起草备忘。", {
+          sessionId: seeded.sessionId,
+          matterId: "m-hard-keys",
+        });
+        expect(h.request(0).contains("【待核实】")).toBe(true);
+        expect(h.request(0).contains("parties")).toBe(true);
+        expect(h.request(0).contains("不得在缺口未对齐")).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("draft_document")).toBe(true);
+        expect(h.spy?.log.calls.find((call) => call.name === "draft_document")?.result.ok).toBe(
+          true,
+        );
+        expect(result.turn.status).toBe("completed");
       },
     );
   });

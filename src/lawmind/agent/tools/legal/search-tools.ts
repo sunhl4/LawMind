@@ -7,6 +7,8 @@ import { buildMatterIndex, listMatterIds, searchMatterIndex } from "../../../cas
 import { matterPartyIdentityNames, samePartyName } from "../../../desk/matter-parties.js";
 import { indexExists } from "../../../indexing/fts-ingest.js";
 import { searchPersonalKnowledge } from "../../../indexing/knowledge-search.js";
+import { siblingDocxRelative } from "../../../mail/convert-to-docx.js";
+import { isBinaryWordDocPath, readBinaryWordDocText } from "../../../mail/read-word-binary.js";
 import { loadMemoryContext } from "../../../memory/index.js";
 import type { IngestSourceType, IngestStage } from "../../../platform/contracts.js";
 import {
@@ -395,7 +397,7 @@ export const readProjectFile: AgentTool = {
   definition: {
     name: "read_project_file",
     description:
-      "读取律师在桌面端关联的「项目目录」下的文本文件、PDF、.docx、.xlsx（表格转 TSV 纯文本，有界）、常见图片（OCR，可选视觉兜底）（相对路径）。若路径是目录则递归列举子目录与文件。二进制 .doc 请用 analyze_document（直接提取，无需转格式）；不支持 .xls/.ppt 与 .pptx。用于合同、证据清单、说明等本地材料；未关联项目时不可用。大文件请用 offset/limit（字符）分页；hasMore=true 时用 nextOffset 续读。",
+      "读取律师在桌面端关联的「项目目录」下的文本文件、PDF、.docx、.xlsx（表格转 TSV 纯文本，有界）、常见图片（OCR，可选视觉兜底）（相对路径）。若路径是目录则递归列举子目录与文件。二进制 .doc 会先用本机 WPS 或 Word 另存为同名 .docx 再读，不直接读 .doc；不支持 .xls/.ppt 与 .pptx。用于合同、证据清单、说明等本地材料；未关联项目时不可用。大文件请用 offset/limit（字符）分页；hasMore=true 时用 nextOffset 续读。",
     category: "search",
     parameters: {
       relative_path: {
@@ -431,25 +433,33 @@ export const readProjectFile: AgentTool = {
       content: string,
       bytes: number,
       stage: IngestStage,
+      override?: { path?: string; hint?: string },
     ) => {
       const page = sliceDocumentPage(content, params.offset, params.limit, {
         // 与 analyze_document 同一份预算：默认页随模型窗口伸缩并扣掉防注入横幅。
         defaultLimit: resolveDocumentPageChars(ctx.chatModel?.contextTokens),
       });
       const result = ingestSuccess(sourceType, page.content, page.hasMore, bytes, stage);
+      const reportedPath = override?.path ?? rel;
       return toolDataFromIngestSuccess(
         result,
         {
-          path: rel,
+          path: reportedPath,
           size: result.bytes,
           totalChars: page.totalChars,
           offset: page.offset,
           limit: page.limit,
           hasMore: page.hasMore,
           nextOffset: page.nextOffset,
-          hint: page.hasMore
-            ? `文本未读完：请再用 read_project_file(relative_path, offset=${page.nextOffset}) 续读。`
-            : undefined,
+          hint:
+            [
+              override?.hint,
+              page.hasMore
+                ? `文本未读完：请再用 read_project_file(relative_path, offset=${page.nextOffset}) 续读。`
+                : undefined,
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined,
         },
         { contentTrust: "untrusted_user_document" },
       );
@@ -492,6 +502,28 @@ export const readProjectFile: AgentTool = {
       return toolFailureFromIngest(
         ingestFailure("INGEST_NOT_FOUND", "file_stat", "文件不存在或不是普通文件"),
       );
+    }
+    if (isBinaryWordDocPath(full)) {
+      if (st.size > MAX_DOCX_READ_BYTES) {
+        return toolFailureFromIngest(
+          ingestFailure(
+            "INGEST_FILE_TOO_LARGE",
+            "office_extract",
+            `DOC 文件过大（>${MAX_DOCX_READ_BYTES} bytes）`,
+          ),
+        );
+      }
+      const text = await readBinaryWordDocText(full);
+      if (!text.trim()) {
+        return toolFailureFromIngest(
+          ingestFailure("INGEST_EMPTY_CONTENT", "office_extract", ".doc 无可提取文本"),
+        );
+      }
+      const docxRel = siblingDocxRelative(rel);
+      return toProjectSuccess("docx", text, st.size, "office_extract", {
+        path: rel,
+        hint: `已直接读取 \`${rel}\`（内部解析，未另存）。基线按 \`${docxRel}\` 继续。`,
+      });
     }
     const projectOfficeBlock = unsupportedOfficeIngestReason(full);
     if (projectOfficeBlock) {

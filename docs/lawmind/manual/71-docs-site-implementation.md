@@ -224,17 +224,18 @@ Support Runbook /archive/LAWMIND-SUPPORT-RUNBOOK
 
 **这个「全部保留、多数折叠」的做法**：它没有为了让首页好看而删掉工程文档，而是**用折叠控制默认视野**。
 
-### 工程笔记者一组有十四条
+### 工程笔记者一组有十六条
 
 ```text
-未来问题 / 仓库目录结构 / 法律编译器路线图 / 归档区说明
+未来问题 / 仓库目录结构 / 前瞻合同：交件即测量 / 律师向因子内核评测
+法律编译器路线图 / 归档区说明
 三条铁律与改动清单（归档）
 Engineering status / Compliance audit trail / Legal reasoning graph
 Agent workbench memory / Task checkpoints / Quality & benchmarks
 Citation & matter detail / Phase C governance / Phase D operability
 ```
 
-**十四条里有九条指向 `/lawmind/*`**（也就是 `docs/lawmind/` 那批工程笔记），另有三条是仓库根文档、两条在 `archive/`。
+**十六条里有九条指向 `/lawmind/*`**（也就是 `docs/lawmind/` 那批工程笔记）。另外五条是仓库根的 `LAWMIND-*.md`（未来问题、仓库目录结构、前瞻合同、律师向因子内核评测、法律编译器路线图），两条在 `archive/`。
 
 **所以「工程笔记」这一组实际是 `docs/lawmind/` 的入口**。本手册也在那个目录下（`/lawmind/manual/`），但它**不靠这一组登记**——2026-09-23 起，导航新增了顶层的「手册」项（指向 `/lawmind/manual/README`），侧栏也新增了独立的「功能与实现手册」组（只放总目录与总索引两个入口）。
 
@@ -351,30 +352,29 @@ ${dist}/CNAME 必须存在
 
 **这也解释了为什么导航里要有「下载」那一项**：它是桌面应用自己会打开的那个页面。
 
-## 71.6 一处值得单独说的事：「9 篇」与「21 份」
+## 71.6 一处值得单独说的事：「9 篇」这句话和 31 份文件
 
 这里有一个**两份规则并存**的情况，读代码才看得出来。
 
-### 第一份规则：治理口径说「9 篇」
+### 第一份规则：治理口径的句子仍写「9 篇」
 
-`docs/LAWMIND-REPO-LAYOUT.md` 里：
+`docs/LAWMIND-REPO-LAYOUT.md` 开头仍是：
 
 ```text
 文档已做减法：现行有效入口仅顶部「现行文档清单」中的 9 篇，历史快照封存于 `docs/archive/`（只读）。
 ```
 
-```text
-「文档体系减法」后，**现行文档仅以下 9 篇**；其余历史文档只读封存于 `docs/archive/`，口径以现行文档为准。
-```
-
-那 9 篇里有 **2 篇在仓库根**（`GOALS.md`、`SECURITY.md`），所以 `docs/` 里的是 **7 篇**：
+同页「现行文档清单」表已经不止 9 行。数表里的条目是 **12 篇**：仓库根 2 篇（`GOALS.md`、`SECURITY.md`），`docs/` 里 10 篇：
 
 ```text
-LAWMIND-ARCHITECTURE        LAWMIND-LAWYER-QUICKSTART
-LAWMIND-TERMINOLOGY         LAWMIND-DELIVERY
-LAWMIND-LEGAL-COMPILER-ROADMAP
-LAWMIND-FUTURE-ISSUES       LAWMIND-REPO-LAYOUT
+LAWMIND-ARCHITECTURE              LAWMIND-LAWYER-QUICKSTART
+LAWMIND-TERMINOLOGY               LAWMIND-DELIVERY
+LAWMIND-LEGAL-COMPILER-ROADMAP    LAWMIND-FUTURE-ISSUES
+LAWMIND-REPO-LAYOUT               LAWMIND-ENGINEERING-REVIEW
+LAWMIND-FORWARD-AGENT             LAWMIND-LEGAL-KERNEL-BENCH
 ```
+
+**句子说 9，表列 12。** 以表为准才对得上文件；那句「9 篇」没有单独的名单文件去兑现。
 
 ### 第二份规则：同步脚本用「前缀」
 
@@ -382,57 +382,51 @@ LAWMIND-FUTURE-ISSUES       LAWMIND-REPO-LAYOUT
 凡是 docs/ 顶层、以 LAWMIND- 开头、以 .md 结尾的 → 全部复制
 ```
 
-**而实际顶层有 21 份**（不是 7 份）：
+**`docs/` 顶层现在是 31 份** `LAWMIND-*.md`（`readdirSync` 不递归，数的就是这一层）：
 
 ```text
-LAWMIND-ACCEPTANCE-LAYER-STRATEGY      LAWMIND-AGENT-PARITY-REVIEW
-LAWMIND-ARCHITECTURE                   LAWMIND-CANONICAL-LEGAL-SKILLS
-LAWMIND-CHAT-MATTER-FILL               LAWMIND-CODEX-WORKER-PARITY
-LAWMIND-DELIVERY                       LAWMIND-DESKTOP-UI-CONTROLS
-LAWMIND-EXECUTION-CONSTRAINTS          LAWMIND-EXTERNAL-LEGAL-CAPABILITY-CATALOG
-LAWMIND-FUTURE-ISSUES                  LAWMIND-GROK-BOT-BORROW-REVIEW
-LAWMIND-LAWYER-QUICKSTART              LAWMIND-LEGAL-COMPILER-ROADMAP
-LAWMIND-PRODUCT-ROUTE-COMPARISON       LAWMIND-REPO-LAYOUT
-LAWMIND-ROUTE-ASYNC-DECISION           LAWMIND-SKILL-LOGIC-REQUIREMENTS
-LAWMIND-SKILL-THREE-LAWS-REVIEW        LAWMIND-STRATEGY-MASTER
-LAWMIND-TERMINOLOGY
+LAWMIND-ACCEPTANCE-LAYER-STRATEGY       LAWMIND-AGENT-PARITY-REVIEW
+LAWMIND-ARCHITECTURE                    LAWMIND-CANONICAL-LEGAL-SKILLS
+LAWMIND-CHAT-MATTER-FILL                LAWMIND-CHINESE-LEGAL-AGENT-BENCHMARKS
+LAWMIND-CODE-AUDIT                      LAWMIND-CODEX-WORKER-PARITY
+LAWMIND-DELIVERY                        LAWMIND-DESKTOP-UI-CONTROLS
+LAWMIND-ENGINEERING-REVIEW              LAWMIND-EXECUTION-CONSTRAINTS
+LAWMIND-EXTERNAL-LEGAL-CAPABILITY-CATALOG
+LAWMIND-FORWARD-AGENT                   LAWMIND-FUTURE-ISSUES
+LAWMIND-GROK-BOT-BORROW-REVIEW          LAWMIND-HARDCODED-CATALOG
+LAWMIND-HARVEY-LAB-SLICE                LAWMIND-LAWYER-QUICKSTART
+LAWMIND-LEGAL-COMPILER-ROADMAP          LAWMIND-LEGAL-KERNEL-BENCH
+LAWMIND-MEMORY-LONGTERM-REVIEW          LAWMIND-PLAWBENCH-SLICE
+LAWMIND-PRODUCT-ROUTE-COMPARISON        LAWMIND-REPO-LAYOUT
+LAWMIND-ROUTE-ASYNC-DECISION            LAWMIND-SINGLE-PARENT-AGENT
+LAWMIND-SKILL-LOGIC-REQUIREMENTS        LAWMIND-SKILL-THREE-LAWS-REVIEW
+LAWMIND-STRATEGY-MASTER                 LAWMIND-TERMINOLOGY
 ```
 
-**21 份 vs 7 份。** 而 REPO-LAYOUT 自己那一段也提到了其中几篇（「维护者核对（非正式产品原则）」那段点名了 EXECUTION-CONSTRAINTS、AGENT-PARITY-REVIEW、CHAT-MATTER-FILL）。
+**31 份 vs 清单表里的 10 份。** REPO-LAYOUT「维护者核对」那段另外点名了 EXECUTION-CONSTRAINTS、AGENT-PARITY-REVIEW、CHAT-MATTER-FILL，它们在 31 份里，不在上面那张 12 篇清单的 `docs/` 十篇中（CHAT-MATTER-FILL 只出现在核对段）。
 
 ### 所以两句话分别是对的
 
-| 说法                           | 管的是                     |
-| ------------------------------ | -------------------------- |
-| 「现行文档仅 9 篇」            | **口径**——哪些文档是权威的 |
-| 「顶层 LAWMIND-*.md 全部同步」 | **机制**——哪些文件会被发布 |
+| 说法                           | 管的是                           |
+| ------------------------------ | -------------------------------- |
+| 「现行文档」那张表             | **口径**——哪些文档被写成权威入口 |
+| 「顶层 LAWMIND-*.md 全部同步」 | **机制**——哪些文件会被发布       |
 
-**这两件事不是一回事**：一份文档可以是「已发布但不是权威口径」——比如 `LAWMIND-EXECUTION-CONSTRAINTS.md`（50 条运行时约束清单），REPO-LAYOUT 把它标成「维护者核对（非正式产品原则）」。
+**这两件事不是一回事**：一份文档可以是「已发布但不是权威口径」——比如 `LAWMIND-EXECUTION-CONSTRAINTS.md`，REPO-LAYOUT 把它标成「维护者核对（非正式产品原则）」。
 
-**但这里有一个实际的后果值得知道**：**「现行文档」这个集合在代码里没有对应物。**
+**「现行文档」这个集合在代码里没有对应物。**
 
-- 没有一份名单文件写着那 7 篇。
-- 同步脚本不读那份名单。
-- 侧栏「入门与交付」组登记的也不是那 7 篇。
+- 没有一份名单文件锁着那 12 篇（或旧说法里的 9 篇）。
+- 同步脚本不读 REPO-LAYOUT。
+- 侧栏「入门与交付」组登记的也不是那张表。
 
-**所以「现行/非现行」这个划分完全靠人维护 REPO-LAYOUT 那张表**——凡是从代码或配置出发的地方（同步、侧栏），走的都是「前缀 / 手工登记」这两条路。
+**所以「现行/非现行」靠人维护 REPO-LAYOUT 那张表**——凡是从代码或配置出发的地方（同步、侧栏），走的都是「前缀 / 手工登记」这两条路。
 
-**这不是 bug，但它是「口径与机制分离」的一个真实例子**。知道这件事的价值在于：**当你看到某篇文档在站上时，不要推断它一定属于「现行 9 篇」。**
+**当你看到某篇文档在站上时，不要推断它一定属于清单表。**
 
-### 还有一处「目标树比源树旧」
+### 同步产物不在这个工作区里
 
-本地 `apps/lawmind-docs/docs/` 里现在有 **17 份** `LAWMIND-*.md`，而源有 **21 份**。差的是这四份：
-
-```text
-LAWMIND-ACCEPTANCE-LAYER-STRATEGY
-LAWMIND-GROK-BOT-BORROW-REVIEW
-LAWMIND-PRODUCT-ROUTE-COMPARISON
-LAWMIND-STRATEGY-MASTER
-```
-
-**原因很简单**：同步产物不上版本库，所以本地那份是「上次谁跑过同步」时留下的快照。**跑一次 `pnpm lawmind:docs:dev` 就会补齐。**
-
-而 `docs/lawmind/manual/`（本手册）同理——**现在本地还没有，下次同步就会出现**。
+`apps/lawmind-docs/docs/` 被 git 跟踪的仍是第 71.1 节那八个文件，**当前没有** `LAWMIND-*.md` 副本（它们在 `.gitignore` 里）。源有 31 份。跑一次 `pnpm lawmind:docs:dev`（或 `pnpm sync`）会按前缀补齐，并整目录带上 `docs/lawmind/`，本手册那 79 个 `.md` 一起过去。本地若还留着某次同步的旧快照，份数可以少于 31；那是上次同步的残留，不是另一份名单。
 
 ## 71.7 三个命令与它们的实际动作
 
@@ -466,19 +460,19 @@ pnpm dev / pnpm build / pnpm preview / pnpm sync
 
 - **这个站不是产品界面**；不要把文档站（或 5173）当 LawMind 打开。
 - **被跟踪的文件只有八个**，其余全是同步产物——`git` 会阻止你改同步产物（它们被忽略）。
-- **同步脚本用「前缀规则」而不是「9 篇名单」**——顶层 `LAWMIND-*.md` 全部发布。
-- **所以「现行文档 9 篇」是口径，不是发布范围。** 站上有文档不代表它是权威口径。
-- **那 9 篇里有 2 篇在仓库根**（`GOALS.md`、`SECURITY.md`），不在 `docs/`。
-- **同步会先删目标再复制**（四个目录都是）——所以源里删掉的文件在站上也会消失。
+- **同步脚本用「前缀规则」**——顶层 `LAWMIND-*.md` 全部发布。当前是 31 份，不是清单表里的 10 份。
+- **REPO-LAYOUT 正文仍写「现行文档 9 篇」，同页清单表列了 12 篇。** 两处都不是发布范围。站上有文档不代表它在那张表里。
+- **那 12 篇里有 2 篇在仓库根**（`GOALS.md`、`SECURITY.md`），不在 `docs/`，同步脚本不会复制它们。
+- **三个目录先删再复制**（`docs/lawmind/`、`docs/archive/`、`docs/assets/`）。顶层 `LAWMIND-*.md` 是逐文件复制，并删掉目标里多出来的同前缀文件。
 - **`docs/lawmind/` 是整目录递归复制**——手册自动发布，不需要登记。
-- **手册在站上有两个入口**（导航顶层 + 侧栏「功能与实现手册」组），但 71 章没有逐章列进侧栏。
+- **手册在站上有两个入口**（导航顶层 + 侧栏「功能与实现手册」组），但各章没有逐章列进侧栏。
 - **手册的站上入口有两处**：导航顶层「手册」指向 `/lawmind/manual/README`；侧栏新增「功能与实现手册」组（总目录 + 总索引）。
 - **`ignoreDeadLinks: true` 是全局的**（理由：工程笔记必然有仓库路径链接）。
 - **`CNAME` 与 `.nojekyll` 不复制就会「站看着正常但域名丢掉 / 文件被 Jekyll 藏」**，所以 CI 有三条断言。
 - **导航十项里有五项指向 `/archive/`**（实施类文档归档但仍可达）。
-- **侧栏八组里只有两组默认展开**（律师看的那两组）。
-- **侧栏里那个 GitHub 链接指向的 org 与打包配置里的不一致**（`lawmind/lawmind` vs `sunhl4/LawMind`）。
-- **本地同步产物会比源树旧**（因为产物不入库）——本地 17 份、源 21 份是正常现象。
+- **侧栏八组里只有两组默认展开**（律师看的那两组）。工程笔记这一组是 16 条，不是 14 条。
+- **侧栏里那个 GitHub 链接指向的 org 与打包配置里的不一致**（`lawmind/lawmind` vs `apps/lawmind-desktop/package.json` 的 `sunhl4/LawMind`）。
+- **同步产物不入库。** 没跑过 sync 时，`apps/lawmind-docs/docs/` 里可以没有那 31 份 `LAWMIND-*.md`。
 - **`preview` 不同步**（它预览已构建的产物）。
 - **文档站开发端口 5173，桌面渲染层 5174**——两个不同的东西。
 - **源目录不存在时同步脚本退出码 1**（不静默跳过）。

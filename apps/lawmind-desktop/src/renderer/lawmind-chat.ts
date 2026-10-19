@@ -341,6 +341,8 @@ export type StreamingChatCallbacks = {
     roundIndex?: number;
   }) => void;
   onPlanUpdate?: (plan: AgentTurnPlan) => void;
+  /** Model slot queue. `active` false means this chat has a slot and is sampling. */
+  onTurnWait?: (info: { active: boolean; label: string }) => void;
   onIntent?: (intent: ChatCompiledIntent) => void;
 };
 
@@ -536,6 +538,17 @@ export async function sendChatTurnStream(
             droppedMessageCount: pruned,
             overflowPrune: true,
           });
+          break;
+        }
+        case "turn_wait": {
+          callbacks.onTurnWait?.({
+            active: true,
+            label: typeof parsed.label === "string" && parsed.label.trim() ? parsed.label : "排队等模型",
+          });
+          break;
+        }
+        case "turn_wait_end": {
+          callbacks.onTurnWait?.({ active: false, label: "" });
           break;
         }
         case "plan_update": {

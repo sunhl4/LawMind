@@ -84,7 +84,9 @@ describe("loopback auth boundary for the Word add-in", () => {
     const res = mockRes();
     await lawmindHandleHttpRequest(ctx, mockReq("GET", "/word-addin/taskpane.html"), res);
     expect(res.status).toBe(200);
-    expect(res.raw ?? "").toContain("LawMind 就地审查");
+    // 任务窗格文案已收敛为「LawMind」（标题不再带副题），断言真实窗格 HTML 而非旧文案。
+    expect(res.raw ?? "").toContain("<title>LawMind</title>");
+    expect(res.raw ?? "").toContain("/word-addin/taskpane.js");
   });
 
   it("still requires a bearer token for the add-in data plane", async () => {

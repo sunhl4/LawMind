@@ -107,3 +107,4 @@ USER.md
 
 # True-manuscript trend report — runtime artifact written by the gate CLI
 workspace/lawmind/metrics/true-manuscript-report.json
+apps/lawmind-desktop/.vite/

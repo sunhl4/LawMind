@@ -69,7 +69,7 @@ Hard rules:
 
 - **Do not** treat “different assistantId” as multi-tenant isolation. Two assistants can still see the same case files if the turn is bound to that matter.
 - **Do** keep matter fences and ethics walls as path-level hard gates (tests + broker), never as prompt-only instructions.
-- Concurrent turns for the **same** assistant are serialized (`assistant-turn-gate`) so they do not race the same Word / 法宝 / host session; different assistants may overlap and therefore still share the workspace — schedule carefully.
+- Several conversations run at once. One conversation still has a single active turn (`session-turn-gate`). Model calls and 法宝 searches run concurrently; a 429 slows the process down instead of a single-flight lock. LibreOffice and Word stay one-at-a-time, and one writer per file path.
 - Deleting an assistant removes its sessions and routines, **not** matter deliverables.
 - **Action pre-review** (`LAWMIND_ACTION_PRE_REVIEW=off|shadow|on`, default `off`): shadow-only dual-run logs under `lawmind/decision/action-pre-review.jsonl`; `on` may Ask for `run_host_command` only. It never replaces machine-verifiers, playbook deny, or `send_email` pause.
 

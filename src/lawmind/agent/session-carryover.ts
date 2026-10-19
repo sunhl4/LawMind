@@ -411,6 +411,8 @@ export async function forkSessionWithCarryover(opts: {
   const target = createSession({
     workspaceDir: opts.workspaceDir,
     matterId: draft.migrated.matterId,
+    folderRel: source.folderRel,
+    workDir: source.workDir,
     actorId: source.actorId,
     assistantId: source.assistantId,
     title,

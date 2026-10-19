@@ -49,7 +49,7 @@ export function createDelegateTaskTool(opts: {
     definition: {
       name: "delegate_task",
       description:
-        "将一个子任务委派给另一个助手异步执行。目标助手在**独立会话**中按正常对话与工具链执行（含交付/审核相关任务落盘），完成后**本对话会自动插入一条「委派结果」助手消息**（LawMind 桌面端轮询 + 会话落盘）；律师也可在「协作」页打开该子会话继续指导。也可用 `get_delegation_result` 主动拉取。不要向律师承诺「等对方回复后第一时间人工通知你」——系统会代你回传，你只需如实说明即可。",
+        "名册委派，不是本对话里的子工。拆开当前任务、并行去读或去写，用 draft_worker，不要调用本工具。本工具把活交给名册上的另一个身份，在独立会话里做完后把结果插回本对话。不要向律师承诺「等对方回复后第一时间人工通知你」。",
       category: "system",
       parameters: {
         target_assistant: {

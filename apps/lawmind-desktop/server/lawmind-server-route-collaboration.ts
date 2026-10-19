@@ -26,6 +26,7 @@ import { delegationCreateRequestSchema, workflowRunRequestSchema } from "./lawmi
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import {
   buildAgentConfig,
+  collaborationEnabledFromEnv,
   resolveDesktopActorId,
   resolveModelCallHttpError,
   sendJson,
@@ -45,8 +46,7 @@ export async function handleCollaborationRoutes({
   const { workspaceDir } = ctx;
 
   if (pathname === "/api/collaboration/summary" && req.method === "GET") {
-    const collaborationEnabled =
-      process.env.LAWMIND_ENABLE_COLLABORATION?.trim().toLowerCase() !== "false";
+    const collaborationEnabled = collaborationEnabledFromEnv();
     const delegations = listDelegations();
     const events = readCollaborationEvents(workspaceDir).slice(-40);
     sendJson(
@@ -57,7 +57,7 @@ export async function handleCollaborationRoutes({
         collaborationEnabled,
         collaborationHint: collaborationEnabled
           ? "协作已开启：委派与事件会写入内存注册表与 workspace 审计（若存在）。"
-          : "协作已关闭（LAWMIND_ENABLE_COLLABORATION=false）：不会注册多助手委派。",
+          : "协作已关闭。要启用请把 LAWMIND_ENABLE_COLLABORATION 设为 true。",
         delegationCount: delegations.length,
         delegations: delegations.slice(-20).map((delegation) => ({
           delegationId: delegation.delegationId,
@@ -155,8 +155,7 @@ export async function handleCollaborationRoutes({
   }
 
   if (pathname === "/api/delegations" && req.method === "POST") {
-    const collaborationEnabled =
-      process.env.LAWMIND_ENABLE_COLLABORATION?.trim().toLowerCase() !== "false";
+    const collaborationEnabled = collaborationEnabledFromEnv();
     if (!collaborationEnabled) {
       sendJson(
         res,
@@ -164,7 +163,7 @@ export async function handleCollaborationRoutes({
         {
           ok: false,
           code: "collaboration_disabled",
-          message: "多助手协作已关闭，无法创建委派。",
+          message: "多助手协作已关闭。要启用请把 LAWMIND_ENABLE_COLLABORATION 设为 true。",
         },
         c,
       );
@@ -333,8 +332,7 @@ export async function handleCollaborationRoutes({
   }
 
   if (pathname === "/api/collaboration/workflow-run" && req.method === "POST") {
-    const collaborationEnabled =
-      process.env.LAWMIND_ENABLE_COLLABORATION?.trim().toLowerCase() !== "false";
+    const collaborationEnabled = collaborationEnabledFromEnv();
     if (!collaborationEnabled) {
       sendJson(
         res,
@@ -342,7 +340,7 @@ export async function handleCollaborationRoutes({
         {
           ok: false,
           code: "collaboration_disabled",
-          message: "多助手协作已关闭（LAWMIND_ENABLE_COLLABORATION=false），无法运行团队工作流。",
+          message: "多助手协作已关闭。要启用请把 LAWMIND_ENABLE_COLLABORATION 设为 true。",
         },
         c,
       );

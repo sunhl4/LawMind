@@ -988,11 +988,8 @@ export async function loadWordSurface(params: {
   | { ok: false; error: string }
 > {
   const relPath = params.relPath.trim().replace(/\\/g, "/");
-  if (/\.doc$/i.test(relPath) && !/\.docx$/i.test(relPath)) {
-    const { DOC_NEEDS_DOCX_MESSAGE } = await import("../mail/doc-revision-gate.js");
-    return { ok: false, error: DOC_NEEDS_DOCX_MESSAGE };
-  }
-  if (!/\.docx$/i.test(relPath)) {
+  const isLegacyDoc = /\.doc$/i.test(relPath) && !/\.docx$/i.test(relPath);
+  if (!/\.docx?$/i.test(relPath)) {
     return { ok: false, error: "not_docx" };
   }
   const found = resolveWordBaselineAbs({
@@ -1028,28 +1025,61 @@ export async function loadWordSurface(params: {
   const footnoteStories: Array<{ part: string; blocks: WordLayoutBlock[] }> = [];
   let docxComments: WordRevisionComment[] = [];
   let acceptedRevIds: string[] = [];
-  try {
-    const stories = await loadDocxStories(found.abs);
-    paper = stories.page;
-    docxComments = stories.comments;
-    acceptedRevIds = stories.acceptedRevIds;
-    const { hydrateLayoutImages } = await import("./word-revision/hydrate-images.js");
-    const imageBudget = { total: 0 };
-    for (const story of stories.stories) {
-      const relsPath = `word/_rels/${story.part.replace(/^word\//, "")}.rels`;
-      const painted = await hydrateLayoutImages(story.blocks, stories.zip, relsPath, imageBudget);
-      if (story.role === "body") {
-        layout = painted;
-      } else if (story.role === "header") {
-        headerStories.push({ part: story.part, blocks: painted });
-      } else if (story.role === "footer") {
-        footerStories.push({ part: story.part, blocks: painted });
-      } else {
-        footnoteStories.push({ part: story.part, blocks: painted });
-      }
+  if (isLegacyDoc) {
+    // 中栏读 `.doc` 时把文件里已有的修订也标出来：删除显示为删除线，插入标为插入。
+    const { readBinaryWordDocWithRevisions } = await import("../mail/read-word-binary.js");
+    const source = await readBinaryWordDocWithRevisions(found.abs);
+    if (!source.acceptedText.trim() && source.runs.length === 0) {
+      return { ok: false, error: "unreadable_doc" };
     }
-  } catch {
-    return { ok: false, error: "unreadable_docx" };
+    const revisionAuthor = (run: { revision?: { author?: string } }) =>
+      run.revision?.author ?? "作者";
+    layout = source.runs.flatMap((run) => {
+      const lines = run.text.split(/[\r\n]+/).filter((line) => line.trim());
+      return lines.map((line) => ({
+        kind: "paragraph" as const,
+        text: line,
+        runs: [
+          {
+            text: line,
+            ...(run.revision
+              ? {
+                  track: {
+                    kind: run.revision.kind,
+                    id: `${run.revision.cpStart}-${run.revision.cpEnd}`,
+                    author: revisionAuthor(run),
+                    ...(run.revision.date ? { date: run.revision.date } : {}),
+                  },
+                }
+              : {}),
+          },
+        ],
+      }));
+    });
+  } else {
+    try {
+      const stories = await loadDocxStories(found.abs);
+      paper = stories.page;
+      docxComments = stories.comments;
+      acceptedRevIds = stories.acceptedRevIds;
+      const { hydrateLayoutImages } = await import("./word-revision/hydrate-images.js");
+      const imageBudget = { total: 0 };
+      for (const story of stories.stories) {
+        const relsPath = `word/_rels/${story.part.replace(/^word\//, "")}.rels`;
+        const painted = await hydrateLayoutImages(story.blocks, stories.zip, relsPath, imageBudget);
+        if (story.role === "body") {
+          layout = painted;
+        } else if (story.role === "header") {
+          headerStories.push({ part: story.part, blocks: painted });
+        } else if (story.role === "footer") {
+          footerStories.push({ part: story.part, blocks: painted });
+        } else {
+          footnoteStories.push({ part: story.part, blocks: painted });
+        }
+      }
+    } catch {
+      return { ok: false, error: "unreadable_docx" };
+    }
   }
   const snapshot = composeWordSurface({
     fileName: path.basename(found.rel),

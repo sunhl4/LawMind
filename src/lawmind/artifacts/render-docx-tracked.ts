@@ -1,7 +1,8 @@
 /**
  * Export Word with tracked changes via officecli (bundled with LawMind).
  * Prefers an uploaded contract baseline `.docx` when `draft.contractEdit` is set.
- * Binary `.doc` is not a revision baseline — stop and ask the lawyer to save as `.docx`.
+ * Binary `.doc` is not read. Word or WPS saves a sibling `.docx` first; that file is the baseline.
+ * If neither can save, stop and ask the lawyer. The original `.doc` is left untouched.
  *
  * Tracked changes use modern officecli:
  *   `set <file> /body --find … --replace … --prop revision.author=…`
@@ -21,11 +22,9 @@ import {
   formatOfficeCliFindArg,
   toTrackedFindReplace,
 } from "../drafts/surgical-diff.js";
-import {
-  DOC_NEEDS_DOCX_CODE,
-  DOC_NEEDS_DOCX_MESSAGE,
-  isBinaryWordDocBaseline,
-} from "../mail/doc-revision-gate.js";
+import { repairTrackedDocxFormat } from "../drafts/tracked-format-gate.js";
+import { convertLegacyDocToDocx } from "../mail/convert-to-docx.js";
+import { DOC_NEEDS_DOCX_CODE, isBinaryWordDocBaseline } from "../mail/doc-revision-gate.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { buildMinimalChildEnv, runSafeCommand } from "../platform/safe-command.js";
 import { resolveWordRevisionAuthor } from "../policy/word-revision-author.js";
@@ -55,6 +54,10 @@ export type TrackedDocxRenderResult =
       appliedOps?: number;
       /** 因「夹着没改的文字」被自动拆成多段最短改动的 hunk 数。 */
       minimalSplitHunks?: number;
+      /** 只落了部分最短 op 的 hunk 数（修订不完整，结果必为 degraded）。 */
+      partialOpHunks?: number;
+      /** 导出后把修订 run 对齐邻接原稿格式时修复的 run 数。 */
+      formatRepaired?: number;
       conversionTool?: string;
       conversionFidelity?: "high" | "lossy";
       warning?: string;
@@ -337,6 +340,8 @@ export async function applyRedlineHunksWithOfficeCli(params: {
   appliedHunks?: number;
   /** 因「一处改动夹了未改文字」被拆成多段最短改动的 hunk 数。 */
   minimalSplitHunks?: number;
+  /** 只落了部分最短 op 的 hunk 数（修订不完整，调用方必须按 degraded 对待）。 */
+  partialOpHunks?: number;
 }> {
   const hunks = actionableHunks(params.proposals);
   if (hunks.length === 0) {
@@ -357,6 +362,7 @@ export async function applyRedlineHunksWithOfficeCli(params: {
   let appliedHunks = 0;
   let ambiguous = 0;
   let minimalSplitHunks = 0;
+  let partialOpHunks = 0;
   let rollbackFailed = false;
   const ambiguousHunkIds: string[] = [];
   let lastError: string | undefined;
@@ -414,6 +420,7 @@ export async function applyRedlineHunksWithOfficeCli(params: {
         continue;
       }
       // ② 逐 op 落盘（resolveOfficeCliFindReplaceOps 已按从右到左排序）。
+      // 只落一部分也算不完整修订：partialOpHunks 记录这种 hunk，调用方必须 degraded。
       let hunkApplied = 0;
       for (const fr of resolved) {
         // 备份失败不阻塞正常单处替换（与既有无备份行为一致）；但一旦 matched>1
@@ -484,6 +491,9 @@ export async function applyRedlineHunksWithOfficeCli(params: {
       if (hunkApplied > 0) {
         appliedHunks += 1;
       }
+      if (hunkApplied > 0 && hunkApplied < resolved.length) {
+        partialOpHunks += 1;
+      }
       if (rollbackFailed) {
         break;
       }
@@ -509,6 +519,7 @@ export async function applyRedlineHunksWithOfficeCli(params: {
     lastError,
     appliedHunks,
     ...(minimalSplitHunks > 0 ? { minimalSplitHunks } : {}),
+    ...(partialOpHunks > 0 ? { partialOpHunks } : {}),
   };
 }
 
@@ -549,18 +560,30 @@ export async function renderDocxWithTrackedChanges(params: {
   let inputPath: string;
   let baselineSource: "contract_file" | "rendered_draft";
   let conversionFidelity: "high" | "lossy" | undefined;
+  /** `.doc` 转换稿的临时路径；交付副本拷好后要删掉，别留在交付目录。 */
+  let legacyConvertedPath: string | undefined;
 
   if (baselineAbs) {
     if (isBinaryWordDocBaseline(baselineAbs)) {
-      return {
-        ok: false,
-        error: DOC_NEEDS_DOCX_MESSAGE,
-        code: DOC_NEEDS_DOCX_CODE,
-      };
+      // `.doc` 先转成保真 `.docx`（Word 优先，LibreOffice 兜底），再在转换稿上落改。
+      const converted = path.join(
+        params.outputDir,
+        `.${path.basename(baselineAbs).replace(/\.doc$/i, "")}.from-doc.docx`,
+      );
+      const result = await convertLegacyDocToDocx(baselineAbs, converted);
+      if (!result.ok) {
+        // 硬失败：没有转换器就不出稿，不能拿正文替身冒充原件。
+        return { ok: false, error: result.error, code: DOC_NEEDS_DOCX_CODE };
+      }
+      legacyConvertedPath = converted;
+      inputPath = converted;
+      baselineSource = "contract_file";
+      conversionFidelity = "high";
+    } else {
+      inputPath = baselineAbs;
+      baselineSource = "contract_file";
+      conversionFidelity = "high";
     }
-    inputPath = baselineAbs;
-    baselineSource = "contract_file";
-    conversionFidelity = "high";
   } else {
     if (
       params.requireContractBaseline ||
@@ -762,7 +785,17 @@ export async function renderDocxWithTrackedChanges(params: {
     } catch {
       /* dest may not exist yet */
     }
-    await fs.copyFile(inputPath, trackedPath);
+    {
+      await fs.copyFile(inputPath, trackedPath);
+      // 转换稿只是中间产物：交付副本已拿到，删掉隐藏的临时文件。
+      if (legacyConvertedPath && path.resolve(legacyConvertedPath) !== path.resolve(trackedPath)) {
+        try {
+          await fs.unlink(legacyConvertedPath);
+        } catch {
+          /* keep it if unlink fails */
+        }
+      }
+    }
     try {
       await fs.chmod(trackedPath, 0o644);
     } catch {
@@ -818,11 +851,14 @@ export async function renderDocxWithTrackedChanges(params: {
     if (apply.applied > 0) {
       // attempted/applied 以 hunk 计（最短改动可能把一处 hunk 拆成多段 op，全落即算该处已落）。
       const appliedHunks = apply.appliedHunks ?? apply.applied;
-      const partial = appliedHunks < apply.attempted || (apply.ambiguous ?? 0) > 0;
+      const partialOps = apply.partialOpHunks ?? 0;
+      const partial =
+        appliedHunks < apply.attempted || (apply.ambiguous ?? 0) > 0 || partialOps > 0;
       const partialWarning = partial
         ? [
             `已叠加 ${appliedHunks}/${apply.attempted} 处修订，未应用 ${apply.attempted - appliedHunks} 处`,
             apply.ambiguous > 0 ? `其中歧义跳过 ${apply.ambiguous} 处` : "",
+            partialOps > 0 ? `其中 ${partialOps} 处只落了部分最短改动，修订不完整` : "",
             apply.lastError ? `（${apply.lastError}）` : "",
           ]
             .filter(Boolean)
@@ -832,6 +868,18 @@ export async function renderDocxWithTrackedChanges(params: {
         (apply.minimalSplitHunks ?? 0) > 0
           ? `已按最短改动把 ${apply.minimalSplitHunks} 处拆成多段（只标真正变动的字，没动的字不在修订轨内）。`
           : undefined;
+      // 硬控：officecli 可能写出无 rPr 的修订 run；对齐邻接原稿直接格式后再交付。
+      let formatRepaired = 0;
+      let formatWarning: string | undefined;
+      try {
+        const format = await repairTrackedDocxFormat(trackedPath);
+        formatRepaired = format.repaired;
+        if (format.unresolved.length > 0) {
+          formatWarning = `有 ${format.unresolved.length} 处修订文字未能对齐原稿格式`;
+        }
+      } catch {
+        formatWarning = "修订文字格式对齐修复失败";
+      }
       return withConversionMeta({
         ok: true,
         outputPath: trackedPath,
@@ -840,9 +888,12 @@ export async function renderDocxWithTrackedChanges(params: {
         appliedHunks,
         appliedOps: apply.applied,
         minimalSplitHunks: apply.minimalSplitHunks,
+        ...(partialOps > 0 ? { partialOpHunks: partialOps } : {}),
+        formatRepaired: formatRepaired || undefined,
         // Partial / ambiguous apply must surface as degraded so Fleet / 交办 don't look clean.
-        degraded: partial || undefined,
-        warning: [partialWarning, minimalNote].filter(Boolean).join("；") || undefined,
+        degraded: partial || Boolean(formatWarning) || undefined,
+        warning:
+          [partialWarning, minimalNote, formatWarning].filter(Boolean).join("；") || undefined,
       });
     }
 

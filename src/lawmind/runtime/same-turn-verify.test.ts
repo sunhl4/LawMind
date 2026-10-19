@@ -58,6 +58,36 @@ describe("same-turn verify", () => {
     );
   });
 
+  it("maps format mismatch without claiming missing tracks or narrow-find", () => {
+    const issues = collectSameTurnVerifyIssues({
+      toolName: "render_tracked_draft",
+      result: {
+        ok: false,
+        error: "未对齐原稿格式",
+        data: { code: "xml_qa_format_mismatch" },
+      },
+    });
+    expect(issues[0]?.code).toBe("xml_qa_format_mismatch");
+    expect(issues[0]?.message).toContain("未对齐原稿");
+    expect(issues[0]?.message).toContain("不要用收窄 find");
+    expect(issues[0]?.message).not.toContain("未见审阅痕迹");
+    expect(issues[0]?.nextTool).toBe("render_tracked_draft");
+  });
+
+  it("maps non-minimal XML QA back to surgical rewrite", () => {
+    const issues = collectSameTurnVerifyIssues({
+      toolName: "render_tracked_draft",
+      result: {
+        ok: false,
+        error: "整句删增",
+        data: { code: "xml_qa_non_minimal_edits" },
+      },
+    });
+    expect(issues[0]?.code).toBe("xml_qa_non_minimal");
+    expect(issues[0]?.nextTool).toBe("apply_surgical_edits");
+    expect(issues[0]?.message).toContain("整句删");
+  });
+
   it("does not send infra Guardian fails back to apply_surgical_edits", () => {
     const issues = collectSameTurnVerifyIssues({
       toolName: "render_tracked_draft",

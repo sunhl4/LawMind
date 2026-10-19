@@ -4,6 +4,7 @@ import { LawmindSettingsPracticePlaybook } from "./LawmindSettingsPracticePlaybo
 import { LawmindSettingsWorkspaceCare } from "./LawmindSettingsWorkspaceCare";
 import { LawmindSettingsUserStandards } from "./LawmindSettingsUserStandards";
 import { workspaceLocationCautionMessage } from "./lawmind-workspace-location";
+import { readChatHomeDir, writeChatHomeDir, CHAT_HOME_DIR_EVENT } from "./lawmind-chat-home-dir";
 import { useWorkspaceVolumeFacts } from "./use-workspace-volume";
 import type { LawmindSettingsAppConfig } from "./lawmind-settings-models.ts";
 import type { LawmindDaemonPayload } from "./lawmind-app-data.ts";
@@ -28,6 +29,7 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
   const [mounts, setMounts] = useState<Array<{ id: string; absPath: string; label?: string; matterId?: string }>>(
     [],
   );
+  const [chatHomeDir, setChatHomeDir] = useState<string | null>(() => readChatHomeDir());
   const workspaceVolume = useWorkspaceVolumeFacts(config.workspaceDir);
   const locationCaution = workspaceLocationCautionMessage(config.workspaceDir, workspaceVolume);
 
@@ -61,8 +63,11 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
         /* ignore */
       });
     void refreshMounts();
+    const syncChatHome = () => setChatHomeDir(readChatHomeDir());
+    window.addEventListener(CHAT_HOME_DIR_EVENT, syncChatHome);
     return () => {
       cancelled = true;
+      window.removeEventListener(CHAT_HOME_DIR_EVENT, syncChatHome);
     };
   }, [apiBase, refreshMounts]);
 
@@ -89,9 +94,7 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
       setDaemon(j.daemon ?? null);
       setDaemonHint(
         j.message ??
-          (action === "enable"
-            ? "已开启。关掉 LawMind 后，已排的自动办件仍在这台电脑上继续。"
-            : "已关闭。关掉窗口后不再继续办件。"),
+          (action === "enable" ? "已开启。" : "已关闭。"),
       );
     } catch (e) {
       setDaemonHint(errorMessage(e, "未能更新关窗后续跑"));
@@ -158,7 +161,52 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
             添加文件夹
           </button>
         </div>
-        <p className="lm-settings-caption">助手可以直接阅读这些文件夹。要改文件，先收进本案。当事人对立的文件夹仍然隔离。</p>
+        <p className="lm-settings-caption">助手可阅读。改文件先收进本案。</p>
+      </div>
+
+      <div className="lm-settings-group lm-settings-surface" data-testid="lm-chat-home-dir">
+        <div className="lm-settings-row">
+          <span className="lm-settings-key">默认工作区</span>
+          <span className="lm-settings-val">{chatHomeDir ? "已另选" : "本机目录"}</span>
+        </div>
+        <p className="lm-project-full-path" title={chatHomeDir || projectDir || config.workspaceDir}>
+          {chatHomeDir || projectDir || config.workspaceDir}
+        </p>
+        <div className="lm-settings-actions">
+          <button
+            type="button"
+            className="lm-btn lm-btn-sm lm-btn-accent"
+            onClick={() => {
+              void (async () => {
+                const pick = window.lawmindDesktop?.pickFolder ?? window.lawmindDesktop?.pickProject;
+                if (!pick) {
+                  return;
+                }
+                const chosen = await pick();
+                if (chosen.ok && chosen.path?.trim()) {
+                  const next = chosen.path.trim();
+                  writeChatHomeDir(next);
+                  setChatHomeDir(next);
+                }
+              })();
+            }}
+          >
+            选择目录…
+          </button>
+          {chatHomeDir ? (
+            <button
+              type="button"
+              className="lm-btn lm-btn-ghost lm-btn-sm"
+              onClick={() => {
+                writeChatHomeDir(null);
+                setChatHomeDir(null);
+              }}
+            >
+              改回本机目录
+            </button>
+          ) : null}
+        </div>
+        <p className="lm-settings-caption">最上面的新建对话用这个目录。</p>
       </div>
 
       <div className="lm-settings-group lm-settings-surface" data-testid="lm-workspace-location">
@@ -190,9 +238,7 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
             <p className="lm-callout-body">{locationCaution}</p>
           </div>
         ) : (
-          <p className="lm-settings-caption">
-            案件、草稿和材料在这里。模型钥匙在应用数据目录，不在这个文件夹里。
-          </p>
+          <p className="lm-settings-caption">案件和草稿在这里。</p>
         )}
       </div>
 
@@ -208,9 +254,7 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
             打开
           </button>
         </div>
-        <p className="lm-settings-caption">
-          看指定范围里的文件：该建案就建案，该归进已有案件就归进去，一般资料按类型收好。确认后才复制。
-        </p>
+        <p className="lm-settings-caption">该建案就建案，一般资料按类型收好。</p>
       </div>
 
       {apiBase ? (
@@ -221,9 +265,7 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
               {daemon?.running ? "后台办件运行中" : daemon?.enabled ? "已开启，退出后继续" : "未开"}
             </span>
           </div>
-          <p className="lm-settings-caption">
-            关掉 LawMind 后，已排的自动办件仍在这台电脑上继续。案卷不离开这台电脑。待发出在工作台该案的「现在」里。
-          </p>
+          <p className="lm-settings-caption">关掉窗口后，已排的办件继续。</p>
           {daemon?.recap ? (
             // 回执的真相源在服务端（引擎单测覆盖文案）；这里只负责显示，不重新推导「算不算异常」。
             <div

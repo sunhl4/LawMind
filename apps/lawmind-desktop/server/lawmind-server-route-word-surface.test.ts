@@ -15,6 +15,15 @@ function mockRes(): http.ServerResponse & { body?: { ok?: boolean; fileName?: st
     writeHead(code: number) {
       this.status = code;
     },
+    once(name: string, cb: () => void) {
+      this.closeCb = cb;
+    },
+    off(name: string, cb: () => void) {
+      if (this.closeCb === cb) {
+        this.closeCb = undefined;
+      }
+    },
+    closeCb: undefined as (() => void) | undefined,
     end(payload?: string) {
       if (payload) {
         this.body = JSON.parse(payload) as { ok?: boolean; fileName?: string; error?: string };

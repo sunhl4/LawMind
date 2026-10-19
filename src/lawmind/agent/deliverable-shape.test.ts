@@ -72,6 +72,7 @@ describe("deliverable shape", () => {
     expect(nudge.startsWith(PLEADING_SECTION_MARKER)).toBe(true);
     expect(nudge).toContain("证据");
     expect(nudge).toContain("已经出现的条号");
+    expect(nudge).not.toContain("不要再检索");
   });
 
   it("treats fewer than eight numbered lines as not a follow-up list", () => {

@@ -72,21 +72,19 @@ export type FolderFileExtract = { ok: true; text: string } | { ok: false; reason
 export async function extractReadableFileText(
   abs: string,
   size: number,
+  opts?: { signal?: AbortSignal },
 ): Promise<FolderFileExtract> {
+  // 调用方（工具轮/材料摘要）传了中止信号：进入前先尊重，避免已取消还继续读盘。
+  opts?.signal?.throwIfAborted();
   try {
     if (isBinaryWordDocPath(abs)) {
       if (size > MAX_DOCX_READ_BYTES) {
         return { ok: false, reason: "DOC 文件过大" };
       }
-      const text = await readBinaryWordDocText(abs).catch((err: unknown) => {
-        if (err instanceof IcloudLawyerPrompt) {
-          throw err;
-        }
-        return "";
-      });
+      const text = await readBinaryWordDocText(abs);
       return text.trim()
         ? { ok: true, text }
-        : { ok: false, reason: "DOC 无可提取文本（可能是纯图片或受保护文档）" };
+        : { ok: false, reason: ".doc 无可提取文本（可能是纯图片或受保护文档）" };
     }
     const officeBlock = unsupportedOfficeIngestReason(abs);
     if (officeBlock) {
@@ -231,7 +229,9 @@ export const readFolderDocumentsTool: AgentTool = {
       consumed += 1;
       const toolPath = joinListedRel(target.listedPath, entry.path);
       const abs = path.join(target.abs, entry.path);
-      const extracted = await extractReadableFileText(abs, entry.size ?? 0);
+      const extracted = await extractReadableFileText(abs, entry.size ?? 0, {
+        signal: ctx.abortSignal,
+      });
       if (!extracted.ok) {
         skipped.push({ path: toolPath, reason: extracted.reason });
         continue;

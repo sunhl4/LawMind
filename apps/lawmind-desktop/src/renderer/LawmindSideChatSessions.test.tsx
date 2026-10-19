@@ -67,6 +67,9 @@ describe("LawmindSideChatSessions", () => {
 
   afterEach(() => {
     setRunningChatSessionIds(new Set());
+    if (typeof window.localStorage?.removeItem === "function") {
+      window.localStorage.removeItem("lawmind.chat.collapsedFolders.v1");
+    }
     act(() => {
       root.unmount();
     });
@@ -82,13 +85,11 @@ describe("LawmindSideChatSessions", () => {
             { sessionId: "b", title: "劳动仲裁" },
           ]}
           onSelect={() => undefined}
-          onNewChat={() => undefined}
           onRename={async () => undefined}
           onDelete={async () => undefined}
         />,
       );
     });
-    expect(host.querySelector('[aria-label="新建对话"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="lm-side-chat-search"]')).toBeNull();
     const toggle = host.querySelector('[data-testid="lm-side-chat-search-toggle"]') as HTMLButtonElement;
     expect(toggle).toBeTruthy();
@@ -117,7 +118,6 @@ describe("LawmindSideChatSessions", () => {
             { sessionId: "other", title: "劳动仲裁" },
           ]}
           onSelect={() => undefined}
-          onNewChat={() => undefined}
           onRename={async () => undefined}
           onDelete={async () => undefined}
         />,
@@ -137,7 +137,6 @@ describe("LawmindSideChatSessions", () => {
         <LawmindSideChatSessions
           sessions={[{ sessionId: "a", title: "采购合同审查", lastPreview: "违约金" }]}
           onSelect={() => undefined}
-          onNewChat={() => undefined}
           onRename={async () => undefined}
           onDelete={async () => undefined}
         />,
@@ -164,7 +163,6 @@ describe("LawmindSideChatSessions", () => {
         <LawmindSideChatSessions
           sessions={[{ sessionId: "a", title: "采购合同审查" }]}
           onSelect={() => undefined}
-          onNewChat={() => undefined}
           onRename={async () => undefined}
           onDelete={async () => undefined}
         />,
@@ -190,7 +188,6 @@ describe("LawmindSideChatSessions", () => {
           scopeMatterId="m-other"
           knownMatterIds={new Set(["m-other", "m-this"])}
           onSelect={() => undefined}
-          onNewChat={() => undefined}
           onRename={async () => undefined}
           onDelete={async () => undefined}
         />,
@@ -209,7 +206,6 @@ describe("LawmindSideChatSessions", () => {
         <LawmindSideChatSessions
           sessions={[{ sessionId: "old", title: "旧对话" }]}
           onSelect={() => undefined}
-          onNewChat={() => undefined}
           onRename={async () => undefined}
           onDelete={async () => undefined}
         />,
@@ -229,7 +225,6 @@ describe("LawmindSideChatSessions", () => {
           scopeMatterId="m-this"
           knownMatterIds={new Set(["m-this", "m-other"])}
           onSelect={() => undefined}
-          onNewChat={() => undefined}
           onRename={async () => undefined}
           onDelete={async () => undefined}
         />,
@@ -249,7 +244,6 @@ describe("LawmindSideChatSessions", () => {
             { sessionId: "new", title: "竞业限制解除（承前）" },
           ]}
           onSelect={onSelect}
-          onNewChat={() => undefined}
           onRename={async () => undefined}
           onDelete={async () => undefined}
         />,
@@ -278,7 +272,6 @@ describe("LawmindSideChatSessions", () => {
           ]}
           activeSessionId="a"
           onSelect={onSelect}
-          onNewChat={() => undefined}
           onRename={async () => undefined}
           onDelete={onDelete}
         />,
@@ -311,5 +304,89 @@ describe("LawmindSideChatSessions", () => {
       deleteBtn.click();
     });
     expect(onDelete).toHaveBeenCalledWith(["a", "b", "c"]);
+  });
+
+  it("collapses the chats under a folder and keeps the count on the folder", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindSideChatSessions
+          sessions={[
+            { sessionId: "a", title: "采购合同审查", workDir: "/Users/shl/nvidia/YX", updatedAt: "2026-10-16T02:55:00.000Z" },
+            { sessionId: "b", title: "劳动仲裁", workDir: "/Users/shl/nvidia/YX", updatedAt: "2026-10-16T01:00:00.000Z" },
+          ]}
+          onSelect={() => undefined}
+          onRename={async () => undefined}
+          onDelete={async () => undefined}
+        />,
+      );
+    });
+    const folder = host.querySelector(
+      '[data-testid="lm-side-chat-folder-work:/Users/shl/nvidia/YX"]',
+    ) as HTMLButtonElement;
+    expect(folder?.getAttribute("aria-expanded")).toBe("true");
+    expect(folder?.title).toContain("/Users/shl/nvidia/YX");
+    expect(folder?.textContent).toContain("2 场");
+    expect(host.querySelector('[data-testid="lm-side-chat-session-a"]')).toBeTruthy();
+    await act(async () => {
+      folder.click();
+    });
+    expect(folder.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector('[data-testid="lm-side-chat-session-a"]')).toBeNull();
+    expect(host.querySelector('[data-testid="lm-side-chat-session-b"]')).toBeNull();
+    await act(async () => {
+      folder.click();
+    });
+    expect(host.querySelector('[data-testid="lm-side-chat-session-a"]')).toBeTruthy();
+  });
+
+  it("starts a chat in that folder from the hover plus and the right-click menu", async () => {
+    const onNewChatInFolder = vi.fn();
+    const showItemInFolder = vi.fn(async () => ({ ok: true }));
+    const previousDesktop = window.lawmindDesktop;
+    window.lawmindDesktop = { showItemInFolder } as typeof window.lawmindDesktop;
+    await act(async () => {
+      root.render(
+        <LawmindSideChatSessions
+          sessions={[
+            { sessionId: "root", title: "随手问", workDir: "/Users/shl/nvidia/YX" },
+            { sessionId: "sub", title: "采购合同审查", folderRel: "非技术相关" },
+          ]}
+          workspaceFolderLabel="YX"
+          workspaceFolderPath="/Users/shl/nvidia/YX"
+          onNewChatInFolder={onNewChatInFolder}
+          onCreateChatWorkspace={() => undefined}
+          onSelect={() => undefined}
+          onRename={async () => undefined}
+          onDelete={async () => undefined}
+        />,
+      );
+    });
+    const subPlus = host.querySelector(
+      '[data-testid="lm-side-chat-folder-new-folder:非技术相关"]',
+    ) as HTMLButtonElement;
+    expect(subPlus.getAttribute("aria-label")).toBe("在非技术相关下新建对话");
+    await act(async () => {
+      subPlus.click();
+    });
+    expect(onNewChatInFolder).toHaveBeenCalledWith("非技术相关");
+
+    const rootRow = host.querySelector('[data-testid="lm-side-chat-folder-work:/Users/shl/nvidia/YX"]')
+      ?.parentElement as HTMLElement;
+    await act(async () => {
+      rootRow.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 12, clientY: 24 }));
+    });
+    const menu = host.querySelector('[data-testid="lm-side-chat-folder-menu"]');
+    expect(menu?.textContent).toContain("在工作区下新建对话");
+    expect(menu?.textContent).toContain("在访达中显示");
+    expect(menu?.textContent).toContain("复制路径");
+    expect(menu?.textContent).toContain("收起此文件夹");
+    const reveal = [...(menu?.querySelectorAll("button") ?? [])].find((button) =>
+      button.textContent?.includes("在访达中显示"),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      reveal.click();
+    });
+    expect(showItemInFolder).toHaveBeenCalledWith("/Users/shl/nvidia/YX");
+    window.lawmindDesktop = previousDesktop;
   });
 });

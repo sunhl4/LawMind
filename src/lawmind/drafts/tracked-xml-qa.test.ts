@@ -119,6 +119,7 @@ describe("qaTrackedDocxXml", () => {
     expect(qa.ok).toBe(true);
     expect(qa.minimalEdit).toMatchObject({ checked: true, pairs: 2 });
     expect(qa.minimalEdit.violations).toEqual([]);
+    expect(qa.formatAlignment).toMatchObject({ checked: true, violations: [] });
     expect(qa.insCount).toBe(2);
     expect(qa.delCount).toBe(2);
   });
@@ -128,6 +129,24 @@ describe("qaTrackedDocxXml", () => {
     const qa = await qaTrackedDocxXml(file, 1);
     expect(qa.ok).toBe(false);
     expect(qa.minimalEdit.checked).toBe(false);
+    expect(qa.formatAlignment.checked).toBe(false);
     expect(qa.warning).toContain("XML 未见 w:ins/w:del");
+  });
+
+  it("blocks when revision runs do not match neighbor direct formatting", async () => {
+    const rPr = `<w:rPr><w:rFonts w:ascii="SimSun" w:eastAsia="SimSun"/><w:sz w:val="21"/></w:rPr>`;
+    const file = await writeDocx(
+      doc(
+        `<w:p>` +
+          `<w:r>${rPr}<w:t>甲方应于</w:t></w:r>` +
+          `${del("十")}${ins("五")}` +
+          `<w:r>${rPr}<w:t>日内付款。</w:t></w:r>` +
+          `</w:p>`,
+      ),
+    );
+    const qa = await qaTrackedDocxXml(file, 1);
+    expect(qa.ok).toBe(false);
+    expect(qa.formatAlignment.violations.length).toBeGreaterThan(0);
+    expect(qa.warning).toContain("未对齐原稿直接格式");
   });
 });

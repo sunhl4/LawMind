@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import JSZip from "jszip";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ArtifactDraft } from "../types.js";
@@ -410,21 +411,26 @@ describe("loadWordSurface", () => {
     expect(JSON.stringify(loaded.snapshot.paragraphs)).toContain("国浩-吕盈修");
   });
 
-  it("stops on .doc and asks the lawyer to save as .docx", async () => {
+  it("opens a .doc in the surface without any Save As", async () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-word-surface-doc-"));
     dirs.push(ws);
     const rel = "cases/m/旧稿.doc";
     const abs = path.join(ws, rel);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.writeFileSync(abs, "plain");
+    fs.copyFileSync(
+      fileURLToPath(new URL("../mail/fixtures/tracked-changes-5-authors.doc", import.meta.url)),
+      abs,
+    );
     const loaded = await loadWordSurface({
       workspaceDir: ws,
       root: "workspace",
       relPath: rel,
     });
-    expect(loaded.ok).toBe(false);
-    if (!loaded.ok) {
-      expect(loaded.error).toMatch(/另存为同名的 \.docx/);
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok && "snapshot" in loaded) {
+      expect(
+        loaded.snapshot.paragraphs.some((p) => p.segments.some((s) => s.text.includes("履约保函"))),
+      ).toBe(true);
     }
     expect(fs.existsSync(path.join(ws, "cases/m/旧稿.docx"))).toBe(false);
   });

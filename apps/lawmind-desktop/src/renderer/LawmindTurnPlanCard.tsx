@@ -3,7 +3,6 @@ import type { AgentTurnPlan } from "../../../../src/lawmind/agent/turn-plan-mode
 import {
   formatTurnPlanExecuteText,
   isTurnPlanComplete,
-  lawyerFacingMaterials,
   turnPlanProgress,
 } from "../../../../src/lawmind/agent/turn-plan-model.ts";
 
@@ -90,14 +89,6 @@ export function LawmindTurnPlanCard(props: Props): ReactNode {
           {done ? "已完成" : `${completed}/${total}`}
         </div>
       </div>
-      {plan.brief ? (
-        <div className="lm-turn-plan-note" data-testid="lm-turn-plan-brief">
-          <div>要做：{plan.brief.goal}</div>
-          <div>不要做：{plan.brief.notGoal}</div>
-          <div>材料：{lawyerFacingMaterials(plan.brief.materials)}</div>
-          <div>完成标准：{plan.brief.done}</div>
-        </div>
-      ) : null}
       {plan.explanation ? <p className="lm-turn-plan-note">{plan.explanation}</p> : null}
       {editable ? (
         <p className="lm-turn-plan-note">

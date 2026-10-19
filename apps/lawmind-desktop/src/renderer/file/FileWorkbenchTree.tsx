@@ -28,6 +28,7 @@ export type FileWorkbenchTreeProps = {
   inlineInputRef: RefObject<HTMLInputElement | null>;
   casesNodeActions?: FileWorkbenchCasesNodeActions | null;
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
+  onNewChatInFolder?: (folderRel: string) => void | Promise<void>;
   toggleDir: (root: RootKey, dirPath: string) => void | Promise<void>;
   openFile: (root: RootKey, path: string) => void | Promise<void>;
   setContextMenu: Dispatch<SetStateAction<ContextMenu | null>>;
@@ -47,6 +48,7 @@ export function FileWorkbenchTree({
   inlineInputRef,
   casesNodeActions,
   onAddToChatContext,
+  onNewChatInFolder,
   toggleDir,
   openFile,
   setContextMenu,
@@ -122,8 +124,10 @@ export function FileWorkbenchTree({
       // Folder name only in the row (Cursor-style). Full matter title stays on hover — narrow rails otherwise truncate the id.
       const treeTitle =
         caseDisplayHint && !isProtected ? `${entry.name} — ${caseDisplayHint}` : isProtected ? "⚠️ 受保护目录" : entry.name;
+      const offerFolderChat = Boolean(onNewChatInFolder) && root === "project" && !isProtected;
       nodes.push(
         <div key={entry.path}>
+          <div className="lm-fs-dir-row">
           <button
             type="button"
             className={`lm-fs-node lm-fs-dir ${isSelected ? "active" : ""} ${isProtected ? "protected" : ""}`}
@@ -167,6 +171,22 @@ export function FileWorkbenchTree({
             <span className="lm-fs-name">{entry.name}</span>
             {isProtected && <span className="lm-fs-lock">🔒</span>}
           </button>
+          {offerFolderChat ? (
+            <button
+              type="button"
+              className="lm-fs-root-add lm-fs-folder-new-chat"
+              aria-label={`在${entry.name}新建对话`}
+              title="在这个文件夹新建对话"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void onNewChatInFolder?.(entry.path);
+              }}
+            >
+              ＋
+            </button>
+          ) : null}
+          </div>
           {isOpen ? (
             <FileWorkbenchTree
               root={root}
@@ -182,6 +202,7 @@ export function FileWorkbenchTree({
               inlineInputRef={inlineInputRef}
               casesNodeActions={casesNodeActions}
               onAddToChatContext={onAddToChatContext}
+              onNewChatInFolder={onNewChatInFolder}
               toggleDir={toggleDir}
               openFile={openFile}
               setContextMenu={setContextMenu}

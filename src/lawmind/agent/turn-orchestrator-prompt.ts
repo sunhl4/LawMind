@@ -61,6 +61,7 @@ import { buildContextPlan, buildContextPlanMarkdown } from "../runtime/context-p
 import { resolvePinnedContextSummary, withContractPlaybookPin } from "../runtime/pinned-context.js";
 import { formatStanceHint } from "../stance/inject.js";
 import { getAssistantPreset } from "./assistant-presets.js";
+import { normalizeChatFolderRel } from "./chat-folder.js";
 import { buildDeliverablePipelineSystemNote } from "./deliverable-pipeline.js";
 import {
   MATERIALS_BLOCK_CAP_TOKENS,
@@ -444,6 +445,7 @@ export async function prepareTurnPromptContext(opts: {
     peerAssistants,
     peerAssistantsBusy,
     projectDirectoryHint: projectDirResolved,
+    chatFolderRel: normalizeChatFolderRel(session.folderRel),
     linkedTaskId: linkedTaskIdForCtx,
     agentMandatoryRules: mandatoryRules.active ? mandatoryRules.text : undefined,
     agentMandatoryRulesTruncated: mandatoryRules.truncated,
@@ -629,7 +631,7 @@ export async function prepareTurnPromptContext(opts: {
         [
           "## 未决澄清要点（跨轮保留）",
           "",
-          "下列为高风险空跑缺口（函件收件人/主张，或诉讼主体/诉请）。继续时可先用只读/`research_task` 收集材料，但**不得**在缺口未对齐时调用 `draft_document` / `execute_workflow` / `render_document`。",
+          "下列为上一轮留下的缺口（函件收件人/主张，或诉讼主体/诉请）。写进稿里标【待核实】，可以继续 draft_document、execute_workflow、render_document。律师可在修订里改，或回一句补充。",
           "",
           `待确认键：${hardKeys.join(", ")}`,
         ].join("\n"),

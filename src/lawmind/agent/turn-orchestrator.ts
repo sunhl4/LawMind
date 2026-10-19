@@ -6,7 +6,6 @@ import { randomUUID } from "node:crypto";
 import { resolveLiveSessionMatterId } from "../desk/deleted-matters.js";
 import { attachEnabledMcpServers } from "../mcp/mcp-client-bridge.js";
 import { hiddenPolicyToolNames } from "../policy/analysis-scripts.js";
-import { withAssistantTurnGate } from "./assistant-turn-gate.js";
 import { accumulateFactPin } from "./compact-fact-pin.js";
 import { applyCompactReinjectionToSession, selectTaskPinText } from "./compact-reinjection.js";
 import { autoCompactSessionHistory } from "./compact.js";
@@ -82,7 +81,6 @@ import {
   readWorkspacePolicyFile,
   resolveAgentMandatoryRulesForPrompt,
 } from "../policy/workspace-policy.js";
-import { selectHardClarificationKeys } from "../router/intake-gate.js";
 import {
   noteLawyerIcloudReply,
   runApprovedIcloudDownloads,
@@ -201,8 +199,6 @@ export async function runTurn(opts: {
   contextPins?: import("../platform/compose-context-pin.js").ComposeContextPin[];
   /** Internal: caller already holds `withSessionTurnGate` (resume paths). */
   skipSessionTurnGate?: boolean;
-  /** Internal: caller already holds `withAssistantTurnGate` (resume paths). */
-  skipAssistantTurnGate?: boolean;
   /** Kept for resume of already-paused continue_tools cards; new turns never checkpoint. */
   skipToolBudgetCheckpoint?: boolean;
   /** Resume from a checkpoint: keep the prior tool-call count (hard ceiling stays cumulative). */
@@ -210,20 +206,8 @@ export async function runTurn(opts: {
   /** Lawyer-confirmed clarification answers for Guardian evidence this turn. */
   confirmedAnswers?: Record<string, string>;
 }): Promise<{ turn: AgentTurn; reply: string; sessionId: string; memoryContext: MemoryContext }> {
-  if (!opts.skipAssistantTurnGate) {
-    const fromConfig = opts.config.assistantId?.trim();
-    let assistantId = fromConfig || "";
-    if (!assistantId) {
-      const sid = opts.sessionId?.trim();
-      if (sid) {
-        const existing = loadSession(opts.config.workspaceDir, sid);
-        assistantId = existing?.assistantId?.trim() || "";
-      }
-    }
-    return withAssistantTurnGate(opts.config.workspaceDir, assistantId || "default", () =>
-      runTurn({ ...opts, skipAssistantTurnGate: true }),
-    );
-  }
+  // 多场对话一起跑。同一场对话仍只有一个回合。模型空位、工具空位、
+  // 同一文件，以及法宝 / LibreOffice / Word，在进程里另有限额。
   const existingSessionId = opts.sessionId?.trim();
   if (existingSessionId && !opts.skipSessionTurnGate) {
     return withSessionTurnGate(opts.config.workspaceDir, existingSessionId, () =>
@@ -263,13 +247,9 @@ export async function runTurn(opts: {
       actorId,
       assistantId: config.assistantId,
     });
-  } else {
-    if (config.assistantId && session.assistantId && session.assistantId !== config.assistantId) {
-      throw new Error("session_assistant_mismatch");
-    }
-    if (!session.assistantId && config.assistantId) {
-      session.assistantId = config.assistantId;
-    }
+  } else if (!session.assistantId && config.assistantId) {
+    // 对话由 sessionId 标识。助手编号不是续跑条件，对不上也不拒绝。
+    session.assistantId = config.assistantId;
   }
   resetIsolationBudget(isolationKey(config.workspaceDir, session.sessionId));
 
@@ -387,11 +367,9 @@ export async function runTurn(opts: {
     permissionMode,
     collaborationEnabled: config.enableCollaboration === true,
     envFile: config.envFile,
-    // 跨轮澄清硬门禁：上一轮以 awaiting_clarification 结束时，本轮默认拦截
-    // 起草/工作流/渲染等重工具；结构化 resume（律师逐条作答）在 runtime-resume
-    // 中显式清键放行；普通新消息若未再提出澄清，finalize 清键后下一轮放行。
-    clarificationBlockingHeavyTools:
-      selectHardClarificationKeys(session.pendingClarificationKeys).length > 0,
+    // 跨轮硬键只进提示词（缺口标【待核实】）。不因此拦截起草 / 工作流 / 渲染。
+    // iCloud 下载确认仍由工具轮把回合置为 awaiting_clarification。
+    clarificationBlockingHeavyTools: false,
     noTaskTurn,
     strictDangerousToolApproval,
     preApproveToolName: opts.preApproveToolName?.trim() || undefined,

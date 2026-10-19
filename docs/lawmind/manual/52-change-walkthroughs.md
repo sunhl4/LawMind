@@ -28,8 +28,8 @@ src/lawmind/desk/deadline-chain.ts                    → annotateDeskDeadlines�
 新建 `src/lawmind/agent/tools/legal/deadline-summary-tool.ts`：
 
 ```ts
-import { listDeadlinesForMatter } from "../../../../application/services/deadline-service.js";
-import { annotateDeskDeadlines } from "../../../../desk/deadline-chain.js";
+import { listDeadlinesForMatter } from "../../../application/services/deadline-service.js";
+import { annotateDeskDeadlines } from "../../../desk/deadline-chain.js";
 import type { AgentTool } from "../../types.js";
 import { matterRequiredResult } from "../matter-required.js";
 
@@ -55,7 +55,7 @@ export const deadlineSummaryTool: AgentTool = {
       return matterRequiredResult(ctx.workspaceDir);
     }
 
-    const records = await listDeadlinesForMatter(ctx.workspaceDir, matterId);
+    const records = listDeadlinesForMatter(ctx.workspaceDir, matterId);
     const view = annotateDeskDeadlines(records);
     if (view.length === 0) {
       return { ok: true, data: { matterId, total: 0, message: "本案暂无登记期限。" } };
@@ -124,7 +124,7 @@ export const deadlineSummaryTool: AgentTool = {
 
 ### 第四步：判断它属于哪些集合
 
-查 `tool-name-sets.ts` 的五个集合：
+查 `src/lawmind/agent/tool-name-sets.ts` 的五个集合。这个文件在 `agent/` 下，**不在** `tools/`。`src/lawmind/agent/dangerous-tool-policy.ts` 与它同级：审批和沙箱从这里读分类，避免再从 `tools/governance.ts` 倒进口形成环。
 
 | 集合                    | 要不要加 | 理由         |
 | ----------------------- | -------- | ------------ |
@@ -136,8 +136,9 @@ export const deadlineSummaryTool: AgentTool = {
 
 **两个「要」是有后果的**：
 
-- 进 `MATTER_SCOPE_REQUIRED` → 中间件会拦「没绑案件」的调用（第 5.7 节第 8 道）。
+- 进 `MATTER_SCOPE_REQUIRED` → 中间件会拦「没绑案件」的调用。19 道关里这是第 8 道 `matterScopeMiddleware`（第 5.7 节）。
 - 进 `IDEMPOTENT_READ_TOOLS` → 它算「幂等只读」，可以安全重试，而且**不会触发写类审批**。
+- `WRITE_TOOLS` 只参与「写」分类，**不暂停回合**。`send_email` 在同文件的 `IRREVERSIBLE_TOOLS` 里是 `inbox_signoff`：写入待发信，律师另点「批准发送」才真正发出，回合不中断。`toolRequiresLawyerPause` 当前恒为 false。
 
 **同时**：`governance.ts` 会**自动推导**治理元数据（风险级别按 `riskLevel`，运行模式按「在不在写集合里」，案件范围按「在不在 `MATTER_SCOPE_REQUIRED` 里」）。所以第四步做完，治理信息就对了，**不用手工写**。
 
@@ -250,11 +251,11 @@ export type LegalLintRule = {
 
 ### 第二步：写规则
 
-新建 `src/lawmind/lint/rules/deposit-wording.ts`：
+新建 `src/lawmind/lint/deposit-wording.ts`（注意：`lint/rules.ts` 是**文件**不是目录，新规则直接放在 `lint/` 下）：
 
 ```ts
-import { lintFinding as finding } from "../finding.js";
-import type { LegalLintFinding, LegalLintRule } from "../types.js";
+import { lintFinding as finding } from "./finding.js";
+import type { LegalLintFinding, LegalLintRule } from "./types.js";
 
 /**
  * 「定金」与「订金」混用。两者法律含义不同：
@@ -305,7 +306,7 @@ export const depositWordingRule: LegalLintRule = {
 
 ### 第三步：注册规则
 
-`general.ts` 里有一个 `GENERAL_EXTRA_LINT_RULES` 数组（12 条），把新规则加进去，或者如果它更适合某个族，就加进对应族的数组（比如 `EQUITY_LINT_RULES`）。
+`general.ts` 里有一个 `GENERAL_EXTRA_LINT_RULES` 数组（12 条），在文件顶部 import 后把新规则加进去，或者如果它更适合某个族，就加进对应族的数组（比如 `EQUITY_LINT_RULES`）。
 
 **注意族的判定**：如果放进族数组，还要看那个族有没有 `*FamilyApplies` 判定——**规则只在该族适用的文书上跑**。
 
@@ -313,7 +314,7 @@ export const depositWordingRule: LegalLintRule = {
 
 ### 第四步：判断要不要抬规则数
 
-`lawmind:compiler-gate` 有一条门禁：`MIN_RULES = 20`（规则数下限）。
+`lawmind:compiler-gate` 有一条门禁：`scripts/lawmind/lawmind-compiler-gate.ts` 检查 `LEGAL_LINT_RULES.length`，低于 **20** 就报错。
 
 **加规则只会让这个数变大，不会触发失败。** 但如果你的改动**删了**规则，就要注意别跌破下限。
 
@@ -321,30 +322,32 @@ export const depositWordingRule: LegalLintRule = {
 
 ### 第五步：测试
 
-新建 `deposit-wording.test.ts`：
+新建 `deposit-wording.test.ts`（同目录）：
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { runLegalLint } from "../run-lint.js";
+import { runLegalLint } from "./run-lint.js";
 
 describe("form.deposit_wording_mixed", () => {
   it("两个词同时出现时报一条", () => {
     const report = runLegalLint("定金条款：……。另约定订金若干。");
-    expect(report.findings.some((f) => f.id === "form.deposit_wording_mixed")).toBe(true);
+    expect(report.findings.some((f) => f.ruleId === "form.deposit_wording_mixed")).toBe(true);
   });
 
   it("只出现「定金」不报", () => {
     const report = runLegalLint("定金条款：……");
-    expect(report.findings.some((f) => f.id === "form.deposit_wording_mixed")).toBe(false);
+    expect(report.findings.some((f) => f.ruleId === "form.deposit_wording_mixed")).toBe(false);
   });
 
   it("带出条文出处", () => {
     const report = runLegalLint("定金……订金……");
-    const hit = report.findings.find((f) => f.id === "form.deposit_wording_mixed");
+    const hit = report.findings.find((f) => f.ruleId === "form.deposit_wording_mixed");
     expect(hit?.statuteRef).toBe("民法典第586条");
   });
 });
 ```
+
+**注意是 `f.ruleId` 不是 `f.id`**：`LegalLintFinding` 的字段名是 `ruleId`（见 `lint/types.ts`）。
 
 **测三条：正例、反例、出处。** 反例（只出现一个词）比正例更重要——**误报是 lint 最大的敌人**。
 
@@ -405,19 +408,20 @@ export async function handleDeskSettingsRoutes({
 期限的端点归 `lawmind-server-route-lawyer-desk.ts`（它已经在管 `/api/matters/:matterId/deadlines`）。所以**不新建文件**，在那里加一个分支：
 
 ```ts
-const summaryMatch = pathname.match(/^\/api\/matters\/([^/]+)\/deadline-summary$/);
+const summaryMatch = /^\/api\/matters\/([^/]+)\/deadline-summary$/.exec(pathname);
 if (summaryMatch && req.method === "GET") {
   const matterId = summaryMatch[1];
   if (!isValidMatterId(matterId)) {
     sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
     return true;
   }
-  const records = await listDeadlinesForMatter(workspaceDir, matterId);
-  const view = annotateDeskDeadlines(records);
+  const view = listDeskDeadlines(workspaceDir, matterId);
   sendJson(res, 200, { ok: true, matterId, total: view.length, items: view }, c);
   return true;
 }
 ```
+
+**与既有分支同一口径**：`listDeskDeadlines` 就是 `annotateDeskDeadlines(listDeadlinesForMatter(...))` 的组合（`deadline-service.ts`），既有 `/deadlines` 分支用的也是它；路径正则用 `.exec(pathname)` 也是这个文件的既有写法。
 
 **四个点对照**：
 
@@ -520,7 +524,9 @@ it("未匹配的路径返回 false，交给下一个 handler", async () => {
 
 - **工具层不写算法。** 先找领域模块有没有现成的。
 - **工具写进 `tools` 数组就开局广告；要按需披露就进 `DISCLOSED_TOOL_HINTS`。**
+- **名字集合在 `src/lawmind/agent/tool-name-sets.ts`**，危险工具策略在同级的 `dangerous-tool-policy.ts`。不要到 `tools/` 下面找这两份。
 - **治理元数据是自动推导的**，把工具加进正确的名字集合就等于写好治理信息。
+- **`send_email` 不暂停回合。** 处置是 `inbox_signoff`（待发信），不是 `pause`。
 - **lint 规则是纯函数**，先判「适不适用」再干活。
 - **lint 发现项要带 `anchor` 与 `statuteRef`。**
 - **有误报的规则不要接硬门禁。**

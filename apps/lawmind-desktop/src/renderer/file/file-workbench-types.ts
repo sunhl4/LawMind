@@ -17,6 +17,7 @@ export type FilePreviewKind =
   | "image"
   | "pdf"
   | "xlsx"
+  | "pptx"
   | "media"
   | "eml"
   | "zip"
@@ -78,6 +79,11 @@ export type FilePortalHosts = {
    * Omit to keep both sections in a single `explorer` host.
    */
   explorerCases?: HTMLElement | null;
+  /**
+   * `work`：侧栏只挂本机文件夹。
+   * 缺省且同时有 explorerCases 时，工作区与案件材料分成两棵。
+   */
+  explorerSections?: "work" | "split";
   /** When set, drag handle lives between file tree and the next column (legacy three-column rail). */
   split?: HTMLElement | null;
   /** 主区为案件工作台时可缺省，仅保留侧栏材料树。 */
@@ -114,6 +120,10 @@ export type Props = {
   onPickProject?: () => void | Promise<void>;
   /** 将路径加入对话/议题引用（发送时把路径说明一并给模型） */
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
+  /** 在本机文件夹的某一级上新建对话。相对路径挂到这场对话上。 */
+  onNewChatInFolder?: (folderRel: string) => void | Promise<void>;
+  /** 右键目录：用这个绝对路径新建一场工作区，不改已有对话。 */
+  onCreateChatWorkspace?: (workDir: string) => void | Promise<void>;
   /** 右键「引用」菜单文案；默认「在对话中引用」 */
   addToContextLabel?: string;
   /** When set, 资源管理器 / 分割条 / 编辑器分别挂到这些节点（用于侧栏资源区 + 主区对话等布局） */

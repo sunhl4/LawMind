@@ -38,7 +38,7 @@ describe("readonly worker steer", () => {
     }
   });
 
-  it("injects a mid-loop steer into the next sample and leaves it for the parent", async () => {
+  it("leaves a mid-turn note for the parent conversation and does not copy it into the subagent", async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-steer-worker-"));
     const seen: string[][] = [];
     vi.mocked(callModelWithRetry).mockImplementation(async (_cfg, messages) => {
@@ -92,8 +92,7 @@ describe("readonly worker steer", () => {
 
     expect(result.aborted).toBeUndefined();
     expect(seen[0]?.join("\n")).not.toContain("不要写解除");
-    expect(seen[1]?.join("\n")).toContain("【律师中途指示】");
-    expect(seen[1]?.join("\n")).toContain("不要写解除");
+    expect(seen[1]?.join("\n")).not.toContain("不要写解除");
     expect(peekPendingSteer(dir, "s1")).toEqual(["不要写解除"]);
     expect(claimPendingSteer(dir, "s1")).toEqual(["不要写解除"]);
     expect(peekPendingSteer(dir, "s1")).toEqual([]);

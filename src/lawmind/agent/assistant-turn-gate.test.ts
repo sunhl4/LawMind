@@ -90,4 +90,11 @@ describe("withAssistantTurnGate", () => {
     });
     await expect(withAssistantTurnGate(ws, "dead", async () => "ok")).resolves.toBe("ok");
   });
+
+  it("is not wrapped around runTurn or resume", () => {
+    const turn = fs.readFileSync(new URL("./turn-orchestrator.ts", import.meta.url), "utf8");
+    const resume = fs.readFileSync(new URL("./runtime-resume.ts", import.meta.url), "utf8");
+    expect(turn).not.toContain("withAssistantTurnGate");
+    expect(resume).not.toContain("withAssistantTurnGate");
+  });
 });

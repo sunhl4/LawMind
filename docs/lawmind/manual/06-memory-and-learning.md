@@ -16,38 +16,50 @@
 
 后半句是关键：光有原则不够，逐条点确认的结果是**没人用**。所以有了 6.5 的批量采纳。
 
-## 6.2 律师侧：待确认队列怎么用
+## 6.2 律师侧：记忆库怎么用
 
-入口是「记忆库」（设置 → 办案 → 记忆库），组件是 `MemoryInspector.tsx`。
+入口是「记忆库」（设置 → 办案 → 记忆库），壳是 `LawmindSettingsMemory.tsx`，主体组件是 `LawmindMemoryLibrary.tsx`。界面上只有三个 Tab：**我的习惯 / 案件认知 / 已作废**。设计口径写在源码头部注释里：
 
-界面上的设计口径是这样的（源码头部注释）：
+> 记忆库：我的习惯 / 本案认知 / 已作废。确认才生效；撤回是主按钮。未确认的不进对话。
 
-> `MemoryInspector` — 待确认记忆建议队列。默认动作：确认 / 改写；预览·稍后·忽略收进「更多」。
+三个 Tab 各干什么：
 
-也就是说，默认只有两个按钮：**确认**和**改写**。「预览」「稍后」「忽略」被收进「更多」里——因为绝大多数建议你要么收要么不收，不需要四个按钮摊在面前。
+- **我的习惯**：律师 / 客户 / 律所范围的记录（写法、条款立场、客户备注、所内口径）。待确认项就在这一页，按钮是**确认**和**忽略**；已确认项的主按钮是**撤回**。确认前还可以选两样东西：「记成」哪个写法槽（语气、结构、引用体例、改稿方式、风险口径、格式六槽，选一个会替换同槽的旧写法），以及「用于」哪个范围（以后的稿子都用 / 只限本案 / 只限该客户）。
+- **案件认知**：案件范围的事实。不带案件 id 时能看到各案记下的事实；从案件卷宗的「认知」页进来就只看本案——`matter/MatterMemoryInspector.tsx` 就是这个视图锁到当前案件的包装。
+- **已作废**：被撤回或被新写法取代的记录，唯一动作是**恢复**。
 
-每个建议带一个**作用域**（scope），决定它最终会写进哪个文件。八个作用域：
+三个 Tab 底下还有两个折叠区：「已沉淀档案」（`LawmindMemoryTruthSources.tsx`，只读看各份 Markdown 档案还在不在、进没进提示词）和「合同改稿学习」（`LawmindContractReviewLearningPanel.tsx`，有待验收的合同修订草稿时出现）。
 
-| scope       | 中文          | 落盘位置                                  |
-| ----------- | ------------- | ----------------------------------------- |
-| `lawyer`    | 律师偏好      | `LAWYER_PROFILE.md`                       |
-| `matter`    | 案件 CASE     | `cases/<id>/CASE.md`                      |
-| `firm`      | 律所档案      | `FIRM_PROFILE.md`                         |
-| `client`    | 客户档案      | `clients/<id>/CLIENT_PROFILE.md`          |
-| `playbook`  | 条款 playbook | `playbooks/CLAUSE_PLAYBOOK.md`            |
-| `opponent`  | 法院-对手画像 | `playbooks/COURT_AND_OPPONENT_PROFILE.md` |
-| `project`   | 项目          | `memory/topics/historical-scan.md`        |
-| `assistant` | 助手档案      | `assistants/<id>/PROFILE.md`              |
+注意这一页的数据**不是**来自 6.4 那个 jsonl 建议队列，而是 **SQLite 记忆内核**（见 6.3）：列表走 `GET /api/memory/library?view=habits|matter|revoked&matterId=`，动作走 `POST /api/memory/library/confirm|revoke|dismiss|restore`。内核的范围只有四个：`lawyer` / `client` / `matter` / `firm`。
 
-界面上简单模式只暴露三个（`SIMPLE_SCOPES = ["lawyer","matter","firm"]`），其余在高级里。
+### 已退役：旧的建议队列页
 
-案件里的「认知」页（`MatterMemoryInspector.tsx`）是同一个组件的复用，只是把 scope 锁到当前案件。
+这一节以前写的是一个叫 `MemoryInspector.tsx` 的八 scope 建议队列页（默认动作「确认 / 改写」，批量采纳按钮也在它上面）。**它已退役**：生产渲染树不再挂它，仓库里只剩它自己的测试文件还 import 它。两条连带影响：
+
+- 批量采纳没有桌面按钮了，只剩 API（见 6.5）。
+- 「八个作用域」退回成纯引擎 / API 侧概念（采纳服务的 `MEMORY_SCOPES`），不再出现在界面上。它仍然决定一条采纳建议最终落到哪个 Markdown 文件：
+
+| scope       | 中文          | 落盘位置                                                                                                       |
+| ----------- | ------------- | -------------------------------------------------------------------------------------------------------------- |
+| `lawyer`    | 律师偏好      | `LAWYER_PROFILE.md`                                                                                            |
+| `matter`    | 案件 CASE     | `cases/<id>/CASE.md`                                                                                           |
+| `firm`      | 律所档案      | `FIRM_PROFILE.md`                                                                                              |
+| `client`    | 客户档案      | `clients/<id>/CLIENT_PROFILE.md`                                                                               |
+| `playbook`  | 条款 playbook | `playbooks/CLAUSE_PLAYBOOK.md`                                                                                 |
+| `opponent`  | 法院-对手画像 | `playbooks/COURT_AND_OPPONENT_PROFILE.md`                                                                      |
+| `project`   | 项目          | 仅 `historical.knowledge` 写 `memory/topics/historical-scan.md`；`project.note` 无落盘面（记 `recorded_noop`） |
+| `assistant` | 助手档案      | `assistants/<id>/PROFILE.md`                                                                                   |
 
 ## 6.3 记忆的真相源清单
 
-记住一句话：**记忆的真相源全是 Markdown 文件，人可以直接打开看、直接改。** 数据库、索引、统计都是派生的，删了能重建。
+记忆有**两套存储**，先分清谁管哪块：
 
-`src/lawmind/memory/index.ts` 里定了固定的读取顺序：
+1. **分层 Markdown 档案**（本节下面这份清单）——按固定顺序加载、进提示词窗口的长记忆，人可以直接打开看、直接改。
+2. **SQLite 记忆内核**（`lawmind/memory-kernel.sqlite`，代码在 `src/lawmind/memory/kernel/`）——「记忆库」界面（6.2）读写的活记忆。契约文件（`kernel/contract.ts`）的原话：「真相源是工作区里的 SQLite。Markdown / 立场 JSON 是给人看的投影，以及旧数据的导入来源。」确认一条 lawyer 范围的习惯会同时投影回 `LAWYER_PROFILE.md` 第八节；撤回或恢复时投影跟着收回或还原（`kernel/retract-projection.ts`）。旧工作区的 Markdown 会在首次使用时导入内核（`kernel/migrate.ts`）。
+
+内核记录带 `kind`（`habit` / `stance` / `client_note` / `matter_fact` / `playbook_note`）、`scope`（`lawyer` / `client` / `matter` / `firm`）、确认状态（`pending` / `confirmed` / `dismissed`）和有效性（`current` / `superseded` / `revoked`）。进提示词时由 `kernel/query.ts` 按本轮案件和问句挑选——只挑**已确认、当前有效、且与本案当事人不冲突**的记录，预算 2400 字（`PROMPT_CHAR_BUDGET`）；立场类另按 6.10 的跨案与置信度门槛过滤。单槽键（`stance.*`、六个 `habit.*` 写法槽、`habit.identity`）确认新记录时自动把同槽旧记录标成 `superseded`。
+
+下面这份清单是 **Markdown 侧**的固定读取顺序（`src/lawmind/memory/index.ts`）：
 
 1. `MEMORY.md` — 通用长期记忆
 2. `LAWYER_PROFILE.md` — 律师个人偏好
@@ -106,6 +118,8 @@
 最后一个状态很有意思。有些建议（比如某个 scope）确实没有可写的文件，系统不会假装写成功了，而是记成 `recorded_noop` 并带上 `noopReason`。源码注释就一句：
 
 > 新增 kind 未配 writer 时必须如实标注，不得静默宣称已采纳。
+
+别把这套五态和内核的维度搞混：记忆库界面（6.2）操作的不是这个 jsonl，而是内核记录的 `confirmation`（`pending` / `confirmed` / `dismissed`）× `validity`（`current` / `superseded` / `revoked`）两组状态。五态状态机管「Markdown 采纳建议」这条流水线；内核管「记忆库」那份 SQLite。两边都坚持未确认零写入。
 
 ### 建议的种类
 
@@ -179,7 +193,7 @@
 
 所以 `adoptBatch` 的返回值有三叠：`adopted`、`failed`、`recordedNoop`。你批准十条，八条成功、一条失败、一条没落盘面，它会如实告诉你这个分布。
 
-`MemoryInspector.batch.test.tsx` 有两条测试专门守这个：`预览不发写入请求，确认后才一次落盘`、`没有待确认项时不提供批量入口`。
+注意**批量采纳目前没有桌面入口**。唯一带批量按钮的界面是已退役的 `MemoryInspector.tsx`（见 6.2）；它的两条测试（`预览不发写入请求，确认后才一次落盘`、`没有待确认项时不提供批量入口`）还在仓库里，但守的是一个不再挂载的组件。线上可用的批量路径只有 API：`POST /api/memory/adoption/adopt-batch`，`dryRun !== false` 时只预览。桌面记忆库（6.2）是逐条确认。
 
 ## 6.6 律师档案：两个容易踩的细节
 
@@ -287,18 +301,23 @@
 
 ## 6.10 立场库：只在高置信时进提示词
 
-`src/lawmind/stance/` 存的是「你在某类条款上的一贯立场」，存在 `lawmind/stance/items.json`。
+`src/lawmind/stance/` 存的是「你在某类条款上的一贯立场」，存在 `lawmind/stance/items.json`。立场条目还会同步进记忆内核（`kernel/sync-stance.ts`，记录 kind 为 `stance`），让记忆库界面和内核提示词读到同一份立场。
 
 一个条目长这样（`StanceItem`）：
 
 ```ts
 {
   id, clauseType, family?,
-  position,            // 一句话立场
-  preferredLanguage,   // 你偏好的措辞
+  position,                // 一句话立场
+  preferredLanguage,       // 你偏好的措辞
+  fallbackLanguage?,       // 可接受的回退措辞
+  unacceptableLanguage?,   // 绝不接受的措辞
   rationale?, statuteBasis?,
-  source,              // redline | habit_adopt | manual | revision_pack
-  confidence, occurrences,
+  source,                  // redline | habit_adopt | manual | revision_pack
+  confidence,              // 由 evidence 按来源权重派生；无账本的存量条目保留写入时的值
+  modelConfidence?,        // 模型或律师给出的置信度；注入与衰减时优先于 confidence
+  evidenceScore?,          // 排序用的证据分（1 − Π(1 − w)）
+  occurrences,
   evidence: [{ source, at, matterId? }],
   createdAt, updatedAt, supersededBy?
 }
@@ -312,7 +331,7 @@
 
 - 被取代的（`supersededBy`）不要。
 - id 以 `firm_default_` 开头的预置条不要，理由是 `unconfirmed_firm_default`。
-- 置信度衰减后低于 `MIN_HINT_CONFIDENCE = 0.4` 不要。衰减规则：30 天内不变；超过 30 天按 `max(0.5, 1 - 天数/365)` 打折。
+- 置信度衰减后低于 `MIN_HINT_CONFIDENCE = 0.4` 不要（有 `modelConfidence` 时优先拿它参与衰减）。衰减规则：30 天内不变；超过 30 天按 `max(0.5, 1 - 天数/365)` 打折。
 - **证据必须跨至少 2 个不同案件**（`MIN_DISTINCT_EVIDENCE_MATTERS = 2`），否则跳过，理由是 `single_matter_evidence: 证据仅覆盖 N 个不同案件`。同一个案件的证据是豁免的。
 
 为什么要求跨 2 案？因为一个案件里的做法很可能只是这单的约定，不是你的立场。跨两案才勉强算「习惯」。
@@ -332,7 +351,7 @@
 
 排序方式是 `衰减后置信度 × 出现次数`，默认最多注入 8 条（`max = 8`）。
 
-注入时的措辞是「已按你确认的条款立场：」，然后逐条列 `【条款类型】偏好措辞`。**「你确认的」是重点**——立场库里的东西都是确认过的，不是猜的。
+注入时的措辞是「已按你确认的条款立场：」，然后逐条列 `1. 【条款类型】标准：偏好措辞`，填了回退或绝不接受措辞的会续上 `；可接受回退：…` / `；绝不接受：…`。**「你确认的」是重点**——立场库里的东西都是确认过的，不是猜的。
 
 ### 置信度怎么算
 
@@ -360,7 +379,7 @@
 
 ### 自查
 
-`stanceSelfCheck` 会在成品里找「说好的立场没落实」。它拿偏好措辞的前 16 个字符去正文里找，找不到就报一条 `stance.unapplied`（严重度 `info`，不可自动修）。规则是：正文短于 20 字就不查，针短于 8 字也不查。
+`stanceSelfCheck` 会在成品里找「说好的立场没落实」。它拿偏好措辞的前 16 个字符去正文里找，找不到就报一条 `stance.unapplied`（严重度 `info`，不可自动修）。规则是：正文短于 20 字就不查，针短于 8 字也不查。反过来，正文里写进了你标过「绝不接受」的措辞（同样取前 16 字做针），会报 `stance.unacceptable`（同为 `info`、不自动修）。两条都只报告，不改稿。
 
 ## 6.11 历史扫描：从旧文件夹里学习惯
 
@@ -486,40 +505,46 @@ CASE.md 的「八、工作进展记录」超过上限（`PROMPT_WINDOW.caseProgr
 
 ## 6.15 HTTP 端点一览
 
-| 端点                                                  | 作用                                                 |
-| ----------------------------------------------------- | ---------------------------------------------------- |
-| `GET /api/memory/adoption?scope=&state=&matterId=`    | 列建议（默认只 pending）；`unified=1` 会合并学习队列 |
-| `GET /api/memory/adoption/:id/preview-diff?matterId=` | 采纳前看差异（404 表示找不到）                       |
-| `POST /api/memory/adoption/suggest`                   | 提交一条建议（`origin: "lawyer"`）                   |
-| `POST /api/memory/adoption/adopt`                     | 采纳单条                                             |
-| `POST /api/memory/adoption/adopt-batch`               | 批量（`dryRun !== false` 时只预览）                  |
-| `POST /api/memory/adoption/dismiss`                   | 忽略                                                 |
-| `GET /api/memory/sources?matterId=&assistantId=`      | 记忆来源分层（含是否进提示词）                       |
-| `GET /api/memory/source-text?path=&maxChars=`         | 只读看某个记忆文件的片段（maxChars 夹在 200–16000）  |
-| `GET /api/memory/adoptions?assistantId=`              | 已落盘的「认知升级建议」行（最多 40 条）             |
-| `GET /api/learning/suggestions`                       | 学习队列                                             |
-| `GET /api/learning/contract-revisions`                | 合同修订积累包列表                                   |
-| `GET /api/assistants/growth`                          | 助手成长报告                                         |
-| `GET /api/historical-scan`（含加根目录、跑扫描等）    | 历史扫描                                             |
+| 端点                                                  | 作用                                                              |
+| ----------------------------------------------------- | ----------------------------------------------------------------- |
+| `GET /api/memory/library?view=&matterId=`             | 记忆库三视图（`habits` / `matter` / `revoked`），读 SQLite 内核   |
+| `POST /api/memory/library/confirm`                    | 确认一条内核记忆（可带改正后的 `body`、`key`、`scope`/`scopeId`） |
+| `POST /api/memory/library/revoke`                     | 撤回一条当前有效的内核记忆                                        |
+| `POST /api/memory/library/restore`                    | 恢复已撤回 / 已取代的内核记忆                                     |
+| `POST /api/memory/library/dismiss`                    | 忽略一条待确认的内核记忆                                          |
+| `GET /api/memory/adoption?scope=&state=&matterId=`    | 列建议（默认只 pending）；`unified=1` 会合并学习队列              |
+| `GET /api/memory/adoption/:id/preview-diff?matterId=` | 采纳前看差异（404 表示找不到）                                    |
+| `POST /api/memory/adoption/suggest`                   | 提交一条建议（`origin: "lawyer"`）                                |
+| `POST /api/memory/adoption/adopt`                     | 采纳单条                                                          |
+| `POST /api/memory/adoption/adopt-batch`               | 批量（`dryRun !== false` 时只预览）                               |
+| `POST /api/memory/adoption/dismiss`                   | 忽略                                                              |
+| `GET /api/memory/sources?matterId=&assistantId=`      | 记忆来源分层（含是否进提示词）                                    |
+| `GET /api/memory/source-text?path=&maxChars=`         | 只读看某个记忆文件的片段（maxChars 夹在 200–16000）               |
+| `GET /api/memory/adoptions?assistantId=`              | 已落盘的「认知升级建议」行（最多 40 条）                          |
+| `GET /api/learning/suggestions`                       | 学习队列                                                          |
+| `GET /api/learning/contract-revisions`                | 合同修订积累包列表                                                |
+| `GET /api/assistants/growth`                          | 助手成长报告                                                      |
+| `GET /api/historical-scan`（含加根目录、跑扫描等）    | 历史扫描                                                          |
 
 ## 6.16 关键文件
 
-| 关注点         | 文件                                                                                                                                                                                       |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 记忆加载与路径 | `src/lawmind/memory/index.ts`、`case-workspace.ts`、`memory-sources.ts`                                                                                                                    |
-| 采纳状态机     | `src/lawmind/memory/adoption-service.ts`                                                                                                                                                   |
-| 批量采纳       | `src/lawmind/memory/batch-adoption.ts`                                                                                                                                                     |
-| 写入网关       | `src/lawmind/memory/write-gateway.ts`                                                                                                                                                      |
-| CASE 锁与写入  | `src/lawmind/memory/case-md-lock.ts`、`case-writes.ts`                                                                                                                                     |
-| 档案与提示词   | `src/lawmind/memory/lawyer-profile-for-prompt.ts`、`lawyer-profile-learning.ts`                                                                                                            |
-| 提示词预算     | `src/lawmind/memory/prompt-windows.ts`                                                                                                                                                     |
-| 采纳落盘       | `src/lawmind/memory/adoption-apply.ts`、`memory-target-path.ts`、`adoption-preview-diff.ts`                                                                                                |
-| 跨案召回       | `src/lawmind/memory/similar-case-recall.ts`、`relevant-recall.ts`                                                                                                                          |
-| 学习           | `src/lawmind/learning/edit-examples.ts`、`draft-edit-learning.ts`、`rejection-ratchet.ts`、`apply-review-labels.ts`、`rewrite-amplitude.ts`                                                |
-| 立场库         | `src/lawmind/stance/`（`store.ts`、`inject.ts`、`capture.ts`、`firm-defaults.ts`、`self-check.ts`）                                                                                        |
-| 历史扫描       | `src/lawmind/historical-scan/`                                                                                                                                                             |
-| 助手           | `src/lawmind/assistants/`                                                                                                                                                                  |
-| 桌面 UI        | `apps/lawmind-desktop/src/renderer/MemoryInspector.tsx`、`LawmindMemorySourcesPanel.tsx`、`LawmindMemoryTruthSources.tsx`、`matter/MatterMemoryInspector.tsx`、`LawmindSettingsMemory.tsx` |
+| 关注点         | 文件                                                                                                                                                                                                                                     |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 记忆加载与路径 | `src/lawmind/memory/index.ts`、`case-workspace.ts`、`memory-sources.ts`                                                                                                                                                                  |
+| 记忆内核       | `src/lawmind/memory/kernel/`（`contract.ts`、`store.ts`、`gateway.ts`、`query.ts`、`migrate.ts`、`consolidate.ts`、`retract-projection.ts`、`sync-stance.ts`）                                                                           |
+| 采纳状态机     | `src/lawmind/memory/adoption-service.ts`                                                                                                                                                                                                 |
+| 批量采纳       | `src/lawmind/memory/batch-adoption.ts`                                                                                                                                                                                                   |
+| 写入网关       | `src/lawmind/memory/write-gateway.ts`                                                                                                                                                                                                    |
+| CASE 锁与写入  | `src/lawmind/memory/case-md-lock.ts`、`case-writes.ts`                                                                                                                                                                                   |
+| 档案与提示词   | `src/lawmind/memory/lawyer-profile-for-prompt.ts`、`lawyer-profile-learning.ts`                                                                                                                                                          |
+| 提示词预算     | `src/lawmind/memory/prompt-windows.ts`                                                                                                                                                                                                   |
+| 采纳落盘       | `src/lawmind/memory/adoption-apply.ts`、`memory-target-path.ts`、`adoption-preview-diff.ts`                                                                                                                                              |
+| 跨案召回       | `src/lawmind/memory/similar-case-recall.ts`、`relevant-recall.ts`                                                                                                                                                                        |
+| 学习           | `src/lawmind/learning/edit-examples.ts`、`draft-edit-learning.ts`、`rejection-ratchet.ts`、`apply-review-labels.ts`、`rewrite-amplitude.ts`                                                                                              |
+| 立场库         | `src/lawmind/stance/`（`store.ts`、`inject.ts`、`capture.ts`、`firm-defaults.ts`、`self-check.ts`）                                                                                                                                      |
+| 历史扫描       | `src/lawmind/historical-scan/`                                                                                                                                                                                                           |
+| 助手           | `src/lawmind/assistants/`                                                                                                                                                                                                                |
+| 桌面 UI        | `LawmindMemoryLibrary.tsx`、`LawmindSettingsMemory.tsx`、`LawmindMemoryTruthSources.tsx`、`LawmindContractReviewLearningPanel.tsx`、`LawmindMemorySourcesPanel.tsx`、`matter/MatterMemoryInspector.tsx`（已退役：`MemoryInspector.tsx`） |
 
 ## 6.17 已知坑
 
@@ -531,4 +556,6 @@ CASE.md 的「八、工作进展记录」超过上限（`PROMPT_WINDOW.caseProgr
 - `golden/` 和 `edits/` 是两回事：前者是「律师判定为典范」，后者是「律师动过手」。别把改稿写进 `golden/`。
 - 立场库不注入不代表立场错了。先看它是不是只覆盖了一个案件、或者证据全来自其他客户。
 - 历史扫描的习惯**要出现 5 次**才入队。少于 5 次的改法永远看不到，这是有意的。
-- 批量采纳默认 `dryRun`，接口和函数层都是这个默认。写代码调用时别指望它直接落盘。
+- 批量采纳默认 `dryRun`，接口和函数层都是这个默认。写代码调用时别指望它直接落盘。而且桌面没有批量按钮，只有 API。
+- 「项目」scope 的 `project.note` 采纳后**没有落盘面**，如实记 `recorded_noop`——别以为它记住了。只有 `historical.knowledge` 会写进 `memory/topics/historical-scan.md`。
+- 设置里的记忆库读的是 SQLite 内核，不读 `memory-adoption/suggestions.jsonl`。排查「界面看到的那条」去内核；排查「Markdown 采纳流水线」才去 jsonl。

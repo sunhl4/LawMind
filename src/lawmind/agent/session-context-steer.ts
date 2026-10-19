@@ -86,9 +86,17 @@ export function queuePendingSteer(
   });
 }
 
-/** Read queued notes without consuming them. Sidecars inject a copy; the parent still claims. */
+/** Read queued notes without consuming them. Only the parent conversation claims them. */
 export function peekPendingSteer(workspaceDir: string, sessionId: string): string[] {
   return readPendingFile(pendingSteerPath(workspaceDir, sessionId));
+}
+
+/** Drop a correction that the current turn has not claimed yet. Stop uses this. */
+export function discardUnclaimedSteer(workspaceDir: string, sessionId: string): void {
+  const filePath = pendingSteerPath(workspaceDir, sessionId);
+  withExclusiveFileLock(`${filePath}.lock`, () => {
+    fs.rmSync(filePath, { force: true });
+  });
 }
 
 export function claimPendingSteer(

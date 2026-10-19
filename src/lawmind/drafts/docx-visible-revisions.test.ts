@@ -41,5 +41,8 @@ describe("writeVisibleTrackedEdits", () => {
     expect(xml).toContain(">五</w:t>");
     expect(xml).toContain("甲方应于");
     expect(xml).toContain("日内付款。");
+    // Hard control: inserted/deleted runs keep the original run props.
+    expect(xml).toMatch(/<w:ins[\s\S]*?<w:rPr>[\s\S]*?w:val="21"/);
+    expect(xml).toMatch(/<w:del[\s\S]*?<w:rPr>[\s\S]*?w:val="21"/);
   });
 });

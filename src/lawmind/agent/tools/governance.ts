@@ -40,7 +40,7 @@ export function promptCatalogToolNames(): string[] {
 export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }> = [
   { name: "execute_workflow", hint: "按需启动确定性办案管线（检索→起草→审批）" },
   { name: "deep_research", hint: "长时深度检索（联网开启时含公开网页）" },
-  { name: "delegate_task", hint: "把子任务交给另一位助手" },
+  { name: "delegate_task", hint: "名册上的委派。拆本对话的并行任务用 draft_worker，不要用这个" },
   { name: "digest_materials", hint: "一次分头读很多份材料，只交回要点卡片" },
   { name: "render_tracked_draft", hint: "导出带审阅痕迹的 Word" },
   { name: "send_email", hint: "发送已准备的外发邮件（须律师签批）" },

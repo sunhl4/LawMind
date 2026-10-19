@@ -162,4 +162,33 @@ describe("pkulawRetrieve", () => {
       }
     }
   });
+
+  it("runs two 法宝 searches at the same time", async () => {
+    let inFlight = 0;
+    let max = 0;
+    const fetchImpl = vi.fn(async () => {
+      inFlight += 1;
+      max = Math.max(max, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      inFlight -= 1;
+      return new Response(lawFixture, { status: 200 });
+    });
+    await Promise.all([
+      pkulawRetrieve({
+        endpointNormalized: "https://authority.example/pkulaw",
+        query: "未成年人保护法",
+        apiKey: "tok-test",
+        mode: "rest_compat",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+      pkulawRetrieve({
+        endpointNormalized: "https://authority.example/pkulaw",
+        query: "劳动合同法",
+        apiKey: "tok-test",
+        mode: "rest_compat",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ]);
+    expect(max).toBe(2);
+  });
 });

@@ -23,6 +23,7 @@ import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
 import type { ReviewOpenTarget } from "../LawmindChatReviewSticky";
 import type { LawmindLawyerWorkbenchProps } from "../LawmindLawyerWorkbench";
 import { LawmindLawyerWorkbench } from "../LawmindLawyerWorkbench";
+import { LawmindMiddleDraftDesk } from "../LawmindMiddleDraftDesk";
 
 export type LawmindWorkspaceMainPaneProps = {
   canUseFilesystemBridge: boolean;
@@ -290,6 +291,11 @@ function LawmindWorkspaceMainPaneImpl({
               }}
             />
           ) : null}
+          <LawmindMiddleDraftDesk
+            apiBase={config?.apiBase}
+            assistantId={selectedAssistantId}
+            hidden={showDesk}
+          />
         </div>
         {showMiddle && wsShowChat ? (
           <div
@@ -380,6 +386,7 @@ function LawmindWorkspaceMainPaneImpl({
                 onOpenSettings={onOpenSettings}
                 onOpenDoctor={onOpenDoctor}
                 workspaceDir={config?.workspaceDir}
+                projectDir={config?.projectDir ?? undefined}
               />
             </div>
             <LawmindChatComposeFooter

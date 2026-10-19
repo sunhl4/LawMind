@@ -150,9 +150,9 @@ export const REVIEW_TABLE_ABSTAIN_TEXT = "无法判断（证据不足）";
 
 > 为什么需要它：交付前不让律师介入，也不该把「抽金额 / 抽日期 / 抽法院」这类有确定答案的活交给模型赌概率。模式能定的，引擎直接定；定不了的才交模型或弃答。
 
-现有的模式有 11 种：金额、日期、天数、案号、法院、当事人、付款条件、交付条件、管辖、违约金、送达地址。
+现有的模式有 11 种（`REVIEW_PATTERNS`，标签照抄）：案号、法院、金额、日期、天数、付款约定、交付约定、争议解决、违约责任、送达地址、当事人。
 
-每种模式带一个 `columnHints`，用来决定它适配哪些列。匹配成功后返回的定位是 `line=<行号>`，值截到 200 字。抽取成功时的备注是「按「<模式名>」模式抽取」，置信度是 `high`（走 OCR 的是 `low`）。
+每种模式带一个 `columnHints`，用来决定它适配哪些列（列的 key / label / prompt 任一命中即适配，可多模式，按目录顺序取首个命中）。匹配成功后返回的定位是 `line=<行号>`，值截到 200 字。抽取成功时的备注是「按「<模式名>」模式抽取」，置信度是 `high`（正文走 OCR 得来的是 `low`）。
 
 抽不动时的弃答原因是写死的两种：
 
@@ -176,17 +176,17 @@ export const REVIEW_TABLE_ABSTAIN_TEXT = "无法判断（证据不足）";
 | `已取消`               | 中途取消                                          |
 | `证据不足`             | 模型判定信息不够                                  |
 
-走 OCR 的格子备注是「OCR 只读抽取」，置信度降到 `low`。**失败即弃答，不空跑、不假装成功。**
+走 OCR 的格子置信度降到 `low`；抽取器没给备注时，这格备注落「OCR 只读抽取」（用确定性模式抽中的格子，备注仍是「按「<模式名>」模式抽取」）。**失败即弃答，不空跑、不假装成功。**
 
 ### 汇总文案
 
-跑完给一句汇总（`summarizeReviewExtract`），形如：
+跑完给一句汇总（`summarizeReviewExtract`），各段用「·」连接，形如：
 
 ```text
-12 份材料 · 84 格（其中 71 格有出处、9 格弃答；4 份走扫描件识别，1 份扫描件未能识别）
+12 份材料 · 84 格 · 71 格有出处 · 9 格弃答 · 4 份走扫描件识别 · 1 份扫描件未能识别
 ```
 
-律师一看就知道这张表的可信度大概什么样。
+（扫描件两段只在真的走过 / 失败过 OCR 时才出现。）律师一看就知道这张表的可信度大概什么样。
 
 ### 材料顺序按路径升序
 
@@ -395,11 +395,13 @@ export const REVIEW_TABLE_ABSTAIN_TEXT = "无法判断（证据不足）";
 | 用途     | 交付出去                                       | 内部对照、人工核对                   |
 | 能否编辑 | 能                                             | 只能在界面上写批注和「已核对」标记   |
 
+注意：矩阵的界面（`MatterReviewMatrixPanel`）随旧案件台一起退役了（见第 7.14 节），批注读写走 `GET/PUT /api/matters/review-matrix/notes`，数据层与端点照常可用。
+
 矩阵的摘录算法（`excerptForQuestion`）值得说一下，因为它很克制：
 
 1. 先清理 markdown 噪音。
 2. 按问题 id 取关键词表，**取不到关键词就直接返回空**（所以 `q-misc` 永远是空的）。
-3. 逐个关键词找位置，命中第一个就取前 24 字开始的一段，最多 160 字。
+3. 逐个关键词找位置，命中第一个后，从**命中点前 24 字**起取一段，最多 160 字（不是整段则带省略号）。
 
 注释解释了为什么不命中就留空：
 
@@ -434,23 +436,23 @@ documentId,documentTitle,questionId,question,excerpt,status,citation
 
 ## 9.9 HTTP 端点
 
-| 端点                                           | 方法      | 说明                                                                              |
-| ---------------------------------------------- | --------- | --------------------------------------------------------------------------------- |
-| `/api/drafts/:id/table`                        | GET       | 读审查表（没有则 404 `table_not_found`）                                          |
-| `/api/drafts/:id/table`                        | PATCH     | 整表替换（草稿不在待审/需修改状态则 409 `draft_not_editable`）                    |
-| `/api/drafts/:id/table.xlsx`                   | GET       | 导出 xlsx。第一张是表，第二张「逐格出处」。工作表名取标题前 31 字，缺省「审查表」 |
-| `/api/matters/review-matrix/notes?matterId=`   | GET / PUT | 矩阵批注与已核对标记（案件目录 JSON）                                             |
-| `/api/matters/review-matrix?matterId=`         | GET       | 读矩阵                                                                            |
-| `/api/matters/review-matrix/export?matterId=`  | GET       | 导出 CSV                                                                          |
-| `/api/queues?matterId=&kind=`                  | GET       | 读工作队列                                                                        |
-| `/api/approvals?matterId=&status=&targetRole=` | GET       | 读审批（可按目标角色）                                                            |
-| `/api/fleet-playbooks`                         | GET       | 列专案组模板（含角色数）                                                          |
-| `/api/fleet-playbooks/:id`                     | GET       | 读一个模板                                                                        |
-| `/api/review-campaigns?taskId=&matterId=`      | GET       | 读专案组运行                                                                      |
-| `/api/review-campaigns`                        | POST      | 建专案组（可传 `idempotencyKey`、`runNow`、`preferFast`、`preferParallel`）       |
-| `/api/review-campaigns/:id/cancel`             | POST      | 取消                                                                              |
-| `/api/review-campaigns/:id/roles/:role/rerun`  | POST      | 重跑某个角色                                                                      |
-| `/api/review-campaigns/:id/report`             | GET       | 出 Markdown 报告                                                                  |
+| 端点                                          | 方法      | 说明                                                                              |
+| --------------------------------------------- | --------- | --------------------------------------------------------------------------------- |
+| `/api/drafts/:id/table`                       | GET       | 读审查表（没有则 404 `table_not_found`）                                          |
+| `/api/drafts/:id/table`                       | PATCH     | 整表替换（草稿不在待审/需修改状态则 409 `draft_not_editable`）                    |
+| `/api/drafts/:id/table.xlsx`                  | GET       | 导出 xlsx。第一张是表，第二张「逐格出处」。工作表名取标题前 31 字，缺省「审查表」 |
+| `/api/matters/review-matrix/notes?matterId=`  | GET / PUT | 矩阵批注与已核对标记（案件目录 JSON）                                             |
+| `/api/matters/review-matrix?matterId=`        | GET       | 读矩阵                                                                            |
+| `/api/matters/review-matrix/export?matterId=` | GET       | 导出 CSV                                                                          |
+| `/api/queues?matterId=&kind=`                 | GET       | 读工作队列（路由在，但当前渲染层没有调用方）                                      |
+| `/api/approvals?matterId=`                    | GET       | 合并工具审批与案卷审批的待办列表（只列 `pending`；查询参数只有 `matterId`）       |
+| `/api/fleet-playbooks`                        | GET       | 列专案组模板（含角色数）                                                          |
+| `/api/fleet-playbooks/:id`                    | GET       | 读一个模板                                                                        |
+| `/api/review-campaigns?taskId=&matterId=`     | GET       | 读专案组运行                                                                      |
+| `/api/review-campaigns`                       | POST      | 建专案组（可传 `idempotencyKey`、`runNow`、`preferFast`、`preferParallel`）       |
+| `/api/review-campaigns/:id/cancel`            | POST      | 取消                                                                              |
+| `/api/review-campaigns/:id/roles/:role/rerun` | POST      | 重跑某个角色                                                                      |
+| `/api/review-campaigns/:id/report`            | GET       | 出 Markdown 报告                                                                  |
 
 有一个坑写在 xlsx 那条路由的注释里，挺典型：
 
@@ -471,9 +473,11 @@ documentId,documentTitle,questionId,question,excerpt,status,citation
 | 专案组         | `src/lawmind/review-campaign/`（`playbooks.ts`、`serial-runner.ts`、`bind-assistants.ts`、`safety-score.ts`、`review-brief.ts`、`storage.ts`、`types.ts`）                                                     |
 | 队列           | `src/lawmind/application/services/queue-write-service.ts`、`queue-service.ts`                                                                                                                                  |
 | 队列派生       | `src/lawmind/core/contracts.ts`（`buildQueueItemsFromMatterIndex`）                                                                                                                                            |
-| CLI 审核门     | `src/lawmind/review/cli.ts`                                                                                                                                                                                    |
+| CLI 审核门     | `src/lawmind/review/cli.ts`（早期终端审核入口；`src/` 与 `apps/` 无引用，只被 `scripts/lawmind/lawmind-smoke.ts` 调用。桌面审核不走它）                                                                        |
 | HTTP           | `apps/lawmind-desktop/server/lawmind-server-route-review.ts`、`-review-campaign.ts`、`-matters.ts`                                                                                                             |
 | 桌面 UI        | `apps/lawmind-desktop/src/renderer/LawmindReviewTableEditor.tsx`、`LawmindReviewCampaignPanel.tsx`、`matter/MatterReviewQueuePanel.tsx`、`matter/MatterReviewMatrixPanel.tsx`、`matter/review-matrix-notes.ts` |
+
+UI 行里前两个组件是现行的（审查表编辑器、专案组面板都挂在改稿工作面）；`matter/` 下的三个随旧案件台退役（见第 7.14 节），对应 HTTP 端点照常可用。
 
 ## 9.11 已知坑
 

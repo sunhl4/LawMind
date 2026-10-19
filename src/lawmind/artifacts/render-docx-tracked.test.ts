@@ -479,6 +479,53 @@ describe("renderDocxWithTrackedChanges multi-match safety", () => {
     expect(manifest.proposals.find((p) => p.hunkId === "ok-1")?.applyStatus).toBeUndefined();
     fs.rmSync(dir, { recursive: true, force: true });
   });
+
+  it("degrades a hunk whose minimal ops only partially land (partialOpHunks)", async () => {
+    spawnState.setSucceeds = true;
+    // 一处 hunk 拆成两段最短 op（五→十、甲→乙）；第二段 no_match —— 修订不完整，
+    // 必须以 degraded 交付并明说，不能看起来像已完整落改。
+    spawnState.matchedQueue = [1, 0];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-tracked-partial-ops-"));
+    fs.writeFileSync(path.join(dir, "合同.docx"), "pk");
+    const result = await renderDocxWithTrackedChanges({
+      draft: {
+        taskId: "task-partial-ops",
+        title: "Test",
+        summary: "",
+        templateId: "general",
+        output: "docx",
+        reviewStatus: "approved",
+        reviewNotes: [],
+        sections: [
+          { heading: "一", body: "截至验收，甲方应按约支付货款，定于五日内付清。", citations: [] },
+        ],
+        createdAt: new Date().toISOString(),
+        contractEdit: {
+          baselineRelativePath: "合同.docx",
+          mode: "surgical",
+        },
+      } as import("../types.js").ArtifactDraft,
+      outputDir: dir,
+      proposals: [
+        {
+          hunkId: "p-1",
+          sectionIndex: 0,
+          before: "甲方应按约支付货款，定于五日内付清",
+          after: "乙方应按约支付货款，定于十日内付清",
+          status: "pending",
+        },
+      ],
+      workspaceDir: dir,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.partialOpHunks).toBe(1);
+      expect(result.appliedOps).toBe(1);
+      expect(result.degraded).toBe(true);
+      expect(result.warning).toContain("只落了部分最短改动");
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 });
 
 describe("renderDocxWithTrackedChanges revision author", () => {

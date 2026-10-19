@@ -38,10 +38,10 @@ Node 22+（`.nvmrc` 是 `22`），pnpm 10.23.0（`package.json` 的 `packageMana
 `pnpm lawmind:verify` 串的是：
 
 ```text
-test:coverage → coverage ratchet → skills golden
+test:coverage → coverage ratchet → skills golden --compare
 → typecheck → bundle:desktop-server → 桌面端 typecheck → desktop-node typecheck
-→ renderer CSS → renderer node → UI 文案 lint → 平台契约
-→ desktop http-smoke → release-readiness
+→ renderer CSS → renderer CSS sync → renderer node → UI 文案 lint
+→ 禁全局 fetch stub → 平台契约 → desktop http-smoke → release-readiness
 ```
 
 PR 上的 `.github/workflows/lawmind-ci.yml` 的 `verify` 作业跑同一条链（覆盖率报告和发布就绪报告会另存成产物）。文件大小棘轮是旁边的 `file-size-check` 作业，命令是 `pnpm lawmind:check:file-size`，不塞进这条链。它比较慢，适合发版前或要和 CI 对齐时用，不适合每次改动都跑。日常改完跑相关目录的 `pnpm exec vitest run`。
@@ -52,7 +52,7 @@ PR 上的 `.github/workflows/lawmind-ci.yml` 的 `verify` 作业跑同一条链�
 
 ## 18.2 测试怎么分层
 
-这个仓库的测试有清晰的四层，混用会出问题。
+这个仓库的测试有清晰的四层，混用会出问题。2026-10-17 的快照是 **1095 个测试文件**（会漂移），分布与统计口径见附录 E。
 
 ### 第一层：单元测试（`*.test.ts` 与实现同目录）
 
@@ -72,7 +72,7 @@ PR 上的 `.github/workflows/lawmind-ci.yml` 的 `verify` 作业跑同一条链�
 
 ### 第四层：真机端到端（Playwright + Electron）
 
-在 `apps/lawmind-desktop/e2e/`。这一层有**两套互斥的配置**——浏览器 mock 和真机 Electron 不能混跑，有一条测试专门守着这个分区（`e2e-spec-partition.test.ts`）。
+在 `apps/lawmind-desktop/e2e/`。这一层有**两套互斥的配置**——浏览器 mock 和真机 Electron 不能混跑，有一条测试专门守着这个分区（`apps/lawmind-desktop/electron/e2e-spec-partition.test.ts`，注意它在 `electron/` 不在 `e2e/`）。
 
 真机 Electron 套件的清单在 `e2e/electron-specs.ts` 的 `ELECTRON_SPEC_FILES` 里，八个：
 
@@ -149,13 +149,13 @@ cassette 的做法（借自 Codex 的 `test_codex`）：
 
 1. **实现**：新建 `src/lawmind/agent/tools/legal/<名字>.ts`（或 `tools/engine/`），导出一个 `AgentTool`。
 2. **注册**：在 `tools/legal-tools.ts` 的 `createLegalToolRegistry` 里注册，或者在 `tools/engine-tools.ts` 的数组里加。
-3. **名字集合**：判断它属不属于那几个集合（`tool-name-sets.ts`）：
+3. **名字集合**：判断它属不属于那几个集合（`agent/tool-name-sets.ts`，在 `agent/` 下、不在 `tools/` 下）：
    - 会改状态的 → 加进 `WRITE_TOOLS`。
    - 只读幂等的 → 加进 `IDEMPOTENT_READ_TOOLS`。
    - 需要绑案件 → 加进 `MATTER_SCOPE_REQUIRED`。
 4. **披露清单**：如果它不该开局就广告给模型，在 `governance.ts` 的 `DISCLOSED_TOOL_HINTS` 里加一条（名字 + 中文说明），这样 `list_more_tools` 能启用它。
 5. **保留名**：如果它是核心工具、外部不许顶替，加进 `tools/reserved-tool-names.ts`。
-6. **沙箱**：只有会执行脚本或本机命令的工具才考虑加进 `dangerous-tool-policy.ts` 的 `SUBPROCESS_SANDBOX_TOOL_NAMES`。本地记一笔档案不要放进去。
+6. **沙箱**：只有会执行脚本或本机命令的工具才考虑加进 `agent/dangerous-tool-policy.ts` 的 `SUBPROCESS_SANDBOX_TOOL_NAMES`。本地记一笔档案不要放进去。
 7. **测试**：同目录放 `<名字>.test.ts`。
 8. **cassette**：如果它参与编排行为（被广告、被门禁拦），加一条 cassette 断言。
 
@@ -276,7 +276,7 @@ cassette 的做法（借自 Codex 的 `test_codex`）：
 
 它关掉了不少规则（MD013 行长度、MD025 多一级标题、MD029 有序列表前缀、MD036、MD040、MD041、MD046），所以**行长度不是约束**——中文文档不需要卡 80 列。
 
-开着并且容易踩的几条：MD028（引用块里不能有空行）、MD033（内联 HTML 白名单）、MD024（重复标题）、MD050（加粗风格统一用星号）、MD060（表格管道风格）。
+开着并且容易踩的几条：MD028（引用块里不能有空行）、MD033（内联 HTML 白名单）、MD024（重复标题）、MD050（加粗风格统一用星号）、MD060（表格列管道风格统一）。
 
 我写这本手册时就踩过 `MD028`（两个引用块中间空一行）、`MD033`（`<id>` 这种尖括号被当成 HTML 标签）、`MD050`（`___` 被当成下划线加粗）。
 
@@ -291,6 +291,7 @@ cassette 的做法（借自 Codex 的 `test_codex`）：
 - **测试与实现同目录**，命名 `<实现名>.test.ts`。
 - **注释里引用律师可见概念时用术语表的中文词**，减少两套语言漂移。代码标识符保持英文。
 - **安全规则注释可以用中文**，理由是「便于律所 IT 审阅」（`safe-command.ts` 头部原话）。
+- **修 bug 别只讲叙事。** 收口标准是复现 + 失败测试或日志 + 代码路径（`AGENTS.md`「Git / GitHub」一节）。`gh` 多行评论用单引号 heredoc（`-F - <<'EOF'`）防止 shell 元字符与反引号串改正文；要 GitHub 自动链接 issue/PR 就写裸 `#123`，别包反引号。
 
 ### 关于注释里的「踩坑史」
 
@@ -316,15 +317,16 @@ cassette 的做法（借自 Codex 的 `test_codex`）：
 git worktree add --detach <路径> HEAD
 ```
 
-五条禁令：
+六条禁令：
 
 1. **禁止在共享工作区跑 `git stash`。** 不带 pathspec 的 `git stash push` 会把**别人**未提交的改动一起收走，`pop` 时冲突，而且很难判断谁丢了什么。
 2. **禁止 `git add -A` / `git add .` / `git commit -a`。** `workspace/` 下混着运行时产物，全量 add 会把它们卷进提交。只用显式路径列举本轮文件。
 3. **提交前先看 `git status`。** 出现不属于本轮的文件说明有并行写入者，不要一起提交，也不要 `git checkout -- .` 或 `git clean -fd`。
 4. **同一文件被两个会话改过时，以跑通测试的合并态为准**，并逐个核对两侧意图都还在。
 5. **收口时不要把 `workspace/` 里的运行时产物提交。** 它的真相源在 `src/lawmind/skills/builtin/*.md` 和 `src/lawmind/agent/collaboration/*-templates.ts`。
+6. **别让 `markdownlint-cli2 --fix` 按 globs 跑全量。** `.markdownlint-cli2.jsonc` 的 `globs` 是 `docs/**/*.md`，所以「只修一个文件」的调用会**改写仓库里每一篇 docs**；并发时这就等于把别人的 doc 改动一起改掉，随后很容易被 `git checkout --` 连人带己丢掉（已真实发生过一次）。要改单篇：显式传路径并确认只动了那一篇，或者先 `--no-globs`（或在受控 worktree 里跑）。
 
-最后一条：**工作区里的技能文件是播种产物，真正的源头在仓库里**。改了工作区里的技能不会进入版本控制，改仓库里的才会。
+第 5 条还有个推论：**工作区里的技能文件是播种产物，真正的源头在仓库里**。改了工作区里的技能不会进入版本控制，改仓库里的才会。
 
 ### 已知本地 stash（勿 pop 到 main）
 
@@ -385,7 +387,7 @@ git worktree add --detach <路径> HEAD
 | pre-commit 门禁 | `scripts/pre-commit/check-file-size.mjs`、`check-coverage-ratchet.mjs`、`filter-staged-files.mjs`                                              |
 | CI 门禁脚本     | `scripts/lawmind/check-renderer-css.mjs`、`check-renderer-node-imports.mjs`、`lawmind-ui-copy-lint.mjs`、`lawmind-platform-contracts-check.ts` |
 | CORS 结构测试   | `apps/lawmind-desktop/server/lawmind-server-cors-structure.test.ts`                                                                            |
-| E2E 分区        | `apps/lawmind-desktop/e2e/electron-specs.ts`、`e2e-spec-partition.test.ts`                                                                     |
+| E2E 分区        | `apps/lawmind-desktop/e2e/electron-specs.ts`、`apps/lawmind-desktop/electron/e2e-spec-partition.test.ts`                                       |
 | 文档站同步      | `apps/lawmind-docs/scripts/sync-docs.mjs`                                                                                                      |
 | 发版清单        | `apps/lawmind-desktop/RELEASE-CHECKLIST.md`                                                                                                    |
 | 文档规范        | `.markdownlint-cli2.jsonc`、`docs/LAWMIND-TERMINOLOGY.md`、`docs/LAWMIND-DESKTOP-UI-CONTROLS.md`                                               |
@@ -406,6 +408,7 @@ git worktree add --detach <路径> HEAD
 - **`docs/lawmind/` 是整目录同步。** 加子目录会自动发布。
 - **工作区里的技能文件是播种产物。** 改技能要改 `src/lawmind/skills/builtin/`。
 - **共享工作区别跑 `git stash`、别 `git add -A`。** 会收到别人的改动或运行时产物。
+- **`markdownlint-cli2 --fix` 别按 globs 跑全量。** 会改写仓库里每一篇 docs；修单篇要显式传路径（或 `--no-globs`）。
 - **同一克隆同时只允许一个会话写工作区。** 并行要用 `git worktree`。
 - **Playwright 的 Electron preload 是替身。** 不是可以发布的网页版工作台。
 - **留意注释里的「踩坑史」。** 它们记录的往往是「看起来很合理但其实错了」的改法。

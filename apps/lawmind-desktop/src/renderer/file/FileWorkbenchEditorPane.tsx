@@ -28,6 +28,7 @@ import { DocFileView } from "./DocFileView";
 import { EmlFileView } from "./EmlFileView";
 import { MediaFileView } from "./MediaFileView";
 import { PdfFileView } from "./PdfFileView";
+import { PptxFileView } from "./PptxFileView";
 import { XlsxFileView } from "./XlsxFileView";
 import { ZipFileView } from "./ZipFileView";
 import { isMarkdownWorkbenchPath } from "./markdown-file-preview";
@@ -324,6 +325,8 @@ export function FileWorkbenchEditorPane({
               <PdfFileView tab={tab} apiBase={apiBase} actions={actions} />
             ) : tab.kind === "xlsx" ? (
               <XlsxFileView tab={tab} apiBase={apiBase} actions={actions} />
+            ) : tab.kind === "pptx" ? (
+              <PptxFileView tab={tab} apiBase={apiBase} actions={actions} />
             ) : tab.kind === "media" ? (
               <MediaFileView tab={tab} apiBase={apiBase} actions={actions} />
             ) : tab.kind === "eml" ? (

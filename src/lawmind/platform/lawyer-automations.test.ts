@@ -358,7 +358,7 @@ describe("lawyer-automations", () => {
     expect(built.workflowInstruction).not.toContain("## 禁止");
   });
 
-  it("materializeMailContractReviewBaselines stops on .doc until lawyer saves as .docx", async () => {
+  it("materializeMailContractReviewBaselines reads a .doc in-process", async () => {
     const { buildMailContractReviewSummary, materializeMailContractReviewBaselines } =
       await import("./lawyer-automations.js");
     const ws = tmpWs();
@@ -366,7 +366,7 @@ describe("lawyer-automations", () => {
     const relMatter = "mail/attachments/msg-doc/合作协议.doc";
     const abs = path.join(ws, "cases", matterId, relMatter);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.writeFileSync(abs, Buffer.from("fake-doc-bytes"));
+    fs.copyFileSync(path.resolve(__dirname, "../mail/fixtures/tracked-changes-5-authors.doc"), abs);
     const messages = [
       {
         id: "msg-doc",
@@ -381,14 +381,43 @@ describe("lawyer-automations", () => {
     const drafted = buildMailContractReviewSummary(messages, matterId);
     expect(drafted.attachmentRefs[0]?.kind).toBe("legacy_doc");
     const built = await materializeMailContractReviewBaselines(ws, messages, matterId, drafted);
-    expect(built.reviewMode).toBe("opinion");
-    expect(built.preferredBaselinePath).toBeUndefined();
+    expect(built.reviewMode).toBe("tracked");
+    expect(built.preferredBaselinePath).toBe(`cases/${matterId}/${relMatter}`);
     expect(built.preferredSourcePath).toBe(`cases/${matterId}/${relMatter}`);
-    expect(built.convertNote).toMatch(/另存为同名的 \.docx/);
-    expect(built.workflowInstruction).not.toContain("render_tracked_draft");
+    expect(built.convertNote).toMatch(/直接读取/);
     expect(
       fs.existsSync(path.join(ws, `cases/${matterId}/${relMatter}`.replace(/\.doc$/i, ".docx"))),
     ).toBe(false);
+  });
+
+  it("falls back to opinion review when a .doc body cannot be read", async () => {
+    const { buildMailContractReviewSummary, materializeMailContractReviewBaselines } =
+      await import("./lawyer-automations.js");
+    const ws = tmpWs();
+    const matterId = "m_doc_bad";
+    const relMatter = "mail/attachments/msg-doc/坏稿.doc";
+    const abs = path.join(ws, "cases", matterId, relMatter);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, Buffer.from("not-a-real-doc"));
+    const messages = [
+      {
+        id: "msg-doc-bad",
+        from: "对方 <opp@firm.com>",
+        to: "me@firm.com",
+        subject: "坏稿",
+        receivedAt: "2026-07-18T10:00:00.000Z",
+        bodyText: "请改",
+        attachments: [{ name: "坏稿.doc", relativePath: relMatter }],
+      },
+    ];
+    const built = await materializeMailContractReviewBaselines(
+      ws,
+      messages,
+      matterId,
+      buildMailContractReviewSummary(messages, matterId),
+    );
+    expect(built.reviewMode).toBe("opinion");
+    expect(built.preferredBaselinePath).toBeUndefined();
   });
 
   it("computeNextRunAt weekly schedule lands in future", () => {

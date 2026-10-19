@@ -19,6 +19,7 @@ import { requestOpenWorkspaceFile } from "./lawmind-workspace-file-open";
 export type LegalMarkdownContext = {
   apiBase?: string;
   workspaceDir?: string;
+  projectDir?: string;
   onOpenDraft?: (taskId: string) => void;
   onOpenError?: (message: string) => void;
   /** 这份审阅稿的相对路径 → 任务编号。有任务号时左键仍进核对。 */
@@ -114,6 +115,7 @@ export function renderInlineLegalMarkdown(
               apiBase: ctx.apiBase,
               taskId: token.taskId,
               workspaceDir: ctx.workspaceDir,
+              projectDir: ctx.projectDir,
             }).then((result) => {
               if (!result.ok) {
                 ctx.onOpenError?.(result.error);
@@ -152,18 +154,21 @@ export function renderInlineLegalMarkdown(
             title="打开审核。右键可以去本机目录，或用本机应用打开。"
             onClick={() => {
               const openReview = (taskId: string) => {
-                if (ctx?.onOpenDraft) {
-                  ctx.onOpenDraft(taskId);
+                if (ctx?.apiBase?.trim()) {
+                  void openContractRevisionForTask({
+                    apiBase: ctx.apiBase,
+                    taskId,
+                    workspaceDir: ctx.workspaceDir,
+                    projectDir: ctx.projectDir,
+                    fallbackRelPath: token.path,
+                  }).then((result) => {
+                    if (!result.ok) {
+                      ctx.onOpenError?.(result.error);
+                    }
+                  });
                   return;
                 }
-                if (!ctx?.apiBase?.trim()) {
-                  return;
-                }
-                void openContractRevisionForTask({
-                  apiBase: ctx.apiBase,
-                  taskId,
-                  workspaceDir: ctx.workspaceDir,
-                });
+                ctx?.onOpenDraft?.(taskId);
               };
               if (reviewTaskId) {
                 openReview(reviewTaskId);
@@ -173,6 +178,7 @@ export function renderInlineLegalMarkdown(
                 relPath: token.path,
                 apiBase: ctx?.apiBase,
                 workspaceDir: ctx?.workspaceDir,
+                projectDir: ctx?.projectDir,
                 onTask: (taskId) => openReview(taskId),
               });
             }}

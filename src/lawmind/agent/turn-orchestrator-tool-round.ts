@@ -351,9 +351,8 @@ export async function executeToolBatches(
         id: ref.id,
         function: { name: ref.name, arguments: JSON.stringify(ref.arguments) },
       };
-      // 跨轮门禁（orchestrator 依据 hard pendingClarificationKeys 置位）不能被本轮重置。
-      // 工具返回的待核实缺口不再冻本轮后续写工具（端到端口径：缺口标进交付物，
-      // 回合照常完成）；跨轮门禁只服务旧会话遗留的 pendingClarificationKeys。
+      // 工具返回的待核实缺口不再冻本轮后续写工具：缺口标进交付物，回合照常完成。
+      // 产品回合不因残留硬键把 clarificationBlockingHeavyTools 置真。
       turn.toolCallsExecuted++;
 
       const toolName = tc.function.name;

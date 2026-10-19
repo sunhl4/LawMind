@@ -1,4 +1,5 @@
 import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
+import { resolveRelForAbs } from "./lawmind-workspace-relpath";
 
 /** Cross-surface deep-link: open a workspace-relative path in the file workbench. */
 
@@ -146,6 +147,7 @@ export function revisionColumnTarget(
     outputPath?: string;
   },
   workspaceDir?: string,
+  projectDir?: string,
 ): { relPath: string; root: WorkspaceFileRoot } | null {
   const baseline = draft.contractEdit?.baselineRelativePath?.trim().replace(/\\/g, "/").replace(/^\.\//, "");
   if (baseline && !isAbsolutePath(baseline)) {
@@ -154,16 +156,26 @@ export function revisionColumnTarget(
       root: draft.contractEdit?.baselineRoot === "project" ? "project" : "workspace",
     };
   }
+  if (baseline && isAbsolutePath(baseline)) {
+    const mapped = resolveRelForAbs(workspaceDir, projectDir, baseline);
+    if (mapped?.rel) {
+      return { relPath: mapped.rel, root: mapped.root };
+    }
+  }
   const output = draft.outputPath?.trim().replace(/\\/g, "/");
   if (!output || !/\.docx$/i.test(output)) {
     return null;
+  }
+  if (isAbsolutePath(output)) {
+    const mapped = resolveRelForAbs(workspaceDir, projectDir, output);
+    return mapped?.rel ? { relPath: mapped.rel, root: mapped.root } : null;
   }
   const ws = workspaceDir?.trim().replace(/\\/g, "/").replace(/\/$/, "");
   let rel = output;
   if (ws && (rel === ws || rel.startsWith(`${ws}/`))) {
     rel = rel.slice(ws.length).replace(/^\//, "");
   }
-  if (isAbsolutePath(rel)) {
+  if (isAbsolutePath(rel) || !rel) {
     return null;
   }
   return { relPath: rel, root: "workspace" };

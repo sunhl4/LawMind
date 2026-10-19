@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { withExclusiveFileLock } from "../adapters/matter-storage/io.js";
 import { getAssistantPreset } from "../agent/assistant-presets.js";
 import { DEFAULT_ASSISTANT_ID } from "./constants.js";
 import { assertAssistantRosterHasRoom, normalizeAssistantRosterFlags } from "./roster.js";
@@ -401,6 +402,16 @@ export function saveAssistantStats(lawMindRoot: string, stats: AssistantStatsFil
 }
 
 export function bumpAssistantStats(
+  lawMindRoot: string,
+  assistantId: string,
+  opts: { newSession?: boolean; turn?: boolean },
+): AssistantStatsEntry {
+  return withExclusiveFileLock(`${statsPath(lawMindRoot)}.lock`, () =>
+    bumpAssistantStatsUnlocked(lawMindRoot, assistantId, opts),
+  );
+}
+
+function bumpAssistantStatsUnlocked(
   lawMindRoot: string,
   assistantId: string,
   opts: { newSession?: boolean; turn?: boolean },

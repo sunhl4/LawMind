@@ -64,7 +64,7 @@ import {
 } from "./review-board-export-deferral.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import { claimAndApplyPendingContextPins, appendContextPins } from "./session-context-inject.js";
-import { claimAndApplyPendingSteer } from "./session-context-steer.js";
+import { claimAndApplyPendingSteer, peekPendingSteer } from "./session-context-steer.js";
 import {
   normalizeToolResultMessages,
   repairToolCallPairing,
@@ -111,8 +111,10 @@ import {
   countSearchCalls,
   formatCalculateParamStopNudge,
   formatWriteSynthesisNudge,
+  SEARCH_SYNTHESIS_TOOL_NAMES,
   shouldSynthesizeBeforeWrite,
   trailingCalculateParamFailures,
+  turnHasLiveStatuteHit,
   withholdSearchTools,
 } from "./write-synthesis.js";
 
@@ -458,6 +460,8 @@ export async function runModelToolLoop(opts: {
   let forbiddenShellNudged = false;
   let deliverableNudged = false;
   let synthesisNudged = false;
+  /** Set after the write-synthesis sample if the named file is still missing. */
+  let synthesisSearchLocked = false;
   let calculateParamNudged = false;
   let pleadingNudged = false;
   let memoNudged = false;
@@ -696,13 +700,7 @@ export async function runModelToolLoop(opts: {
     const consultRewrite =
       consultNudged && consultListGap(opts.config.workspaceDir, opts.turn.instruction);
     const frameMemo = instructionFramesMemoDeliverable(opts.turn.instruction);
-    const memoRewrite =
-      memoNudged && memoSectionGaps(opts.config.workspaceDir, opts.turn.instruction).length > 0;
-    const lockSearch =
-      synthesisNudged ||
-      frameConsult ||
-      (framePleading && missingForWrite.length === 0) ||
-      (frameMemo && missingForWrite.length === 0 && memoRewrite);
+    const lockSearch = frameConsult || synthesisSearchLocked;
     const roundToolNames = lockSearch ? withholdSearchTools(step.toolNames) : step.toolNames;
     openAITools = opts.registry.toOpenAITools({ names: roundToolNames });
     const toolDelta = applyToolDisclosureDelta(opts.session, previousToolNames, roundToolNames);
@@ -765,6 +763,7 @@ export async function runModelToolLoop(opts: {
       const model = typeof maxTokens === "number" ? { ...modelForRound, maxTokens } : modelForRound;
       // 工具轮先不流式：短回复在收齐后一次吐出；被截断时再开流式把交件写完。
       const stream = mode === "decision" && toolsAdvertised ? false : useUpstreamTokenStream;
+      let waitedForModel = false;
       return callModelWithRetry(
         model,
         deriveModelMessagesForSampling(opts.session, budget),
@@ -775,6 +774,18 @@ export async function runModelToolLoop(opts: {
             ? (chunk: string) => opts.emitEvent({ type: "delta", roundIndex, text: chunk })
             : undefined,
           signal: opts.abortSignal,
+          admission: { sessionId: opts.session.sessionId, kind: "parent" },
+          onAdmissionWait: () => {
+            waitedForModel = true;
+            opts.emitEvent({ type: "turn_wait", reason: "model_slot", label: "排队等模型" });
+          },
+          onAdmissionGranted: () => {
+            if (!waitedForModel) {
+              return;
+            }
+            waitedForModel = false;
+            opts.emitEvent({ type: "turn_wait_end", reason: "model_slot" });
+          },
           ...(synthesisRound || pleadingRewrite || consultRewrite
             ? { reasoningEffort: "max" as const }
             : {}),
@@ -1145,6 +1156,13 @@ export async function runModelToolLoop(opts: {
       }
       const voiced = appendMechanicalNote(assistantMsg.content ?? "", opts.turn.factorState);
       agentMsg.content = voiced;
+      if (
+        !opts.abortRequested() &&
+        peekPendingSteer(opts.config.workspaceDir, opts.session.sessionId).length > 0
+      ) {
+        // 收尾这句话生成期间律师点了「改这一轮」。再采样一次，不要把纠正留到下一场。
+        continue;
+      }
       finalReply = voiced;
       opts.turn.status = "completed";
       break;
@@ -1173,7 +1191,17 @@ export async function runModelToolLoop(opts: {
         strictDangerousToolApproval: opts.strictDangerousToolApproval,
         allowDangerousToolsWithoutApproval: opts.allowDangerousToolsWithoutApproval,
         toolSandboxEnabled: opts.toolSandboxEnabled,
-        policyHints: opts.policyHints,
+        policyHints: lockSearch
+          ? {
+              ...opts.policyHints,
+              deniedToolNames: [
+                ...new Set([
+                  ...(opts.policyHints.deniedToolNames ?? []),
+                  ...SEARCH_SYNTHESIS_TOOL_NAMES,
+                ]),
+              ],
+            }
+          : opts.policyHints,
         actorId: opts.actorId,
         sessionMatterId: opts.session.matterId,
         sessionAssistantId: opts.session.assistantId,
@@ -1241,6 +1269,7 @@ export async function runModelToolLoop(opts: {
         missingDeliverables: missingForSynthesis,
         searchCalls: countSearchCalls(opts.turn.toolNameCallCounts),
         advertisedToolNames: stepAfterBatch.toolNames,
+        liveStatuteHit: turnHasLiveStatuteHit(opts.turn.messages),
       })
     ) {
       synthesisNudged = true;
@@ -1253,6 +1282,8 @@ export async function runModelToolLoop(opts: {
       opts.session.conversationHistory.push(nudge);
       opts.turn.messages.push(nudge);
       steeredToWrite = true;
+    } else if (synthesisNudged) {
+      synthesisSearchLocked = missingForSynthesis.length > 0;
     }
     if (framePleading && !pleadingNudged) {
       const gaps = pleadingSectionGaps(opts.config.workspaceDir, opts.turn.instruction);

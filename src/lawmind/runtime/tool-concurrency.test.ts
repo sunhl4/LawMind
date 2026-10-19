@@ -380,4 +380,77 @@ describe("withLeafToolSlot", () => {
       }
     }
   });
+
+  it("drops a queued sidecar tool on stop and frees a slot abandoned mid-call", async () => {
+    const previous = process.env.LAWMIND_MAX_TOOL_CONCURRENCY;
+    process.env.LAWMIND_MAX_TOOL_CONCURRENCY = "1";
+    try {
+      let releaseFirst: (() => void) | undefined;
+      const first = withLeafToolSlot(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          }),
+      );
+      const started = Date.now();
+      while (!releaseFirst) {
+        if (Date.now() - started > 1_000) {
+          throw new Error("first slot was not held");
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      const queuedAbort = new AbortController();
+      let queuedStarted = false;
+      const queued = withLeafToolSlot(
+        async () => {
+          queuedStarted = true;
+        },
+        { signal: queuedAbort.signal },
+      );
+      queuedAbort.abort();
+      await expect(queued).rejects.toThrow("已停止");
+      expect(queuedStarted).toBe(false);
+
+      const runningAbort = new AbortController();
+      let runningHeld = false;
+      const running = withLeafToolSlot(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            runningHeld = true;
+            runningAbort.signal.addEventListener("abort", () => reject(new Error("已停止")), {
+              once: true,
+            });
+          }),
+        { signal: runningAbort.signal },
+      );
+      releaseFirst?.();
+      await first;
+      const heldAt = Date.now();
+      while (!runningHeld) {
+        if (Date.now() - heldAt > 1_000) {
+          throw new Error("stopped waiter still took the slot");
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      runningAbort.abort();
+      await expect(running).rejects.toThrow("已停止");
+      let followed = false;
+      await Promise.race([
+        withLeafToolSlot(async () => {
+          followed = true;
+        }),
+        new Promise((_resolve, reject) =>
+          setTimeout(() => reject(new Error("sidecar slot leaked")), 500),
+        ),
+      ]);
+      expect(followed).toBe(true);
+      expect(queuedStarted).toBe(false);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.LAWMIND_MAX_TOOL_CONCURRENCY;
+      } else {
+        process.env.LAWMIND_MAX_TOOL_CONCURRENCY = previous;
+      }
+    }
+  });
 });

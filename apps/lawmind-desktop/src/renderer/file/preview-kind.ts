@@ -13,6 +13,9 @@ export function resolvePreviewKind(relPath: string): FilePreviewKind {
   if (/\.xlsx$/i.test(low)) {
     return "xlsx";
   }
+  if (/\.pptx$/i.test(low)) {
+    return "pptx";
+  }
   if (/\.(mp3|wav|m4a|aac|ogg|flac|mp4|webm|mov|m4v)$/i.test(low)) {
     return "media";
   }

@@ -494,7 +494,8 @@ function sameMark(a: WordRunMark | undefined, b: WordRunMark | undefined): boole
     a?.underline === b?.underline &&
     a?.fontSizePx === b?.fontSizePx &&
     a?.fontColor === b?.fontColor &&
-    a?.fontFamily === b?.fontFamily
+    a?.fontFamily === b?.fontFamily &&
+    a?.rFontsXml === b?.rFontsXml
   );
 }
 

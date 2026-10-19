@@ -43,7 +43,9 @@ zod schemas — `workspace/matters/<id>/` 下的 JSON 真相源（W3）。
 
 **五个关联 id 数组**：`openQuestionIds`、`nextActions`、`deadlineIds`、`deliverableIds`、`queueItemIds`。
 
-**案件画像**：`matterKind?`（三态）、`practiceTags?`、`causeOfAction?`（≤200）、`counterparty?`（≤200）。
+**案件画像**：`matterKind?`（三态）、`matterLabel?`（≤80，模型给出的事项名称）、`practiceTags?`、`causeOfAction?`（≤200）、`counterparty?`（≤200）。
+
+**落盘版本**：`schemaVersion?`（字面量 `1`，旧文件缺了仍可读）、`revision?`（非负整数）。交付物和队列项上也有同名的可选版本字段；队列项另有 `label?`（≤80）。
 
 **当事人**（`parties?`，**`.max(32)`**）：
 
@@ -471,8 +473,8 @@ outputFileName 给了 → 用它
 
 ```text
 Prefers an uploaded contract baseline `.docx` when `draft.contractEdit` is set.
-Binary `.doc` is not a revision baseline — stop and ask the lawyer to save as `.docx`
-in Word or WPS before continuing tracked export.
+Binary `.doc` is not read. Word or WPS saves a sibling `.docx` first; that file is the baseline.
+If neither can save, stop and ask the lawyer. The original `.doc` is left untouched.
 ```
 
 ### 细节一：officecli 的调用形式
@@ -559,17 +561,17 @@ conversionTool?, conversionFidelity? ("high" | "lossy"), warning?
 
 ### 五种失败码
 
-| 码                      | 什么时候                            |
-| ----------------------- | ----------------------------------- |
-| `doc_needs_docx`        | 基线是 `.doc`，须律师另存为 `.docx` |
-| `baseline_missing`      | 要求原件但没有                      |
-| `plain_render_failed`   | 退化渲染也失败                      |
-| `tracked_apply_failed`  | 落改失败                            |
-| `tracked_render_failed` | 渲染失败                            |
+| 码                      | 什么时候                                         |
+| ----------------------- | ------------------------------------------------ |
+| `doc_needs_docx`        | `.doc` 容器读不出正文（加密 / Word 6/95 / 损坏） |
+| `baseline_missing`      | 要求原件但没有                                   |
+| `plain_render_failed`   | 退化渲染也失败                                   |
+| `tracked_apply_failed`  | 落改失败                                         |
+| `tracked_render_failed` | 渲染失败                                         |
 
 ### `.doc` 须律师另存
 
-修订只认 `.docx`。读到二进制 `.doc` 且要出审阅痕迹时停下来，提示律师用 Word 或 WPS 另存为同名 `.docx` 后再继续。正文抽取（`analyze_document` / 索引）仍可读 `.doc`，只是不当成可落修订的原件。
+修订只认 `.docx`。`.doc` 出稿由 `mail/convert-with-word.ts` 让本机 Microsoft Word 另存为保真 `.docx`（暂存到 Word 自己的沙盒容器，避免 macOS 弹「授予文件访问权限」），页眉页脚、表格、图片、编号和已有修订一起过来；LibreOffice headless 兜底。两个引擎都没有时硬失败，不出正文替身。读正文（预览/分析/索引）另有进程内 OLE 解析，见 `mail/read-word-binary.ts`。
 
 ### 两条「部分成功」的提示
 
@@ -605,6 +607,8 @@ openWord: false
 
 **括号里那句「不会用模板重建」是一条承诺**：宁可不给稿，也不给一份「重新排版过的假原件」。
 
+界面上打开 `.docx` 走的是另一条面：`apps/lawmind-desktop/src/renderer/file/LawmindWordRevisionSurface.tsx`（中栏修订，按作者分色；接受保留痕迹，拒绝删掉）。本节的 `render-docx-tracked.ts` 负责把修订写进交付副本，不负责那块中栏。
+
 ## 57.8 PPT 渲染：七套配色
 
 `render-pptx.ts` 的头部注释说明了它的核心选择：
@@ -615,6 +619,16 @@ instead of a single free-floating text box per section.
 ```
 
 也就是：**不用「一页一个大文本框」那种偷懒做法**，而是按内容选布局。
+
+这是**出稿**。中栏打开已有 `.pptx` 不走这里：
+
+| 层       | 文件                                                      | 做什么                                                |
+| -------- | --------------------------------------------------------- | ----------------------------------------------------- |
+| 界面     | `apps/lawmind-desktop/src/renderer/file/PptxFileView.tsx` | 中栏幻灯片。优先 officecli 截图，截不到就退回文本     |
+| 文本抽取 | `src/lawmind/agent/tools/legal/pptx-preview.ts`           | `loadPptxUiPreview`：JSZip 读 OOXML，按页给标题和正文 |
+| 截图改字 | `src/lawmind/agent/tools/legal/pptx-officecli.ts`         | 用打包的 officecli 出图，并把形状文字写回去           |
+
+`apps/lawmind-desktop/server/lawmind-server-route-fs.ts` 把它们接到三条路由：`GET /api/fs/pptx-preview`（先试 officecli 视觉，失败再走文本抽取）、`GET /api/fs/pptx-slide`（单页 PNG）、`POST /api/fs/pptx-save`。这三条不生成上面那种七套配色的新幻灯片。
 
 ### 七套模板样式（连同颜色）
 
@@ -946,6 +960,8 @@ Packaged desktop apps and `pnpm install` vendor a platform build under
 - **修订只认 `.docx`**；碰到 `.doc` 先请律师另存，不自动转写。
 - **引擎永远不会自动打开 Word**（`openWord: false`）。
 - **「不会用模板重建」是一条承诺。** 宁可不给稿。
+- **PPT 出稿和 PPT 预览是两条路。** 七套配色在 `render-pptx.ts`；中栏是 `PptxFileView.tsx` + `pptx-preview.ts` / `pptx-officecli.ts`。
+- **Word 中栏修订面是 `file/LawmindWordRevisionSurface.tsx`。** 落修订副本仍是 `render-docx-tracked.ts`。
 - **PPT 布局判定顺序不能换**（表格第一、双栏在单栏前）。
 - **PPT 的空页给「（无正文）」占位。**
 - **文件名要剥旧日期戳**（否则会叠日期）。

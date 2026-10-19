@@ -15,7 +15,7 @@
 
 **规矩**：测试与实现同目录，文件名等于实现名加 `.test`。所以找某个模块的测试很容易——同目录看后缀。
 
-`pnpm test` 的收录范围在 `vitest.config.ts`：`src/lawmind/**/*.test.ts`（含 `integration/`）、桌面 `server/`、`src/**/*.test.ts(x)`、`electron/**/*.test.ts`。Playwright 的 `e2e/*.spec.ts` **不在**这条命令里，另走 `pnpm lawmind:desktop:e2e:pr`（分层与八个真机规格见第 18 章）。
+`pnpm test` 的收录范围在 `vitest.config.ts`：`src/lawmind/**/*.test.ts`（含 `integration/`）、桌面 `server/`、桌面 `src/**/*.test.ts(x)`、`electron/**/*.test.ts`、`scripts/pre-commit/**/*.test.ts`。Playwright 的 `e2e/*.spec.ts` **不在**这条命令里，另走 `pnpm lawmind:desktop:e2e:pr`（分层与八个真机规格见第 18 章）。
 
 ## 35.2 一条命令跑什么
 
@@ -38,7 +38,7 @@ pnpm exec vitest run src/lawmind/drafts src/lawmind/memory
 pnpm exec vitest run src/lawmind/agent/turn-orchestrator-cassettes.test.ts -t "review-table"
 ```
 
-**性能提示**：全量 `pnpm test` 很慢（几千个测试）。日常改动用单文件或单目录。要对齐 CI 时再跑 `pnpm test:coverage`（只跑一遍，并写出棘轮要读的报告）。`test:watch` 是 `vitest` 不带 `run`，会停在监视模式。
+**性能提示**：全量 `pnpm test` 很慢（2026-10-17 快照 **1095 个测试文件**、几千个用例，分布与口径见附录 E）。日常改动用单文件或单目录。要对齐 CI 时再跑 `pnpm test:coverage`（只跑一遍，并写出棘轮要读的报告）。`test:watch` 是 `vitest` 不带 `run`，会停在监视模式。
 
 ## 35.3 关键测试文件索引
 
@@ -305,7 +305,7 @@ pnpm exec vitest run <你改的目录>
 test:coverage → coverage ratchet → skills golden --compare
 → typecheck → bundle:desktop-server → 桌面 typecheck → desktop-node typecheck
 → renderer CSS → renderer CSS sync → renderer 禁止 node 导入 → UI 文案
-→ 平台契约 → desktop http-smoke → release-readiness
+→ 禁全局 fetch stub → 平台契约 → desktop http-smoke → release-readiness
 ```
 
 文件大小棘轮是旁边的 `file-size-check` 作业（`node scripts/pre-commit/check-file-size.mjs`），不在这条链里，钩子也不跑。

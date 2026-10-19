@@ -8939,11 +8939,43 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
 }
 
 .lm-cursor-pane-editor-host {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.lm-middle-draft-desk {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.lm-middle-draft-desk-bar {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-middle-draft-desk .lm-review-workbench-root {
+  flex: 1;
+  min-height: 0;
+}
+
+.lm-middle-draft-desk .lm-review-workbench {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -9611,81 +9643,173 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   cursor: pointer;
 }
 
-.lm-chat-scope {
+.lm-side-new-chat {
   flex-shrink: 0;
-  margin: 8px 10px 0;
-  position: relative;
+  align-self: stretch;
+  margin: 6px 10px 2px;
+  width: auto;
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 0;
 }
 
-.lm-chat-scope-btn {
-  width: 100%;
+.lm-side-new-chat-spacer {
+  flex: 0 0 15px;
+}
+
+.lm-side-new-chat .lm-section-label {
+  flex: 1 1 auto;
+}
+
+.lm-side-new-chat .lm-fs-root-add {
+  pointer-events: none;
+}
+
+.lm-side-new-chat:hover {
+  background: transparent;
+}
+
+.lm-side-new-chat:hover .lm-section-label,
+.lm-side-new-chat:hover .lm-fs-root-add {
+  color: var(--text-2);
+}
+
+.lm-side-new-chat:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.lm-fs-dir-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  text-align: left;
-  background: var(--surface);
-  border: 1px solid var(--border-md);
-  border-radius: 10px;
-  padding: 7px 10px;
-  color: var(--text);
-  font: inherit;
-  cursor: pointer;
-}
-
-.lm-chat-scope-copy {
   min-width: 0;
+}
+
+.lm-fs-dir-row > .lm-fs-node {
   flex: 1;
+  width: auto;
 }
 
-.lm-chat-scope-kicker {
-  display: block;
-  font-size: 11px;
-  color: var(--muted);
-  line-height: 1.2;
+.lm-fs-dir-row:hover > .lm-fs-node,
+.lm-fs-dir-row:focus-within > .lm-fs-node {
+  padding-right: 26px;
 }
 
-.lm-chat-scope-name {
-  display: block;
-  margin-top: 1px;
-  font-size: 13px;
-  font-weight: 650;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.lm-chat-scope-menu {
+.lm-fs-folder-new-chat {
   position: absolute;
-  z-index: 5;
-  left: 0;
-  right: 0;
-  top: calc(100% + 4px);
-  margin: 0;
-  padding: 4px;
-  list-style: none;
-  background: var(--surface);
-  border: 1px solid var(--border-md);
-  border-radius: 8px;
-  max-height: 240px;
-  overflow: auto;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
 }
 
-.lm-chat-scope-item {
+.lm-fs-dir-row:hover .lm-fs-folder-new-chat,
+.lm-fs-dir-row:focus-within .lm-fs-folder-new-chat,
+.lm-fs-folder-new-chat:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.lm-side-chat-folder {
+  margin-top: 2px;
+}
+
+.lm-side-chat-folder-label {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   width: 100%;
+  margin: 8px 0 2px;
+  padding: 2px 2px 2px 4px;
+  min-width: 0;
+  border-radius: var(--r-xs);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.lm-side-chat-folder-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
   border: 0;
   background: transparent;
-  color: var(--text);
+  color: inherit;
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
   text-align: left;
-  padding: 6px 8px;
-  border-radius: 6px;
   cursor: pointer;
 }
 
-.lm-chat-scope-item:hover,
-.lm-chat-scope-item.is-active {
+.lm-side-chat-folder:first-child .lm-side-chat-folder-label {
+  margin-top: 2px;
+}
+
+.lm-side-chat-folder-label:hover,
+.lm-side-chat-folder-label:focus-within {
   background: var(--wash);
+  color: var(--text);
+}
+
+.lm-side-chat-folder-toggle:focus-visible,
+.lm-side-chat-folder-new:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.lm-side-chat-folder-new {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lm-side-chat-folder-label:hover .lm-side-chat-folder-new,
+.lm-side-chat-folder-label:focus-within .lm-side-chat-folder-new {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.lm-side-chat-folder-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-side-chat-folder-meta,
+.lm-side-chat-session-age {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.lm-side-chat-folder-label:hover .lm-side-chat-folder-meta,
+.lm-side-chat-folder-label:focus-within .lm-side-chat-folder-meta,
+.lm-side-chat-folder-label.is-collapsed .lm-side-chat-folder-meta,
+.lm-side-chat-session-row:hover .lm-side-chat-session-age,
+.lm-side-chat-session-row:focus-visible .lm-side-chat-session-age {
+  opacity: 1;
+}
+
+.lm-side-chat-folder .lm-side-chat-session-row {
+  padding-left: 22px;
 }
 
 .lm-side-chat-sessions {
@@ -9855,7 +9979,8 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   white-space: nowrap;
 }
 
-.lm-side-chat-running-count {
+.lm-side-chat-running-count,
+.lm-side-chat-queued-count {
   margin-left: 0;
   flex: 0 0 auto;
   font-size: 11px;
@@ -9863,8 +9988,15 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   color: var(--accent);
 }
 
+.lm-side-chat-queued-count {
+  margin-left: 6px;
+  color: var(--muted);
+}
+
 .lm-side-chat-session-row.is-running .lm-side-chat-session-title::before,
-.lm-chat-session-tab.is-running .lm-chat-session-tab-label::before {
+.lm-chat-session-tab.is-running .lm-chat-session-tab-label::before,
+.lm-side-chat-session-row.is-queued .lm-side-chat-session-title::before,
+.lm-chat-session-tab.is-queued .lm-chat-session-tab-label::before {
   content: "";
   display: inline-block;
   width: 6px;
@@ -9873,6 +10005,12 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   border-radius: 50%;
   background: var(--accent);
   vertical-align: 1px;
+}
+
+.lm-side-chat-session-row.is-queued .lm-side-chat-session-title::before,
+.lm-chat-session-tab.is-queued .lm-chat-session-tab-label::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--muted);
 }
 
 .lm-side-chat-session-row.is-active .lm-side-chat-session-title {
@@ -11017,12 +11155,320 @@ button.lm-side-chat-session-forked-btn {
 
 .lm-media-preview-pane,
 .lm-xlsx-preview-pane,
+.lm-pptx-preview-pane,
 .lm-eml-preview-pane,
 .lm-zip-preview-pane {
   display: flex;
   flex-direction: column;
   min-height: 0;
   flex: 1 1 auto;
+}
+
+.lm-pptx-preview-pane .lm-editor-header:has(.lm-pptx-preview-tools) {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lm-pptx-preview-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.lm-pptx-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lm-pptx-page-indicator {
+  min-width: 4.5em;
+  text-align: center;
+}
+
+.lm-pptx-preview-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) minmax(0, 1fr);
+  gap: 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.lm-pptx-preview-body--visual {
+  grid-template-columns: minmax(140px, 200px) minmax(0, 1fr) minmax(200px, 280px);
+}
+
+.lm-pptx-edit-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lm-pptx-canvas-wrap {
+  margin: 0 auto;
+  width: min(100%, 960px);
+  background: #1a1a1a;
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+}
+
+.lm-pptx-canvas-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.lm-pptx-edit-pane {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px 18px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 90%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lm-pptx-edit-heading {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-1);
+}
+
+.lm-pptx-shape-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 36vh;
+  overflow: auto;
+}
+
+.lm-pptx-shape-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius, 8px);
+  background: transparent;
+  color: var(--text-1);
+  padding: 7px 8px;
+  cursor: pointer;
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lm-pptx-shape-item:hover {
+  background: color-mix(in srgb, var(--surface-1) 75%, transparent);
+}
+
+.lm-pptx-shape-item[data-selected="1"] {
+  border-color: color-mix(in srgb, var(--accent, #8a6a3a) 45%, var(--border));
+  background: color-mix(in srgb, var(--surface-1) 92%, var(--accent, #8a6a3a));
+}
+
+.lm-pptx-shape-kind {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.lm-pptx-shape-preview {
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.lm-pptx-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lm-pptx-edit-textarea {
+  min-height: 120px;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.lm-pptx-rail {
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+  border-right: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+}
+
+.lm-pptx-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lm-pptx-rail-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  text-align: left;
+  padding: 8px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius, 8px);
+  background: transparent;
+  color: var(--text-1);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.lm-pptx-rail-item:hover {
+  background: color-mix(in srgb, var(--surface-1) 70%, transparent);
+}
+
+.lm-pptx-rail-item[data-selected="1"] {
+  border-color: color-mix(in srgb, var(--accent, #8a6a3a) 45%, var(--border));
+  background: color-mix(in srgb, var(--surface-1) 92%, var(--accent, #8a6a3a));
+}
+
+.lm-pptx-rail-num {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.lm-pptx-rail-title {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.lm-pptx-stage {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lm-pptx-slide-card {
+  margin: 0 auto;
+  width: min(100%, 720px);
+  padding: 28px 32px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: 12px;
+  background: var(--surface-1, #f7f2e8);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 55%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  aspect-ratio: 16 / 9;
+  justify-content: center;
+}
+
+.lm-pptx-slide-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--text-1);
+}
+
+.lm-pptx-slide-subtitle {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+
+.lm-pptx-slide-body {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text-1);
+}
+
+.lm-pptx-slide-notes {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lm-pptx-notes-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+  text-transform: uppercase;
+}
+
+.lm-pptx-slide-notes p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.lm-pptx-preview-note {
+  margin: 0;
+  text-align: center;
+}
+
+@media (max-width: 960px) {
+  .lm-pptx-preview-body--visual {
+    grid-template-columns: minmax(120px, 160px) minmax(0, 1fr);
+  }
+
+  .lm-pptx-edit-pane {
+    grid-column: 1 / -1;
+    border-left: none;
+    border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+    max-height: 280px;
+  }
+}
+
+@media (max-width: 720px) {
+  .lm-pptx-preview-body,
+  .lm-pptx-preview-body--visual {
+    grid-template-columns: 1fr;
+  }
+
+  .lm-pptx-rail {
+    max-height: 160px;
+    border-right: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  }
+
+  .lm-pptx-slide-card {
+    aspect-ratio: auto;
+    min-height: 240px;
+  }
 }
 
 .lm-eml-preview-body,

@@ -2,7 +2,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { buildHostAccessRuntime } from "../../../host-access/access-broker.js";
-import { readBinaryWordDocText, isBinaryWordDocPath } from "../../../mail/read-word-binary.js";
+import { siblingDocxRelative } from "../../../mail/convert-to-docx.js";
+import { isBinaryWordDocPath, readBinaryWordDocText } from "../../../mail/read-word-binary.js";
 import type { IngestSourceType, IngestStage } from "../../../platform/contracts.js";
 import {
   ingestFailure,
@@ -129,21 +130,24 @@ export const analyzeDocument: AgentTool = {
       content: string,
       bytes: number,
       stage: IngestStage,
+      override?: { filePath?: string; hint?: string },
     ) => {
       const page = sliceDocumentPage(content, params.offset, params.limit, {
         defaultLimit: resolveDocumentPageChars(ctx.chatModel?.contextTokens),
       });
       const result = ingestSuccess(sourceType, page.content, page.hasMore, bytes, stage);
+      const reportedPath = override?.filePath ?? canonicalRel;
       const locateHint =
-        located.root === "project"
-          ? `已定位到项目文件 \`${canonicalRel}\`，请将此路径作为 contract_edit_baseline_path。`
-          : claimed !== canonicalRel
-            ? `已定位到工作区文件 \`${canonicalRel}\`。`
-            : undefined;
+        override?.hint ??
+        (located.root === "project"
+          ? `已定位到项目文件 \`${reportedPath}\`，请将此路径作为 contract_edit_baseline_path。`
+          : claimed !== reportedPath
+            ? `已定位到工作区文件 \`${reportedPath}\`。`
+            : undefined);
       return toolDataFromIngestSuccess(
         result,
         {
-          filePath: canonicalRel,
+          filePath: reportedPath,
           fileRoot: located.root,
           requestedPath: claimed !== canonicalRel ? claimed : undefined,
           totalChars: page.totalChars,
@@ -151,9 +155,15 @@ export const analyzeDocument: AgentTool = {
           limit: page.limit,
           hasMore: page.hasMore,
           nextOffset: page.nextOffset,
-          hint: page.hasMore
-            ? `文本未读完：请再用 analyze_document(file_path, offset=${page.nextOffset}) 续读。`
-            : locateHint,
+          hint:
+            [
+              locateHint,
+              page.hasMore
+                ? `文本未读完：请再用 analyze_document(file_path, offset=${page.nextOffset}) 续读。`
+                : undefined,
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined,
         },
         { contentTrust: "untrusted_user_document" },
       );
@@ -186,17 +196,22 @@ export const analyzeDocument: AgentTool = {
       }
       try {
         const content = await readBinaryWordDocText(filePath);
-        if (!content) {
+        if (!content.trim()) {
           return toolFailureFromIngest(
             ingestFailure(
               "INGEST_EMPTY_CONTENT",
               "office_extract",
-              "DOC 无可提取文本",
+              ".doc 无可提取文本",
               "请确认该文档不是纯图片或受保护文档。",
             ),
           );
         }
-        return toAnalyzeSuccess("docx", content, st.size, "office_extract");
+        const docxRel = siblingDocxRelative(canonicalRel);
+        const hint = `已直接读取 \`${canonicalRel}\`（内部解析，未另存）。审查和修订仍按 \`${docxRel}\` 的基线路径继续。`;
+        return toAnalyzeSuccess("docx", content, st.size, "office_extract", {
+          filePath: canonicalRel,
+          hint,
+        });
       } catch (err) {
         if (err instanceof IcloudLawyerPrompt) {
           throw err;
@@ -205,8 +220,7 @@ export const analyzeDocument: AgentTool = {
           ingestFailure(
             "INGEST_PARSE_FAILED",
             "office_extract",
-            `无法直接读取 .doc：${err instanceof Error ? err.message : String(err)}`,
-            "可安装 LibreOffice，或另存为 .docx 后重试。",
+            `未能把 .doc 另存为 .docx：${err instanceof Error ? err.message : String(err)}`,
           ),
         );
       }

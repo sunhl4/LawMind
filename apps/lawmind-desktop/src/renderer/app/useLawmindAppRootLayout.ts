@@ -1,4 +1,4 @@
-import { useCallback, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { useSettingsPanelStore } from "../stores/settings-panel-store";
 import type { FileWorkbenchCasesNodeActions } from "../FileWorkbench";
 import type { AgentsDeskTab } from "../lawmind-agents-desk";
@@ -18,6 +18,8 @@ import { useLawmindMainBodyContentProps } from "./useLawmindMainBodyContentProps
 import { useLawmindAppOverlaysProps } from "./useLawmindAppOverlaysProps";
 import { useLawmindAppSettingsPanelProps } from "./useLawmindAppSettingsPanelProps";
 import { useLawmindAppSidebarProps } from "./useLawmindAppSidebarProps";
+import { workspaceFolderName } from "../lawmind-chat-folder-groups";
+import { CHAT_HOME_DIR_EVENT, chatWorkspacePath, readChatHomeDir, resolveChatHomeDir } from "../lawmind-chat-home-dir";
 import {
   useLawmindAppRootDialogsProps,
   useLawmindFileWorkbenchHostProps,
@@ -582,6 +584,21 @@ export function useLawmindAppRootLayout(
   }
   const chatMattersReady = mattersReadyRef.current && !recordsDeskMatters.listLoading;
 
+  const [configuredChatHome, setConfiguredChatHome] = useState<string | null>(() => readChatHomeDir());
+  useEffect(() => {
+    const sync = () => setConfiguredChatHome(readChatHomeDir());
+    window.addEventListener(CHAT_HOME_DIR_EVENT, sync);
+    return () => window.removeEventListener(CHAT_HOME_DIR_EVENT, sync);
+  }, []);
+  const chatHome = resolveChatHomeDir({
+    workspaceDir: config?.workspaceDir,
+    projectDir,
+    configured: configuredChatHome,
+  });
+  const unboundHome = chatHome.folderRel
+    ? resolveChatHomeDir({ workspaceDir: config?.workspaceDir, projectDir, configured: null })
+    : chatHome;
+
   const sidebarProps = useLawmindAppSidebarProps({
     // Settings is a full-page surface — hide the workspace left rail while open.
     showAppSidebar: input.showAppSidebar && !settingsOpen,
@@ -615,6 +632,17 @@ export function useLawmindAppRootLayout(
       void openChatListScope(scope);
     },
     assistantDisplayById: input.assistantDisplayById,
+    workspaceFolderLabel: unboundHome.label ?? workspaceFolderName(config?.workspaceDir),
+    workspaceFolderPath: unboundHome.path ?? config?.workspaceDir,
+    newChatHomePath: chatHome.path,
+    onNewChatInFolder: (folderRel?: string) => {
+      setMainView("workspace");
+      return createNewChatSession(chatWorkspacePath(projectDir, folderRel));
+    },
+    onCreateChatWorkspace: (workDir: string) => {
+      setMainView("workspace");
+      return createNewChatSession(workDir);
+    },
     onSelectChatSession: (sessionId: string) => {
       const row = chatSessionList.find((s) => s.sessionId === sessionId);
       if (
@@ -629,7 +657,7 @@ export function useLawmindAppRootLayout(
     },
     onCreateNewChatSession: () => {
       setMainView("workspace");
-      return createNewChatSession();
+      return createNewChatSession(chatHome.path ?? undefined);
     },
     onRenameChatSession: renameChatSession,
     onDeleteChatSession: deleteChatSession,
@@ -683,6 +711,18 @@ export function useLawmindAppRootLayout(
     matterRefreshVersion,
     workspaceCasesMenu: input.workspaceCasesMenu,
     explorerMatterId: chatListScope,
+    onNewChatInFolder: (folderRel: string) => {
+      if (mainView === "meeting") {
+        setMainView("workspace");
+      }
+      return createNewChatSession(chatWorkspacePath(projectDir, folderRel));
+    },
+    onCreateChatWorkspace: (workDir: string) => {
+      if (mainView === "meeting") {
+        setMainView("workspace");
+      }
+      return createNewChatSession(workDir);
+    },
   });
 
   return {

@@ -55,7 +55,7 @@ describe("LawmindFileWorkbenchHost", () => {
     expect(onExplorerPortaled).toHaveBeenCalledWith(false);
   });
 
-  it("returns null when cases host is missing", async () => {
+  it("renders the local folder tree when the cases host is absent", async () => {
     const onExplorerPortaled = vi.fn();
     await act(async () => {
       root.render(
@@ -74,8 +74,8 @@ describe("LawmindFileWorkbenchHost", () => {
         />,
       );
     });
-    expect(host.innerHTML).toBe("");
-    expect(onExplorerPortaled).toHaveBeenCalledWith(false);
+    expect(host.textContent).toContain("tree");
+    expect(onExplorerPortaled).toHaveBeenCalledWith(true);
   });
 
   it("portals file workbench when both explorer hosts are ready", async () => {

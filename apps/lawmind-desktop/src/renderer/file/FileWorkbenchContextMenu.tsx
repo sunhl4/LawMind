@@ -16,6 +16,8 @@ export type FileWorkbenchContextMenuProps = {
   canUseFilesystemBridge: boolean;
   busy: boolean;
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
+  /** 工作区内右键目录：用这个目录新建一场工作区。 */
+  onCreateWorkspaceFromDirectory?: (relPath: string) => void;
   /** Override default「在对话中引用」label (e.g. meeting →「加入议题材料」). */
   addToContextLabel?: string;
   setAddToMatterManualDraft: Dispatch<SetStateAction<string>>;
@@ -40,6 +42,7 @@ export function FileWorkbenchContextMenu({
   canUseFilesystemBridge,
   busy,
   onAddToChatContext,
+  onCreateWorkspaceFromDirectory,
   addToContextLabel,
   setAddToMatterManualDraft,
   setAddToMatterLastError,
@@ -143,6 +146,18 @@ export function FileWorkbenchContextMenu({
       ) : null}
       {ctxPath ? (
         <>
+          {kind === "directory" && root === "project" && onCreateWorkspaceFromDirectory ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onCreateWorkspaceFromDirectory(ctxPath);
+                setContextMenu(null);
+              }}
+            >
+              新建工作区
+            </button>
+          ) : null}
           {onAddToChatContext ? (
             <button
               type="button"

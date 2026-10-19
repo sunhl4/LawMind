@@ -241,7 +241,9 @@ export async function digestMaterialPile(
     ctx.emitToolProgress?.(
       `正在读 ${index + 1}/${window.length}：${path.basename(source.listedPath)}`,
     );
-    const extractedFile = await extractReadableFileText(source.abs, source.size);
+    const extractedFile = await extractReadableFileText(source.abs, source.size, {
+      signal: ctx.abortSignal,
+    });
     if (!extractedFile.ok) {
       return emptyExtract(source, extractedFile.reason);
     }

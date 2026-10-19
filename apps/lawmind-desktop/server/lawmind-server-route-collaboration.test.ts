@@ -173,6 +173,8 @@ describe("lawmind-server-route-collaboration", () => {
   });
 
   it("rejects POST /api/delegations without required fields", async () => {
+    const prevCollab = process.env.LAWMIND_ENABLE_COLLABORATION;
+    process.env.LAWMIND_ENABLE_COLLABORATION = "true";
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-collab-del-"));
     const capture = createResponseCapture();
     const req = {
@@ -207,6 +209,11 @@ describe("lawmind-server-route-collaboration", () => {
     expect(handled).toBe(true);
     expect(capture.status).toBe(400);
     fs.rmSync(workspaceDir, { recursive: true, force: true });
+    if (prevCollab === undefined) {
+      delete process.env.LAWMIND_ENABLE_COLLABORATION;
+    } else {
+      process.env.LAWMIND_ENABLE_COLLABORATION = prevCollab;
+    }
   });
 
   describe("POST /api/delegations success path", () => {
@@ -289,6 +296,8 @@ describe("lawmind-server-route-collaboration", () => {
   });
 
   it("GET /api/collaboration/summary returns delegation snapshot", async () => {
+    const prevCollab = process.env.LAWMIND_ENABLE_COLLABORATION;
+    delete process.env.LAWMIND_ENABLE_COLLABORATION;
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-collab-summary-"));
     const capture = createResponseCapture();
     const ctx: LawmindDispatchContext = {
@@ -309,10 +318,17 @@ describe("lawmind-server-route-collaboration", () => {
     expect(capture.status).toBe(200);
     expect(capture.json()).toMatchObject({
       ok: true,
+      collaborationEnabled: false,
       delegationCount: expect.any(Number),
       recentCollaborationEvents: expect.any(Array),
     });
+    expect(String(capture.json().collaborationHint)).toContain("true");
     fs.rmSync(workspaceDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    if (prevCollab === undefined) {
+      delete process.env.LAWMIND_ENABLE_COLLABORATION;
+    } else {
+      process.env.LAWMIND_ENABLE_COLLABORATION = prevCollab;
+    }
   });
 
   it("GET /api/delegations/follow-up validates session params", async () => {

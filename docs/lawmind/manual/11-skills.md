@@ -101,19 +101,21 @@ workflows: contract-review
 
 主阶段映射 `PRIMARY_BY_CAPABILITY`（节选）：
 
-| 能力              | 主阶段                                             |
-| ----------------- | -------------------------------------------------- |
-| `contract.review` | `contract-review-layers`、`contract-redline-craft` |
-| `contract.draft`  | `contract-drafting-route`、`practice-defaults`     |
-| `mail.contract`   | `contract-review-layers`、`citation-grounding`     |
-| `research.memo`   | `research-query-matrix`、`citation-grounding`      |
-| `analysis.quick`  | `quick-legal-triage`、`legal-element-extraction`   |
-| `labor.calc`      | `labor-compensation-calc`                          |
-| `period.calc`     | `legal-period-calc`                                |
-| `litigation.talk` | `client-talk-intake`、`legal-element-extraction`   |
-| `ops.court_sms`   | `court-sms-intake`、`legal-event-extract`          |
+| 能力              | 主阶段                                                                                    |
+| ----------------- | ----------------------------------------------------------------------------------------- |
+| `contract.review` | `contract-review-layers`、`contract-playbook-review`（修订轨换 `contract-redline-craft`） |
+| `contract.draft`  | `contract-drafting-route`、`practice-defaults`                                            |
+| `mail.contract`   | `contract-review-layers`、`citation-grounding`                                            |
+| `research.memo`   | `research-query-matrix`、`citation-grounding`                                             |
+| `analysis.quick`  | `quick-legal-triage`、`legal-element-extraction`                                          |
+| `labor.calc`      | `labor-compensation-calc`                                                                 |
+| `period.calc`     | `legal-period-calc`                                                                       |
+| `litigation.talk` | `client-talk-intake`、`legal-element-extraction`                                          |
+| `ops.court_sms`   | `court-sms-intake`、`legal-event-extract`                                                 |
 
 `litigation.draft` 再按原话细分（实现：`skills/litigation-primary.ts`，Word 改稿走 `litigationRevisionSkillIds`）：离婚 / 抚养走家事；侦查 / 审查起诉走刑事；债权申报走破产；知产争议走知产。起诉状与答辩状看最后一个「写 / 起草 / 拟」后面先出现的文书：先是答辩、质证、保全申请、管辖异议、再审申请，就走 `litigation-stage-route` 加 `evidence-argument-chain`；先是起诉状，或交付类型就是起诉状，才注入要素式起诉状。其余文书同样不注入起诉状母版。
+
+另有两条钉死的前缀分支（`primarySkillIdsForBound`）：`mail.contract` 恒取 `contract-review-layers` + `citation-grounding`；`contract.review` 走修订轨（`tracked_redline`）时恒取 `contract-review-layers` + `contract-redline-craft`。这就是上表 `contract.review` 行两种写法的原因。
 
 选出的 id 还必须落在该能力自己的 `skillIds` 里，然后再 `.slice(0, 2)`。
 
@@ -172,7 +174,7 @@ workflows: contract-review
 | `chronology-two-stage`       | 诉讼时间轴         | 1    | 先出可改草案；不把推测日期写成事实                             |
 | `citation-grounding`         | 引用锚定           | 2    | 能检索则先检索再断言；勿编条号                                 |
 | `client-talk-intake`         | 谈话整理           | 2    | 谈话整理成需求、核心事实、候选案由和证据缺口                   |
-| `complaint-elements-fill`    | 要素式起诉状母版   | 1    | 按固定栏目填起诉状；缺项标待补充仍出稿                         |
+| `complaint-elements-fill`    | 要素式起诉状母版   | 2    | 按固定栏目填起诉状；缺项标待补充仍出稿                         |
 | `contract-drafting-route`    | 合同起草路由       | 2    | 封闭类型路由卡、条款骨架、待补事实写在稿里                     |
 | `contract-playbook-review`   | 合同 Playbook 审查 | 1    | 标准 / 可接受回退 / 永不接受；己方纸与对方纸分开               |
 | `contract-redline-craft`     | 合同审阅改稿手艺   | 4    | 最短锚定（字/词级）；运行时以代码常量为准                      |
@@ -180,7 +182,7 @@ workflows: contract-review
 | `court-sms-intake`           | 法院短信识别       | 2    | 抽出案号、开庭时间和待办                                       |
 | `criminal-stage-route`       | 刑事阶段路由       | 1    | 按侦查/审查起诉/一审/二审写，不套民事起诉状                    |
 | `data-compliance-route`      | 数据合规备忘       | 1    | 个保法/数据安全法/网安法；新闻不当现行法                       |
-| `delivery-language`          | 交付用语           | 2    | 待审核稿不得写成可对外签发                                     |
+| `delivery-language`          | 交付用语           | 4    | 待审核稿不得写成可对外签发                                     |
 | `evidence-argument-chain`    | 证据论证链         | 2    | 主张→要件→待证事实→证据→证明力                                 |
 | `family-matter-route`        | 家事继承路由       | 3    | 离婚、抚养、继承按家事程序；子女利益与财产分栏                 |
 | `governance-route`           | 公司治理路由       | 1    | 决议和治理备忘；不是章程 Word 改稿                             |

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   clientHasLiveTurn,
   focusedSessionHasLiveTurn,
+  partitionLiveSessions,
+  queuedSessionIds,
   reattachLiveTurn,
   runningSessionIds,
   sessionQueueKey,
@@ -59,6 +61,10 @@ describe("live turns across conversations", () => {
     expect(clientHasLiveTurn(turns, "s2")).toBe(true);
     expect(clientHasLiveTurn(turns, "s4")).toBe(false);
     expect([...runningSessionIds(turns)].toSorted()).toEqual(["s1", "s2", "s3"]);
+    turns[1].phase = "queued";
+    expect([...runningSessionIds(turns)].toSorted()).toEqual(["s1", "s3"]);
+    expect([...queuedSessionIds(turns)]).toEqual(["s2"]);
+    expect(partitionLiveSessions(turns).queued.has("s2")).toBe(true);
     expect(reattachLiveTurn(turns, { assistantId: "lawyer", sessionId: "s3" })).toBe(true);
     expect(turns[2]?.uiDetached).toBe(false);
     expect(turns[2]?.rebind).toBe(true);
@@ -75,12 +81,13 @@ describe("live turns across conversations", () => {
     ).toBe(false);
     expect(
       turnStillOwnsComposer(live, { assistantId: "other", sessionId: "s-a" }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("keys follow-ups by session so a new conversation does not inherit the queue", () => {
     expect(sessionQueueKey("s-a", "lawyer")).toBe("s-a");
-    expect(sessionQueueKey(undefined, "lawyer")).toBe("pending:lawyer");
-    expect(sessionQueueKey("  ", "lawyer")).toBe("pending:lawyer");
+    expect(sessionQueueKey(undefined, "lawyer")).toBe("pending");
+    expect(sessionQueueKey("  ", "lawyer")).toBe("pending");
+    expect(sessionQueueKey("s-a", "other")).toBe("s-a");
   });
 });

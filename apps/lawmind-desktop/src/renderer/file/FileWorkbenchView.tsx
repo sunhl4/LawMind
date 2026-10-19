@@ -24,6 +24,8 @@ export type FileWorkbenchViewModel = {
   onPickProject?: () => void | Promise<void>;
   canUseFilesystemBridge: boolean;
   onAddToChatContext?: (payload: { root: RootKey; relPath: string; kind: "file" | "directory" }) => void;
+  onNewChatInFolder?: (folderRel: string) => void | Promise<void>;
+  onCreateChatWorkspace?: (workDir: string) => void | Promise<void>;
   addToContextLabel?: string;
   portalHosts?: FilePortalHosts | null;
   workspaceExplorerToolbar?: ReactNode;
@@ -99,6 +101,8 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
     onPickProject,
     canUseFilesystemBridge,
     onAddToChatContext,
+    onNewChatInFolder,
+    onCreateChatWorkspace,
     addToContextLabel,
     portalHosts,
     workspaceExplorerToolbar,
@@ -172,6 +176,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
     inlineInputRef,
     casesNodeActions,
     onAddToChatContext,
+    onNewChatInFolder,
     toggleDir,
     openFile,
     setContextMenu,
@@ -244,7 +249,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
   const renderWorkSection = () => (
     <div className="lm-fs-section lm-fs-section-dual" data-testid="lm-fs-local-folder-section">
       {renderExplorerSectionHeader({
-        label: "工作区",
+        label: "本机目录",
         root: "project",
         menuPath: "",
         sectionOpen: workSectionOpen,
@@ -268,7 +273,7 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
           </>
         ) : (
           <div className="lm-fs-dual-empty">
-            <p>尚未选择本机文件夹。这里只显示您电脑上的材料，不会展示软件内部目录。</p>
+            <p>尚未选择本机目录。这里只显示您电脑上的文件夹，不会展示软件内部目录。</p>
             {onPickProject ? (
               <button type="button" className="lm-btn lm-btn-accent lm-btn-sm" onClick={() => void onPickProject()}>
                 选择本机文件夹…
@@ -411,6 +416,15 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
         canUseFilesystemBridge={canUseFilesystemBridge}
         busy={busy}
         onAddToChatContext={onAddToChatContext}
+        onCreateWorkspaceFromDirectory={
+          projectDir && onCreateChatWorkspace
+            ? (relPath) => {
+                const root = projectDir.replace(/\\/g, "/").replace(/\/+$/, "");
+                const rel = relPath.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+                void onCreateChatWorkspace(rel ? `${root}/${rel}` : root);
+              }
+            : undefined
+        }
         addToContextLabel={addToContextLabel}
         setAddToMatterManualDraft={setAddToMatterManualDraft}
         setAddToMatterLastError={setAddToMatterLastError}
@@ -448,6 +462,17 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
       )}
     </>
   );
+
+  if (portalHosts?.explorer && portalHosts.explorerSections === "work") {
+    return (
+      <>
+        {createPortal(workExplorerAside, portalHosts.explorer)}
+        {portalHosts.split ? createPortal(splitBetweenExplorerAndRest, portalHosts.split) : null}
+        {portalHosts.editor ? createPortal(editorSection, portalHosts.editor) : null}
+        {floatingLayer}
+      </>
+    );
+  }
 
   if (portalHosts?.explorer && portalHosts.explorerCases) {
     return (

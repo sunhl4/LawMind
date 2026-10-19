@@ -28,35 +28,78 @@ export function getMaxToolUseConcurrency(): number {
  * slot could not run its own search tools.
  */
 let leafInFlight = 0;
-const leafWaiters: Array<() => void> = [];
 
-export async function withLeafToolSlot<T>(fn: () => Promise<T>): Promise<T> {
-  await acquireLeafSlot();
+type LeafWaiter = {
+  grant: () => void;
+};
+
+const leafWaiters: LeafWaiter[] = [];
+
+export async function withLeafToolSlot<T>(
+  fn: () => Promise<T>,
+  opts?: { signal?: AbortSignal },
+): Promise<T> {
+  let held = false;
   try {
+    await acquireLeafSlot(opts?.signal);
+    held = true;
     return await fn();
   } finally {
-    releaseLeafSlot();
+    if (held) {
+      releaseLeafSlot();
+    }
   }
 }
 
-function acquireLeafSlot(): Promise<void> {
+function acquireLeafSlot(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(new Error("已停止"));
+  }
   const cap = Math.max(1, getMaxToolUseConcurrency());
-  if (leafInFlight < cap) {
+  if (leafInFlight < cap && leafWaiters.length === 0) {
     leafInFlight += 1;
     return Promise.resolve();
   }
-  return new Promise((resolve) => {
-    leafWaiters.push(() => {
-      leafInFlight += 1;
-      resolve();
-    });
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const waiter: LeafWaiter = {
+      grant: () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        leafInFlight += 1;
+        resolve();
+      },
+    };
+    const onAbort = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      const index = leafWaiters.indexOf(waiter);
+      if (index >= 0) {
+        leafWaiters.splice(index, 1);
+      }
+      reject(new Error("已停止"));
+    };
+    leafWaiters.push(waiter);
+    if (!signal) {
+      return;
+    }
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 
 function releaseLeafSlot(): void {
   leafInFlight = Math.max(0, leafInFlight - 1);
   const next = leafWaiters.shift();
-  next?.();
+  next?.grant();
 }
 
 export function isToolConcurrencySafe(registry: ToolRegistry, toolName: string): boolean {

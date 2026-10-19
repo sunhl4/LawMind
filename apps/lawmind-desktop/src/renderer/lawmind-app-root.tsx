@@ -614,6 +614,7 @@ export function LawmindAppRoot() {
         apiBase: config?.apiBase ?? "",
         taskId,
         workspaceDir: config?.workspaceDir,
+        projectDir: config?.projectDir ?? undefined,
       }).then((result) => {
         if (!result.ok) {
           setError(result.error);
@@ -644,7 +645,7 @@ export function LawmindAppRoot() {
       window.removeEventListener(LAWMIND_SHOW_WORD_SURFACE_EVENT, revealEditor);
       window.removeEventListener(LAWMIND_OPEN_CONTRACT_REVISION_EVENT, openRevision);
     };
-  }, [config?.apiBase, config?.workspaceDir, setContextMatterId, setError, setMainView, setWsShowChat]);
+  }, [config?.apiBase, config?.projectDir, config?.workspaceDir, setContextMatterId, setError, setMainView, setWsShowChat]);
 
   const { width: wsChatColWidth, onResizePointerDown: onWsChatSplitResize } = usePaneResizePx({
     storageKey: "lawmind.ui.wsChatColumnWidth",

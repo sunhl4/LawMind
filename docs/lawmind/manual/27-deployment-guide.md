@@ -77,7 +77,7 @@ LAWMIND_AGENT_API_KEY=...
 
 ## 27.3 策略：先影子，再抬门
 
-个人律师不需要 `lawmind.policy.json`。要写，文件必须有 `schemaVersion: 1`，否则整份被忽略。未知键同样被忽略。`auditIntegrityExport`、`strictDangerousToolApproval`、`acceptanceGateStrict`、`citationGateStrict` 是版本功能键，不是策略键；写进文件不会生效。策略键以 `src/lawmind/policy/workspace-policy.ts` 为准（第 30 章）。
+个人律师不需要 `lawmind.policy.json`。要写，文件必须有 `schemaVersion: 1`（不小于 1 的数字），否则整份不生效。写错的键不会悄悄生效：生效的进 `policy.applied`，旧键改名进 `policy.migrated`，不收的进 `policy.rejected`（附原因）。`auditIntegrityExport`、`strictDangerousToolApproval`、`acceptanceGateStrict`、`citationGateStrict` 是版本功能键，不是策略键；写进文件会被拒。能写的键以第 30 章为准（收口合同在 `src/lawmind/policy/commercial-policy.ts`）。
 
 firm 试点的最小文件只做两件事：标明版本，并放行模型域名和法源域名。
 
@@ -85,30 +85,31 @@ firm 试点的最小文件只做两件事：标明版本，并放行模型域名
 {
   "schemaVersion": 1,
   "edition": "firm",
-  "egressMode": "allowlisted",
-  "networkAllowlist": ["api.deepseek.com", "flk.npc.gov.cn"],
-  "networkAllowlistEnforced": true
+  "network": {
+    "mode": "allowlist",
+    "hosts": ["api.deepseek.com", "flk.npc.gov.cn"]
+  }
 }
 ```
 
-域名换成你们真实的网关和法源。空名单再加强制，等于断网。推荐名单可以并入（第 15 章 `RECOMMENDED_LEGAL_NETWORK_ALLOWLIST`），不要手抄一半。
+域名换成你们真实的网关和法源。`allowlist` 模式本身就是强制，不要再写 `networkAllowlistEnforced`（会被拒）；firm / private_deploy 下空名单等于断网。旧写法 `egressMode` / `networkAllowlist` 仍能读，但会进 `policy.migrated` 提示改名。推荐名单可以并入（第 15 章 `RECOMMENDED_LEGAL_NETWORK_ALLOWLIST`，或 `POST /api/policy/workspace/recommended-allowlist`），不要手抄一半。
 
-配完看 `GET /api/health` 的 `policy.applied`，以它列出的项为准。
+配完看 `GET /api/health` 的 `policy`：`applied` 是生效的键，`migrated` 是旧键改名提示，`rejected` 是没采纳的键（附原因）。以 `applied` 为准。
 
 ### 判断分级停在影子
 
-`judgmentTiering` 的默认是 `shadow`：系统记下「如果打开会怎样」，不改律师看到的结论。这是上线方式，不是未完成。
+判断分级的默认是 `shadow`：系统记下「如果打开会怎样」，不改律师看到的结论。这是上线方式，不是未完成。这个键不收进策略文件（写了会被拒），默认就是 `shadow`；只有环境变量 `LAWMIND_JUDGMENT_TIERING` 能改它，试点期不要设。
 
 试点两周内保持 `shadow`。只统计两件事：
 
 - 若改成 `on`，有多少份其实能用的稿会被拦住（误报）。
 - 有多少份后来被律师改掉的问题，影子记录里根本没出现（漏报）。
 
-误报还高时，不要把 `judgmentTiering` 改成 `on`，也不要靠加长 `agentMandatoryRules` 去补。`agentMandatoryRules` / `agentMandatoryRulesPath` 只放短原则（例如「对外稿必须经律师签批」）。禁止词表、字数上限、关键词拒稿会把模型判断掐死，违反铁律 5。
+误报还高时，不要把判断分级改成 `on`，也不要靠加长律所规则去补。规则只走 `firmRulesPath` 指向的文件（工作区相对路径，每轮注入，上限 8192 字；旧的 `agentMandatoryRulesPath` 会被迁移，内联 `agentMandatoryRules` 会被拒）。里面只放短原则（例如「对外稿必须经律师签批」）。禁止词表、字数上限、关键词拒稿会把模型判断掐死，违反铁律 5。
 
-firm 版默认还会打开强制互审、伦理墙、案件副本、修订稿独立审稿硬墙、危险工具严格审批。这些是授权和利益冲突边界，不是文稿质量开关。试点里如果律师的主抱怨是「还没写完就被拦住」，先看是不是这些默认门在空转，用 `policy.features.<key>` 把还没准备好的那一档暂时关上（第 15.8 节）。`wordAddinAutoRun` 在 firm 默认关，要保留「桌面端有一次显式动作」；要开必须在策略里写明。
+firm 版比 solo 多开的默认门是强制互审、伦理墙、危险工具严格审批、多助手名册（全表在第 15.8 节）；案件副本三档都默认开。这些是授权和利益冲突边界，不是文稿质量开关，而且不能用 `policy.features` 单键关掉——`features` 写进策略文件会被拒。能关的只有专门口子：强制互审在设置的「默认分工与互审」里关（`PUT /api/routing/defaults`），案件副本用 `replica.enabled: false`（旧写法 `matterReplica.enabled` 会被迁移），委派协作用 `enableCollaboration: false`；伦理墙跟版本走，策略关不掉。试点里如果律师的主抱怨是「还没写完就被拦住」，先看是不是这些默认门在空转。`wordAddinAutoRun` 在 firm 默认关，要保留「桌面端有一次显式动作」；要开必须在策略里写明（这是少数确实收的策略键）。
 
-`toolSandbox` 可以开：它把高风险工具放进子进程，不改变模型能用哪些工具。
+工具沙箱同样不收进策略文件（`toolSandbox` 写了会被拒）；要开用 `LAWMIND_TOOL_SANDBOX=1`：高风险工具放进子进程，不改变模型能用哪些工具。
 
 ### 自定义技能才签名
 
@@ -155,15 +156,15 @@ pnpm lawmind:skills:sign --workspace <工作区> --check
 
 ### 律师当场能看懂的七项
 
-| 验什么   | 怎么验                                                  | 通过                                                |
-| -------- | ------------------------------------------------------- | --------------------------------------------------- |
-| 模型通   | 设置 → 模型与连接「验证模型」，或 `pnpm lawmind:doctor` | 已配置且连通；`dual` 时检索通道单独显示已配或已回退 |
-| 交办通   | 「查一下民法典违约责任」                                | 出备忘；中途不问「要不要继续」                      |
-| 材料通   | 拖一份脱敏合同说「审一下」                              | 风险指向具体条款，不是空泛摘要                      |
-| 改稿通   | 改稿 → 签批 → 导出                                      | 带修订轨的 Word；改动是最短锚点                     |
-| 记忆通   | 记忆库确认一条                                          | 档案里出现对应改动；未确认的不出现                  |
-| 外发闸门 | 让它发一封邮件                                          | 停在「待我拍板」，不会直接发出                      |
-| 重复稳定 | 同一条交办再跑一次                                      | 结论结构同类；不会突然多一轮确认                    |
+| 验什么   | 怎么验                        | 通过                                                |
+| -------- | ----------------------------- | --------------------------------------------------- |
+| 模型通   | 设置 → 模型与连接「验证模型」 | 已配置且连通；`dual` 时检索通道单独显示已配或已回退 |
+| 交办通   | 「查一下民法典违约责任」      | 出备忘；中途不问「要不要继续」                      |
+| 材料通   | 拖一份脱敏合同说「审一下」    | 风险指向具体条款，不是空泛摘要                      |
+| 改稿通   | 改稿 → 签批 → 导出            | 带修订轨的 Word；改动是最短锚点                     |
+| 记忆通   | 记忆库确认一条                | 档案里出现对应改动；未确认的不出现                  |
+| 外发闸门 | 让它发一封邮件                | 停在「待我拍板」，不会直接发出                      |
+| 重复稳定 | 同一条交办再跑一次            | 结论结构同类；不会突然多一轮确认                    |
 
 「出了一份备忘」只说明链路通。质量认材料通、改稿通，以及下面的金标。
 
@@ -179,13 +180,13 @@ pnpm lawmind:doctor --json
 
 `lawmind:gate` 退出码：0 是全部就绪或没有草稿；1 是 `--strict` 下有未就绪；2 是参数或 IO 错误。
 
-三道门没有夹具时 SKIP，这是正常结果：
+这几道门没有夹具或来源时如实报 SKIP / 未接，这是正常结果：
 
 | 门                                   | 什么时候才有意义                                                                                                                     |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
 | 真稿（`lawmind:true-manuscript`）    | 律师脱敏的 `.docx` / `.doc` / `.pdf` 放在 `fixtures/lawmind-true-manuscript/`。`--write-baseline` 只起草侧车，不覆盖律师已确认的基线 |
-| 人类基准（`lawmind:human-baseline`） | 同题双稿至少 10 件。`--write-blind` 出匿名包；确定性分数不能代替律师盲评                                                             |
-| 类案就绪                             | 本机有可用的类案索引                                                                                                                 |
+| 人类基准（`lawmind:human-baseline`） | 同题双稿至少 10 组（每案一个目录，放在 `fixtures/lawmind-human-baseline/`）。`--write-blind` 出匿名包；确定性分数不能代替律师盲评    |
+| 类案就绪                             | 本机 caseopen 索引可达即自动启用（也可 `LAWMIND_OPEN_LAW_CASEOPEN=1` 显式开）；都没有时如实报「未接类案库」，不编造案号              |
 
 不要把 SKIP 写成失败，也不要用仓库示例去填夹具。人不够 10 件时，基准报 INSUFFICIENT，同样不是通过。发版场景另跑 `pnpm lawmind:release-readiness`。
 
@@ -223,7 +224,7 @@ pnpm lawmind:doctor --json
 LAWMIND_WORKSPACE_DIR=<工作区> pnpm lawmind:backup -- <输出.tar.gz>
 ```
 
-默认不含 `.env.lawmind`；要含才设 `LAWMIND_BACKUP_INCLUDE_ENV=1`。索引（`lawmind/search-index.sqlite`）和质量快照是派生的，不备份，坏了从真相源重建。
+备份是整个工作区的 tar.gz：根上的 `.env` 和 `.env.lawmind` 默认排除，要含才设 `LAWMIND_BACKUP_INCLUDE_ENV=1`（此时归档必须加密）；除此之外工作区里有什么进什么。索引（`lawmind/search-index.sqlite`）和质量快照是派生的，会随包走，但恢复不靠它们——坏了从真相源重建。
 
 ### 升级
 
@@ -241,9 +242,9 @@ LAWMIND_WORKSPACE_DIR=<工作区> pnpm lawmind:backup -- <输出.tar.gz>
 pnpm lawmind:doctor
 ```
 
-它同时看会话配对、投影、索引，以及签名未通过的自定义技能。投影对不上或技能因此停用时退出码为 1。会话配对下一轮会自动补；文件改过的索引下一次检索会补。步骤在第 31 章。
+它同时看会话配对、投影、索引，以及签名未通过的自定义技能（另附执行面清单）。投影对不上或技能因此停用时退出码为 1。会话配对下一轮会自动补；文件改过的索引下一次检索会补。步骤在第 31 章。
 
-`pnpm lawmind:ops doctor` 打同一份三行。`--deep` 只额外跑开发用的 smoke，不要放进每周巡检。
+`pnpm lawmind:ops doctor` 打同一份巡检。`--deep` 只额外跑开发用的 smoke（`lawmind:smoke --fail-on-empty-claims`），不要放进每周巡检。
 
 ### 审计只为义务和调查
 
@@ -280,7 +281,7 @@ GET /api/audit/export-summary?format=text
 
 ## 27.7 私有化档的额外预检
 
-`private_deploy` 的自检数据在 `GET /api/health` 的 `doctor.privateDeployChecklist`（第 15.14 节；体检页 UI 已撤，用 `pnpm lawmind:doctor` 或直接读端点），六项：策略文件在、版本是 private、白名单已配、危险工具严格审批开着、合规审计导出可用、技能签名用的是真密钥。
+`private_deploy` 的自检数据在 `GET /api/health` 的 `doctor.privateDeployChecklist`（第 15.14 节；体检页 UI 已撤，直接读端点），六项：策略文件在、版本是 private_deploy、白名单已配、危险工具严格审批开着、合规审计导出可用、技能签名密钥文件已配（可选——`<工作区>/lawmind/skills/.signing-secret` 存在，或还没有技能目录，都算过）。
 
 这六项是预检，不是安全证明。过了只说明包装项齐了。交件质量仍看 27.5 的金标。
 
@@ -288,7 +289,7 @@ GET /api/audit/export-summary?format=text
 
 ## 27.8 实施时不要走的捷径
 
-**不要调系统提示词来「适应我们律所」。** 效果来自工作区 `playbooks/CLAUSE_PLAYBOOK.md`、律师确认过的记忆，以及第 26 章的交办话术。首跑只选身份与常交付文书，不写冷启动文风。改系统提示词会打到所有任务。
+**不要调系统提示词来「适应我们律所」。** 效果来自工作区 `playbooks/CLAUSE_PLAYBOOK.md`、律师确认过的记忆，以及第 26 章的交办话术。首跑只选身份，不写冷启动文风。改系统提示词会打到所有任务。
 
 **不要用审计保存期限代替质量复盘。** 留存多久看所里的合规意见。技术上链不能中间断开；外锚摘要很轻，可以比正文留得更久。
 
@@ -319,8 +320,8 @@ GET /api/audit/export-summary?format=text
 
 ## 27.10 已知坑
 
-- 策略文件缺 `schemaVersion: 1` 会被整份忽略。以 `policy.applied` 为准。
-- 版本功能键写进策略文件会被忽略。
+- 策略文件缺 `schemaVersion: 1` 整份不生效。以 `policy.applied` 为准，被拒的键在 `policy.rejected`。
+- 版本功能键写进策略文件会被拒（`policy.rejected`），不生效。
 - 环境文件里的密钥是明文，且压过密钥链。
 - `wordAddinAutoRun` 在 firm 默认关。
 - 真稿、人类基准、类案三道门的 SKIP 不是失败。示例文件填进去会使门失效。人类基准不足 10 件是 INSUFFICIENT。
@@ -328,6 +329,6 @@ GET /api/audit/export-summary?format=text
 - 换邮箱密钥前先导出配置。解不开的旧密文会被拒绝覆盖。
 - 不要删除中间某一天的审计文件。
 - 同一工作区不要两人同时写。换机器必须重配密钥。
-- 索引和质量快照不用备份。
+- 索引和质量快照是派生的，恢复后重建即可，不用单独备。
 - `pnpm lawmind:doctor --deep` 不会多查。`--deep` 只属于 `pnpm lawmind:ops doctor`，而且只跑开发 smoke。
 - 验收包和审计导出不证明交件质量。

@@ -144,25 +144,15 @@ export async function waitForLocalServerReady(
 }
 
 /**
- * 完成首跑对话框，创建首个案件。
+ * 完成首跑对话框（单步：选身份即开工），创建首个案件。
  * 返回自动生成的 matterId（通过 API 反查）。
  */
 export async function completeFirstRunDialog(page: Page): Promise<string> {
   const dialog = page.getByRole("dialog", { name: /LawMind 新手引导/i });
   await expect(dialog).toBeVisible({ timeout: 30_000 });
 
-  // 1. 选择角色 → 直接进入文书
+  // 1. 选择角色 → 直接建「演示案件」并开工（无文书/风格问卷）
   await dialog.getByRole("button", { name: "独立执业" }).click();
-  // 2. 选择第一个可用交付物类型（通常是合同审查或律师函）
-  await expect(dialog.locator(".lm-firstrun-cards")).toBeVisible({ timeout: 10_000 });
-  const firstSpec = dialog.locator(".lm-firstrun-card").first();
-  await expect(firstSpec).toBeVisible({ timeout: 10_000 });
-  await firstSpec.click();
-  // 3. 显式勾选「同时创建演示案件」，再开始交办
-  await dialog.getByTestId("lm-firstrun-create-matter").check();
-  const confirm = dialog.getByRole("button", { name: "建案件并开始交办" });
-  await expect(confirm).toBeEnabled({ timeout: 10_000 });
-  await confirm.click();
   await expect(dialog).toBeHidden({ timeout: 30_000 });
 
   const config = await getRendererConfig(page);

@@ -14,6 +14,7 @@
 import fs from "node:fs/promises";
 import JSZip from "jszip";
 import { longestUnchangedRunInside } from "./minimal-edit-script.js";
+import { findTrackedFormatMismatches, type TrackedFormatViolation } from "./tracked-format-gate.js";
 
 export type TrackedXmlQa = {
   ok: boolean;
@@ -32,6 +33,14 @@ export type TrackedXmlQa = {
       unchangedRun: number;
       reason: string;
     }>;
+  };
+  /**
+   * 修订文字是否对齐邻接原稿 run 的直接格式（字体/字号/加粗等）。
+   * 邻接也无直接格式时不算违规（共同继承段落样式）。
+   */
+  formatAlignment: {
+    checked: boolean;
+    violations: TrackedFormatViolation[];
   };
 };
 
@@ -142,6 +151,7 @@ export async function qaTrackedDocxXml(
   expectedHunks: number,
 ): Promise<TrackedXmlQa> {
   const emptyMinimalEdit = { checked: false, pairs: 0, violations: [] };
+  const emptyFormat = { checked: false, violations: [] as TrackedFormatViolation[] };
   let xml = "";
   try {
     const buf = await fs.readFile(filePath);
@@ -155,6 +165,7 @@ export async function qaTrackedDocxXml(
       expectedHunks,
       warning: "无法打开导出的 Word 做修订 XML 核对。",
       minimalEdit: emptyMinimalEdit,
+      formatAlignment: emptyFormat,
     };
   }
   if (!xml) {
@@ -165,6 +176,7 @@ export async function qaTrackedDocxXml(
       expectedHunks,
       warning: "导出文件没有 word/document.xml。",
       minimalEdit: emptyMinimalEdit,
+      formatAlignment: emptyFormat,
     };
   }
   const insCount = countTag(xml, "ins");
@@ -178,6 +190,7 @@ export async function qaTrackedDocxXml(
       warning:
         "已报叠加修订，但 XML 未见 w:ins/w:del。不要当红线已落盘。收窄 find 后重跑 apply_surgical_edits 再导出。",
       minimalEdit: emptyMinimalEdit,
+      formatAlignment: emptyFormat,
     };
   }
   // 最短改动复核：只在真发生修订时看（空修订已在上一条拦下）。
@@ -192,11 +205,30 @@ export async function qaTrackedDocxXml(
       delCount,
       expectedHunks,
       minimalEdit,
+      formatAlignment: emptyFormat,
       warning:
         `导出的修订轨里有 ${violations.length} 处「整句删+整句增」（共有 ${head.unchangedRun} 字未改却被包进修订）：` +
         `${head.deleted} → ${head.inserted}。这不符合最短改动要求（同事无法逐处接受）；` +
         "请确认这次落改没有绕过引擎的最短改动重算，然后重跑 apply_surgical_edits 再导出。",
     };
   }
-  return { ok: true, insCount, delCount, expectedHunks, minimalEdit };
+  // 格式硬控：邻接原稿 run 有直接格式时，修订 run 必须对齐（导出前应已 repair）。
+  const formatViolations = insCount + delCount > 0 ? findTrackedFormatMismatches(xml) : [];
+  const formatAlignment = { checked: true, violations: formatViolations };
+  if (formatViolations.length > 0) {
+    const head = formatViolations[0];
+    return {
+      ok: false,
+      insCount,
+      delCount,
+      expectedHunks,
+      minimalEdit,
+      formatAlignment,
+      warning:
+        `导出的修订文字有 ${formatViolations.length} 处未对齐原稿直接格式` +
+        `（字体/字号/加粗等）：${head?.kind ?? "ins"}「${head?.text ?? ""}」。` +
+        "不能当作「保留原格式」已完成。",
+    };
+  }
+  return { ok: true, insCount, delCount, expectedHunks, minimalEdit, formatAlignment };
 }

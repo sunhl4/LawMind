@@ -226,6 +226,12 @@ async function finishTrackedExport(params: {
       degraded: params.degraded,
     };
   }
+  try {
+    const { repairTrackedDocxFormat } = await import("./tracked-format-gate.js");
+    await repairTrackedDocxFormat(params.outputPath);
+  } catch {
+    /* QA below still enforces format alignment */
+  }
   const qa = await qaTrackedDocxXml(params.outputPath, params.expectedHunks);
   if (qa.ok) {
     return {

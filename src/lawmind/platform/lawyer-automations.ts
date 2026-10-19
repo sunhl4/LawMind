@@ -15,6 +15,7 @@ import {
   isReviewableContractAttachment,
   type ContractAttachmentKind,
 } from "../mail/mail-contract-formats.js";
+import { readBinaryWordDocText } from "../mail/read-word-binary.js";
 import { eventIntervalOpen, validateEventTrigger } from "./automation-event-trigger.js";
 import { clampEveryMinutes } from "./automation-frequency-hint.js";
 import {
@@ -1396,10 +1397,20 @@ export async function materializeMailContractReviewBaselines(
   }
 
   if (preferred.kind === "legacy_doc") {
+    const abs = path.resolve(workspaceDir, preferred.workspaceRelativePath);
+    const text = await readBinaryWordDocText(abs).catch(() => "");
+    if (!text.trim()) {
+      return finalizeMailContractReviewBuild(matterId, messages, built.attachmentRefs, {
+        reviewMode: "opinion",
+        preferredSourcePath: preferred.workspaceRelativePath,
+        convertNote: DOC_NEEDS_DOCX_MESSAGE,
+      });
+    }
     return finalizeMailContractReviewBuild(matterId, messages, built.attachmentRefs, {
-      reviewMode: "opinion",
+      reviewMode: "tracked",
+      preferredBaselinePath: preferred.workspaceRelativePath,
       preferredSourcePath: preferred.workspaceRelativePath,
-      convertNote: `${DOC_NEEDS_DOCX_MESSAGE} 另存完成后请再交办「按原稿改稿」；当前先按正文做意见书级审查，不写审阅痕迹。`,
+      convertNote: `已直接读取 \`${preferred.workspaceRelativePath}\`（内部解析 OLE，未另存、未改原件）。审查和修订按这份正文继续。`,
     });
   }
 
@@ -1411,10 +1422,8 @@ export async function materializeMailContractReviewBaselines(
         preferredBaselinePath: converted.relativePath,
         preferredSourcePath: preferred.workspaceRelativePath,
         convertNote: converted.converted
-          ? converted.fidelity === "lossy"
-            ? `已将 \`${preferred.workspaceRelativePath}\` 转为可审阅基线 \`${converted.relativePath}\`（${converted.tool ?? "converter"}，**有损**：原字体/审阅修订可能丢失；请安装 Microsoft Word 后重跑以高保真导出）。`
-            : `已将 \`${preferred.workspaceRelativePath}\` 转为可审阅基线 \`${converted.relativePath}\`（${converted.tool ?? "converter"}，保留原格式/审阅痕迹）。`
-          : undefined,
+          ? `已将 \`${preferred.workspaceRelativePath}\` 按字节拷贝为可审阅基线 \`${converted.relativePath}\`（误标扩展名的 OOXML）。`
+          : `\`${preferred.workspaceRelativePath}\` 按正文直接读取，不再改动原文件。`,
       });
     }
     return finalizeMailContractReviewBuild(matterId, messages, built.attachmentRefs, {

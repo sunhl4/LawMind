@@ -1,9 +1,7 @@
 /**
- * Serialize overlapping turns for the same assistant (B3 execution slot).
- *
- * Session turn gate alone is not enough: two sessions under one assistant can
- * still race shared Word / 法宝 / host tool state. Mirror session-turn-gate:
- * in-process queue + persisted lease under sessions/assistant-<id>.turn-gate.json.
+ * Per-assistant turn lease. Chat and resume do not take it:
+ * conversations run together. 法宝检索不限流。Word 与 LibreOffice
+ * 在 `runtime/turn-admission.ts` 里各只跑一路。不要用本锁包住 `runTurn`。
  */
 
 import fs from "node:fs";
@@ -138,6 +136,10 @@ function releasePersistedLease(workspaceDir: string, assistantId: string): void 
   }
 }
 
+/**
+ * @deprecated Chat and resume must not take this lock. One conversation has its
+ * own session turn gate; model slots and file leases are process-wide.
+ */
 export async function withAssistantTurnGate<T>(
   workspaceDir: string,
   assistantId: string,

@@ -9,6 +9,8 @@ import {
 import { fetchApiJson } from "./api-client-proxy";
 import { fetchChatLiveTurnProgress } from "./lawmind-chat-trace.js";
 import { readActiveWorkbenchWordFile } from "./lawmind-active-word-file";
+import { normalizeChatWorkDir } from "../../../../src/lawmind/agent/chat-folder.ts";
+import { readChatHomeDir, resolveChatHomeDir } from "./lawmind-chat-home-dir";
 import { matterIdOwnedByOpenedFile } from "./lawmind-workspace-file-open";
 import type { AppConfig } from "./lawmind-app-bootstrap";
 import type { DelegationRow } from "./lawmind-app-data";
@@ -39,7 +41,6 @@ import {
 } from "./lawmind-chat-scope";
 import { readSelectedModelId } from "./lawmind-selected-model-pref";
 import { clearPlanHandoff, deleteSessionPlanHandoff } from "./lawmind-plan-handoff";
-import { confirmDialog } from "./lawmind-confirm-dialog";
 import type { BackgroundWatchOpts } from "./useLawmindBackgroundWatch";
 
 function sessionCreateErrorMessage(
@@ -168,6 +169,8 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
             updatedAt?: string;
             lastPreview?: string;
             matterId?: string | null;
+            folderRel?: string | null;
+            workDir?: string | null;
             assistantId?: string;
             forkedToSessionId?: string;
           }>;
@@ -451,12 +454,20 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
     ],
   );
 
-  const createNewChatSession = useCallback(async () => {
+  const createNewChatSession = useCallback(async (workDir?: string) => {
     if (!config?.apiBase) {
       return;
     }
     const assistantId = selectedAssistantId;
-    const scope = chatListScopeRef.current;
+    const home =
+      normalizeChatWorkDir(workDir) ||
+      normalizeChatWorkDir(
+        resolveChatHomeDir({
+          workspaceDir: config.workspaceDir,
+          projectDir: config.projectDir,
+          configured: readChatHomeDir(),
+        }).path,
+      );
     setError(null);
     try {
       const cr = await fetchApi(
@@ -466,7 +477,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             assistantId,
-            ...(scope ? { matterId: scope } : {}),
+            ...(home ? { workDir: home } : {}),
           }),
         },
         { tag: "chat-sessions:create-new" },
@@ -487,7 +498,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
         sessionId: createdId,
         title: lawyerChatListTitle(cj.title),
         updatedAt: new Date().toISOString(),
-        ...(scope ? { matterId: scope } : {}),
+        ...(home ? { workDir: home } : {}),
         assistantId,
       };
       // 目录刷新要等接口；左栏先插这一行，不用等本轮办完。
@@ -507,6 +518,7 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
     }
   }, [
     config?.apiBase,
+    config?.projectDir,
     config?.workspaceDir,
     loadSessionMessagesIntoState,
     refreshChatSessionListForAssistant,
@@ -566,28 +578,9 @@ export function useLawmindChatSessions(input: UseLawmindChatSessionsInput) {
       if (ids.length === 0) {
         return;
       }
-      const count = ids.length;
       const sessionStoreKey = chatSessionStoreKey(config.workspaceDir);
-      if (
-        !(await confirmDialog({
-          title: count === 1 ? "确定删除此对话？" : `确定删除这 ${count} 条对话？`,
-          body: "将移除会话记录、回合与实时进度；已签批或已导出的草稿不会自动删除。",
-          confirmLabel: "删除",
-          tone: "danger",
-        }))
-      ) {
-        return;
-      }
-      const cascadeRelated = await confirmDialog({
-        title: count === 1 ? "是否同时清理本对话关联内容？" : `是否同时清理这 ${count} 条对话的关联内容？`,
-        body:
-          count === 1
-            ? "· 委派子会话与委派记录\n· 尚未签批、且未导出的草稿与任务\n\n选「取消」则只删除对话本身；关联草稿仍可在改稿 / 在办中单独删除。"
-            : "· 委派子会话与委派记录\n· 尚未签批、且未导出的草稿与任务\n\n选「取消」则只删除这些对话本身；关联草稿仍可在改稿 / 在办中单独删除。",
-        confirmLabel: "同时清理",
-        cancelLabel: "仅删对话",
-        tone: "danger",
-      });
+      // 右键删除只去掉对话本身，不再弹确认。未签批的草稿仍留在改稿 / 在办里。
+      const cascadeRelated = false;
       setError(null);
       const apiBase = config.apiBase;
       const deletedIds: string[] = [];

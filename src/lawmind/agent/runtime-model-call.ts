@@ -10,6 +10,13 @@ import {
 import { REVIEW_MODEL_TIMEOUT_MS } from "../models/capability-envelope.js";
 import { isDeepSeekFlashUpstream } from "../models/catalog.js";
 import { createOutboundProxy } from "../platform/outbound-proxy.js";
+import {
+  AdmissionAbortedError,
+  noteModelRateLimit,
+  noteModelSampleSuccess,
+  withModelAdmission,
+  type ModelAdmissionIdentity,
+} from "../runtime/turn-admission.js";
 import { isToolPairingRejectText, sanitizeWireMessages } from "./session-tool-call-pairing.js";
 import type { WireChatMessage } from "./session-tool-call-pairing.js";
 import type { AgentModelConfig } from "./types.js";
@@ -202,6 +209,15 @@ export type CallModelOptions = {
    * Tool rounds stay high unless a write-synthesis sample asks for max.
    */
   reasoningEffort?: "high" | "max";
+  /** Fired when this sample is waiting for a free model slot. */
+  onAdmissionWait?: () => void;
+  /** Fired once the model slot is held, before the HTTP call. */
+  onAdmissionGranted?: () => void;
+  /**
+   * Which conversation this sample belongs to.
+   * Workers share the parent session id so that chat keeps one reserved model lane.
+   */
+  admission?: ModelAdmissionIdentity;
 };
 
 /** Accumulate streaming chunks into a final `ChatCompletionResponse` shape. */
@@ -487,6 +503,27 @@ export async function callModelWithRetry(
   tools: unknown[],
   opts: CallModelOptions = {},
 ): Promise<ChatCompletionResponse> {
+  try {
+    return await withModelAdmission(() => callModelWithRetryHeld(config, messages, tools, opts), {
+      signal: opts.signal,
+      onWait: opts.onAdmissionWait,
+      onGranted: opts.onAdmissionGranted,
+      identity: opts.admission,
+    });
+  } catch (err) {
+    if (err instanceof AdmissionAbortedError) {
+      throw new ModelCallUserAbortError();
+    }
+    throw err;
+  }
+}
+
+async function callModelWithRetryHeld(
+  config: AgentModelConfig,
+  messages: WireChatMessage[],
+  tools: unknown[],
+  opts: CallModelOptions,
+): Promise<ChatCompletionResponse> {
   const maxRetries = config.maxRetries ?? DEFAULT_MODEL_MAX_RETRIES;
   let current = messages;
   let attempt = 0;
@@ -494,9 +531,14 @@ export async function callModelWithRetry(
   let lastError: Error | undefined;
   for (;;) {
     try {
-      return await callModelOnce(config, current, tools, opts);
+      const response = await callModelOnce(config, current, tools, opts);
+      noteModelSampleSuccess();
+      return response;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      if (err instanceof ModelCallHttpError && err.status === 429) {
+        noteModelRateLimit();
+      }
       // Never retry user Stop — that would ignore the lawyer's cancel.
       if (err instanceof ModelCallUserAbortError || opts.signal?.aborted) {
         break;

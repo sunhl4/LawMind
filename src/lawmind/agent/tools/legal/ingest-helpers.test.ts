@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import {
   DOCUMENT_PAGE_DEFAULT_CHARS,
@@ -11,6 +12,7 @@ import {
   isPathInsideRoot,
   isXlsxPath,
   normalizeRelPath,
+  readDocxText,
   readSafe,
   searchProjectTextFiles,
   shouldUseVisionFallback,
@@ -127,5 +129,27 @@ describe("shouldUseVisionFallback", () => {
     } else {
       process.env.LAWMIND_AGENT_MODEL = prevModel;
     }
+  });
+});
+
+describe("readDocxText", () => {
+  it("keeps the page-field result and drops the field instruction", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-docx-field-"));
+    const abs = path.join(dir, "page.docx");
+    const zip = new JSZip();
+    zip.file(
+      "word/document.xml",
+      `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p>` +
+        `<w:r><w:instrText xml:space="preserve"> PAGE \\* MERGEFORMAT </w:instrText></w:r>` +
+        `<w:r><w:t>72</w:t></w:r>` +
+        `<w:r><w:t>付款基数</w:t></w:r>` +
+        `</w:p></w:body></w:document>`,
+    );
+    await fs.writeFile(abs, await zip.generateAsync({ type: "nodebuffer" }));
+    const text = await readDocxText(abs);
+    expect(text).toContain("72");
+    expect(text).toContain("付款基数");
+    expect(text).not.toContain("MERGEFORMAT");
+    expect(text).not.toContain("PAGE");
   });
 });

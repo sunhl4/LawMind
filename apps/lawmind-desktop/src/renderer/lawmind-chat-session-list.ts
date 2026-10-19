@@ -104,6 +104,8 @@ export type ChatSessionListWire = {
   updatedAt?: string;
   lastPreview?: string;
   matterId?: string | null;
+  folderRel?: string | null;
+  workDir?: string | null;
   assistantId?: string;
   forkedToSessionId?: string;
 };
@@ -125,6 +127,8 @@ export function mapChatSessionListRow(session: ChatSessionListWire): ChatSession
     return null;
   }
   const matterId = session.matterId?.trim() ?? "";
+  const folderRel = session.folderRel?.trim() ?? "";
+  const workDir = session.workDir?.trim() ?? "";
   const assistantId = session.assistantId?.trim() ?? "";
   const forkedToSessionId = session.forkedToSessionId?.trim() ?? "";
   return {
@@ -133,6 +137,8 @@ export function mapChatSessionListRow(session: ChatSessionListWire): ChatSession
     updatedAt: session.updatedAt ?? "",
     lastPreview: typeof session.lastPreview === "string" ? session.lastPreview : undefined,
     ...(matterId ? { matterId } : {}),
+    ...(folderRel ? { folderRel } : {}),
+    ...(workDir ? { workDir } : {}),
     ...(assistantId ? { assistantId } : {}),
     ...(forkedToSessionId ? { forkedToSessionId } : {}),
   };

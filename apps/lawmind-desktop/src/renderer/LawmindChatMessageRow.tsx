@@ -62,6 +62,7 @@ export type LawmindChatMessageRowProps = {
   onEditChatMessage?: (uiIndex: number, nextText: string) => void | Promise<void>;
   onOpenSettingsSection?: (section: "models" | "doctor") => void;
   workspaceDir?: string;
+  projectDir?: string;
   planEditable?: boolean;
   onLawyerEditPlan?: (planText: string) => void;
   onStartExecuteFromPlan?: () => void;
@@ -92,6 +93,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
     onEditChatMessage,
     onOpenSettingsSection,
     workspaceDir,
+    projectDir,
     planEditable,
     onLawyerEditPlan,
     onStartExecuteFromPlan,
@@ -301,6 +303,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
             modelFailure={modelFailure}
             apiBase={apiBase}
             workspaceDir={workspaceDir}
+            projectDir={projectDir}
             onOpenDraft={
               onOpenReview ? (taskId) => onOpenReview({ taskId }) : undefined
             }

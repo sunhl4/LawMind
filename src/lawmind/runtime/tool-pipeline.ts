@@ -29,7 +29,11 @@ import {
   stripUnknownToolArguments,
   validateToolArguments,
 } from "../agent/runtime-tool-validation.js";
-import { MATTER_SCOPE_REQUIRED, WRITE_TOOLS } from "../agent/tool-name-sets.js";
+import {
+  IDEMPOTENT_READ_TOOLS,
+  MATTER_SCOPE_REQUIRED,
+  WRITE_TOOLS,
+} from "../agent/tool-name-sets.js";
 import { resolveToolRiskLevel } from "../agent/tools/governance.js";
 import { UPDATE_PLAN_TOOL_NAME } from "../agent/turn-plan-model.js";
 import type { AgentContext, AgentTool, ToolCallResult, ToolDefinition } from "../agent/types.js";
@@ -46,6 +50,12 @@ import { IcloudLawyerPrompt } from "./icloud-materialize.js";
 import { legalVerifyMiddleware } from "./legal-verify-middleware.js";
 import { runToolInSubprocessSandbox } from "./tool-sandbox.js";
 import { isUnlimitedToolTimeoutMs, resolveToolWallTimeoutMs } from "./tool-timeout-env.js";
+import {
+  AdmissionAbortedError,
+  resourceLeaseKeyForTool,
+  withResourceLease,
+  withTurnToolSlot,
+} from "./turn-admission.js";
 
 /**
  * Write/export tools blocked while clarification is pending.
@@ -840,27 +850,71 @@ export const subprocessSandboxMiddleware: ToolMiddleware = async (call, next) =>
   return runToolInSubprocessSandbox(call);
 };
 
-/** 终态：执行 tool.execute()。 */
+function toolCallIsConcurrencySafe(call: ToolCallContext): boolean {
+  if (call.tool?.definition.requiresApproval === true) {
+    return false;
+  }
+  const flag = call.tool?.definition.isConcurrencySafe;
+  if (flag === true) {
+    return true;
+  }
+  if (flag === false) {
+    return false;
+  }
+  return IDEMPOTENT_READ_TOOLS.has(call.toolName);
+}
+
+/** 终态：执行 tool.execute()。只读检索不占空位。写操作按对话限流，同一路径才跨对话排队。 */
 export const executeMiddleware: ToolMiddleware = async (call) => {
   if (!call.tool) {
     return { ok: false, error: `未知工具：${call.toolName}。该工具未注册，请核对请求。` };
   }
-  try {
-    return await call.tool.execute(call.args, call.ctx);
-  } catch (err) {
-    if (err instanceof IcloudLawyerPrompt) {
+  const execute = async (): Promise<ToolCallResult> => {
+    try {
+      return await call.tool!.execute(call.args, call.ctx);
+    } catch (err) {
+      if (err instanceof IcloudLawyerPrompt) {
+        return {
+          ok: true,
+          data: {
+            icloudDownloadAsk: true,
+            clarificationQuestions: [err.question],
+          },
+        };
+      }
+      if (err instanceof AdmissionAbortedError) {
+        return { ok: false, error: "已停止" };
+      }
       return {
-        ok: true,
-        data: {
-          icloudDownloadAsk: true,
-          clarificationQuestions: [err.question],
-        },
+        ok: false,
+        error: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
-    return {
-      ok: false,
-      error: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
-    };
+  };
+  const safe = toolCallIsConcurrencySafe(call);
+  const leaseKey = resourceLeaseKeyForTool(call.toolName, call.args, safe);
+  const slotted = () =>
+    withTurnToolSlot(execute, {
+      signal: call.ctx.abortSignal,
+      identity: call.ctx.sessionId ? { sessionId: call.ctx.sessionId, kind: "parent" } : undefined,
+      onWait: () => call.ctx.emitToolProgress?.("这一轮的工具在排队"),
+    });
+  try {
+    if (safe && !leaseKey) {
+      return await execute();
+    }
+    if (!leaseKey) {
+      return await slotted();
+    }
+    return await withResourceLease(leaseKey, slotted, {
+      signal: call.ctx.abortSignal,
+      onWait: () => call.ctx.emitToolProgress?.("排队等同一份文件"),
+    });
+  } catch (err) {
+    if (err instanceof AdmissionAbortedError) {
+      return { ok: false, error: "已停止" };
+    }
+    throw err;
   }
 };
 

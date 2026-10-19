@@ -78,6 +78,7 @@ export type LawmindChatMessagesColumnProps = {
   onOpenSettings?: () => void;
   onOpenDoctor?: () => void;
   workspaceDir?: string;
+  projectDir?: string;
   planEditable?: boolean;
   onLawyerEditPlan?: (planText: string) => void;
   onStartExecuteFromPlan?: () => void;
@@ -112,6 +113,7 @@ export function LawmindChatMessagesColumn({
   onOpenSettings,
   onOpenDoctor,
   workspaceDir,
+  projectDir,
   planEditable,
   onLawyerEditPlan,
   onStartExecuteFromPlan,
@@ -237,6 +239,7 @@ export function LawmindChatMessagesColumn({
         onEditChatMessage={onEditChatMessage}
         onOpenSettingsSection={openSettingsSection}
         workspaceDir={workspaceDir}
+        projectDir={projectDir}
         planEditable={planEditable}
         onLawyerEditPlan={onLawyerEditPlan}
         onStartExecuteFromPlan={onStartExecuteFromPlan}

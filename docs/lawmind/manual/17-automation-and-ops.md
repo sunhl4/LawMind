@@ -6,7 +6,7 @@
 
 | 铁律           | 这一章怎么落                                                                                                                            |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| 上手简单       | 「以后每周这样来一次」用模板把四句确认写好。律师改字即可。清空「办完是什么样」或「哪些事必须先问我」才不能创建。                        |
+| 上手简单       | 「以后每周这样来一次」用模板把四句确认写好。律师改字即可。清空「办完是什么样」或「哪些事必须先问我」就不能创建。                        |
 | 交付质量       | 无人值守的产出进收件箱，外发仍要单独批。失败必须看见，不靠运行次数当质量。                                                              |
 | 稳定           | 同一份已停下的附件不反复重派。没有新来信就写「无新变化」，不把上周结果再写一遍。                                                        |
 | 先复用，后自研 | 邮箱走 IMAP / SMTP / Graph。不自造邮件协议。                                                                                            |
@@ -39,7 +39,7 @@
 | `allowSendEmailAfterApproval`                   | 批准后能不能发   |
 | `notifyEmail`                                   | 通知发到哪       |
 
-### 五种排期
+### 四种排期
 
 | 类型       | 参数                                          |
 | ---------- | --------------------------------------------- |
@@ -69,16 +69,16 @@
   （否则「不打扰」会退化成「无声地不再办件」）。
 ```
 
-「六确认」是个**产品口径**，不是某个类型：`AutomationConfirmationField` 只有 **4 个成员**（下面这四项，也是需要持久化的部分），第五项是**标题**、第六项是**计划**，各有既有字段。头部注释原话就是这个分法（`lawyer-automations.ts:142`）。
+「六确认」是个**产品口径**，不是某个类型：`AutomationConfirmationField` 只有 **4 个成员**（下面这四项，也是需要持久化的部分），第五项是**标题**、第六项是**计划**，各有既有字段。源码注释原话就是这个分法（`LawyerAutomation` 类型上「六确认里需要持久化的四项（标题是第五项、计划是第六项，各有既有字段）」）。
 
-四项有专门的中文标签：
+设置页在 **设置 → 自动办件**（`LawmindAutomationsPanel`）。律师在界面上看到的四项标签，和引擎错误消息里的标签是两套措辞，对号入座：
 
-| 字段                | 标签             |
-| ------------------- | ---------------- |
-| `expectedResult`    | 期望结果         |
-| `approvalBoundary`  | 审批边界         |
-| `missingDataPolicy` | 资料缺失时怎么办 |
-| `notifyPolicy`      | 什么时候通知     |
+| 字段                | 设置页标签       | 引擎校验标签     |
+| ------------------- | ---------------- | ---------------- |
+| `expectedResult`    | 办完是什么样     | 期望结果         |
+| `approvalBoundary`  | 哪些事必须先问我 | 审批边界         |
+| `missingDataPolicy` | 资料不全时       | 资料缺失时怎么办 |
+| `notifyPolicy`      | 什么时候告诉我   | 什么时候通知     |
 
 `validateAutomationConfirmations` 会检查显式新建时这四项在不在。选模板或说一句话创建时，`draftAutomationConfirmations` 会按模板写好可改的四句（例如续签只出清单、周报外发前必须批准、邮箱没有新来信就不要重复）。律师可以改字；把「办完是什么样」或「哪些事必须先问我」清空，设置页仍然不能创建。HTTP 的显式 `POST /api/automations` 仍拒绝空的四项；引擎的 `createAutomation` 在调用方没写时落入模板草稿，所以「从这句话创建」也会把规矩写进任务书。
 
@@ -261,25 +261,23 @@ SMTP 安全端口：465, 587
 
 ### 钉住了什么
 
-```js
-// 允许
-[
-  "analyze_document",
-  "draft_document",
-  "update_draft",
-  "apply_surgical_edits",
-  "render_tracked_draft",
-  "prepare_outbound_mail",
-][
-  // 禁止
-  ("send_email", "render_document")
-];
+推荐路径（教练提示，不冻结工具表，`MAIL_CONTRACT_FAST_PATH_TOOL_NAMES`）：
+
+```text
+analyze_document、draft_document、update_draft、
+apply_surgical_edits、render_tracked_draft、prepare_outbound_mail
+```
+
+硬禁止（`MAIL_CONTRACT_DENY_TOOL_NAMES`）：
+
+```text
+send_email、render_document
 ```
 
 注意两点：
 
-- **允许名单现在返回 `undefined`**（不冻结工具表了）。有一个废弃函数 `mailContractFastPathAllowNames` 保留着，注释写着「Playbook no longer freezes an allow-list」。这是一个刻意的演进：早先靠白名单冻住工具表，现在只留否决清单。
-- **禁止的两项很明确**：不许直接发信（只能准备待发邮件），不许用 `render_document` 重建附件（必须走修订轨）。
+- **允许名单现在返回 `undefined`**（不冻结工具表了）。有一个废弃函数 `mailContractFastPathAllowNames` 保留着，注释写着「Playbook no longer freezes an allow-list」。这是一个刻意的演进：早先靠白名单冻住工具表，现在只留否决清单（`mailContractFastPathDenyNames`）。
+- **禁止的两项很明确**：不许直接发信（只能 `prepare_outbound_mail` 准备待发邮件），不许用 `render_document` 重建附件（必须走修订轨）。
 
 拒绝时的提示文案是：
 
@@ -448,10 +446,13 @@ pnpm lawmind:matter-cloud --dir <数据目录> --port 8788 --host 127.0.0.1 --se
 GET  /api/historical-scan
 POST /api/historical-scan/roots
 POST /api/historical-scan/roots/remove
+POST /api/historical-scan/common-places
 POST /api/historical-scan/run
+POST /api/historical-scan/apply
+POST /api/historical-scan/file
 ```
 
-跑一次扫描会：走目录树（上限：3 个根、2000 个文件、深度 8）、分类文档、比对游标算增量、抽习惯（≥5 次）、把建议写进记忆采纳队列。
+律师从 **设置 → 工作区「整理资料」** 进入这个流程（`LawmindArchiveOrganizePage`），不是常驻 Tab。跑一次扫描会：走目录树（上限：3 个根、2000 个文件、深度 8）、分类文档、比对游标算增量、抽习惯（≥5 次）、把建议写进记忆采纳队列。`apply` 把扫描计划应用到案卷（新建案件 / 归入已有案件 / 按类型收好），`file` 把单个文件扫进案卷；确认前不改原文件。
 
 增量靠 `cursor.json`（记每个文件的 mtime 和大小）和目录指纹（`hashCatalogFingerprint`）。指纹没变时**不重复产出知识建议**——避免每次跑都往队列里塞一堆一样的条目。
 
@@ -505,6 +506,5 @@ POST /api/historical-scan/run
 - **附件路径写在指令里。** 不要再让模型去翻案卷找同一份附件。
 - **守护进程的日志不能直接指 fd 写文件。** 轮转后 fd 会写到改名后的旧 inode。
 - **备份默认不含环境文件。** 要备得开 `LAWMIND_BACKUP_INCLUDE_ENV=1`。
-- **`lawmind:backup` 不在 `pnpm lawmind:*` 清单里。** 要直接跑脚本。
 - **门禁停下必须产生律师可见的待处置项。** 只在对话里留一句话会导致自动化反复重派。
 - **跨机器探针是案件副本唯一的端到端验证。** 改同步逻辑记得跑它。

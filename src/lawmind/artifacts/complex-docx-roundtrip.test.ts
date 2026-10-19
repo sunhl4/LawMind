@@ -15,6 +15,7 @@ import {
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import { readDocxText } from "../agent/tools/legal/ingest-helpers.js";
+import { repairTrackedDocxFormat } from "../drafts/tracked-format-gate.js";
 import { qaTrackedDocxXml } from "../drafts/tracked-xml-qa.js";
 
 async function createComplexContract(file: string): Promise<void> {
@@ -80,9 +81,11 @@ describe("complex DOCX tracked roundtrip", () => {
     const output = path.join(dir, "采购合同_审阅稿.docx");
     await createComplexContract(source);
     await overlayTrackedXml(source, output);
+    await repairTrackedDocxFormat(output);
 
     const qa = await qaTrackedDocxXml(output, 1);
     expect(qa.ok).toBe(true);
+    expect(qa.formatAlignment.violations).toEqual([]);
     expect(qa.insCount).toBeGreaterThanOrEqual(1);
     expect(qa.delCount).toBeGreaterThanOrEqual(1);
 

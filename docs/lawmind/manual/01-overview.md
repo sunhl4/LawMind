@@ -325,8 +325,8 @@ Retrieval 交给 Reasoning 的契约是 `ResearchBundle` → `LegalReasoningGrap
    - 必要时压缩历史并重注红线
 ⑥ 模型↔工具循环（可能多轮）：
    - 每轮：claim 中途注入 → 重建工具表 → 采样 → 执行工具批次
-   - 工具执行走 18 道中间件
-   - 需要审批时中断，进待我拍板
+   - 工具执行走 19 道中间件
+   - 外发不打断回合：写入本案「待发信」，律师在待发列表点「批准发送」
 ⑦ 收尾：finalizeAgentTurn
    - 落盘回合结果
    - 处理 Word 改稿的自动导出

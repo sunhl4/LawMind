@@ -882,7 +882,7 @@
     bind();
     setText("standard-line", "正在用：" + (CONFIG.standardName || "本所标准"));
     var path = currentDocumentPath();
-    setText("doc-path", path || "（这份文档尚未保存到本机，请先另存为 .docx）");
+    setText("doc-path", path || "（这份文档尚未保存到本机）");
     resumeLatestRequest(path);
   }
 

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { getMaxModelConcurrency, resetTurnAdmissionForTests } from "../runtime/turn-admission.js";
 import {
   callModelWithRetry,
   combineAbortSignals,
@@ -63,6 +64,7 @@ describe("wire-level tool pairing guard", () => {
   const servers: Array<{ close: () => Promise<void> }> = [];
   afterEach(async () => {
     await Promise.all(servers.splice(0).map((s) => s.close()));
+    resetTurnAdmissionForTests();
   });
 
   const config = (url: string) => ({
@@ -138,5 +140,22 @@ describe("wire-level tool pairing guard", () => {
     await expect(
       callModelWithRetry(config(server.url), [{ role: "user", content: "hi" }], []),
     ).rejects.toThrow(/自动修复历史并重发/);
+  });
+
+  it("halves the live model cap when the provider returns 429", async () => {
+    delete process.env.LAWMIND_MAX_MODEL_CONCURRENCY;
+    resetTurnAdmissionForTests();
+    expect(getMaxModelConcurrency()).toBe(8);
+    const server = await startCassetteModelServer();
+    servers.push(server);
+    server.enqueue(cassetteHttpError(429, "rate limit"));
+    await expect(
+      callModelWithRetry(
+        { ...config(server.url), maxRetries: 0 },
+        [{ role: "user", content: "hi" }],
+        [],
+      ),
+    ).rejects.toBeInstanceOf(ModelCallHttpError);
+    expect(getMaxModelConcurrency()).toBe(4);
   });
 });

@@ -34,7 +34,7 @@ export const SAME_TURN_VERIFY_USER_PREFIX = "【同一回合验收未过】";
 export const SAME_TURN_VERIFY_DIGEST_PREFIX = "【验收缺口】";
 
 const VERIFY_CODE_IN_BOUNCE_RE =
-  /\[(empty_redline|craft_check_missing|citation_integrity|lint_mechanical|guardian_fail|xml_qa_fail)\]/g;
+  /\[(empty_redline|craft_check_missing|citation_integrity|lint_mechanical|guardian_fail|xml_qa_fail|xml_qa_format_mismatch|xml_qa_non_minimal)\]/g;
 
 export type SameTurnVerifyCode =
   | "empty_redline"
@@ -42,7 +42,9 @@ export type SameTurnVerifyCode =
   | "citation_integrity"
   | "lint_mechanical"
   | "guardian_fail"
-  | "xml_qa_fail";
+  | "xml_qa_fail"
+  | "xml_qa_format_mismatch"
+  | "xml_qa_non_minimal";
 
 /** Lawyer-facing gate badge; codes stay in `issues[].code` / bounce lines. */
 export const SAME_TURN_VERIFY_CODE_LABEL: Record<SameTurnVerifyCode, string> = {
@@ -52,6 +54,8 @@ export const SAME_TURN_VERIFY_CODE_LABEL: Record<SameTurnVerifyCode, string> = {
   lint_mechanical: "机械核对未过",
   guardian_fail: "独立审稿未过",
   xml_qa_fail: "未见审阅痕迹",
+  xml_qa_format_mismatch: "修订格式未对齐",
+  xml_qa_non_minimal: "整句删增",
 };
 
 export function isSameTurnVerifyCode(code: string): code is SameTurnVerifyCode {
@@ -182,6 +186,8 @@ const LAWYER_PROGRESS: Record<SameTurnVerifyCode, string> = {
   lint_mechanical: "正在改正文里还没过的几处。",
   guardian_fail: "正在按审阅意见改稿。",
   xml_qa_fail: "正在写成审阅稿。",
+  xml_qa_format_mismatch: "正在对齐修订处的原稿格式。",
+  xml_qa_non_minimal: "正在把修订收成最短改动。",
 };
 
 /** Progress the lawyer may see while bounce is still open. No tool names, rule ids, or XML. */
@@ -200,6 +206,8 @@ const LAWYER_GAP: Record<SameTurnVerifyCode, string> = {
   lint_mechanical: "正文里还有机械验收项未过",
   guardian_fail: "独立审稿仍有缺口",
   xml_qa_fail: "审阅稿机械核对未过",
+  xml_qa_format_mismatch: "修订文字未对齐原稿格式",
+  xml_qa_non_minimal: "修订轨仍是整句删增",
 };
 
 /**
@@ -457,6 +465,28 @@ function issueXmlQaFail(): SameTurnVerifyIssue {
     nextTool: "render_tracked_draft",
     message:
       "导出文件的 XML 未见审阅痕迹，不能当作已完成。请原样重交 render_tracked_draft，不要为此落改。",
+  };
+}
+
+function issueXmlQaFormatMismatch(): SameTurnVerifyIssue {
+  return {
+    code: "xml_qa_format_mismatch",
+    gate: "redline_hunks_gate",
+    nextTool: "render_tracked_draft",
+    message:
+      "导出的修订文字未对齐原稿字体/字号等直接格式，不能当作「保留原格式」已完成。" +
+      "不要用收窄 find 应付；请原样重交 render_tracked_draft（导出会再跑格式对齐）。",
+  };
+}
+
+function issueXmlQaNonMinimal(): SameTurnVerifyIssue {
+  return {
+    code: "xml_qa_non_minimal",
+    gate: "redline_hunks_gate",
+    nextTool: "apply_surgical_edits",
+    message:
+      "导出的修订轨里有「整句删+整句增」，不符合最短改动要求，不能当作已完成。" +
+      "请收窄 find 后重跑 apply_surgical_edits，再 render_tracked_draft。",
   };
 }
 
@@ -728,8 +758,27 @@ export function collectSameTurnVerifyIssues(input: {
     if (data?.code === "redline_hunks_required" || gate?.gate === "redline_hunks_gate") {
       issues.push(issueEmptyRedline());
     }
-    if (data?.code === "xml_qa_no_tracks" || asRecord(data?.xmlQa)?.ok === false) {
+    if (data?.code === "xml_qa_no_tracks") {
       issues.push(issueXmlQaFail());
+    } else if (data?.code === "xml_qa_format_mismatch") {
+      issues.push(issueXmlQaFormatMismatch());
+    } else if (data?.code === "xml_qa_non_minimal_edits") {
+      issues.push(issueXmlQaNonMinimal());
+    } else if (asRecord(data?.xmlQa)?.ok === false) {
+      const xmlQa = asRecord(data?.xmlQa);
+      const violationsOf = (node: unknown): unknown[] => {
+        const raw = asRecord(node)?.violations;
+        return Array.isArray(raw) ? raw : [];
+      };
+      const formatN = violationsOf(xmlQa?.formatAlignment).length;
+      const minimalN = violationsOf(xmlQa?.minimalEdit).length;
+      if (formatN > 0) {
+        issues.push(issueXmlQaFormatMismatch());
+      } else if (minimalN > 0) {
+        issues.push(issueXmlQaNonMinimal());
+      } else {
+        issues.push(issueXmlQaFail());
+      }
     }
     if (data?.code === "craft_check_required") {
       issues.push(issueCraftCheckMissing());

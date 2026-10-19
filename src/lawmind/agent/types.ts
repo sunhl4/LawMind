@@ -118,9 +118,9 @@ export type AgentContext = {
   /** 当前委派嵌套深度（防止递归失控） */
   collaborationDepth?: number;
   /**
-   * 本轮内已有工具返回 clarificationQuestions 且尚未结束 turn 时为 true；
-   * draft_document / execute_workflow / render_document 应拒绝执行。
-   * 只读 / research_task 仍允许，便于先收集事实再请律师澄清。
+   * When true, clarificationGateMiddleware blocks write / export tools.
+   * Product turns leave this off, including leftover hard clarification keys.
+   * iCloud download confirmation pauses the turn instead.
    */
   clarificationBlockingHeavyTools?: boolean;
   /**
@@ -381,6 +381,16 @@ export type AgentSession = {
   /** 对话标签（桌面多窗口）；缺省或空时 UI 显示为「New Chat」 */
   title?: string;
   matterId?: string;
+  /**
+   * 本机文件夹下的相对路径。早先从某个文件夹新建的对话挂在这里。
+   * 已有对话保持原值，不再改写。
+   */
+  folderRel?: string;
+  /**
+   * 这场对话的工作区绝对路径。只在新建时写入。
+   * 没有这个字段的旧对话不回填。
+   */
+  workDir?: string;
   actorId: string;
   /** 桌面多助手：关联的助手 ID（旧会话可能无此字段） */
   assistantId?: string;

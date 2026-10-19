@@ -772,7 +772,15 @@ export async function handleWordSurfaceRoutes({
       return true;
     }
     const { exportDocxToPdf } = await import("../../../src/lawmind/drafts/docx-export-pdf.js");
-    const result = await exportDocxToPdf(found.abs);
+    const abort = new AbortController();
+    const onClose = () => abort.abort();
+    res.once("close", onClose);
+    let result: Awaited<ReturnType<typeof exportDocxToPdf>>;
+    try {
+      result = await exportDocxToPdf(found.abs, { signal: abort.signal });
+    } finally {
+      res.off("close", onClose);
+    }
     if (!result.ok) {
       sendJson(res, 400, { ok: false, error: result.error, message: result.error }, c);
       return true;

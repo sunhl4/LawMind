@@ -281,7 +281,7 @@ describe("lawmind-server-route-matters", () => {
       const capture = createResponseCapture();
       const handled = await handleMatterRoutes({
         ctx,
-        req: createJsonRequest("POST", { matterId: "matter-del" }),
+        req: createJsonRequest("POST", { matterId: "matter-del", deleteMaterials: true }),
         res: capture.res,
         url: new URL("http://127.0.0.1/api/matters/delete"),
         pathname: "/api/matters/delete",
@@ -1215,7 +1215,7 @@ describe("lawmind-server-route-matters", () => {
       const capture = createResponseCapture();
       await handleMatterRoutes({
         ctx,
-        req: createJsonRequest("POST", { matterId }),
+        req: createJsonRequest("POST", { matterId, deleteMaterials: true }),
         res: capture.res,
         url: new URL("http://127.0.0.1/api/matters/delete"),
         pathname: "/api/matters/delete",

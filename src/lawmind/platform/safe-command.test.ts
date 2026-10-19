@@ -295,4 +295,27 @@ describe("safe-command", () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("kills the child when the abort signal fires", async () => {
+    const root = tmpDir();
+    const script = writeScript(root, "hang.js", "setTimeout(() => {}, 30_000);");
+    const ac = new AbortController();
+    try {
+      const pending = runSafeCommand({
+        command: process.execPath,
+        args: [script],
+        cwd: root,
+        signal: ac.signal,
+        killSignal: "SIGKILL",
+        timeoutMs: 15_000,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      ac.abort();
+      const result = await pending;
+      expect(result.durationMs).toBeLessThan(5_000);
+      expect(result.exitCode === 0).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
