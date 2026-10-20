@@ -31,13 +31,13 @@
     "wait-on": "^9.1.0"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.102.8",
-    "@tanstack/react-virtual": "^3.14.13",
+    "@tanstack/react-query": "^5.104.4",
+    "@tanstack/react-virtual": "^3.14.21",
     "electron-updater": "^6.8.9",
-    "katex": "^0.18.7",
+    "katex": "^0.19.0",
     "pdfjs-dist": "5.4.296",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "sucrase": "^3.35.1",
     "zustand": "^5.0.15"
   },
