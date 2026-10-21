@@ -429,6 +429,11 @@ export type AutomationInboxItem = {
     body: string;
     /** Workspace-relative paths (e.g. artifacts/….tracked.docx); sent only after approve_send. */
     attachmentRelativePaths?: string[];
+    /**
+     * 排队时钉下的这一版邮件（收件人/主题/正文/附件内容版本）。
+     * approve_send 前复核；变了就拒绝发送并请律师重新批准。
+     */
+    binding?: import("./outbound-approval-binding.js").OutboundBinding;
   };
 };
 
@@ -1269,7 +1274,7 @@ function finalizeMailContractReviewBuild(
       : preferredSourcePath
         ? `默认分析附件：\`${preferredSourcePath}\``
         : "",
-    "完成后请在文书台签批；批准发送前不会对外发信。",
+    "完成后请在「改稿」里签批；签批发送前不会对外发信。",
   ]
     .filter(Boolean)
     .join("\n");

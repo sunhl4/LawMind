@@ -57,6 +57,8 @@ export function LawmindAuthoritySetup({
   const commercial = isAuthorityCorpusCommercialReady(status);
   const probeable = isAuthorityCorpusUiReady(status);
   const pkulawOn = authorityCorpus?.provider === "pkulaw";
+  const yuandianOn = authorityCorpus?.provider === "yuandian";
+  const commercialOn = pkulawOn || yuandianOn || authorityCorpus?.provider === "generic";
   const [lawEndpoint, setLawEndpoint] = useState(DEFAULT_LAW_ENDPOINT);
   const [caseEndpoint, setCaseEndpoint] = useState(DEFAULT_CASE_ENDPOINT);
   const [apiKey, setApiKey] = useState("");
@@ -125,6 +127,12 @@ export function LawmindAuthoritySetup({
       <p className="lm-settings-caption" role="status">
         未命中则不编造。北大法宝用你自己的访问令牌，只存在这台电脑上。
       </p>
+      {yuandianOn ? (
+        <p className="lm-settings-caption lm-settings-caption--warn" role="note">
+          元典智库由启动配置启用（LAWMIND_YUANDIAN_API_KEY，见 docs/LAWMIND-YUANDIAN-INTEGRATION.md）。
+          本页的保存动作会整体覆盖 provider 设置（改成北大法宝或公开法规），请先确认再保存。
+        </p>
+      ) : null}
       <div className="lm-settings-row">
         <span className="lm-settings-key">状态</span>
         <span
@@ -259,8 +267,7 @@ export function LawmindAuthoritySetup({
           {formMsg}
         </p>
       ) : null}
-      {status === "configured" &&
-      (authorityCorpus?.provider === "pkulaw" || authorityCorpus?.provider === "generic") ? (
+      {status === "configured" && commercialOn ? (
         <p className="lm-settings-caption" role="note">
           对话检索走这里的权威库。正式引用请核对原文。
         </p>

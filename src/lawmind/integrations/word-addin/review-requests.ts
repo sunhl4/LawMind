@@ -589,7 +589,7 @@ export async function updateWordAddinReview(
   return { ok: true, request: next };
 }
 
-const SUGGESTION_STATUSES: readonly WordAddinSuggestionStatus[] = new Set([
+const SUGGESTION_STATUSES: ReadonlySet<WordAddinSuggestionStatus> = new Set([
   "applied",
   "discarded",
   "missed",

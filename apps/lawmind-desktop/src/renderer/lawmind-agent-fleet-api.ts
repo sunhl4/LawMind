@@ -184,7 +184,7 @@ export function agentRunStatusLabel(status: AgentRunSummary["status"]): string {
     case "scheduled":
       return "已排期";
     case "awaiting_approval":
-      return "待我批准";
+      return "待我签批";
     case "awaiting_clarification":
       return "待我补充";
     case "awaiting_review":

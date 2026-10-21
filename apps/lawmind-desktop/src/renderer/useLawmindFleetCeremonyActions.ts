@@ -89,7 +89,7 @@ export function createFleetCeremonyActions(deps: FleetCeremonyActionsDeps) {
       await refresh();
       advanceAfter(doneId);
     } catch (e) {
-      setError(errorMessage(e, "批准失败"));
+      setError(errorMessage(e, "签批失败"));
     } finally {
       setBusy(false);
     }
@@ -119,7 +119,7 @@ export function createFleetCeremonyActions(deps: FleetCeremonyActionsDeps) {
       await refresh();
       advanceAfter(doneId);
     } catch (e) {
-      setError(errorMessage(e, "按修改批准失败"));
+      setError(errorMessage(e, "按修改签批失败"));
     } finally {
       setBusy(false);
     }

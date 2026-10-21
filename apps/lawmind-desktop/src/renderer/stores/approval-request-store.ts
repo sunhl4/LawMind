@@ -88,7 +88,7 @@ export const useApprovalRequestStore = create<ApprovalRequestState>()((set, get)
         void get().refresh(apiBase, get().lastMatterId);
         return;
       }
-      set({ error: errorMessage(e, "批准失败") });
+      set({ error: errorMessage(e, "签批失败") });
     }
   },
 

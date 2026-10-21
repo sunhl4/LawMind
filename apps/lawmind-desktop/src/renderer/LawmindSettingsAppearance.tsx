@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { GB_T_9704_NOTICE_ZH } from "../../../../src/lawmind/drafts/document-format-audit.ts";
 import {
   DEFAULT_WORD_REVISION_AUTHOR,
   WORD_REVISION_AUTHOR_MAX_CHARS,
@@ -330,6 +331,20 @@ export function LawmindSettingsAppearance({ apiBase, onPrefsChange }: Props): Re
           }}
         />
         <WordRevisionAuthorField apiBase={apiBase} />
+      </div>
+
+      <div className="lm-settings-group lm-settings-surface" data-testid="lm-format-standard">
+        <div className="lm-settings-row">
+          <span className="lm-settings-key lm-settings-key-stack">
+            公文格式标准
+            <span className="lm-settings-caption">
+              {GB_T_9704_NOTICE_ZH}
+              从当事人或客户拿到的文件，跟随原文件格式；LawMind 新写的内容也跟原文一致。
+              只有您明确要求时，才整体调整或换模板。
+            </span>
+          </span>
+          <span className="lm-pill lm-pill-neutral">草案</span>
+        </div>
       </div>
 
       <div className="lm-settings-group lm-settings-surface">

@@ -954,13 +954,16 @@ describe("lawmind-server-route-chat", () => {
     function sseResponseCapture(): {
       res: http.ServerResponse;
       chunks: string[];
+      disconnect: () => void;
       get httpStatus(): number;
     } {
       let httpStatus = 0;
       const chunks: string[] = [];
+      let closeHandler = () => {};
       const res = {
         writableEnded: false,
         headersSent: false,
+        on(event: string, handler: () => void) { if (event === "close") { closeHandler = handler; } return res; },
         writeHead(code: number, _headers: Record<string, string>) {
           httpStatus = code;
           return res;
@@ -977,6 +980,7 @@ describe("lawmind-server-route-chat", () => {
       return {
         res,
         chunks,
+        disconnect: () => closeHandler(),
         get httpStatus() {
           return httpStatus;
         },
@@ -1026,6 +1030,25 @@ describe("lawmind-server-route-chat", () => {
       return req;
     }
 
+    it.each(["continue", "abort"])("disconnect follows %s policy and exposes the session before work", async (policy) => {
+      vi.stubEnv("LAWMIND_STREAM_LOSS_POLICY", policy);
+      const { workspaceDir } = minimalWorkspaceDirs();
+      const cap = sseResponseCapture();
+      mockChat.mockImplementation(async (_instruction, opts) => {
+        expect(parseNamedSseEvents(cap.chunks)[0]).toMatchObject({ name: "session", data: { sessionId: opts.sessionId } });
+        cap.disconnect();
+        expect(opts.shouldAbort?.()).toBe(policy === "abort");
+        return { reply: "done", sessionId: opts.sessionId, turn: {
+          turnId: "transport-turn", sessionId: opts.sessionId, instruction: "", messages: [],
+          toolCallsExecuted: 1, status: "completed", startedAt: new Date().toISOString(),
+        } };
+      });
+      await handleChatRoute({ ctx: { workspaceDir, envFile: undefined, userEnvPath: path.join(workspaceDir, "x.env"), policy: { loaded: false } },
+        req: streamReq("处理后保存"), res: cap.res, url: new URL("http://127.0.0.1/api/chat"), pathname: "/api/chat", c: {} });
+      expect(mockChat).toHaveBeenCalledTimes(1);
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    });
+
     it("emits SSE event sequence ending with payload and done", async () => {
       const { workspaceDir } = minimalWorkspaceDirs();
       mockChat.mockImplementation(async (_instruction, opts) => {
@@ -1071,6 +1094,54 @@ describe("lawmind-server-route-chat", () => {
       expect(events).toContain("final_reply");
       expect(events.some((n) => n === "payload")).toBe(true);
       expect(events[events.length - 1]).toBe("done");
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    });
+
+    it("forwards stopReason and roundCount on the final SSE event", async () => {
+      // 回放/排障读的是落盘 JSONL；但第二个窗口与 live-turn 也只能从流上拿到
+      // 停因。此前服务端只转发 status/reply，新字段等于没有消费者。
+      const { workspaceDir } = minimalWorkspaceDirs();
+      mockChat.mockImplementation(async (_instruction, opts) => {
+        opts?.onEvent?.({
+          type: "final",
+          status: "completed",
+          reply: "done",
+          stopReason: "verify_cap",
+          roundCount: 6,
+        });
+        return {
+          reply: "done",
+          sessionId: "sess-stop",
+          turn: {
+            turnId: "turn-stop",
+            sessionId: "sess-stop",
+            instruction: "",
+            messages: [],
+            toolCallsExecuted: 3,
+            status: "completed",
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+          },
+        };
+      });
+      const ctx: LawmindDispatchContext = {
+        workspaceDir,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const cap = sseResponseCapture();
+      await handleChatRoute({
+        ctx,
+        req: streamReq("hello stream"),
+        res: cap.res,
+        url: new URL("http://127.0.0.1/api/chat"),
+        pathname: "/api/chat",
+        c: {},
+      });
+      const finals = parseNamedSseEvents(cap.chunks).filter((e) => e.name === "final");
+      expect(finals).toHaveLength(1);
+      expect(finals[0]?.data).toMatchObject({ stopReason: "verify_cap", roundCount: 6 });
       fs.rmSync(workspaceDir, { recursive: true, force: true });
     });
 

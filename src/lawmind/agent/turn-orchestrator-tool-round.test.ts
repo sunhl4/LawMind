@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { icloudDownloadQuestion } from "../runtime/icloud-materialize.js";
+import { resolveDiscoveryPerToolCeiling } from "../runtime/tool-pipeline.js";
 import { findUnpairedToolCallIds } from "./session-tool-call-pairing.js";
 import { draftWorkerTool } from "./tools/legal/draft-worker-tool.js";
 import { ToolRegistry } from "./tools/registry.js";
@@ -97,7 +98,7 @@ describe("shouldPreApproveSandboxWorkflowStep (C3)", () => {
 });
 
 describe("executeToolBatches discovery-cap live trace", () => {
-  it("does not emit a red 分析文书 when the cap already used the successful read", async () => {
+  it("does not emit a red 分析文书 when the tool is already past its pathological ceiling", async () => {
     const registry = new ToolRegistry();
     let executed = false;
     registry.register({
@@ -118,7 +119,7 @@ describe("executeToolBatches discovery-cap live trace", () => {
       instruction: "改合同",
       messages: [],
       toolCallsExecuted: 1,
-      toolNameCallCounts: { analyze_document: 8 },
+      toolNameCallCounts: { analyze_document: resolveDiscoveryPerToolCeiling("analyze_document") },
       status: "running",
       gateDecisions: [],
       startedAt: new Date().toISOString(),
@@ -154,8 +155,52 @@ describe("executeToolBatches discovery-cap live trace", () => {
     expect(
       history
         .flatMap((msg) => msg.toolCallResponses ?? [])
-        .some((resp) => !resp.result.ok && (resp.result.error ?? "").includes("上限")),
+        .some((resp) => !resp.result.ok && (resp.result.error ?? "").includes("超过本轮可用的")),
     ).toBe(true);
+  });
+});
+
+describe("executeToolBatches abort marker", () => {
+  it("writes a model-readable abort marker that says the effect is unknown", async () => {
+    const registry = new ToolRegistry();
+    let executed = false;
+    registry.register({
+      definition: {
+        name: "analyze_document",
+        description: "read",
+        category: "analyze",
+        parameters: {},
+      },
+      async execute() {
+        executed = true;
+        return { ok: true };
+      },
+    });
+    const history: AgentMessage[] = [];
+    await executeToolBatches({
+      toolRefs: [{ id: "tc-abort", name: "analyze_document", arguments: { path: "a.md" } }],
+      registry,
+      turn: stubTurn(),
+      ctx: { workspaceDir: testWorkspaceDir } as AgentContext,
+      roundIndex: 1,
+      assistantContent: "",
+      maxToolCalls: 10,
+      toolTimeoutMs: 5000,
+      strictDangerousToolApproval: false,
+      allowDangerousToolsWithoutApproval: true,
+      toolSandboxEnabled: false,
+      actorId: "test",
+      pendingClarificationQuestions: [],
+      abortRequested: () => true,
+      emitEvent: () => {},
+      pushMessage: (msg) => {
+        history.push(msg);
+      },
+    });
+    expect(executed).toBe(false);
+    const toolMsg = history.find((msg) => msg.role === "tool");
+    expect(toolMsg?.content ?? "").toContain("已中止");
+    expect(toolMsg?.content ?? "").toContain("实际效果未知");
   });
 });
 

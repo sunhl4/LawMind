@@ -14,6 +14,7 @@ import {
   type LiveTurnProgress,
 } from "./live-turn-progress.js";
 import { persistOrThrow } from "./session-persist.js";
+import { isSessionTurnLeaseLive } from "./session-turn-gate.js";
 import type { RunTurnEvent } from "./turn-orchestrator-events.js";
 
 export type SessionEventLogRecord = {
@@ -205,6 +206,11 @@ export function replayLiveTurnFromEventRecords(
 /**
  * Prefer in-memory progress; if the process restarted mid/after a turn, rebuild from jsonl.
  * Uses a scratch key so replay does not clobber a live in-memory turn.
+ *
+ * 重启对账：日志里最后一轮有 `turn_begin` 却没有 `final`，说明进程在回合收口前退出。
+ * 这时不能把 replay 出来的 `running` 当真——界会一直显示「在办」，与「上一轮被中断」
+ * 的卡片自相矛盾。改为 `paused` + `needsReconcile`，并补一条律师可读的收尾说明；
+ * 同一进程里另一实例仍在跑（租约活着）时不改写。
  */
 export function getLiveTurnProgressOrReplay(
   workspaceDir: string,
@@ -224,8 +230,52 @@ export function getLiveTurnProgressOrReplay(
     if (!replayed) {
       return undefined;
     }
-    return { ...replayed, sessionId };
+    const orphaned = isOrphanedReplay(workspaceDir, sessionId, records);
+    return orphaned
+      ? { ...replayed, sessionId, ...markReplayInterrupted(replayed) }
+      : { ...replayed, sessionId };
   } finally {
     clearLiveTurnProgress(scratchId);
   }
+}
+
+/** 最后一轮没有 `final`，且没有别的进程持有租约 → 视为重启打断的回合。 */
+function isOrphanedReplay(
+  workspaceDir: string,
+  sessionId: string,
+  records: SessionEventLogRecord[],
+): boolean {
+  const slice = eventsForLastTurn(records);
+  if (slice.length === 0) {
+    return false;
+  }
+  if (slice.some((row) => row.event.type === "final")) {
+    return false;
+  }
+  try {
+    if (isSessionTurnLeaseLive(workspaceDir, sessionId)) {
+      return false;
+    }
+  } catch {
+    /* 租约读失败按「无活回合」处理：宁可提示对账，也不假装仍在跑 */
+  }
+  return true;
+}
+
+export const INTERRUPTED_REPLAY_LABEL = "上次办理在应用退出时中断，已办理的步骤保留";
+
+function markReplayInterrupted(progress: LiveTurnProgress): Partial<LiveTurnProgress> {
+  const steps = progress.steps.map((step) =>
+    step.status === "running" ? { ...step, status: "paused" as const, detail: "等待核对" } : step,
+  );
+  if (!steps.some((step) => step.label === INTERRUPTED_REPLAY_LABEL)) {
+    steps.push({
+      id: "interrupted-by-restart",
+      kind: "round",
+      label: INTERRUPTED_REPLAY_LABEL,
+      status: "paused",
+      detail: "结果可能已落盘。请先核对，再决定继续本件或弃办。",
+    });
+  }
+  return { status: "paused", needsReconcile: true, steps };
 }

@@ -29,6 +29,8 @@ export type WordRunMark = {
   underline?: boolean;
   /** CSS pixels, from Word half-points at 96dpi. */
   fontSizePx?: number;
+  /** Exact Word size in points (half-points / 2). Prefer this for format checks. */
+  fontSizePt?: number;
   /** `#RRGGBB` from `w:color`, when it is not `auto`. */
   fontColor?: string;
   /** CSS font-family. Latin and East Asian faces are both listed so the browser can pick per glyph. */
@@ -117,6 +119,8 @@ export type WordLayoutBlock =
 /** Paper box. Width includes margins; the text column is width minus left and right. */
 export type WordPageBox = {
   widthPx: number;
+  /** Paper height. Optional because older snapshots only carried the width. */
+  heightPx?: number;
   marginTopPx: number;
   marginRightPx: number;
   marginBottomPx: number;
@@ -128,6 +132,11 @@ export type WordPageBox = {
 export type WordLayoutDocument = {
   page: WordPageBox;
   blocks: WordLayoutBlock[];
+  /**
+   * 文档里含文本框（`w:txbxContent`）。框内是另一套嵌套段落，当前提取器
+   * 不按嵌套解析，所以框内排版与含框段落**不能当作已核对**。
+   */
+  hasTextBoxes?: boolean;
 };
 
 type StyleRaw = {
@@ -136,6 +145,7 @@ type StyleRaw = {
   type?: string;
   align?: WordAlign;
   fontSizePx?: number;
+  fontSizePt?: number;
   fontFamily?: string;
   fontColor?: string;
   bold?: boolean;
@@ -266,6 +276,7 @@ export function extractDocxLayout(
   return {
     page: pageBox(documentXml, defaults),
     blocks: simplifyLayout(walkBlocks(sliceBody(documentXml), styles, numbering, defaults)),
+    ...(documentXml.includes("<w:txbxContent") ? { hasTextBoxes: true } : {}),
   };
 }
 
@@ -273,6 +284,7 @@ export function extractDocxLayout(
 export function defaultWordPage(): WordPageBox {
   return {
     widthPx: twipsToPx(11906),
+    heightPx: twipsToPx(16838),
     marginTopPx: twipsToPx(1440),
     marginRightPx: twipsToPx(1440),
     marginBottomPx: twipsToPx(1440),
@@ -629,6 +641,9 @@ function parseParagraph(
   }
   if (resolved.fontSizePx) {
     paragraphMark.fontSizePx = resolved.fontSizePx;
+  }
+  if (resolved.fontSizePt) {
+    paragraphMark.fontSizePt = resolved.fontSizePt;
   }
   if (resolved.fontColor) {
     paragraphMark.fontColor = resolved.fontColor;
@@ -1122,6 +1137,7 @@ function parseStyles(stylesXml: string): Map<string, StyleRaw> {
       ...(type ? { type } : {}),
       ...(alignOf(pPr) ? { align: alignOf(pPr) } : {}),
       ...(mark.fontSizePx ? { fontSizePx: mark.fontSizePx } : {}),
+      ...(mark.fontSizePt ? { fontSizePt: mark.fontSizePt } : {}),
       ...(mark.fontFamily ? { fontFamily: mark.fontFamily } : {}),
       ...(mark.fontColor ? { fontColor: mark.fontColor } : {}),
       ...(mark.bold ? { bold: true } : {}),
@@ -1164,6 +1180,7 @@ function resolveStyle(
     ...base,
     ...(raw.align ? { align: raw.align } : {}),
     ...(raw.fontSizePx ? { fontSizePx: raw.fontSizePx } : {}),
+    ...(raw.fontSizePt ? { fontSizePt: raw.fontSizePt } : {}),
     ...(raw.fontFamily ? { fontFamily: raw.fontFamily } : {}),
     ...(raw.fontColor ? { fontColor: raw.fontColor } : {}),
     ...(raw.bold ? { bold: true } : {}),
@@ -1337,6 +1354,10 @@ function overlayMark(base: WordRunMark, block: string): WordRunMark {
   if (fontSizePx) {
     next.fontSizePx = fontSizePx;
   }
+  const fontSizePt = fontSizePtOf(block);
+  if (fontSizePt) {
+    next.fontSizePt = fontSizePt;
+  }
   const fontColor = fontColorOf(block);
   if (fontColor) {
     next.fontColor = fontColor;
@@ -1430,6 +1451,19 @@ function fontSizeOf(block: string): number | undefined {
   return Math.round((halfPoints / 2) * (96 / 72));
 }
 
+/** Exact size in points, without the px rounding that merges 三号 and 小三. */
+function fontSizePtOf(block: string): number | undefined {
+  const match = block.match(/<w:sz\b[^>]*w:val="(\d+)"/);
+  if (!match) {
+    return undefined;
+  }
+  const halfPoints = Number(match[1]);
+  if (!Number.isFinite(halfPoints) || halfPoints <= 0) {
+    return undefined;
+  }
+  return halfPoints / 2;
+}
+
 function alignOf(block: string): WordAlign | undefined {
   const val = block.match(/<w:jc\b[^>]*w:val="([^"]+)"/)?.[1];
   if (val === "left" || val === "center" || val === "right" || val === "both") {
@@ -1512,12 +1546,14 @@ function pageBox(documentXml: string, defaults: StyleRaw): WordPageBox {
   const pgSz = sect.match(/<w:pgSz\b[^>]*\/?>/)?.[0] ?? "";
   const pgMar = sect.match(/<w:pgMar\b[^>]*\/?>/)?.[0] ?? "";
   const width = numberIn(pgSz, "w:w");
+  const height = numberIn(pgSz, "w:h");
   const top = numberIn(pgMar, "w:top");
   const right = numberIn(pgMar, "w:right");
   const bottom = numberIn(pgMar, "w:bottom");
   const left = numberIn(pgMar, "w:left");
   return {
     widthPx: width != null ? twipsToPx(width) : base.widthPx,
+    heightPx: height != null ? twipsToPx(height) : base.heightPx,
     marginTopPx: top != null ? twipsToPx(top) : base.marginTopPx,
     marginRightPx: right != null ? twipsToPx(right) : base.marginRightPx,
     marginBottomPx: bottom != null ? twipsToPx(bottom) : base.marginBottomPx,
@@ -1540,6 +1576,7 @@ function parseDocDefaults(stylesXml: string): StyleRaw {
   return {
     ...(alignOf(pPr) ? { align: alignOf(pPr) } : {}),
     ...(mark.fontSizePx ? { fontSizePx: mark.fontSizePx } : {}),
+    ...(mark.fontSizePt ? { fontSizePt: mark.fontSizePt } : {}),
     ...(mark.fontFamily ? { fontFamily: mark.fontFamily } : {}),
     ...(mark.fontColor ? { fontColor: mark.fontColor } : {}),
     ...(mark.bold ? { bold: true } : {}),

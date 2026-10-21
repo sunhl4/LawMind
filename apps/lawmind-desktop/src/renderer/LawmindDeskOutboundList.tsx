@@ -63,7 +63,7 @@ export function LawmindDeskOutboundList(props: Props): ReactNode {
       onChanged();
       notifyOutboundChanged();
     } catch (err) {
-      setError(errorMessage(err, action === "approve" ? "批准发送失败" : "驳回失败"));
+      setError(errorMessage(err, action === "approve" ? "签批发送失败" : "驳回失败"));
     } finally {
       setBusyId(null);
     }
@@ -158,7 +158,7 @@ export function LawmindDeskOutboundList(props: Props): ReactNode {
                 disabled={busyId !== null}
                 onClick={() => void run(item, "approve")}
               >
-                批准发送
+                签批发送
               </button>
               <button
                 type="button"

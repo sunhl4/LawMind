@@ -288,7 +288,7 @@ async function runOneAutomation(
         const modeHint =
           built.reviewMode === "tracked" ? "审阅改稿（含 Word 痕迹）" : "意见书级审查";
         summary = jobId
-          ? `${summary}\n\n已启动邮件合同${modeHint}工作流「${templateId}」（任务 ${jobId.slice(0, 8)}…）。完成后请在「文书台」签批；外发须在待拍板「批准发送」。`
+          ? `${summary}\n\n已启动邮件合同${modeHint}工作流「${templateId}」（任务 ${jobId.slice(0, 8)}…）。完成后请在「改稿」里签批；外发须在待拍板「签批发送」。`
           : `${summary}\n\n未能启动工作流「${templateId}」。请确认协作模板存在且案件有效；仍可按附件路径在对话中交办审查。`;
       } else if (built.attachmentRefs.length === 0) {
         summary = `${summary}\n\n未启动审阅工作流（无可用 Word/PDF/图片等合同附件）。`;

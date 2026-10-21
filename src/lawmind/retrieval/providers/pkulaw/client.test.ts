@@ -9,6 +9,75 @@ const lawFixture = readFileSync(path.join(HERE, "fixtures/law-search-hits.json")
 const caseFixture = readFileSync(path.join(HERE, "fixtures/case-search-hits.json"), "utf8");
 
 describe("pkulawRetrieve", () => {
+  it.each([
+    [
+      { result: { isError: true, content: [{ type: "text", text: "积分不足，请充值" }] } },
+      "quota_exhausted",
+    ],
+    [{ error: { code: 402, message: "insufficient credits" } }, "quota_exhausted"],
+    [
+      { result: { content: [{ type: "text", text: '{"code":402,"message":"余额不足"}' }] } },
+      "quota_exhausted",
+    ],
+    [
+      { result: { content: [{ type: "text", text: "积分已耗尽" }], isError: false } },
+      "quota_exhausted",
+    ],
+    [
+      { result: { isError: true, content: [{ type: "text", text: "invalid token" }] } },
+      "unauthorized",
+    ],
+    [{ result: { content: [{ type: "text", text: "[]" }] } }, "empty"],
+    [{ hits: [] }, "empty"],
+    [{ result: { unexpected: true } }, "invalid_response"],
+    [{ hits: [{ unexpected: true }] }, "invalid_response"],
+  ])("distinguishes HTTP 200 provider outcomes: %j", async (body, status) => {
+    const fetchImpl = vi.fn(async () => Response.json(body));
+    const { result } = await pkulawRetrieve({
+      endpointNormalized: "https://authority.example/pkulaw",
+      query: "法规",
+      mode: "mcp_tools_call",
+      fetchImpl,
+    });
+    expect(result.authorityOutcome).toEqual({ status, httpStatus: 200, hitCount: 0 });
+    expect(result.sources).toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not mistake quota wording in a real statute for an account error", async () => {
+    const { result } = await pkulawRetrieve({
+      endpointNormalized: "https://authority.example/pkulaw",
+      query: "配额",
+      mode: "rest_compat",
+      fetchImpl: async () =>
+        Response.json({
+          hits: [{ title: "配额不足的处理规定", excerpt: "配额不足时的法定义务", id: "q1" }],
+        }),
+    });
+    expect(result.authorityOutcome?.status).toBe("ok");
+    expect(result.sources).toHaveLength(1);
+  });
+
+  it("classifies invalid JSON and network failure without exposing response text", async () => {
+    for (const [fetchImpl, status] of [
+      [async () => new Response("not-json secret-token"), "invalid_response"],
+      [
+        async () => {
+          throw new Error("network secret-token");
+        },
+        "unavailable",
+      ],
+    ] as const) {
+      const { result } = await pkulawRetrieve({
+        endpointNormalized: "https://authority.example/pkulaw",
+        query: "法规",
+        mode: "rest_compat",
+        fetchImpl,
+      });
+      expect(result.authorityOutcome?.status).toBe(status);
+      expect(JSON.stringify(result)).not.toContain("secret-token");
+    }
+  });
   it("uses MCP tools/call for the official 法宝 gateway when mode is unset", async () => {
     const prev = process.env.LAWMIND_PKULAW_MODE;
     delete process.env.LAWMIND_PKULAW_MODE;

@@ -256,6 +256,10 @@ export async function handleSessionExtendedRoutes({
                 dropped: draft.dropped,
                 contextTokens: envelope.contextTokens,
                 tuning: forkTuning,
+                usage: {
+                  workspaceDir,
+                  sessionId: sourceSessionId,
+                },
               });
               return enhanced.usedLlm ? enhanced.digest : undefined;
             },
@@ -594,6 +598,7 @@ export async function handleSessionExtendedRoutes({
           dropped: result.droppedSpan,
           contextTokens: envelope.contextTokens,
           tuning: compactTuning,
+          usage: { workspaceDir, sessionId, matterId: session.matterId },
         });
         if (enhanced.usedLlm) {
           usedLlmDigest = true;

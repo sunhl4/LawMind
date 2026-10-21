@@ -30,6 +30,9 @@ export function summarizeLiveTrace(trace: ChatLiveTrace | undefined): string | n
     const running = [...steps].toReversed().find((s) => s.status === "running");
     return running ? `正在：${running.label}` : `已执行 ${doneCount} 步`;
   }
+  if (steps.some((step) => step.status === "paused")) {
+    return "等待您确认或补充";
+  }
   if (failed) {
     const failedStep = [...steps]
       .toReversed()
@@ -164,12 +167,13 @@ export function applyToolEnd(
   return { ...trace, steps };
 }
 
-export function finalizeLiveTrace(trace: ChatLiveTrace): ChatLiveTrace {
+export function finalizeLiveTrace(trace: ChatLiveTrace, status?: string): ChatLiveTrace {
+  const paused = ["paused", "awaiting_approval", "awaiting_clarification"].includes(status ?? "");
   return {
     ...trace,
     active: false,
     steps: trace.steps.map((s) =>
-      s.status === "running" ? { ...s, status: "done" as const } : s,
+      s.status === "running" ? { ...s, status: paused ? "paused" : status === "error" ? "failed" : "done" } : s,
     ),
   };
 }
@@ -194,7 +198,7 @@ export function liveTraceFromServerProgress(input: {
     id: s.id,
     kind: s.kind === "workflow" ? "workflow" : s.kind === "round" ? "round" : "tool",
     label: s.label,
-    status: s.status === "failed" ? "failed" : s.status === "done" ? "done" : "running",
+    status: s.status === "paused" ? "paused" : s.status === "failed" ? "failed" : s.status === "done" ? "done" : "running",
     detail: s.detail,
   }));
   return {
@@ -223,6 +227,7 @@ export function mergeDelegationLiveTraces(
     if (!progress?.steps?.length) {
       continue;
     }
+    // paused 也保持可见：等律师确认时不该把过程收起来。
     if (progress.status === "running") {
       anyActive = true;
     }
@@ -234,7 +239,7 @@ export function mergeDelegationLiveTraces(
         id: `${prefix}-${step.id}`,
         kind: step.kind === "workflow" ? "workflow" : step.kind === "round" ? "round" : "tool",
         label: `[${prefix}] ${step.label}`,
-        status: step.status === "failed" ? "failed" : step.status === "done" ? "done" : "running",
+        status: step.status === "paused" ? "paused" : step.status === "failed" ? "failed" : step.status === "done" ? "done" : "running",
         detail: step.detail,
       });
     }

@@ -70,4 +70,30 @@ pnpm lawmind:compaction-fidelity -- --rounds 6
 
 Deliverable recall lives here. **Agent loop / gate / compact / steer / tool-lock changes** must add a true-loop cassette in `src/lawmind/agent/turn-orchestrator-cassettes.test.ts` (`TestLawMind.builder()`). That harness shares the scripted model HTTP server with engine shadow replay, but asserts the next request body rather than planted-lint recall.
 
+### 5. `turn-loop-replay`（真实回合回放，**产品证据**）
+
+- `turn-loop-replay.ts` 读 `<workspace>/sessions/*.turns.jsonl`，不造模型字节、不造夹具。
+- 口径：干净交付率、**停因分布**（`turn.stopReason`）、均值/p50/p95 轮数与工具调用、
+  反弹回合的收敛率、按 `profileId` 分组的交付率。
+- 没有真实回合时脚本打印 SKIP（`--strict` 才非零退出），不拿合成语料冒充现场证据。
+- 跑法：
+
+```bash
+pnpm lawmind:turn-replay -- --workspace workspace
+pnpm lawmind:turn-replay -- --since 2026-10-01 --json --out dist/turn-replay.json
+pnpm lawmind:turn-replay -- --strict --min-turns 50   # CI / 夜跑：样本够才判
+# 一次评测跑出很多 per-task workspace（case-10/sessions/...）时：
+pnpm lawmind:turn-replay -- --workspace tmp/official-benchmarks/plawbench/lawmind --scan
+```
+
+口径诚实性：
+
+- 头条是「干净交付」（`stopReason === "delivered"`），不是旧的 bucket `delivered`（后者含【待核实】草稿与短路回复）。
+- `--since YYYY-MM-DD` 按**本地**零点解释；完整 ISO 时间戳按原样解析。
+- `stopReason` 是 2026-10-19 起才写入的字段。更早的回合只能按 `status`
+  反推，报告会单列 `legacyRows` 并提示「不等于真实停因分布」——不把旧数据当停因证据。
+
+分层关系：cassette 管**准入**（机制没坏），`turn-loop-replay` 管**质量**（真实回合为什么停、
+反弹后有没有收敛）。两者都不要互相替代。
+
 律师向因子内核（LegalBench / CUAD / LawBench 题型、自撰夹具、复跑命令）见 [docs/LAWMIND-LEGAL-KERNEL-BENCH.md](../../docs/LAWMIND-LEGAL-KERNEL-BENCH.md)。§9.3 行业夹具五类错误消融在 `src/lawmind/agent/factor-state-legal-industry-ablation.test.ts`。§9.5 离线三方对照在 `src/lawmind/evaluation/offline-diagonal-simulator.ts`，不是影子回放，也不进交件回合。

@@ -20,6 +20,7 @@ import {
   toWorkspaceMailAttachmentPath,
   type AutomationInboxItem,
 } from "../../../platform/lawyer-automations.js";
+import { buildOutboundBinding } from "../../../platform/outbound-approval-binding.js";
 import { classifyOutboundPrivilege } from "../../../platform/outbound-audience.js";
 import {
   ETHICS_WALL_HOLD_LAWYER_MESSAGE,
@@ -263,6 +264,12 @@ export const sendEmail: AgentTool = {
           body: formattedBody,
           attachmentRelativePaths:
             attachmentRelativePaths.length > 0 ? attachmentRelativePaths : undefined,
+          binding: buildOutboundBinding(ctx.workspaceDir, {
+            to,
+            subject,
+            body: formattedBody,
+            attachmentRelativePaths,
+          }),
         },
       };
       saveAutomationInboxItem(ctx.workspaceDir, item);
@@ -415,6 +422,13 @@ export const prepareOutboundMail: AgentTool = {
         body: formattedBody,
         attachmentRelativePaths:
           attachmentRelativePaths.length > 0 ? attachmentRelativePaths : undefined,
+        // 批准绑定这一版：批准后附件重新导出/正文改过都必须重新批准。
+        binding: buildOutboundBinding(ctx.workspaceDir, {
+          to,
+          subject,
+          body: formattedBody,
+          attachmentRelativePaths,
+        }),
       },
     };
     saveAutomationInboxItem(ctx.workspaceDir, item);

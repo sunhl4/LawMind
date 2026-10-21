@@ -150,7 +150,7 @@ describe("LawmindApprovalRequestHost", () => {
       root.render(<LawmindApprovalRequestHost apiBase="http://localhost" />);
     });
     const buttons = host.querySelectorAll("button");
-    const approveButton = [...buttons].find((b) => b.textContent === "批准");
+    const approveButton = [...buttons].find((b) => b.textContent === "签批");
     const rejectButton = [...buttons].find((b) => b.textContent === "拒绝");
     expect(approveButton).toBeDefined();
     expect(rejectButton).toBeDefined();
@@ -184,6 +184,41 @@ describe("LawmindApprovalRequestHost", () => {
     expect(args).toContain("审阅稿");
     expect(args).toMatch(/正文：.{1,50}…/);
     expect(args).not.toContain("敏感内容不应出现在摘要里");
+  });
+
+  it("shows the real argument values for a file operation, not just key names", () => {
+    mockUseApprovalRequests.mockReturnValue({
+      items: [
+        {
+          ...makeItem(),
+          toolName: "apply_surgical_edits",
+          toolArgs: {
+            path: "cases/m/drafts/股权转让协议.docx",
+            api_key: "fixture-secret-not-for-display",
+            options: { password: "nested-secret-not-for-display" },
+            edits: [{ find: "三十日", replace: "十五日" }],
+          },
+        },
+      ],
+      loading: false,
+      error: null,
+      open: true,
+      setOpen: vi.fn(),
+      approve: vi.fn(),
+      reject: vi.fn(),
+      requestMoreInfo: vi.fn(),
+      count: 1,
+    });
+    act(() => {
+      root.render(<LawmindApprovalRequestHost apiBase="http://localhost" />);
+    });
+    const args = host.querySelector('[data-testid="lm-approval-args"]')?.textContent ?? "";
+    expect(args).toContain("股权转让协议.docx");
+    expect(args).toContain("修订");
+    expect(args).not.toContain("path：…");
+    expect(args).not.toContain("fixture-secret-not-for-display");
+    expect(args).not.toContain("nested-secret-not-for-display");
+    expect(args).toContain("已隐藏");
   });
 
   it("closes the panel when more info is requested", () => {

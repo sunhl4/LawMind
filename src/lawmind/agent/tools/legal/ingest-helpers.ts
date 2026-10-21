@@ -3,6 +3,7 @@ import { readdirSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import JSZip from "jszip";
+import { createModelUsageRecorder, type ModelBillingScope } from "../../../models/model-usage.js";
 import { createOutboundProxy } from "../../../platform/outbound-proxy.js";
 import {
   ensureLocalFile,
@@ -14,6 +15,50 @@ import { resolveDocumentPageChars } from "../../document-read-budget.js";
 import { loadXlsxAsTsv } from "./xlsx-workbook.js";
 
 const visionProxy = createOutboundProxy({ requestTag: "vision-ocr" });
+
+/**
+ * 视觉 OCR 的记账上下文。图片 token 单价高，漏记等于成本永远少算。
+ * 不传则只影响账本，不影响识别行为。
+ */
+export type VisionOcrUsageContext = {
+  workspaceDir: string;
+  sessionId?: string;
+  turnId?: string;
+  matterId?: string;
+  billingScope?: ModelBillingScope;
+};
+
+/** 上游 `usage` 形状（与 `usageFromProvider` 的入参一致）。 */
+export type VisionUsagePayload = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number } | null;
+  completion_tokens_details?: { reasoning_tokens?: number } | null;
+};
+
+/** 从工具上下文取视觉 OCR 的记账上下文；没有工作区就不记，不写假 0。 */
+export function visionUsageContextFromAgentCtx(ctx: {
+  workspaceDir?: string;
+  sessionId?: string;
+  turnId?: string;
+  matterId?: string;
+  billingScope?: ModelBillingScope;
+}): VisionOcrUsageContext | undefined {
+  const workspaceDir = ctx.workspaceDir?.trim();
+  if (!workspaceDir) {
+    return undefined;
+  }
+  return {
+    workspaceDir,
+    ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+    ...(ctx.turnId ? { turnId: ctx.turnId } : {}),
+    ...(ctx.matterId ? { matterId: ctx.matterId } : {}),
+    ...(ctx.billingScope ? { billingScope: ctx.billingScope } : {}),
+  };
+}
 
 export { MAX_XLSX_READ_BYTES } from "./xlsx-workbook.js";
 async function readSafe(filePath: string): Promise<string> {
@@ -149,11 +194,24 @@ async function readImageTextByVisionModel(
   image: Buffer | Uint8Array,
   mime: string,
   signal?: AbortSignal,
+  usageCtx?: VisionOcrUsageContext,
 ): Promise<string> {
   const cfg = resolveVisionModelConfig();
   if (!cfg) {
     return "";
   }
+  const recordAttempt = usageCtx
+    ? createModelUsageRecorder(usageCtx.workspaceDir, {
+        sessionId: usageCtx.sessionId,
+        turnId: usageCtx.turnId,
+        matterId: usageCtx.matterId,
+        model: cfg.model,
+        provider: "openai-compatible",
+        purpose: "ocr",
+        billingScope: usageCtx.billingScope,
+      })
+    : undefined;
+  const startedAt = Date.now();
   const base = cfg.baseUrl.replace(/\/+$/, "");
   const payload = {
     model: cfg.model,
@@ -185,11 +243,25 @@ async function readImageTextByVisionModel(
     })
     .catch(() => null);
   if (!response || !response.ok) {
+    // 失败的视觉请求也可能已计费；记一条失败账，别让成本凭空消失。
+    recordAttempt?.({
+      attempt: 1,
+      latencyMs: Date.now() - startedAt,
+      failed: true,
+      errorKind: response ? `http_${response.status}` : "transport",
+    });
     return "";
   }
   const data = (await response.json().catch(() => null)) as {
     choices?: Array<{ message?: { content?: unknown } }>;
+    usage?: VisionUsagePayload;
   } | null;
+  recordAttempt?.({
+    attempt: 1,
+    latencyMs: Date.now() - startedAt,
+    failed: false,
+    usage: data?.usage,
+  });
   return normalizeExtractedText(readChoiceText(data?.choices?.[0]?.message?.content));
 }
 
@@ -272,6 +344,7 @@ async function readImageTextByOcr(filePath: string): Promise<string> {
 
 async function readImageTextHybrid(
   filePath: string,
+  usageCtx?: VisionOcrUsageContext,
 ): Promise<{ text: string; sourceType: "image_ocr" | "image_vision" } | null> {
   const ocrText = await readImageTextByOcr(filePath);
   if (ocrText) {
@@ -282,7 +355,12 @@ async function readImageTextHybrid(
   }
   await ensureLocalFile(filePath);
   const image = await fs.readFile(filePath);
-  const visionText = await readImageTextByVisionModel(image, mimeFromImagePath(filePath));
+  const visionText = await readImageTextByVisionModel(
+    image,
+    mimeFromImagePath(filePath),
+    undefined,
+    usageCtx,
+  );
   if (!visionText) {
     return null;
   }
@@ -302,7 +380,10 @@ async function readPdfText(filePath: string): Promise<string> {
   }
 }
 
-export async function readPdfTextByOcr(filePath: string): Promise<string> {
+export async function readPdfTextByOcr(
+  filePath: string,
+  _usageCtx?: VisionOcrUsageContext,
+): Promise<string> {
   await ensureLocalFile(filePath);
   const buffer = await fs.readFile(filePath);
   const mod = await import("pdf-parse");
@@ -335,7 +416,10 @@ export async function readPdfTextByOcr(filePath: string): Promise<string> {
   }
 }
 
-export async function readPdfTextByVision(filePath: string): Promise<string> {
+export async function readPdfTextByVision(
+  filePath: string,
+  usageCtx?: VisionOcrUsageContext,
+): Promise<string> {
   await ensureLocalFile(filePath);
   const buffer = await fs.readFile(filePath);
   const mod = await import("pdf-parse");
@@ -353,7 +437,7 @@ export async function readPdfTextByVision(filePath: string): Promise<string> {
       if (image.length === 0) {
         continue;
       }
-      const text = await readImageTextByVisionModel(image, "image/png");
+      const text = await readImageTextByVisionModel(image, "image/png", undefined, usageCtx);
       if (text) {
         chunks.push(text);
       }

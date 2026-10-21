@@ -14,6 +14,13 @@ const MAX_VALUE_LEN = 120;
 
 /** Parameter keys → 律师可读标签（UI 不展示 eng_snake / camelCase） */
 const KEY_LABEL_ZH: Record<string, string> = {
+  purpose: "目的",
+  command: "命令",
+  args: "参数",
+  rel_path: "文件",
+  output_path: "输出",
+  instruction: "指令",
+  edits: "修订",
   file_path: "保存位置",
   path: "保存位置",
   content: "文书内容",
@@ -55,7 +62,34 @@ function labelKey(key: string): string {
   return key;
 }
 
+export function redactApprovalValue(value: unknown, depth = 0): unknown {
+  if (depth > 6) {
+    return "（明细从略）";
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactApprovalValue(entry, depth + 1));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        SENSITIVE_KEY.test(key) ? "（已隐藏）" : redactApprovalValue(entry, depth + 1),
+      ]),
+    );
+  }
+  if (typeof value === "string") {
+    return value
+      .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+/gi, "Bearer [已隐藏]")
+      .replace(
+        /((?:api[_-]?key|password|secret|token|authorization)\s*[=:]\s*)[^\s,;"']+/gi,
+        "$1[已隐藏]",
+      );
+  }
+  return value;
+}
+
 function stringifyValue(value: unknown, key: string): string {
+  value = redactApprovalValue(value);
   if (value === null) {
     return "（空）";
   }
@@ -63,6 +97,9 @@ function stringifyValue(value: unknown, key: string): string {
     const trimmed = value.trim();
     if (!trimmed) {
       return "（空）";
+    }
+    if ((key === "content" || key === "body") && trimmed.length > 50) {
+      return `${trimmed.slice(0, 48)}…（已从略）`;
     }
     if (key === "content" || key === "body" || trimmed.length > MAX_VALUE_LEN) {
       if (trimmed.startsWith("{") || trimmed.startsWith("[")) {

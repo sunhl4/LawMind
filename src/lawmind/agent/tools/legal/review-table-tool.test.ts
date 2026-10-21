@@ -290,6 +290,21 @@ describe("review_table_update · scale extraction", () => {
     expect(bad.ok).toBe(false);
   });
 
+  it("keeps pattern-only and changed sources out of verified draft conclusions", async () => {
+    seedMaterials({ "a.txt": "甲方注册资本100万元。" });
+    const ctx = makeCtx(workspaceDir);
+    await buildExtractionTable(ctx);
+    await reviewTableUpdate.execute({ task_id: "t-batch", action: "extract_batch" }, ctx);
+    await reviewTableUpdate.execute({ task_id: "t-batch", action: "to_draft" }, ctx);
+    const body = readDraft(workspaceDir, "t-batch")!.sections.find(
+      (section) => section.heading === "审查结论",
+    )!.body;
+    const verified = body.split("### 未能取得的项")[0];
+    expect(verified).not.toContain("100万元");
+    expect(body).toContain("候选：100万元");
+    expect(body).toContain("未核实");
+  });
+
   it("pushes verified conclusions plus sources into the draft, and isolates abstains", async () => {
     seedMaterials({
       "付款函.txt": "甲方应于2024年3月1日前支付人民币120,000元。",
@@ -297,6 +312,20 @@ describe("review_table_update · scale extraction", () => {
     });
     const ctx = makeCtx(workspaceDir);
     await buildExtractionTable(ctx);
+    await reviewTableUpdate.execute(
+      {
+        task_id: "t-batch",
+        action: "set_columns",
+        columns: [
+          { key: "document", label: "对应文件" },
+          { key: "amount", label: "付款金额" },
+          { key: "date", label: "日期" },
+          { key: "source", label: "来源" },
+        ],
+      },
+      ctx,
+    );
+    seedMaterials({ "付款函.txt": "付款金额：人民币120,000元。日期2024年3月1日。" });
     await reviewTableUpdate.execute({ task_id: "t-batch", action: "extract_batch" }, ctx);
 
     const pushed = await reviewTableUpdate.execute({ task_id: "t-batch", action: "to_draft" }, ctx);

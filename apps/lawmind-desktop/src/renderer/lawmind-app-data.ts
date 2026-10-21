@@ -159,7 +159,7 @@ export type HealthPayload = {
       status?: "unset" | "invalid" | "configured" | "sample-ready" | "unimplemented";
       endpointHost?: string | null;
       authConfigured?: boolean;
-      provider?: "open" | "generic" | "pkulaw" | "lexis";
+      provider?: "open" | "generic" | "pkulaw" | "lexis" | "yuandian";
       providerLabel?: string;
       message?: string;
       envKey?: string;

@@ -17,8 +17,8 @@ import {
 } from "./mail-contract-short-path-instruction.js";
 import {
   isWordRevisionTurn,
+  wordRevisionDenyNames,
   WORD_REVISION_DENIED_HINT,
-  WORD_REVISION_DENY_TOOL_NAMES,
 } from "./word-revision-instruction.js";
 
 export type PlaybookToolLockId = "mail-contract" | "word-revision" | "read-first";
@@ -67,7 +67,7 @@ export function resolvePlaybookToolLock(
   if (isWordRevisionTurn({ instruction, pins })) {
     return {
       id: "word-revision",
-      denyNames: [...WORD_REVISION_DENY_TOOL_NAMES],
+      denyNames: wordRevisionDenyNames(instruction, pins) ?? [],
       denyHint: WORD_REVISION_DENIED_HINT,
     };
   }

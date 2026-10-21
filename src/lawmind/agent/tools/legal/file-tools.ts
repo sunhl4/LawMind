@@ -16,6 +16,7 @@ import {
   shouldRefuseResearchWriteBypass,
 } from "../../../research/research-write-bypass-gate.js";
 import { isProtectedAnalysisScriptRel } from "../../../runtime/analysis-script-path.js";
+import { atomicWriteFile } from "../../../runtime/atomic-write.js";
 import { IcloudLawyerPrompt } from "../../../runtime/icloud-materialize.js";
 import { resolveLawyerLocalFile } from "../../../runtime/lawyer-local-file.js";
 import { directoryListingToolData, resolveAndListDirectory } from "../../../runtime/list-dir.js";
@@ -23,6 +24,11 @@ import {
   PROTECTED_WORKSPACE_WRITE_REFUSAL,
   isProtectedWorkspaceRel,
 } from "../../../runtime/protected-workspace-rels.js";
+import {
+  checkTurnFileVersion,
+  recordTurnFileVersion,
+  rememberWrittenFileVersion,
+} from "../../../runtime/turn-file-versions.js";
 import { fenceAgentFilePath } from "../../../runtime/workspace-io-fence.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import { resolveDocumentPageChars } from "../../document-read-budget.js";
@@ -46,6 +52,7 @@ import {
   MAX_WORKSPACE_PDF_READ_BYTES,
   MAX_IMAGE_OCR_READ_BYTES,
   MAX_XLSX_READ_BYTES,
+  visionUsageContextFromAgentCtx,
 } from "./ingest-helpers.js";
 import { isCaseStructuralRel } from "./workspace-file-ops.js";
 
@@ -125,6 +132,8 @@ export const analyzeDocument: AgentTool = {
     }
     const filePath = located.abs;
     const canonicalRel = located.rel;
+    const baselineVersion =
+      located.root === "workspace" ? recordTurnFileVersion(ctx, canonicalRel, filePath) : undefined;
     const toAnalyzeSuccess = (
       sourceType: IngestSourceType,
       content: string,
@@ -148,6 +157,7 @@ export const analyzeDocument: AgentTool = {
         result,
         {
           filePath: reportedPath,
+          sourceVersion: baselineVersion,
           fileRoot: located.root,
           requestedPath: claimed !== canonicalRel ? claimed : undefined,
           totalChars: page.totalChars,
@@ -305,7 +315,7 @@ export const analyzeDocument: AgentTool = {
           ),
         );
       }
-      const imageResult = await readImageTextHybrid(filePath);
+      const imageResult = await readImageTextHybrid(filePath, visionUsageContextFromAgentCtx(ctx));
       if (!imageResult) {
         return toolFailureFromIngest(
           ingestFailure(
@@ -336,12 +346,12 @@ export const analyzeDocument: AgentTool = {
       if (content) {
         return toAnalyzeSuccess("pdf", content, st.size, "pdf_text");
       }
-      const ocrText = await readPdfTextByOcr(filePath);
+      const ocrText = await readPdfTextByOcr(filePath, visionUsageContextFromAgentCtx(ctx));
       if (ocrText) {
         return toAnalyzeSuccess("pdf_ocr", ocrText, st.size, "pdf_ocr");
       }
       if (shouldUseVisionFallback()) {
-        const visionText = await readPdfTextByVision(filePath);
+        const visionText = await readPdfTextByVision(filePath, visionUsageContextFromAgentCtx(ctx));
         if (visionText) {
           return toAnalyzeSuccess("pdf_vision", visionText, st.size, "pdf_vision");
         }
@@ -448,10 +458,35 @@ export const writeDocument: AgentTool = {
       };
     }
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, params.content as string, "utf8");
+    // W8：回合内版本校验 + 原子写。源文件被外部改动时拒绝覆盖。
+    const versionCheck = checkTurnFileVersion(ctx, rel, filePath);
+    if (!versionCheck.ok) {
+      return {
+        ok: false,
+        error: versionCheck.error,
+        data: { filePath: rel, currentVersion: versionCheck.currentVersion, conflict: true },
+      };
+    }
+    const written = await atomicWriteFile(filePath, params.content as string, {
+      expectedVersion: versionCheck.expectedVersion,
+      signal: ctx.abortSignal,
+    });
+    if (!written.ok) {
+      return {
+        ok: false,
+        error: written.error,
+        data: {
+          filePath: rel,
+          ...(written.code === "version_conflict"
+            ? { conflict: true, currentVersion: written.currentVersion }
+            : {}),
+        },
+      };
+    }
+    rememberWrittenFileVersion(ctx, rel, written.version);
     return {
       ok: true,
-      data: { filePath: rel, bytes: (params.content as string).length },
+      data: { filePath: rel, bytes: written.bytes, version: written.version },
     };
   },
 };

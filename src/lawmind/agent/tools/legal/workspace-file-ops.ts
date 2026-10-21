@@ -182,11 +182,27 @@ export function applySolvedFileOps(opts: {
   for (const item of opts.solved) {
     try {
       const st = fs.lstatSync(item.from.abs);
+      // Validation happened before the batch; an earlier op or external writer may
+      // have created the destination since then. Never merge/overwrite it silently.
+      try {
+        fs.lstatSync(item.to.abs);
+        failed.push(`${item.to.rel}：目标已存在，本次未覆盖`);
+        continue;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw err;
+        }
+      }
       fs.mkdirSync(path.dirname(item.to.abs), { recursive: true });
       let bytes: number | undefined;
       if (item.copy) {
         bytes = st.isDirectory() ? measureTree(item.from.abs).bytes : st.size;
-        fs.cpSync(item.from.abs, item.to.abs, { recursive: true, dereference: false });
+        fs.cpSync(item.from.abs, item.to.abs, {
+          recursive: true,
+          dereference: false,
+          force: false,
+          errorOnExist: true,
+        });
       } else {
         fs.renameSync(item.from.abs, item.to.abs);
       }

@@ -89,7 +89,7 @@ export async function handlePlatformRoutes({
         : {}),
       ...(body.hostAccess ? { hostAccess: body.hostAccess } : {}),
       ...(body.conversationLength !== undefined
-        ? { conversationLength: body.conversationLength }
+        ? { conversationLength: resolveConversationLength(body.conversationLength) }
         : {}),
       ...(body.wordRevisionAuthor !== undefined
         ? { wordRevisionAuthor: normalizeWordRevisionAuthor(body.wordRevisionAuthor) }

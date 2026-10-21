@@ -39,9 +39,11 @@ export function evaluateTrackedRenderHunkGate(params: {
       `合同审阅稿尚无待叠加修订（redline hunks=${count}，至少需要 ${minHunks}）。`,
       "请先用 apply_surgical_edits 落改（按邮件/批注/己方实质风险与 Craft 原则；缓办写入 craft_check.deferred），",
       "确认返回 data.redlinePending≥1 后再调用 render_tracked_draft。",
+      "如果律师这一轮只要求统一格式、不动措辞，改走 fix_document_format 出「格式修订」副本，不要为凑修订去改内容。",
       "禁止仅写 summary 后空修订导出。",
     ].join(""),
     lawyerMessage:
-      "合同审阅稿还没有可叠加的修改。请先在改稿里落下至少一处修改，再导出。不要只写摘要就导出。",
+      "合同审阅稿还没有可叠加的修改。请先在改稿里落下至少一处修改，再导出；" +
+      "只统一格式的话，用格式修订副本，不必改内容。不要只写摘要就导出。",
   };
 }

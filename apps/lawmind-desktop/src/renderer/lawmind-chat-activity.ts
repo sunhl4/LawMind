@@ -20,7 +20,7 @@ export type ChatActivityToolBlock = {
   toolCallId: string;
   toolName: string;
   label: string;
-  status: "running" | "done" | "failed";
+  status: "running" | "done" | "failed" | "paused";
   detail?: string;
   progress: string[];
   sessionRefs?: ChatSessionRef[];
@@ -176,9 +176,10 @@ export function endActivityTool(
   return next;
 }
 
-export function finalizeActivity(blocks: ChatActivityBlock[]): ChatActivityBlock[] {
+export function finalizeActivity(blocks: ChatActivityBlock[], status?: string): ChatActivityBlock[] {
+  const paused = ["paused", "awaiting_approval", "awaiting_clarification"].includes(status ?? "");
   return blocks.map((b) =>
-    b.kind === "tool" && b.status === "running" ? { ...b, status: "done" as const } : b,
+    b.kind === "tool" && b.status === "running" ? { ...b, status: paused ? "paused" : status === "error" ? "failed" : "done" } : b,
   );
 }
 

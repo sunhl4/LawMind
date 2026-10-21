@@ -57,6 +57,7 @@ import {
   type WordMeasure,
   type WordPageBox,
   type WordRunMark,
+  type WordLayoutDocument,
 } from "./word-surface-layout.js";
 import { outlineEntriesOf } from "./word-surface-outline.js";
 import { revisionPieces, trackCoversHunk } from "./word-surface-pieces.js";
@@ -230,6 +231,11 @@ export function extractDocxParagraphsFromXml(xml: string): string[] {
 
 export async function readDocxLayout(absPath: string): Promise<WordLayoutBlock[]> {
   return (await readDocxDocument(absPath)).blocks;
+}
+
+/** Page box plus blocks. Format audits need the page; the preview only needs blocks. */
+export async function readDocxDocumentLayout(absPath: string): Promise<WordLayoutDocument> {
+  return readDocxDocument(absPath);
 }
 
 async function importDocxLayout(): Promise<{

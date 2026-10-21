@@ -1,3 +1,4 @@
+import { isSessionTurnLive, isInterruptedTurnView } from "../../../src/lawmind/agent/turn-interrupt.js";
 import { DEFAULT_ASSISTANT_ID } from "../../../src/lawmind/assistants/constants.js";
 import { surfaceModelFailureForLawyer } from "../../../src/lawmind/agent/model-error-message.js";
 import {
@@ -264,6 +265,12 @@ export async function handleRecordRoutes({
         ...(session.folderRel ? { folderRel: session.folderRel } : {}),
         ...(session.workDir ? { workDir: session.workDir } : {}),
         messages: sessionHistoryToSimpleMessages(session),
+        ...(session.turns.at(-1) ? { latestTurn: (() => {
+          const turn = session.turns.at(-1)!;
+          return { turnId: turn.turnId, status: turn.status, startedAt: turn.startedAt,
+            completedAt: turn.completedAt,
+            interrupted: !isSessionTurnLive(workspaceDir, sessionId) && isInterruptedTurnView(turn) };
+        })() } : {}),
         // 「续接来源」卡片（律师可核对带过来了什么）与「→ 由此续接」双向指针。
         ...(session.carriedOverFrom ? { carriedOverFrom: session.carriedOverFrom } : {}),
         ...(session.forkedTo ? { forkedTo: session.forkedTo } : {}),

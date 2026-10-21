@@ -562,6 +562,13 @@ export async function renderDocxWithTrackedChanges(params: {
   let conversionFidelity: "high" | "lossy" | undefined;
   /** `.doc` 转换稿的临时路径；交付副本拷好后要删掉，别留在交付目录。 */
   let legacyConvertedPath: string | undefined;
+  /**
+   * `.doc` 是二进制容器，读不出原有修订条目，只能对账「有没有带过来」。
+   * 这条提示必须随交付物一起给律师，不能默认认为修订一定还在。
+   */
+  let docConversionNote: string | undefined;
+  /** 修订对账的软提示（别人插入句被改、编号被重排），随交付信息给律师。 */
+  const revisionNotes: string[] = [];
 
   if (baselineAbs) {
     if (isBinaryWordDocBaseline(baselineAbs)) {
@@ -579,6 +586,13 @@ export async function renderDocxWithTrackedChanges(params: {
       inputPath = converted;
       baselineSource = "contract_file";
       conversionFidelity = "high";
+      {
+        const { countDocxRevisions } = await import("../drafts/word-revision/preservation-file.js");
+        const counted = await countDocxRevisions(converted);
+        docConversionNote = counted.ok
+          ? `原件是 .doc，原有修订条目无法逐条对账。转成 .docx 后已有 ${counted.count} 条修订（本轮新增另计），请在 Word 里核对原有修订是否都在。`
+          : "原件是 .doc，且转换稿读不出修订条目，请人工核对原有修订是否还在。";
+      }
     } else {
       inputPath = baselineAbs;
       baselineSource = "contract_file";
@@ -685,7 +699,9 @@ export async function renderDocxWithTrackedChanges(params: {
     return {
       ...result,
       conversionFidelity,
-      warning: result.warning,
+      warning:
+        [result.warning, docConversionNote, ...revisionNotes].filter(Boolean).join("；") ||
+        undefined,
     };
   };
 
@@ -762,6 +778,49 @@ export async function renderDocxWithTrackedChanges(params: {
   const refuseTemplateFallback =
     baselineSource === "contract_file" || params.requireContractBaseline === true;
 
+  /**
+   * 硬约束：交付物必须保留原稿里的每一条修订。
+   * officecli 落改、格式修复、另存都可能把别人的 w:ins / w:del 弄丢；
+   * 一旦对不上，宁可不交付，也不能让律师拿着少了修订的稿子去谈。
+   */
+  const guardRevisionPreservation = async (
+    afterAbs: string,
+  ): Promise<TrackedDocxRenderResult | undefined> => {
+    const { verifyDocxRevisionPreservation } =
+      await import("../drafts/word-revision/preservation-file.js");
+    const check = await verifyDocxRevisionPreservation({
+      beforeAbs: inputPath,
+      afterAbs,
+    });
+    if (!check.verified) {
+      // 读不出原件（如 .doc 转换稿已被清理）：不谎称通过，交给调用方在 warning 里说明。
+      return undefined;
+    }
+    if (!check.ok) {
+      try {
+        await fs.unlink(afterAbs);
+      } catch {
+        /* ignore */
+      }
+      return {
+        ok: false,
+        code: "revision_preservation_failed",
+        error: `${check.note ?? "交付物丢失了原有修订。"}已停止交付。请在 Word 里打开原件另存一份 .docx 后重试，或改用「只读核对」。`,
+      };
+    }
+    const { describeInsertionEdits, describeRenumbered } =
+      await import("../drafts/word-revision/preservation.js");
+    const insertionNote = describeInsertionEdits(check);
+    if (insertionNote) {
+      revisionNotes.push(insertionNote);
+    }
+    const renumberNote = describeRenumbered(check);
+    if (renumberNote) {
+      revisionNotes.push(renumberNote);
+    }
+    return undefined;
+  };
+
   const failTrackedApply = async (detail?: string): Promise<TrackedDocxRenderResult> => {
     try {
       await fs.unlink(trackedPath);
@@ -803,6 +862,10 @@ export async function renderDocxWithTrackedChanges(params: {
     }
 
     if (!hadProposals) {
+      const lost = await guardRevisionPreservation(trackedPath);
+      if (lost) {
+        return lost;
+      }
       return withConversionMeta({
         ok: true,
         outputPath: trackedPath,
@@ -879,6 +942,10 @@ export async function renderDocxWithTrackedChanges(params: {
         }
       } catch {
         formatWarning = "修订文字格式对齐修复失败";
+      }
+      const lost = await guardRevisionPreservation(trackedPath);
+      if (lost) {
+        return lost;
       }
       return withConversionMeta({
         ok: true,

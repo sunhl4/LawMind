@@ -40,6 +40,7 @@ import {
  */
 type ChatStreamEventName =
   | EmbedTurnEventType
+  | "session"
   | "payload"
   | "done"
   | "error"
@@ -47,6 +48,7 @@ type ChatStreamEventName =
 
 const CHAT_STREAM_FRAME_NAMES: ReadonlySet<string> = new Set<string>([
   ...EMBED_TURN_EVENT_TYPES,
+  "session",
   "payload",
   "done",
   "error",
@@ -286,6 +288,7 @@ export function dropTrailingUserMessageIfText(
 }
 
 export type StreamingChatCallbacks = {
+  onApprovalRequest?: (info: { toolCallId: string }) => void;
   onRoundStart?: (roundIndex: number) => void;
   onToolCallStart?: (info: {
     toolCallId: string;
@@ -311,11 +314,23 @@ export type StreamingChatCallbacks = {
     roundIndex: number;
     label: string;
   }) => void;
+  onSession?: (sessionId: string) => void;
+  onTurnStarted?: (info: { sessionId: string; turnId: string }) => void;
   onDelta?: (text: string) => void;
   onTokenBudget?: (info: {
     used: number;
     effectiveLimit: number;
     level: "ok" | "warn" | "compact";
+  }) => void;
+  /** 上游实际用量（每次模型调用一条）。cached 缺失＝上游没报，不是 0。 */
+  onTokenUsage?: (info: {
+    attempt: number;
+    input?: number;
+    output?: number;
+    cached?: number;
+    uncached?: number;
+    fixed?: number;
+    failed?: boolean;
   }) => void;
   onToolBudget?: (info: {
     used: number;
@@ -358,7 +373,7 @@ function lawmindCoerceToolField(value: unknown): string {
 export async function sendChatTurnStream(
   args: SendChatTurnArgs,
   callbacks: StreamingChatCallbacks = {},
-): Promise<{ sessionId?: string; assistantMessage: ChatMsg }> {
+): Promise<{ sessionId?: string; turnId?: string; assistantMessage: ChatMsg; needsReconcile?: boolean }> {
   const includeTurnDiagnostics = readIncludeTurnDiagnostics();
   const { response } = await fetchWithLoopbackAuthRetry(args.apiBase, (base) =>
     fetch(`${base}/api/chat`, {
@@ -401,6 +416,8 @@ export async function sendChatTurnStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let payloadBody: ChatResponse | null = null;
+  let streamSessionId = args.sessionId;
+  let streamTurnId: string | undefined;
   const streamErrorCell: { current: { status: number; body: ApiErrorJson } | null } = { current: null };
   let finishedDone = false;
 
@@ -408,6 +425,21 @@ export async function sendChatTurnStream(
     try {
       const parsed = JSON.parse(data) as Record<string, unknown>;
       switch (name) {
+        case "session": {
+          if (typeof parsed.sessionId === "string" && parsed.sessionId.trim()) {
+            streamSessionId = parsed.sessionId.trim();
+            callbacks.onSession?.(streamSessionId);
+          }
+          break;
+        }
+        case "turn_started": {
+          if (typeof parsed.sessionId === "string" && typeof parsed.turnId === "string" && parsed.turnId.trim()) {
+            streamSessionId = parsed.sessionId;
+            streamTurnId = parsed.turnId;
+            callbacks.onTurnStarted?.({ sessionId: streamSessionId, turnId: streamTurnId });
+          }
+          break;
+        }
         case "round_start": {
           const roundIndex =
             typeof parsed.roundIndex === "number" ? parsed.roundIndex : 0;
@@ -472,6 +504,20 @@ export async function sendChatTurnStream(
               used: parsed.used,
               effectiveLimit: parsed.effectiveLimit,
               level: parsed.level as "ok" | "warn" | "compact",
+            });
+          }
+          break;
+        }
+        case "token_usage": {
+          if (typeof parsed.attempt === "number") {
+            callbacks.onTokenUsage?.({
+              attempt: parsed.attempt,
+              ...(typeof parsed.input === "number" ? { input: parsed.input } : {}),
+              ...(typeof parsed.output === "number" ? { output: parsed.output } : {}),
+              ...(typeof parsed.fixed === "number" ? { fixed: parsed.fixed } : {}),
+              ...(typeof parsed.failed === "boolean" ? { failed: parsed.failed } : {}),
+              ...(typeof parsed.cached === "number" ? { cached: parsed.cached } : {}),
+              ...(typeof parsed.uncached === "number" ? { uncached: parsed.uncached } : {}),
             });
           }
           break;
@@ -590,6 +636,10 @@ export async function sendChatTurnStream(
           }
           break;
         }
+        case "approval_request": {
+          if (typeof parsed.toolCallId === "string") { callbacks.onApprovalRequest?.({ toolCallId: parsed.toolCallId }); }
+          break;
+        }
         case "final":
         case "final_reply": {
           break;
@@ -617,6 +667,7 @@ export async function sendChatTurnStream(
     }
   };
 
+  try {
   while (true) {
     const { done, value } = await reader.read();
     if (value) {
@@ -647,6 +698,13 @@ export async function sendChatTurnStream(
       break;
     }
   }
+  } catch (err) {
+    if (args.signal?.aborted) { throw err; }
+    // A read failure is an uncertain transport outcome, not permission to resubmit.
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 
   if (args.signal?.aborted) {
     throw new DOMException("The user aborted a request.", "AbortError");
@@ -656,7 +714,17 @@ export async function sendChatTurnStream(
     throw new Error(chatErrorUserText(streamErr.status, streamErr.body));
   }
   if (!payloadBody) {
-    throw new Error("流式响应未返回最终内容。请重试或检查网络。");
+    // 连接断了但服务端可能仍在跑完并落盘：不当作失败抛错，交给调用方对账。
+    return {
+      needsReconcile: true,
+      sessionId: streamSessionId,
+      turnId: streamTurnId,
+      assistantMessage: {
+        role: "assistant",
+        text: "连接中断，正在核对是否已办完……",
+        status: "running",
+      },
+    };
   }
   return buildChatTurnResult(payloadBody);
 }
@@ -664,6 +732,7 @@ export async function sendChatTurnStream(
 function buildChatTurnResult(body: ChatResponse): {
   sessionId?: string;
   assistantMessage: ChatMsg;
+  needsReconcile?: boolean;
 } {
   const clarificationQuestions = Array.isArray(body.clarificationQuestions)
     ? body.clarificationQuestions.filter(
@@ -690,7 +759,7 @@ function buildChatTurnResult(body: ChatResponse): {
       text:
         body.reply?.trim() ||
         (body.status === "awaiting_approval"
-          ? "有操作等您确认。请在这条对话里批准或拒绝，批准后会接着办完。"
+          ? "有操作等您确认。请在这条对话里签批或拒绝，签批后会接着办完。"
           : body.toolCalls && body.toolCalls > 0
             ? "本轮已执行工具但未返回文字说明，请查看上方工具状态或中间栏。"
             : "本轮未返回可见回复，请重试或检查模型配置。"),

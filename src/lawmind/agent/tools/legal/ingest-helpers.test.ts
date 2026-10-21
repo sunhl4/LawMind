@@ -17,6 +17,7 @@ import {
   searchProjectTextFiles,
   shouldUseVisionFallback,
   sliceDocumentPage,
+  visionUsageContextFromAgentCtx,
 } from "./ingest-helpers.js";
 
 describe("isPathInsideRoot", () => {
@@ -91,6 +92,24 @@ describe("searchProjectTextFiles", () => {
     const hits = await searchProjectTextFiles(root, "押金");
     expect(hits.some((h) => h.snippet.includes("押金"))).toBe(true);
     await fs.rm(root, { recursive: true, force: true });
+  });
+});
+
+describe("visionUsageContextFromAgentCtx", () => {
+  it("returns undefined without a workspace so we never write a bogus row", () => {
+    expect(visionUsageContextFromAgentCtx({})).toBeUndefined();
+    expect(visionUsageContextFromAgentCtx({ workspaceDir: "   " })).toBeUndefined();
+  });
+
+  it("carries session/turn/matter through and drops empty values", () => {
+    expect(
+      visionUsageContextFromAgentCtx({
+        workspaceDir: "/ws",
+        sessionId: "s1",
+        turnId: "t1",
+        matterId: "",
+      }),
+    ).toEqual({ workspaceDir: "/ws", sessionId: "s1", turnId: "t1" });
   });
 });
 

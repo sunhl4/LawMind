@@ -943,6 +943,7 @@ export function LawmindChatShell(props: LawmindChatWorkspaceProps) {
     <div className="lm-chat-workspace">
       <LawmindChatMessagesColumn
         {...props}
+        projectDir={props.projectDir ?? undefined}
         onOpenNeedsDecisionDesk={openNeedsDecisionDesk}
         planEditable={props.composeExtras.permissionMode === "readonly"}
         onLawyerEditPlan={(text) => {

@@ -11,11 +11,13 @@ export function formatUsageSummaryForLawyer(
   summary: {
     entries: number;
     totalTokens: number;
+    unknownUsageEntries?: number;
     byTier?: Array<{ label: string; totalTokens: number }>;
   },
   opts?: { sinceDays?: number },
 ): string | null {
-  if (summary.entries <= 0 || summary.totalTokens <= 0) {
+  const unknown = summary.unknownUsageEntries ?? 0;
+  if (summary.entries <= 0 || (summary.totalTokens <= 0 && unknown === 0)) {
     return null;
   }
   const days = opts?.sinceDays && opts.sinceDays > 0 ? opts.sinceDays : 30;
@@ -26,5 +28,6 @@ export function formatUsageSummaryForLawyer(
           .map((t) => `${t.label} ${t.totalTokens.toLocaleString("zh-CN")}`)
           .join("、")}`
       : "";
-  return `近 ${days} 天 ${summary.entries} 次调用，约 ${tokens} token${tierBit}。自备密钥的调用记在本机，不记入套餐。`;
+  const usage = summary.totalTokens > 0 ? `已报告约 ${tokens} token${tierBit}` : "上游尚未报告用量";
+  return `近 ${days} 天 ${summary.entries} 次调用，${usage}${unknown > 0 ? `；${unknown} 次用量未知，不代表免费` : ""}。自备密钥的调用记在本机，不记入套餐。`;
 }

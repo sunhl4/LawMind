@@ -508,6 +508,14 @@ export function buildRequiresActionsFromTurn(
     /** 暂停时带回原交办，对话里点继续才能接着办同一件事。 */
     instruction?: string;
     continueTrigger?: ContinueToolsTrigger;
+    /**
+     * 读取目标文件现状（引擎侧注入；renderer 不得传，因为它会读盘）。
+     * 返回律师看得懂的一句「现在是什么」，让审批卡的「当前值」不再恒为「拟新执行」。
+     */
+    describeCurrentTarget?: (
+      toolName: string,
+      toolArgs: Record<string, unknown>,
+    ) => string | undefined;
   },
 ): LawMindRequiresAction[] {
   const out: LawMindRequiresAction[] = [];
@@ -528,14 +536,17 @@ export function buildRequiresActionsFromTurn(
   }
 
   if (turn.status === "awaiting_approval" && turn.pendingToolApproval) {
-    out.push(
-      buildToolApprovalAction({
-        ...base,
-        toolName: turn.pendingToolApproval.toolName,
-        toolCallId: turn.pendingToolApproval.toolCallId,
-        toolArgs: turn.pendingToolApproval.toolArgs,
-      }),
+    const action = buildToolApprovalAction({
+      ...base,
+      toolName: turn.pendingToolApproval.toolName,
+      toolCallId: turn.pendingToolApproval.toolCallId,
+      toolArgs: turn.pendingToolApproval.toolArgs,
+    });
+    const currentTarget = turn.describeCurrentTarget?.(
+      turn.pendingToolApproval.toolName,
+      turn.pendingToolApproval.toolArgs,
     );
+    out.push(currentTarget ? { ...action, currentValue: currentTarget } : action);
   }
 
   if (turn.status === "paused" || turn.status === "interrupted") {

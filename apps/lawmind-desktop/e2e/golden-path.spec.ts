@@ -5,7 +5,7 @@ import {
   gotoShell,
   installE2eBrowserPrefs,
   openComposeOptions,
-  openReviewDraft,
+  openDeskTab,
   openWorkspaceChat,
 } from "./e2e-helpers";
 
@@ -36,7 +36,8 @@ test.describe("LawMind golden path", () => {
     await expect(page.getByTestId("lm-tab-desk")).toHaveAttribute("aria-current", "page");
     await expect(page.getByTestId("lm-desk-agenda")).toBeVisible();
     await expect(page.getByTestId("lm-lawyer-today-plan-input")).toBeVisible();
-    await expect(page.getByLabel("今日提醒")).toBeVisible();
+    // 精确匹配：输入条的「添加今日提醒」也含这四个字，非精确会撞成 2 个。
+    await expect(page.getByLabel("今日提醒", { exact: true })).toBeVisible();
     const cockpit = page.getByTestId("lm-lawyer-cockpit");
     await expect(cockpit).toBeVisible();
     const box = await cockpit.boundingBox();
@@ -46,8 +47,10 @@ test.describe("LawMind golden path", () => {
   test("工作台在，不打开改稿台", async ({ page }) => {
     test.setTimeout(120_000);
     await gotoShell(page);
-    await openReviewDraft(page);
+    // 只点一级 tab：工作台默认落在今日提醒，不会自己弹改稿台。
+    await openDeskTab(page);
     await expect(page.locator(".lm-review-workbench-root")).toHaveCount(0);
+    await expect(page.getByTestId("lm-middle-draft-desk")).toHaveCount(0);
     await expect(page.getByTestId("lm-tab-agents")).toHaveCount(0);
     await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible({ timeout: 30_000 });
   });
@@ -55,7 +58,7 @@ test.describe("LawMind golden path", () => {
   test("tool approval card resumes without manual __approved JSON", async ({ page }) => {
     await gotoShell(page);
     await openWorkspaceChat(page);
-    await expect(page.getByRole("button", { name: /批准并继续|允许一次/ })).toBeVisible({
+    await expect(page.getByRole("button", { name: /签批并继续|允许一次/ })).toBeVisible({
       timeout: 15_000,
     });
     const resumeRes = await approveToolViaDialog(page);
@@ -80,7 +83,7 @@ test.describe("LawMind golden path", () => {
     const resumeWait = page.waitForResponse(
       (res) => res.url().includes("/api/chat/resume") && res.request().method() === "POST",
     );
-    await page.getByRole("button", { name: "按修改批准" }).click();
+    await page.getByRole("button", { name: "按修改签批" }).click();
     const resumeRes = await resumeWait;
     const resumeJson = (await resumeRes.json()) as {
       resumeEcho?: { decision?: string; editedArgs?: Record<string, unknown> };
@@ -93,7 +96,9 @@ test.describe("LawMind golden path", () => {
   test("queues second message while first chat request is in flight", async ({ page }) => {
     await gotoShell(page);
     await openWorkspaceChat(page);
-    const composer = page.getByPlaceholder(/Enter 发送|输入|消息/i).first();
+    // 用 aria-label 定位：占位符在回合进行中会换成「这一轮还在办…」，
+    // 按占位符取会一直等回到旧文案——也就是等到回合结束，用例就跑成了「发两句」。
+    const composer = page.getByLabel("消息输入").first();
     await expect(composer).toBeVisible({ timeout: 15_000 });
     const slowResponse = page.waitForResponse(
       (res) =>
@@ -112,19 +117,22 @@ test.describe("LawMind golden path", () => {
     await page.getByRole("button", { name: "发送" }).click();
     await slowRequest;
     await expect(page.getByRole("button", { name: "停止" })).toBeVisible({ timeout: 5_000 });
-    await composer.fill("e2e-steer-mid-turn");
-    const steerWait = page.waitForResponse(
-      (res) => res.url().includes("/steer") && res.request().method() === "POST",
+    await composer.fill("e2e-mid-turn-followup");
+    // 回合进行中再说一句，进的是这场会话的收件箱（下一回合），不是 /steer。
+    const followupWait = page.waitForResponse(
+      (res) => res.url().endsWith("/followup") && res.request().method() === "POST",
       { timeout: 5_000 },
     );
     await composer.press("Enter");
-    await steerWait;
+    await followupWait;
     await expect(composer).toHaveValue("");
-    await expect(page.locator(".lm-compose-queue")).toHaveCount(0);
+    // 本地队列立刻显示，服务端收件箱是同一句的持久化。
+    await expect(page.locator(".lm-compose-queue")).toContainText("排队");
+    // 「下一轮再发」是同一件事的显式入口，排队里再多一条。
     await composer.fill("e2e-queued-second");
     await openComposeOptions(page);
     await page.getByTestId("lm-compose-enqueue-next").click();
-    await expect(page.locator(".lm-compose-queue")).toContainText("排队", { timeout: 5_000 });
+    await expect(page.locator(".lm-compose-queue")).toContainText("排队 2 条", { timeout: 5_000 });
     await slowResponse;
   });
 

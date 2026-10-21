@@ -333,6 +333,14 @@ export function LawmindSettingsPage({
   onOpenAutomationsReview,
   onOpenAutomationsCollaboration,
   onOpenAutomationsWorkspaceFile,
+  delegations,
+  collabEvents,
+  gateHistory,
+  formatRelativeTime,
+  onRefreshCollaboration,
+  onOpenDelegationTargetChat,
+  assistantDisplayById,
+  workflowModelLabel,
 }: Props) {
   const openedSection = normalizeSettingsSection(initialSectionId);
   const [activeSectionId, setActiveSectionId] = useState<LawmindSettingsSectionId>(openedSection);
@@ -445,6 +453,16 @@ export function LawmindSettingsPage({
     onOpenAutomationsReview,
     onOpenAutomationsCollaboration,
     onOpenAutomationsWorkspaceFile,
+    // 协作台（交出去的活 / 按流程办）在设置里也要看得见：
+    // 这几个 prop 是 `SettingsCollaborationDeskHost` 的渲染前提，漏传时它整块静默消失。
+    delegations,
+    collabEvents,
+    gateHistory,
+    formatRelativeTime,
+    onRefreshCollaboration,
+    onOpenDelegationTargetChat,
+    assistantDisplayById,
+    workflowModelLabel,
     navigateToSection,
   });
 
@@ -768,27 +786,56 @@ function renderSettingsSection(args: SectionRenderArgs): ReactNode {
 
 function SettingsCollaborationDeskHost(props: SectionRenderArgs): ReactNode {
   const [tab, setTab] = useState<"overview" | "workflows">("overview");
+  const {
+    config,
+    collabSummarySettings,
+    delegations,
+    collabEvents,
+    gateHistory,
+    formatRelativeTime,
+    onRefreshCollaboration,
+  } = props;
   if (
-    !props.config ||
-    !props.delegations ||
-    !props.collabEvents ||
-    !props.gateHistory ||
-    !props.formatRelativeTime ||
-    !props.onRefreshCollaboration ||
-    !props.collabSummarySettings
+    !config ||
+    !collabSummarySettings ||
+    !delegations ||
+    !collabEvents ||
+    !gateHistory ||
+    !formatRelativeTime ||
+    !onRefreshCollaboration
   ) {
-    return null;
+    const missing = [
+      !config ? "config" : "",
+      !collabSummarySettings ? "collabSummarySettings" : "",
+      !delegations ? "delegations" : "",
+      !collabEvents ? "collabEvents" : "",
+      !gateHistory ? "gateHistory" : "",
+      !formatRelativeTime ? "formatRelativeTime" : "",
+      !onRefreshCollaboration ? "onRefreshCollaboration" : "",
+    ].filter(Boolean);
+    // 以前这里静默 return null：设置 → 协作 只剩一行状态，没人发现。
+    // 保留一句律师能看懂的话，同时把缺口留在 DOM 上给测试断言。
+    return (
+      <p
+        className="lm-meta lm-settings-empty"
+        role="status"
+        data-testid="lm-collab-desk-missing"
+        data-missing={missing.join(",")}
+      >
+        协作台尚未就绪（本地服务信息未加载完整），可在「在办」里查看交出去的活。
+      </p>
+    );
   }
   return (
     <LawmindCollaborationDesk
-      config={props.config}
-      collabSummarySettings={props.collabSummarySettings}
+      config={config}
+      collabSummarySettings={collabSummarySettings}
       selectedAssistantId={props.selectedAssistantId}
-      delegations={props.delegations}
-      collabEvents={props.collabEvents}
-      gateHistory={props.gateHistory}
-      formatRelativeTime={props.formatRelativeTime}
-      onRefreshCollaboration={props.onRefreshCollaboration}
+      delegations={delegations}
+      collabEvents={collabEvents}
+      gateHistory={gateHistory}
+      formatRelativeTime={formatRelativeTime}
+      onRefreshCollaboration={onRefreshCollaboration}
       onOpenDelegationTargetChat={props.onOpenDelegationTargetChat}
       deskTab={tab}
       onDeskTabChange={setTab}

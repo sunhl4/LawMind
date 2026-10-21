@@ -12,6 +12,7 @@ import {
   sessionEventsPath,
   shouldPersistSessionEvent,
 } from "./session-event-log.js";
+import { writeTurnGateLeaseForTest } from "./session-turn-gate.js";
 
 describe("session-event-log", () => {
   const dirs: string[] = [];
@@ -144,5 +145,50 @@ describe("session-event-log", () => {
     expect(replayed.length).toBeLessThan(chunks);
     const progress = getLiveTurnProgressOrReplay(ws, "sid");
     expect(progress?.status).toBe("completed");
+  });
+
+  it("marks an unfinished last turn as paused + needsReconcile after a restart", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-elog-orphan-"));
+    dirs.push(ws);
+    // 回合跑到一半进程被杀：有 turn_begin / tool_call_start，没有 final。
+    appendSessionEvent(ws, "sid", { type: "turn_begin" }, { turnId: "t-orphan" });
+    appendSessionEvent(ws, "sid", { type: "round_start", roundIndex: 1 }, { turnId: "t-orphan" });
+    appendSessionEvent(
+      ws,
+      "sid",
+      {
+        type: "tool_call_start",
+        roundIndex: 1,
+        toolCallId: "tc1",
+        toolName: "write_document",
+        args: { path: "答辩状.md" },
+      },
+      { turnId: "t-orphan" },
+    );
+    resetLiveTurnProgressStore();
+
+    const progress = getLiveTurnProgressOrReplay(ws, "sid");
+    expect(progress?.status).toBe("paused");
+    expect(progress?.needsReconcile).toBe(true);
+    // 未收口的步骤不能继续显示「进行中」。
+    expect(progress?.steps.every((step) => step.status !== "running")).toBe(true);
+    expect(progress?.steps.some((step) => step.label.includes("中断"))).toBe(true);
+  });
+
+  it("does not call a turn interrupted while another process still holds the lease", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-elog-lease-"));
+    dirs.push(ws);
+    appendSessionEvent(ws, "sid", { type: "turn_begin" }, { turnId: "t-live" });
+    resetLiveTurnProgressStore();
+    // 另一宿主（非本 pid）持有租约 → 仍在跑，不得标成中断。
+    writeTurnGateLeaseForTest(ws, "sid", {
+      pid: process.pid + 1,
+      startedAt: new Date().toISOString(),
+      hostname: `other-host-${process.pid}`,
+    });
+
+    const progress = getLiveTurnProgressOrReplay(ws, "sid");
+    expect(progress?.status).not.toBe("paused");
+    expect(progress?.needsReconcile).toBeUndefined();
   });
 });

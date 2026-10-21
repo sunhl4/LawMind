@@ -104,6 +104,8 @@ export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "read_case_file",
   "analyze_document",
   "compare_documents",
+  "check_document_format",
+  "fix_document_format",
   "list_tasks",
   "list_drafts",
   "get_audit_trail",

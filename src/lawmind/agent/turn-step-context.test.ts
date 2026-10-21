@@ -299,7 +299,7 @@ describe("turn-step-context", () => {
       turnContext,
       discoveryCallCounts: { analyze_document: 8 },
     });
-    expect(saturated.toolNames).not.toContain("analyze_document");
+    expect(saturated.toolNames).toContain("analyze_document");
 
     const ledger = rebuildStepContext({
       session,

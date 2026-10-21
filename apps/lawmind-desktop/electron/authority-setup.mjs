@@ -79,20 +79,52 @@ export function validateAuthoritySetupUrl(raw) {
 }
 
 /**
+ * Token-split a LAWMIND_AUTHORITY_PROVIDER value the same way the retrieval
+ * layer does（多库兼容：`yuandian,pkulaw` 等逗号/空白分隔的多值）。
+ * @param {string | undefined} providerRaw
+ * @returns {string[]}
+ */
+export function authorityProviderTokensList(providerRaw) {
+  return (providerRaw ?? "")
+    .trim()
+    .toLowerCase()
+    .split(/[,;、/\s]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/** 法宝系 token（keychain 账户 authorityApiKey 存的是法宝令牌）。 */
+export const PKULAW_FAMILY_TOKENS = new Set(["pkulaw", "pku", "法宝", "北大法宝"]);
+/** 端点 + 共享令牌形态（与法宝同一钥匙串账户）。 */
+export const ENDPOINT_KEY_TOKENS = new Set(["generic", "http", "rest", "lexis", "lexisnexis"]);
+export const YUANDIAN_TOKENS = new Set(["yuandian", "元典", "元典智库"]);
+
+/**
+ * 钥匙串令牌是否应注入 LAWMIND_AUTHORITY_API_KEY。
+ * 多库列表（例 `yuandian,pkulaw`）只要含法宝系/端点令牌就注入 —— 元典用
+ * 独立的 LAWMIND_YUANDIAN_API_KEY（.env.lawmind），不共用这笔钥匙串账。
  * @param {string | undefined} providerRaw
  */
 export function authorityProviderUsesStoredKey(providerRaw) {
-  const raw = (providerRaw ?? "").trim().toLowerCase();
-  return (
-    raw === "pkulaw" ||
-    raw === "pku" ||
-    raw === "法宝" ||
-    raw === "generic" ||
-    raw === "http" ||
-    raw === "rest" ||
-    raw === "lexis" ||
-    raw === "lexisnexis"
+  return authorityProviderTokensList(providerRaw).some(
+    (token) => PKULAW_FAMILY_TOKENS.has(token) || ENDPOINT_KEY_TOKENS.has(token),
   );
+}
+
+/**
+ * Preserve 同库族之外的独立 Key 库 token（目前仅元典）：
+ * 设置页保存法宝时，`LAWMIND_AUTHORITY_PROVIDER` 不能静默把用户手配的
+ * `yuandian` / `yuandian,pkulaw` 覆盖成单值 `pkulaw`，否则多库 fan-out 退化。
+ * 其他 token（open/generic/lexis 等互斥端点形态）仍按选择覆盖。
+ * @param {string | undefined} existingRaw
+ * @param {string} next 已选择的单值 provider（"pkulaw"）
+ * @returns {string}
+ */
+export function mergeAuthorityProviderOnSave(existingRaw, next) {
+  const yuandianKept = authorityProviderTokensList(existingRaw).some((t) =>
+    YUANDIAN_TOKENS.has(t),
+  );
+  return yuandianKept && next === "pkulaw" ? ["yuandian", next].join(",") : next;
 }
 
 /**
@@ -102,6 +134,7 @@ export function authorityProviderUsesStoredKey(providerRaw) {
  *   caseEndpoint?: string;
  *   apiKey?: string;
  *   hasExistingKey?: boolean;
+ *   existingProvider?: string;
  * }} input
  */
 export function planAuthoritySave(input) {
@@ -136,9 +169,10 @@ export function planAuthoritySave(input) {
   }
   const gateway =
     endpointWantsPkulawGateway(law.normalized) || endpointWantsPkulawGateway(caseUrl.normalized);
+  const providerValue = mergeAuthorityProviderOnSave(input?.existingProvider, "pkulaw");
   /** @type {Record<string, string>} */
   const assignments = {
-    LAWMIND_AUTHORITY_PROVIDER: "pkulaw",
+    LAWMIND_AUTHORITY_PROVIDER: providerValue,
     LAWMIND_AUTHORITY_ENDPOINT: law.normalized,
     LAWMIND_PKULAW_CASE_ENDPOINT: caseUrl.normalized,
   };

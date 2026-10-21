@@ -16,7 +16,7 @@ export type LiveTurnStep = {
   id: string;
   kind: "round" | "tool" | "workflow";
   label: string;
-  status: "running" | "done" | "failed";
+  status: "running" | "done" | "failed" | "paused";
   detail?: string;
   sessionRefs?: Array<{
     sessionId: string;
@@ -28,11 +28,17 @@ export type LiveTurnStep = {
 
 export type LiveTurnProgress = {
   sessionId: string;
-  status: "running" | "completed" | "failed";
+  /**
+   * `paused` = 等律师确认/补充，不是成功也不是失败（2026-10-21 新增）。
+   * 以前暂停先被写成 `completed`、随后被收尾改成 `failed`，界面自相矛盾。
+   */
+  status: "running" | "paused" | "completed" | "failed";
   currentRound: number;
   steps: LiveTurnStep[];
   updatedAt: string;
   turnPlan?: AgentTurnPlan;
+  /** 连接中断、结果待对账；不等于工作没发生。 */
+  needsReconcile?: boolean;
 };
 
 const store = new Map<string, LiveTurnProgress>();
@@ -128,13 +134,33 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
     }
     case "delta":
       break;
+    case "approval_request":
+      next.status = "paused";
+      next.steps = next.steps.map((step) =>
+        step.id === event.toolCallId ? { ...step, status: "paused", detail: "等待律师确认" } : step,
+      );
+      break;
     case "final":
-      next.status = event.status === "error" ? "failed" : "completed";
-      for (let i = 0; i < next.steps.length; i++) {
-        if (next.steps[i].status === "running") {
-          next.steps[i] = { ...next.steps[i], status: "done" };
-        }
-      }
+      // 三种结局分开：成功、失败、以及「等律师」——暂停既不是成功也不是失败。
+      // 旧实现把 paused 当 completed，随后收尾又把它改成 failed，界面同时说
+      // 「失败」和「这步已完成」。
+      next.status =
+        event.status === "error"
+          ? "failed"
+          : event.status === "paused" ||
+              event.status === "awaiting_approval" ||
+              event.status === "awaiting_clarification"
+            ? "paused"
+            : "completed";
+      next.steps = next.steps.map((step) =>
+        step.status === "running"
+          ? {
+              ...step,
+              status:
+                next.status === "paused" ? "paused" : next.status === "failed" ? "failed" : "done",
+            }
+          : step,
+      );
       break;
     case "clarification":
       break;
@@ -212,7 +238,7 @@ export function applyLiveTurnEvent(sessionId: string, event: RunTurnEvent): void
 
 export function finishLiveTurnProgress(
   sessionId: string,
-  status: "completed" | "failed" = "completed",
+  status: "completed" | "failed" | "paused" = "completed",
 ): void {
   const current = store.get(sessionId);
   if (!current) {
@@ -222,9 +248,30 @@ export function finishLiveTurnProgress(
     ...current,
     status,
     updatedAt: new Date().toISOString(),
-    steps: current.steps.map((s) =>
-      s.status === "running" ? { ...s, status: status === "failed" ? "failed" : "done" } : s,
+    steps: current.steps.map((step) =>
+      step.status === "running"
+        ? {
+            ...step,
+            status: status === "paused" ? "paused" : status === "failed" ? "failed" : "done",
+          }
+        : step,
     ),
+  });
+}
+
+/**
+ * 传输中断：只标「待对账」，不推断工作没发生。
+ * 调用方应先拉一次会话详情，再决定要不要重发。
+ */
+export function markLiveTurnProgressNeedsReconcile(sessionId: string): void {
+  const current = store.get(sessionId);
+  if (!current) {
+    return;
+  }
+  store.set(sessionId, {
+    ...current,
+    needsReconcile: true,
+    updatedAt: new Date().toISOString(),
   });
 }
 

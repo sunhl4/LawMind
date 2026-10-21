@@ -49,7 +49,7 @@ export type LawmindSettingsAuthorityCorpus = {
   endpointHost?: string | null;
   /** 是否已配置 LAWMIND_AUTHORITY_API_KEY（不暴露密钥） */
   authConfigured?: boolean;
-  provider?: "open" | "generic" | "pkulaw" | "lexis";
+  provider?: "open" | "generic" | "pkulaw" | "lexis" | "yuandian";
   providerLabel?: string;
   message?: string;
   envKey?: string;

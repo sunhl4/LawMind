@@ -343,7 +343,7 @@ describe("LawmindSideChatSessions", () => {
     const onNewChatInFolder = vi.fn();
     const showItemInFolder = vi.fn(async () => ({ ok: true }));
     const previousDesktop = window.lawmindDesktop;
-    window.lawmindDesktop = { showItemInFolder } as typeof window.lawmindDesktop;
+    window.lawmindDesktop = { showItemInFolder } as unknown as typeof window.lawmindDesktop;
     await act(async () => {
       root.render(
         <LawmindSideChatSessions

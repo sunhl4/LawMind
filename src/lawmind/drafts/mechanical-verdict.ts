@@ -6,7 +6,14 @@
 
 import type { DraftCitationIntegrityView } from "./citation-integrity.js";
 
-export type MechanicalBlock = "citation" | "acceptance" | "empty_redline";
+export type MechanicalBlock =
+  | "citation"
+  | "acceptance"
+  | "empty_redline"
+  /** 引用的来源在引用之后被改过（`evidence-support` 判定 stale）。 */
+  | "citation_stale"
+  /** 引用了来源，但记录的原文在文件里找不到。 */
+  | "citation_quote_mismatch";
 
 export type MechanicalSignals = {
   /** null = citation gate not in force for this call. */
@@ -30,7 +37,12 @@ export function citationViewBlocksExport(view: DraftCitationIntegrityView): bool
   if (!view.checked) {
     return false;
   }
-  return !view.ok || view.unanchoredSections.length > 0;
+  return (
+    !view.ok ||
+    view.unanchoredSections.length > 0 ||
+    (view.staleSources?.length ?? 0) > 0 ||
+    (view.quoteMismatches?.length ?? 0) > 0
+  );
 }
 
 export function evaluateMechanicalVerdict(signals: MechanicalSignals): MechanicalVerdict {
@@ -38,8 +50,15 @@ export function evaluateMechanicalVerdict(signals: MechanicalSignals): Mechanica
   let applied = false;
   if (signals.citation?.checked) {
     applied = true;
-    if (citationViewBlocksExport(signals.citation)) {
+    const view = signals.citation;
+    if (!view.ok || view.unanchoredSections.length > 0) {
       blocks.push("citation");
+    }
+    if ((view.staleSources?.length ?? 0) > 0) {
+      blocks.push("citation_stale");
+    }
+    if ((view.quoteMismatches?.length ?? 0) > 0) {
+      blocks.push("citation_quote_mismatch");
     }
   }
   if (signals.acceptanceReady != null) {

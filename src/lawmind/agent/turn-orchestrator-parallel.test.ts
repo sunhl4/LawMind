@@ -47,21 +47,29 @@ describe("concurrent conversations", () => {
     const runs: Array<Promise<unknown>> = [];
     try {
       const [first, second, third] = await Promise.all([open("甲"), open("乙"), open("丙")]);
+      /**
+       * 哪一路排在后面由调度决定，不是固定「第三路」。
+       * 只挂在丙上会漏掉真正的排队者：事件永远收不到，测试空转到 15 秒模型超时，
+       * 超时释放槽位后三路都进了采样，于是断言变成不稳定失败。
+       */
+      const collectWait = (event: RunTurnEvent) => {
+        if (event.type === "turn_wait") {
+          waits.push(event);
+        }
+      };
       runs.push(
-        first.runTurn("甲"),
-        second.runTurn("乙"),
-        third.runTurn("丙", {
-          onEvent: (event) => {
-            if (event.type === "turn_wait") {
-              waits.push(event);
-            }
-          },
-        }),
+        first.runTurn("甲", { onEvent: collectWait }),
+        second.runTurn("乙", { onEvent: collectWait }),
+        third.runTurn("丙", { onEvent: collectWait }),
       );
       const started = Date.now();
+      const perChat = () =>
+        `甲=${first.requests.length} 乙=${second.requests.length} 丙=${third.requests.length}`;
       while (entered < 2 || waits.length < 1) {
         if (Date.now() - started > 20_000) {
-          throw new Error(`timed out entered=${entered} waits=${waits.length}`);
+          throw new Error(
+            `timed out entered=${entered} waits=${waits.length} requests(${perChat()})`,
+          );
         }
         await new Promise((resolve) => setTimeout(resolve, 20));
       }

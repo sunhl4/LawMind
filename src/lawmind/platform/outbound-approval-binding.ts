@@ -1,0 +1,130 @@
+/**
+ * 外发批准绑定：批准的是「这一版」邮件，不是「这个工具」。
+ *
+ * 批准前律师核对的是收件人、主题、正文与附件内容。若批准后附件被重新导出、
+ * 正文在文书台又改过，而发送仍按旧批准放行，等于批准的内容与实际外发的内容
+ * 不是同一份。这里在排队时把四样东西绑定成指纹，发送前逐项复核。
+ *
+ * 只做本地可判定的事：
+ *   - 收件人（归一化后比较）
+ *   - 主题与正文的稳定哈希
+ *   - 每个附件的完整内容版本（大小 + mtime + 全字节 sha256）
+ * 不判断内容是否合法，也不替代律师复核。
+ */
+
+import { createHash } from "node:crypto";
+import path from "node:path";
+import { fileVersionOf } from "../runtime/file-version.js";
+import { normalizeOutboundRecipient } from "./lawyer-outbound-decision.js";
+
+export type OutboundAttachmentBinding = {
+  /** 工作区相对路径。 */
+  path: string;
+  /** `fileVersionOf` 的结果；`null` 表示排队时文件已不存在，发送前必须重新确认。 */
+  version: string | null;
+};
+
+export type OutboundBinding = {
+  to: string;
+  subjectHash: string;
+  bodyHash: string;
+  attachments: OutboundAttachmentBinding[];
+  boundAt: string;
+};
+
+export type BindableMail = {
+  to: string;
+  subject: string;
+  body: string;
+  attachmentRelativePaths?: string[];
+};
+
+function normalizeRel(raw: string): string {
+  return raw.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function hashText(text: string): string {
+  return createHash("sha256").update(text).digest("hex").slice(0, 16);
+}
+
+function absOf(workspaceDir: string, rel: string): string {
+  return path.resolve(workspaceDir, normalizeRel(rel));
+}
+
+/** 排队/待批准时调用：把当前这一版邮件钉成指纹。 */
+export function buildOutboundBinding(workspaceDir: string, mail: BindableMail): OutboundBinding {
+  const attachments = (mail.attachmentRelativePaths ?? [])
+    .map(normalizeRel)
+    .filter(Boolean)
+    .toSorted()
+    .map((rel) => ({
+      path: rel,
+      version: fileVersionOf(absOf(workspaceDir, rel)) ?? null,
+    }));
+  return {
+    to: normalizeOutboundRecipient(mail.to),
+    subjectHash: hashText(mail.subject.trim()),
+    bodyHash: hashText(mail.body),
+    attachments,
+    boundAt: new Date().toISOString(),
+  };
+}
+
+function versionNow(workspaceDir: string, rel: string): string | null {
+  return fileVersionOf(absOf(workspaceDir, rel)) ?? null;
+}
+
+/**
+ * 发送前复核。返回律师可读的问题清单；空数组表示仍是批准的那一版。
+ * 调用方应在问题非空时**拒绝发送**，而不是带警告照发。
+ */
+export function outboundBindingProblems(
+  workspaceDir: string,
+  binding: OutboundBinding,
+  mail: BindableMail,
+): string[] {
+  const problems: string[] = [];
+  const toNow = normalizeOutboundRecipient(mail.to);
+  if (toNow !== binding.to) {
+    problems.push(`收件人已从「${binding.to}」改为「${toNow}」，批准的是原收件人。`);
+  }
+  if (hashText(mail.subject.trim()) !== binding.subjectHash) {
+    problems.push("主题在批准后被改过。");
+  }
+  if (hashText(mail.body) !== binding.bodyHash) {
+    problems.push("正文在批准后被改过。");
+  }
+
+  const bound = new Map(binding.attachments.map((row) => [row.path, row.version] as const));
+  const nowPaths = (mail.attachmentRelativePaths ?? [])
+    .map(normalizeRel)
+    .filter(Boolean)
+    .toSorted();
+  for (const rel of nowPaths) {
+    if (!bound.has(rel)) {
+      problems.push(`新增了批准时没有的附件：${rel}。`);
+      continue;
+    }
+    if (bound.get(rel) !== versionNow(workspaceDir, rel)) {
+      problems.push(`附件「${rel}」在批准后内容变了（可能重新导出过）。`);
+    }
+  }
+  for (const rel of bound.keys()) {
+    if (!nowPaths.includes(rel)) {
+      problems.push(`批准时的附件「${rel}」已不在本次发送清单里。`);
+    }
+  }
+  return problems;
+}
+
+/** 律师面摘要：批准绑定了什么，以及什么变化需要重新批准。 */
+export function outboundBindingSummary(binding: OutboundBinding): string {
+  const files = binding.attachments
+    .map((row) => `${row.path}${row.version === null ? "（排队时不存在）" : ""}`)
+    .join("、");
+  return [
+    `收件人：${binding.to}`,
+    files ? `附件：${files}` : "附件：（无）",
+    "批准后若收件人、主题、正文或附件内容有任何变化，需要重新批准。",
+  ].join("\n");
+}

@@ -147,6 +147,14 @@ function describeCallArgs(name: string, args: Record<string, unknown>): string |
       }
       return a || b || undefined;
     }
+    case "check_document_format": {
+      const file = basenamePath(firstString(args, ["file_path"]));
+      return file ? clip(file, 80) : undefined;
+    }
+    case "fix_document_format": {
+      const file = basenamePath(firstString(args, ["file_path"]));
+      return file ? clip(file, 80) : undefined;
+    }
     case "execute_workflow": {
       const instruction = firstString(args, ["instruction", "existing_task_id"]);
       return instruction ? clip(instruction) : undefined;

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   e2eMockApiBase,
   e2eScopeHeaders,
+  ensureReviewMetaPaneVisible,
   gotoShell,
   installE2eBrowserPrefs,
   openReviewDraft,
@@ -36,7 +37,7 @@ test.describe("G3 待定夺项 · 审核台旁路展示", () => {
   let scopeId = "";
 
   test.beforeEach(async ({ page }) => {
-    ({ scopeId } = await installE2eBrowserPrefs(page));
+    ({ scopeId } = await installE2eBrowserPrefs(page, { filesystemBridge: true }));
   });
 
   test.afterEach(async ({ page }) => {
@@ -82,8 +83,15 @@ test.describe("G3 待定夺项 · 审核台旁路展示", () => {
     await gotoShell(page);
     await openReviewDraft(page, "e2e-draft-1");
 
-    await expect(page.locator(".lm-agent-fleet-page")).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByRole("button", { name: "签批" }).first()).toBeVisible({ timeout: 30_000 });
+    // 审核台真的开了（不是「工作台出现了」就算数）。
+    await expect(page.locator(".lm-review-workbench-root").first()).toBeVisible({
+      timeout: 30_000,
+    });
+    // 签批条默认折叠在「高级 · 签批」里；要断言按钮存在就得先展开。
+    await ensureReviewMetaPaneVisible(page);
+    await expect(page.getByRole("button", { name: "签批", exact: true }).first()).toBeVisible({
+      timeout: 30_000,
+    });
     await expect(page.getByTestId("lm-judgment-escalation")).toHaveCount(0);
   });
 

@@ -20,9 +20,16 @@ import {
   invalidAuthorityEndpointResult,
   mapHitsToRetrievalResult,
 } from "../../authority-hits.js";
+import {
+  authorityCallSucceeded,
+  authorityFailureMessage,
+  authorityHttpStatus,
+  type AuthorityCallStatus,
+} from "../../authority-outcome.js";
 import type { AuthorityDnsLookupFn } from "../../authority-url-guard.js";
 import type { RetrievalResult } from "../../index.js";
 import { inferPkulawSearchKind, mapPkulawResponseBody, type PkulawSearchKind } from "./map.js";
+import { pkulawResponseStatus } from "./outcome.js";
 
 export type { PkulawSearchKind };
 
@@ -102,18 +109,14 @@ async function readJsonRpcBody(res: Response): Promise<unknown> {
   return JSON.parse(trimmed) as unknown;
 }
 
-function jsonRpcErrorMessage(body: unknown): string | undefined {
-  if (!body || typeof body !== "object") {
-    return undefined;
-  }
-  const o = body as { error?: { message?: string }; result?: { isError?: boolean } };
-  if (typeof o.error?.message === "string" && o.error.message.trim()) {
-    return o.error.message.trim();
-  }
-  if (o.result?.isError === true) {
-    return "法宝 MCP 工具返回 isError";
-  }
-  return undefined;
+function failedResult(status: AuthorityCallStatus, httpStatus?: number): RetrievalResult {
+  return {
+    sources: [],
+    claims: [],
+    riskFlags: [authorityFailureMessage(status)],
+    missingItems: ["本次权威引用未核实；可继续整理材料、分析和起草，不得把缺失来源写成已核实。"],
+    authorityOutcome: { status, httpStatus, hitCount: 0 },
+  };
 }
 
 export async function pkulawRetrieve(
@@ -149,12 +152,18 @@ async function retrievePkulaw(opts: {
     lookup: opts.lookup,
   });
   if (!safe.ok) {
-    return { result: invalidAuthorityEndpointResult(safe.message) };
+    return {
+      result: {
+        ...invalidAuthorityEndpointResult(safe.message),
+        authorityOutcome: { status: "unavailable", hitCount: 0 },
+      },
+    };
   }
   const endpointNormalized = safe.normalized;
   const headers = mcpHeaders(opts.apiKey);
   const timeoutMs = opts.timeoutMs ?? 12_000;
 
+  let httpStatus: number | undefined;
   try {
     let res: Response;
     if (mode === "rest_compat") {
@@ -189,37 +198,42 @@ async function retrievePkulaw(opts: {
       });
     }
 
+    httpStatus = res.status;
     if (!res.ok) {
-      return { result: authorityHttpErrorResult(res.status), httpStatus: res.status };
-    }
-    const body = await readJsonRpcBody(res);
-    const rpcError = jsonRpcErrorMessage(body);
-    if (rpcError) {
       return {
         result: {
-          sources: [],
-          claims: [],
-          riskFlags: [`权威检索异常：${rpcError}`],
-          missingItems: ["权威检索不可用，请勿编造法条；请律师补充来源。"],
+          ...authorityHttpErrorResult(res.status),
+          authorityOutcome: { status: authorityHttpStatus(res.status), httpStatus, hitCount: 0 },
         },
-        httpStatus: res.status,
+        httpStatus,
       };
     }
+    const body = await readJsonRpcBody(res);
     // MCP envelope: { result: { content, structuredContent } }
     const envelope =
       body && typeof body === "object" && "result" in body
         ? (body as { result: unknown }).result
         : body;
     const hits = mapPkulawResponseBody(envelope);
-    return { result: mapHitsToRetrievalResult(hits), httpStatus: res.status };
-  } catch (e) {
+    const status = pkulawResponseStatus(body, hits.length);
+    if (!authorityCallSucceeded(status)) {
+      return { result: failedResult(status, httpStatus), httpStatus };
+    }
+    const result = mapHitsToRetrievalResult(hits);
     return {
       result: {
-        sources: [],
-        claims: [],
-        riskFlags: [`权威检索异常：${e instanceof Error ? e.message : String(e)}`],
-        missingItems: ["权威检索不可用，请勿编造法条；请律师补充来源。"],
+        ...result,
+        authorityOutcome: { status, httpStatus, hitCount: result.sources.length },
       },
+      httpStatus,
+    };
+  } catch (e) {
+    return {
+      result: failedResult(
+        e instanceof SyntaxError ? "invalid_response" : "unavailable",
+        httpStatus,
+      ),
+      httpStatus,
     };
   }
 }

@@ -29,7 +29,13 @@ export async function planAsyncImpl(
   opts: Omit<RouteInput, "instruction"> = {},
 ): Promise<TaskIntent> {
   const lawMindRoot = opts.lawMindRoot ?? resolveLawMindRoot(ctx.workspaceDir);
-  const intent = await routeAsync({ instruction, ...opts, lawMindRoot });
+  const intent = await routeAsync({
+    instruction,
+    ...opts,
+    lawMindRoot,
+    // 路由模型的 token 也记进本案账本；缺 workspace 时不记，绝不写假 0。
+    usage: { workspaceDir: ctx.workspaceDir },
+  });
   commitPlannedIntent(ctx, intent);
   return intent;
 }

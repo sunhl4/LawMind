@@ -181,6 +181,16 @@ export type RouteInput = {
   deliverableType?: TaskIntent["deliverableType"];
   /** Desktop `models.json` root; enables model route when env router creds are absent. */
   lawMindRoot?: string;
+  /**
+   * 记进同一本用量账的上下文（工作区 + 会话/回合）。
+   * 只影响记账，不影响路由结果。
+   */
+  usage?: {
+    workspaceDir: string;
+    sessionId?: string;
+    turnId?: string;
+    matterId?: string;
+  };
 };
 
 export function route(input: RouteInput): TaskIntent {

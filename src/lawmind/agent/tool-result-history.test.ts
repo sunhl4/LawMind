@@ -8,6 +8,24 @@ import {
 } from "./tool-result-history.js";
 
 describe("tool-result-history", () => {
+  it("keeps provider failure metadata when a large tool result is spilled", () => {
+    const result = summarizeToolResultForHistory(
+      {
+        ok: true,
+        data: {
+          content: "资料".repeat(5_000),
+          authorityLive: false,
+          authority: "none",
+          authorityOutcome: { status: "quota_exhausted", hitCount: 0, httpStatus: 200 },
+        },
+      },
+      { maxChars: 500 },
+    );
+    expect(result).toMatchObject({
+      truncated: true,
+      data: { authorityLive: false, authorityOutcome: { status: "quota_exhausted" } },
+    });
+  });
   it("passes through small results unchanged", () => {
     const small = { ok: true, taskId: "t1", text: "short" };
     expect(summarizeToolResultForHistory(small)).toEqual(small);

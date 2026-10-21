@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveClassifySidecarLimits } from "../models/capability-envelope.js";
 import {
@@ -142,6 +145,42 @@ describe("compact-llm-digest", () => {
       } else {
         process.env.LAWMIND_COMPACT_LLM = prev;
       }
+    }
+  });
+
+  it("records the sidecar call in the usage ledger when a workspace is given", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-compact-usage-"));
+    try {
+      const out = await enhanceCompactDigestWithLlm({
+        model,
+        extractiveDigest: "【压缩前对话蒸馏】共丢弃约 1 条消息",
+        dropped: [{ role: "user", content: "hi", timestamp: "t" }],
+        usage: { workspaceDir, sessionId: "s1", turnId: "turn-1" },
+      });
+      expect(out.usedLlm).toBe(true);
+      const opts = vi.mocked(callModelWithRetry).mock.calls[0]?.[3] as
+        | {
+            onModelUsage?: (event: { attempt: number; latencyMs: number; failed: boolean }) => void;
+          }
+        | undefined;
+      expect(typeof opts?.onModelUsage).toBe("function");
+      // 走真实记录器：独立摘要漏账就等于成本永远少算。
+      opts!.onModelUsage!({ attempt: 1, latencyMs: 9, failed: false });
+      const ledger = fs
+        .readFileSync(path.join(workspaceDir, "model-usage", "ledger.jsonl"), "utf8")
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map(
+          (line) => JSON.parse(line) as { purpose?: string; sessionId?: string; turnId?: string },
+        );
+      expect(ledger).toHaveLength(1);
+      expect(ledger[0]).toMatchObject({
+        purpose: "compact_digest",
+        sessionId: "s1",
+        turnId: "turn-1",
+      });
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
     }
   });
 

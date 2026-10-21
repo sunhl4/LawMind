@@ -69,8 +69,12 @@ import {
   AUTHORITY_API_KEY_ENV,
   PKULAW_DEFAULT_CASE_ENDPOINT,
   PKULAW_DEFAULT_LAW_ENDPOINT,
+  authorityProviderTokensList,
+  ENDPOINT_KEY_TOKENS,
+  PKULAW_FAMILY_TOKENS,
   placeAuthorityApiKey,
   planAuthoritySave,
+  YUANDIAN_TOKENS,
 } from "./authority-setup.mjs";
 
 const electronDir = path.dirname(fileURLToPath(import.meta.url));
@@ -673,8 +677,12 @@ export function registerIpcHandlers(deps) {
       ? parseEnvAssignments(fs.readFileSync(paths.envFilePath, "utf8"))
       : {};
     const providerRaw = String(vars.LAWMIND_AUTHORITY_PROVIDER || "").trim().toLowerCase();
-    const provider =
-      providerRaw === "pkulaw" || providerRaw === "pku" || providerRaw === "法宝" ? "pkulaw" : "open";
+    const providerTokens = authorityProviderTokensList(providerRaw);
+    const provider = providerTokens.some((t) => PKULAW_FAMILY_TOKENS.has(t) || ENDPOINT_KEY_TOKENS.has(t))
+      ? "pkulaw"
+      : providerTokens.some((t) => YUANDIAN_TOKENS.has(t))
+        ? "yuandian"
+        : "open";
     let chainKey = "";
     if (keyVault.isAvailable()) {
       try {
@@ -717,6 +725,7 @@ export function registerIpcHandlers(deps) {
         caseEndpoint: payload?.caseEndpoint,
         apiKey: payload?.apiKey,
         hasExistingKey: Boolean(envKey || chainKey),
+        existingProvider: String(existingVars.LAWMIND_AUTHORITY_PROVIDER || ""),
       }),
       { keychainAvailable: keyVault.isAvailable() },
     );

@@ -185,7 +185,7 @@ declare global {
       }>;
       readAuthoritySettings: () => Promise<{
         ok: boolean;
-        provider?: "pkulaw" | "open";
+        provider?: "pkulaw" | "yuandian" | "open";
         lawEndpoint?: string;
         caseEndpoint?: string;
         hasApiKey?: boolean;

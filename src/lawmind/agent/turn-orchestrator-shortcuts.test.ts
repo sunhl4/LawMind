@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { TurnFinalizeShared } from "./turn-orchestrator-finalize.js";
+import { finishShortCircuitTurn, type TurnFinalizeShared } from "./turn-orchestrator-finalize.js";
 import {
   formatPublicWebFactReply,
   tryAutoDeliverableWorkflowShortcut,
@@ -189,5 +189,34 @@ describe("turn-orchestrator-shortcuts", () => {
     expect(
       formatPublicWebFactReply("2026年新说唱总冠军", { ok: true, data: { results: [] } }),
     ).toContain("不会猜冠军");
+  });
+});
+
+describe("finishShortCircuitTurn stop reason", () => {
+  function run(priorStatus: AgentTurn["status"]) {
+    const session = baseSession();
+    const turn = baseTurn();
+    turn.status = priorStatus;
+    const events: string[] = [];
+    const shared: TurnFinalizeShared = {
+      ...sharedStub(session, turn),
+      emitEvent: (event) => events.push(event.type),
+    };
+    const result = finishShortCircuitTurn(shared, "短路回复");
+    return { result, events };
+  }
+
+  it("records a plain shortcut as delivered with zero loop rounds", () => {
+    const { result, events } = run("running");
+    expect(result.turn.stopReason).toBe("delivered");
+    expect(result.turn.roundCount).toBe(0);
+    expect(events).toContain("final");
+  });
+
+  it("does not record an approval pause or a clarification ask as a clean delivery", () => {
+    // 旧行为：短路收口一律覆盖 status=completed。这里只保证停因不撒谎——
+    // 等状态覆盖本身修掉时，这条断言仍应成立。
+    expect(run("awaiting_approval").result.turn.stopReason).toBe("awaiting_approval");
+    expect(run("awaiting_clarification").result.turn.stopReason).toBe("awaiting_clarification");
   });
 });

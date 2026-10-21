@@ -45,6 +45,18 @@ describe("live-turn-progress", () => {
     expect(p?.steps.some((s) => s.kind === "tool" && s.status === "done")).toBe(true);
   });
 
+  it.each(["awaiting_approval", "awaiting_clarification", "paused"] as const)(
+    "keeps %s unfinished steps paused",
+    (status) => {
+      beginLiveTurnProgress("wait");
+      applyLiveTurnEvent("wait", { type: "round_start", roundIndex: 1 });
+      applyLiveTurnEvent("wait", { type: "final", status, reply: "等待确认" });
+      finishLiveTurnProgress("wait", "paused");
+      expect(getLiveTurnProgress("wait")?.status).toBe("paused");
+      expect(liveProgressToPersistedTrace("wait")?.steps[0]?.status).toBe("paused");
+    },
+  );
+
   it("maps final error status to failed", () => {
     beginLiveTurnProgress("s-err");
     applyLiveTurnEvent("s-err", { type: "final", status: "error", reply: "boom" });

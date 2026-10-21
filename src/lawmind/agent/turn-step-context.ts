@@ -3,7 +3,6 @@
  * StepContext is rebuilt each sampling round (pins, disclosed tools).
  */
 
-import { dropSaturatedDiscoveryTools } from "../runtime/tool-pipeline.js";
 import type { AgentPermissionMode } from "./permission-mode.js";
 import { collectDisclosedToolNames, resolveModelToolNames } from "./tools/governance.js";
 import type { ToolRegistry } from "./tools/registry.js";
@@ -82,10 +81,7 @@ export function rebuildStepContext(opts: {
     lockToAllowNames: opts.turnContext.lockToAllowNames === true,
     denyNames: opts.turnContext.denyNames,
   }).filter((name) => !hidden.has(name));
-  const toolNames = dropSaturatedDiscoveryTools(advertised, opts.discoveryCallCounts, {
-    hostFileLedger: opts.turnContext.hostFileLedger === true || opts.hostFileLedger === true,
-    contextTokens: opts.turnContext.contextTokens,
-  });
+  const toolNames = advertised;
   return {
     toolNames,
     pinIds: opts.pinIds ? [...opts.pinIds] : [],

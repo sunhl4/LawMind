@@ -171,6 +171,11 @@ export type ResearchSource = {
   provider?: string;
   /** Corpus / dump id for open sources. */
   corpusId?: string;
+  /**
+   * 抽取/引用时的文件版本指纹（`size:mtimeMs:digest`，见 `drafts/evidence-support.ts`）。
+   * 缺省表示历史数据、版本未知——此时只能核对原句，不能判断「材料是否被改过」。
+   */
+  sourceVersion?: string;
   /** Short license / attribution note for open dumps / live gov APIs. */
   licenseNote?: string;
 };

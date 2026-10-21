@@ -79,6 +79,7 @@ import {
   fetchSessionBubbles,
   mutateSessionMessages,
 } from "./lawmind-chat-message-mutate";
+import { reconcileChatTurn } from "./lawmind-chat-reconcile";
 import { retitlePlaceholderChatSession } from "./lawmind-chat-session-list";
 import type { ChatSessionListEntry } from "./lawmind-chat-active-storage";
 import {
@@ -131,6 +132,8 @@ export type UseLawmindChatSendInput = {
     effectiveLimit: number;
     level: string;
   }) => void;
+  /** 连接中断、结果待对账时的回调（不是失败）。 */
+  onStreamNeedsReconcile?: (info: { sessionId?: string }) => void;
   onStreamCompactBoundary?: (info: {
     sessionSummaryPath?: string;
     droppedMessageCount?: number;
@@ -203,6 +206,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
     refreshAssistants,
     refreshCollaboration,
     applyStreamTokenBudget,
+    onStreamNeedsReconcile,
     onStreamCompactBoundary,
     onStreamContextDeferralBounce,
     onStreamToolBudget,
@@ -660,6 +664,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       }
       let assistantPlaceholderIndex = -1;
       let completedSessionId: string | undefined = turn.boundSessionId;
+      let reconciliationUnknown = false;
       let drainKey = turnQueueKey;
       if (!turn.uiDetached) {
         setMessagesByAssistant((previous) => {
@@ -752,6 +757,23 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
                 liveTrace: applyRoundStart(msg.liveTrace ?? createEmptyLiveTrace(), roundIndex),
               }));
             },
+            onSession: (sessionId) => {
+              turn.boundSessionId = sessionId;
+              completedSessionId = sessionId;
+              const nextKey = sessionQueueKey(sessionId, assistantId);
+              if (drainKey !== nextKey) {
+                queuesRef.current.set(nextKey, [...(queuesRef.current.get(nextKey) ?? []), ...(queuesRef.current.get(drainKey) ?? [])]);
+                queuesRef.current.delete(drainKey);
+                drainKey = nextKey;
+              }
+              if (!turn.uiDetached) {
+                focusedSessionRef.current = sessionId;
+                sessionByAssistantRef.current = { ...sessionByAssistantRef.current, [assistantId]: sessionId };
+                setSessionByAssistant((previous) => ({ ...previous, [assistantId]: sessionId }));
+                persistActiveChatSessionId(chatSessionStoreKey(config.workspaceDir), assistantId, sessionId);
+              }
+              publishRunning();
+            },
             onDelta: (chunk) => {
               if (turn.phase === "queued") {
                 turn.phase = "running";
@@ -774,6 +796,14 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
                 activityActive: true,
                 activity: startActivityTool(msg.activity ?? createEmptyActivity(), info),
                 liveTrace: applyToolStart(msg.liveTrace ?? createEmptyLiveTrace(), info),
+              }));
+            },
+            onApprovalRequest: ({ toolCallId }) => {
+              updatePlaceholder((msg) => ({ ...msg,
+                activity: msg.activity?.map((block) => block.kind === "tool" && block.toolCallId === toolCallId
+                  ? { ...block, status: "paused", detail: "等待律师确认" } : block),
+                liveTrace: msg.liveTrace ? { ...msg.liveTrace, steps: msg.liveTrace.steps.map((step) => step.id === toolCallId
+                  ? { ...step, status: "paused", detail: "等待律师确认" } : step) } : undefined,
               }));
             },
             onToolProgress: (info) => {
@@ -856,6 +886,32 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
         if (ac.signal.aborted) {
           return;
         }
+        // 连接断了但回合仍在跑：不当作失败，也不清掉用户输入，先对账。
+        if (result.needsReconcile) {
+          if (result.sessionId) {
+            completedSessionId = result.sessionId;
+          }
+          const targetSession = result.sessionId ?? turn.boundSessionId;
+          updatePlaceholder((msg) => ({ ...msg, status: "running", text: msg.text || result.assistantMessage.text }));
+          const outcome = targetSession ? await reconcileChatTurn({
+            apiBase: config.apiBase, sessionId: targetSession, turnId: result.turnId, assistantId, signal: ac.signal,
+            onMessages: (serverMessages) => {
+              if (!turn.uiDetached && focusedSessionRef.current === targetSession &&
+                  selectedAssistantIdRef.current === assistantId) {
+                setMessagesByAssistant((previous) => ({ ...previous, [assistantId]: serverMessages }));
+              }
+            },
+          }) : "unknown";
+          reconciliationUnknown = outcome !== "settled";
+          if (!turn.uiDetached && turnStillOwnsComposer(turn, currentFocus())) {
+            setError(outcome === "unknown"
+              ? "连接尚未恢复，办理结果待核对；请稍后查看这场对话，暂勿重复提交。"
+              : outcome === "interrupted" ? "上一轮办理被中断，已保存的步骤仍保留，请在这场对话中决定是否继续。" : null);
+          }
+          onStreamNeedsReconcile?.({ sessionId: targetSession });
+          return;
+        }
+        reconciliationUnknown = ["awaiting_approval", "awaiting_clarification", "paused"].includes(result.assistantMessage.status ?? "");
         if (result.sessionId) {
           completedSessionId = result.sessionId;
           const nextKey = sessionQueueKey(result.sessionId, assistantId);
@@ -915,7 +971,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
           const placeholderText = prev?.role === "assistant" ? (prev.text ?? "").trim() : "";
           const useFinal =
             finalText.length > 0 && finalText !== "(empty)";
-          const activityDone = finalizeActivity(prev?.activity ?? createEmptyActivity());
+          const activityDone = finalizeActivity(prev?.activity ?? createEmptyActivity(), result.assistantMessage.status);
           const activityText = textFromActivity(activityDone);
           nextList[index] = {
             ...result.assistantMessage,
@@ -925,7 +981,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
                 : activityText || placeholderText || finalText || "本轮未返回可见回复，请查看中间栏或重试。",
             activity: activityDone,
             activityActive: false,
-            liveTrace: finalizeLiveTrace(prev?.liveTrace ?? createEmptyLiveTrace()),
+            liveTrace: finalizeLiveTrace(prev?.liveTrace ?? createEmptyLiveTrace(), result.assistantMessage.status),
             turnPlan: result.assistantMessage.turnPlan ?? prev?.turnPlan,
           };
           return { ...previous, [assistantId]: nextList };
@@ -1033,7 +1089,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
           const owns =
             Boolean(target) &&
             !turn.uiDetached &&
-            turnStillOwnsComposer({ assistantId, boundSessionId: target }, currentFocus());
+            turnStillOwnsComposer({ boundSessionId: target }, currentFocus());
           if (owns && target) {
             sessionByAssistantRef.current = {
               ...sessionByAssistantRef.current,
@@ -1063,7 +1119,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
               /* discard persisted follow-ups after stop */
             });
           }
-        } else {
+        } else if (!reconciliationUnknown) {
           const queued = queuesRef.current.get(drainKey) ?? [];
           const localNext = queued[0];
           writeQueue(queued.slice(1));
@@ -1129,6 +1185,7 @@ export function useLawmindChatSend(opts: UseLawmindChatSendInput) {
       selectedAssistantId,
       sessionByAssistant,
       applyStreamTokenBudget,
+      onStreamNeedsReconcile,
       onStreamCompactBoundary,
       onStreamContextDeferralBounce,
       onStreamToolBudget,

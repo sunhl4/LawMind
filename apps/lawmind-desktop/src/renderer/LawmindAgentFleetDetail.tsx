@@ -612,7 +612,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                   onArgsEditOpenChange(true);
                 }}
                 title={
-                  approvalIsDocWrite ? "仅改标题等短字段；全文请改稿" : "调整短字段后批准"
+                  approvalIsDocWrite ? "仅改标题等短字段；全文请改稿" : "调整短字段后签批"
                 }
               >
                 {approvalIsDocWrite ? "改参数…" : "改拟稿…"}

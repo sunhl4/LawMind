@@ -7,6 +7,7 @@ import { emit } from "../audit/index.js";
 import type { MemoryContext } from "../memory/index.js";
 import { maybeAutoAppendSessionSummary } from "../memory/session-summary.js";
 import { recordModelUsage, type ModelUsageSnapshot } from "../models/model-usage.js";
+import { describeApprovalTargetState } from "../platform/approval-target-state.js";
 import { emitPlatformGateSnapshot } from "../platform/audit-gate.js";
 import { syncDispatchLedgerForTurn } from "../platform/automation-dispatch-ledger.js";
 import { executionStateFromTurn } from "../platform/execution-state.js";
@@ -106,7 +107,7 @@ export type TurnFinalizeShared = {
   liveProgressKey: string | undefined;
   linkedTaskIdForCtx: string | undefined;
   memory: MemoryContext;
-  ensureLiveProgressFinished: (status: "completed" | "failed") => void;
+  ensureLiveProgressFinished: (status: "completed" | "failed" | "paused") => void;
 };
 
 export function finishShortCircuitTurn(
@@ -137,12 +138,28 @@ export function finishShortCircuitTurn(
   };
   session.conversationHistory.push(agentMsg);
   turn.messages.push(agentMsg);
+  // Some short-circuit callers already set awaiting_approval / awaiting_clarification.
+  // Keep that cause honest even though the pre-existing status overwrite stays as is.
+  const priorStatus = turn.status;
   turn.status = "completed";
+  turn.stopReason =
+    priorStatus === "awaiting_approval"
+      ? "awaiting_approval"
+      : priorStatus === "awaiting_clarification"
+        ? "awaiting_clarification"
+        : "delivered";
+  turn.roundCount = 0;
   turn.result = shortReply;
   turn.completedAt = new Date().toISOString();
   emitEvent({ type: "round_start", roundIndex: 1 });
   emitEvent({ type: "delta", roundIndex: 1, text: shortReply });
-  emitEvent({ type: "final", status: "completed", reply: shortReply });
+  emitEvent({
+    type: "final",
+    status: "completed",
+    reply: shortReply,
+    stopReason: turn.stopReason,
+    roundCount: 0,
+  });
   maybeUpdateSessionTitleFromInstruction(session, turn.instruction, sessionTitleHint);
   upsertSessionTurn(session, {
     turnId: turn.turnId,
@@ -151,6 +168,9 @@ export function finishShortCircuitTurn(
     messages: turn.messages,
     toolCallsExecuted: 0,
     status: turn.status,
+    ...(turn.roundCount !== undefined ? { roundCount: turn.roundCount } : {}),
+    ...(turn.stopReason ? { stopReason: turn.stopReason } : {}),
+    ...(turn.profileId ? { profileId: turn.profileId } : {}),
     gateDecisions: turn.gateDecisions,
     executionState: {
       ...executionStateFromTurn(turn),
@@ -208,7 +228,7 @@ export function finalizeAgentTurn(opts: {
     memory,
     ensureLiveProgressFinished,
   } = shared;
-  const projectDirResolved = projectDir?.trim() || session.projectDir?.trim() || undefined;
+  const projectDirResolved = projectDir?.trim() || undefined;
 
   const anchors = collectRetrievedAnchors(turn.messages);
   // 核对黑话与 notes/json 清单都从落盘助手正文去掉：正文只保留律师要看的话 + 交付链接。
@@ -258,6 +278,11 @@ export function finalizeAgentTurn(opts: {
     sameTurnVerify: turn.sameTurnVerify,
   });
   if (gateStop.stopped && turn.status === "completed") {
+    // Verifier said "stop and hand over": not a clean delivery, even though the
+    // turn completes. Keep the more specific verify_cap when it already fired.
+    if (!turn.stopReason || turn.stopReason === "delivered") {
+      turn.stopReason = "gate_stop";
+    }
     const visible = lawyerVisibleGaps(gateStop.gaps ?? []);
     if (visible.length > 0 && !finalReply.includes("【待核实】")) {
       finalReply = [
@@ -278,7 +303,13 @@ export function finalizeAgentTurn(opts: {
     replaceLastLawyerAssistant(session.conversationHistory, finalReply);
     replaceLastLawyerAssistant(turn.messages, finalReply);
   }
-  emitEvent({ type: "final", status: turn.status, reply: turn.result ?? "" });
+  emitEvent({
+    type: "final",
+    status: turn.status,
+    reply: turn.result ?? "",
+    ...(turn.stopReason ? { stopReason: turn.stopReason } : {}),
+    ...(turn.roundCount !== undefined ? { roundCount: turn.roundCount } : {}),
+  });
   turn.executionState = {
     ...executionStateFromTurn(turn),
     linkedTaskId: linkedTaskIdForCtx,
@@ -286,12 +317,19 @@ export function finalizeAgentTurn(opts: {
 
   turn.requiresAction = buildRequiresActionsFromTurn({
     status: turn.status,
+    ...(turn.samplingAudit ? { samplingAudit: turn.samplingAudit } : {}),
     clarificationQuestions: turn.clarificationQuestions,
     turnId: turn.turnId,
     sessionId: turn.sessionId,
     toolCallsExecuted: turn.toolCallsExecuted,
     matterId: session.matterId,
     pendingToolApproval: turn.pendingToolApproval,
+    describeCurrentTarget: (toolName, toolArgs) =>
+      describeApprovalTargetState({
+        workspaceDir,
+        toolName,
+        toolArgs,
+      }),
     ...(gateStop.stopped ? { gateStop } : {}),
     ...(turn.instruction?.trim() ? { instruction: turn.instruction } : {}),
     ...(turn.status === "paused" && turn.sameTurnVerify?.red
@@ -369,6 +407,10 @@ export function finalizeAgentTurn(opts: {
     messages: [],
     toolCallsExecuted: turn.toolCallsExecuted,
     status: turn.status,
+    ...(turn.roundCount !== undefined ? { roundCount: turn.roundCount } : {}),
+    ...(turn.stopReason ? { stopReason: turn.stopReason } : {}),
+    ...(turn.profileId ? { profileId: turn.profileId } : {}),
+    ...(turn.samplingAudit ? { samplingAudit: turn.samplingAudit } : {}),
     clarificationQuestions: turn.clarificationQuestions,
     gateDecisions: turn.gateDecisions,
     executionState: turn.executionState,
@@ -380,7 +422,15 @@ export function finalizeAgentTurn(opts: {
     completedAt: turn.completedAt,
   });
 
-  ensureLiveProgressFinished(turn.status === "error" ? "failed" : "completed");
+  ensureLiveProgressFinished(
+    turn.status === "error"
+      ? "failed"
+      : turn.status === "awaiting_approval" ||
+          turn.status === "awaiting_clarification" ||
+          turn.status === "paused"
+        ? "paused"
+        : "completed",
+  );
   if (liveProgressKey) {
     attachPersistedLiveTraceToLastAssistant(session, liveProgressKey, turn.executionState);
   }
@@ -401,9 +451,12 @@ export function finalizeAgentTurn(opts: {
         turnId: turn.turnId,
         matterId: session.matterId,
         model: modelName,
+        purpose: "turn_rollup",
+        attempt: 0,
         promptTokens: turnUsage.promptTokens,
         completionTokens: turnUsage.completionTokens,
         totalTokens: turnUsage.totalTokens,
+        billingScope: "byok",
       });
     } catch {
       /* ledger is best-effort */
@@ -458,7 +511,7 @@ export function cleanupFailedTurn(opts: {
   session: AgentSession;
   turn: AgentTurn;
   liveProgressKey: string | undefined;
-  ensureLiveProgressFinished: (status: "completed" | "failed") => void;
+  ensureLiveProgressFinished: (status: "completed" | "failed" | "paused") => void;
 }): void {
   const { workspaceDir, session, turn, liveProgressKey, ensureLiveProgressFinished } = opts;
   ensureLiveProgressFinished("failed");

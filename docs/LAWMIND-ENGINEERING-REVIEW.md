@@ -90,3 +90,153 @@
 **易混点**：matter-replica（多律师案件副本同步）≠ `factor-state` / `LAWMIND-FORWARD-AGENT.md` §9 的量子启发因子态。后者是交件与证据跨度；前者是可选协作产品，默认关闭。
 
 **并行规矩提醒**：共享工作区禁止无 pathspec 的 `git stash push`（见 `AGENTS.md`、手册第 18.8 节）。这两条是历史遗留；新工作用 `git worktree add`，不要再往共享 stash 栈堆。
+
+## 已落地（2026-10-19 · Agent loop P0/P1/P2：策略表 · TurnProfile · 回合回放）
+
+针对「主循环是补丁集合、领域启发式长在通用循环里、缺真实质量证据」三项，做了一轮**行为不变**的结构收敛。
+
+### P0 · 策略表 + 结构化停因
+
+- 新增 `src/lawmind/agent/turn-loop-policies.ts`：`TOOL_ROUND_POLICIES`（写前合成 / 诉状要件 / 追问清单 / 备忘录结构 / 计算参数 / 命令拒绝 / 重复调用）与 `COMPLETION_POLICIES`（prose / 澄清 / 同轮验收 / 上下文退让 / Word 导出 / 审核台推诿 / 缺件 / steer），**顺序显式、首个命中生效**。
+- 新增 `src/lawmind/agent/turn-loop-state.ts`：`LoopFlags` 收拢原先十几个并列 `let`；`TurnStopReason` 成为持久化字段（`AgentTurn.stopReason`），并由 `stopReasonBucket()` 归入交付 / 待律师 / 预算 / 模型错误 / 中止。
+- `runModelToolLoop` 的两条 if 链改成「构造 facts → 跑策略 → 执行 action（`resample` / `stop`）」。`compactMidTurn(..., true)` 通过 `forceCompact` 保留原退让行为。
+- 新增 `AgentTurn.roundCount` / `profileId`；收口时 `upsertSessionTurn` 与 `appendTurn` 一并写入。
+- 单测：`turn-loop-policies.test.ts`（14 条，含策略顺序、重复/读毕/命令拒绝、澄清与验收封顶、退让交接、steer）。
+
+### P1 · TurnProfile 外置交付形态
+
+- 新增 `src/lawmind/agent/turn-profile.ts`：`resolveTurnProfile()` 一次性给出 `id`（word_revision / mail_contract / pleading / memo / consult / contract_review / general）、可用 coach 集合、`requiresTrackedDraft`。
+- 主循环不再直接调用 `instructionFramesPleading / MemoDeliverable / ConsultQuestions`；只问 `profile.coaches.has(...)`。这把三个 frame 谓词收敛成每回合一次解析；**尚未**做到「新增交付形态只改 profile」——仍要动 `deliverable-shape.ts` / profile / 策略表三处（见文末深度复评）。
+
+### P2 · 真实回合回放（质量证据）
+
+- 新增 `src/lawmind/evaluation/turn-loop-replay.ts`：读 `sessions/*.turns.jsonl`，输出完成率、停因分布、均值/p50/p95 轮数与工具数、反弹收敛率、按 profile 分组。
+- 新增 `scripts/lawmind/lawmind-turn-replay.ts` + `pnpm lawmind:turn-replay`；无真实回合时打印 SKIP，`--strict --min-turns` 才非零退出。
+- `src/lawmind/evaluation/README.md` 增补第 5 层，明确「cassette 管准入，回放管质量」。
+
+### 验证
+
+- `turn-orchestrator-cassettes.test.ts` 135 条全绿（假模型、真 `runTurn`、真工具表）；连同 model-loop / policy / replay / same-turn-verify / tool-pipeline 共 **289 条通过**。
+- `tsc --noEmit`：本次新增/改动文件零错误（仓库 HEAD 既有的 `projectDir`、`tabStops`、`build-agent-fleet` 等 10 处仍为历史红，见前文 §1.1）。
+- `oxlint`：新增模块零告警。
+
+### 剩余风险
+
+- 模型调用层的重试/溢出/空 choice 分支仍在循环内联（每个只跑一次、状态简单，收益低于风险，留给下一轮）。
+- P2 的 50 条真实回合需要律师实际使用后才有；在拿到之前，回放只能打印 SKIP，**不得用 cassette 或夹具冒充完成率**。
+
+### 续做（同日第二段 · 预算硬停 · 真实回放 · 基准复跑）
+
+**代码**
+
+- `resolveToolBudgetStop()` 把步数硬顶的四条分支（验收红 / 带占位澄清 / Word 改稿 / 普通交付）从循环内联搬到策略模块，单测覆盖；`consumedClarificationQuestions` 保留原先「只有澄清分支清空 pending」的语义。
+- 收尾段的 SSE 顺序用 `beforeBounce` 接缝保持原样（先吐正文段，再执行反弹副作用）；steer 反弹仍按原行为给 assistant 行补机械注记。
+- `ctx.capabilityId` 只作诊断写进 `turn.profileId`；短路交付、用户中止、暂停也写 `stopReason`，避免「字段有了但一半路径没有」。
+- `lawmind:turn-replay --scan` 自动发现一次评测下的 per-task workspace；历史行标 `legacyRows` 并在报告里注明「不等于真实停因分布」。
+
+**验证（本机，2026-10-19 夜）**
+
+- `src/lawmind/agent` 全量：**187 文件 / 2216 测试通过**。
+- PLawBench 9 题切片（同一 judge、同一模型）复跑：**9/9 完成、0 失败**，mean **0.7388**；同日较早基线（`slice-report-full.json` 同 9 题）mean **0.6674**。逐题 6 升 3 降（-0.19 ~ +0.42），单裁判噪声范围内。
+- 新回合落盘字段实测：`stopReason=delivered`、`roundCount=5`、`profileId=general` 均可从 `*.turns.jsonl` 直接读到；`turn-replay --scan` 在该次评测上给出 `general 4 / pleading 3 / consult 2`，与题目形态一致。
+
+### 深度复评（同日 · 独立审查 + 修正）
+
+对上一段改动做了一次独立对抗性审查（`git show HEAD:` 旧循环逐行对照），确认并修正 4 个**真实行为差异**与若干观测口径问题：
+
+| #   | 级别  | 问题                                                                                                                                                     | 修正                                                                                                                                                                             |
+| --- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | BLOCK | 旧循环五段教练是**顺序执行、可同时命中**；策略表首个命中即返回，丢掉同轮第二条 nudge（`追问清单-8.md` 会先发追问、再补备忘录结构，可能把清单改成备忘录） | 拆成 `TOOL_ROUND_COACH_POLICIES`（全执行、消息合并为一次 resample）+ `TOOL_ROUND_GUARD_POLICIES`（首个命中）；cassette 断言 request(1) 同时含两个 marker，且 memo nudge 只推一次 |
+| 2   | WARN  | Word 改稿 + 「只列追问」丢了 `frameConsult` 检索锁                                                                                                       | `word-revision` profile 的 `locksSearchAfterSynthesis = framesConsult`；新增 cassette 断言 request(0) 不广告法条检索                                                             |
+| 3   | WARN  | 轮次上限退出且无 break 时被记为 `delivered`                                                                                                              | 新增 `round_ceiling` 停因                                                                                                                                                        |
+| 4   | WARN  | 短路交付把调用方已设的 `awaiting_approval` 记成 `delivered`；iCloud 快停没有停因                                                                         | 短路收口按前置 status 记停因；iCloud 路径写 `awaiting_clarification`                                                                                                             |
+| 5   | WARN  | 回放头条「干净交付率」把【待核实】草稿、短路回复算成干净                                                                                                 | 干净交付只数**有记录**且 `stopReason === "delivered"`；另列 `recordedRows` / `legacyRows` / `legacyRoundRows`                                                                    |
+| 6/7 | WARN  | `--since YYYY-MM-DD` 按 UTC 解释；`--since --json` 会静默禁用过滤                                                                                        | 日期按本地零点；缺值 exit 2 并打印用法                                                                                                                                           |
+| 8   | WARN  | `--scan` 遇到根目录自带 `sessions/` 就停止下潜，漏掉 per-task workspace                                                                                  | 继续下潜并去重；补根 + 嵌套测试                                                                                                                                                  |
+| 9   | WARN  | `final` 事件的 `stopReason/roundCount` 没进 SSE                                                                                                          | 服务端转发两个字段                                                                                                                                                               |
+| 12  | INFO  | 「预算」桶混了步数上限与模型打转                                                                                                                         | 新增 `loop_guard` 桶（重复 / 读毕再读 / 命令拒绝）                                                                                                                               |
+| 13  | INFO  | 抽取留下死字段/死教练                                                                                                                                    | 删除 `ToolRoundFacts.emit/roundIndex`、`hideAssistantMessage` action、`TurnProfile.capabilityId/pins`、`word_revision_export` coach                                              |
+| 14  | INFO  | 跨 workspace 去重键只用 `(sessionId, turnId)`                                                                                                            | 键加入 workspace 根路径                                                                                                                                                          |
+| 15  | INFO  | 退让事件早于历史写入                                                                                                                                     | `afterMessagePush` 恢复 push → emit → record 顺序                                                                                                                                |
+
+审查同时指出：`TurnProfile` 目前只是**部分**收益（三个 frame 谓词收敛为一次解析），并没有做到「新增交付形态只改 profile」——仍要动 `deliverable-shape.ts` / profile / 策略表三处。这一点保留原样，不再宣称更强的解耦。
+
+修正后验证：`src/lawmind/agent` 全量 **188 文件 / 2229 测试通过**；cassettes **139 条**（+4 条针对上述差异的准入断言）。
+
+### 基准复跑结论（9 题 · 同日三次）
+
+同一 judge（deepseek-flash 单裁判）、同一模型、同一 9 题切片，三个时点：
+
+| id          | 旧基线    | 首跑（策略表首命中） | 终版（修正 co-fire） | 极差      |
+| ----------- | --------- | -------------------- | -------------------- | --------- |
+| case-8      | 0.853     | 1.000                | 1.000                | 0.147     |
+| case-9      | 0.833     | 0.889                | 0.778                | 0.111     |
+| case-112    | 1.000     | 0.933                | 0.933                | 0.067     |
+| case-32     | 0.438     | 0.562                | 0.438                | 0.125     |
+| complaint-4 | 0.263     | 0.495                | 0.463                | 0.232     |
+| complaint-6 | 0.720     | 0.790                | 0.810                | 0.090     |
+| defense-5   | 0.284     | 0.705                | 0.526                | **0.421** |
+| consult-1   | 1.000     | 0.812                | 0.875                | 0.188     |
+| consult-5   | 0.615     | 0.462                | 0.385                | 0.231     |
+| **均值**    | **0.667** | **0.739**            | **0.690**            | —         |
+
+结论要写清楚：**逐题极差最大 0.42，均值差 0.05–0.07 落在噪声里**。这证明的是「改动没有引入可见质量回归、9/9 都完成、轮数/工具数正常」，**不能**证明「分数提升」。要检测质量变化，至少需要 50 题以上或同一题多跑取均值；单裁判 9 题只能当烟雾报警器。
+
+### 审查遗留项关闭（同日 · 补测试）
+
+审查里「测试缺口」一节逐条补上，避免同一类回归再静默通过：
+
+- **同轮双教练**：`turn-loop-policies.test.ts` 新增 consult + memo 同轮断言（拒绝把追问清单改成备忘录）；cassette 同时断言 request(1) 含两个 marker，且 memo nudge 全轮只推一次。
+- **Word 改稿 + 只列追问**：新增 cassette，断言 request(0) 不广告 `search_statute` / `search_case_law`。
+- **教练覆盖**：新增写前合成（含 `synthesisSearchLocked` 迁移）、计算参数连续失败、缺件 nudge、审核台推诿反弹各一条。
+- **短路收口**：`finishShortCircuitTurn` 三态（running / awaiting_approval / awaiting_clarification）的 `stopReason` 与 `roundCount=0`。
+- **SSE 消费者**：route-chat 测试断言 `final` 事件带 `stopReason` / `roundCount`（此前新字段只在 JSONL，运行时窗口拿不到）。
+- **回放**：跨 workspace 相同 `(sessionId, turnId)` 不再合并；`maxDirs` 截断有测试；日期型 `--since` 按本地零点。
+- **仍未覆盖**（如实记录）：`prose_syndrome` 不可达（`applyProseSyndrome` 恒返回 `none`，保留策略位以免将来启用时改语义）；CLI 参数解析本身没有单测（只在 `tmp/` 冒烟）。
+
+修正后：`src/lawmind/agent` + `runtime` + 回放 + chat route **207 文件 / 2434 测试通过**。
+
+## 已落地（2026-10-21 · 内测发布收口）
+
+目标：把工程抬到「可以打包给内测客户」的水平。以门禁能否自己变绿为准，不以叙述为准。
+
+### 全量验证（本机 macOS arm64）
+
+| 门禁                                                                               | 结果                                                                                                                             |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm test:coverage`                                                               | **1095 文件 / 7902 测试通过**（4 skipped，2 文件 skipped），168s                                                                 |
+| `pnpm typecheck` / `--filter lawmind-desktop typecheck` / `typecheck:desktop-node` | 三份全绿                                                                                                                         |
+| `pnpm lawmind:desktop:e2e:pr`                                                      | **52 通过 / 2 skipped**（原先 8 失败）                                                                                           |
+| `pnpm lawmind:verify`                                                              | 全链绿（覆盖率、棘轮、技能 golden、三份 typecheck、bundle、CSS、node 导入、文案、fetch stub、平台契约、HTTP 冒烟、发布就绪报告） |
+| `pnpm lawmind:desktop:dist`                                                        | 产出 `release/LawMind-0.2.2-mac-arm64.dmg`（另有 zip）                                                                           |
+
+### 真实缺陷（不是测试问题）
+
+1. **BLOCK · 设置 → 协作 整块静默消失**。`LawmindSettingsPage` 收下了 `delegations / collabEvents / gateHistory / formatRelativeTime / onRefreshCollaboration`，但组 `renderSettingsSection` 的 args 时**没有转发**；`SettingsCollaborationDeskHost` 的守卫直接 `return null`。结果：设置里只剩一行「状态与入口」，交出去的活 / 按流程办在设置中打不开，且没有任何报错、没有测试守着。
+   - 修复：补齐转发；把静默 `return null` 换成律师能看懂的状态行（`lm-collab-desk-missing`，带 `data-missing` 便于断言）。
+2. **WARN · 打包被第三方二进制下载打断**。`vendor-officecli` 只比对 `VERSION` 哨兵，本机二进制实际是 v1.0.152、哨兵写 1.0.149，于是每次打包都重新下载；下载超时就让 `dist:electron` 整条失败。
+   - 修复：下载失败但本机已有**可运行**副本时复用它，并把哨兵对齐实际版本；再次运行直接跳过。校验和与版本不一致的硬失败保持不变。
+
+### e2e 腐烂（8 条失败，4 类根因）
+
+| 根因                                                                                                                                                                | 处理                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `openReviewDraft` 被改成只点一级 tab，但仍有 6 条用例靠它打开审核台 → 用例在「工作台出现了」就变绿，审核台断言根本没跑                                              | helper 真的派发 `lawmind:open-draft-desk` 产品事件并等 `lm-middle-draft-desk`；另加 `openDeskTab` 给「不该打开改稿台」的用例 |
+| 审核台住在中栏，而中栏要 `canUseFilesystemBridge` 才显示；stub 没有 `fsList`                                                                                        | `installE2eBrowserPrefs(page, { filesystemBridge: true })` 显式开关                                                          |
+| 断言陈旧：侧栏早已平铺含「协作」；`lm-agent-fleet-page` 不是审核台；签批条折叠在「高级 · 签批」；回合进行中的第二句已改为进会话收件箱（`/followup`）而不是 `/steer` | 逐条改到当前合同；补 `ensureReviewMetaPaneVisible`；mock 补 `/followup` 与 `/followup/claim`                                 |
+| 用例自己的定位器不稳：`getByPlaceholder` 在回合进行中会失配（占位符换成「这一轮还在办…」），导致 `fill` 一直等回合结束                                              | 改用 `getByLabel("消息输入")`，并在注释里写清为什么                                                                          |
+
+### 文案与门禁口径（按「一动作一词」收敛）
+
+- `syn.pizhun`（批准作动词）：**32 → 6**。外发、工具确认、审批条、待发列表统一为「签批 / 签批发送 / 签批并继续」；引擎侧的自动化结果文案同步（`文书台` 一并去掉）。
+- `syn.xiuding`：正则收窄为**动词框**（`改修订 / 要修订 / 按修订确认 / 修订草稿 / 修订完成 / 后台修订 / 修订中`）。Word 痕迹是领域名词（看修订、接受此修订、修订栏/线/卡/提案/署名、他人修订、无修订），不再当同义词抓。
+- 棘轮地板合计 94 → **59**（`批准 6 / 修订 13 / 待办 13 / 审批 27`），术语表补记保留用法。
+- 覆盖率地板原本比实测低 6–7 个点（永远先绿、后期可无声跌回），按脚本自身要求收紧到实测值：statements 62.77→**69.46**、branches 53.27→**59.95**、functions 61.99→**70.14**、lines 62.88→**69.53**。
+- 删除遗留调试 spec `e2e/_debug-review.spec.ts`（被 testIgnore 隔离、含 console.log、断言的是已撤的界面）。
+
+### 仍然挡在「对外发布」前面的（本机无法自行消除）
+
+1. **签名与公证**：`electron-builder` 报 `cannot find valid "Developer ID Application" identity`，当前是 adhoc 未签名包。浏览器下载后 Gatekeeper 会拦，内测分发前必须提供 Apple Developer ID 证书并公证。
+2. **80% 基准只能由真实模型跑分证明**：`lawmind:benchmark --mode scripted` 的分数是影子回放的**文本重叠率**（本次 19.4%），按仓库自己的口径不能当质量证据；`lawmind:verify:release` 因此必然红，直到在有授权的真实材料上跑 `--mode real`。
+3. **`officecli` 视觉用例 1/7904 并发抖动**：单独跑 3/3 稳定，全量并行下偶发失败；`renderPptxSlideScreenshot` 已有落盘大小校验，属环境争用，未改产品逻辑。
+4. 引擎侧仍有「批准发送」出现在工具描述/工具结果里（不在 renderer 文案门禁扫描面内）。渲染层与引擎现在口径不一致，下一轮按同一术语表收敛。

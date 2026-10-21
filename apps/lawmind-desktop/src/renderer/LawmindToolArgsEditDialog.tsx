@@ -201,8 +201,8 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
               {documentWrite
                 ? "短字段；全文在中间栏改"
                 : editFullBody
-                  ? "调整后批准"
-                  : "调整短字段后批准"}
+                  ? "调整后签批"
+                  : "调整短字段后签批"}
             </p>
           </div>
           <button
@@ -262,7 +262,7 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
                 ))}
               </div>
             ) : (
-              <p className="lm-meta">暂无可改短字段，请关闭后直接批准或驳回。</p>
+              <p className="lm-meta">暂无可改短字段，请关闭后直接签批或驳回。</p>
             )}
           </div>
         ) : editFullBody ? (
@@ -296,7 +296,7 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
         ) : (
           <div className="lm-tool-args-edit-fields">
             {extraEntries.length === 0 ? (
-              <p className="lm-meta">暂无可调整的文字字段，请直接批准或驳回。</p>
+              <p className="lm-meta">暂无可调整的文字字段，请直接签批或驳回。</p>
             ) : (
               extraEntries.map(([key, value]) => (
                 <label key={key} className="lm-tool-args-edit-field">
@@ -334,7 +334,7 @@ export function LawmindToolArgsEditDialog(props: LawmindToolArgsEditDialogProps)
             onClick={submit}
             data-testid="lm-tool-args-edit-approve"
           >
-            按修改批准
+            按修改签批
           </button>
           <button type="button" className="lm-btn lm-btn-ghost" disabled={busy} onClick={onCancel}>
             取消

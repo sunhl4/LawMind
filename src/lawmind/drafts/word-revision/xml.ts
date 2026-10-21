@@ -252,7 +252,10 @@ function rPrXml(run: WordRevisionRun, extra = ""): string {
   if (run.mark?.underline) {
     parts.push('<w:u w:val="single"/>');
   }
-  if (run.mark?.fontSizePx) {
+  if (run.mark?.fontSizePt) {
+    const half = Math.round(run.mark.fontSizePt * 2);
+    parts.push(`<w:sz w:val="${half}"/><w:szCs w:val="${half}"/>`);
+  } else if (run.mark?.fontSizePx) {
     const half = Math.round((run.mark.fontSizePx * 72) / 96) * 2;
     parts.push(`<w:sz w:val="${half}"/><w:szCs w:val="${half}"/>`);
   }

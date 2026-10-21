@@ -65,6 +65,43 @@ describe("retrieveAuthorityHitsForChat", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("reports application-level failure without treating the whole task as refused, and recovers next call", async () => {
+    snapshotAuthEnv();
+    process.env.LAWMIND_AUTHORITY_PROVIDER = "pkulaw";
+    process.env.LAWMIND_AUTHORITY_ENDPOINT = "https://authority.example/mcp-law";
+    process.env.LAWMIND_AUTHORITY_API_KEY = "tok-test";
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ result: { isError: true, content: [{ type: "text", text: "积分不足" }] } }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ hits: [{ title: "某法律", excerpt: "第一条 原文" }] }),
+      );
+    const opts = { query: "某法律", workspaceDir: "/tmp", searchKind: "law" as const, fetchImpl };
+    const failed = await retrieveAuthorityHitsForChat(opts);
+    expect(failed).toMatchObject({
+      configured: true,
+      live: false,
+      hits: [],
+      outcome: { status: "quota_exhausted", httpStatus: 200 },
+    });
+    const note = mergeStatuteSearchNote({
+      ...failed,
+      authorityHitCount: 0,
+      workspaceHitCount: 1,
+      kind: "law",
+    });
+    expect(note.authority).toBe("none");
+    expect(note.refusalRequired).toBeUndefined();
+    expect(note.note).toContain("积分");
+    expect(note.note).toContain("继续");
+    expect(note.note).not.toContain("请换关键词");
+    const recovered = await retrieveAuthorityHitsForChat(opts);
+    expect(recovered).toMatchObject({ live: true, outcome: { status: "ok", hitCount: 1 } });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("maps pkulaw hits when provider is live", async () => {
     snapshotAuthEnv();
     process.env.LAWMIND_AUTHORITY_PROVIDER = "pkulaw";

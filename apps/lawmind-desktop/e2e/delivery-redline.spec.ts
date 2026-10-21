@@ -3,7 +3,7 @@ import {
   e2eMockApiBase,
   gotoShell,
   installE2eBrowserPrefs,
-  openReviewDraft,
+  openDeskTab,
   openWorkspaceChat,
 } from "./e2e-helpers";
 
@@ -19,7 +19,7 @@ test.describe("交付链路：红线 / 审阅稿 / 删除草稿 / 澄清 resume"
 
   test("修订不在改稿台，顶栏没有在办", async ({ page }) => {
     await gotoShell(page);
-    await openReviewDraft(page);
+    await openDeskTab(page);
     await expect(page.locator(".lm-review-workbench-root, .lm-review-redline-item")).toHaveCount(0);
     await expect(page.getByTestId("lm-tab-agents")).toHaveCount(0);
     await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible();
@@ -27,7 +27,7 @@ test.describe("交付链路：红线 / 审阅稿 / 删除草稿 / 澄清 resume"
 
   test("待发出不在单独的在办页", async ({ page }) => {
     await gotoShell(page);
-    await openReviewDraft(page);
+    await openDeskTab(page);
     await expect(page.getByTestId("lm-fleet-discard-pending-draft")).toHaveCount(0);
     await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible();
   });

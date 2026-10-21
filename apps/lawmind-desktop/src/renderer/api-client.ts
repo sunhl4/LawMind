@@ -10,7 +10,6 @@ import {
   ApiRequestError,
   type ApiErrorJson,
   fetchApi,
-  type ProxyFetchOptions,
   readJsonFromResponse,
   userMessageFromApiError,
 } from "./api-client-proxy.ts";
@@ -62,8 +61,8 @@ export async function fetchWithLoopbackAuthRetry(
   return { response: await run(nextBase.apiBase), apiBase: nextBase.apiBase };
 }
 
-export async function apiGetJson<T>(apiBase: string, path: string): Promise<T> {
-  const run = (base: string) => fetchApi(`${base}${path}`, {}, { tag: "apiGetJson" });
+export async function apiGetJson<T>(apiBase: string, path: string, init?: Pick<RequestInit, "signal">): Promise<T> {
+  const run = (base: string) => fetchApi(`${base}${path}`, init ?? {}, { tag: "apiGetJson" });
   let response = await run(apiBase);
   let body = await readJsonFromResponse<T>(response);
   if (!response.ok && isLoopbackAuthFailure(response.status, body)) {
@@ -83,11 +82,11 @@ export async function apiGetJson<T>(apiBase: string, path: string): Promise<T> {
   return body;
 }
 
-export async function apiSendJson<TResponse, TBody = unknown>(
+export async function apiSendJson<TResponse>(
   apiBase: string,
   path: string,
   method: "POST" | "PUT" | "PATCH" | "DELETE",
-  body?: TBody,
+  body?: unknown,
 ): Promise<TResponse> {
   const run = (base: string) =>
     fetchApi(

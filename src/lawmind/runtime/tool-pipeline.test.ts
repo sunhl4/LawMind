@@ -18,7 +18,10 @@ import {
   folderExploreGateMiddleware,
   composeToolPipeline,
   discoveryLoopMiddleware,
+  describeApprovalRequest,
   dropSaturatedDiscoveryTools,
+  isPastDiscoverySoftLimit,
+  resolveDiscoveryPerToolCeiling,
   wouldHitDiscoveryCap,
   resolveDiscoveryLoopTotalCap,
   resolveHostFilePerToolLimit,
@@ -262,32 +265,59 @@ describe("tool-pipeline middlewares", () => {
     expect(legacy.ok).toBe(true);
   });
 
-  it("discoveryLoopMiddleware caps search_workspace repeats", async () => {
-    const ok = await discoveryLoopMiddleware(
+  it("no longer removes a search tool after a couple of different queries", async () => {
+    // 回归：查完「付款条款」「验收约定」之后，第 3 个不同争点（质保）必须仍可检索。
+    const thirdQuery = await discoveryLoopMiddleware(
       buildCall(workspaceDir, {
-        toolName: "search_workspace",
-        policyOverride: { toolNameCallCounts: { search_workspace: 0 } },
+        toolName: "search_matter",
+        policyOverride: { toolNameCallCounts: { search_matter: 2 } },
       }),
       async () => ({ ok: true }),
     );
-    expect(ok.ok).toBe(true);
-    const stillOk = await discoveryLoopMiddleware(
+    expect(thirdQuery.ok).toBe(true);
+
+    // 而且它仍然是「可提示」的状态，不是被偷偷移出工具表。
+    expect(isPastDiscoverySoftLimit("search_matter", { search_matter: 2 })).toBe(true);
+    expect(
+      dropSaturatedDiscoveryTools(["search_matter", "search_statute"], { search_matter: 2 }),
+    ).toEqual(["search_matter", "search_statute"]);
+  });
+
+  it("still stops a pathological repeat count for one tool", async () => {
+    // analyze_document 不计入检索总预算，所以这里能单独观察「单工具病态次数」这条。
+    const ceiling = resolveDiscoveryPerToolCeiling("analyze_document");
+    const allowed = await discoveryLoopMiddleware(
       buildCall(workspaceDir, {
-        toolName: "search_workspace",
-        policyOverride: { toolNameCallCounts: { search_workspace: 1 } },
+        toolName: "analyze_document",
+        policyOverride: { toolNameCallCounts: { analyze_document: ceiling - 1 } },
       }),
       async () => ({ ok: true }),
     );
-    expect(stillOk.ok).toBe(true);
+    expect(allowed.ok).toBe(true);
     const blocked = await discoveryLoopMiddleware(
       buildCall(workspaceDir, {
-        toolName: "search_workspace",
-        policyOverride: { toolNameCallCounts: { search_workspace: 3 } },
+        toolName: "analyze_document",
+        policyOverride: { toolNameCallCounts: { analyze_document: ceiling } },
       }),
       async () => ({ ok: true }),
     );
     expect(blocked.ok).toBe(false);
-    expect(blocked.error).toMatch(/search_workspace/);
+    expect(blocked.error).toContain("analyze_document");
+    expect(blocked.error).toContain("超过本轮可用的");
+  });
+
+  it("discoveryLoopMiddleware blocks when the turn's search budget is spent", async () => {
+    const blocked = await discoveryLoopMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "search_workspace",
+        policyOverride: {
+          toolNameCallCounts: { search_workspace: 4, search_matter: 4 },
+        },
+      }),
+      async () => ({ ok: true }),
+    );
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error).toContain("合计 8 次");
     expect(blocked.error).toMatch(/正确根目录|read_project_file|不要反复/);
   });
 
@@ -296,7 +326,7 @@ describe("tool-pipeline middlewares", () => {
       buildCall(workspaceDir, {
         toolName: "search_workspace",
         policyOverride: {
-          toolNameCallCounts: { search_workspace: 3 },
+          toolNameCallCounts: { search_workspace: 4, search_matter: 4 },
           allowlistDenyHint: "本回合是原 Word 改稿：请按通读 → seed 基线执行。不要准备外发邮件。",
         },
       }),
@@ -307,19 +337,8 @@ describe("tool-pipeline middlewares", () => {
     expect(blocked.error).not.toContain("自动办件");
   });
 
-  it("discoveryLoopMiddleware tells the model to draft after Word reads hit the cap", async () => {
+  it("keeps reading documents past the old 8-read cap; only the pathological ceiling stops it", async () => {
     const stillOk = await discoveryLoopMiddleware(
-      buildCall(workspaceDir, {
-        toolName: "analyze_document",
-        policyOverride: {
-          toolNameCallCounts: { analyze_document: 1 },
-          allowlistDenyHint: "本回合是原 Word 改稿：请按通读 → seed 基线执行。不要准备外发邮件。",
-        },
-      }),
-      async () => ({ ok: true }),
-    );
-    expect(stillOk.ok).toBe(true);
-    const blocked = await discoveryLoopMiddleware(
       buildCall(workspaceDir, {
         toolName: "analyze_document",
         policyOverride: {
@@ -329,9 +348,22 @@ describe("tool-pipeline middlewares", () => {
       }),
       async () => ({ ok: true }),
     );
+    // 第 9 份材料是正常工作，不再被当成重复读取。
+    expect(stillOk.ok).toBe(true);
+
+    const ceiling = resolveDiscoveryPerToolCeiling("analyze_document");
+    const blocked = await discoveryLoopMiddleware(
+      buildCall(workspaceDir, {
+        toolName: "analyze_document",
+        policyOverride: {
+          toolNameCallCounts: { analyze_document: ceiling },
+          allowlistDenyHint: "本回合是原 Word 改稿：请按通读 → seed 基线执行。不要准备外发邮件。",
+        },
+      }),
+      async () => ({ ok: true }),
+    );
     expect(blocked.ok).toBe(false);
     expect(blocked.error).toContain("已经读过");
-    expect(blocked.error).toContain("换一份未读材料");
     expect(blocked.error).not.toContain("自动办件");
   });
 
@@ -393,10 +425,13 @@ describe("tool-pipeline middlewares", () => {
     ).toEqual(["analyze_document", "update_draft"]);
   });
 
-  it("wouldHitDiscoveryCap and dropSaturatedDiscoveryTools match the middleware quota", () => {
+  it("wouldHitDiscoveryCap and dropSaturatedDiscoveryTools only fire at the budget or ceiling", () => {
     expect(wouldHitDiscoveryCap("analyze_document", {})).toBe(false);
     expect(wouldHitDiscoveryCap("analyze_document", { analyze_document: 1 })).toBe(false);
-    expect(wouldHitDiscoveryCap("analyze_document", { analyze_document: 8 })).toBe(true);
+    // 旧行为在第 8 次就移出工具；现在 8 次是正常的多文件工作。
+    expect(wouldHitDiscoveryCap("analyze_document", { analyze_document: 8 })).toBe(false);
+    const ceiling = resolveDiscoveryPerToolCeiling("analyze_document");
+    expect(wouldHitDiscoveryCap("analyze_document", { analyze_document: ceiling })).toBe(true);
     expect(wouldHitDiscoveryCap("update_draft", { analyze_document: 1 })).toBe(false);
     expect(
       dropSaturatedDiscoveryTools(["analyze_document", "read_project_file", "update_draft"], {
@@ -406,6 +441,11 @@ describe("tool-pipeline middlewares", () => {
     expect(
       dropSaturatedDiscoveryTools(["analyze_document", "read_project_file", "update_draft"], {
         analyze_document: 8,
+      }),
+    ).toEqual(["analyze_document", "read_project_file", "update_draft"]);
+    expect(
+      dropSaturatedDiscoveryTools(["analyze_document", "read_project_file", "update_draft"], {
+        analyze_document: ceiling,
       }),
     ).toEqual(["read_project_file", "update_draft"]);
   });
@@ -616,6 +656,38 @@ describe("tool-pipeline middlewares", () => {
       ok: true,
     }));
     expect(pass.ok).toBe(true);
+  });
+
+  it("describeApprovalRequest states purpose, target and impact, not just the tool name", () => {
+    const reason = describeApprovalRequest("run_host_command", {
+      purpose: "把盖章页从扫描件里拆出来",
+      command: "python3",
+      args: ["split.py", "扫描件.pdf"],
+    });
+    expect(reason).toContain("把盖章页从扫描件里拆出来");
+    expect(reason).toContain("python3");
+    expect(reason).toContain("本机命令");
+    expect(reason).toContain("批准后才会执行");
+    expect(reason).not.toBe("操作「run_host_command」需要律师在「待我拍板」中确认。");
+  });
+
+  it("describeApprovalRequest names the file for a write tool", () => {
+    const reason = describeApprovalRequest("apply_surgical_edits", {
+      path: "cases/m/drafts/合同.docx",
+      edits: [{ find: "a", replace: "b" }],
+    });
+    expect(reason).toContain("合同.docx");
+    expect(reason).toContain("批准后才会执行");
+  });
+
+  it("describeApprovalRequest never echoes long document bodies", () => {
+    const body = "合同正文".repeat(400);
+    const reason = describeApprovalRequest("write_document", {
+      file_path: "cases/m/notes/a.md",
+      content: body,
+    });
+    expect(reason).toContain("a.md");
+    expect(reason).not.toContain(body.slice(0, 40));
   });
 
   it("argSchemaMiddleware strips unknown args instead of failing", async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  cellProvenance,
   detectNameColumnKeys,
   mergeLawyerReviewRows,
   newReviewTable,
@@ -109,6 +110,92 @@ describe("review-table deliverable model", () => {
       ],
     };
     expect(reviewTableAcceptanceProblems(cited)).toEqual([]);
+  });
+
+  it("counts a pattern-only cell as a gap, not as verified", () => {
+    const base = newReviewTable("t-1", "due_diligence");
+    const weak: ReviewTable = {
+      ...base,
+      rows: [
+        {
+          id: "r1",
+          cells: { item: "股权结构", finding: "人民币100万元", source: "cases/m/materials/a.pdf" },
+          cellMeta: {
+            finding: {
+              source: "cases/m/materials/a.pdf#line=1",
+              confidence: "medium",
+              basis: "pattern_only",
+            },
+          },
+          source: "cases/m/materials/a.pdf",
+        },
+      ],
+    };
+    expect(reviewTableAcceptanceProblems(weak)).toEqual(["1 行仅有模式命中，需核对是否同一字段"]);
+
+    // 同一格改成原句命中，就不是缺口。
+    const verified: ReviewTable = {
+      ...weak,
+      rows: [
+        {
+          ...weak.rows[0],
+          cellMeta: {
+            finding: {
+              source: "cases/m/materials/a.pdf#line=2",
+              confidence: "high",
+              basis: "exact_quote",
+            },
+          },
+        },
+      ],
+    };
+    expect(reviewTableAcceptanceProblems(verified)).toEqual([]);
+  });
+
+  it("counts a cell left with several candidates as an unresolved gap", () => {
+    const base = newReviewTable("t-1", "due_diligence");
+    const ambiguous: ReviewTable = {
+      ...base,
+      rows: [
+        {
+          id: "r1",
+          cells: { item: "股权结构", finding: "无法判断（证据不足）" },
+          cellMeta: {
+            finding: {
+              abstained: true,
+              note: "有 2 处可能的值，无法确定取哪一个",
+              confidence: "low",
+              basis: "abstained",
+              candidates: [
+                { value: "100万元", locator: "line=1", lineText: "注册资本", patternLabel: "金额" },
+                { value: "300万元", locator: "line=2", lineText: "总价款", patternLabel: "金额" },
+              ],
+            },
+          },
+          source: "cases/m/materials/a.pdf",
+        },
+      ],
+    };
+    expect(reviewTableAcceptanceProblems(ambiguous)).toEqual(["1 行有多个候选值，未确定取哪个"]);
+  });
+
+  it("keeps cellProvenance able to report the basis for the UI", () => {
+    const row = {
+      id: "r1",
+      cells: { finding: "人民币100万元" },
+      cellMeta: {
+        finding: {
+          source: "a.pdf#line=1",
+          confidence: "medium" as const,
+          basis: "pattern_only" as const,
+          note: "请核对",
+        },
+      },
+    };
+    expect(cellProvenance(row, "finding")).toMatchObject({
+      state: "sourced",
+      basis: "pattern_only",
+    });
   });
 
   it("does not treat a custom clause column as a filename column", () => {

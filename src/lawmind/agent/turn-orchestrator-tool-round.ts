@@ -24,6 +24,7 @@ import {
   DISCOVERY_LOOP_TOOL_LIMITS,
   buildDefaultToolPipeline,
   composeToolPipeline,
+  describeApprovalRequest,
   wouldHitDiscoveryCap,
   type ToolCallContext,
 } from "../runtime/tool-pipeline.js";
@@ -50,6 +51,7 @@ import {
   summarizeUpdatePlanResultForHistory,
   UPDATE_PLAN_TOOL_NAME,
 } from "./turn-plan.js";
+import { toolResultWroteTrackedArtifact } from "./turn-profile.js";
 import type { AgentContext, AgentMessage, AgentTurn, ToolCallResult } from "./types.js";
 
 /** Lazy: avoids TDZ when tool-pipeline ↔ legal-tools ↔ turn-orchestrator cycle loads. */
@@ -247,7 +249,14 @@ export async function executeToolBatches(
     });
     pushMessage({
       role: "tool",
-      content: stringifyToolResultForHistory({ ok: false, error: "已停止", aborted: true }),
+      // 模型可读的中止标记：必须写明「实际效果未知」，否则下一轮会把"没有结果"
+      // 误读成"没执行"，在已产生副作用时继续操作（对照 MeWork 的中断系统标记）。
+      content: stringifyToolResultForHistory({
+        ok: false,
+        error:
+          "已中止：该工具调用被打断，未返回结果；实际效果未知，继续前请先核对（重读文件或查询状态）。",
+        aborted: true,
+      }),
       toolCallResponses: [
         {
           toolCallId: ref.id,
@@ -320,7 +329,7 @@ export async function executeToolBatches(
           const gateDecision: GateDecision = {
             gate: "approval_gate",
             decision: "awaiting_confirmation",
-            reason: `操作「${outcome.toolName}」等待律师在「待我拍板」中确认。`,
+            reason: describeApprovalRequest(outcome.toolName, outcome.toolArgs),
             category: "safety_hard",
           };
           turn.gateDecisions?.push(gateDecision);
@@ -331,8 +340,7 @@ export async function executeToolBatches(
               toolCallId: outcome.toolCallId,
               toolArgs: outcome.toolArgs,
             };
-            finalReply =
-              assistantContent || `操作「${outcome.toolName}」已暂停，等待您在「待我拍板」中确认。`;
+            finalReply = assistantContent || gateDecision.reason;
           }
           emitEvent({
             type: "approval_request",
@@ -438,6 +446,9 @@ export async function executeToolBatches(
           roleId: policyHints?.roleId,
           riskCeiling: policyHints?.riskCeiling,
           toolNameCallCounts: toolNameCallCountsBefore,
+          toolCallSignatures: (turn.toolCallSignatures ??= Object.create(
+            null,
+          ) as import("../runtime/tool-call-signature.js").ToolCallSignatures),
           actorId,
           auditDir: `${ctx.workspaceDir}/audit`,
           sessionMatterId,
@@ -450,6 +461,9 @@ export async function executeToolBatches(
       const result = await getRunToolPipeline()(callCtx);
       if (turn.factorState) {
         ingestToolResult(turn.factorState, toolName, result.data);
+      }
+      if (toolResultWroteTrackedArtifact(toolName, result)) {
+        turn.trackedArtifactWritten = true;
       }
       promoteLegacyUpdateDraftCraftPatch(ctx, result);
       if (toolName === UPDATE_PLAN_TOOL_NAME && result.ok) {

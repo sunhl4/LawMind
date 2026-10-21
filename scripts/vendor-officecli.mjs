@@ -474,6 +474,25 @@ async function main() {
       );
       return;
     }
+    // 下载失败但本机已有可运行的 vendored 副本时，复用它而不是让打包失败。
+    if (fs.existsSync(destBin)) {
+      try {
+        const local = officecliVersionOf(destBin);
+        const oldSidecar = readPinnedVersion(destDir);
+        if (oldSidecar !== local) {
+          writeSidecar(destDir, local);
+          process.stderr.write(
+            `  已将 VERSION 哨兵对齐本机二进制版本 v${local}（原 ${oldSidecar || "无"}）。\n`,
+          );
+        }
+        process.stdout.write(
+          `✓ 下载失败，沿用本机已 vendored 的 officecli v${local} → ${path.relative(REPO_ROOT, destBin)}\n`,
+        );
+        return;
+      } catch {
+        /* 二进制不可运行则照旧失败 */
+      }
+    }
     process.exit(1);
   }
 }

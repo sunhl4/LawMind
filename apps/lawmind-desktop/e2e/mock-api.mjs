@@ -1405,6 +1405,31 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 回合还在跑时再发一句：进会话收件箱（下一回合），走 followup 而不是 steer。
+  const followupMatch = /^\/api\/sessions\/([^/]+)\/followup$/.exec(path);
+  if (followupMatch && req.method === "POST") {
+    json(res, 200, {
+      ok: true,
+      sessionId: followupMatch[1],
+      queued: 1,
+      pendingCount: 1,
+      inboxKind: "chat",
+    });
+    return;
+  }
+
+  const followupClaimMatch = /^\/api\/sessions\/([^/]+)\/followup\/claim$/.exec(path);
+  if (followupClaimMatch && req.method === "POST") {
+    json(res, 200, {
+      ok: true,
+      sessionId: followupClaimMatch[1],
+      messages: [],
+      pendingCount: 0,
+      inboxKind: "chat",
+    });
+    return;
+  }
+
   const sessionMatch = /^\/api\/sessions\/([^/]+)$/.exec(path);
   if (sessionMatch && req.method === "GET") {
     const sid = sessionMatch[1];

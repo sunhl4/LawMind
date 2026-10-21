@@ -5,6 +5,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import type { AuthorityCallOutcome } from "./authority-outcome.js";
 import type { AuthorityProviderId } from "./authority-provider.js";
 
 export type AuthorityUsageDay = {
@@ -13,6 +14,9 @@ export type AuthorityUsageDay = {
   error: number;
   byStatus: Record<string, number>;
   byProvider: Record<string, number>;
+  /** New records only; older ok/error totals cannot be reclassified retrospectively. */
+  byOutcome?: Record<string, number>;
+  hits?: number;
 };
 
 export type AuthorityUsageSummary = {
@@ -20,6 +24,9 @@ export type AuthorityUsageSummary = {
   ok: number;
   error: number;
   total: number;
+  byOutcome: Record<string, number>;
+  hits: number;
+  unclassified: number;
   /** Lawyer-facing one-liner */
   message: string;
 };
@@ -56,6 +63,7 @@ export function recordAuthorityUsage(
     ok: boolean;
     httpStatus?: number;
     provider: AuthorityProviderId;
+    outcome?: AuthorityCallOutcome;
   },
 ): AuthorityUsageDay {
   const store = readStore(workspaceDir);
@@ -70,11 +78,16 @@ export function recordAuthorityUsage(
   } else {
     row.error += 1;
   }
+  if (event.outcome) {
+    row.byOutcome ??= {};
+    row.byOutcome[event.outcome.status] = (row.byOutcome[event.outcome.status] ?? 0) + 1;
+    row.hits = (row.hits ?? 0) + event.outcome.hitCount;
+  }
   const statusKey = event.httpStatus != null ? String(event.httpStatus) : event.ok ? "ok" : "error";
   row.byStatus[statusKey] = (row.byStatus[statusKey] ?? 0) + 1;
   row.byProvider[event.provider] = (row.byProvider[event.provider] ?? 0) + 1;
   // Keep last 14 days
-  store.days = store.days.sort((a, b) => a.day.localeCompare(b.day)).slice(-14);
+  store.days = store.days.toSorted((a, b) => a.day.localeCompare(b.day)).slice(-14);
   writeStore(workspaceDir, store);
   return row;
 }
@@ -86,14 +99,22 @@ export function buildAuthorityUsageSummary(workspaceDir: string): AuthorityUsage
   const ok = row?.ok ?? 0;
   const error = row?.error ?? 0;
   const total = ok + error;
+  const byOutcome = row?.byOutcome ?? {};
+  const classified = Object.values(byOutcome).reduce((sum, n) => sum + n, 0);
+  const unclassified = Math.max(0, total - classified);
   return {
     day,
     ok,
     error,
     total,
+    byOutcome,
+    hits: row?.hits ?? 0,
+    unclassified,
     message:
       total === 0
         ? "今日尚无权威库调用记录。"
-        : `今日权威调用 ${total} 次（成功 ${ok} / 失败 ${error}）。不含查询正文。`,
+        : classified > 0
+          ? `今日权威调用 ${total} 次（有结果 ${byOutcome.ok ?? 0} / 正常无命中 ${byOutcome.empty ?? 0} / 服务异常 ${classified - (byOutcome.ok ?? 0) - (byOutcome.empty ?? 0)}${unclassified ? ` / 旧记录未分类 ${unclassified}` : ""}）。不含查询正文。`
+          : `今日权威调用 ${total} 次（旧口径成功 ${ok} / 失败或无命中 ${error}；服务状态未分类）。不含查询正文。`,
   };
 }

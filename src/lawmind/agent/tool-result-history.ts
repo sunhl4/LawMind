@@ -298,6 +298,13 @@ function pickCraftDataFields(data: unknown): Record<string, unknown> | undefined
     "disclosedName",
     "disclosedNames",
     "alreadyAvailable",
+    "authorityOutcome",
+    "authorityLive",
+    "authorityConfigured",
+    "authorityProvider",
+    "authority",
+    "refusalRequired",
+    "sourceTier",
   ] as const) {
     if (key in src) {
       out[key] = src[key];

@@ -9,6 +9,7 @@ import {
   waitModelRetry,
 } from "../llm/http-retry.js";
 import { resolveClassifySidecarLimits } from "../models/capability-envelope.js";
+import { createModelUsageRecorder, type ModelBillingScope } from "../models/model-usage.js";
 import {
   assistantOutputLooksTruncated,
   extractAssistantText,
@@ -92,6 +93,17 @@ export async function enhanceCompactDigestWithLlm(opts: {
   timeoutCapMs?: number;
   /** 已解析的调参；不传则用默认值（可用 `context.digest.llmDigestEnabled` 关掉本增强）。 */
   tuning?: ContextTuning;
+  /**
+   * 逐次用量账本上下文。独立摘要同样是真实模型调用，传了才记账。
+   * 不传时只影响账本，不影响摘要行为。
+   */
+  usage?: {
+    workspaceDir: string;
+    sessionId?: string;
+    turnId?: string;
+    matterId?: string;
+    billingScope?: ModelBillingScope;
+  };
 }): Promise<{ digest: string; usedLlm: boolean }> {
   const tuning = opts.tuning ?? resolveContextTuning(null);
   const minSummaryChars = tuning.digest.llmMinSummaryChars ?? DEFAULT_MIN_COMPACT_SUMMARY_CHARS;
@@ -154,7 +166,20 @@ export async function enhanceCompactDigestWithLlm(opts: {
           { role: "user", content: userContent },
         ],
         [],
-        { signal: opts.abortSignal },
+        {
+          signal: opts.abortSignal,
+          onModelUsage: opts.usage
+            ? createModelUsageRecorder(opts.usage.workspaceDir, {
+                sessionId: opts.usage.sessionId,
+                turnId: opts.usage.turnId,
+                matterId: opts.usage.matterId,
+                model: opts.model.model,
+                provider: opts.model.provider,
+                purpose: "compact_digest",
+                billingScope: opts.usage.billingScope,
+              })
+            : undefined,
+        },
       );
       const view = extractAssistantText(response);
       const summary = view.text.replace(/\s+/g, " ").trim();

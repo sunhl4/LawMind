@@ -504,6 +504,37 @@ describe("draft-worker", () => {
     expect(user?.[1]?.content).toContain("万分之五");
   });
 
+  it("keeps worker usage attached to the parent turn and billing scope", async () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lm-worker-usage-"));
+    vi.mocked(callModelWithRetry).mockImplementation(async (_model, _messages, _tools, opts) => {
+      opts?.onModelUsage?.({
+        attempt: 1,
+        latencyMs: 4,
+        failed: false,
+        usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 },
+      });
+      return successResponse(JSON.stringify({ draft: DRAFT, citations: ["买卖合同"], gaps: [] }));
+    });
+    await runDraftWorker(completeBrief, {
+      workspaceDir: tmp,
+      sessionId: "parent",
+      turnId: "turn-worker",
+      billingScope: "subscription",
+      chatModel: model,
+    });
+    const entries = fs
+      .readFileSync(path.join(tmp, "model-usage", "ledger.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(entries.length).toBeGreaterThan(0);
+    expect(
+      entries.every(
+        (entry) => entry.turnId === "turn-worker" && entry.billingScope === "subscription",
+      ),
+    ).toBe(true);
+  });
+
   it("marks user stop as aborted", async () => {
     vi.mocked(callModelWithRetry).mockRejectedValue(new ModelCallUserAbortError());
     const result = await runDraftWorker(completeBrief, { chatModel: model });

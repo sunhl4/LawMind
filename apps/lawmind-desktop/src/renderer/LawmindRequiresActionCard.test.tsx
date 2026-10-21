@@ -54,7 +54,7 @@ describe("LawmindRequiresActionCard", () => {
       "收件人",
     );
     expect(host.querySelector('[data-testid="lm-requires-action-impact"]')?.textContent).toContain("外发");
-    expect(host.textContent).toContain("批准并继续");
+    expect(host.textContent).toContain("签批并继续");
     expect(host.textContent).toContain("暂不办理");
     const copy = host.querySelector(
       '[data-testid="lm-requires-action-recommendation-copy"]',

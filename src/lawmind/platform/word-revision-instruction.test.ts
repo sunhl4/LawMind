@@ -21,6 +21,25 @@ describe("word-revision-instruction", () => {
     expect(wordRevisionDenyNames(FILE_PAGE_THAILAND)).toEqual([...WORD_REVISION_DENY_TOOL_NAMES]);
   });
 
+  it("lets the model build a new document when the lawyer asks for a new one", () => {
+    // 改原稿：不许模板重建
+    expect(wordRevisionDenyNames(`${FILE_PAGE_THAILAND}，把违约金改成万分之五`)).toEqual([
+      ...WORD_REVISION_DENY_TOOL_NAMES,
+    ]);
+
+    // 同一回合里又要求另起一份：只继续禁外发，放开 render_document
+    for (const ask of [
+      `${FILE_PAGE_THAILAND}，另起一份新协议，不要改原件`,
+      `${FILE_PAGE_THAILAND}，照着这份重新起草一份采购合同`,
+      `${FILE_PAGE_THAILAND}，这份太旧了，另出一份新稿`,
+    ]) {
+      const deny = wordRevisionDenyNames(ask) ?? [];
+      expect(deny).not.toContain("render_document");
+      expect(deny).toContain("send_email");
+      expect(deny).toContain("prepare_outbound_mail");
+    }
+  });
+
   it("does not steal mail short path or 5-minute opinion", () => {
     expect(
       isWordRevisionInstruction(

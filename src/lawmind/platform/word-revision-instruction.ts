@@ -15,6 +15,9 @@ export const WORD_REVISION_TOOL_NAMES = [
   "update_draft",
   "apply_surgical_edits",
   "render_tracked_draft",
+  // 格式体检与格式修订是同一条改稿链上的收尾动作：先看清单，再决定是否统一。
+  "check_document_format",
+  "fix_document_format",
 ] as const;
 
 /** Hard deny: template-rebuild of the source Word, outbound mail, and send. */
@@ -23,6 +26,17 @@ export const WORD_REVISION_DENY_TOOL_NAMES = [
   "render_document",
   "prepare_outbound_mail",
 ] as const;
+
+/**
+ * 「另起一份」不是改原稿。律师要新版本/新协议时，模型必须能重建文档；
+ * 把 render_document 一起禁掉会把这类合法请求变成无解。
+ *
+ * 判据刻意收窄：必须**明确**说另起一份/重新起草，或明确说不要动原件。
+ * 「另出一份修订稿」「出个新版本」这类仍按改原稿处理——那要的是原件副本加痕迹，
+ * 放开重建会让模型拿模板重排，丢掉原格式和已有修订。
+ */
+const NEW_DOCUMENT_ASK_RE =
+  /不要(?:改|动|碰)原(?:件|稿|文件)|重新起草|从(?:头|零)起草|另(?:起|出|做|写|拟)(?:一份|份)?(?:新的?)?(?:协议|合同|文书|文件|函|意见书|备忘录|稿)/;
 
 export const WORD_REVISION_DENIED_HINT =
   "本回合是原 Word 改稿：请拷贝原件落审阅痕迹。可以在对话里说明改了什么。不要用 render_document 重建原件，不要准备外发邮件。";
@@ -134,7 +148,14 @@ export function wordRevisionDenyNames(
   instruction: string,
   pins?: ComposeContextPin[],
 ): string[] | undefined {
-  return isWordRevisionTurn({ instruction, pins }) ? [...WORD_REVISION_DENY_TOOL_NAMES] : undefined;
+  if (!isWordRevisionTurn({ instruction, pins })) {
+    return undefined;
+  }
+  if (NEW_DOCUMENT_ASK_RE.test(instruction)) {
+    // 明确要另起一份：只继续禁外发，放开 render_document。
+    return WORD_REVISION_DENY_TOOL_NAMES.filter((name) => name !== "render_document");
+  }
+  return [...WORD_REVISION_DENY_TOOL_NAMES];
 }
 
 export const WORD_REVISION_PROMPT = [
@@ -150,5 +171,7 @@ export const WORD_REVISION_PROMPT = [
   "- 若本回合已注入「改稿要点」：按看/改/停处理。检查单不是必须全改；停项与未确认数字写入 deferred。类型仅为疑似时，正文不对题则忽略该清单。检查单未覆盖不拦出稿。",
   "- 落改：首次 `draft_document`/`update_draft`（`contract_edit_baseline_path` = **原件**相对路径，`seed_sections_from_baseline=true`）→ `apply_surgical_edits` → `render_tracked_draft`。之后追问只 `apply_surgical_edits` + `render_tracked_draft`（同一 taskId）；`draft_document` 若撞上在办审阅副本会直接交回原 taskId，不再另拷。",
   "- 导出规则（引擎执行）：首次**拷贝原文件**到同目录 `原名_YYYYMMDD_01.docx`；之后覆盖该审阅副本。不改原件；保留原格式与原有修订，只叠加新修订。",
-  "- `redlinePending=0` 不得导出。",
+  "- 原有修订是证据：对方/前手留下的 `w:ins`/`w:del` 一条都不能丢。导出会自动对账，丢一条就拒交，不要绕过。",
+  "- 只要求统一格式（字体/字号/行距/缩进）、不动措辞时：用 `check_document_format` 看清单，再 `fix_document_format` 出「格式修订」副本；不要为凑修订去改内容。",
+  "- `redlinePending=0` 不得用 `render_tracked_draft` 导出；格式副本走 `fix_document_format`。",
 ].join("\n");

@@ -9,6 +9,7 @@ import {
 } from "../llm/http-retry.js";
 import { REVIEW_MODEL_TIMEOUT_MS } from "../models/capability-envelope.js";
 import { isDeepSeekFlashUpstream } from "../models/catalog.js";
+import { resolveSamplingParameters } from "../models/sampling-parameters.js";
 import { createOutboundProxy } from "../platform/outbound-proxy.js";
 import {
   AdmissionAbortedError,
@@ -67,6 +68,8 @@ export class ModelCallUserAbortError extends Error {
  * HTTP 非 2xx。保留 status/body，好让上层分辨「工具配对损坏」这类可自愈的 400，
  * 而不是只能看字符串。
  */
+const partialFailureUsage = new WeakMap<Error, ProviderUsage>();
+
 export class ModelCallHttpError extends Error {
   readonly name = "ModelCallHttpError";
   readonly status: number;
@@ -156,6 +159,51 @@ export function combineAbortSignals(
 }
 
 /** Streaming chunk shape (OpenAI SSE `data: {...}` lines). */
+/** OpenAI-compatible usage block, including both cache field generations. */
+type ProviderUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number } | null;
+  completion_tokens_details?: { reasoning_tokens?: number } | null;
+};
+
+/**
+ * 只保留已知的 usage 字段，**缓存字段不丢**。
+ *
+ * 旧实现把 usage 重新拼成三个数，于是 `prompt_cache_hit_tokens` /
+ * `prompt_tokens_details.cached_tokens` 在流式与非流式两条路径上都被丢掉，
+ * 全仓再也说不清「这次有没有命中缓存」。
+ */
+export function normalizeProviderUsage(usage: ProviderUsage): ProviderUsage {
+  return {
+    ...(typeof usage.prompt_tokens === "number" ? { prompt_tokens: usage.prompt_tokens } : {}),
+    ...(typeof usage.completion_tokens === "number"
+      ? { completion_tokens: usage.completion_tokens }
+      : {}),
+    ...(typeof usage.total_tokens === "number" ? { total_tokens: usage.total_tokens } : {}),
+    ...(typeof usage.prompt_cache_hit_tokens === "number"
+      ? { prompt_cache_hit_tokens: usage.prompt_cache_hit_tokens }
+      : {}),
+    ...(typeof usage.prompt_cache_miss_tokens === "number"
+      ? { prompt_cache_miss_tokens: usage.prompt_cache_miss_tokens }
+      : {}),
+    ...(usage.prompt_tokens_details && typeof usage.prompt_tokens_details.cached_tokens === "number"
+      ? { prompt_tokens_details: { cached_tokens: usage.prompt_tokens_details.cached_tokens } }
+      : {}),
+    ...(usage.completion_tokens_details &&
+    typeof usage.completion_tokens_details.reasoning_tokens === "number"
+      ? {
+          completion_tokens_details: {
+            reasoning_tokens: usage.completion_tokens_details.reasoning_tokens,
+          },
+        }
+      : {}),
+  };
+}
+
 type ChatCompletionStreamChunk = {
   choices?: Array<{
     delta?: {
@@ -171,7 +219,7 @@ type ChatCompletionStreamChunk = {
     };
     finish_reason?: string | null;
   }>;
-  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  usage?: ProviderUsage;
 };
 
 type ChatCompletionMessage = {
@@ -188,8 +236,46 @@ type ChatCompletionMessage = {
 
 type ChatCompletionResponse = {
   choices: Array<{ message: ChatCompletionMessage; finish_reason?: string }>;
-  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  usage?: ProviderUsage;
 };
+
+/** One model HTTP attempt, as seen by the retry loop (success or failure). */
+export type ModelUsageEvent = {
+  /** 1-based attempt number including retries. */
+  attempt: number;
+  latencyMs: number;
+  usage?: ProviderUsage;
+  failed: boolean;
+  /** Coarse failure class; never contains prompt or response text. */
+  errorKind?: string;
+};
+
+/** Classify a model failure without leaking body text into the ledger. */
+export function modelFailureKind(err: unknown): string {
+  if (err instanceof ModelCallUserAbortError) {
+    return "user_abort";
+  }
+  if (err instanceof ModelCallHttpError) {
+    if (err.isToolPairingReject) {
+      return "tool_pairing_reject";
+    }
+    if (err.status === 429) {
+      return "rate_limited";
+    }
+    if (err.status >= 500) {
+      return "upstream_5xx";
+    }
+    return `http_${err.status}`;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  if (/timed out|timeout/i.test(message)) {
+    return "timeout";
+  }
+  if (/network|fetch failed|ENOTFOUND|ECONN|ETIMEDOUT|certificate|TLS/i.test(message)) {
+    return "network";
+  }
+  return "unknown";
+}
 
 export type CallModelOptions = {
   /** Request streaming SSE; deltas are pushed via `onDelta` and finally assembled to ChatCompletionResponse. */
@@ -218,6 +304,11 @@ export type CallModelOptions = {
    * Workers share the parent session id so that chat keeps one reserved model lane.
    */
   admission?: ModelAdmissionIdentity;
+  /**
+   * 每次模型 HTTP 之后回调（含失败与重试）。
+   * 账本按「每次调用」落，而不是回合汇总——否则重试与失败的成本看不见。
+   */
+  onModelUsage?: (event: ModelUsageEvent) => void;
 };
 
 /** Accumulate streaming chunks into a final `ChatCompletionResponse` shape. */
@@ -238,11 +329,7 @@ export function aggregateStreamChunks(chunks: ChatCompletionStreamChunk[]): Chat
     const choice = chunk.choices?.[0];
     if (!choice) {
       if (chunk.usage) {
-        usage = {
-          prompt_tokens: chunk.usage.prompt_tokens ?? 0,
-          completion_tokens: chunk.usage.completion_tokens ?? 0,
-          total_tokens: chunk.usage.total_tokens ?? 0,
-        };
+        usage = normalizeProviderUsage(chunk.usage);
       }
       continue;
     }
@@ -276,11 +363,7 @@ export function aggregateStreamChunks(chunks: ChatCompletionStreamChunk[]): Chat
       finishReason = choice.finish_reason;
     }
     if (chunk.usage) {
-      usage = {
-        prompt_tokens: chunk.usage.prompt_tokens ?? 0,
-        completion_tokens: chunk.usage.completion_tokens ?? 0,
-        total_tokens: chunk.usage.total_tokens ?? 0,
-      };
+      usage = normalizeProviderUsage(chunk.usage);
     }
   }
 
@@ -340,6 +423,48 @@ export function parseSseChunks(buffer: string): {
 /**
  * 调用 OpenAI-compatible chat completions API
  */
+async function readModelChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal: AbortSignal,
+): ReturnType<ReadableStreamDefaultReader<Uint8Array>["read"]> {
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      void reader.cancel().catch(() => {});
+      reject(new DOMException("Model response read aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    reader
+      .read()
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", abort));
+    if (signal.aborted) {
+      abort();
+    }
+  });
+}
+
+async function readModelBody(response: Response, signal: AbortSignal): Promise<string> {
+  if (!response.body) {
+    return "";
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    for (;;) {
+      const { done, value } = await readModelChunk(reader, signal);
+      if (done) {
+        return text + decoder.decode();
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
 async function callModelOnce(
   config: AgentModelConfig,
   messages: WireChatMessage[],
@@ -358,7 +483,7 @@ async function callModelOnce(
   const body: Record<string, unknown> = {
     model: config.model,
     messages: outbound,
-    temperature: config.temperature ?? 0.3,
+    ...resolveSamplingParameters(config),
   };
 
   if (config.maxTokens) {
@@ -378,10 +503,6 @@ async function callModelOnce(
     body.stop = config.stop.filter((s) => typeof s === "string" && s.length > 0).slice(0, 8);
   }
 
-  if (config.responseFormat?.type === "json_object") {
-    body.response_format = { type: "json_object" };
-  }
-
   if (tools.length > 0) {
     body.tools = tools;
     body.tool_choice = "auto";
@@ -390,6 +511,7 @@ async function callModelOnce(
   const wantStream = opts.stream === true;
   if (wantStream) {
     body.stream = true;
+    body.stream_options = { include_usage: true };
   }
 
   if (opts.signal?.aborted) {
@@ -410,37 +532,42 @@ async function callModelOnce(
       signal: combined.signal,
     });
   } catch (err) {
+    combined.cleanup();
     throw formatModelFetchError(err, config, timeoutMs, {
       userAbort: combined.wasUserAbort(),
     });
   }
 
-  if (!response.ok) {
-    combined.cleanup();
-    const text = await response.text();
-    const is404 = response.status === 404;
-    const attempted = `model="${config.model}" baseUrl=${config.baseUrl}`;
-    let hint = "";
-    if (is404) {
-      hint =
-        " 常见原因：模型名与端点不匹配（自定义模型请确认「模型 ID」填写的值正是该 Base URL 所支持的名称，不是 LawMind 内部的 custom:xxx；向导模型请确认 LAWMIND_AGENT_MODEL 与实际一致）。也可能是 Base URL 缺少 /v1 后缀、模型名大小写/后缀不符、或该 Key 无权限访问此模型。";
-    } else if (response.status === 400 && isToolPairingRejectText(text)) {
-      hint = TOOL_PAIRING_REPAIR_HINT;
-    }
-    throw new ModelCallHttpError(
-      response.status,
-      text,
-      `Model API error ${response.status} (${attempted}): ${text.slice(0, 300)}${hint}`,
-    );
-  }
-
-  if (!wantStream || !response.body) {
-    combined.cleanup();
-    return (await response.json()) as ChatCompletionResponse;
-  }
-
+  let receivedUsage: ProviderUsage | undefined;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
-    const reader = response.body.getReader();
+    if (!response.ok) {
+      const text = await readModelBody(response, combined.signal);
+      const is404 = response.status === 404;
+      const attempted = `model="${config.model}" baseUrl=${config.baseUrl}`;
+      let hint = "";
+      if (is404) {
+        hint =
+          " 常见原因：模型名与端点不匹配（自定义模型请确认「模型 ID」填写的值正是该 Base URL 所支持的名称，不是 LawMind 内部的 custom:xxx；向导模型请确认 LAWMIND_AGENT_MODEL 与实际一致）。也可能是 Base URL 缺少 /v1 后缀、模型名大小写/后缀不符、或该 Key 无权限访问此模型。";
+      } else if (response.status === 400 && isToolPairingRejectText(text)) {
+        hint = TOOL_PAIRING_REPAIR_HINT;
+      }
+      throw new ModelCallHttpError(
+        response.status,
+        text,
+        `Model API error ${response.status} (${attempted}): ${text.slice(0, 300)}${hint}`,
+      );
+    }
+
+    if (
+      !wantStream ||
+      !response.body ||
+      !response.headers.get("content-type")?.includes("text/event-stream")
+    ) {
+      return JSON.parse(await readModelBody(response, combined.signal)) as ChatCompletionResponse;
+    }
+
+    reader = response.body.getReader();
     const decoder = new TextDecoder();
     const chunks: ChatCompletionStreamChunk[] = [];
     let buffer = "";
@@ -454,13 +581,16 @@ async function callModelOnce(
         }
         throw new ModelCallUserAbortError();
       }
-      const { done, value } = await reader.read();
+      const { done, value } = await readModelChunk(reader, combined.signal);
       if (value) {
         buffer += decoder.decode(value, { stream: true });
         const parsed = parseSseChunks(buffer);
         buffer = parsed.rest;
         for (const event of parsed.events) {
           chunks.push(event);
+          if (event.usage) {
+            receivedUsage = normalizeProviderUsage(event.usage);
+          }
           const delta = event.choices?.[0]?.delta;
           if (delta?.tool_calls && delta.tool_calls.length > 0) {
             suppressDeltas = true;
@@ -487,12 +617,29 @@ async function callModelOnce(
         break;
       }
     }
+    const responseComplete = chunks.some((chunk) =>
+      chunk.choices?.some((choice) => Boolean(choice.finish_reason)),
+    );
+    if (!responseComplete) {
+      throw new Error("Model stream ended before a completion marker");
+    }
     return aggregateStreamChunks(chunks);
   } catch (err) {
-    throw formatModelFetchError(err, config, timeoutMs, {
+    if (err instanceof ModelCallHttpError) {
+      throw err;
+    }
+    const failure = formatModelFetchError(err, config, timeoutMs, {
       userAbort: combined.wasUserAbort() || err instanceof ModelCallUserAbortError,
     });
+    if (receivedUsage) {
+      partialFailureUsage.set(failure, receivedUsage);
+    }
+    throw failure;
   } finally {
+    if (reader) {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
     combined.cleanup();
   }
 }
@@ -527,15 +674,39 @@ async function callModelWithRetryHeld(
   const maxRetries = config.maxRetries ?? DEFAULT_MODEL_MAX_RETRIES;
   let current = messages;
   let attempt = 0;
+  let httpAttempt = 0;
+  const notifyUsage = (event: ModelUsageEvent) => {
+    try {
+      opts.onModelUsage?.(event);
+    } catch {
+      /* Accounting must not retry a successful request. */
+    }
+  };
   let pairingRepairUsed = false;
   let lastError: Error | undefined;
   for (;;) {
+    const startedAt = Date.now();
+    httpAttempt += 1;
     try {
       const response = await callModelOnce(config, current, tools, opts);
       noteModelSampleSuccess();
+      notifyUsage({
+        attempt: httpAttempt,
+        latencyMs: Date.now() - startedAt,
+        usage: response.usage,
+        failed: false,
+      });
       return response;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      // 失败也记账：只记成功的账本一定低估成本，也看不出重试花了多少。
+      notifyUsage({
+        attempt: httpAttempt,
+        latencyMs: Date.now() - startedAt,
+        usage: err instanceof Error ? partialFailureUsage.get(err) : undefined,
+        failed: true,
+        errorKind: modelFailureKind(err),
+      });
       if (err instanceof ModelCallHttpError && err.status === 429) {
         noteModelRateLimit();
       }

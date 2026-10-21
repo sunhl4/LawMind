@@ -64,8 +64,9 @@ test.describe("LawMind settings page", () => {
     await expect(page.getByTestId("lm-assistants-quick-create")).toBeVisible();
     await expect(page.getByTestId("lm-settings-nav-assistants")).toBeVisible();
 
+    // 侧栏只留律师日常项：协作在侧栏，角色/作业标准/版本与授权保持深链可达但不上栏。
+    await expect(page.getByTestId("lm-settings-nav-collaboration")).toBeVisible();
     await expect(page.getByTestId("lm-settings-nav-roles")).toHaveCount(0);
-    await expect(page.getByTestId("lm-settings-nav-collaboration")).toHaveCount(0);
     await expect(page.getByTestId("lm-settings-nav-skills")).toHaveCount(0);
     await expect(page.getByTestId("lm-settings-nav-edition")).toHaveCount(0);
 

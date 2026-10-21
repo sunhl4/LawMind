@@ -15,6 +15,14 @@ describe("friendlyModelErrorMessage", () => {
     expect(friendlyModelErrorMessage(raw)).not.toContain("request_id");
   });
 
+  it("does not mistake an ephemeral port containing 429 for a rate limit", () => {
+    expect(
+      friendlyModelErrorMessage(
+        "Model API error 400 (baseUrl=http://127.0.0.1:54291): bad request",
+      ),
+    ).not.toContain("请求过于频繁");
+  });
+
   it("maps generic Model API error without leaking JSON", () => {
     const raw = "Model API error 502: upstream failed";
     expect(friendlyModelErrorMessage(raw)).toMatch(/暂时不可用|异常/);

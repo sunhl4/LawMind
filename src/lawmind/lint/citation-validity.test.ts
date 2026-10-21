@@ -53,4 +53,33 @@ describe("lintCitationValidity", () => {
     expect(report.findings.some((f) => f.ruleId === "citation.repealed_nearby")).toBe(true);
     expect(report.coverageNote).toContain("通过 ≠ 法律正确");
   });
+
+  it("flags syntactically malformed citations as citation.malformed", () => {
+    const empty = lintCitationValidity("依据《》第1条处理。");
+    expect(empty.some((f) => f.ruleId === "citation.malformed")).toBe(true);
+
+    const articleInside = lintCitationValidity("依据《合同法第35条》处理。");
+    expect(articleInside.some((f) => f.ruleId === "citation.malformed")).toBe(true);
+
+    const missingNumeral = lintCitationValidity("依据《合同法》第条处理。");
+    expect(missingNumeral.some((f) => f.ruleId === "citation.malformed")).toBe(true);
+
+    const unclosed = lintCitationValidity("依据《民法典第586条处理付款义务。");
+    expect(unclosed.some((f) => f.ruleId === "citation.malformed")).toBe(true);
+  });
+
+  it("does not flag well-formed citations as malformed", () => {
+    const clean = lintCitationValidity("依据《民法典》第586条，定金条款有效。");
+    expect(clean.some((f) => f.ruleId === "citation.malformed")).toBe(false);
+  });
+
+  it("reports unclosed brackets even when no valid citation exists", () => {
+    const cleanText = lintCitationValidity("参见《劳动法 相关条款》的说明。");
+    expect(cleanText.some((f) => f.ruleId === "citation.malformed")).toBe(false);
+    expect(
+      lintCitationValidity("参见《劳动法处理工资欠付争议。").some(
+        (f) => f.ruleId === "citation.malformed",
+      ),
+    ).toBe(true);
+  });
 });

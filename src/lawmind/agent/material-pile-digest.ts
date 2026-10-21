@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { extractLegalEvents } from "../desk/legal-event-extract.js";
 import { classifyDocumentGenre, type DocumentGenre } from "../intent/document-genre.js";
+import { createModelUsageRecorder } from "../models/model-usage.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { resolveLawyerLocalFile } from "../runtime/lawyer-local-file.js";
 import {
@@ -17,7 +18,12 @@ import {
 } from "../runtime/list-dir.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import { elideMiddle } from "./text-elide.js";
-import { isOcrImagePath, readImageTextHybrid } from "./tools/legal/ingest-helpers.js";
+import {
+  isOcrImagePath,
+  readImageTextHybrid,
+  visionUsageContextFromAgentCtx,
+  type VisionOcrUsageContext,
+} from "./tools/legal/ingest-helpers.js";
 import { extractReadableFileText } from "./tools/legal/read-folder-documents-tool.js";
 import type { AgentContext, ToolCallResult } from "./types.js";
 import { isIncompleteWorkerBrief } from "./worker-brief.js";
@@ -258,7 +264,9 @@ export async function digestMaterialPile(
     };
   });
 
-  const readImage = deps?.readImage ?? readPileImageText;
+  const readImage =
+    deps?.readImage ??
+    ((abs: string) => readPileImageText(abs, visionUsageContextFromAgentCtx(ctx)));
   let ocrUsed = 0;
   for (let i = 0; i < extracted.length; i += 1) {
     const row = extracted[i];
@@ -502,7 +510,18 @@ async function summarizeOneFile(
       },
     ],
     [],
-    { signal: input.signal },
+    {
+      signal: input.signal,
+      onModelUsage: createModelUsageRecorder(ctx.workspaceDir, {
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        matterId: ctx.matterId,
+        model: model.model,
+        provider: model.provider,
+        purpose: "worker",
+        billingScope: ctx.billingScope,
+      }),
+    },
   );
   const content = response.choices?.[0]?.message?.content ?? "";
   return parseDigestFilePayload(typeof content === "string" ? content : "");
@@ -632,9 +651,12 @@ function stripFence(text: string): string {
   return fenced?.[1]?.trim() || text;
 }
 
-async function readPileImageText(abs: string): Promise<string | null> {
+async function readPileImageText(
+  abs: string,
+  usageCtx?: VisionOcrUsageContext,
+): Promise<string | null> {
   try {
-    const hit = await readImageTextHybrid(abs);
+    const hit = await readImageTextHybrid(abs, usageCtx);
     return hit?.text?.trim() || null;
   } catch {
     return null;

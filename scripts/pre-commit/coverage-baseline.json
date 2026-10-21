@@ -3,9 +3,9 @@
   "tolerancePct": 1.5,
   "maxHeadroomPct": 3,
   "floors": {
-    "statements": 62.77,
-    "branches": 53.27,
-    "functions": 61.99,
-    "lines": 62.88
+    "statements": 69.46,
+    "branches": 59.95,
+    "functions": 70.14,
+    "lines": 69.53
   }
 }

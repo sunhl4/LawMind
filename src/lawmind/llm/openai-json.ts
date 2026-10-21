@@ -35,6 +35,16 @@ export type JsonResponseSchema = {
   schema: Record<string, unknown>;
 };
 
+export type JsonModelUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number } | null;
+  completion_tokens_details?: { reasoning_tokens?: number } | null;
+};
+
 export type OpenAiJsonClientConfig = {
   baseUrl: string;
   apiKey: string;
@@ -140,7 +150,21 @@ export function buildJsonResponseFormat(
 export async function completeJsonObject<T>(
   cfg: OpenAiJsonClientConfig,
   messages: Array<{ role: ChatRole; content: string }>,
-  opts?: { schema?: JsonResponseSchema; env?: NodeJS.ProcessEnv },
+  opts?: {
+    schema?: JsonResponseSchema;
+    env?: NodeJS.ProcessEnv;
+    /**
+     * 逐次调用回调（含失败/重试）。用于把路由/推理这类「旁路模型」也记进同一本账。
+     * 回调抛错不得影响采样。
+     */
+    onAttempt?: (info: {
+      attempt: number;
+      latencyMs: number;
+      failed: boolean;
+      errorKind?: string;
+      usage?: JsonModelUsage;
+    }) => void;
+  },
 ): Promise<T | null> {
   const limits = sidecarLimits(cfg);
   const timeoutMs = cfg.timeoutMs ?? limits.timeoutMs;
@@ -153,6 +177,23 @@ export async function completeJsonObject<T>(
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const startedAt = Date.now();
+    /** 记账回调失败不得影响采样：这是与模型可用性无关的旁路。 */
+    const report = (info: {
+      failed: boolean;
+      errorKind?: string;
+      usage?: JsonModelUsage;
+    }): void => {
+      try {
+        opts?.onAttempt?.({
+          attempt: attempt + 1,
+          latencyMs: Date.now() - startedAt,
+          ...info,
+        });
+      } catch {
+        /* accounting must not replay a model request */
+      }
+    };
     try {
       const body = JSON.stringify({
         model: cfg.model,
@@ -180,6 +221,7 @@ export async function completeJsonObject<T>(
             // 但绝不静默——退回到 json_object 这一事实已经记在进程内缓存里，
             // 可用 `listStrictSchemaRejectedHosts()` 观察。
             markStrictSchemaRejected(cfg.baseUrl);
+            report({ failed: true, errorKind: "strict_schema_rejected" });
             responseFormat = { type: "json_object" };
             strictDowngraded = true;
             attempt -= 1; // 本次不计入采样预算
@@ -190,9 +232,11 @@ export async function completeJsonObject<T>(
           attempt + 1 < attempts &&
           shouldRetryTransportFailure(undefined, { httpStatus: res.status })
         ) {
+          report({ failed: true, errorKind: `http_${res.status}` });
           await waitModelRetry(attempt);
           continue;
         }
+        report({ failed: true, errorKind: `http_${res.status}` });
         return null;
       }
       const json = (await res.json()) as {
@@ -200,7 +244,9 @@ export async function completeJsonObject<T>(
           message?: { content?: string | null; reasoning_content?: string | null };
           finish_reason?: string | null;
         }>;
+        usage?: JsonModelUsage;
       };
+      report({ failed: false, usage: json.usage });
       const view = extractAssistantText(json);
       const parsed = view.text ? (safeJsonParse(view.text) as T | null) : null;
       if (
@@ -216,9 +262,11 @@ export async function completeJsonObject<T>(
       await waitModelRetry(attempt);
     } catch (err) {
       if (attempt + 1 < attempts && shouldRetryTransportFailure(err)) {
+        report({ failed: true, errorKind: "transport" });
         await waitModelRetry(attempt);
         continue;
       }
+      report({ failed: true, errorKind: "transport" });
       return null;
     } finally {
       clearTimeout(timer);

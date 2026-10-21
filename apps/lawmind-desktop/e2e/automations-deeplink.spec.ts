@@ -63,7 +63,7 @@ test.describe("自动办件：interval 创建与「查看流程」深链", () =>
     await expect(page.getByRole("heading", { name: "创建" })).toBeVisible();
     await expect(page.getByTestId("lm-mail-accounts")).toBeVisible();
     await expect(page.getByRole("heading", { name: "待拍板的运行结果" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "批准发送", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "签批发送", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "已知悉", exact: true })).toHaveCount(0);
   });
 
@@ -74,6 +74,8 @@ test.describe("自动办件：interval 创建与「查看流程」深链", () =>
     await search.fill("协作");
     await search.press("Enter");
     await expect(page.getByText("交出去的活和按流程办在这一页。")).toBeVisible({ timeout: 30_000 });
+    // 「按流程办」是协作台上的第二个分区，不是设置页上的并列区块。
+    await page.getByRole("button", { name: "按流程办", exact: true }).click();
     const openFlow = page.getByRole("button", { name: "查看进度", exact: true }).first();
     await expect(openFlow).toBeVisible({ timeout: 30_000 });
     await openFlow.click();

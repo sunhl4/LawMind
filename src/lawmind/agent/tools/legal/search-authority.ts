@@ -8,6 +8,11 @@ import { createAuthorityAdapterFromEnv } from "../../../retrieval/authority-adap
 import { isDemoCorpusResult } from "../../../retrieval/authority-gap.js";
 import { buildAuthorityCorpusSummary } from "../../../retrieval/authority-health.js";
 import {
+  authorityCallSucceeded,
+  authorityFailureMessage,
+  type AuthorityCallOutcome,
+} from "../../../retrieval/authority-outcome.js";
+import {
   resolveAuthorityProvider,
   type AuthorityProviderId,
 } from "../../../retrieval/authority-provider.js";
@@ -28,6 +33,8 @@ export type AuthorityChatHit = {
 };
 
 export type AuthorityChatRetrieve = {
+  configured?: boolean;
+  outcome?: AuthorityCallOutcome;
   live: boolean;
   provider: AuthorityProviderId;
   providerLabel: string;
@@ -82,9 +89,11 @@ function hitsFromRetrieval(result: RetrievalResult): AuthorityChatHit[] {
     const source =
       src.provider === "pkulaw"
         ? "北大法宝"
-        : src.provider === "open-law.npc_flk"
-          ? "国家法律法规数据库"
-          : src.provider?.trim() || "权威库";
+        : src.provider === "yuandian"
+          ? "元典智库"
+          : src.provider === "open-law.npc_flk"
+            ? "国家法律法规数据库"
+            : src.provider?.trim() || "权威库";
     return {
       source,
       snippet,
@@ -106,10 +115,12 @@ export async function retrieveAuthorityHitsForChat(opts: {
   const commercialLive = isAuthorityLive();
   const provider = resolveAuthorityProvider();
   const empty = (live: boolean): AuthorityChatRetrieve => ({
+    configured: commercialLive,
+    outcome: { status: "not_configured", hitCount: 0 },
     live,
     provider: summary.provider,
     providerLabel: summary.providerLabel,
-    sourceTier,
+    sourceTier: "sample",
     hits: [],
     riskFlags: [],
     missingItems: [],
@@ -131,15 +142,19 @@ export async function retrieveAuthorityHitsForChat(opts: {
   const officialHits = result.sources.some(
     (src) => src.demo !== true && Boolean(src.provider && src.provider !== "open-law.local"),
   );
-  const live = commercialLive || officialHits;
+  const live = commercialLive
+    ? result.authorityOutcome != null && authorityCallSucceeded(result.authorityOutcome.status)
+    : officialHits;
   const hits = hitsFromRetrieval(result);
   const openOfficialLabel = hits.find((h) => h.source === "国家法律法规数据库")?.source;
   return {
+    configured: commercialLive,
+    outcome: result.authorityOutcome,
     live,
     provider: summary.provider,
     providerLabel:
       live && !commercialLive && openOfficialLabel ? openOfficialLabel : summary.providerLabel,
-    sourceTier,
+    sourceTier: live ? "live" : sourceTier === "live" ? "sample" : sourceTier,
     hits,
     riskFlags: result.riskFlags,
     missingItems: result.missingItems,
@@ -154,8 +169,15 @@ export function mergeStatuteSearchNote(opts: {
   workspaceHitCount: number;
   kind: "law" | "case";
   demoCorpus?: boolean;
+  outcome?: AuthorityCallOutcome;
 }): { note: string; refusalRequired?: boolean; authority: "live" | "none" } {
   const noun = opts.kind === "case" ? "案例" : "法条";
+  if (opts.outcome && !authorityCallSucceeded(opts.outcome.status)) {
+    return {
+      authority: "none",
+      note: `${opts.providerLabel}：${authorityFailureMessage(opts.outcome.status)}这不代表不存在相关${noun}。可继续根据已有材料分析、整理和起草；仅将缺少来源的引用标为待核实，不得编造条文、案号或声称已核实。${opts.workspaceHitCount > 0 ? "以下工作区线索仍可使用，引用前需核实。" : ""}`,
+    };
+  }
   if (opts.demoCorpus === true && opts.authorityHitCount > 0) {
     return {
       authority: "none",

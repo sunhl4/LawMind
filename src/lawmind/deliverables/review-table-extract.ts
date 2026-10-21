@@ -22,6 +22,7 @@ import {
 export type ReviewDocKind = "text" | "image" | "pdf" | "docx" | "xlsx" | "unknown";
 
 export type ReviewExtractDoc = {
+  sourceVersion?: string;
   /** 相对路径；写进 source 与来源列。 */
   relPath: string;
   /** 已抽取正文；空/缺省时触发 OCR 兜底（若有 absolutePath）。 */
@@ -45,12 +46,37 @@ export type ReviewExtractCellOk = {
   locator?: string;
   confidence?: "high" | "medium" | "low";
   note?: string;
+  /**
+   * 该值的依据强度（2026-10-21 新增）：
+   * - `exact_quote`：原文命中行与列名角色吻合，可当作可核验；
+   * - `pattern_only`：只有模式命中，原文没有对应字段字样，需核对；
+   * - `abstained`：弃答（不写值）。
+   */
+  basis?: ReviewCellBasis;
+  /** 同格的其他可能值，供模型/律师判断；不进入单元格。 */
+  candidates?: ReviewExtractCandidate[];
 };
+
+/** 同格候选：值 + 定位 + 命中行原文。 */
+export type ReviewExtractCandidate = {
+  value: string;
+  locator: string;
+  lineText: string;
+  patternLabel: string;
+};
+
+export type ReviewCellBasis = "exact_quote" | "pattern_only" | "abstained";
 
 export type ReviewExtractCellFail = {
   ok: false;
   /** 弃答原因；必填，避免静默空值。 */
   reason: string;
+  /**
+   * 多处可能值、无法判定取哪一个。
+   * 上层不得把它当「证据不足」悄悄吞掉——要带着候选交给模型/律师定。
+   */
+  ambiguous?: boolean;
+  candidates?: ReviewExtractCandidate[];
 };
 
 export type ReviewExtractCellResult = ReviewExtractCellOk | ReviewExtractCellFail;
@@ -89,6 +115,8 @@ export type ReviewExtractStats = {
   cells: number;
   filled: number;
   abstained: number;
+  /** 多候选、无法判定取哪个的格数（交给模型/律师定，不算弃答）。 */
+  ambiguous: number;
   ocrUsed: number;
   ocrFailed: number;
   readFailed: number;
@@ -223,6 +251,7 @@ export async function extractReviewTable(opts: {
     cells: 0,
     filled: 0,
     abstained: 0,
+    ambiguous: 0,
     ocrUsed: 0,
     ocrFailed: 0,
     readFailed: 0,
@@ -341,19 +370,31 @@ export async function extractReviewTable(opts: {
       stats.cells += 1;
       if (result.ok && result.value.trim()) {
         row.cells[col.key] = result.value.trim();
+        const basis = result.basis ?? (fromOcr ? "pattern_only" : "exact_quote");
         const meta: ReviewCellMeta = {
           source: buildCellSource(doc.relPath, result.locator),
           confidence: result.confidence ?? (fromOcr ? "low" : "medium"),
+          basis,
           ...(result.note ? { note: result.note } : fromOcr ? { note: "OCR 只读抽取" } : {}),
+          ...(result.candidates && result.candidates.length > 0
+            ? { candidates: result.candidates }
+            : {}),
         };
         row.cellMeta![col.key] = meta;
         stats.filled += 1;
       } else {
         row.cells[col.key] = REVIEW_TABLE_ABSTAIN_TEXT;
+        if (!result.ok && result.ambiguous === true) {
+          stats.ambiguous += 1;
+        }
         row.cellMeta![col.key] = {
           abstained: true,
           note: result.ok ? "证据不足" : result.reason,
           confidence: "low",
+          basis: "abstained",
+          ...(result.candidates && result.candidates.length > 0
+            ? { candidates: result.candidates }
+            : {}),
         };
         stats.abstained += 1;
       }
@@ -389,6 +430,11 @@ export async function extractReviewTable(opts: {
           message: `读取：${doc.relPath}`,
         });
         rows[index] = await extractOne(doc, index);
+        if (doc.sourceVersion) {
+          for (const meta of Object.values(rows[index].cellMeta ?? {})) {
+            meta.sourceVersion = doc.sourceVersion;
+          }
+        }
       }
     },
   );
@@ -422,6 +468,9 @@ export function summarizeReviewExtract(stats: ReviewExtractStats): string {
     `${stats.filled} 格有出处`,
     `${stats.abstained} 格弃答`,
   ];
+  if (stats.ambiguous > 0) {
+    parts.push(`${stats.ambiguous} 格需确认取哪个值`);
+  }
   if (stats.ocrUsed > 0) {
     parts.push(`${stats.ocrUsed} 份走扫描件识别`);
   }

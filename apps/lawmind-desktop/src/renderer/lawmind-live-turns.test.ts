@@ -73,15 +73,10 @@ describe("live turns across conversations", () => {
 
   it("does not let a background turn clear the conversation now on screen", () => {
     const live = turn({ assistantId: "lawyer", boundSessionId: "s-a" });
-    expect(
-      turnStillOwnsComposer(live, { assistantId: "lawyer", sessionId: "s-a" }),
-    ).toBe(true);
-    expect(
-      turnStillOwnsComposer(live, { assistantId: "lawyer", sessionId: "s-b" }),
-    ).toBe(false);
-    expect(
-      turnStillOwnsComposer(live, { assistantId: "other", sessionId: "s-a" }),
-    ).toBe(true);
+    expect(turnStillOwnsComposer(live, { sessionId: "s-a" })).toBe(true);
+    expect(turnStillOwnsComposer(live, { sessionId: "s-b" })).toBe(false);
+    const focusAfterAssistantChange = { assistantId: "other", sessionId: "s-a" };
+    expect(turnStillOwnsComposer(live, focusAfterAssistantChange)).toBe(true);
   });
 
   it("keys follow-ups by session so a new conversation does not inherit the queue", () => {

@@ -130,7 +130,7 @@ function lawyerNote(raw: string | undefined): string | undefined {
   return line.slice(0, 180);
 }
 
-function lawyerFleetChatTitle(session: ReturnType<typeof listSessions>[number]): string {
+function lawyerFleetChatTitle(session: ReturnType<typeof listSessionsForDesk>[number]): string {
   const titled = displayChatSessionTitle(session);
   if (titled !== DEFAULT_CHAT_SESSION_TITLE) {
     return titled;
@@ -146,7 +146,7 @@ function lawyerFleetChatTitle(session: ReturnType<typeof listSessions>[number]):
 }
 
 function settledChat(
-  session: ReturnType<typeof listSessions>[number],
+  session: ReturnType<typeof listSessionsForDesk>[number],
   live: boolean,
 ): { status: AgentRunStatus; instruction: string; note?: string } | null {
   if (live) {
@@ -180,7 +180,7 @@ function assistantLabel(
 }
 
 function lastTurnStatus(
-  session: ReturnType<typeof listSessions>[number],
+  session: ReturnType<typeof listSessionsForDesk>[number],
   live: boolean,
 ): AgentRunStatus | null {
   const last = session.turns[session.turns.length - 1];

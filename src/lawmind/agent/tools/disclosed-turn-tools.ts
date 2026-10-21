@@ -194,8 +194,21 @@ export function collectEnabledSkillToolNames(_workspaceDir?: string): string[] {
 
 /** Extra tools for a bound 办件 — mail/word still get job tools; playbook only denies mis-send/rebuild. */
 const CAPABILITY_EXTRA_TOOLS: Record<string, readonly string[]> = {
-  "contract.review": ["search_case_law", "calculate", "compare_documents", "search_workspace"],
-  "letter.draft": ["search_case_law", "calculate", "compare_documents", "search_workspace"],
+  "contract.review": [
+    "search_case_law",
+    "calculate",
+    "compare_documents",
+    "check_document_format",
+    "fix_document_format",
+    "search_workspace",
+  ],
+  "letter.draft": [
+    "search_case_law",
+    "calculate",
+    "compare_documents",
+    "check_document_format",
+    "search_workspace",
+  ],
   "mail.contract": ["search_case_law", "calculate", "compare_documents", "search_workspace"],
   "labor.calc": ["calculate", "run_compute"],
   "period.calc": ["calculate"],
@@ -206,7 +219,13 @@ const CAPABILITY_EXTRA_TOOLS: Record<string, readonly string[]> = {
     "search_statute_web",
   ],
   "analysis.quick": ["search_case_law", "run_compute"],
-  "litigation.draft": ["search_case_law", "calculate", "search_workspace", "compare_documents"],
+  "litigation.draft": [
+    "search_case_law",
+    "calculate",
+    "search_workspace",
+    "compare_documents",
+    "check_document_format",
+  ],
   "litigation.talk": [...DESK_TALK_TOOLS],
   "ops.invoice": [...DESK_INVOICE_TOOLS],
   "ops.court_sms": [...DESK_EVENTS_TOOLS],
@@ -221,7 +240,13 @@ const CAPABILITY_EXTRA_TOOLS: Record<string, readonly string[]> = {
   "capital.markets": ["search_case_law"],
   "corp.governance": ["search_case_law"],
   "materials.draft": ["search_workspace", "compare_documents"],
-  "contract.draft": ["search_case_law", "search_workspace", "compare_documents"],
+  "contract.draft": [
+    "search_case_law",
+    "search_workspace",
+    "compare_documents",
+    "check_document_format",
+    "fix_document_format",
+  ],
 };
 
 export function extraToolsForInstruction(

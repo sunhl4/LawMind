@@ -32,6 +32,23 @@ export type ReviewCellMeta = {
   abstained?: boolean;
   /** 抽取方式说明（OCR / 正则 / 模型）。 */
   note?: string;
+  /**
+   * 这一格凭什么算「可核验」（2026-10-21 新增）：
+   * - `exact_quote`：原文命中行与列名角色吻合；
+   * - `pattern_only`：只有模式命中，原文没有对应字段字样 —— 需核对，不作为可核验；
+   * - `abstained`：弃答。
+   * 缺省表示历史数据，按旧口径（有 source 即可核验）。
+   */
+  basis?: "exact_quote" | "pattern_only" | "abstained";
+  /** 同格的其他可能值（多金额/多主体场景），供模型或律师定夺。 */
+  candidates?: Array<{
+    value: string;
+    locator: string;
+    lineText: string;
+    patternLabel: string;
+  }>;
+  /** 抽取时的来源文件版本（供「原文改过、旧证据失效」判断）。 */
+  sourceVersion?: string;
 };
 
 export type ReviewTableRow = {
@@ -226,7 +243,14 @@ export function reviewTableContentColumns(table: {
 
 /** 逐格溯源状态（供验收与 UI 共用）。 */
 export type CellProvenance =
-  | { state: "sourced"; source: string; confidence?: "high" | "medium" | "low" }
+  | {
+      state: "sourced";
+      source: string;
+      confidence?: "high" | "medium" | "low";
+      /** `pattern_only` 表示「有出处但只靠模式命中」，不算可核验。 */
+      basis?: ReviewCellMeta["basis"];
+      note?: string;
+    }
   | { state: "abstained"; reason?: string }
   | { state: "missing" };
 
@@ -244,6 +268,8 @@ export function cellProvenance(row: ReviewTableRow, columnKey: string): CellProv
       state: "sourced",
       source,
       ...(meta?.confidence ? { confidence: meta.confidence } : {}),
+      ...(meta?.basis ? { basis: meta.basis } : {}),
+      ...(meta?.note ? { note: meta.note } : {}),
     };
   }
   return { state: "missing" };
@@ -263,20 +289,51 @@ export function reviewTableAcceptanceProblems(table: ReviewTable): string[] {
   }
   const valueColumns = reviewTableValueColumns(table);
   let unsourcedRows = 0;
+  // 「有出处但只靠模式命中」不当作可核验：错的金额正是这样混进来的。
+  let patternOnlyRows = 0;
+  let ambiguousRows = 0;
   for (const row of table.rows) {
-    const hasUnsourcedValue = valueColumns.some((c) => {
-      const value = (row.cells[c.key] ?? "").trim();
+    let missing = false;
+    let weak = false;
+    let ambiguous = false;
+    for (const column of valueColumns) {
+      const value = (row.cells[column.key] ?? "").trim();
       if (!value) {
-        return false;
+        continue;
       }
-      return cellProvenance(row, c.key).state === "missing";
-    });
-    if (hasUnsourcedValue) {
+      const provenance = cellProvenance(row, column.key);
+      if (provenance.state === "missing") {
+        missing = true;
+        continue;
+      }
+      if (provenance.state === "sourced" && provenance.basis === "pattern_only") {
+        weak = true;
+      }
+      if (provenance.state === "abstained") {
+        const candidates = row.cellMeta?.[column.key]?.candidates;
+        if (candidates && candidates.length > 1) {
+          ambiguous = true;
+        }
+      }
+    }
+    if (missing) {
       unsourcedRows += 1;
+    }
+    if (weak) {
+      patternOnlyRows += 1;
+    }
+    if (ambiguous) {
+      ambiguousRows += 1;
     }
   }
   if (unsourcedRows > 0) {
     problems.push(`${unsourcedRows} 行缺来源`);
+  }
+  if (patternOnlyRows > 0) {
+    problems.push(`${patternOnlyRows} 行仅有模式命中，需核对是否同一字段`);
+  }
+  if (ambiguousRows > 0) {
+    problems.push(`${ambiguousRows} 行有多个候选值，未确定取哪个`);
   }
   return problems;
 }

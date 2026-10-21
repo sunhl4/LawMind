@@ -23,7 +23,7 @@ import {
   writeMatterMailMessage,
 } from "../../../src/lawmind/platform/lawyer-automations.js";
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
-import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
+import { outboundBindingProblems } from "../../../src/lawmind/platform/outbound-approval-binding.js";import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 import { sendMailViaAccount } from "../../../src/lawmind/mail/index.js";
 import { validateAutomationConfirmations } from "../../../src/lawmind/platform/lawyer-automations.js";
 import { validateEventTrigger } from "../../../src/lawmind/platform/automation-event-trigger.js";
@@ -234,9 +234,9 @@ export async function handleAutomationsRoutes({
       );
       return true;
     }
-    let eventTrigger = body.eventTrigger;
-    if (eventTrigger) {
-      const verdict = validateEventTrigger(eventTrigger);
+    let eventTrigger: Parameters<typeof createAutomation>[1]["eventTrigger"];
+    if (body.eventTrigger) {
+      const verdict = validateEventTrigger(body.eventTrigger);
       if (!verdict.ok) {
         sendJsonError(res, 400, "event_trigger_invalid", verdict.message, c);
         return true;
@@ -439,6 +439,22 @@ export async function handleAutomationsRoutes({
     if (body.action === "approve_send") {
       if (!item.pendingSend) {
         sendJsonError(res, 400, "no_pending_send", "该项没有待发送邮件。", c);
+        return true;
+      }
+      // 批准绑定的是这一版：收件人/主题/正文/附件内容任一变化都必须重新批准。
+      const problems = item.pendingSend.binding
+        ? outboundBindingProblems(workspaceDir, item.pendingSend.binding, item.pendingSend)
+        : [];
+      if (problems.length > 0) {
+        sendJson(res, 409, {
+          ok: false,
+          error: "approved_mail_changed",
+          message: [
+            "批准后这份待发邮件发生了变化，已停止发送，请重新批准：",
+            ...problems.map((row) => `- ${row}`),
+          ].join("\n"),
+          problems,
+        }, c);
         return true;
       }
       const sentId = commitOutboundMail(workspaceDir, item.matterId, item.pendingSend);

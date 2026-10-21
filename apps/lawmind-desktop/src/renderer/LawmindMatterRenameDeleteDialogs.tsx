@@ -256,7 +256,7 @@ export function LawmindMatterDeleteDialog({
                     }))
                   }
                 />
-                <span>删除未批准且未导出的草稿</span>
+                <span>删除未签批且未导出的草稿</span>
               </label>
             </fieldset>
             {plan.alwaysKept.length > 0 ? (

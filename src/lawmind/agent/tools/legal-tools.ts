@@ -29,6 +29,8 @@ import { digestMaterialsTool } from "./legal/digest-materials-tool.js";
 import { draftWorkerTool } from "./legal/draft-worker-tool.js";
 import { exploreFolderTool } from "./legal/explore-folder-tool.js";
 import { analyzeDocument, writeDocument } from "./legal/file-tools.js";
+import { checkDocumentFormat } from "./legal/format-audit-tool.js";
+import { fixDocumentFormat } from "./legal/format-fix-tool.js";
 import {
   importHostFileTool,
   readHostFileTool,
@@ -108,6 +110,8 @@ export function createLegalToolRegistry(opts?: {
     // 文件操作
     analyzeDocument,
     compareDocuments,
+    checkDocumentFormat,
+    fixDocumentFormat,
     analyzeSpreadsheet,
     writeSpreadsheet,
     renderChart,

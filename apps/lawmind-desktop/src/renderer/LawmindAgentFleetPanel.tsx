@@ -728,7 +728,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     : current?.status === "awaiting_clarification"
       ? "提交补充并继续"
       : isAutomationSend
-        ? "批准发送"
+        ? "签批发送"
         : isAutomationInbox
           ? current?.taskId
             ? "看修订"
@@ -736,7 +736,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
           : current?.status === "awaiting_approval" || isInterruptedRun
             ? approvalDock.primary
             : "打开";
-  const primaryLabel = batchSends ? `批准发送 ${batchSends.length}` : singlePrimaryLabel;
+  const primaryLabel = batchSends ? `签批发送 ${batchSends.length}` : singlePrimaryLabel;
   const rejectLabel = batchSends ? `驳回 ${batchSends.length}` : approvalDock.secondary;
 
   const clarifyComplete =
@@ -759,7 +759,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
       return;
     }
     if (!inboxId) {
-      setError("这封待发信缺少编号，无法批准。");
+      setError("这封待发信缺少编号，无法签批。");
       return;
     }
     setBusy(true);
@@ -779,7 +779,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
         setError(hint ? `已批准，但没有从邮箱发出：${hint}` : "已批准，但没有从邮箱发出。");
       }
     } catch (e) {
-      setError(errorMessage(e, "批准发送失败"));
+      setError(errorMessage(e, "签批发送失败"));
     } finally {
       setBusy(false);
     }
@@ -834,7 +834,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
         setError(
           action === "dismiss"
             ? "这些待发信缺少编号，无法驳回。"
-            : "这些待发信缺少编号，无法批准。",
+            : "这些待发信缺少编号，无法签批。",
         );
         return;
       }
@@ -856,13 +856,13 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
               );
             }
           } catch (e) {
-            failures.push(errorMessage(e, action === "dismiss" ? "驳回失败" : "批准发送失败"));
+            failures.push(errorMessage(e, action === "dismiss" ? "驳回失败" : "签批发送失败"));
           }
         }
         onRefreshSummary?.();
         await refresh();
         if (failures.length > 0) {
-          const verb = action === "dismiss" ? "驳回" : "批准发送";
+          const verb = action === "dismiss" ? "驳回" : "签批发送";
           setError(`${verb}有 ${failures.length} 件没完成。${failures[0]}`);
         }
       } finally {
@@ -895,9 +895,9 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     }
     if (
       !(await confirmDialog({
-        title: `批准发送这 ${batchSends.length} 件？`,
+        title: `签批发送这 ${batchSends.length} 件？`,
         body: "会按每件写好的收件人和附件发出。",
-        confirmLabel: "批准发送",
+        confirmLabel: "签批发送",
       }))
     ) {
       return;

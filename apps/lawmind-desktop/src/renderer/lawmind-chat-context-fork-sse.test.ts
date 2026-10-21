@@ -42,6 +42,37 @@ const BASE_ARGS = {
 };
 
 describe("sendChatTurnStream · 退让反弹的渲染端接线", () => {
+  it("exposes approval requests and exact turn identity to the UI", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse([
+      sse("turn_started", { sessionId: "s1", turnId: "turn1" }),
+      sse("approval_request", { toolCallId: "pending-tool" }),
+    ])));
+    const onApprovalRequest = vi.fn();
+    const result = await sendChatTurnStream(BASE_ARGS, { onApprovalRequest });
+    expect(result).toMatchObject({ sessionId: "s1", turnId: "turn1", needsReconcile: true });
+    expect(onApprovalRequest).toHaveBeenCalledWith({ toolCallId: "pending-tool" });
+  });
+
+  it.each([false, true])("reconciles clean EOF or read failure without resending (error=%s)", async (fails) => {
+    let reads = 0;
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (reads++ === 0) {
+          controller.enqueue(encoder.encode(sse("session", { sessionId: "recover-me" })));
+        } else if (fails) { controller.error(new Error("connection lost")); }
+        else { controller.close(); }
+      },
+    });
+    const fetchMock = vi.fn(async () => new Response(body, { headers: { "content-type": "text/event-stream" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const onSession = vi.fn();
+    const result = await sendChatTurnStream(BASE_ARGS, { onSession });
+    expect(result).toMatchObject({ sessionId: "recover-me", needsReconcile: true });
+    expect(onSession).toHaveBeenCalledWith("recover-me");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("delta 里的推诿原文先流出去，随后 bounce 事件到达（界面据此清空）", async () => {
     const PUNT = "本轮上下文预算已接近上限，请另开一轮。";
     const deltas: string[] = [];

@@ -669,6 +669,20 @@ export function projectToolResultForSampling(content: string): string {
     ...(hit.url ? { url: hit.url } : {}),
   }));
   const slim: Record<string, unknown> = {};
+  // Service status is evidence, not duplicate packaging. Preserve it for the next sample.
+  for (const key of [
+    "authorityOutcome",
+    "authorityLive",
+    "authorityConfigured",
+    "authorityProvider",
+    "authority",
+    "refusalRequired",
+    "sourceTier",
+  ] as const) {
+    if (key in data) {
+      slim[key] = data[key];
+    }
+  }
   if (typeof data.query === "string") {
     slim.query = data.query;
   }

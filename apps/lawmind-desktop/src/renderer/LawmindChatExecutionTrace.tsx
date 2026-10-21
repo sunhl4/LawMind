@@ -13,12 +13,14 @@ type Props = {
 };
 
 function statusIcon(status: ChatLiveTrace["steps"][number]["status"]): string {
+  if (status === "paused") { return "Ⅱ"; }
   if (status === "running") {return "◌";}
   if (status === "failed") {return "✕";}
   return "✓";
 }
 
 function stepStatusLabel(status: ChatLiveTrace["steps"][number]["status"]): string {
+  if (status === "paused") { return "等待确认"; }
   if (status === "running") {return "进行中";}
   if (status === "failed") {return "失败";}
   return "已完成";
@@ -58,7 +60,7 @@ function LawmindChatExecutionTraceInner(props: Props): ReactNode {
     >
       <div className="lm-chat-trace-head">
         <div className="lm-chat-trace-title">
-          {isActive ? "思考中…" : summary ? `已完成 · ${summary}` : "过程"}
+          {isActive ? "思考中…" : summary || "过程"}
           {isActive ? titleRound : null}
         </div>
         {canCollapse ? (

@@ -21,7 +21,7 @@ test.describe("LawMind approval queue", () => {
   test("tool approval card resumes without manual __approved JSON", async ({ page }) => {
     await gotoShell(page);
     await openWorkspaceChat(page);
-    await expect(page.getByRole("button", { name: /批准并继续/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("button", { name: /签批并继续/ })).toBeVisible({ timeout: 15_000 });
     const resumeRes = await approveToolViaDialog(page);
     const resumeJson = (await resumeRes.json()) as { resumeEcho?: { decision?: string } };
     expect(resumeJson.resumeEcho?.decision).toBe("approve");
@@ -35,7 +35,7 @@ test.describe("LawMind approval queue", () => {
     const perm = page.getByLabel("工具权限模式", { exact: true });
     await perm.selectOption("strict");
     await expect(perm).toHaveValue("strict");
-    await expect(page.getByRole("button", { name: /批准并继续/ })).toBeVisible({
+    await expect(page.getByRole("button", { name: /签批并继续/ })).toBeVisible({
       timeout: 15_000,
     });
   });

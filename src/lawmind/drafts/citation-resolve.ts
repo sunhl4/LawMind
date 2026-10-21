@@ -1,6 +1,6 @@
 import type { ArtifactDraft } from "../types.js";
 import {
-  validateDraftCitationsAgainstBundle,
+  verifyDraftCitationEvidence,
   type DraftCitationIntegrityView,
 } from "./citation-integrity.js";
 import { readResearchSnapshot } from "./research-snapshot.js";
@@ -13,6 +13,6 @@ export function resolveDraftCitationIntegrity(
   if (!bundle) {
     return { checked: false, reason: "no_research_snapshot" };
   }
-  const r = validateDraftCitationsAgainstBundle(draft, bundle);
+  const r = verifyDraftCitationEvidence({ rootDir: workspaceDir, draft, bundle });
   return { checked: true, ...r };
 }

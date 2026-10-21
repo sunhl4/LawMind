@@ -5,9 +5,12 @@
 import { recordContextPressure } from "../metrics/context-pressure.js";
 import {
   mergeUsageSnapshots,
+  createModelUsageRecorder,
   usageFromProvider,
   type ModelUsageSnapshot,
 } from "../models/model-usage.js";
+import { resolveSamplingParameters } from "../models/sampling-parameters.js";
+import { ToolTableMeter } from "../models/tool-table-fingerprint.js";
 import { makeContextPinId } from "../platform/compose-context-pin.js";
 import {
   readWorkspacePolicyFile,
@@ -16,53 +19,26 @@ import {
 import {
   applySameTurnVerifyHistoryCollapse,
   collapseSameTurnVerifyHistoryForTurnEnd,
-  formatSameTurnCompletionBounce,
-  formatSameTurnVerifyCapDeliver,
-  formatSameTurnVerifyLawyerProgress,
   shouldBounceSameTurnCompletion,
-  shouldPauseSameTurnVerify,
 } from "../runtime/same-turn-verify.js";
 import type { ToolCallRef } from "../runtime/tool-concurrency.js";
 import { contextUsesHostFileLedger } from "../runtime/tool-pipeline.js";
 import type { ClarificationQuestion } from "../types.js";
 import { claimAndApplyWorkGoal } from "../work/goal.js";
-import { estimateTokenBudget } from "./context-budget.js";
-import {
-  dropContextDeferralBounces,
-  formatContextDeferralBounce,
-  formatContextDeferralHandoff,
-  isContextBudgetDeferralReply,
-} from "./context-deferral.js";
+import { estimateTextTokens, estimateTokenBudget } from "./context-budget.js";
+import { dropContextDeferralBounces } from "./context-deferral.js";
 import {
   MID_TURN_LLM_DIGEST_MIN_CHARS,
   MID_TURN_LLM_DIGEST_TIMEOUT_MS,
   resolveContextTuning,
 } from "./context-tuning.js";
-import {
-  consultListGap,
-  formatConsultQuestionsNudge,
-  formatMemoSectionNudge,
-  formatPleadingSectionNudge,
-  instructionFramesConsultQuestions,
-  instructionFramesMemoDeliverable,
-  instructionFramesPleading,
-  memoSectionGaps,
-  pleadingSectionGaps,
-} from "./deliverable-shape.js";
-import { applyProseSyndrome, appendMechanicalNote } from "./factor-state.js";
+import { consultListGap, pleadingSectionGaps } from "./deliverable-shape.js";
+import { appendMechanicalNote } from "./factor-state.js";
 import { applyMidTurnCompact } from "./mid-turn-compact.js";
 import { friendlyModelErrorMessage } from "./model-error-message.js";
-import {
-  formatMissingDeliverableNudge,
-  missingNamedDeliverables,
-  namedWorkspaceDeliverables,
-} from "./named-deliverable.js";
-import {
-  formatReviewBoardExportBounce,
-  isReviewBoardExportDeferralReply,
-  REVIEW_BOARD_EXPORT_BOUNCE_MAX,
-} from "./review-board-export-deferral.js";
+import { missingNamedDeliverables } from "./named-deliverable.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
+import { runSamplingLoop, sampleModelDecision } from "./sampling-loop.js";
 import { claimAndApplyPendingContextPins, appendContextPins } from "./session-context-inject.js";
 import { claimAndApplyPendingSteer, peekPendingSteer } from "./session-context-steer.js";
 import {
@@ -82,23 +58,25 @@ import {
   deriveModelMessagesForSampling,
   saveSession,
 } from "./session.js";
-import { formatToolBudgetHardStopReply, shouldHardStopToolBudget } from "./tool-budget.js";
-import {
-  resolveToolDecisionMaxTokens,
-  shouldRaiseToolDecisionOutput,
-} from "./tool-decision-sampling.js";
+import { resolveToolDecisionMaxTokens } from "./tool-decision-sampling.js";
 import { applyToolDisclosureDelta } from "./tool-disclosure-delta.js";
 import { mergeTurnDisclosedToolNames } from "./tools/disclosed-turn-tools.js";
 import type { ToolRegistry } from "./tools/registry.js";
 import { emitTurnLifecycle } from "./turn-lifecycle-hooks.js";
 import {
-  buildClarificationReply,
+  resolveToolBudgetStop,
+  runCompletionPolicies,
+  runToolRoundPolicies,
+} from "./turn-loop-policies.js";
+import { createLoopFlags } from "./turn-loop-state.js";
+import {
   buildTurnReplyFallback,
   safeParse,
   type RunTurnEvent,
 } from "./turn-orchestrator-events.js";
 import { executeToolBatches, type ToolRoundPolicyHints } from "./turn-orchestrator-tool-round.js";
 import { applyPendingTurnPlan } from "./turn-plan.js";
+import { resolveTurnProfile } from "./turn-profile.js";
 import { rebuildStepContext, type TurnContext } from "./turn-step-context.js";
 import type { AgentConfig, AgentContext, AgentMessage, AgentSession, AgentTurn } from "./types.js";
 import {
@@ -106,17 +84,7 @@ import {
   applyPendingWorldStateCraftPatch,
   collectWorldStateHashes,
 } from "./world-state.js";
-import {
-  CALCULATE_PARAM_FAILURE_CAP,
-  countSearchCalls,
-  formatCalculateParamStopNudge,
-  formatWriteSynthesisNudge,
-  SEARCH_SYNTHESIS_TOOL_NAMES,
-  shouldSynthesizeBeforeWrite,
-  trailingCalculateParamFailures,
-  turnHasLiveStatuteHit,
-  withholdSearchTools,
-} from "./write-synthesis.js";
+import { SEARCH_SYNTHESIS_TOOL_NAMES } from "./write-synthesis.js";
 
 /**
  * Strict tool streaming is opt-in (D3): desktop/SSE defaults relaxed so tool_calls
@@ -139,262 +107,30 @@ export function shouldWarnToolBudget(used: number, maxToolCalls: number): boolea
 }
 
 /**
- * Same tool batch this many times in a row is a spin, not progress.
- * Nudge once (the model may still change course); the next identical batch stops.
- * A Word-revision reread of a file that already came back `hasMore=false` gets
- * one extra sample after that stop would have fired. The next identical batch
- * still stops. See {@link shouldContinueCompletedDocumentReread}.
+ * Repeat / forbidden-shell / reread helpers live in `turn-loop-policies.ts`
+ * (the ordered policy table that decides when to nudge or stop). Re-exported
+ * here so existing unit tests keep importing from the loop module.
  */
-export const IDENTICAL_TOOL_REPEAT_NUDGE_AT = 3;
-
-/** Reads whose completed payload is `hasMore: false`. Not search, not writers. */
-const COMPLETED_READ_TOOL_NAMES = new Set([
-  "analyze_document",
-  "read_project_file",
-  "read_host_file",
-]);
-
-export type IdenticalToolStreak = {
-  signature: string;
-  streak: number;
-  nudged: boolean;
-};
-
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value) ?? "null";
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableJson(item)).join(",")}]`;
-  }
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).toSorted();
-  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
-}
-
-/** Exact batch the model just requested, argument key order ignored. */
-export function toolCallBatchSignature(
-  calls: ReadonlyArray<{ name: string; arguments: unknown }>,
-): string {
-  return calls.map((call) => `${call.name}\n${stableJson(call.arguments)}`).join("\n---\n");
-}
-
-export function advanceIdenticalToolStreak(
-  prev: IdenticalToolStreak | null,
-  signature: string,
-): IdenticalToolStreak {
-  if (prev && prev.signature === signature) {
-    return { signature, streak: prev.streak + 1, nudged: prev.nudged };
-  }
-  return { signature, streak: 1, nudged: false };
-}
-
-/** Soft coach after a repeated batch; hard stop only if the nudge is ignored. */
-const FORBIDDEN_SHELL_RE = /不允许运行 (?:bash|sh|zsh|dash|fish)/;
-
-/** Count rejected shell binaries in this turn. Different names still count as one loop. */
-export function forbiddenShellRejectionCount(
-  messages: ReadonlyArray<Pick<AgentMessage, "toolCallResponses">>,
-): number {
-  let count = 0;
-  for (const message of messages) {
-    for (const response of message.toolCallResponses ?? []) {
-      const error = response.result.error ?? "";
-      if (FORBIDDEN_SHELL_RE.test(error)) {
-        count += 1;
-      }
-    }
-  }
-  return count;
-}
-
-export function formatForbiddenShellNudge(): string {
-  return "【命令拒绝】zsh、dash、fish 不能运行。bash 或 sh 只能执行工作区内的脚本文件，不能带 -c。不要再试被拒绝的命令。用 bash 脚本、python3 或 write_document 写出用户要的文件，然后结束。";
-}
-
-export function formatForbiddenShellStop(): string {
-  return "被拒绝的命令我已停止再试。bash 或 sh 只能执行工作区内的脚本文件，不能带 -c。需要结果时，请改跑该脚本，或用 python3 / 直接写结果文件。";
-}
-
-export function identicalToolRepeatDecision(state: IdenticalToolStreak): "ok" | "nudge" | "stop" {
-  if (state.streak < IDENTICAL_TOOL_REPEAT_NUDGE_AT) {
-    return "ok";
-  }
-  return state.nudged ? "stop" : "nudge";
-}
-
-export function formatIdenticalToolRepeatNudge(): string {
-  return "【重复调用】刚才这组工具和参数已经连续重复，没有新信息。换一种做法，或根据已有结果直接写回复。";
-}
-
-export function formatDocumentRereadNudge(opts: {
-  totalChars?: number;
-  wordRevision: boolean;
-}): string {
-  const chars =
-    typeof opts.totalChars === "number"
-      ? `（约 ${Math.max(0, Math.floor(opts.totalChars))} 字）`
-      : "";
-  const next = opts.wordRevision
-    ? "不要再读这一份。还没有合同基线就 seed 一次；已有基线就 apply_surgical_edits（定位不到的写入 craft_check.deferred），然后 render_tracked_draft。不要编造原文里没有的句子。"
-    : "不要再读这一份。根据已有正文直接写回复。";
-  return `【重复调用】这份文书已经读完${chars}，相同参数没有新正文。${next}`;
-}
-
-/** One extra sample after a finished reread would have stopped a Word-revision turn. */
-export function formatDocumentRereadContinue(opts: { totalChars?: number }): string {
-  const chars =
-    typeof opts.totalChars === "number"
-      ? `已有正文约 ${Math.max(0, Math.floor(opts.totalChars))} 字。`
-      : "正文已经在上面的工具结果里。";
-  return [
-    "【改稿】同一份文书已读完，再读不会多出正文。",
-    chars,
-    "不要再调用读取工具。还没有合同基线就 seed 一次；已有基线就 apply_surgical_edits（最短锚定；定位不到的写入 craft_check.deferred），然后 render_tracked_draft。",
-    "不要编造原文里没有的句子，也不要再 draft 一份意见稿。",
-  ].join("\n");
-}
-
-const DRAFT_REPEAT_TOOL_NAMES = new Set(["draft_document", "update_draft"]);
-const SEARCH_REPEAT_TOOL_NAMES = new Set([
-  "search_matter",
-  "search_workspace",
-  "search_statute",
-  "search_statute_web",
-  "search_case_law",
-  "search_host",
-  "web_search",
-]);
-
-/** Why the lawyer-facing stop says what it says. Tool ids never appear in that sentence. */
-export type LawyerRepeatKind = "read_done" | "read_stuck" | "draft" | "search" | "other";
-
-export function lawyerRepeatKind(
-  toolNames: readonly string[],
-  readFinished: boolean,
-): LawyerRepeatKind {
-  if (readFinished) {
-    return "read_done";
-  }
-  if (toolNames.length > 0 && toolNames.every((name) => COMPLETED_READ_TOOL_NAMES.has(name))) {
-    return "read_stuck";
-  }
-  if (toolNames.length > 0 && toolNames.every((name) => DRAFT_REPEAT_TOOL_NAMES.has(name))) {
-    return "draft";
-  }
-  if (toolNames.length > 0 && toolNames.every((name) => SEARCH_REPEAT_TOOL_NAMES.has(name))) {
-    return "search";
-  }
-  return "other";
-}
-
-const LAWYER_REPEAT_LEAD: Record<LawyerRepeatKind, string> = {
-  read_done:
-    "这份材料已经读完，再用同样的方式读也不会多出内容，所以先停下来。已经读到的内容都还在。",
-  read_stuck: "同一处又读了好几次，没有读到新的内容，所以先停下来。已经读到的内容都还在。",
-  draft: "起草做了好几次，没有写出新的修改，所以先停下来。已经做好的结果都还在。",
-  search: "同样的查找做了好几次，没有新的结果，所以先停下来。已经查到的内容都还在。",
-  other: "同一步做了好几次，没有新的进展，所以先停下来。已经做好的结果都还在。",
-};
-
-export function formatIdenticalToolRepeatStop(opts?: {
-  kind?: LawyerRepeatKind;
-  /** 这一轮是改原 Word，带修改痕迹的稿还没写到原文件旁边。 */
-  trackedDraftMissing?: boolean;
-  /** 改稿回合到顶：写出已有稿，不要求律师回复继续。 */
-  deliverInstead?: boolean;
-}): string {
-  const parts = [LAWYER_REPEAT_LEAD[opts?.kind ?? "other"]];
-  if (opts?.trackedDraftMissing) {
-    parts.push("带修改痕迹的稿子还没有出现在原文件旁边。");
-  }
-  if (opts?.deliverInstead) {
-    parts.push(
-      "有新修订的，写在原文件旁边。这一轮没有新修订的，不另出一份。原文里没有的数字和身份留在待确认，不因此整单停下。",
-    );
-  } else if (opts?.trackedDraftMissing) {
-    parts.push("缺的数字和身份留在待确认。");
-  } else {
-    parts.push("已经做好的部分就是这一轮的结果。缺的事实留在文中待确认。");
-  }
-  return parts.join("");
-}
-
-/** 改稿回合到了验收或步数阀门。有修订才说写在旁边，没有新修订不声称已经出稿。 */
-export function formatWordRevisionCapStop(): string {
-  return "有新修订的，写在原文件旁边。这一轮没有新修订的，不另出一份。原文里没有的数字和身份留在待确认，不因此整单停下。";
-}
-
-/** 模型收工时还没导出。隐藏续办一次，不无限循环。 */
-export function formatWordRevisionExportNudge(): string {
-  return [
-    "【改稿】这一轮还没有把带修订的 Word 写到原文件旁边。",
-    "子代理交回的原句用 apply_surgical_edits 落上；定位不到的写入 craft_check.deferred。然后 render_tracked_draft。",
-    "不要把子代理已经读过的全文再读进本对话。检查单未覆盖不拦出稿。不要回复已完成。",
-  ].join("\n");
-}
-
-export type CompletedDocumentReread = {
-  /** Set only when the batch is a single completed read with a numeric total. */
-  totalChars?: number;
-};
-
-function toolResultDataByCallId(
-  messages: ReadonlyArray<Pick<AgentMessage, "role" | "toolCallResponses">>,
-): Map<string, Record<string, unknown>> {
-  const byId = new Map<string, Record<string, unknown>>();
-  for (const msg of messages) {
-    if (msg.role !== "tool") {
-      continue;
-    }
-    for (const resp of msg.toolCallResponses ?? []) {
-      const data = resp.result.ok ? resp.result.data : undefined;
-      if (data && typeof data === "object" && !Array.isArray(data)) {
-        byId.set(resp.toolCallId, data as Record<string, unknown>);
-      }
-    }
-  }
-  return byId;
-}
-
-/**
- * Every call is a document read that already returned the whole extract.
- * `hasMore !== false` (missing, true, or a failed read) is not this case:
- * repeating a page or an error is still a spin and must stop.
- */
-export function completedDocumentReread(
-  calls: ReadonlyArray<{ id: string; name: string }>,
-  messages: ReadonlyArray<Pick<AgentMessage, "role" | "toolCallResponses">>,
-): CompletedDocumentReread | null {
-  if (calls.length === 0 || calls.some((call) => !COMPLETED_READ_TOOL_NAMES.has(call.name))) {
-    return null;
-  }
-  const byId = toolResultDataByCallId(messages);
-  let totalChars: number | undefined;
-  for (const call of calls) {
-    const data = byId.get(call.id);
-    if (!data || data.hasMore !== false || data.kind === "directory") {
-      return null;
-    }
-    if (
-      calls.length === 1 &&
-      typeof data.totalChars === "number" &&
-      Number.isFinite(data.totalChars)
-    ) {
-      totalChars = data.totalChars;
-    }
-  }
-  return totalChars === undefined ? {} : { totalChars };
-}
-
-/** Word 改稿、且本轮还没用过这次豁免时，读完再读不收工。 */
-export function shouldContinueCompletedDocumentReread(opts: {
-  wordRevision: boolean;
-  alreadyContinued: boolean;
-  reread: CompletedDocumentReread | null;
-}): boolean {
-  return opts.wordRevision && !opts.alreadyContinued && opts.reread != null;
-}
+export {
+  IDENTICAL_TOOL_REPEAT_NUDGE_AT,
+  advanceIdenticalToolStreak,
+  completedDocumentReread,
+  formatDocumentRereadContinue,
+  formatDocumentRereadNudge,
+  formatForbiddenShellNudge,
+  formatForbiddenShellStop,
+  formatIdenticalToolRepeatNudge,
+  formatIdenticalToolRepeatStop,
+  formatWordRevisionCapStop,
+  formatWordRevisionExportNudge,
+  forbiddenShellRejectionCount,
+  identicalToolRepeatDecision,
+  lawyerRepeatKind,
+  shouldContinueCompletedDocumentReread,
+  toolCallBatchSignature,
+  type CompletedDocumentReread,
+  type LawyerRepeatKind,
+} from "./turn-loop-policies.js";
 
 /**
  * 回合内模型摘要的下限：提取式摘要比这还短时已经够用，不值得在工具轮边界
@@ -447,29 +183,28 @@ export async function runModelToolLoop(opts: {
   /** 回合内自动压缩需要与回合开始同源的保留条数 / 关联任务。 */
   maxHistoryMessages: number;
   linkedTaskId?: string;
+  /** 计费口径：BYOK 自备密钥，或平台订阅额度。缺省 byok。 */
+  billingScope?: import("../models/model-usage.js").ModelBillingScope;
 }): Promise<ModelToolLoopResult> {
   let loopCount = 0;
   let turnUsage: ModelUsageSnapshot | undefined;
   let finalReply = "";
   let pendingClarificationQuestions = opts.pendingClarificationQuestions;
-  let toolBudgetWarned = false;
-  let overflowRetryUsed = false;
-  /** One missing provider choice per turn is a glitch, not a failed delivery. */
-  let emptyChoiceRetryUsed = false;
-  let identicalToolStreak: IdenticalToolStreak | null = null;
-  let forbiddenShellNudged = false;
-  let deliverableNudged = false;
-  let synthesisNudged = false;
-  /** Set after the write-synthesis sample if the named file is still missing. */
-  let synthesisSearchLocked = false;
-  let calculateParamNudged = false;
-  let pleadingNudged = false;
-  let memoNudged = false;
-  let consultNudged = false;
-  /** At most one extra sample per turn after a finished Word-revision reread. */
-  let documentRereadContinued = false;
-  let wordRevisionExportNudged = false;
-  let reviewBoardExportBounces = 0;
+  /**
+   * All one-shot coaching / retry flags live in one object so the policy table
+   * can read and mutate them without a dozen sibling `let`s.
+   */
+  const flags = createLoopFlags();
+  /** 工具 schema 估算按指纹缓存，避免每轮重复 stringify。 */
+  const toolTableMeter = new ToolTableMeter();
+  const turnCapabilityId = opts.ctx.capabilityId ?? opts.session.lastBoundCapabilityId;
+  const turnProfile = resolveTurnProfile({
+    instruction: opts.turn.instruction,
+    wordRevision: opts.ctx.wordRevisionTurn === true,
+    mailContract: opts.ctx.mailContractTurn === true,
+    ...(turnCapabilityId ? { capabilityId: turnCapabilityId } : {}),
+  });
+  opts.turn.profileId = turnProfile.id;
 
   const strictUpstreamToolStreaming = resolveStrictUpstreamToolStreaming(opts.hasOnEvent);
   const hardCeiling =
@@ -594,6 +329,7 @@ export async function runModelToolLoop(opts: {
     // 律师看到原因（没网、欠费），原始报错只留在 turn.error / 事件里供排查。
     const reply = friendlyModelErrorMessage(message);
     opts.turn.status = "error";
+    opts.turn.stopReason = "model_error";
     opts.turn.error = message.slice(0, 2_000);
     finalReply = reply;
     const agentMsg: AgentMessage = {
@@ -617,209 +353,17 @@ export async function runModelToolLoop(opts: {
     collapseHistoryForEnd();
   };
 
-  while (loopCount < hardCeiling + 1) {
-    if (opts.abortRequested() || opts.abortSignal?.aborted) {
-      collapseHistoryForEnd();
-      return {
-        finalReply,
-        pendingClarificationQuestions,
-        turnUsage,
-        aborted: true,
-      };
-    }
-    loopCount++;
-    const roundIndex = loopCount;
-    const claimedPins = claimAndApplyPendingContextPins(opts.session, opts.config.workspaceDir);
-    if (claimedPins.length > 0) {
-      opts.ctx.contextPins = appendContextPins(opts.ctx.contextPins, claimedPins);
-      pinIds.push(...claimedPins.map((pin) => makeContextPinId(pin)));
-      // Recompute disclosure packs from updated pins (summons / folder mid-turn).
-      const lastUser = opts.session.conversationHistory
-        .toReversed()
-        .find((m) => m.role === "user" && typeof m.content === "string");
-      opts.session.disclosedToolNames = mergeTurnDisclosedToolNames({
-        session: opts.session,
-        workspaceDir: opts.config.workspaceDir,
-        pins: opts.ctx.contextPins,
-        registry: opts.registry,
-        hiddenNames: opts.turnContext.hiddenToolNames,
-        instruction: lastUser?.content,
-        matterId: opts.ctx.matterId ?? opts.turnContext.matterId,
-        projectDir: opts.ctx.projectDir,
-      });
-      const sys = opts.session.conversationHistory[0];
-      if (sys?.role === "system") {
-        sys.content = appendPinIdsToWorldState(
-          sys.content,
-          claimedPins.map((pin) => makeContextPinId(pin)),
-        );
-        opts.session.worldStateBaseline = collectWorldStateHashes(sys.content);
-        opts.session.worldStateEpoch = (opts.session.worldStateEpoch ?? 0) + 1;
-      }
-    }
-    applyPendingWorldStateCraftPatch(opts.session, opts.ctx);
-    if (opts.ctx.noTaskTurn === true) {
-      // 无任务回合不得写清单：丢掉模型塞进来的 pending 计划，保留上一轮清单。
-      opts.ctx.pendingTurnPlan = undefined;
-    }
-    applyPendingTurnPlan(opts.session, opts.ctx);
-    claimAndApplyPendingSteer(opts.session, opts.config.workspaceDir);
-    claimAndApplyWorkGoal(opts.session, opts.config.workspaceDir);
-    opts.ctx.permissionMode = opts.turnContext.permissionMode;
-    if (opts.turnContext.matterId) {
-      opts.ctx.matterId = opts.turnContext.matterId;
-    }
-    // ── 工具轮边界整理上下文（Codex mid-turn compact）：压完继续本轮，
-    //    不要让模型在「窗口快满」时把活儿退回律师（客户事故：请另开一轮）。
-    //    待批准 / 待澄清时不动历史（审批卡与澄清问题还没有结论）。
-    if (
-      !opts.abortRequested() &&
-      opts.turn.status !== "awaiting_approval" &&
-      pendingClarificationQuestions.length === 0
-    ) {
-      await compactMidTurn(roundIndex);
-    }
-    const step = rebuildStepContext({
-      session: opts.session,
-      registry: opts.registry,
-      turnContext: opts.turnContext,
-      pinIds,
-      discoveryCallCounts: opts.turn.toolNameCallCounts,
-      hostFileLedger: contextUsesHostFileLedger(opts.ctx),
-    });
-    const missingForWrite = missingNamedDeliverables(
-      opts.config.workspaceDir,
-      opts.turn.instruction,
-    );
-    const framePleading = instructionFramesPleading(opts.turn.instruction);
-    const frameConsult = instructionFramesConsultQuestions(opts.turn.instruction);
-    const synthesisRound = synthesisNudged && missingForWrite.length > 0;
-    const pleadingRewrite =
-      pleadingNudged &&
-      pleadingSectionGaps(opts.config.workspaceDir, opts.turn.instruction).length > 0;
-    const consultRewrite =
-      consultNudged && consultListGap(opts.config.workspaceDir, opts.turn.instruction);
-    const frameMemo = instructionFramesMemoDeliverable(opts.turn.instruction);
-    const lockSearch = frameConsult || synthesisSearchLocked;
-    const roundToolNames = lockSearch ? withholdSearchTools(step.toolNames) : step.toolNames;
-    openAITools = opts.registry.toOpenAITools({ names: roundToolNames });
-    const toolDelta = applyToolDisclosureDelta(opts.session, previousToolNames, roundToolNames);
-    if (toolDelta) {
-      opts.emitEvent({
-        type: "tool_delta",
-        roundIndex,
-        added: toolDelta.added,
-        removed: toolDelta.removed,
-      });
-      emitTurnLifecycle({
-        phase: "tool_delta",
-        sessionId: opts.session.sessionId,
-        turnId: opts.turn.turnId,
-        detail: { roundIndex, added: toolDelta.added, removed: toolDelta.removed },
-      });
-    }
-    previousToolNames = [...roundToolNames];
-    opts.emitEvent({ type: "round_start", roundIndex });
-    emitTurnLifecycle({
-      phase: "before_model_round",
-      sessionId: opts.session.sessionId,
-      turnId: opts.turn.turnId,
-      detail: { roundIndex, toolCount: roundToolNames.length },
-    });
-    if (shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)) {
-      applySameTurnVerifyHistoryCollapse(opts.session, opts.turn, "keep_latest_full");
-    } else {
-      applySameTurnVerifyHistoryCollapse(opts.session, opts.turn, "drop");
-    }
-
-    // Soft warn near tool-call ceiling; hard stop still applies at maxToolCalls.
-    if (!toolBudgetWarned && shouldWarnToolBudget(opts.turn.toolCallsExecuted, opts.maxToolCalls)) {
-      toolBudgetWarned = true;
-      opts.emitEvent({
-        type: "tool_budget",
-        used: opts.turn.toolCallsExecuted,
-        maxToolCalls: opts.maxToolCalls,
-        level: "warn",
-      });
-    }
-
-    const hadToolResponsesThisTurn = opts.turn.messages.some((m) => m.role === "tool");
-    const useUpstreamTokenStream =
-      opts.hasOnEvent &&
-      (!strictUpstreamToolStreaming || openAITools.length === 0 || hadToolResponsesThisTurn);
-
-    // 选工具、读结果、写回复都是判断，一律用律师选的主模型。
-    // 更快模型只做摘要（上面）和审稿（reviewModel），不接管这一轮。
-    const modelForRound = opts.config.model;
-
-    const callModelRound = (mode: "decision" | "deliverable" = "decision") => {
-      const budget = estimateTokenBudget(opts.session, policyForTurn(), {
-        contextTokens: modelForRound.contextTokens ?? opts.config.model.contextTokens,
-      });
-      const toolsAdvertised = openAITools.length > 0;
-      const decisionMax = resolveToolDecisionMaxTokens(modelForRound.maxTokens, toolsAdvertised);
-      const maxTokens =
-        mode === "deliverable" || !toolsAdvertised ? modelForRound.maxTokens : decisionMax;
-      const model = typeof maxTokens === "number" ? { ...modelForRound, maxTokens } : modelForRound;
-      // 工具轮先不流式：短回复在收齐后一次吐出；被截断时再开流式把交件写完。
-      const stream = mode === "decision" && toolsAdvertised ? false : useUpstreamTokenStream;
-      let waitedForModel = false;
-      return callModelWithRetry(
-        model,
-        deriveModelMessagesForSampling(opts.session, budget),
-        openAITools,
-        {
-          stream,
-          onDelta: stream
-            ? (chunk: string) => opts.emitEvent({ type: "delta", roundIndex, text: chunk })
-            : undefined,
-          signal: opts.abortSignal,
-          admission: { sessionId: opts.session.sessionId, kind: "parent" },
-          onAdmissionWait: () => {
-            waitedForModel = true;
-            opts.emitEvent({ type: "turn_wait", reason: "model_slot", label: "排队等模型" });
-          },
-          onAdmissionGranted: () => {
-            if (!waitedForModel) {
-              return;
-            }
-            waitedForModel = false;
-            opts.emitEvent({ type: "turn_wait_end", reason: "model_slot" });
-          },
-          ...(synthesisRound || pleadingRewrite || consultRewrite
-            ? { reasoningEffort: "max" as const }
-            : {}),
-          // 服务端以「工具结果不配对」拒收时：修复来源历史并落盘，再重发一次。
-          // 修复必须落到 session，否则下一轮又会从同一份坏历史重建（Claude Code 的教训）。
-          onToolPairingReject: () => {
-            const rewritten = rewriteUnfinishedToolPlaceholders(opts.session.conversationHistory);
-            const normalized = normalizeToolResultMessages(rewritten.messages);
-            const pairing = repairToolCallPairing(normalized.messages);
-            opts.session.conversationHistory = pairing.messages;
-            try {
-              saveSession(opts.config.workspaceDir, opts.session);
-            } catch {
-              /* 落盘失败不阻塞自愈：内存已修复，后续 saveSession 仍会写入 */
-            }
-            const repairedBudget = estimateTokenBudget(opts.session, policyForTurn(), {
-              contextTokens: modelForRound.contextTokens ?? opts.config.model.contextTokens,
-            });
-            return deriveModelMessagesForSampling(opts.session, repairedBudget);
-          },
-        },
-      );
-    };
-
-    let response: Awaited<ReturnType<typeof callModelWithRetry>> | undefined;
-    try {
-      response = await callModelRound();
-    } catch (err) {
-      if (
-        err instanceof ModelCallUserAbortError ||
-        opts.abortSignal?.aborted ||
-        opts.abortRequested()
-      ) {
+  const stopped = await runSamplingLoop<{
+    finalReply: string;
+    pendingClarificationQuestions: ClarificationQuestion[];
+    turnUsage: ModelUsageSnapshot | undefined;
+    aborted: boolean;
+  }>({
+    maxRounds: hardCeiling + 1,
+    step: async () => {
+      if (opts.abortRequested() || opts.abortSignal?.aborted) {
         collapseHistoryForEnd();
+        opts.turn.stopReason = "aborted";
         return {
           finalReply,
           pendingClarificationQuestions,
@@ -827,656 +371,636 @@ export async function runModelToolLoop(opts: {
           aborted: true,
         };
       }
-      if (!overflowRetryUsed && isContextOverflowError(err)) {
-        const pruned = pruneSessionToolResults(opts.session, {
-          maxTokens: OVERFLOW_PRUNE_MAX_TOKENS,
-          keepRecent: OVERFLOW_PRUNE_KEEP_RECENT,
+      loopCount++;
+      opts.turn.roundCount = loopCount;
+      const roundIndex = loopCount;
+      const claimedPins = claimAndApplyPendingContextPins(opts.session, opts.config.workspaceDir);
+      if (claimedPins.length > 0) {
+        opts.ctx.contextPins = appendContextPins(opts.ctx.contextPins, claimedPins);
+        pinIds.push(...claimedPins.map((pin) => makeContextPinId(pin)));
+        // Recompute disclosure packs from updated pins (summons / folder mid-turn).
+        const lastUser = opts.session.conversationHistory
+          .toReversed()
+          .find((m) => m.role === "user" && typeof m.content === "string");
+        opts.session.disclosedToolNames = mergeTurnDisclosedToolNames({
+          session: opts.session,
+          workspaceDir: opts.config.workspaceDir,
+          pins: opts.ctx.contextPins,
+          registry: opts.registry,
+          hiddenNames: opts.turnContext.hiddenToolNames,
+          instruction: lastUser?.content,
+          matterId: opts.ctx.matterId ?? opts.turnContext.matterId,
+          projectDir: opts.ctx.projectDir,
         });
-        if (pruned.prunedCount > 0 && pruned.charsRemoved > 0) {
-          overflowRetryUsed = true;
-          opts.emitEvent({
-            type: "overflow_prune",
-            prunedCount: pruned.prunedCount,
-            charsRemoved: pruned.charsRemoved,
-          });
-          try {
-            response = await callModelRound();
-          } catch (retryErr) {
-            if (
-              retryErr instanceof ModelCallUserAbortError ||
-              opts.abortSignal?.aborted ||
-              opts.abortRequested()
-            ) {
-              collapseHistoryForEnd();
-              return {
-                finalReply,
-                pendingClarificationQuestions,
-                turnUsage,
-                aborted: true,
-              };
+        const sys = opts.session.conversationHistory[0];
+        if (sys?.role === "system") {
+          sys.content = appendPinIdsToWorldState(
+            sys.content,
+            claimedPins.map((pin) => makeContextPinId(pin)),
+          );
+          opts.session.worldStateBaseline = collectWorldStateHashes(sys.content);
+          opts.session.worldStateEpoch = (opts.session.worldStateEpoch ?? 0) + 1;
+        }
+      }
+      applyPendingWorldStateCraftPatch(opts.session, opts.ctx);
+      if (opts.ctx.noTaskTurn === true) {
+        // 无任务回合不得写清单：丢掉模型塞进来的 pending 计划，保留上一轮清单。
+        opts.ctx.pendingTurnPlan = undefined;
+      }
+      applyPendingTurnPlan(opts.session, opts.ctx);
+      claimAndApplyPendingSteer(opts.session, opts.config.workspaceDir);
+      claimAndApplyWorkGoal(opts.session, opts.config.workspaceDir);
+      opts.ctx.permissionMode = opts.turnContext.permissionMode;
+      if (opts.turnContext.matterId) {
+        opts.ctx.matterId = opts.turnContext.matterId;
+      }
+      // ── 工具轮边界整理上下文（Codex mid-turn compact）：压完继续本轮，
+      //    不要让模型在「窗口快满」时把活儿退回律师（客户事故：请另开一轮）。
+      //    待批准 / 待澄清时不动历史（审批卡与澄清问题还没有结论）。
+      if (
+        !opts.abortRequested() &&
+        opts.turn.status !== "awaiting_approval" &&
+        pendingClarificationQuestions.length === 0
+      ) {
+        await compactMidTurn(roundIndex);
+      }
+      const step = rebuildStepContext({
+        session: opts.session,
+        registry: opts.registry,
+        turnContext: opts.turnContext,
+        pinIds,
+        discoveryCallCounts: opts.turn.toolNameCallCounts,
+        hostFileLedger: contextUsesHostFileLedger(opts.ctx),
+      });
+      const missingForWrite = missingNamedDeliverables(
+        opts.config.workspaceDir,
+        opts.turn.instruction,
+      );
+      const synthesisRound = flags.synthesisNudged && missingForWrite.length > 0;
+      const pleadingRewrite =
+        flags.pleadingNudged &&
+        pleadingSectionGaps(opts.config.workspaceDir, opts.turn.instruction).length > 0;
+      const consultRewrite =
+        flags.consultNudged && consultListGap(opts.config.workspaceDir, opts.turn.instruction);
+      // Consult lists must not slide back into another research loop; write
+      // synthesis locks search while the named deliverable is still missing.
+      //
+      // 2026-10-21：只在**教练已经提示过之后**才收表。之前 `locksSearchAfterSynthesis`
+      // 是静态 profile 属性，consult 类回合从第 0 轮就检索不到东西——把「只列追问」
+      // 变成「不能查证就列追问」，正好与正常办案相反。
+      const lockSearch =
+        (flags.synthesisSearchLocked && missingForWrite.length > 0) ||
+        (turnProfile.locksSearchAfterSynthesis && consultRewrite);
+      const roundToolNames = step.toolNames;
+      openAITools = opts.registry.toOpenAITools({ names: roundToolNames });
+      const toolDelta = applyToolDisclosureDelta(opts.session, previousToolNames, roundToolNames);
+      if (toolDelta) {
+        opts.emitEvent({
+          type: "tool_delta",
+          roundIndex,
+          added: toolDelta.added,
+          removed: toolDelta.removed,
+        });
+        emitTurnLifecycle({
+          phase: "tool_delta",
+          sessionId: opts.session.sessionId,
+          turnId: opts.turn.turnId,
+          detail: { roundIndex, added: toolDelta.added, removed: toolDelta.removed },
+        });
+      }
+      previousToolNames = [...roundToolNames];
+      opts.emitEvent({ type: "round_start", roundIndex });
+      emitTurnLifecycle({
+        phase: "before_model_round",
+        sessionId: opts.session.sessionId,
+        turnId: opts.turn.turnId,
+        detail: { roundIndex, toolCount: roundToolNames.length },
+      });
+      if (shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)) {
+        applySameTurnVerifyHistoryCollapse(opts.session, opts.turn, "keep_latest_full");
+      } else {
+        applySameTurnVerifyHistoryCollapse(opts.session, opts.turn, "drop");
+      }
+
+      // Soft warn near tool-call ceiling; hard stop still applies at maxToolCalls.
+      if (
+        !flags.toolBudgetWarned &&
+        shouldWarnToolBudget(opts.turn.toolCallsExecuted, opts.maxToolCalls)
+      ) {
+        flags.toolBudgetWarned = true;
+        opts.emitEvent({
+          type: "tool_budget",
+          used: opts.turn.toolCallsExecuted,
+          maxToolCalls: opts.maxToolCalls,
+          level: "warn",
+        });
+      }
+
+      const hadToolResponsesThisTurn = opts.turn.messages.some((m) => m.role === "tool");
+      const useUpstreamTokenStream =
+        opts.hasOnEvent &&
+        (!strictUpstreamToolStreaming || openAITools.length === 0 || hadToolResponsesThisTurn);
+
+      // 选工具、读结果、写回复都是判断，一律用律师选的主模型。
+      // 更快模型只做摘要（上面）和审稿（reviewModel），不接管这一轮。
+      if (opts.config.model.reproducible !== undefined) {
+        opts.session.samplingPreferences = {
+          reproducible: opts.config.model.reproducible,
+          ...(opts.config.model.seed !== undefined ? { seed: opts.config.model.seed } : {}),
+        };
+      }
+      const modelForRound = { ...opts.config.model, ...opts.session.samplingPreferences };
+      opts.ctx.chatModel = { ...opts.ctx.chatModel, ...modelForRound };
+
+      const callModelRound = (mode: "decision" | "deliverable" = "decision") => {
+        const toolsAdvertised = openAITools.length > 0;
+        // 固定税 = 系统提示 + 实际发出的工具 schema。只在本轮算一次（按工具表指纹缓存）。
+        const meter = toolTableMeter.measure(openAITools);
+        const systemPromptTokens = estimateTextTokens(
+          opts.session.conversationHistory.find((m) => m.role === "system")?.content ?? "",
+        );
+        const fixedInputTokens = systemPromptTokens + meter.tokens;
+        const budget = estimateTokenBudget(opts.session, policyForTurn(), {
+          contextTokens: modelForRound.contextTokens ?? opts.config.model.contextTokens,
+          fixedInputTokens,
+          toolTableFingerprint: meter.fingerprint,
+        });
+        const decisionMax = resolveToolDecisionMaxTokens(modelForRound.maxTokens, toolsAdvertised);
+        const maxTokens =
+          mode === "deliverable" || !toolsAdvertised ? modelForRound.maxTokens : decisionMax;
+        const model =
+          typeof maxTokens === "number" ? { ...modelForRound, maxTokens } : modelForRound;
+        const sampling = resolveSamplingParameters(model);
+        opts.turn.samplingAudit = {
+          model: model.model,
+          temperature: sampling.temperature,
+          ...(sampling.seed !== undefined ? { seed: sampling.seed } : {}),
+          reproducible: model.reproducible === true,
+          toolsFingerprint: meter.fingerprint,
+          toolCount: openAITools.length,
+        };
+        // 工具轮先不流式：短回复在收齐后一次吐出；被截断时再开流式把交件写完。
+        const stream = mode === "decision" && toolsAdvertised ? false : useUpstreamTokenStream;
+        let waitedForModel = false;
+        const recordAttempt = createModelUsageRecorder(opts.config.workspaceDir, {
+          sessionId: opts.session.sessionId,
+          turnId: opts.turn.turnId,
+          matterId: opts.session.matterId,
+          model: modelForRound.model,
+          provider: modelForRound.provider,
+          purpose: "parent_turn",
+          billingScope: opts.billingScope ?? opts.config.billingScope ?? "byok",
+          fixedInputTokens,
+          toolTableFingerprint: meter.fingerprint,
+        });
+        return callModelWithRetry(
+          model,
+          deriveModelMessagesForSampling(opts.session, budget),
+          openAITools,
+          {
+            stream,
+            onDelta: stream
+              ? (chunk: string) => opts.emitEvent({ type: "delta", roundIndex, text: chunk })
+              : undefined,
+            signal: opts.abortSignal,
+            admission: { sessionId: opts.session.sessionId, kind: "parent" },
+            // 每次模型 HTTP 落一条账：重试与失败也记，否则成本永远少算。
+            onModelUsage: (event) => {
+              recordAttempt(event);
+              const snapshotForEvent = usageFromProvider(event.usage);
+              opts.emitEvent({
+                type: "token_usage",
+                attempt: event.attempt,
+                input: snapshotForEvent?.promptTokens,
+                output: snapshotForEvent?.completionTokens,
+                fixed: fixedInputTokens,
+                cached: snapshotForEvent?.cachedTokens,
+                uncached: snapshotForEvent?.uncachedTokens,
+                failed: event.failed,
+              });
+            },
+            onAdmissionWait: () => {
+              waitedForModel = true;
+              opts.emitEvent({ type: "turn_wait", reason: "model_slot", label: "排队等模型" });
+            },
+            onAdmissionGranted: () => {
+              if (!waitedForModel) {
+                return;
+              }
+              waitedForModel = false;
+              opts.emitEvent({ type: "turn_wait_end", reason: "model_slot" });
+            },
+            ...(synthesisRound || pleadingRewrite || consultRewrite
+              ? { reasoningEffort: "max" as const }
+              : {}),
+            // 服务端以「工具结果不配对」拒收时：修复来源历史并落盘，再重发一次。
+            // 修复必须落到 session，否则下一轮又会从同一份坏历史重建（Claude Code 的教训）。
+            onToolPairingReject: () => {
+              const rewritten = rewriteUnfinishedToolPlaceholders(opts.session.conversationHistory);
+              const normalized = normalizeToolResultMessages(rewritten.messages);
+              const pairing = repairToolCallPairing(normalized.messages);
+              opts.session.conversationHistory = pairing.messages;
+              try {
+                saveSession(opts.config.workspaceDir, opts.session);
+              } catch {
+                /* 落盘失败不阻塞自愈：内存已修复，后续 saveSession 仍会写入 */
+              }
+              const repairedBudget = estimateTokenBudget(opts.session, policyForTurn(), {
+                contextTokens: modelForRound.contextTokens ?? opts.config.model.contextTokens,
+              });
+              return deriveModelMessagesForSampling(opts.session, repairedBudget);
+            },
+          },
+        );
+      };
+
+      let response: Awaited<ReturnType<typeof callModelWithRetry>> | undefined;
+      let outputRaised = false;
+      const sampleDecision = async () => {
+        const sampled = await sampleModelDecision({
+          sample: callModelRound,
+          toolsAdvertised: openAITools.length > 0,
+          configuredMaxTokens: modelForRound.maxTokens,
+          flags,
+          onResponse: (value) => {
+            const usage = usageFromProvider(value.usage);
+            turnUsage = mergeUsageSnapshots(turnUsage, usage);
+            if (usage?.promptTokens) {
+              lastMeasuredPromptTokens = usage.promptTokens;
             }
-            closeOnModelFailure(retryErr, roundIndex);
-            break;
+          },
+        });
+        outputRaised = sampled.outputRaised;
+        return sampled.response;
+      };
+      try {
+        response = await sampleDecision();
+      } catch (err) {
+        if (
+          err instanceof ModelCallUserAbortError ||
+          opts.abortSignal?.aborted ||
+          opts.abortRequested()
+        ) {
+          collapseHistoryForEnd();
+          opts.turn.stopReason = "aborted";
+          return {
+            finalReply,
+            pendingClarificationQuestions,
+            turnUsage,
+            aborted: true,
+          };
+        }
+        if (!flags.overflowRetryUsed && isContextOverflowError(err)) {
+          const pruned = pruneSessionToolResults(opts.session, {
+            maxTokens: OVERFLOW_PRUNE_MAX_TOKENS,
+            keepRecent: OVERFLOW_PRUNE_KEEP_RECENT,
+          });
+          if (pruned.prunedCount > 0 && pruned.charsRemoved > 0) {
+            flags.overflowRetryUsed = true;
+            opts.emitEvent({
+              type: "overflow_prune",
+              prunedCount: pruned.prunedCount,
+              charsRemoved: pruned.charsRemoved,
+            });
+            try {
+              response = await sampleDecision();
+            } catch (retryErr) {
+              if (
+                retryErr instanceof ModelCallUserAbortError ||
+                opts.abortSignal?.aborted ||
+                opts.abortRequested()
+              ) {
+                collapseHistoryForEnd();
+                opts.turn.stopReason = "aborted";
+                return {
+                  finalReply,
+                  pendingClarificationQuestions,
+                  turnUsage,
+                  aborted: true,
+                };
+              }
+              closeOnModelFailure(retryErr, roundIndex);
+              return "stop";
+            }
+          } else {
+            closeOnModelFailure(err, roundIndex);
+            return "stop";
           }
         } else {
           closeOnModelFailure(err, roundIndex);
-          break;
+          return "stop";
         }
-      } else {
-        closeOnModelFailure(err, roundIndex);
-        break;
       }
-    }
-    if (!response) {
-      break;
-    }
-    turnUsage = mergeUsageSnapshots(turnUsage, usageFromProvider(response.usage));
-    const measuredPromptTokens = usageFromProvider(response.usage)?.promptTokens ?? 0;
-    if (measuredPromptTokens > 0) {
-      lastMeasuredPromptTokens = measuredPromptTokens;
-    }
+      if (!response) {
+        return "stop";
+      }
+      const choice = response.choices[0];
 
-    let choice = response.choices[0];
-    if (!choice && !emptyChoiceRetryUsed) {
-      emptyChoiceRetryUsed = true;
-      try {
-        response = await callModelRound();
-      } catch (err) {
-        if (
-          err instanceof ModelCallUserAbortError ||
-          opts.abortSignal?.aborted ||
-          opts.abortRequested()
-        ) {
-          collapseHistoryForEnd();
-          return {
-            finalReply,
+      const assistantMsg = choice.message as typeof choice.message & {
+        reasoning_content?: string | null;
+      };
+      const toolCalls = assistantMsg.tool_calls;
+
+      const decisionWasQuiet = openAITools.length > 0 && !outputRaised;
+      const emitQuietSegment = (text: string) => {
+        if ((!useUpstreamTokenStream || decisionWasQuiet) && text.length > 0) {
+          opts.emitEvent({ type: "delta", roundIndex, text });
+        }
+      };
+      if (toolCalls && toolCalls.length > 0) {
+        emitQuietSegment(assistantMsg.content ?? "");
+      }
+
+      const reasoningContent = assistantMsg.reasoning_content?.trim() ?? "";
+      const agentMsg: AgentMessage = {
+        role: "assistant",
+        content: assistantMsg.content ?? "",
+        timestamp: new Date().toISOString(),
+        ...(reasoningContent ? { reasoningContent } : {}),
+      };
+
+      if (toolCalls && toolCalls.length > 0) {
+        agentMsg.toolCalls = toolCalls.map(
+          (tc: { id: string; function: { name: string; arguments: string } }) => ({
+            id: tc.id,
+            name: tc.function.name,
+            arguments: safeParse(tc.function.arguments),
+          }),
+        );
+      }
+
+      opts.session.conversationHistory.push(agentMsg);
+      opts.turn.messages.push(agentMsg);
+
+      if (!toolCalls || toolCalls.length === 0) {
+        const assistantText = assistantMsg.content ?? "";
+        const hideAssistantMessage = (): void => {
+          agentMsg.hiddenFromLawyer = true;
+        };
+        const action = runCompletionPolicies(
+          {
+            instruction: opts.turn.instruction,
+            workspaceDir: opts.config.workspaceDir,
+            profile: turnProfile,
+            flags,
+            turn: opts.turn,
+            session: opts.session,
+            assistantText,
+            roundIndex,
+            wordRevision: opts.ctx.wordRevisionTurn === true,
             pendingClarificationQuestions,
-            turnUsage,
-            aborted: true,
-          };
+            deferralBounceMax: () =>
+              resolveContextTuning(policyForTurn()).midTurn.deferralBounceMax,
+            emit: opts.emitEvent,
+            hideAssistantMessage,
+            recordPressure: (outcome, detail, meta) =>
+              recordContextPressure(opts.config.workspaceDir, outcome, {
+                turnId: opts.turn.turnId,
+                ...(opts.session.matterId ? { matterId: opts.session.matterId } : {}),
+                sessionId: opts.session.sessionId,
+                ...(detail ? { detail } : {}),
+                ...(meta ? { meta } : {}),
+              }),
+            hasPendingSteer: () =>
+              !opts.abortRequested() &&
+              peekPendingSteer(opts.config.workspaceDir, opts.session.sessionId).length > 0,
+          },
+          {
+            beforeBounce: () => emitQuietSegment(assistantText),
+          },
+        );
+
+        if (action?.kind === "resample") {
+          if (action.forceCompact) {
+            await compactMidTurn(roundIndex, true);
+          }
+          action.afterResamplePrep?.();
+          if (action.applyMechanicalNote) {
+            agentMsg.content = appendMechanicalNote(assistantText, opts.turn.factorState);
+          }
+          if (action.message) {
+            const nudge = {
+              role: "user" as const,
+              content: action.message,
+              timestamp: new Date().toISOString(),
+              hiddenFromLawyer: true,
+            };
+            opts.session.conversationHistory.push(nudge);
+            opts.turn.messages.push(nudge);
+          }
+          action.afterMessagePush?.();
+          return "continue";
         }
-        closeOnModelFailure(err, roundIndex);
-        break;
-      }
-      turnUsage = mergeUsageSnapshots(turnUsage, usageFromProvider(response.usage));
-      const retryPromptTokens = usageFromProvider(response.usage)?.promptTokens ?? 0;
-      if (retryPromptTokens > 0) {
-        lastMeasuredPromptTokens = retryPromptTokens;
-      }
-      choice = response.choices[0];
-    }
-    if (!choice) {
-      closeOnModelFailure(new Error("Empty response from model"), roundIndex);
-      break;
-    }
 
-    let outputRaised = false;
-    if (
-      shouldRaiseToolDecisionOutput({
-        toolsAdvertised: openAITools.length > 0,
-        configuredMaxTokens: modelForRound.maxTokens,
-        finishReason: choice.finish_reason,
-      })
-    ) {
-      outputRaised = true;
-      try {
-        response = await callModelRound("deliverable");
-      } catch (err) {
-        if (
-          err instanceof ModelCallUserAbortError ||
-          opts.abortSignal?.aborted ||
-          opts.abortRequested()
-        ) {
-          collapseHistoryForEnd();
-          return {
-            finalReply,
-            pendingClarificationQuestions,
-            turnUsage,
-            aborted: true,
-          };
+        if (action?.kind === "stop") {
+          if (action.emitReply && action.reply != null) {
+            emitQuietSegment(action.reply);
+          }
+          if (action.status) {
+            opts.turn.status = action.status;
+          }
+          if (action.rewriteAssistant && action.reply != null) {
+            agentMsg.content = action.reply;
+          }
+          if (action.consumeClarificationQuestions) {
+            pendingClarificationQuestions = [];
+          }
+          finalReply = action.reply ?? assistantText;
+          opts.turn.stopReason = action.reason;
+          return "stop";
         }
-        closeOnModelFailure(err, roundIndex);
-        break;
-      }
-      turnUsage = mergeUsageSnapshots(turnUsage, usageFromProvider(response.usage));
-      const raisedPromptTokens = usageFromProvider(response.usage)?.promptTokens ?? 0;
-      if (raisedPromptTokens > 0) {
-        lastMeasuredPromptTokens = raisedPromptTokens;
-      }
-      choice = response.choices[0];
-      if (!choice) {
-        closeOnModelFailure(new Error("Empty response from model"), roundIndex);
-        break;
-      }
-    }
 
-    const assistantMsg = choice.message as typeof choice.message & {
-      reasoning_content?: string | null;
-    };
-    const toolCalls = assistantMsg.tool_calls;
-
-    const decisionWasQuiet = openAITools.length > 0 && !outputRaised;
-    const emitQuietSegment = (text: string) => {
-      if ((!useUpstreamTokenStream || decisionWasQuiet) && text.length > 0) {
-        opts.emitEvent({ type: "delta", roundIndex, text });
+        // No policy applied: plain delivery (mechanical note appended when known).
+        const voiced = appendMechanicalNote(assistantText, opts.turn.factorState);
+        agentMsg.content = voiced;
+        finalReply = voiced;
+        opts.turn.status = "completed";
+        opts.turn.stopReason = "delivered";
+        return "stop";
       }
-    };
-    if (toolCalls && toolCalls.length > 0) {
-      emitQuietSegment(assistantMsg.content ?? "");
-    }
 
-    const reasoningContent = assistantMsg.reasoning_content?.trim() ?? "";
-    const agentMsg: AgentMessage = {
-      role: "assistant",
-      content: assistantMsg.content ?? "",
-      timestamp: new Date().toISOString(),
-      ...(reasoningContent ? { reasoningContent } : {}),
-    };
-
-    if (toolCalls && toolCalls.length > 0) {
-      agentMsg.toolCalls = toolCalls.map(
+      const toolRefs: ToolCallRef[] = toolCalls.map(
         (tc: { id: string; function: { name: string; arguments: string } }) => ({
           id: tc.id,
           name: tc.function.name,
           arguments: safeParse(tc.function.arguments),
         }),
       );
-    }
-
-    opts.session.conversationHistory.push(agentMsg);
-    opts.turn.messages.push(agentMsg);
-
-    if (!toolCalls || toolCalls.length === 0) {
-      const syndrome = applyProseSyndrome(opts.turn.factorState, assistantMsg.content ?? "");
-      if (syndrome.action === "bounce" || syndrome.action === "deliver") {
-        const voiced = appendMechanicalNote(assistantMsg.content ?? "", opts.turn.factorState);
-        agentMsg.content = voiced;
-        emitQuietSegment(voiced);
-        opts.turn.status = "completed";
-        finalReply = voiced;
-        break;
-      }
-      emitQuietSegment(assistantMsg.content ?? "");
-      if (pendingClarificationQuestions.length > 0) {
-        // 端到端口径：带占位的草稿已经生成（draft_with_placeholders），缺口标进
-        // 回复与交付物，回合照常完成——律师在修订里改或回一句补充，不再进入
-        // awaiting_clarification，也不写 pendingClarificationKeys（不冻下一轮）。
-        // iCloud 下载提问不走路径这里：工具轮已直接把回合置为 awaiting_clarification。
-        finalReply = buildClarificationReply(
-          assistantMsg.content ?? "",
-          pendingClarificationQuestions,
-          "草稿已生成，以下要点已在文中标【待核实】（可直接在修订里改，或回复我补充）：",
-        );
-        opts.turn.clarificationQuestions = pendingClarificationQuestions;
-        pendingClarificationQuestions = [];
-        opts.turn.status = "completed";
-        break;
-      }
-      if (shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)) {
-        const verifyState = opts.turn.sameTurnVerify!;
-        opts.emitEvent({
-          type: "verify_gap",
-          roundIndex,
-          message: formatSameTurnVerifyLawyerProgress(
-            verifyState.issues.map((issue) => issue.code),
-          ),
-        });
-        if (shouldPauseSameTurnVerify(opts.turn.sameTurnVerify)) {
-          // Bounce budget exhausted: deliver with gaps — never mid-delivery continue_tools.
-          opts.turn.status = "completed";
-          finalReply =
-            opts.ctx.wordRevisionTurn === true
-              ? formatWordRevisionCapStop()
-              : formatSameTurnVerifyCapDeliver(opts.turn.sameTurnVerify!);
-          break;
-        }
-        const bounce = formatSameTurnCompletionBounce(opts.turn.sameTurnVerify!);
-        opts.turn.sameTurnVerify = {
-          ...opts.turn.sameTurnVerify!,
-          bounceCount: (opts.turn.sameTurnVerify?.bounceCount ?? 0) + 1,
-        };
-        const bounceMsg = {
-          role: "user" as const,
-          content: bounce,
-          timestamp: new Date().toISOString(),
-          hiddenFromLawyer: true,
-        };
-        opts.session.conversationHistory.push(bounceMsg);
-        opts.turn.messages.push(bounceMsg);
-        continue;
-      }
-      // 客户事故：模型以上下文预算为由把活儿退回律师（「请另开一轮」）。
-      // 先给它腾出窗口（工具轮边界压缩），再把一条隐藏的反弹消息塞回下一轮；
-      // 上限之后才如实收下它的回复（fail-open，不无限循环）。
-      const deferralText = assistantMsg.content ?? "";
-      if (isContextBudgetDeferralReply(deferralText)) {
-        const bounces = opts.turn.contextDeferralBounces ?? 0;
-        recordContextPressure(opts.config.workspaceDir, "deferral_detected", {
-          turnId: opts.turn.turnId,
-          ...(opts.session.matterId ? { matterId: opts.session.matterId } : {}),
-          sessionId: opts.session.sessionId,
-          detail: deferralText.trim().slice(0, 200),
-          meta: { bouncesSoFar: bounces, roundIndex },
-        });
-        if (bounces < resolveContextTuning(policyForTurn()).midTurn.deferralBounceMax) {
-          await compactMidTurn(roundIndex, true);
-          opts.turn.contextDeferralBounces = bounces + 1;
-          agentMsg.hiddenFromLawyer = true;
-          const deferralBounce = {
-            role: "user" as const,
-            content: formatContextDeferralBounce(),
-            timestamp: new Date().toISOString(),
-            hiddenFromLawyer: true,
-          };
-          opts.session.conversationHistory.push(deferralBounce);
-          opts.turn.messages.push(deferralBounce);
-          opts.emitEvent({
-            type: "context_deferral_bounce",
-            roundIndex,
-            bounceCount: opts.turn.contextDeferralBounces,
-          });
-          recordContextPressure(opts.config.workspaceDir, "deferral_bounced", {
-            turnId: opts.turn.turnId,
-            ...(opts.session.matterId ? { matterId: opts.session.matterId } : {}),
-            sessionId: opts.session.sessionId,
-            meta: { bounceCount: opts.turn.contextDeferralBounces, roundIndex },
-          });
-          continue;
-        }
-        // 反弹用尽：不把模型的推诿原文丢给律师，换成可核对的事实 + 正确的继续方式。
-        // fail-open 是刻意的（绝不无限循环），但**交接必须诚实**。
-        const planOpen =
-          opts.session.turnPlan?.items
-            .filter((item) => item.status !== "completed")
-            .map((item) => item.step) ?? [];
-        recordContextPressure(opts.config.workspaceDir, "deferral_reached_lawyer", {
-          turnId: opts.turn.turnId,
-          ...(opts.session.matterId ? { matterId: opts.session.matterId } : {}),
-          sessionId: opts.session.sessionId,
-          detail: deferralText.trim().slice(0, 200),
-          meta: { bounces: bounces, toolCallsExecuted: opts.turn.toolCallsExecuted },
-        });
-        // 回弹用尽：结构化交接事实交给律师（另起对话续办），不挂 continue_tools 中断卡。
-        opts.turn.status = "completed";
-        finalReply = formatContextDeferralHandoff({
-          toolCallsExecuted: opts.turn.toolCallsExecuted,
-          planOpen,
-        });
-        break;
-      }
-      if (
-        opts.ctx.wordRevisionTurn === true &&
-        (opts.turn.toolNameCallCounts?.render_tracked_draft ?? 0) === 0 &&
-        !wordRevisionExportNudged
-      ) {
-        wordRevisionExportNudged = true;
-        const nudge = {
-          role: "user" as const,
-          content: formatWordRevisionExportNudge(),
-          timestamp: new Date().toISOString(),
-          hiddenFromLawyer: true,
-        };
-        opts.session.conversationHistory.push(nudge);
-        opts.turn.messages.push(nudge);
-        continue;
-      }
-      // 交办即终稿：模型不得以「审核台放行」把出 Word 退回律师。
-      if (
-        isReviewBoardExportDeferralReply(assistantMsg.content ?? "") &&
-        (opts.turn.toolNameCallCounts?.render_tracked_draft ?? 0) === 0 &&
-        reviewBoardExportBounces < REVIEW_BOARD_EXPORT_BOUNCE_MAX
-      ) {
-        reviewBoardExportBounces += 1;
-        agentMsg.hiddenFromLawyer = true;
-        const bounce = {
-          role: "user" as const,
-          content: formatReviewBoardExportBounce(),
-          timestamp: new Date().toISOString(),
-          hiddenFromLawyer: true,
-        };
-        opts.session.conversationHistory.push(bounce);
-        opts.turn.messages.push(bounce);
-        continue;
-      }
-      const missingDeliverables = deliverableNudged
-        ? []
-        : missingNamedDeliverables(opts.config.workspaceDir, opts.turn.instruction);
-      if (missingDeliverables.length > 0) {
-        deliverableNudged = true;
-        agentMsg.hiddenFromLawyer = true;
-        const nudge = {
-          role: "user" as const,
-          content: formatMissingDeliverableNudge(missingDeliverables),
-          timestamp: new Date().toISOString(),
-          hiddenFromLawyer: true,
-        };
-        opts.session.conversationHistory.push(nudge);
-        opts.turn.messages.push(nudge);
-        continue;
-      }
-      const voiced = appendMechanicalNote(assistantMsg.content ?? "", opts.turn.factorState);
-      agentMsg.content = voiced;
-      if (
-        !opts.abortRequested() &&
-        peekPendingSteer(opts.config.workspaceDir, opts.session.sessionId).length > 0
-      ) {
-        // 收尾这句话生成期间律师点了「改这一轮」。再采样一次，不要把纠正留到下一场。
-        continue;
-      }
-      finalReply = voiced;
-      opts.turn.status = "completed";
-      break;
-    }
-
-    const toolRefs: ToolCallRef[] = toolCalls.map(
-      (tc: { id: string; function: { name: string; arguments: string } }) => ({
-        id: tc.id,
-        name: tc.function.name,
-        arguments: safeParse(tc.function.arguments),
-      }),
-    );
-    // 批次屏障：批次期间落盘写「已配对快照」，提交时整体落盘一次。
-    beginSessionToolBatch(opts.session.sessionId);
-    let batchResult: Awaited<ReturnType<typeof executeToolBatches>>;
-    try {
-      batchResult = await executeToolBatches({
-        toolRefs,
-        registry: opts.registry,
-        turn: opts.turn,
-        ctx: opts.ctx,
-        roundIndex,
-        assistantContent: assistantMsg.content ?? "",
-        maxToolCalls: hardCeiling,
-        toolTimeoutMs: opts.toolTimeoutMs,
-        strictDangerousToolApproval: opts.strictDangerousToolApproval,
-        allowDangerousToolsWithoutApproval: opts.allowDangerousToolsWithoutApproval,
-        toolSandboxEnabled: opts.toolSandboxEnabled,
-        policyHints: lockSearch
-          ? {
-              ...opts.policyHints,
-              deniedToolNames: [
-                ...new Set([
-                  ...(opts.policyHints.deniedToolNames ?? []),
-                  ...SEARCH_SYNTHESIS_TOOL_NAMES,
-                ]),
-              ],
-            }
-          : opts.policyHints,
-        actorId: opts.actorId,
-        sessionMatterId: opts.session.matterId,
-        sessionAssistantId: opts.session.assistantId,
-        pendingClarificationQuestions,
-        emitEvent: opts.emitEvent,
-        abortRequested: opts.abortRequested,
-        pushMessage: (msg) => {
-          opts.session.conversationHistory.push(msg);
-          opts.turn.messages.push(msg);
-        },
-      });
-    } catch (err) {
-      // 工具异常优先：提交仍要跑（补占位并落盘），但不能掩盖原始错误。
+      // 批次屏障：批次期间落盘写「已配对快照」，提交时整体落盘一次。
+      beginSessionToolBatch(opts.session.sessionId);
+      let batchResult: Awaited<ReturnType<typeof executeToolBatches>>;
       try {
-        commitSessionToolBatch(opts.config.workspaceDir, opts.session);
-      } catch {
-        /* 保留原始工具异常 */
+        batchResult = await executeToolBatches({
+          toolRefs,
+          registry: opts.registry,
+          turn: opts.turn,
+          ctx: opts.ctx,
+          roundIndex,
+          assistantContent: assistantMsg.content ?? "",
+          maxToolCalls: hardCeiling,
+          toolTimeoutMs: opts.toolTimeoutMs,
+          strictDangerousToolApproval: opts.strictDangerousToolApproval,
+          allowDangerousToolsWithoutApproval: opts.allowDangerousToolsWithoutApproval,
+          toolSandboxEnabled: opts.toolSandboxEnabled,
+          policyHints: lockSearch
+            ? {
+                ...opts.policyHints,
+                deniedToolNames: [
+                  ...new Set([
+                    ...(opts.policyHints.deniedToolNames ?? []),
+                    ...SEARCH_SYNTHESIS_TOOL_NAMES,
+                  ]),
+                ],
+              }
+            : opts.policyHints,
+          actorId: opts.actorId,
+          sessionMatterId: opts.session.matterId,
+          sessionAssistantId: opts.session.assistantId,
+          pendingClarificationQuestions,
+          emitEvent: opts.emitEvent,
+          abortRequested: opts.abortRequested,
+          pushMessage: (msg) => {
+            opts.session.conversationHistory.push(msg);
+            opts.turn.messages.push(msg);
+          },
+        });
+      } catch (err) {
+        // 工具异常优先：提交仍要跑（补占位并落盘），但不能掩盖原始错误。
+        try {
+          commitSessionToolBatch(opts.config.workspaceDir, opts.session);
+        } catch {
+          /* 保留原始工具异常 */
+        }
+        throw err;
       }
-      throw err;
-    }
-    // 成功路径：落盘失败必须停止本轮（fail-closed），与 session-persist 取向一致。
-    commitSessionToolBatch(opts.config.workspaceDir, opts.session);
-    pendingClarificationQuestions = batchResult.pendingClarificationQuestions;
-    if (batchResult.finalReply) {
-      finalReply = batchResult.finalReply;
-    }
-    applyPendingWorldStateCraftPatch(opts.session, opts.ctx);
-    applyPendingTurnPlan(opts.session, opts.ctx);
+      // 成功路径：落盘失败必须停止本轮（fail-closed），与 session-persist 取向一致。
+      commitSessionToolBatch(opts.config.workspaceDir, opts.session);
+      pendingClarificationQuestions = batchResult.pendingClarificationQuestions;
+      if (batchResult.finalReply) {
+        finalReply = batchResult.finalReply;
+      }
+      applyPendingWorldStateCraftPatch(opts.session, opts.ctx);
+      applyPendingTurnPlan(opts.session, opts.ctx);
 
-    const stepAfterBatch = rebuildStepContext({
-      session: opts.session,
-      registry: opts.registry,
-      turnContext: opts.turnContext,
-      pinIds,
-    });
-    openAITools = opts.registry.toOpenAITools({ names: stepAfterBatch.toolNames });
-
-    // Warn after batches too — a single round can jump past 80% without another round_start.
-    if (!toolBudgetWarned && shouldWarnToolBudget(opts.turn.toolCallsExecuted, opts.maxToolCalls)) {
-      toolBudgetWarned = true;
-      opts.emitEvent({
-        type: "tool_budget",
-        used: opts.turn.toolCallsExecuted,
-        maxToolCalls: opts.maxToolCalls,
-        level: "warn",
+      const stepAfterBatch = rebuildStepContext({
+        session: opts.session,
+        registry: opts.registry,
+        turnContext: opts.turnContext,
+        pinIds,
       });
-    }
+      openAITools = opts.registry.toOpenAITools({ names: stepAfterBatch.toolNames });
 
-    if (opts.turn.status === "awaiting_approval" || opts.turn.status === "awaiting_clarification") {
-      break;
-    }
-    if (opts.turn.status === "completed" && batchResult.finalReply) {
-      finalReply = batchResult.finalReply;
-      break;
-    }
+      // Warn after batches too — a single round can jump past 80% without another round_start.
+      if (
+        !flags.toolBudgetWarned &&
+        shouldWarnToolBudget(opts.turn.toolCallsExecuted, opts.maxToolCalls)
+      ) {
+        flags.toolBudgetWarned = true;
+        opts.emitEvent({
+          type: "tool_budget",
+          used: opts.turn.toolCallsExecuted,
+          maxToolCalls: opts.maxToolCalls,
+          level: "warn",
+        });
+      }
 
-    const missingForSynthesis = missingNamedDeliverables(
-      opts.config.workspaceDir,
-      opts.turn.instruction,
-    );
-    let steeredToWrite = false;
-    if (
-      !synthesisNudged &&
-      shouldSynthesizeBeforeWrite({
-        missingDeliverables: missingForSynthesis,
-        searchCalls: countSearchCalls(opts.turn.toolNameCallCounts),
+      if (
+        opts.turn.status === "awaiting_approval" ||
+        opts.turn.status === "awaiting_clarification"
+      ) {
+        opts.turn.stopReason =
+          opts.turn.status === "awaiting_approval" ? "awaiting_approval" : "awaiting_clarification";
+        return "stop";
+      }
+      if (opts.turn.status === "completed" && batchResult.finalReply) {
+        finalReply = batchResult.finalReply;
+        opts.turn.stopReason = "delivered";
+        return "stop";
+      }
+
+      // Post-batch coaching: ordered policy table (see `turn-loop-policies.ts`).
+      // First non-null action wins; `resample` pushes one hidden user message.
+      const postRound = runToolRoundPolicies({
+        instruction: opts.turn.instruction,
+        workspaceDir: opts.config.workspaceDir,
+        profile: turnProfile,
+        flags,
+        wordRevision: opts.ctx.wordRevisionTurn === true,
+        toolRefs,
         advertisedToolNames: stepAfterBatch.toolNames,
-        liveStatuteHit: turnHasLiveStatuteHit(opts.turn.messages),
-      })
-    ) {
-      synthesisNudged = true;
-      const nudge = {
-        role: "user" as const,
-        content: formatWriteSynthesisNudge(missingForSynthesis),
-        timestamp: new Date().toISOString(),
-        hiddenFromLawyer: true,
-      };
-      opts.session.conversationHistory.push(nudge);
-      opts.turn.messages.push(nudge);
-      steeredToWrite = true;
-    } else if (synthesisNudged) {
-      synthesisSearchLocked = missingForSynthesis.length > 0;
-    }
-    if (framePleading && !pleadingNudged) {
-      const gaps = pleadingSectionGaps(opts.config.workspaceDir, opts.turn.instruction);
-      if (gaps.length > 0) {
-        pleadingNudged = true;
-        const nudge = {
-          role: "user" as const,
-          content: formatPleadingSectionNudge(gaps),
-          timestamp: new Date().toISOString(),
-          hiddenFromLawyer: true,
-        };
-        opts.session.conversationHistory.push(nudge);
-        opts.turn.messages.push(nudge);
-        steeredToWrite = true;
-      }
-    }
-    if (
-      frameConsult &&
-      !consultNudged &&
-      consultListGap(opts.config.workspaceDir, opts.turn.instruction)
-    ) {
-      consultNudged = true;
-      const nudge = {
-        role: "user" as const,
-        content: formatConsultQuestionsNudge(namedWorkspaceDeliverables(opts.turn.instruction)),
-        timestamp: new Date().toISOString(),
-        hiddenFromLawyer: true,
-      };
-      opts.session.conversationHistory.push(nudge);
-      opts.turn.messages.push(nudge);
-      steeredToWrite = true;
-    }
-    if (frameMemo && !memoNudged) {
-      const gaps = memoSectionGaps(opts.config.workspaceDir, opts.turn.instruction);
-      if (gaps.length > 0) {
-        memoNudged = true;
-        const nudge = {
-          role: "user" as const,
-          content: formatMemoSectionNudge(gaps),
-          timestamp: new Date().toISOString(),
-          hiddenFromLawyer: true,
-        };
-        opts.session.conversationHistory.push(nudge);
-        opts.turn.messages.push(nudge);
-        steeredToWrite = true;
-      }
-    }
-    if (
-      !calculateParamNudged &&
-      trailingCalculateParamFailures(opts.session.conversationHistory) >=
-        CALCULATE_PARAM_FAILURE_CAP
-    ) {
-      calculateParamNudged = true;
-      const nudge = {
-        role: "user" as const,
-        content: formatCalculateParamStopNudge(),
-        timestamp: new Date().toISOString(),
-        hiddenFromLawyer: true,
-      };
-      opts.session.conversationHistory.push(nudge);
-      opts.turn.messages.push(nudge);
-      steeredToWrite = true;
-    }
-    if (steeredToWrite) {
-      continue;
-    }
+        toolNameCallCounts: opts.turn.toolNameCallCounts,
+        toolCallSignatures: opts.turn.toolCallSignatures,
+        trackedArtifactWritten: opts.turn.trackedArtifactWritten === true,
+        messages: opts.session.conversationHistory,
+        turnMessages: opts.turn.messages,
+      });
 
-    const forbiddenShells = forbiddenShellRejectionCount(opts.session.conversationHistory);
-    if (forbiddenShells >= 4) {
-      opts.turn.status = "completed";
-      finalReply = formatForbiddenShellStop();
-      break;
-    }
-    if (forbiddenShells >= 2 && !forbiddenShellNudged) {
-      forbiddenShellNudged = true;
-      const nudge = {
-        role: "user" as const,
-        content: formatForbiddenShellNudge(),
-        timestamp: new Date().toISOString(),
-        hiddenFromLawyer: true,
-      };
-      opts.session.conversationHistory.push(nudge);
-      opts.turn.messages.push(nudge);
-      continue;
-    }
-
-    if (toolRefs.length > 0) {
-      identicalToolStreak = advanceIdenticalToolStreak(
-        identicalToolStreak,
-        toolCallBatchSignature(toolRefs),
-      );
-      const repeat = identicalToolRepeatDecision(identicalToolStreak);
-      const reread = completedDocumentReread(toolRefs, opts.session.conversationHistory);
-      const wordRevision = opts.ctx.wordRevisionTurn === true;
-      if (repeat === "nudge") {
-        identicalToolStreak = { ...identicalToolStreak, nudged: true };
-        const nudge = {
-          role: "user" as const,
-          content: reread
-            ? formatDocumentRereadNudge({ totalChars: reread.totalChars, wordRevision })
-            : formatIdenticalToolRepeatNudge(),
-          timestamp: new Date().toISOString(),
-          hiddenFromLawyer: true,
-        };
-        opts.session.conversationHistory.push(nudge);
-        opts.turn.messages.push(nudge);
-        continue;
-      }
-      if (repeat === "stop") {
-        if (
-          shouldContinueCompletedDocumentReread({
-            wordRevision,
-            alreadyContinued: documentRereadContinued,
-            reread,
-          })
-        ) {
-          documentRereadContinued = true;
-          const steer = {
+      if (postRound?.kind === "resample") {
+        const hidden = [
+          ...(postRound.messages ?? []),
+          ...(postRound.message ? [postRound.message] : []),
+        ];
+        for (const content of hidden) {
+          const nudge = {
             role: "user" as const,
-            content: formatDocumentRereadContinue({ totalChars: reread?.totalChars }),
+            content,
             timestamp: new Date().toISOString(),
             hiddenFromLawyer: true,
           };
-          opts.session.conversationHistory.push(steer);
-          opts.turn.messages.push(steer);
-          continue;
+          opts.session.conversationHistory.push(nudge);
+          opts.turn.messages.push(nudge);
         }
-        const trackedDraftMissing =
-          wordRevision && (opts.turn.toolNameCallCounts?.render_tracked_draft ?? 0) === 0;
-        opts.turn.status = "completed";
-        finalReply = formatIdenticalToolRepeatStop({
-          kind: lawyerRepeatKind(
-            toolRefs.map((call) => call.name),
-            reread != null,
-          ),
-          trackedDraftMissing,
-          deliverInstead: wordRevision,
-        });
-        break;
+        postRound.afterMessagePush?.();
+        return "continue";
       }
-    }
+      if (postRound?.kind === "stop") {
+        opts.turn.status = postRound.status ?? "completed";
+        finalReply = postRound.reply ?? "";
+        opts.turn.stopReason = postRound.reason;
+        return "stop";
+      }
 
-    if (opts.abortRequested() || opts.abortSignal?.aborted) {
-      collapseHistoryForEnd();
-      return {
-        finalReply,
-        pendingClarificationQuestions,
-        turnUsage,
-        aborted: true,
-      };
-    }
-
-    if (shouldHardStopToolBudget(opts.turn.toolCallsExecuted, hardCeiling)) {
-      if (shouldBounceSameTurnCompletion(opts.turn.sameTurnVerify)) {
-        const verifyState = opts.turn.sameTurnVerify!;
-        opts.emitEvent({
-          type: "verify_gap",
-          roundIndex,
-          message: formatSameTurnVerifyLawyerProgress(
-            verifyState.issues.map((issue) => issue.code),
-          ),
-        });
-        opts.turn.status = "completed";
-        finalReply =
-          opts.ctx.wordRevisionTurn === true
-            ? formatWordRevisionCapStop()
-            : formatSameTurnVerifyCapDeliver(verifyState);
-      } else if (pendingClarificationQuestions.length > 0) {
-        // 步数到顶但草稿已带占位：照样交付，缺口列进回复（非阻塞），不暂停。
-        opts.turn.status = "completed";
-        opts.turn.clarificationQuestions = pendingClarificationQuestions;
-        finalReply = buildClarificationReply(
-          assistantMsg.content ?? "",
+      if (opts.abortRequested() || opts.abortSignal?.aborted) {
+        collapseHistoryForEnd();
+        opts.turn.stopReason = "aborted";
+        return {
+          finalReply,
           pendingClarificationQuestions,
-          "已生成带【待核实】标注的草稿（本轮步数已到上限）。以下要点可直接在修订里改，或回复我补充：",
-        );
-        pendingClarificationQuestions = [];
-      } else if (opts.ctx.wordRevisionTurn === true) {
-        opts.turn.status = "completed";
-        const said = assistantMsg.content?.trim();
-        const exported = (opts.turn.toolNameCallCounts?.render_tracked_draft ?? 0) > 0;
-        finalReply = exported && said ? said : formatWordRevisionCapStop();
-      } else {
-        opts.turn.status = "completed";
-        finalReply = assistantMsg.content?.trim() || formatToolBudgetHardStopReply();
+          turnUsage,
+          aborted: true,
+        };
       }
-      break;
-    }
+
+      const budgetStop = resolveToolBudgetStop({
+        used: opts.turn.toolCallsExecuted,
+        hard: hardCeiling,
+        wordRevision: opts.ctx.wordRevisionTurn === true,
+        assistantText: assistantMsg.content ?? "",
+        turn: opts.turn,
+        roundIndex,
+        pendingClarificationQuestions,
+        emit: opts.emitEvent,
+      });
+      if (budgetStop) {
+        opts.turn.status = budgetStop.status;
+        opts.turn.stopReason = budgetStop.reason;
+        finalReply = budgetStop.reply;
+        if (budgetStop.consumedClarificationQuestions) {
+          pendingClarificationQuestions = [];
+        }
+        return "stop";
+      }
+      return "continue";
+    },
+  });
+  if (stopped) {
+    return stopped;
   }
 
   collapseHistoryForEnd();
 
   if (opts.abortRequested() || opts.abortSignal?.aborted) {
+    opts.turn.stopReason = "aborted";
     return {
       finalReply,
       pendingClarificationQuestions,
@@ -1487,6 +1011,11 @@ export async function runModelToolLoop(opts: {
 
   if (!finalReply.trim() && opts.turn.toolCallsExecuted > 0) {
     finalReply = buildTurnReplyFallback(opts.turn);
+  }
+  if (!opts.turn.stopReason) {
+    // Reached here only by exhausting `while (loopCount < hardCeiling + 1)`
+    // without a break (every break sets its own cause).
+    opts.turn.stopReason = finalReply.trim() ? "round_ceiling" : "unknown";
   }
 
   return {

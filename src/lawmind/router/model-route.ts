@@ -9,6 +9,7 @@ import {
   type JsonResponseSchema,
   type OpenAiJsonClientConfig,
 } from "../llm/openai-json.js";
+import { createModelUsageRecorder } from "../models/model-usage.js";
 import { resolveRouterLlmConfig } from "../models/router-reasoning.js";
 import { runTriageRules } from "../triage/rules.js";
 import type { RiskLevel, TaskIntent, TaskKind } from "../types.js";
@@ -184,7 +185,21 @@ export async function routeWithModel(
       { role: "system", content: schema },
       { role: "user", content: user || input.instruction },
     ],
-    { schema: ROUTER_JSON_SCHEMA },
+    {
+      schema: ROUTER_JSON_SCHEMA,
+      // 路由是旁路模型调用，同样花真金白银：接同一本逐次账，缺失用量记 unknown。
+      ...(input.usage
+        ? {
+            onAttempt: createModelUsageRecorder(input.usage.workspaceDir, {
+              purpose: "router",
+              model: cfg.model,
+              ...(input.usage.sessionId ? { sessionId: input.usage.sessionId } : {}),
+              ...(input.usage.turnId ? { turnId: input.usage.turnId } : {}),
+              ...(input.usage.matterId ? { matterId: input.usage.matterId } : {}),
+            }),
+          }
+        : {}),
+    },
   );
 
   if (!parsed || !isTaskKind(parsed.kind)) {

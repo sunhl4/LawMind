@@ -56,6 +56,7 @@ import {
   MAX_DOCX_READ_BYTES,
   MAX_IMAGE_OCR_READ_BYTES,
   MAX_XLSX_READ_BYTES,
+  visionUsageContextFromAgentCtx,
 } from "./ingest-helpers.js";
 import * as searchAuthority from "./search-authority.js";
 
@@ -602,7 +603,7 @@ export const readProjectFile: AgentTool = {
           ),
         );
       }
-      const imageResult = await readImageTextHybrid(full);
+      const imageResult = await readImageTextHybrid(full, visionUsageContextFromAgentCtx(ctx));
       if (!imageResult) {
         return toolFailureFromIngest(
           ingestFailure(
@@ -633,12 +634,12 @@ export const readProjectFile: AgentTool = {
       if (text) {
         return toProjectSuccess("pdf", text, st.size, "pdf_text");
       }
-      const ocrText = await readPdfTextByOcr(full);
+      const ocrText = await readPdfTextByOcr(full, visionUsageContextFromAgentCtx(ctx));
       if (ocrText) {
         return toProjectSuccess("pdf_ocr", ocrText, st.size, "pdf_ocr");
       }
       if (shouldUseVisionFallback()) {
-        const visionText = await readPdfTextByVision(full);
+        const visionText = await readPdfTextByVision(full, visionUsageContextFromAgentCtx(ctx));
         if (visionText) {
           return toProjectSuccess("pdf_vision", visionText, st.size, "pdf_vision");
         }
@@ -797,6 +798,7 @@ export const searchStatute: AgentTool = {
       workspaceHitCount: workspaceHits.length,
       kind: "law",
       demoCorpus: authority.demoCorpus,
+      outcome: authority.outcome,
     });
     return {
       ok: true,
@@ -807,6 +809,8 @@ export const searchStatute: AgentTool = {
         workspaceHits,
         authorityHits: authority.hits,
         authorityLive: authority.live,
+        authorityConfigured: authority.configured,
+        authorityOutcome: authority.outcome,
         authorityProvider: authority.provider,
         demoCorpus: authority.demoCorpus,
         total: merged.length,
@@ -896,6 +900,7 @@ export const searchCaseLaw: AgentTool = {
       workspaceHitCount: workspaceHits.length,
       kind: "case",
       demoCorpus: authority.demoCorpus,
+      outcome: authority.outcome,
     });
     // 类案不可用时给可操作指引，但仍返回工作区线索——不阻断律师干活，也不编造。
     const caseLaw = resolveCaseLawReadiness();
@@ -909,6 +914,8 @@ export const searchCaseLaw: AgentTool = {
         workspaceHits,
         authorityHits: authority.hits,
         authorityLive: authority.live,
+        authorityConfigured: authority.configured,
+        authorityOutcome: authority.outcome,
         authorityProvider: authority.provider,
         demoCorpus: authority.demoCorpus,
         total: merged.length,

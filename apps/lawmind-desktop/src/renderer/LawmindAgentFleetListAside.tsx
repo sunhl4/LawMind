@@ -175,7 +175,7 @@ export function LawmindAgentFleetListAside(props: LawmindAgentFleetListAsideProp
                 disabled={batch.busy}
                 onClick={() => batch.onApprove()}
               >
-                批准发送
+                签批发送
               </button>
               <button
                 type="button"

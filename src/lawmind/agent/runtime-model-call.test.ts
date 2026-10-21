@@ -76,6 +76,24 @@ describe("wire-level tool pairing guard", () => {
     maxRetries: 0,
   });
 
+  it("usage callback failures never replay a successful model call", async () => {
+    const server = await startCassetteModelServer();
+    servers.push(server);
+    server.enqueue(cassetteAssistant("ok"));
+    const response = await callModelWithRetry(
+      config(server.url),
+      [{ role: "user", content: "hello" }],
+      [],
+      {
+        onModelUsage: () => {
+          throw new Error("ledger unavailable");
+        },
+      },
+    );
+    expect(response.choices[0]?.message.content).toBe("ok");
+    expect(server.requests).toHaveLength(1);
+  });
+
   it("drops orphan results and fills missing outputs before the request leaves", async () => {
     const server = await startCassetteModelServer();
     servers.push(server);
@@ -109,6 +127,7 @@ describe("wire-level tool pairing guard", () => {
 
     const repaired = [{ role: "user" as const, content: "只剩可送出的一条" }];
     let repairCalls = 0;
+    const attempts: Array<{ attempt: number; failed: boolean }> = [];
     const response = await callModelWithRetry(
       config(server.url),
       [
@@ -117,6 +136,7 @@ describe("wire-level tool pairing guard", () => {
       ],
       [],
       {
+        onModelUsage: (event) => attempts.push({ attempt: event.attempt, failed: event.failed }),
         onToolPairingReject: () => {
           repairCalls += 1;
           return repaired;
@@ -126,6 +146,10 @@ describe("wire-level tool pairing guard", () => {
 
     expect(response.choices[0]?.message.content).toBe("repaired-ok");
     expect(repairCalls).toBe(1);
+    expect(attempts).toEqual([
+      { attempt: 1, failed: true },
+      { attempt: 2, failed: false },
+    ]);
     expect(server.requests).toHaveLength(2);
     expect(server.requests[1]?.messages()).toEqual(repaired);
     // maxRetries=0，所以第二次请求只可能来自配对自愈。

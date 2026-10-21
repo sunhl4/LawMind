@@ -18,7 +18,7 @@ export function LawmindMailSendFormatFields(props: Props): ReactNode {
 
   return (
     <div className="lm-mail-send-format" data-testid="lm-mail-send-format">
-      <p className="lm-settings-caption">批准发送时带上。</p>
+      <p className="lm-settings-caption">签批发送时带上。</p>
 
       <label className="lm-settings-field">
         <span className="lm-settings-key">发件显示名</span>

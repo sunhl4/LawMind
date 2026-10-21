@@ -106,6 +106,7 @@ export function buildTurnReplyFallback(turn: AgentTurn): string {
 }
 
 export type RunTurnEvent =
+  | { type: "turn_started"; sessionId: string; turnId: string; startedAt: string }
   | { type: "round_start"; roundIndex: number }
   | { type: "turn_wait"; reason: "model_slot"; label: string }
   | { type: "turn_wait_end"; reason: "model_slot" }
@@ -155,12 +156,32 @@ export type RunTurnEvent =
       type: "final";
       status: AgentTurn["status"];
       reply: string;
+      /** Structured termination cause (see `turn-loop-state.ts`). */
+      stopReason?: import("./turn-loop-state.js").TurnStopReason;
+      /** Model samples requested; useful in the live trace and replay. */
+      roundCount?: number;
     }
   | {
       type: "token_budget";
       used: number;
       effectiveLimit: number;
       level: "ok" | "warn" | "compact";
+    }
+  | {
+      /**
+       * 每次模型调用后的实际用量（2026-10-21 新增）。
+       * 与 `token_budget`（估算水位）分工：这个是上游报的账，
+       * `cached`/`uncached` 缺失表示上游没报，不是 0。
+       */
+      type: "token_usage";
+      /** 1-based，含重试。 */
+      attempt: number;
+      input?: number;
+      output?: number;
+      cached?: number;
+      uncached?: number;
+      fixed?: number;
+      failed?: boolean;
     }
   | {
       type: "tool_budget";

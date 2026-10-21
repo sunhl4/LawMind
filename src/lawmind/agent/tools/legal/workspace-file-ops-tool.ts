@@ -25,11 +25,16 @@
  * 带当事人对立提示，进案件办理工具包）；这支是**通用文件语义**（整个工作区）。
  */
 
+import fs from "node:fs";
 import { isProtectedAnalysisScriptRel } from "../../../runtime/analysis-script-path.js";
 import {
   PROTECTED_WORKSPACE_WRITE_REFUSAL,
   isProtectedWorkspaceRel,
 } from "../../../runtime/protected-workspace-rels.js";
+import {
+  checkTurnFileVersion,
+  recordTurnFileVersion,
+} from "../../../runtime/turn-file-versions.js";
 import { fenceAgentFilePath } from "../../../runtime/workspace-io-fence.js";
 import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js";
 import type { AgentTool } from "../../types.js";
@@ -181,11 +186,35 @@ export const applyFileOps: AgentTool = {
         error: `目标案件「${missing.join("、")}」不存在。请先新建该案，或改用已存在的案件 ID。`,
       };
     }
+    // W8：搬移/改名同样校验版本。源文件在本次办理开始后被改过，不做静默移动。
+    const conflicts = solved
+      .filter((op) => !fs.lstatSync(op.from.abs).isDirectory())
+      .map((op) => ({ op, check: checkTurnFileVersion(ctx, op.from.rel, op.from.abs) }))
+      .filter((row) => !row.check.ok);
+    if (conflicts.length > 0) {
+      const first = conflicts[0];
+      return {
+        ok: false,
+        error: first.check.ok ? "" : first.check.error,
+        data: {
+          conflict: true,
+          conflicts: conflicts.map((row) =>
+            row.check.ok ? {} : { path: row.op.from.rel, currentVersion: row.check.currentVersion },
+          ),
+        },
+      };
+    }
     const { applied, failed, writeId } = applySolvedFileOps({
       workspaceDir: ctx.workspaceDir,
       matterId,
       solved,
     });
+    for (const op of applied) {
+      const destination = resolveWorkspaceRelativePath(ctx.workspaceDir, op.to);
+      if (destination.ok) {
+        recordTurnFileVersion(ctx, destination.rel, destination.abs);
+      }
+    }
     if (applied.length === 0) {
       return { ok: false, error: `未执行任何操作：${failed.join("；")}` };
     }

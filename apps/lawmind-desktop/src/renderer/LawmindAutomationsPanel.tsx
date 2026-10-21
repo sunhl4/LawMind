@@ -39,7 +39,7 @@ const INTERVAL_PRESETS = [
 /** 律师只看这一句。接口里的长说明留在服务端，不铺到设置页。 */
 const PRESET_HINT: Record<string, string> = {
   "renewal-monitor": "到期前提醒你。不发函，也不改合同。",
-  "client-weekly-update": "起草给客户的进展。你批准后才发。",
+  "client-weekly-update": "起草给客户的进展。你签批后才发。",
   "mail-inbox-digest": "整理新来信，不代回。先在下面接上邮箱。",
   "mail-contract-review": "对来信里的合同做最小改稿。先在下面接上邮箱。",
 };
@@ -489,7 +489,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       return;
     }
     if (needsNotifyEmail && !notifyEmail.trim()) {
-      setError("客户进展周报请填写真实收件邮箱（批准发信时使用）。");
+      setError("客户进展周报请填写真实收件邮箱（签批发信时使用）。");
       return;
     }
     setBusy(true);
@@ -601,7 +601,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
       });
       await refresh({ quiet: true });
       setError(null);
-      setSuccess("已开始办。要发出去的，在工作台该案的「现在」里批准。");
+      setSuccess("已开始办。要发出去的，在工作台该案的「现在」里签批。");
     } catch (e) {
       setError(errorMessage(e, "触发失败"));
     } finally {
@@ -700,7 +700,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
         <header className="lm-automations-header">
           <div>
             <h2 className="lm-agent-fleet-title">自动办件</h2>
-            <p className="lm-meta">选一件事，定多久办一次。要发出去的，在工作台该案的「现在」里批准。</p>
+            <p className="lm-meta">选一件事，定多久办一次。要发出去的，在工作台该案的「现在」里签批。</p>
           </div>
         </header>
       )}
@@ -909,7 +909,7 @@ export function LawmindAutomationsPanel(props: Props): ReactNode {
               type="email"
               value={notifyEmail}
               onChange={(e) => setNotifyEmail(e.target.value)}
-              placeholder="批准后发到这个地址"
+              placeholder="签批后发到这个地址"
               autoComplete="off"
               aria-label="客户邮箱"
             />

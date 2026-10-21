@@ -76,10 +76,17 @@ export type AgentTool = {
 export type AgentContext = {
   workspaceDir: string;
   sessionId: string;
+  turnId?: string;
+  billingScope?: import("../models/model-usage.js").ModelBillingScope;
   matterId?: string;
   actorId: string;
   /** 多助手档案 ID（若有） */
   assistantId?: string;
+  /**
+   * 本轮意图编译出的能力 id（`contract.review` 等）。只用于交付形态诊断
+   * （`turn.profileId` / 回放分组），不参与工具裁剪。
+   */
+  capabilityId?: string;
   /**
    * 桌面端「项目目录」：用户选中的本机文件夹，用于 read_project_file / search_workspace 扩展检索。
    * 与 LawMind workspace 分离；路径必须在服务端校验后注入。兼容本机文件夹第一项。
@@ -209,6 +216,11 @@ export type AgentContext = {
    */
   abortSignal?: AbortSignal;
   /**
+   * 回合内文件版本账本（工作区相对路径 → 版本指纹）。
+   * 首次触碰已有文件时记录，之后写入前比对；外部改动则拒绝覆盖。
+   */
+  turnFileVersions?: Record<string, string>;
+  /**
    * Primary chat model for this turn. Isolated writers (draft_worker) must use
    * this — not the cheap Guardian/worker sidecar.
    */
@@ -298,7 +310,7 @@ export type PersistedChatLiveTrace = {
     id: string;
     kind: "round" | "tool" | "workflow";
     label: string;
-    status: "running" | "done" | "failed";
+    status: "running" | "done" | "failed" | "paused";
     detail?: string;
     sessionRefs?: Array<{
       sessionId: string;
@@ -334,6 +346,36 @@ export type AgentTurn = {
   toolCallsExecuted: number;
   /** Per-tool call counts within this turn (for discovery-loop guards). */
   toolNameCallCounts?: Record<string, number>;
+  /** Exact argument/result signatures; different queries never share a repeat counter. */
+  toolCallSignatures?: import("../runtime/tool-call-signature.js").ToolCallSignatures;
+  /**
+   * 本轮是否**真的**写出了带修订/带格式痕迹的 Word（工具成功且返回 outputPath）。
+   * 只数调用次数会把失败调用也算成已交付。
+   */
+  trackedArtifactWritten?: boolean;
+  /**
+   * Model/tool loop iterations this turn (1-based). One iteration can issue up
+   * to three HTTP samples (overflow prune retry, empty-choice retry, raised
+   * max_tokens), so this is a loop counter — not a request counter. Short-circuit
+   * turns that never enter the loop record 0.
+   */
+  roundCount?: number;
+  /** Structured termination cause; `evaluation/turn-loop-replay.ts` aggregates by it. */
+  stopReason?: import("./turn-loop-state.js").TurnStopReason;
+  /** Resolved domain control plane for this turn (see `turn-profile.ts`). */
+  profileId?: import("./turn-profile.js").TurnProfileId;
+  /**
+   * 本回合实际发送的采样参数与工具表指纹（审计用）。
+   * 只记模型 ID、温度、seed、工具表指纹；不记密钥与正文。
+   */
+  samplingAudit?: {
+    model: string;
+    temperature: number;
+    seed?: number;
+    reproducible: boolean;
+    toolsFingerprint: string;
+    toolCount: number;
+  };
   status: AgentTurnStatus;
   clarificationQuestions?: ClarificationQuestion[];
   /** Big-Bang: 执行状态机快照（供 API/UI 统一消费） */
@@ -363,11 +405,7 @@ export type AgentTurn = {
   result?: string;
   error?: string;
   /** Provider token usage for this turn (when reported). */
-  modelUsage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
+  modelUsage?: import("../models/model-usage.js").ModelUsageSnapshot;
   startedAt: string;
   completedAt?: string;
 };
@@ -379,6 +417,8 @@ export type AgentTurn = {
 export type AgentSession = {
   sessionId: string;
   /** 对话标签（桌面多窗口）；缺省或空时 UI 显示为「New Chat」 */
+  /** Stable sampling preferences persisted with this session, without credentials. */
+  samplingPreferences?: { reproducible: boolean; seed?: number };
   title?: string;
   matterId?: string;
   /**
@@ -555,6 +595,15 @@ export type AgentModelConfig = {
   stop?: string[];
   /** Optional OpenAI-compatible response_format (Guardian JSON, router JSON). */
   responseFormat?: { type: "json_object" };
+  /**
+   * 会话级可复现模式：温度固定 0，并在上游支持时发送固定 `seed`。
+   * 能力表（`provider-capabilities`）说不支持 seed 时不发，不假装可复现。
+   */
+  /** Explicit capabilities for a custom endpoint; unknown providers never imply seed. */
+  capabilities?: { supportsSeed?: boolean; supportsJsonObject?: boolean };
+  reproducible?: boolean;
+  /** 可复现模式的随机种子；缺省 42。 */
+  seed?: number;
 };
 
 /** Non-secret model identity for system prompt (lawyer may ask「你是什么模型」). */
@@ -571,6 +620,7 @@ export type AgentRuntimeModelIdentity = {
 export type AgentConfig = {
   workspaceDir: string;
   model: AgentModelConfig;
+  billingScope?: import("../models/model-usage.js").ModelBillingScope;
   /** Resolved model identity for honest「你是什么模型」answers (no secrets). */
   runtimeModel?: AgentRuntimeModelIdentity;
   /** 最大单次 turn 的工具调用次数 */

@@ -50,9 +50,9 @@ describe("LawmindChatOutboundHint", () => {
     });
     const bar = host.querySelector('[data-testid="lm-chat-outbound-hint"]');
     expect(bar?.textContent).toContain("本案有 1 封待发出");
-    expect(bar?.textContent).toContain("批准才会寄出");
+    expect(bar?.textContent).toContain("签批才会寄出");
     expect(host.querySelector('[data-testid="lm-chat-outbound-hint-open"]')?.textContent).toBe(
-      "去批准发送",
+      "去签批发送",
     );
   });
 

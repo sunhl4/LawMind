@@ -9,6 +9,7 @@ import {
   LeaderType,
   LineRuleType,
   TabStopType,
+  type IParagraphPropertiesOptions,
   type IParagraphStyleOptions,
   type IStylesOptions,
 } from "docx";
@@ -41,6 +42,10 @@ export function reportDocumentStyles(): IStylesOptions {
   const run = {
     font: latinSong(),
     color: COLOR_TEXT,
+  };
+  // docx serializes tabStops for styles, but its style-only type omits that option.
+  const tocTabs: Pick<IParagraphPropertiesOptions, "tabStops"> = {
+    tabStops: [{ type: TabStopType.RIGHT, position: TOC_TAB, leader: LeaderType.DOT }],
   };
   const paragraphStyles: IParagraphStyleOptions[] = [
     {
@@ -145,7 +150,7 @@ export function reportDocumentStyles(): IStylesOptions {
       quickFormat: true,
       paragraph: {
         spacing: { line: 360, lineRule: LineRuleType.AUTO },
-        tabStops: [{ type: TabStopType.RIGHT, position: TOC_TAB, leader: LeaderType.DOT }],
+        ...tocTabs,
       },
       run: { ...run, bold: true, size: 28, sizeComplexScript: 28 },
     },
@@ -156,7 +161,7 @@ export function reportDocumentStyles(): IStylesOptions {
       quickFormat: true,
       paragraph: {
         indent: { left: 420 },
-        tabStops: [{ type: TabStopType.RIGHT, position: TOC_TAB, leader: LeaderType.DOT }],
+        ...tocTabs,
       },
       run: { ...run, size: 24 },
     },

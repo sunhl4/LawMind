@@ -217,7 +217,7 @@ function ToolApprovalActions(props: {
                 disabled={busy}
                 onClick={() => void onApproveTool?.(action)}
               >
-                批准并继续
+                签批并继续
               </button>
             )}
             <button
@@ -440,7 +440,7 @@ export function LawmindRequiresActionCard(props: Props): ReactNode {
                 disabled={busy}
                 onClick={() => void onResolveMatterApproval?.(action, "approved")}
               >
-                批准
+                签批
               </button>
               <button
                 type="button"

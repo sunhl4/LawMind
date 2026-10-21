@@ -126,6 +126,35 @@ describe("placeAuthorityApiKey", () => {
     expect(placed.storeApiKey).toBe("");
     expect(placed.assignments.LAWMIND_AUTHORITY_API_KEY).toBeUndefined();
   });
+
+  it("保已有元典 token：保存法宝不把 yuandian,pkulaw 覆盖成单值 pkulaw", () => {
+    const plan = planAuthoritySave({
+      provider: "pkulaw",
+      apiKey: "tok-1",
+      existingProvider: "yuandian",
+    });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) {
+      return;
+    }
+    expect(plan.assignments.LAWMIND_AUTHORITY_PROVIDER).toBe("yuandian,pkulaw");
+  });
+
+  it("已有元典别名同样保留；无元典则维持单值", () => {
+    const plan = planAuthoritySave({ provider: "pkulaw", hasExistingKey: true, existingProvider: "元典智库" });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) {
+      return;
+    }
+    expect(plan.assignments.LAWMIND_AUTHORITY_PROVIDER).toBe("yuandian,pkulaw");
+    const planNoYuandian = planAuthoritySave({ provider: "pkulaw", hasExistingKey: true, existingProvider: "yuandian,pkulaw" });
+    expect(planNoYuandian.ok).toBe(true);
+    if (!planNoYuandian.ok) {
+      return;
+    }
+    // 不重复追加，幂等
+    expect(planNoYuandian.assignments.LAWMIND_AUTHORITY_PROVIDER).toBe("yuandian,pkulaw");
+  });
 });
 
 describe("authorityProviderUsesStoredKey", () => {
@@ -134,5 +163,14 @@ describe("authorityProviderUsesStoredKey", () => {
     expect(authorityProviderUsesStoredKey("法宝")).toBe(true);
     expect(authorityProviderUsesStoredKey("open")).toBe(false);
     expect(authorityProviderUsesStoredKey("")).toBe(false);
+  });
+
+  it("multi-vendor list（元典 + 北大法宝同用）：法宝 key 仍然注入", () => {
+    expect(authorityProviderUsesStoredKey("yuandian,pkulaw")).toBe(true);
+    expect(authorityProviderUsesStoredKey("yuandian, 法宝")).toBe(true);
+    // 单元典：走独立的 LAWMIND_YUANDIAN_API_KEY（.env.lawmind），不共用这笔账
+    expect(authorityProviderUsesStoredKey("yuandian")).toBe(false);
+    expect(authorityProviderUsesStoredKey("元典,pkulaw")).toBe(true);
+    expect(authorityProviderUsesStoredKey("unknown-vendor")).toBe(false);
   });
 });

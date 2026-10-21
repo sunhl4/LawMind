@@ -7,6 +7,7 @@
 import type { RunTurnEvent } from "./turn-orchestrator-events.js";
 
 export const EMBED_TURN_EVENT_TYPES = [
+  "turn_started",
   "round_start",
   "turn_wait",
   "turn_wait_end",
@@ -17,6 +18,7 @@ export const EMBED_TURN_EVENT_TYPES = [
   "clarification",
   "final",
   "token_budget",
+  "token_usage",
   "tool_budget",
   "compact_boundary",
   "overflow_prune",

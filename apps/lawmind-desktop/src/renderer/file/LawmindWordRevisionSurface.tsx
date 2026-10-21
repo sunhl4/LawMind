@@ -33,6 +33,7 @@ import {
   wordBalloonLines,
 } from "./word-surface-margin";
 import { apiGetJson, apiSendJson, errorMessage } from "../api-client";
+import { WordFormatAuditPanel } from "./WordFormatAuditPanel";
 import { openDeliverableInWps } from "../canvas/host-actions";
 import { openBoundBaselineIfDifferent } from "../lawmind-open-contract-revision";
 import { usePaneResizePx } from "../use-pane-resize";
@@ -260,6 +261,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   const [findHits, setFindHits] = useState<WordFindHit[]>([]);
   const [findIndex, setFindIndex] = useState(-1);
   const [outlineOpen, setOutlineOpen] = useState(false);
+  const [formatOpen, setFormatOpen] = useState(false);
   const [zoomPercent, setZoomPercent] = useState(100);
   const findInputRef = useRef<HTMLInputElement | null>(null);
   const deskRef = useRef<HTMLDivElement | null>(null);
@@ -2052,6 +2054,16 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
           >
             大纲
           </button>
+          <button
+            type="button"
+            className="lm-btn lm-btn-ghost lm-btn-sm"
+            data-testid="lm-word-format-audit-toggle"
+            aria-pressed={formatOpen}
+            title="只出清单，不改文件"
+            onClick={() => setFormatOpen((open) => !open)}
+          >
+            格式体检
+          </button>
           <div className="lm-word-zoom" role="group" aria-label="缩放" data-testid="lm-word-zoom">
             <button
               type="button"
@@ -2269,6 +2281,16 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
           </button>
         </div>
       </header>
+      {formatOpen ? (
+        <WordFormatAuditPanel
+          apiBase={apiBase}
+          root={root}
+          relPath={relPath}
+          projectDir={projectDir}
+          onClose={() => setFormatOpen(false)}
+          onJumpToParagraph={jumpToOutline}
+        />
+      ) : null}
       {exportNote ? (
         <div className="lm-word-surface-note" role="status">
           <span>{exportNote}</span>

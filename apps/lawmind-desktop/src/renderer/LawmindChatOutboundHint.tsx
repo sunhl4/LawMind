@@ -50,14 +50,14 @@ export function LawmindChatOutboundHint(props: {
     count === 1 ? "本案有 1 封待发出" : `本案有 ${count} 封待发出`;
   return (
     <div className="lm-chat-outbound-hint" data-testid="lm-chat-outbound-hint" role="status">
-      <span className="lm-chat-outbound-hint-copy">{label} · 核对后点批准才会寄出</span>
+      <span className="lm-chat-outbound-hint-copy">{label} · 核对后点签批才会寄出</span>
       <button
         type="button"
         className="lm-btn lm-btn-primary lm-btn-sm"
         data-testid="lm-chat-outbound-hint-open"
         onClick={() => requestOpenMatterOutbound(mid)}
       >
-        去批准发送
+        去签批发送
       </button>
     </div>
   );

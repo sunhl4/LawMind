@@ -12,6 +12,7 @@ import {
   waitModelRetry,
 } from "../llm/http-retry.js";
 import { applyEnvelopeToAgentModelDefaults } from "../models/capability-envelope.js";
+import { createModelUsageRecorder } from "../models/model-usage.js";
 import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { resolveLawyerLocalDir, resolveLawyerLocalFile } from "../runtime/lawyer-local-file.js";
 import { resolveAndListDirectory, type ListDirContext } from "../runtime/list-dir.js";
@@ -113,6 +114,8 @@ export type DraftWorkerContext = Partial<
     AgentContext,
     | "workspaceDir"
     | "sessionId"
+    | "turnId"
+    | "billingScope"
     | "projectDir"
     | "contextPins"
     | "chatModel"
@@ -579,6 +582,8 @@ function asWorkerAgentContext(ctx: DraftWorkerContext | undefined): AgentContext
   return {
     workspaceDir: ctx.workspaceDir,
     sessionId: ctx.sessionId || "draft-worker",
+    turnId: ctx.turnId,
+    billingScope: ctx.billingScope,
     actorId: ctx.actorId || "draft-worker",
     matterId: ctx.matterId,
     projectDir: ctx.projectDir,
@@ -787,6 +792,17 @@ export async function runDraftWorker(
           {
             signal: ctx?.abortSignal,
             admission: ctx?.sessionId ? { sessionId: ctx.sessionId, kind: "worker" } : undefined,
+            onModelUsage: ctx?.workspaceDir
+              ? createModelUsageRecorder(ctx.workspaceDir, {
+                  sessionId: ctx.sessionId,
+                  turnId: ctx.turnId,
+                  matterId: ctx.matterId,
+                  model: model.model,
+                  provider: model.provider,
+                  purpose: "worker",
+                  billingScope: ctx.billingScope,
+                })
+              : undefined,
           },
         );
         const fixedText = extractAssistantText(fix).text.trim();
@@ -849,6 +865,17 @@ export async function runDraftWorker(
         {
           signal: ctx?.abortSignal,
           admission: ctx?.sessionId ? { sessionId: ctx.sessionId, kind: "worker" } : undefined,
+          onModelUsage: ctx?.workspaceDir
+            ? createModelUsageRecorder(ctx.workspaceDir, {
+                sessionId: ctx.sessionId,
+                turnId: ctx.turnId,
+                matterId: ctx.matterId,
+                model: model.model,
+                provider: model.provider,
+                purpose: "worker",
+                billingScope: ctx.billingScope,
+              })
+            : undefined,
         },
       );
       const view = extractAssistantText(response);

@@ -170,4 +170,17 @@ describe("LawmindSettingsAppearance", () => {
     });
     expect(document.documentElement.classList.contains("lm-density-compact")).toBe(true);
   });
+
+  it("shows the provisional 公文格式 standard and the follow-the-file rule", async () => {
+    await act(async () => {
+      root.render(<LawmindSettingsAppearance onPrefsChange={vi.fn()} />);
+    });
+    const group = host.querySelector('[data-testid="lm-format-standard"]') as HTMLElement;
+    expect(group).toBeTruthy();
+    expect(group.textContent).toContain("待律师确认");
+    expect(group.textContent).toContain("GB/T 9704-2012");
+    expect(group.textContent).toContain("跟随原文件格式");
+    expect(group.textContent).toContain("只有您明确要求时");
+    expect(group.textContent).toContain("草案");
+  });
 });

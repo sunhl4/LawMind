@@ -21,7 +21,9 @@ import {
   shouldRetryTransportFailure,
   waitModelRetry,
 } from "../llm/http-retry.js";
+import type { JsonModelUsage } from "../llm/openai-json.js";
 import { resolveClassifySidecarLimits } from "../models/capability-envelope.js";
+import { createModelUsageRecorder } from "../models/model-usage.js";
 import {
   loadWordRevisionPack,
   resolveWordRevisionChecklist,
@@ -110,6 +112,14 @@ export async function defaultGuardianCaller(
   model: AgentModelConfig,
   input: { system: string; user: string },
   abortSignal?: AbortSignal,
+  usage?: {
+    onAttempt?: (info: {
+      attempt: number;
+      latencyMs: number;
+      failed: boolean;
+      usage?: JsonModelUsage;
+    }) => void;
+  },
 ): Promise<GuardianReviewerDraw> {
   const limits = resolveClassifySidecarLimits({
     contextTokens: model.contextTokens,
@@ -132,7 +142,7 @@ export async function defaultGuardianCaller(
       },
       messages,
       [],
-      { signal: abortSignal },
+      { signal: abortSignal, ...(usage ? { onModelUsage: usage.onAttempt } : {}) },
     );
     const view = extractAssistantText(response);
     return { text: view.text, truncated: assistantOutputLooksTruncated(view) };
@@ -346,7 +356,15 @@ export async function runLegalGuardian(opts: {
     opts.callReviewer ??
     (hasUsableModel(opts.model)
       ? (input: { system: string; user: string }) =>
-          defaultGuardianCaller(opts.model!, input, opts.abortSignal)
+          defaultGuardianCaller(opts.model!, input, opts.abortSignal, {
+            // 独立审稿员是每轮真实发生的第二次模型调用，不能只在主循环记账。
+            onAttempt: createModelUsageRecorder(opts.workspaceDir, {
+              purpose: "guardian",
+              model: opts.model!.model,
+              provider: opts.model!.provider,
+              ...(opts.matterId ? { matterId: opts.matterId } : {}),
+            }),
+          })
       : undefined);
 
   // P2.2：把检查单项 id 交给解析器——模型必须逐项回答，verdict 由代码聚合。

@@ -9,6 +9,7 @@ import { buildMatterContextFragmentBody } from "../agent/matter-context-fragment
 import { callModelWithRetry } from "../agent/runtime-model-call.js";
 import type { AgentModelConfig } from "../agent/types.js";
 import { resolveClassifySidecarLimits } from "../models/capability-envelope.js";
+import { createModelUsageRecorder } from "../models/model-usage.js";
 import { buildMatterPulse } from "./matter-pulse.js";
 
 type BriefCacheEntry = { hash: string; text: string; at: number };
@@ -117,6 +118,14 @@ export async function generateMatterBriefParagraph(opts: {
         { role: "user", content: grounding.slice(0, 12_000) },
       ],
       [],
+      {
+        onModelUsage: createModelUsageRecorder(opts.workspaceDir, {
+          matterId,
+          model: opts.model.model,
+          provider: opts.model.provider,
+          purpose: "matter_brief",
+        }),
+      },
     );
     const text = extractAssistantText(response).text.replace(/\s+/g, " ").trim();
     if (text.length < 12) {
@@ -194,6 +203,13 @@ export async function generateMatterHotlines(opts: {
         { role: "user", content: grounding.slice(0, 14_000) },
       ],
       [],
+      {
+        onModelUsage: createModelUsageRecorder(opts.workspaceDir, {
+          model: opts.model.model,
+          provider: opts.model.provider,
+          purpose: "matter_hotline",
+        }),
+      },
     );
     const raw = extractAssistantText(response).text.trim();
     const jsonMatch = raw.match(/\{[\s\S]*\}/);

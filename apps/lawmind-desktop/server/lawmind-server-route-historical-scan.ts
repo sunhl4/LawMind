@@ -149,7 +149,7 @@ export async function handleHistoricalScanRoutes({
         sendJson(res, 400, { ok: false, error: applied.error, hint: "请先查看这些文件夹。" }, c);
         return true;
       }
-      sendJson(res, 200, { ok: true, ...applied, plan: await safeScanPlan(workspaceDir) }, c);
+      sendJson(res, 200, { ...applied, plan: await safeScanPlan(workspaceDir) }, c);
     } catch (err) {
       if (isInvalidRequestBodyError(err)) {
         sendJson(res, 400, { ok: false, error: "invalid request" }, c);

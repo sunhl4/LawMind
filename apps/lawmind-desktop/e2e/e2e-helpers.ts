@@ -44,11 +44,24 @@ export function e2eScopeHeaders(scopeId: string): Record<string, string> {
   return { [E2E_SCOPE_HEADER]: scopeId };
 }
 
-export async function installE2eBrowserPrefs(page: {
-  addInitScript: Page["addInitScript"];
-  setExtraHTTPHeaders?: (headers: Record<string, string>) => Promise<void>;
-}): Promise<{ scopeId: string }> {
-  await installE2eDesktopBootStub(page);
+export async function installE2eBrowserPrefs(
+  page: {
+    addInitScript: Page["addInitScript"];
+    setExtraHTTPHeaders?: (headers: Record<string, string>) => Promise<void>;
+  },
+  options: {
+    /**
+     * 草稿台（审核台）住在中栏，而中栏要 `canUseFilesystemBridge` 才显示。
+     * 要断言审核台内容的用例必须打开这个开关，否则只会在「工作台出现了」就变绿。
+     */
+    filesystemBridge?: boolean;
+  } = {},
+): Promise<{ scopeId: string }> {
+  if (options.filesystemBridge) {
+    await installE2eDesktopBridge(page);
+  } else {
+    await installE2eDesktopBootStub(page);
+  }
   // 作用域头：让 mock 的全局状态随测试隔离（见 nextE2eScopeId 的说明）。
   // 可选调用：只用 addInitScript 的旧调用方（若有）不受影响。
   const scopeId = nextE2eScopeId();
@@ -211,8 +224,8 @@ export async function bootstrapE2ePage(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
 }
 
-/** 打开工作台。审稿不在单独的在办页。 */
-export async function openReviewDraft(page: Page, _taskId = "e2e-draft-1"): Promise<void> {
+/** 只打开工作台一级 tab（不打开草稿台）。 */
+export async function openDeskTab(page: Page): Promise<void> {
   await dismissBlockingDialogs(page);
   await leaveSettingsIfOpen(page);
   const desk = page.getByRole("navigation", { name: "功能模块" }).getByTestId("lm-tab-desk");
@@ -221,6 +234,30 @@ export async function openReviewDraft(page: Page, _taskId = "e2e-draft-1"): Prom
   await expect(page.getByTestId("lm-chat-drop-zone")).toBeVisible();
   await expect(page.locator(".lm-side")).toBeVisible();
   await expect(page.getByTestId("lm-tab-agents")).toHaveCount(0);
+}
+
+/**
+ * 打开工作台里的草稿台（审核台）。
+ *
+ * 审稿不在一级导航：「看修订」不再切到独立页，草稿台由中栏
+ * `LawmindMiddleDraftDesk` 按 `lawmind:open-draft-desk` 事件打开。所以这里必须
+ * 真的派发产品事件，而不是只点一级 tab——否则用例会在「工作台出现了」就变绿，
+ * 审核台上的断言（待定夺卡、签批按钮）根本没跑到。
+ */
+export async function openReviewDraft(page: Page, taskId = "e2e-draft-1"): Promise<void> {
+  await openDeskTab(page);
+  await openDraftDesk(page, taskId);
+}
+
+/** 派发产品事件打开草稿台，并等审核台真的挂上。 */
+export async function openDraftDesk(page: Page, taskId = "e2e-draft-1"): Promise<void> {
+  await page.evaluate((id) => {
+    window.dispatchEvent(new CustomEvent("lawmind:prepare-workspace-file"));
+    window.dispatchEvent(
+      new CustomEvent("lawmind:open-draft-desk", { detail: { taskId: id } }),
+    );
+  }, taskId);
+  await expect(page.getByTestId("lm-middle-draft-desk")).toBeVisible({ timeout: 30_000 });
 }
 
 /** Ensure review meta side pane + advanced section are open (acceptance gate / gate list live there). */
@@ -383,7 +420,7 @@ export async function approveToolViaDialog(page: Page): Promise<import("@playwri
   const resumeWait = page.waitForResponse(
     (res) => res.url().includes("/api/chat/resume") && res.request().method() === "POST",
   );
-  await page.getByRole("button", { name: /批准并继续|允许一次/ }).click();
+  await page.getByRole("button", { name: /签批并继续|允许一次/ }).click();
   return resumeWait;
 }
 

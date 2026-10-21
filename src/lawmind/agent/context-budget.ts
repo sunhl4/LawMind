@@ -18,6 +18,13 @@ export type TokenBudgetSnapshot = {
   level: TokenBudgetLevel;
   /** 追加注记 / warn 的起始填充比（随 policy 变化；调用方不必再自己读 policy）。 */
   warnRatio: number;
+  /**
+   * 本轮固定输入税估算（系统提示 + 工具 schema）。`undefined` 表示调用方没算，
+   * 不要当 0 用。
+   */
+  fixedInputTokens?: number;
+  /** 工具表指纹；`undefined` 表示未测量。 */
+  toolTableFingerprint?: string;
 };
 
 const DEFAULT_CONTEXT_TOKENS = DEFAULT_CONTEXT_TUNING.budget.contextTokens;
@@ -87,6 +94,13 @@ export type EstimateTokenBudgetOptions = {
   /** Selected model context window (catalog). */
   contextTokens?: number;
   charsPerToken?: number;
+  /**
+   * 本轮固定输入税（系统提示 + 实际发出的工具 schema）的估算值。
+   * 只在调用方算得出时传；缺省不填，快照里就是 `undefined`（未知），不是 0。
+   */
+  fixedInputTokens?: number;
+  /** 工具表指纹，用于事后核对前缀是否稳定。 */
+  toolTableFingerprint?: string;
 };
 
 export function estimateMessageTokens(
@@ -337,5 +351,14 @@ export function estimateTokenBudget(
   } else if (ratio >= tuning.warnRatio) {
     level = "warn";
   }
-  return { used, effectiveLimit, level, warnRatio: tuning.warnRatio };
+  return {
+    used,
+    effectiveLimit,
+    level,
+    warnRatio: tuning.warnRatio,
+    ...(typeof opts?.fixedInputTokens === "number"
+      ? { fixedInputTokens: opts.fixedInputTokens }
+      : {}),
+    ...(opts?.toolTableFingerprint ? { toolTableFingerprint: opts.toolTableFingerprint } : {}),
+  };
 }

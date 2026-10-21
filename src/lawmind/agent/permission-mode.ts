@@ -24,6 +24,7 @@ export const READONLY_AGENT_TOOL_NAMES = new Set<string>([
   "read_host_file",
   "analyze_document",
   "compare_documents",
+  "check_document_format",
   "search_matter",
   "search_statute",
   "search_case_law",

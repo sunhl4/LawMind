@@ -108,3 +108,6 @@ USER.md
 # True-manuscript trend report — runtime artifact written by the gate CLI
 workspace/lawmind/metrics/true-manuscript-report.json
 apps/lawmind-desktop/.vite/
+
+# W0 基线材料与临时测量日志（改造对照用，不入库）
+/lawmind/metrics/

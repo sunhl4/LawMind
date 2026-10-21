@@ -42,6 +42,29 @@ function seedMatter(workspaceDir: string, matterId: string): void {
 }
 
 describe("apply_file_ops 改名/搬移/复制", () => {
+  it("does not overwrite a destination created by an earlier directory move in the same batch", async () => {
+    const workspaceDir = tmp("lm-fops-overlap-");
+    seedMatter(workspaceDir, "甲案");
+    writeRel(workspaceDir, "incoming/a.txt", "first source");
+    writeRel(workspaceDir, "second.txt", "second source");
+    const result = await applyFileOps.execute(
+      {
+        ops: [
+          { from: "incoming", to: "archive" },
+          { from: "second.txt", to: "archive/a.txt" },
+        ],
+      },
+      ctx(workspaceDir, "甲案"),
+    );
+    expect(result.ok).toBe(true);
+    expect(fs.readFileSync(path.join(workspaceDir, "archive/a.txt"), "utf8")).toBe("first source");
+    expect(fs.readFileSync(path.join(workspaceDir, "second.txt"), "utf8")).toBe("second source");
+    expect(result.data).toMatchObject({
+      appliedCount: 1,
+      failed: [expect.stringContaining("目标已存在")],
+    });
+  });
+
   it("把材料改名（律师的归档系统）", async () => {
     const workspaceDir = tmp("lm-fops-rename-");
     seedMatter(workspaceDir, "甲案");
@@ -69,6 +92,27 @@ describe("apply_file_ops 改名/搬移/复制", () => {
     expect(
       fs.existsSync(path.join(workspaceDir, "cases", "甲案", "materials", "扫描件001.pdf")),
     ).toBe(false);
+  });
+
+  it("改名后记录目标版本，拒绝再次搬移被外部改过的文件", async () => {
+    const workspaceDir = tmp("lm-fops-version-");
+    seedMatter(workspaceDir, "甲案");
+    const context = ctx(workspaceDir, "甲案");
+    const from = "cases/甲案/materials/原稿.txt";
+    const to = "cases/甲案/materials/新名.txt";
+    const next = "cases/甲案/materials/归档.txt";
+    writeRel(workspaceDir, from, "原稿");
+
+    const renamed = await applyFileOps.execute({ ops: [{ from, to }] }, context);
+    expect(renamed.ok).toBe(true);
+    expect(context.turnFileVersions?.[to]).toEqual(expect.any(String));
+
+    writeRel(workspaceDir, to, "律师刚在外部补充的内容");
+    const conflicted = await applyFileOps.execute({ ops: [{ from: to, to: next }] }, context);
+    expect(conflicted.ok).toBe(false);
+    expect(conflicted.data).toMatchObject({ conflict: true });
+    expect(fs.readFileSync(path.join(workspaceDir, to), "utf8")).toBe("律师刚在外部补充的内容");
+    expect(fs.existsSync(path.join(workspaceDir, next))).toBe(false);
   });
 
   it("复制一份留作对照，源文件保留", async () => {

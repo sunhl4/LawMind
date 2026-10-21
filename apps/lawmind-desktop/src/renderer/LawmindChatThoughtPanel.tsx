@@ -18,6 +18,7 @@ type Props = {
 };
 
 function toolStatusBadge(status: ChatActivityToolBlock["status"]): string | null {
+  if (status === "paused") { return "等待确认"; }
   if (status === "running") {
     return "进行中";
   }

@@ -5,7 +5,7 @@ import { createLegalToolRegistry } from "../../../src/lawmind/agent/tools/index.
 import type { ResumeRequiresActionInput } from "../../../src/lawmind/platform/requires-action.js";
 import type { RunTurnEvent } from "../../../src/lawmind/agent/index.js";
 import { classifySessionInbox } from "../../../src/lawmind/agent/session-inbox.js";
-import { loadSession } from "../../../src/lawmind/agent/session.js";
+import { createSession, loadSession } from "../../../src/lawmind/agent/session.js";
 import { isAssistantTurnInProgressError } from "../../../src/lawmind/agent/assistant-turn-gate.js";
 import { isSessionTurnInProgressError } from "../../../src/lawmind/agent/session-turn-gate.js";
 import {
@@ -399,6 +399,19 @@ export async function handleChatRoute({
         : undefined;
 
     let sseClosed = false;
+    /**
+     * 连接断了，但 turn 还没跑完（2026-10-21）。
+     *
+     * 旧行为：`sseClosed` 直接进 `shouldAbort`，于是「律师网络抖了一下」被当成
+     * 「律师按了停止」，写到一半的文件停在中间，界面报错，重试还可能重复写。
+     * 现在默认继续跑完并落盘，由客户端重连后对账；`LAWMIND_STREAM_LOSS_POLICY=abort`
+     * 可切回旧行为。
+     */
+    let transportLost = false;
+    const streamLossPolicy: "continue" | "abort" =
+      (process.env.LAWMIND_STREAM_LOSS_POLICY ?? "").trim().toLowerCase() === "abort"
+        ? "abort"
+        : "continue";
     /** Set true after `agent.chat` returns so a late `req.close` cannot abort the next turn. */
     let turnFinished = false;
     let ssePingTimer: ReturnType<typeof setInterval> | null = null;
@@ -411,12 +424,12 @@ export async function handleChatRoute({
       }
     };
     const sseEnd = (): void => {
-      if (sseClosed) {return;}
-      sseClosed = true;
       if (ssePingTimer) {
         clearInterval(ssePingTimer);
         ssePingTimer = null;
       }
+      if (sseClosed) {return;}
+      sseClosed = true;
       if (!res.writableEnded) {
         try {
           res.end();
@@ -442,19 +455,26 @@ export async function handleChatRoute({
           }
         }
       }, 25_000);
-      req.on("close", () => {
-        // Disconnect abort is signaled via `sseClosed` → `shouldAbort` for *this* turn only.
-        // Do not call `requestTurnAbort` here: normal completion also fires `close` after
-        // `sseEnd`, which would race a fast follow-up turn that already cleared the flag.
-        if (!turnFinished) {
-          sseEnd();
+      const onTransportLost = () => {
+        if (!turnFinished) { transportLost = true; }
+        sseClosed = true;
+        if (ssePingTimer) {
+          clearInterval(ssePingTimer);
+          ssePingTimer = null;
         }
-      });
+      };
+      // IncomingMessage.close also fires when request upload completes; response.close
+      // is the transport boundary for a streamed response.
+      res.on("close", onTransportLost);
+      req.on("aborted", onTransportLost);
     }
 
     const onEvent: ((event: RunTurnEvent) => void) | undefined = wantsStream
       ? (event) => {
           switch (event.type) {
+            case "turn_started":
+              sseWriteEvent("turn_started", { sessionId: event.sessionId, turnId: event.turnId, startedAt: event.startedAt });
+              break;
             case "round_start":
               sseWriteEvent("round_start", { roundIndex: event.roundIndex });
               break;
@@ -507,14 +527,32 @@ export async function handleChatRoute({
               sseWriteEvent(embedSseEventName(event.type), {
                 status: event.status,
                 reply: event.reply,
+                ...(event.stopReason ? { stopReason: event.stopReason } : {}),
+                ...(event.roundCount !== undefined ? { roundCount: event.roundCount } : {}),
               });
-              sseWriteEvent(LEGACY_FINAL_SSE_ALIAS, { status: event.status, reply: event.reply });
+              sseWriteEvent(LEGACY_FINAL_SSE_ALIAS, {
+                status: event.status,
+                reply: event.reply,
+                ...(event.stopReason ? { stopReason: event.stopReason } : {}),
+                ...(event.roundCount !== undefined ? { roundCount: event.roundCount } : {}),
+              });
               break;
             case "token_budget":
               sseWriteEvent("token_budget", {
                 used: event.used,
                 effectiveLimit: event.effectiveLimit,
                 level: event.level,
+              });
+              break;
+            case "token_usage":
+              sseWriteEvent("token_usage", {
+                attempt: event.attempt,
+                input: event.input,
+                output: event.output,
+                ...(event.failed !== undefined ? { failed: event.failed } : {}),
+                ...(event.fixed !== undefined ? { fixed: event.fixed } : {}),
+                ...(event.cached !== undefined ? { cached: event.cached } : {}),
+                ...(event.uncached !== undefined ? { uncached: event.uncached } : {}),
               });
               break;
             case "tool_budget":
@@ -607,12 +645,18 @@ export async function handleChatRoute({
     const caseMemoryMatterId =
       matterIdForChat && !isAdhocMeetingMatterId(matterIdForChat) ? matterIdForChat : undefined;
 
-    const abortSessionId =
-      typeof body.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : undefined;
+    const abortSessionId = body.sessionId?.trim() || (wantsStream
+      ? createSession({ workspaceDir, actorId: config.actorId ?? "system",
+          assistantId: profile.assistantId, matterId: caseMemoryMatterId,
+          workDir: projectDirForAgent, title: sessionTitleHint }).sessionId
+      : undefined);
+    if (wantsStream && abortSessionId) {
+      sseWriteEvent("session", { sessionId: abortSessionId });
+    }
     let result: Awaited<ReturnType<typeof agent.chat>>;
     try {
       result = await agent.chat(instructionForAgent, {
-        sessionId: body.sessionId,
+        sessionId: abortSessionId,
         matterId: caseMemoryMatterId,
         assistantId: profile.assistantId,
         allowWebSearch,
@@ -623,7 +667,8 @@ export async function handleChatRoute({
         contextPins: contextPinsForAgent,
         shouldAbort: () =>
           Boolean(abortSessionId && isTurnAbortRequested(abortSessionId)) ||
-          (wantsStream && sseClosed),
+          // 断流只在显式选择 abort 时才算停止；默认继续跑完再对账。
+          (wantsStream && transportLost && streamLossPolicy === "abort"),
       });
     } finally {
       turnFinished = true;

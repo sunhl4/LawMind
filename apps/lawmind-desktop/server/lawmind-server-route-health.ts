@@ -60,6 +60,7 @@ import {
   resolveAuthorityApiKey,
   validateAuthorityEndpointUrl,
 } from "../../../src/lawmind/retrieval/authority-health.js";
+import { YUANDIAN_DEFAULT_ENDPOINT } from "../../../src/lawmind/retrieval/authority-provider.js";
 import { buildAuthorityUsageSummary } from "../../../src/lawmind/retrieval/authority-usage.js";
 import { openLawCorpusStats } from "../../../src/lawmind/retrieval/providers/open-law/local-corpus.js";
 import { summarizeOpenLawSources } from "../../../src/lawmind/retrieval/providers/open-law/sources.js";
@@ -160,7 +161,10 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
       );
       return true;
     }
-    const raw = (process.env.LAWMIND_AUTHORITY_ENDPOINT ?? "").trim();
+    const raw =
+      summary.provider === "yuandian"
+        ? process.env.LAWMIND_YUANDIAN_ENDPOINT?.trim() || YUANDIAN_DEFAULT_ENDPOINT
+        : (process.env.LAWMIND_AUTHORITY_ENDPOINT ?? "").trim();
     const validated = validateAuthorityEndpointUrl(raw);
     if (!validated.ok) {
       sendJsonError(res, 400, "authority_endpoint_invalid", validated.message, c);
@@ -168,7 +172,7 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
     }
     const probe = await probeAuthorityEndpoint({
       endpoint: validated.normalized,
-      apiKey: resolveAuthorityApiKey(),
+      apiKey: summary.provider === "yuandian" ? (process.env.LAWMIND_YUANDIAN_API_KEY ?? "").trim() : resolveAuthorityApiKey(),
     });
     sendJson(
       res,

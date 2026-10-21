@@ -15,6 +15,16 @@ import {
 } from "./lawmind-chat-trace.js";
 
 describe("lawmind-chat-trace", () => {
+  it("keeps waiting steps paused rather than showing completed after streaming", () => {
+    const trace = finalizeLiveTrace(applyRoundStart(createEmptyLiveTrace(), 1), "awaiting_clarification");
+    expect(trace.steps[0]?.status).toBe("paused");
+    expect(summarizeLiveTrace(trace)).toContain("等待");
+    expect(summarizeLiveTrace(trace)).not.toContain("已完成");
+    const restored = liveTraceFromServerProgress({ status: "paused", steps: trace.steps });
+    expect(restored.steps[0]?.status).toBe("paused");
+    expect(restored.active).toBe(false);
+  });
+
   it("maps known tool names to human labels", () => {
     expect(humanToolLabel("execute_workflow")).toBe("启动办案流程");
     expect(humanToolLabel("run_compute")).toBe("核算数据");

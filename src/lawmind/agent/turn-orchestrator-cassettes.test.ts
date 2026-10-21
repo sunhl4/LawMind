@@ -9,7 +9,7 @@ import path from "node:path";
  * Required when changing: turn-orchestrator*, intake/clarification, compact,
  * steer, playbook tool locks, permission/approval pipeline.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildRoleDirectiveFromProfile } from "../assistants/store.js";
 import {
   DELIVERY_MARKER_CHAT_QA,
@@ -21,7 +21,11 @@ import { summarizeContextPressure } from "../metrics/context-pressure.js";
 import { buildAgentFleetSummary } from "../platform/build-agent-fleet.js";
 import { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
 import { CONTEXT_DEFERRAL_BOUNCE_MARKER } from "./context-deferral.js";
-import { CONSULT_QUESTIONS_MARKER, PLEADING_SECTION_MARKER } from "./deliverable-shape.js";
+import {
+  CONSULT_QUESTIONS_MARKER,
+  MEMO_SECTION_MARKER,
+  PLEADING_SECTION_MARKER,
+} from "./deliverable-shape.js";
 import { ISSUE_LEDGER_MARKER } from "./issue-ledger.js";
 import { MAIL_CONTRACT_FAST_PATH_DENIED_HINT } from "./mail-contract-fast-path.js";
 import { REVIEW_BOARD_EXPORT_BOUNCE_MARKER } from "./review-board-export-deferral.js";
@@ -35,6 +39,7 @@ import {
   cassetteToolCalls,
   withTestLawMind,
 } from "./testkit/index.js";
+import * as authoritySearch from "./tools/legal/search-authority.js";
 import { isSessionTurnLive } from "./turn-interrupt.js";
 import { clearTurnLifecycleHooks, registerTurnLifecycleHook } from "./turn-lifecycle-hooks.js";
 import {
@@ -114,6 +119,55 @@ function orphanToolCallIds(
 }
 
 describe("turn-orchestrator cassettes (admission)", () => {
+  it("keeps drafting available after a quota failure and sends honest search evidence to the next request", async () => {
+    const search = vi.spyOn(authoritySearch, "retrieveAuthorityHitsForChat").mockResolvedValue({
+      configured: true,
+      live: false,
+      provider: "pkulaw",
+      providerLabel: "北大法宝",
+      sourceTier: "live",
+      hits: [],
+      riskFlags: [],
+      missingItems: [],
+      demoCorpus: false,
+      outcome: { status: "quota_exhausted", httpStatus: 200, hitCount: 0 },
+    });
+    try {
+      await withTestLawMind(
+        (b) => b.withLegalTools(),
+        async (h) => {
+          h.enqueue(
+            cassetteToolCall("search_statute", { query: "民法典" }),
+            cassetteToolCall("write_document", {
+              file_path: "note.txt",
+              content: "据现有材料整理；引用待核实。",
+            }),
+            cassetteAssistant("已写入 note.txt；法宝积分不足，引用未核实。"),
+          );
+          await h.runTurn("先查民法典，再把材料整理写入 note.txt，不必等检索恢复。");
+          const tool = h
+            .request(1)
+            .messages()
+            .find((m) => m.role === "tool");
+          const response = JSON.parse(tool?.content ?? "{}");
+          expect(response.data ?? response).toMatchObject({
+            authorityLive: false,
+            authority: "none",
+            authorityOutcome: { status: "quota_exhausted" },
+          });
+          expect((response.data ?? response).refusalRequired).not.toBe(true);
+          expect(h.request(1).hasAdvertisedTool("write_document")).toBe(true);
+          expect(fs.readFileSync(path.join(h.workspaceDir, "note.txt"), "utf8")).toContain(
+            "据现有材料整理",
+          );
+          expect(h.requests).toHaveLength(3);
+          expect(h.remainingRounds()).toBe(0);
+        },
+      );
+    } finally {
+      search.mockRestore();
+    }
+  });
   it("tool rounds use the model max_tokens instead of a 4096 thinking cap", async () => {
     await withTestLawMind(
       (b) =>
@@ -311,11 +365,13 @@ describe("turn-orchestrator cassettes (admission)", () => {
         const result = await h.runTurn("把分析写入 case-note.md。");
         expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(true);
         expect(h.request(1).allText()).toContain(WRITE_SYNTHESIS_MARKER);
-        expect(h.request(2).hasAdvertisedTool("search_statute")).toBe(false);
-        expect(h.request(2).hasAdvertisedTool("search_case_law")).toBe(false);
+        expect(h.request(2).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(2).hasAdvertisedTool("search_case_law")).toBe(true);
         expect(h.request(2).hasAdvertisedTool("write_document")).toBe(true);
-        expect(h.request(3).hasAdvertisedTool("search_statute")).toBe(false);
+        expect(h.request(3).hasAdvertisedTool("search_statute")).toBe(true);
         expect(h.request(3).hasAdvertisedTool("write_document")).toBe(true);
+        expect(h.request(2).body.tools).toEqual(h.request(1).body.tools);
+        expect(h.request(3).body.tools).toEqual(h.request(2).body.tools);
         expect(toolErrors(result)).toContain("search_statute");
         expect(toolErrors(result)).toContain("不能使用");
         expect(fs.existsSync(path.join(h.workspaceDir, "case-note.md"))).toBe(true);
@@ -360,7 +416,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("consult follow-up frame: search is not advertised and a non-list file is rewritten once", async () => {
+  it("consult follow-up frame: search stays available until the named list needs rewriting", async () => {
     const questions = Array.from(
       { length: 10 },
       (_, index) => `${index + 1}. 这件事的第 ${index + 1} 个事实是什么？`,
@@ -385,14 +441,22 @@ describe("turn-orchestrator cassettes (admission)", () => {
         const result = await h.runTurn(
           "本轮不要给完整法律意见，只列出 10–25 条可核验的追问。\n用 write_document 写入 追问清单-8.md，再结束。",
         );
-        expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(false);
-        expect(h.request(0).hasAdvertisedTool("search_case_law")).toBe(false);
+        expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("search_case_law")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("write_document")).toBe(true);
         expect(h.request(0).body.reasoning_effort).toBe("high");
         expect(h.request(1).allText()).toContain(CONSULT_QUESTIONS_MARKER);
-        expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(false);
+        // Co-firing coaches both land in the same next request (old behavior:
+        // all coach blocks ran, then one `continue`). A first-match table lost
+        // the memo coach here and pushed it after the list was already correct.
+        expect(h.request(1).allText()).toContain(MEMO_SECTION_MARKER);
+        // The coach row stays in history, so assert it is not pushed *again*:
+        // exactly one memo nudge across the turn.
+        const memoCount = h.request(2).allText().split(MEMO_SECTION_MARKER).length - 1;
+        expect(memoCount).toBe(1);
+        expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(true);
         expect(h.request(1).body.reasoning_effort).toBe("max");
-        expect(h.request(2).hasAdvertisedTool("search_statute")).toBe(false);
+        expect(h.request(2).hasAdvertisedTool("search_statute")).toBe(true);
         expect(result.turn.status).toBe("completed");
       },
     );
@@ -608,6 +672,26 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
+  it("word-revision + consult: the frame alone does not withhold search", async () => {
+    // A frame is not an authorization boundary; no named missing list exists yet.
+    const instruction = `只列出追问，不要给完整法律意见。\n${WORD_REVISION}`;
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        // First close triggers the Word-revision export coach; the second close
+        // is the one that lands (cassette exhaustion must not be the reason).
+        h.enqueue(
+          cassetteAssistant("先请当事人回答以下问题。"),
+          cassetteAssistant("追问清单已交，未改原稿。"),
+        );
+        const result = await h.runTurn(instruction);
+        expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("search_case_law")).toBe(true);
+        expect(result.turn.status).toBe("completed");
+      },
+    );
+  });
+
   it("word-revision lock: prepare_outbound_mail is not advertised and is blocked if the model names it", async () => {
     await withTestLawMind(
       (b) => b,
@@ -666,6 +750,68 @@ describe("turn-orchestrator cassettes (admission)", () => {
         ).toBe(true);
       },
     );
+  });
+
+  it("action pre-review (on): destructive host command pauses with an argument-aware reason", async () => {
+    const previous = process.env.LAWMIND_ACTION_PRE_REVIEW;
+    process.env.LAWMIND_ACTION_PRE_REVIEW = "on";
+    try {
+      await withTestLawMind(
+        (b) => b.withLegalTools(),
+        async (h) => {
+          h.enqueue(
+            cassetteToolCall("run_host_command", {
+              command: "rm",
+              args: ["-rf", "notes"],
+            }),
+            cassetteAssistant("已暂停，等待您确认。"),
+          );
+          const result = await h.runTurn("把本机笔记目录清一下。", { onEvent: () => {} });
+          // 停在待拍板，且理由来自参数感知判据（不是笼统的"本机命令"）
+          expect(result.turn.status).toBe("awaiting_approval");
+          expect(result.turn.pendingToolApproval?.toolName).toBe("run_host_command");
+          const end = result.events.find(
+            (e) => e.type === "tool_call_end" && e.toolName === "run_host_command",
+          );
+          expect(end?.ok).toBe(false);
+          expect(end?.error).toMatch(/递归强制删除/);
+        },
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.LAWMIND_ACTION_PRE_REVIEW;
+      } else {
+        process.env.LAWMIND_ACTION_PRE_REVIEW = previous;
+      }
+    }
+  });
+
+  it("action pre-review (on): a plain host command keeps the generic reason", async () => {
+    const previous = process.env.LAWMIND_ACTION_PRE_REVIEW;
+    process.env.LAWMIND_ACTION_PRE_REVIEW = "on";
+    try {
+      await withTestLawMind(
+        (b) => b.withLegalTools(),
+        async (h) => {
+          h.enqueue(
+            cassetteToolCall("run_host_command", { command: "ls", args: ["."] }),
+            cassetteAssistant("已暂停，等待您确认。"),
+          );
+          const result = await h.runTurn("看看本案目录里有什么。", { onEvent: () => {} });
+          expect(result.turn.status).toBe("awaiting_approval");
+          const end = result.events.find(
+            (e) => e.type === "tool_call_end" && e.toolName === "run_host_command",
+          );
+          expect(end?.error).toMatch(/本机命令可能改动文件或状态/);
+        },
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.LAWMIND_ACTION_PRE_REVIEW;
+      } else {
+        process.env.LAWMIND_ACTION_PRE_REVIEW = previous;
+      }
+    }
   });
 
   it("intake no longer hard-gates: demand letter drafts on assumptions with 【待核实】 directive in the request", async () => {
@@ -2622,6 +2768,41 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
+  it("consult turns can still search before the list coach fires", async () => {
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("search_statute", { query: "违约金调整" }),
+          cassetteAssistant("已查。"),
+        );
+        await h.runTurn("这份合同还有哪些追问？只列问题");
+        // 回归：consult 帧不再从第 0 轮就把检索工具收走。
+        // 以前 `locksSearchAfterSynthesis` 是静态 profile 属性，直接参与 lockSearch。
+        expect(h.request(0).hasAdvertisedTool("search_statute")).toBe(true);
+      },
+    );
+  });
+
+  it("keeps a search tool advertised across different queries in one turn", async () => {
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("search_workspace", { query: "付款" }),
+          cassetteToolCall("search_workspace", { query: "验收" }),
+          cassetteToolCall("search_workspace", { query: "质保" }),
+          cassetteToolCall("search_workspace", { query: "争议解决" }),
+          cassetteAssistant("四次不同争点的检索已完成。"),
+        );
+        await h.runTurn("请分别在本案材料里找付款、验收、质保和争议解决的约定");
+        // 第 4 次请求里它仍应在表内：不同问题不是重复。
+        // 旧实现在第 3 次就把 search_workspace 从工具表移除（DISCOVERY_LOOP_TOOL_LIMITS=3）。
+        expect(h.request(3).hasAdvertisedTool("search_workspace")).toBe(true);
+      },
+    );
+  });
+
   it("desk writes are advertised every turn; list_more_tools catalog still covers them", async () => {
     await withTestLawMind(
       (b) => b.withLegalTools(),
@@ -3152,6 +3333,8 @@ describe("turn-orchestrator cassettes (admission)", () => {
         });
         expect(result.turn.error).toBeUndefined();
         expect(result.turn.status).toBe("completed");
+        // 验证器自己判停：停因是 gate_stop，不是干净交付。
+        expect(result.turn.stopReason).toBe("gate_stop");
 
         // 1) 缺口进律师待办（在办/待拍板可见，点「知道了」即收起）
         const blocked = result.turn.requiresAction?.find((a) => a.kind === "workflow_blocked");
@@ -3231,6 +3414,102 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
+  it("records a structured stop reason and round count on a plain delivery", async () => {
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        h.enqueue(cassetteAssistant("材料已收到，请补充签署页。"));
+        const result = await h.runTurn("先看看这份合同还缺什么。", {
+          onEvent: () => undefined,
+        });
+        expect(result.turn.status).toBe("completed");
+        expect(result.turn.stopReason).toBe("delivered");
+        expect(result.turn.roundCount).toBe(1);
+        expect(result.turn.profileId).toBeDefined();
+        const final = result.events.find((event) => event.type === "final");
+        expect(final).toMatchObject({
+          status: "completed",
+          stopReason: "delivered",
+          roundCount: 1,
+        });
+      },
+    );
+  });
+
+  it("recovery identity is emitted before sampling and identifies the persisted turn", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        const events: import("./turn-orchestrator-events.js").RunTurnEvent[] = [];
+        h.onModelRequest(() => {
+          expect(events[0]).toMatchObject({
+            type: "turn_started",
+            sessionId: expect.any(String),
+            turnId: expect.any(String),
+          });
+        });
+        h.enqueue(
+          cassetteToolCall("analyze_document", { path: "fixture.txt" }),
+          cassetteAssistant("已核对。"),
+        );
+        const result = await h.runTurn("继续不澄清。读取材料并说明事实。", {
+          onEvent: (event) => events.push(event),
+        });
+        expect(events[0]).toMatchObject({
+          type: "turn_started",
+          sessionId: result.sessionId,
+          turnId: result.turn.turnId,
+        });
+        expect(
+          h
+            .request(1)
+            .messages()
+            .some((message) => message.role === "tool"),
+        ).toBe(true);
+        expect(h.session()?.turns.at(-1)?.turnId).toBe(result.turn.turnId);
+      },
+    );
+  });
+
+  it("alternating identical-result queries cannot bypass the repeated-query guard", async () => {
+    await withTestLawMind(
+      (b) => b.withToolExecute("search_matter", async () => ({ ok: true, data: { hits: [] } })),
+      async (h) => {
+        const a = cassetteToolCall("search_matter", { query: "价款" });
+        const b = cassetteToolCall("search_matter", { query: "违约" });
+        h.enqueue(a, b, a, b, a, b, a, cassetteAssistant("不应继续采样"));
+        const result = await h.runTurn("继续不澄清。核对价款和违约争点。", {
+          matterId: "m-repeat",
+        });
+        expect(h.request(5).allText()).toContain("重复调用");
+        expect(result.turn.stopReason).toBe("repeat_stop");
+        expect(h.requests).toHaveLength(7);
+        expect(h.remainingRounds()).toBe(1);
+      },
+    );
+  });
+
+  it("same search parameters with new results remain usable", async () => {
+    let revision = 0;
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("search_matter", async () => ({
+          ok: true,
+          data: { hits: [{ text: `新增事实${++revision}` }] },
+        })),
+      async (h) => {
+        const same = cassetteToolCall("search_matter", { query: "定金" });
+        h.enqueue(same, same, same, same, cassetteAssistant("已收到四项新增事实。"));
+        const result = await h.runTurn("继续不澄清。核对材料中定金的新增事实。", {
+          matterId: "matter-live",
+        });
+        expect(h.requests, JSON.stringify(result.turn.messages)).toHaveLength(5);
+        expect(h.request(4).allText()).toContain("新增事实4");
+        expect(result.turn.stopReason).not.toBe("repeat_stop");
+      },
+    );
+  });
+
   it("tool loop stays on the primary model and stops a repeated identical batch after one nudge", async () => {
     const same = cassetteToolCall("search_matter", { query: "定金" });
     await withTestLawMind(
@@ -3258,6 +3537,9 @@ describe("turn-orchestrator cassettes (admission)", () => {
         );
         expect(asked).toHaveLength(4);
         expect(result.turn.status).toBe("completed");
+        // Structured stop cause: repeat of a search batch (not a finished reread).
+        expect(result.turn.stopReason).toBe("repeat_stop");
+        expect(result.turn.roundCount).toBe(4);
         expect(result.reply).toContain("同样的查找");
         expect(result.reply).toContain("待确认");
         expect(result.reply).not.toContain("回复「继续」");
@@ -4535,6 +4817,305 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(next.contains("88000")).toBe(true);
         expect(next.contains("继续履行")).toBe(true);
         expect(next.hasAdvertisedTool("search_statute")).toBe(true);
+      },
+    );
+  });
+
+  it("W7 prefix: advertised tool table is sorted, byte-stable across rounds, and matches prose", async () => {
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("search_statute", { query: "违约金" }),
+          cassetteToolCall("search_statute", { query: "定金" }),
+          cassetteAssistant("两处检索已完成。"),
+        );
+        const result = await h.runTurn("分别查违约金和定金的规定");
+        expect(result.turn.status).toBe("completed");
+        expect(h.requests.length).toBeGreaterThanOrEqual(3);
+
+        const first = h.request(0).advertisedToolNames();
+        const second = h.request(1).advertisedToolNames();
+        const third = h.request(2).advertisedToolNames();
+
+        // 排序稳定：同一集合必须产生同一序列（缓存前缀才有意义）。
+        expect(first).toEqual([...first].toSorted((a, b) => a.localeCompare(b)));
+        // 没有披露变化时，工具表逐字节相同（集合与顺序都不变）。
+        expect(second).toEqual(first);
+        expect(third).toEqual(first);
+
+        // prose 与 wire 一致：凡广告给模型的工具，系统提示词里都能查到名字。
+        for (const name of first) {
+          expect(h.request(0).allText()).toContain(name);
+        }
+      },
+    );
+  });
+
+  it("W11 material drafting reads source facts, writes the artifact and retains a source version", async () => {
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        fs.writeFileSync(
+          path.join(h.workspaceDir, "材料.txt"),
+          "合同价款300万元。交付日期2026年12月1日。争议管辖未约定。",
+        );
+        h.enqueue(
+          cassetteToolCall("analyze_document", { file_path: "材料.txt" }),
+          cassetteToolCall("write_document", {
+            file_path: "材料摘要.md",
+            content:
+              "# 材料摘要\n合同价款300万元。交付日期2026年12月1日。\n【待核实】争议管辖未约定。\n来源：材料.txt",
+          }),
+          cassetteAssistant("材料摘要已写入，管辖缺口已注明。"),
+        );
+        const result = await h.runTurn(
+          "继续不澄清。读取材料.txt，按原文写入 材料摘要.md，缺的事项明确标注。",
+        );
+        expect(h.request(1).allText()).toContain("sourceVersion");
+        expect(h.request(1).allText()).toContain("300万元");
+        expect(fs.readFileSync(path.join(h.workspaceDir, "材料摘要.md"), "utf8")).toContain(
+          "【待核实】",
+        );
+        expect(result.turn.status).toBe("completed");
+        expect(h.remainingRounds()).toBe(0);
+      },
+    );
+  });
+
+  it("W11 Word editing writes a tracked sibling and retains the original revisions", async () => {
+    const { Document, Packer, Paragraph, TextRun } = await import("docx");
+    const { default: JSZip } = await import("jszip");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        const paragraph = (text: string, font: string, size: number) =>
+          new Paragraph({ children: [new TextRun({ text, font, size })] });
+        const bytes = await Packer.toBuffer(
+          new Document({
+            sections: [
+              {
+                children: [
+                  paragraph("合同自双方签署之日生效，任何变更应经双方书面同意。", "SimSun", 24),
+                  paragraph("乙方在收到货物后十日内完成验收并书面通知甲方。", "SimSun", 24),
+                  paragraph("甲方于验收合格后三十日内支付价款300万元。", "FangSong_GB2312", 32),
+                ],
+              },
+            ],
+          }),
+        );
+        fs.writeFileSync(path.join(h.workspaceDir, "回稿.docx"), bytes);
+        h.enqueue(
+          cassetteToolCall("fix_document_format", {
+            file_path: "回稿.docx",
+            lawmind_paragraphs: [2],
+          }),
+          cassetteAssistant("已生成格式修订副本，原文件未改。"),
+        );
+        const result = await h.runTurn(
+          "继续不澄清。只修复回稿.docx第三段格式并保留修订，另存格式修订副本。不要外发。",
+        );
+        const output = path.join(h.workspaceDir, "回稿_格式修订.docx");
+        expect(fs.readFileSync(path.join(h.workspaceDir, "回稿.docx"))).toEqual(bytes);
+        const zip = await JSZip.loadAsync(fs.readFileSync(output));
+        const xml = await zip.file("word/document.xml")!.async("string");
+        expect(xml).toContain("300万元");
+        expect(xml).toMatch(/PrChange/);
+        expect(h.request(1).allText()).toContain("回稿_格式修订.docx");
+        expect(result.turn.status).toBe("completed");
+      },
+    );
+  });
+
+  it("W11 contract extraction exposes ambiguity, then records an explicit supported choice", async () => {
+    const { persistDraft } = await import("../drafts/index.js");
+    const { readReviewTable } = await import("../deliverables/review-table.js");
+    const { createMatterIfMissing } =
+      await import("../application/services/matter-write-service.js");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        const matterId = "extract-matter";
+        createMatterIfMissing(h.workspaceDir, { matterId, title: "合同比较" });
+        const dir = path.join(h.workspaceDir, "cases", matterId, "materials");
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(
+          path.join(dir, "合同.txt"),
+          "甲方注册资本100万元。\n本合同总价款为300万元。\n履约保证金20万元。",
+        );
+        persistDraft(h.workspaceDir, {
+          taskId: "extract-chain",
+          matterId,
+          title: "合同比较表",
+          summary: "",
+          output: "docx",
+          templateId: "word/legal-memo-default",
+          deliverableType: "review.table",
+          sections: [],
+          reviewNotes: [],
+          reviewStatus: "pending",
+          createdAt: ts(),
+        });
+        const selection: Record<string, unknown> = {
+          task_id: "extract-chain",
+          action: "update_cells",
+          updates: [],
+        };
+        h.enqueue(
+          cassetteToolCall("review_table_update", {
+            task_id: "extract-chain",
+            action: "set_template",
+            template: "due_diligence",
+          }),
+          cassetteToolCall("review_table_update", {
+            task_id: "extract-chain",
+            action: "set_columns",
+            columns: [
+              { key: "item", label: "材料" },
+              { key: "price", label: "合同总价款" },
+              { key: "source", label: "出处" },
+            ],
+          }),
+          cassetteToolCall("review_table_update", {
+            task_id: "extract-chain",
+            action: "extract_batch",
+          }),
+          cassetteToolCall("review_table_update", selection),
+          cassetteAssistant("合同总价款300万元；注册资本及保证金已分别列为其他金额。"),
+        );
+        let resolvedChoice = false;
+        h.onModelRequest((request) => {
+          if (request.index !== 3 || resolvedChoice) {
+            return;
+          }
+          resolvedChoice = true;
+          expect(request.allText()).toContain("ambiguousCells");
+          const table = readReviewTable(h.workspaceDir, "extract-chain")!;
+          const row = table.rows[0];
+          const candidate = row.cellMeta?.price?.candidates?.find((value) =>
+            value.value.includes("300"),
+          );
+          expect(candidate).toBeDefined();
+          selection.updates = [
+            {
+              rowId: row.id,
+              cells: { price: candidate!.value },
+              evidence: {
+                price: {
+                  quote: candidate!.lineText,
+                  reason: "该句明确指合同总价款，其他金额分别是注册资本和保证金。",
+                },
+              },
+            },
+          ];
+        });
+        const result = await h.runTurn("继续不澄清。比较材料金额并填写审查表，遇到歧义先核原句。", {
+          matterId,
+        });
+        expect(result.turn.status, JSON.stringify(result.turn.messages)).toBe("completed");
+        const cell = readReviewTable(h.workspaceDir, "extract-chain")?.rows[0];
+        expect(cell?.cells.price).toContain("300");
+        expect(cell?.cellMeta?.price).toMatchObject({ basis: "exact_quote", abstained: false });
+        expect(h.request(4).allText()).toContain("300");
+      },
+    );
+  });
+
+  it("W10 reproducible sampling persists the exact parameters and leaves history intact", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withConfig((config) => {
+          config.model.reproducible = true;
+          config.model.capabilities = { supportsSeed: true };
+          config.model.seed = 17;
+          config.model.temperature = 0.8;
+        }),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("analyze_document", { path: "材料.txt" }),
+          cassetteAssistant("核对完成。"),
+        );
+        const result = await h.runTurn("继续不澄清。读取材料并说明事实。");
+        expect(h.request(1).body.temperature).toBe(0);
+        expect((h.request(1).body as Record<string, unknown>).seed).toBe(17);
+        expect(
+          h
+            .request(1)
+            .messages()
+            .some((message) => message.role === "system"),
+        ).toBe(true);
+        expect(result.turn.samplingAudit).toMatchObject({
+          temperature: 0,
+          seed: 17,
+          reproducible: true,
+        });
+        expect(h.session()?.samplingPreferences).toEqual({ reproducible: true, seed: 17 });
+        expect(h.session()?.turns.at(-1)?.samplingAudit).toEqual(result.turn.samplingAudit);
+      },
+    );
+  });
+
+  it("W8 read then external edit: the next request sees a conflict and the lawyer file survives", async () => {
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        const file = path.join(h.workspaceDir, "source.txt");
+        fs.writeFileSync(file, "原始事实：价款300万元。");
+        h.onModelRequest((request) => {
+          if (request.index === 1) {
+            fs.writeFileSync(file, "律师修订：价款500万元。");
+          }
+        });
+        h.enqueue(
+          cassetteToolCall("analyze_document", { file_path: "source.txt" }),
+          cassetteToolCall("write_document", {
+            file_path: "source.txt",
+            content: "基于旧稿的修改",
+          }),
+          cassetteAssistant("原件已变更，本轮未覆盖，请核对当前原件。"),
+        );
+        await h.runTurn("继续不澄清。先读取 source.txt，再在原文件补一句说明。");
+        expect(h.request(2).allText()).toContain("conflict");
+        expect(fs.readFileSync(file, "utf8")).toBe("律师修订：价款500万元。");
+        expect(h.remainingRounds()).toBe(0);
+      },
+    );
+  });
+
+  it("W7 prefix: disclosure growth keeps the previous order and emits tool_delta", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.seedHistory([]);
+        h.onModelRequest((req) => {
+          if (req.index === 0) {
+            const session = h.session();
+            if (session) {
+              session.disclosedToolNames = [...(session.disclosedToolNames ?? []), "web_search"];
+            }
+          }
+        });
+        h.enqueue(
+          cassetteToolCall("analyze_document", { path: "材料.md" }),
+          cassetteToolCall("analyze_document", { path: "材料-2.md" }),
+          cassetteAssistant("已处理。"),
+        );
+        const events: string[] = [];
+        const result = await h.runTurn("继续不澄清。请审查这份材料的违约金条款。", {
+          onEvent: (ev) => {
+            events.push(ev.type);
+          },
+        });
+        expect(result.turn.status).toBe("completed");
+        expect(h.requests.length).toBeGreaterThanOrEqual(3);
+        const before = h.request(0).advertisedToolNames();
+        const after = h.request(1).advertisedToolNames();
+        // 增长只追加，不重排：把 after 里出现在 before 的名字按序取出，必须等于 before。
+        expect(after.filter((name) => before.includes(name))).toEqual(before);
+        expect(after.length).toBeGreaterThanOrEqual(before.length);
+        if (after.length > before.length) {
+          expect(events).toContain("tool_delta");
+        }
       },
     );
   });

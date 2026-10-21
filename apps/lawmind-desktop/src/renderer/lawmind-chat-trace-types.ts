@@ -4,7 +4,7 @@ export type ChatTraceStep = {
   id: string;
   kind: "round" | "tool" | "workflow";
   label: string;
-  status: "running" | "done" | "failed";
+  status: "running" | "done" | "failed" | "paused";
   detail?: string;
   sessionRefs?: ChatSessionRef[];
 };

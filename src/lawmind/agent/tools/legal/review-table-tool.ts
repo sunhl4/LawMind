@@ -34,6 +34,7 @@ import {
   listMatterMaterialFiles,
   type MatterMaterialListing,
 } from "../../../desk/matter-materials.js";
+import { checkEvidenceSupport } from "../../../drafts/evidence-support.js";
 import { readDraft, persistDraft } from "../../../drafts/index.js";
 import type { AgentTool } from "../../types.js";
 
@@ -202,8 +203,28 @@ function pushTableToDraft(
   const abstainedRows: string[] = [];
 
   for (const row of table.rows) {
-    const sourced = valueColumns.filter((c) => cellProvenance(row, c.key).state === "sourced");
-    const abstained = valueColumns.filter((c) => cellProvenance(row, c.key).state === "abstained");
+    const sourced = valueColumns.filter((c) => {
+      const provenance = cellProvenance(row, c.key);
+      if (provenance.state !== "sourced" || provenance.basis === "pattern_only") {
+        return false;
+      }
+      const meta = row.cellMeta?.[c.key];
+      if (!meta?.sourceVersion) {
+        return provenance.basis === undefined;
+      }
+      const candidate = meta.candidates?.find((value) => value.value === row.cells[c.key]);
+      return (
+        checkEvidenceSupport({
+          rootDir: workspaceDir,
+          relPath: meta.source ?? "",
+          quote: candidate?.lineText,
+          expectedVersion: meta.sourceVersion,
+        }).status === "supported"
+      );
+    });
+    const abstained = valueColumns.filter(
+      (c) => !sourced.includes(c) && Boolean(row.cells[c.key]?.trim()),
+    );
     const label = (row.cells[table.columns[0]?.key ?? ""] ?? "").trim() || row.id;
     if (sourced.length > 0) {
       const body = sourced
@@ -218,7 +239,7 @@ function pushTableToDraft(
     }
     if (abstained.length > 0) {
       abstainedRows.push(
-        `- ${label}：${abstained.map((c) => c.label).join("、")} 未取得（${abstained
+        `- ${label}：${abstained.map((c) => `${c.label}${row.cells[c.key] !== "无法判断（证据不足）" ? `（候选：${row.cells[c.key]}）` : ""}`).join("、")} 未核实（${abstained
           .map((c) => row.cellMeta?.[c.key]?.note ?? "证据不足")
           .filter((v, i, a) => a.indexOf(v) === i)
           .join("；")}）`,
@@ -272,6 +293,7 @@ async function runBatchExtract(
     const rel = `cases/${matterId}/${m.relPath}`;
     return {
       relPath: rel,
+      sourceVersion: checkEvidenceSupport({ rootDir: workspaceDir, relPath: rel }).actualVersion,
       absolutePath: path.resolve(workspaceDir, rel),
       fileName: m.fileName,
       kind: guessDocKind(m.fileName),
@@ -320,20 +342,63 @@ async function runBatchExtract(
   writeReviewTable(workspaceDir, merged);
   syncDraftPreview(workspaceDir, merged);
   const summary = summarizeReviewExtract(result.stats);
+  // 歧义格带着候选交回模型：不猜、也不当作「证据不足」悄悄吞掉。
+  const pending = collectAmbiguousCells(merged).slice(0, 8);
   return {
     ok: true,
     table: merged,
-    note: `已批量抽取 ${summary}。`,
+    note:
+      pending.length > 0
+        ? `已批量抽取 ${summary}。有 ${pending.length} 格存在多个候选值，请用 update_cells 指定取哪一个（禁止猜）。`
+        : `已批量抽取 ${summary}。`,
     summary,
+    ...(pending.length > 0 ? { ambiguousCells: pending } : {}),
     ...(cellKeys ? { cellKeys } : {}),
   };
+}
+
+/** 抽出「多个候选、尚未定值」的格，供模型下一步显式定值。 */
+export function collectAmbiguousCells(table: ReviewTable): Array<{
+  rowId: string;
+  rowLabel: string;
+  columnKey: string;
+  columnLabel: string;
+  candidates: NonNullable<ReviewTableRow["cellMeta"]>[string]["candidates"];
+}> {
+  const out: Array<{
+    rowId: string;
+    rowLabel: string;
+    columnKey: string;
+    columnLabel: string;
+    candidates: NonNullable<ReviewTableRow["cellMeta"]>[string]["candidates"];
+  }> = [];
+  const labelKey = table.columns[0]?.key ?? "";
+  for (const row of table.rows) {
+    for (const col of table.columns) {
+      const meta = row.cellMeta?.[col.key];
+      if (!meta?.candidates || meta.candidates.length < 2) {
+        continue;
+      }
+      if (!meta.abstained && (row.cells[col.key] ?? "").trim()) {
+        continue;
+      }
+      out.push({
+        rowId: row.id,
+        rowLabel: (row.cells[labelKey] ?? "").trim() || row.source || row.id,
+        columnKey: col.key,
+        columnLabel: col.label,
+        candidates: meta.candidates,
+      });
+    }
+  }
+  return out;
 }
 
 export const reviewTableUpdate: AgentTool = {
   definition: {
     name: "review_table_update",
     description:
-      "编辑审查表（review.table）：set_template 建表 / set_columns 改列 / add_rows 批量加行 / update_cells 批量改格 / group_by 按列分组 / import_materials_metadata 从本案材料导入行 / extract_batch 批量抽取全案材料（确定性模式 + 只读扫描件识别，逐格带出处，抽不动的格写「无法判断」不猜） / set_review 标记已看·锁定·指派 / to_draft 把已核验结论与出处推进文书正文。",
+      "编辑审查表（review.table）：set_template 建表 / set_columns 改列 / add_rows 批量加行 / update_cells 批量改格 / group_by 按列分组 / import_materials_metadata 从本案材料导入行 / extract_batch 批量抽取全案材料（确定性模式 + 只读扫描件识别，逐格带出处，抽不动的格写「无法判断」不猜；同一格出现多个候选值时返回 ambiguousCells，必须用 update_cells 明确指定，禁止猜） / set_review 标记已看·锁定·指派 / to_draft 把已核验结论与出处推进文书正文。",
     category: "draft",
     parameters: {
       task_id: { type: "string", description: "审查表草稿 taskId" },
@@ -344,7 +409,11 @@ export const reviewTableUpdate: AgentTool = {
       },
       columns: { type: "array", description: "set_columns：[{key,label}]" },
       rows: { type: "array", description: "add_rows：[{cells:{列key:值}, group?, source?}]" },
-      updates: { type: "array", description: "update_cells：[{rowId, cells:{列key:值}}]" },
+      updates: {
+        type: "array",
+        description:
+          "update_cells：[{rowId,cells:{列key:值},evidence:{列key:{quote:候选原句,reason:该原句对应本列的理由}}}]。歧义格须明确选择候选并给原句与字段角色理由。",
+      },
       column: { type: "string", description: "group_by：按哪一列分组（列 key）" },
       max_docs: {
         type: "number",
@@ -435,17 +504,60 @@ export const reviewTableUpdate: AgentTool = {
       let changed = 0;
       const rows = table.rows.map((row) => {
         const hit = updates.find((u) => (u as { rowId?: unknown }).rowId === row.id) as
-          | { cells?: unknown }
+          | { cells?: unknown; evidence?: Record<string, { quote?: string; reason?: string }> }
           | undefined;
         if (!hit || !hit.cells || typeof hit.cells !== "object" || Array.isArray(hit.cells)) {
           return row;
         }
         changed += 1;
         const cells = { ...row.cells };
+        const cellMeta = { ...row.cellMeta };
         for (const [k, v] of Object.entries(hit.cells as Record<string, unknown>)) {
           cells[k] = typeof v === "string" ? v : v == null ? "" : JSON.stringify(v);
+          if (row.cells[k] === cells[k] && !hit.evidence?.[k]) {
+            continue;
+          }
+          const previous = cellMeta[k];
+          if (!previous) {
+            cellMeta[k] = {
+              basis: "pattern_only",
+              confidence: "low",
+              note: "新增值尚未核对原句。",
+            };
+            continue;
+          }
+          const evidence = hit.evidence?.[k];
+          const selected = previous.candidates?.find(
+            (candidate) => candidate.value === cells[k] && evidence?.quote === candidate.lineText,
+          );
+          const support = selected
+            ? checkEvidenceSupport({
+                rootDir: ctx.workspaceDir,
+                relPath: `${(previous.source ?? row.source ?? "").split("#")[0]}#${selected.locator}`,
+                quote: selected.lineText,
+                expectedVersion: previous.sourceVersion,
+              })
+            : undefined;
+          cellMeta[k] =
+            selected && evidence?.reason?.trim() && support?.status === "supported"
+              ? {
+                  ...previous,
+                  basis: "exact_quote",
+                  confidence: "medium",
+                  abstained: false,
+                  source: `${(previous.source ?? row.source ?? "").split("#")[0]}#${selected.locator}`,
+                  candidates: [selected],
+                  note: evidence.reason.trim(),
+                }
+              : {
+                  ...previous,
+                  basis: "pattern_only",
+                  confidence: "low",
+                  abstained: false,
+                  note: "修改后的值尚未提供匹配候选的原句和字段角色理由。",
+                };
         }
-        return { ...row, cells };
+        return { ...row, cells, cellMeta };
       });
       if (changed === 0) {
         return { ok: false, error: "update_cells 没有命中任何 rowId。" };
@@ -559,6 +671,9 @@ export const reviewTableUpdate: AgentTool = {
         rowCount: table.rows.length,
         note,
         provenance,
+        ...(collectAmbiguousCells(table).length > 0
+          ? { ambiguousCells: collectAmbiguousCells(table) }
+          : {}),
         ...(problems.length > 0 ? { acceptanceGaps: problems } : {}),
       },
     };

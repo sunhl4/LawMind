@@ -1,4 +1,5 @@
 import type { TranscriptBubble } from "../../../../src/lawmind/agent/resolve-transcript-cut.ts";
+import { parseRequiresActionsFromResponse } from "./lawmind-requires-action";
 import { apiGetJson, apiSendJson } from "./api-client";
 import type { ChatMsg } from "./lawmind-chat";
 
@@ -11,25 +12,39 @@ export type SessionMutateResponse = {
   messages?: Array<{ role: string; text?: string; content?: string }>;
 };
 
-export async function fetchSessionBubbles(
+export type ChatSessionSnapshot = {
+  messages: ChatMsg[];
+  latestTurn?: { turnId: string; status: string; startedAt: string; completedAt?: string; interrupted?: boolean };
+};
+
+export async function fetchChatSessionSnapshot(
   apiBase: string,
   sessionId: string,
   assistantId: string,
-): Promise<TranscriptBubble[]> {
+  signal?: AbortSignal,
+): Promise<ChatSessionSnapshot> {
   const j = await apiGetJson<{
     ok?: boolean;
-    messages?: Array<{ role: string; text?: string; content?: string }>;
+    latestTurn?: ChatSessionSnapshot["latestTurn"];
+    messages?: Array<{ role: string; text?: string; content?: string;
+      requiresAction?: unknown; liveTrace?: ChatMsg["liveTrace"];
+      executionState?: ChatMsg["executionState"]; turnPlan?: ChatMsg["turnPlan"] }>;
   }>(
     apiBase,
     `/api/sessions/${encodeURIComponent(sessionId)}?assistantId=${encodeURIComponent(assistantId)}`,
+    { signal },
   );
   if (!j.ok || !Array.isArray(j.messages)) {
     throw new Error("读取对话失败");
   }
-  return j.messages
+  const messages = j.messages
     .filter((message) => message.role === "user" || message.role === "assistant")
     .map((message) => ({
       role: message.role as TranscriptBubble["role"],
+      ...(message.liveTrace ? { liveTrace: message.liveTrace } : {}),
+      ...(message.executionState ? { executionState: message.executionState } : {}),
+      ...(message.turnPlan ? { turnPlan: message.turnPlan } : {}),
+      ...(message.requiresAction ? { requiresAction: parseRequiresActionsFromResponse(message.requiresAction) } : {}),
       text:
         typeof message.text === "string"
           ? message.text
@@ -37,6 +52,13 @@ export async function fetchSessionBubbles(
             ? message.content
             : "",
     }));
+  return { messages, latestTurn: j.latestTurn };
+}
+
+export async function fetchSessionBubbles(
+  apiBase: string, sessionId: string, assistantId: string, signal?: AbortSignal,
+): Promise<ChatMsg[]> {
+  return (await fetchChatSessionSnapshot(apiBase, sessionId, assistantId, signal)).messages;
 }
 
 export async function mutateSessionMessages(

@@ -17,6 +17,7 @@
  *   - auditMiddleware 在 next() 后写入审计（保证记录的是真实结果）。
  */
 
+import { createHash } from "node:crypto";
 import {
   toolRequiresExplicitApproval,
   toolRequiresSubprocessSandbox,
@@ -29,10 +30,12 @@ import {
   stripUnknownToolArguments,
   validateToolArguments,
 } from "../agent/runtime-tool-validation.js";
+import { presentLawyerToolCall } from "../agent/tool-lawyer-card.js";
 import {
   IDEMPOTENT_READ_TOOLS,
   MATTER_SCOPE_REQUIRED,
   WRITE_TOOLS,
+  irreversibleImpactLabelZh,
 } from "../agent/tool-name-sets.js";
 import { resolveToolRiskLevel } from "../agent/tools/governance.js";
 import { UPDATE_PLAN_TOOL_NAME } from "../agent/turn-plan-model.js";
@@ -46,8 +49,15 @@ import {
 import { resolveApprovalArbitration } from "../platform/approval-arbitration.js";
 import { withGateCategory } from "../platform/gate-category.js";
 import { toolRequiresLawyerPause } from "../platform/lawyer-outbound-decision.js";
+import { toolDisplayNameZh } from "../platform/requires-action.js";
+import { redactApprovalValue } from "../platform/tool-approval-diff.js";
 import { IcloudLawyerPrompt } from "./icloud-materialize.js";
 import { legalVerifyMiddleware } from "./legal-verify-middleware.js";
+import {
+  toolCallBatchSignature,
+  stableToolJson,
+  type ToolCallSignatures,
+} from "./tool-call-signature.js";
 import { runToolInSubprocessSandbox } from "./tool-sandbox.js";
 import { isUnlimitedToolTimeoutMs, resolveToolWallTimeoutMs } from "./tool-timeout-env.js";
 import {
@@ -111,6 +121,7 @@ export type ToolPolicyConfig = {
    * Used by discoveryLoopMiddleware to stop search/browse death spirals.
    */
   toolNameCallCounts?: Record<string, number>;
+  toolCallSignatures?: ToolCallSignatures;
   /** 审计 actorId（写入 tool_call 事件） */
   actorId: string;
   /** 工作区 audit 目录，写入 tool_call 用 */
@@ -216,8 +227,17 @@ export const permissionModeMiddleware: ToolMiddleware = async (call, next) => {
 };
 
 /**
- * Per-turn caps. Document readers are high so multi-file work can finish
- * (Cursor/Codex read many files). Search/list stay modest to stop death spirals.
+ * Per-tool **soft** thresholds. Reaching one is a signal that the model may be
+ * spinning — not a reason to take the tool away.
+ *
+ * 2026-10-21 语义修正：旧实现把这里当硬上限，第 3 次查同一个工具就把工具从
+ * 下一轮工具表里移走。可是「查付款条款 → 查验收 → 查质保」是正常推进，
+ * 次数本身不说明重复。现在：
+ *   - 到阈值只意味着「可能该换个问法」，由回合策略给出提示；
+ *   - 真正的物理拦截只在两种情况下发生：**本轮检索总预算用尽**，或
+ *     **同一工具被用到病态次数**（见 {@link resolveDiscoveryPerToolCeiling}）；
+ *   - 同一组参数反复调用由 `turn-loop-policies` 的 identical-repeat 守卫负责
+ *     （它看得见参数，本中间件看不见）。
  */
 export const DISCOVERY_LOOP_TOOL_LIMITS: Readonly<Record<string, number>> = {
   search_workspace: 3,
@@ -232,6 +252,18 @@ export const DISCOVERY_LOOP_TOOL_LIMITS: Readonly<Record<string, number>> = {
   list_mail_inbox: 2,
   list_mail_attachments: 2,
 };
+
+/**
+ * 病态次数上限：到这个数才认为「不是换问法能解决」，直接拦。
+ * 取 soft 阈值的 4 倍（至少 +6），给正常的多文件/多争点工作留足空间。
+ */
+export function resolveDiscoveryPerToolCeiling(toolName: string): number {
+  const soft = DISCOVERY_LOOP_TOOL_LIMITS[toolName];
+  if (soft == null) {
+    return 0;
+  }
+  return Math.max(soft * 4, soft + 6);
+}
 
 /** Search/list tools that share a combined cap. Document readers are excluded. */
 const DISCOVERY_SEARCH_LOOP_NAMES = new Set([
@@ -364,8 +396,8 @@ export function wouldHitDiscoveryCap(
   if (usesHostFileLedger(toolName, hint)) {
     return false;
   }
-  const limit = DISCOVERY_LOOP_TOOL_LIMITS[toolName];
-  if (limit == null) {
+  const ceiling = resolveDiscoveryPerToolCeiling(toolName);
+  if (ceiling === 0) {
     return false;
   }
   const safe = counts ?? {};
@@ -379,10 +411,28 @@ export function wouldHitDiscoveryCap(
       return true;
     }
   }
-  return (safe[toolName] ?? 0) >= limit;
+  return (safe[toolName] ?? 0) >= ceiling;
 }
 
-/** Drop discovery tools that already used their per-turn quota (or the total cap). */
+/**
+ * 是否已越过 soft 阈值（该提示换问法了）。
+ * 只用于提示，不用于移出工具表——次数多不等于重复。
+ */
+export function isPastDiscoverySoftLimit(
+  toolName: string,
+  counts: Record<string, number> | undefined,
+): boolean {
+  const soft = DISCOVERY_LOOP_TOOL_LIMITS[toolName];
+  if (soft == null) {
+    return false;
+  }
+  return (counts?.[toolName] ?? 0) >= soft;
+}
+
+/**
+ * 工具表里只移除「本轮真的用不了」的：检索总预算已用尽、或某工具已到病态次数。
+ * 不再因为「查了几次」就提前把工具藏起来。
+ */
 export function dropSaturatedDiscoveryTools(
   toolNames: string[],
   counts: Record<string, number> | undefined,
@@ -408,13 +458,13 @@ export function discoveryStopHint(
   return DISCOVERY_STOP_HINT_DEFAULT;
 }
 
-/** Reject discovery/browse tools after they exceed per-turn caps. */
+/** Reject discovery/browse tools only at the turn budget or a pathological repeat count. */
 export const discoveryLoopMiddleware: ToolMiddleware = async (call, next) => {
   if (usesHostFileLedger(call.toolName, call.ctx)) {
     return next();
   }
-  const limit = DISCOVERY_LOOP_TOOL_LIMITS[call.toolName];
-  if (limit == null) {
+  const ceiling = resolveDiscoveryPerToolCeiling(call.toolName);
+  if (ceiling === 0) {
     return next();
   }
   const counts = call.policy.toolNameCallCounts ?? {};
@@ -433,13 +483,55 @@ export const discoveryLoopMiddleware: ToolMiddleware = async (call, next) => {
     }
   }
   const prior = counts[call.toolName] ?? 0;
-  if (prior >= limit) {
+  if (prior >= ceiling) {
     return {
       ok: false,
-      error: `${call.toolName} 本轮已调用 ${prior} 次（上限 ${limit}）。${hint}`,
+      error: `${call.toolName} 本轮已调用 ${prior} 次，超过本轮可用的 ${ceiling} 次。${hint}`,
     };
   }
-  return next();
+  const signatures = call.policy.toolCallSignatures;
+  const signature = toolCallBatchSignature([{ name: call.toolName, arguments: call.args }]);
+  const previous = signatures?.[signature];
+  const result = await next();
+  if (!signatures) {
+    return result;
+  }
+  const fingerprint = createHash("sha256")
+    .update(
+      stableToolJson({
+        ok: result.ok,
+        data: result.data,
+        error: result.error,
+      }),
+    )
+    .digest("hex");
+  const repeats = previous?.result === fingerprint ? previous.repeats + 1 : 1;
+  const repeatLimit = Math.max(2, DISCOVERY_LOOP_TOOL_LIMITS[call.toolName] ?? 3);
+  const nudged = previous?.result === fingerprint && previous.nudged;
+  signatures[signature] = {
+    result: fingerprint,
+    repeats,
+    nudged: nudged || repeats >= repeatLimit,
+    guardNudged: previous?.result === fingerprint ? previous.guardNudged : false,
+  };
+  if (repeats >= repeatLimit) {
+    const note = nudged
+      ? "相同参数再次返回相同结果，请停止重复查询，基于已有依据继续交付。"
+      : "该查询已返回相同结果；请换争点或问法，不要重复同一查询。";
+    return {
+      ...result,
+      data: {
+        ...(result.data && typeof result.data === "object" && !Array.isArray(result.data)
+          ? result.data
+          : { result: result.data }),
+        discoveryRepeat: { repeats, stop: nudged, note },
+      },
+    };
+  }
+  if (isPastDiscoverySoftLimit(call.toolName, counts)) {
+    call.ctx.emitToolProgress?.("已多次检索，请核对是否还需要新增争点。");
+  }
+  return result;
 };
 
 export function hostFileLedgerTotal(
@@ -597,6 +689,7 @@ export const actionPreReviewMiddleware: ToolMiddleware = async (call, next) => {
   const decision = resolveActionPreReview({
     toolName: call.toolName,
     alreadyApproved: call.args.__approved === true,
+    context: { args: call.args, workspaceRoot: call.ctx.workspaceDir },
   });
   if (decision.shouldRecord) {
     try {
@@ -610,6 +703,7 @@ export const actionPreReviewMiddleware: ToolMiddleware = async (call, next) => {
           decision.classification.recommend === "ask" &&
           call.args.__approved !== true,
         sessionId: call.ctx.sessionId,
+        codes: decision.classification.codes,
       });
     } catch {
       /* 影子日志失败不得影响办件 */
@@ -668,7 +762,7 @@ export const approvalMiddleware: ToolMiddleware = async (call, next) => {
     allowAutomatically: call.args.__approved === true || !requires,
   });
   if (outcome === "ask") {
-    const reason = `操作「${call.toolName}」需要律师在「待我拍板」中确认。`;
+    const reason = describeApprovalRequest(call.toolName, call.args);
     return {
       ok: false,
       error: reason,
@@ -685,6 +779,69 @@ export const approvalMiddleware: ToolMiddleware = async (call, next) => {
   }
   return next();
 };
+
+/**
+ * 审批理由：让律师不点开详情也能判断要不要点头。
+ *
+ * 以前只有一句「操作「apply_surgical_edits」需要律师确认」——律师看到的是工具名，
+ * 不是「要改哪份文件的哪一句、批准了会怎样」。现在拼三件事：
+ *   目的（模型的 purpose / 卡片里的中文标题）
+ *   关键参数（文件、命令、收件人；不含正文）
+ *   影响面（`irreversibleImpactLabelZh`）
+ *
+ * 安全判定不依赖这段文案：它只解释，权限仍由真实参数与 policy 决定。
+ */
+export function describeApprovalRequest(
+  toolName: string,
+  args: Record<string, unknown> = {},
+): string {
+  const label = toolDisplayNameZh(toolName);
+  const card = presentLawyerToolCall(toolName, args);
+  const purpose = typeof args.purpose === "string" ? args.purpose.trim() : "";
+  const target = approvalTargetHint(toolName, args);
+  const impact = irreversibleImpactLabelZh(toolName);
+
+  const head = purpose
+    ? `拟${purpose}（${label}${card.detail ? ` · ${card.detail}` : ""}）`
+    : `拟进行「${label}」${card.detail ? `：${card.detail}` : ""}`;
+  const scope = target ? `；涉及：${target}` : "";
+  return String(redactApprovalValue(`${head}${scope}。${impact}。批准后才会执行。`));
+}
+
+/** 关键参数摘要：只说「对什么动手」，不搬运正文内容。 */
+function approvalTargetHint(toolName: string, args: Record<string, unknown>): string {
+  const pick = (keys: readonly string[]): string => {
+    for (const key of keys) {
+      const value = args[key];
+      if (typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+    }
+    return "";
+  };
+  if (toolName === "run_host_command") {
+    const command = pick(["command"]);
+    const extra = Array.isArray(args.args)
+      ? args.args.filter((a): a is string => typeof a === "string").slice(0, 4)
+      : [];
+    return [command, ...extra].filter(Boolean).join(" ");
+  }
+  if (toolName === "send_email" || toolName === "prepare_outbound_mail") {
+    const to = pick(["to", "recipient"]);
+    const subject = pick(["subject"]);
+    return [to, subject].filter(Boolean).join(" · ");
+  }
+  return pick([
+    "file_path",
+    "path",
+    "rel_path",
+    "output_path",
+    "task_id",
+    "matter_id",
+    "query",
+    "instruction",
+  ]);
+}
 
 /** 参数归一化（别名、linkedTaskId 缺省等），在校验前执行。 */
 export const argNormalizeMiddleware: ToolMiddleware = async (call, next) => {
@@ -740,6 +897,8 @@ function copyPendingCtxFields(from: AgentContext, to: AgentContext): void {
 }
 
 export const timeoutMiddleware: ToolMiddleware = async (call, next) => {
+  // Scoped timeout contexts must share the turn's file-version ledger.
+  call.ctx.turnFileVersions ??= Object.create(null) as Record<string, string>;
   const wallMs = resolveToolWallTimeoutMs(call.toolName, call.policy.toolTimeoutMs);
   if (isUnlimitedToolTimeoutMs(wallMs)) {
     const prev = call.ctx.abortSignal;

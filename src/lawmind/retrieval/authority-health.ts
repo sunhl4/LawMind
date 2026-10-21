@@ -8,8 +8,11 @@
 
 import {
   authorityProviderLabel,
+  authorityProviderDefaultEndpoint,
   authorityProviderNeedsEndpoint,
   resolveAuthorityProvider,
+  resolveAuthorityProviderList,
+  type AuthorityProviderId,
 } from "./authority-provider.js";
 import {
   denyReasonForAuthorityHostname,
@@ -38,22 +41,29 @@ export type AuthorityCorpusSummary = {
   status: AuthorityCorpusConfigStatus;
   /** Host (or masked origin) for UI — never includes secrets. */
   endpointHost: string | null;
-  /** True when LAWMIND_AUTHORITY_API_KEY is set (value never exposed). */
+  /** True when the provider's API key env is set (value never exposed). */
   authConfigured: boolean;
-  /** Resolved provider: open | generic | pkulaw | lexis */
-  provider: "open" | "generic" | "pkulaw" | "lexis";
+  /** Resolved provider: open | generic | pkulaw | yuandian | lexis */
+  provider: "open" | "generic" | "pkulaw" | "yuandian" | "lexis";
   /** Lawyer-facing provider label */
   providerLabel: string;
   /** Lawyer-facing Chinese status line. */
   message: string;
   /** Env contract name (documentation / Doctor). */
   envKey: "LAWMIND_AUTHORITY_ENDPOINT";
-  /** Optional bearer key env (documentation / Doctor). */
-  authEnvKey: "LAWMIND_AUTHORITY_API_KEY";
+  /** Bearer key env(s) — per-vendor for multi-vendor mode (documentation / Doctor). */
+  authEnvKey:
+    | "LAWMIND_AUTHORITY_API_KEY"
+    | "LAWMIND_YUANDIAN_API_KEY"
+    | "LAWMIND_AUTHORITY_API_KEY+LAWMIND_YUANDIAN_API_KEY";
   providerEnvKey: "LAWMIND_AUTHORITY_PROVIDER";
+  /** Multi-vendor mode marker（provider env listed >1 entries）. */
+  multiProvider?: boolean;
   /** Open-law only: which open sources are configured/ready (sync). */
   openSources?: OpenLawSourceStatus[];
 };
+
+const YUANDIAN_AUTH_ENV_KEY = "LAWMIND_YUANDIAN_API_KEY" as const;
 
 /** Ready for Doctor probe / settings actions (sample-ready or commercial configured). */
 export function isAuthorityCorpusReady(status: string | undefined | null): boolean {
@@ -163,11 +173,131 @@ export async function assertAuthorityEndpointSafeToFetch(
 }
 
 /** Sync Doctor/health summary — no network I/O. */
+type ProviderConfigSnapshot = {
+  ready: boolean;
+  host?: string;
+  note?: string;
+  authConfigured: boolean;
+};
+
+function providerConfigSnapshot(
+  id: AuthorityProviderId,
+  opts?: {
+    endpoint?: string;
+    apiKey?: string;
+  },
+): ProviderConfigSnapshot {
+  if (id === "open") {
+    const stats = openLawCorpusStats();
+    return {
+      ready: stats.recordCount > 0,
+      host: stats.externalCorpus
+        ? "local-corpus+external"
+        : stats.recordCount > 0
+          ? "local-corpus"
+          : undefined,
+      note: stats.recordCount > 0 ? undefined : "开源语料未载入",
+      authConfigured: false,
+    };
+  }
+  if (id === "yuandian") {
+    const endpointRaw =
+      process.env.LAWMIND_YUANDIAN_ENDPOINT?.trim() ||
+      authorityProviderDefaultEndpoint("yuandian") ||
+      "";
+    const authConfigured = Boolean(process.env.LAWMIND_YUANDIAN_API_KEY?.trim());
+    if (!authConfigured) {
+      return { ready: false, note: "缺 LAWMIND_YUANDIAN_API_KEY", authConfigured };
+    }
+    const v = validateAuthorityEndpointUrl(endpointRaw);
+    if (!v.ok) {
+      return { ready: false, note: `元典端点无效：${v.message}`, authConfigured };
+    }
+    return { ready: true, host: v.url.host, authConfigured };
+  }
+  if (id === "lexis") {
+    return {
+      ready: false,
+      note: "适配器尚未实现",
+      authConfigured: Boolean(resolveAuthorityApiKey(opts)),
+    };
+  }
+  // generic / pkulaw: require endpoint (+ optional shared key)
+  const raw = resolveAuthorityEndpointRaw(opts);
+  if (!raw) {
+    return {
+      ready: false,
+      note: "缺 LAWMIND_AUTHORITY_ENDPOINT",
+      authConfigured: Boolean(resolveAuthorityApiKey(opts)),
+    };
+  }
+  const v = validateAuthorityEndpointUrl(raw);
+  if (!v.ok) {
+    return {
+      ready: false,
+      note: `端点无效：${v.message}`,
+      authConfigured: Boolean(resolveAuthorityApiKey(opts)),
+    };
+  }
+  return { ready: true, host: v.url.host, authConfigured: Boolean(resolveAuthorityApiKey(opts)) };
+}
+
+function buildMultiProviderSummary(
+  list: AuthorityProviderId[],
+  opts?: { endpoint?: string; apiKey?: string },
+): AuthorityCorpusSummary {
+  const snapshots = list.map((id) => ({ id, ...providerConfigSnapshot(id, opts) }));
+  const ready = snapshots.filter((s) => s.ready && s.id !== "lexis");
+  const configured = ready.length > 0;
+  const labels = [
+    ...new Set((configured ? ready : snapshots).map((s) => authorityProviderLabel(s.id))),
+  ];
+  const firstNonOpenReady = ready.find((s) => s.id !== "open")?.id;
+  const provider: AuthorityProviderId =
+    firstNonOpenReady ?? ready[0]?.id ?? list.find((id) => id !== "open") ?? "open";
+  const authEnvKeys = new Set<string>();
+  if (list.includes("yuandian")) {
+    authEnvKeys.add(YUANDIAN_AUTH_ENV_KEY);
+  }
+  if (list.some((id) => id === "pkulaw" || id === "generic" || id === "lexis")) {
+    authEnvKeys.add("LAWMIND_AUTHORITY_API_KEY");
+  }
+  const hosts = [...new Set(ready.map((s) => s.host).filter(Boolean))] as string[];
+  const notReadyNotes = snapshots
+    .filter((s) => !s.ready)
+    .map((s) => `${authorityProviderLabel(s.id)}未就绪（${s.note ?? "未配置"}）`);
+  const keyNote = configured ? "密钥已保存。" : "";
+  return {
+    configured,
+    status: configured ? "configured" : "unset",
+    endpointHost: hosts.length ? hosts.join("+") : null,
+    authConfigured: snapshots.some((s) => s.authConfigured),
+    provider,
+    providerLabel: labels.join(" + "),
+    message: configured
+      ? `已接上多个权威库（${labels.join(" + ")}${hosts.length ? `：${hosts.join(" + ")}` : ""}）。${keyNote}未命中则不编造。${notReadyNotes.length ? `未启用的库：${notReadyNotes.join("；")}。` : ""}`
+      : `多权威库尚未配置：${notReadyNotes.join("；") || "请配置各库密钥/端点"}。请继续用公开法规或补齐配置（${[...authEnvKeys].join(" / ")}）。`,
+    envKey: "LAWMIND_AUTHORITY_ENDPOINT",
+    authEnvKey:
+      authEnvKeys.size > 1
+        ? "LAWMIND_AUTHORITY_API_KEY+LAWMIND_YUANDIAN_API_KEY"
+        : authEnvKeys.has(YUANDIAN_AUTH_ENV_KEY)
+          ? YUANDIAN_AUTH_ENV_KEY
+          : "LAWMIND_AUTHORITY_API_KEY",
+    providerEnvKey: "LAWMIND_AUTHORITY_PROVIDER",
+    multiProvider: true,
+  };
+}
+
 export function buildAuthorityCorpusSummary(opts?: {
   endpoint?: string;
   apiKey?: string;
   provider?: string;
 }): AuthorityCorpusSummary {
+  const list = resolveAuthorityProviderList({ provider: opts?.provider });
+  if (list.length > 1) {
+    return buildMultiProviderSummary(list, opts);
+  }
   const raw = resolveAuthorityEndpointRaw(opts);
   const authConfigured = Boolean(resolveAuthorityApiKey(opts));
   const provider = resolveAuthorityProvider({ provider: opts?.provider });
@@ -208,6 +338,50 @@ export function buildAuthorityCorpusSummary(opts?: {
       authEnvKey: AUTH_ENV_KEY,
       providerEnvKey: PROVIDER_ENV_KEY,
       openSources: openSummary.sources,
+    };
+  }
+
+  // 元典开放平台:默认端点 + 独立 API Key(不与法兰 Key 共享)。
+  if (provider === "yuandian") {
+    const endpointRaw =
+      process.env.LAWMIND_YUANDIAN_ENDPOINT?.trim() ||
+      authorityProviderDefaultEndpoint("yuandian") ||
+      "";
+    const keyConfigured = Boolean(process.env.LAWMIND_YUANDIAN_API_KEY?.trim());
+    const base = (n: string): AuthorityCorpusSummary => ({
+      configured: false,
+      status: n as AuthorityCorpusConfigStatus,
+      endpointHost: null,
+      authConfigured: keyConfigured,
+      provider,
+      providerLabel,
+      message: "",
+      envKey: ENV_KEY,
+      authEnvKey: YUANDIAN_AUTH_ENV_KEY,
+      providerEnvKey: PROVIDER_ENV_KEY,
+    });
+    if (!keyConfigured) {
+      return {
+        ...base("unset"),
+        message:
+          "元典智库还没接上：请在「模型与连接」里填写元典 API Key（LAWMIND_YUANDIAN_API_KEY），端点默认 open.chineselaw.com/mcp。没有 Key 不会去连。",
+      };
+    }
+    const v = validateAuthorityEndpointUrl(endpointRaw);
+    if (!v.ok) {
+      return { ...base("invalid"), message: `元典端点无效，已停止连接。${v.message}` };
+    }
+    return {
+      configured: true,
+      status: "configured",
+      endpointHost: v.url.host,
+      authConfigured: true,
+      provider,
+      providerLabel,
+      message: `已接上元典智库（${v.url.host}）。元典智库。API Key 已保存。未命中则不编造。法规/案例均可检索。`,
+      envKey: ENV_KEY,
+      authEnvKey: YUANDIAN_AUTH_ENV_KEY,
+      providerEnvKey: PROVIDER_ENV_KEY,
     };
   }
 
@@ -396,7 +570,16 @@ export async function probeAuthorityEndpoint(opts: {
   }
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 8_000;
-  if (resolveAuthorityProvider() === "pkulaw" && isPkulawMcpProbeMode()) {
+  const probedProvider = resolveAuthorityProviderList()[0];
+  if (probedProvider === "yuandian") {
+    return probePkulawMcpEndpoint({
+      endpointNormalized: v.normalized,
+      apiKey: opts.apiKey,
+      fetchImpl,
+      timeoutMs,
+    });
+  }
+  if (probedProvider === "pkulaw" && isPkulawMcpProbeMode()) {
     return probePkulawMcpEndpoint({
       endpointNormalized: v.normalized,
       apiKey: opts.apiKey,

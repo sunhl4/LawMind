@@ -17,12 +17,15 @@ import { randomUUID } from "node:crypto";
 import { isValidMatterId } from "../cases/matter-id.js";
 import type { MemoryContext } from "../memory/index.js";
 import type { ResearchBundle, ResearchClaim, ResearchSource, TaskIntent } from "../types.js";
+import type { AuthorityCallOutcome } from "./authority-outcome.js";
 
 // ─────────────────────────────────────────────
 // 适配器接口 — 每种检索来源实现此接口
 // ─────────────────────────────────────────────
 
 export type RetrievalResult = {
+  /** Actual commercial-provider outcome; absent for adapters without this protocol. */
+  authorityOutcome?: AuthorityCallOutcome;
   sources: ResearchSource[];
   claims: ResearchClaim[];
   riskFlags: string[];

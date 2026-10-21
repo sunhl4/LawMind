@@ -1,12 +1,6 @@
 {
   "entries": [
     {
-      "file": "apps/lawmind-desktop/src/renderer/LawmindMemorySourcesPanel.tsx",
-      "pattern": "path.profile-md",
-      "lineIncludes": "CLIENT_PROFILE.md",
-      "reason": "内部 id 归一匹配逻辑（norm.endsWith），非展示文案"
-    },
-    {
       "file": "apps/lawmind-desktop/src/renderer/lawmind-memory-scope.ts",
       "pattern": "path.assistants-dir",
       "lineIncludes": "startsWith",

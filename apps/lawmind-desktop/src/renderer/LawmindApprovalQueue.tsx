@@ -157,7 +157,7 @@ export function LawmindApprovalQueue(props: Props): ReactNode {
                   <strong>
                     {r.toolName ? toolDisplayNameZh(r.toolName) : r.title}
                   </strong>
-                  <span className="lm-pill lm-pill-warn">需批准</span>
+                  <span className="lm-pill lm-pill-warn">需签批</span>
                 </div>
                 <p className="lm-meta">{r.summary}</p>
                 <p className="lm-meta lm-approval-queue-args">{summarizeArgs(r.toolArgs)}</p>

@@ -3,6 +3,7 @@
  * 「待我拍板」只在侧栏，进入在办。本面板只处理 /api/approvals 里的操作确认。
  */
 
+import { formatToolArgsDiffPreview } from "../../../../src/lawmind/platform/tool-approval-diff";
 import type { ReactNode } from "react";
 import { confirmDialog } from "./lawmind-confirm-dialog";
 import { useApprovalRequests } from "./useApprovalRequests";
@@ -32,22 +33,8 @@ function formatDateTime(iso: string): string {
 }
 
 function summarizeApprovalArgs(item: ApprovalItem): string {
-  if (!item.toolArgs || typeof item.toolArgs !== "object") {
-    return "参数已隐藏";
-  }
-  const args = item.toolArgs;
-  if (item.toolName === "send_email" || item.toolName === "prepare_outbound_mail") {
-    const to = typeof args.to === "string" ? args.to : "（无收件人）";
-    const subject = typeof args.subject === "string" ? args.subject : "（无主题）";
-    let body = typeof args.body === "string" ? args.body : "";
-    body = body.length > 50 ? `${body.slice(0, 50)}…` : body;
-    return `收件人：${to}；主题：${subject}；正文：${body || "（空）"}`;
-  }
-  const keys = Object.keys(args).filter((k) => k !== "__approved");
-  if (keys.length === 0) {
-    return "无附加参数";
-  }
-  return keys.map((k) => `${k}：…`).join("；");
+  const lines = formatToolArgsDiffPreview(item.toolArgs);
+  return lines.length > 0 ? lines.slice(0, 6).map((line) => `${line.key}：${line.value}`).join("；") : "无附加参数";
 }
 
 function ApprovalRow({
@@ -104,7 +91,7 @@ function ApprovalRow({
           disabled={busy}
           onClick={onApprove}
         >
-          批准
+          签批
         </button>
       </div>
     </li>
@@ -192,9 +179,9 @@ export function LawmindApprovalRequestHost({
                     onApprove={() => {
                       void (async () => {
                         const ok = await confirmDialog({
-                          title: "批准此操作？",
+                          title: "签批此操作？",
                           body: item.summary,
-                          confirmLabel: "批准",
+                          confirmLabel: "签批",
                         });
                         if (ok) {
                           await approve(item);

@@ -65,7 +65,7 @@ export function friendlyModelErrorMessage(raw: string): string {
   if (/Invalid API-key|invalid api key|incorrect api key/i.test(m)) {
     return "密钥无效或已过期。请在设置里打开连接向导，更新后再试。";
   }
-  if (/insufficient_quota|quota|rate limit|429/i.test(m) || providerCode === "Throttling") {
+  if (/insufficient_quota|quota|rate limit|\b429\b/i.test(m) || providerCode === "Throttling") {
     return "请求过于频繁或额度已用尽。请稍后再试，或到服务商查看用量与余额。";
   }
   if (/model not found|does not exist|Unknown model/i.test(m)) {

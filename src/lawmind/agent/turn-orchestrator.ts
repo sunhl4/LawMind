@@ -72,6 +72,7 @@ import {
   shouldRequireFolderExplore,
 } from "../intent/utterance-kind.js";
 import type { MemoryContext } from "../memory/index.js";
+import { describeApprovalTargetState } from "../platform/approval-target-state.js";
 import { extractSuggestedReplyTo } from "../platform/mail-contract-short-path-instruction.js";
 import { isMailContractFastPathInstruction } from "../platform/mail-contract-short-path-instruction.js";
 import { resolvePlaybookToolLock } from "../platform/playbook-tool-lock.js";
@@ -343,6 +344,8 @@ export async function runTurn(opts: {
   }
 
   const ctx: AgentContext = {
+    turnId,
+    billingScope: config.billingScope ?? "byok",
     workspaceDir: config.workspaceDir,
     sessionId: session.sessionId,
     matterId: session.matterId,
@@ -425,6 +428,9 @@ export async function runTurn(opts: {
   } else {
     delete session.lastBoundCapabilityId;
   }
+  // Diagnostics only: the loop records this on `turn.profileId` so replay can
+  // segment by deliverable shape. Tool selection still uses the lists below.
+  ctx.capabilityId = compiledIntent.capabilityId;
   if (
     !wordRevisionTurn &&
     !mailContractTurn &&
@@ -629,7 +635,7 @@ export async function runTurn(opts: {
   };
 
   let liveProgressFinished = false;
-  const ensureLiveProgressFinished = (status: "completed" | "failed"): void => {
+  const ensureLiveProgressFinished = (status: "completed" | "failed" | "paused"): void => {
     if (!liveProgressKey || liveProgressFinished) {
       return;
     }
@@ -638,6 +644,12 @@ export async function runTurn(opts: {
   };
 
   try {
+    emitEvent({
+      type: "turn_started",
+      sessionId: session.sessionId,
+      turnId,
+      startedAt: turn.startedAt,
+    });
     if (abortRequested()) {
       clearTurnAbort(session.sessionId);
       if (turn.messages.length === 0) {
@@ -648,6 +660,7 @@ export async function runTurn(opts: {
       }
       turn.status = "error";
       turn.error = "aborted_by_user";
+      turn.stopReason = "aborted";
       turn.completedAt = new Date().toISOString();
       upsertSessionTurn(session, { ...turn });
       const reply = "已停止生成。";
@@ -754,6 +767,7 @@ export async function runTurn(opts: {
       // Soft stop with progress → checkpoint (paused) so lawyer can resume.
       if (hasProgress) {
         turn.status = "paused";
+        turn.stopReason = "aborted";
         turn.error = undefined;
         const reply = `已暂停（已完成 ${turn.toolCallsExecuted} 次工具调用）。可「继续」从检查点接着做，或发送新指令。`;
         turn.result = reply;
@@ -773,6 +787,12 @@ export async function runTurn(opts: {
           toolCallsExecuted: turn.toolCallsExecuted,
           matterId: session.matterId,
           pendingToolApproval: turn.pendingToolApproval,
+          describeCurrentTarget: (toolName, toolArgs) =>
+            describeApprovalTargetState({
+              workspaceDir: config.workspaceDir,
+              toolName,
+              toolArgs,
+            }),
           ...(turn.instruction?.trim() ? { instruction: turn.instruction } : {}),
           continueTrigger: "delivery",
         });
@@ -786,7 +806,7 @@ export async function runTurn(opts: {
           /* ignore disk */
         }
         emitEvent({ type: "final", status: "paused", reply });
-        ensureLiveProgressFinished("failed");
+        ensureLiveProgressFinished("paused");
         try {
           saveSession(config.workspaceDir, session);
         } catch {
@@ -898,6 +918,8 @@ export async function runTurn(opts: {
     const icloudStop = await runApprovedIcloudDownloads();
     if (icloudStop) {
       turn.status = "awaiting_clarification";
+      turn.stopReason = "awaiting_clarification";
+      turn.roundCount = 0;
       turn.clarificationQuestions = [icloudStop];
       return finalizeAgentTurn({
         shared: finalizeShared(),

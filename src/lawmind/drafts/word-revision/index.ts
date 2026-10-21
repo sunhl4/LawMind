@@ -33,6 +33,20 @@ export {
   withAcceptedDisposition,
 } from "./disposition.js";
 export { materializeHunks } from "./materialize.js";
+export {
+  compareRevisionPreservation,
+  describeInsertionEdits,
+  describeRenumbered,
+  explainRevisionPreservation,
+  REVISION_PRESERVATION_FAILED_CODE,
+  snapshotDocumentRevisions,
+  type RevisionAlteration,
+  type RevisionFingerprint,
+  type RevisionKind,
+  type RevisionPreservation,
+} from "./preservation.js";
+// File-I/O helpers live in preservation-file.ts; keep this renderer-facing barrel pure.
+export type { DocxRevisionPreservation } from "./preservation-file.js";
 export type {
   ComposeAuthor,
   WordMarkupMode,
