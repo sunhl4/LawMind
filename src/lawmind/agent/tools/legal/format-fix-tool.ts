@@ -55,6 +55,8 @@ export const fixDocumentFormat: AgentTool = {
       "mode=imported（默认）跟随原文主流格式，只改 lawmind_paragraphs 里点名的段落；" +
       "mode=from-scratch 按 GB/T 9704 草案改正文；mode=retemplate 只在律师明确要求整体调整时用。" +
       "标题层级、编号重排、页边距、成文日期位置属于「要先判断」，本工具不改，会在返回里列出。" +
+      "若某一段已带有格式修订（rPrChange/pPrChange），本工具不叠加、跳过该段并在返回里说明——" +
+      "覆盖它等于抹掉原有修订的作者与时间。" +
       "原有修订（对方/前手留下的 w:ins、w:del）逐条对账，丢一条就整体失败，不出副本。",
     category: "draft",
     parameters: {
@@ -79,7 +81,11 @@ export const fixDocumentFormat: AgentTool = {
         description: "副本路径（相对工作区，必须以 .docx 结尾）。默认 原名_格式修订.docx。",
       },
     },
-    riskLevel: "low",
+    // 不改原文件，但**会写出**一份副本：按写类工具处理（串行执行、澄清闸门期间关闭），
+    // 不放进「幂等只读」集合——并行两次会争同一个默认副本名。
+    riskLevel: "medium",
+    // 与 `WRITE_TOOLS` 双保险：即便将来集合又漂了，也别让它和别的工具同批跑。
+    isConcurrencySafe: false,
   },
   async execute(params, ctx) {
     const claimed = typeof params.file_path === "string" ? params.file_path.trim() : "";

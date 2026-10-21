@@ -25,7 +25,9 @@
 | `LAWMIND_AUTHORITY_API_KEY`  | 法宝/generic | 法宝调用令牌（沿用，不变）                                                                                                                      |
 | `LAWMIND_PKULAW_MODE` 等     | 法宝         | 未动，见 `providers/pkulaw/client.ts` 头注释                                                                                                    |
 
-Key 只从环境变量读取，不落盘、不打日志；该前缀已被 `src/lawmind/platform/safe-command.ts` 列为密钥项。
+Key 只从环境变量 / 钥匙串读取，不写日志；桌面设置页把元典 Key 存独立钥匙串账户
+`authority.yuandian.apiKey`，钥匙串不可用时才按与法宝相同的例外落在 `.env.lawmind`（0600）。
+该前缀已被 `src/lawmind/platform/safe-command.ts` 列为密钥项。
 
 ## 2. 多同时多法库怎么兼容（设计）
 
@@ -90,10 +92,16 @@ Key 只从环境变量读取，不落盘、不打日志；该前缀已被 `src/l
   `lawmind-desktop-env-bootstrap.ts` 以 override=true 整体加载进引擎，无需额外接线）。
 - **设置页 `read-authority-settings`**：provider 按列表首个可识别 token 映射——
   法宝系/generic/lexis → `pkulaw`（表单按法宝显示），元典 → `yuandian`，否则 `open`。
-- **设置页「连接权威库」卡片**：provider 为元典时显示警示行——手工配置生效中；保存法宝
-  时 `planAuthoritySave`（`electron/authority-setup.mjs`）会把已有的元典 token 合并回
-  `yuandian,pkulaw`，不再整体覆盖（`mergeAuthorityProviderOnSave`），只有切换到
-  「公开法规」才回到 `open`。configured + 元典/法宝/generic 都会显示「对话检索走这里的权威库」。
+- **设置页「连接权威库」卡片**：内置「元典智库」独立区块（`lm-authority-yuandian-token`
+  / `lm-authority-yuandian-save`），与法宝卡片并列；两库可同时启用。
+  - 元典 Key 存**独立钥匙串账户** `authority.yuandian.apiKey`，注入 `LAWMIND_YUANDIAN_API_KEY`，
+    与法宝的 `LAWMIND_AUTHORITY_API_KEY` 互不影响（`authorityProviderUsesYuandianKey`）。
+  - 保存任一家都会 `mergeAuthorityProviderOnSave`：已有另一家就写成 `yuandian,pkulaw`，
+    不会把双库静默退化成单库；只有「改用公开法规」才回到 `open`。
+  - `read-authority-settings` 额外返回 `providers` / `hasYuandianKey` / `yuandianEndpoint`，
+    表单据此回填各自端点与「Key 已保存」状态。
+  - 保存后的 live 检查放宽为「任一家商业库就绪即通过」，因为多库时 probe 只报首个就绪库。
+  - configured + 元典/法宝/generic 都会显示「对话检索走这里的权威库」。
 - Renderer 的 provider 类型联合 widened（`lawmind-settings-models.ts` / `lawmind-app-data.ts` /
   `global.d.ts`），`LawmindAuthoritySetup.tsx` 的 custom note 条件同步。
 

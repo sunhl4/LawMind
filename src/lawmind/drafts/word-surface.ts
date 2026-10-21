@@ -10,7 +10,6 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import JSZip from "jszip";
 import {
   resolveWordBaselineAbs,
   type WordBaselineRoot,
@@ -19,6 +18,7 @@ import { readLawyerIdentity } from "../matter-replica/identity.js";
 import { resolveWordRevisionAuthor } from "../policy/word-revision-author.js";
 import { readWorkspacePolicyFile } from "../policy/workspace-policy.js";
 import type { ArtifactDraft } from "../types.js";
+import { loadDocxZip } from "./docx-size.js";
 import { listDrafts, persistDraft, readDraft } from "./index.js";
 import { computeMinimalEditSpans } from "./minimal-edit-script.js";
 import {
@@ -262,8 +262,12 @@ async function importDocxLayout(): Promise<{
 
 async function readDocxDocument(absPath: string): Promise<ReturnType<typeof extractDocxLayout>> {
   const layout = await importDocxLayout();
-  const buffer = await fs.readFile(absPath);
-  const zip = await JSZip.loadAsync(buffer);
+  // 体积/条目上限先于解析：坏包或超大包不该把本地服务卡住。
+  const loaded = await loadDocxZip(absPath);
+  if (!loaded.ok) {
+    throw new Error(loaded.reason);
+  }
+  const zip = loaded.zip;
   const xml = await zip.file("word/document.xml")?.async("string");
   if (!xml) {
     return { page: layout.defaultWordPage(), blocks: [] };

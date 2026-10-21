@@ -10,12 +10,14 @@
  * imported 跟随原文 / from-scratch 国标草案 / retemplate 律师要求整体套模板。
  */
 
+import fs from "node:fs";
 import { z } from "zod";
 import {
   auditDocumentFormat,
   renderFormatAuditText,
 } from "../../../src/lawmind/drafts/document-format-audit.js";
 import { applyFormatFixesToDocxFile } from "../../../src/lawmind/drafts/format-fix.js";
+import { checkDocxSize } from "../../../src/lawmind/drafts/docx-size.js";
 import { readDocxDocumentLayout } from "../../../src/lawmind/drafts/word-surface.js";
 import { resolveWordBaselineAbs } from "../../../src/lawmind/artifacts/word-revision-delivery.js";
 import { resolveWorkspaceRelativePath } from "../../../src/lawmind/runtime/workspace-path.js";
@@ -35,6 +37,8 @@ const auditSchema = z.object({
 
 const fixSchema = auditSchema.extend({
   outputPath: z.string().trim().min(1).max(2_000).optional(),
+  /** 显式 outputPath 命中已有文件时要律师确认，避免静默覆盖别人已签的稿子。 */
+  overwrite: z.boolean().optional(),
 });
 
 /** 不覆盖原文件：默认 原名_格式修订.docx。 */
@@ -137,10 +141,34 @@ export async function handleFormatFixRoutes({
     );
     return true;
   }
+  // 默认副本名（原名_格式修订.docx）覆盖自己的上次产物是预期行为；但律师可能已经在
+  // 那份副本上手改过并被覆盖——必须在返回里说清，而不是静默替换。
+  const replacingDefaultCopy = !body.outputPath && fs.existsSync(outAbs);
+  // 律师显式指定了别的 outputPath 时，命中已有文件必须先确认，别把已签的稿子盖掉。
+  if (body.outputPath && fs.existsSync(outAbs) && body.overwrite !== true) {
+    sendJson(
+      res,
+      409,
+      {
+        ok: false,
+        error: "output_exists",
+        detail: `${outRel} 已存在。要覆盖它请带 overwrite: true，或换一个副本名。`,
+      },
+      c,
+    );
+    return true;
+  }
 
   const author =
     resolveWordRevisionAuthor(readWorkspacePolicyFile(ctx.workspaceDir)?.wordRevisionAuthor) ||
     "LawMind";
+
+  // 与体检同一道上限；写副本要读整包，超限直接拒，不留半截产物。
+  const inputSize = await checkDocxSize(located.abs);
+  if (!inputSize.ok) {
+    sendJson(res, 413, { ok: false, error: "file_too_large", detail: inputSize.reason }, c);
+    return true;
+  }
 
   const result = await applyFormatFixesToDocxFile({
     inputAbs: located.abs,
@@ -169,6 +197,12 @@ export async function handleFormatFixRoutes({
     );
     return true;
   }
+  const warnings = [
+    replacingDefaultCopy
+      ? "已覆盖上一次生成的同名格式修订副本（原文件未动）。若您在旧副本上手动改过，请改用其他副本名重做。"
+      : "",
+    result.warning ?? "",
+  ].filter(Boolean);
   sendJson(
     res,
     200,
@@ -180,7 +214,8 @@ export async function handleFormatFixRoutes({
       appliedRuns: result.appliedRuns ?? 0,
       plan: result.plan,
       revisions: result.revisions,
-      ...(result.warning ? { warning: result.warning } : {}),
+      ...(replacingDefaultCopy ? { replacedExisting: true } : {}),
+      ...(warnings.length ? { warning: warnings.join("；") } : {}),
     },
     c,
   );
@@ -235,6 +270,12 @@ export async function handleFormatAuditRoutes({
     return true;
   }
 
+  // 体积上限先于解析：超大/构造过的 zip 不该让本地服务卡住。
+  const size = await checkDocxSize(located.abs);
+  if (!size.ok) {
+    sendJson(res, 413, { ok: false, error: "file_too_large", detail: size.reason }, c);
+    return true;
+  }
   try {
     const layout = await readDocxDocumentLayout(located.abs);
     const report = auditDocumentFormat({
@@ -258,7 +299,7 @@ export async function handleFormatAuditRoutes({
     );
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    if (/End of central directory|zip/i.test(reason)) {
+    if (/End of central directory|zip|不是有效的 \.docx/i.test(reason)) {
       sendJson(
         res,
         422,

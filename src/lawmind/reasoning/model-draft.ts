@@ -8,6 +8,7 @@ import {
   type OpenAiJsonClientConfig,
 } from "../llm/openai-json.js";
 import { resolveDraftReasoningLlmConfig } from "../models/draft-reasoning.js";
+import { createModelUsageRecorder } from "../models/model-usage.js";
 import type { ArtifactDraft, ArtifactSection, ResearchBundle } from "../types.js";
 import { attachProvenanceToSections } from "./keyword-draft.js";
 import { buildDraft, type BuildDraftParams } from "./keyword-draft.js";
@@ -159,17 +160,29 @@ export async function buildDraftWithModel(
   ) {
     return base;
   }
-  const parsed = await completeJsonObject<ModelSectionsJson>(cfg, [
-    { role: "system", content: draftSystemPrompt(intent) },
-    {
-      role: "user",
-      content: draftUserPrompt(
-        intent,
-        bundle,
-        base.sections.map((s) => s.heading).filter((h) => h.trim().length > 0),
-      ),
-    },
-  ]);
+  const parsed = await completeJsonObject<ModelSectionsJson>(
+    cfg,
+    [
+      { role: "system", content: draftSystemPrompt(intent) },
+      {
+        role: "user",
+        content: draftUserPrompt(
+          intent,
+          bundle,
+          base.sections.map((s) => s.heading).filter((h) => h.trim().length > 0),
+        ),
+      },
+    ],
+    params.workspaceDir?.trim()
+      ? {
+          onAttempt: createModelUsageRecorder(params.workspaceDir, {
+            purpose: "draft",
+            model: cfg.model,
+            matterId: intent.matterId,
+          }),
+        }
+      : undefined,
+  );
 
   if (!parsed || !Array.isArray(parsed.sections) || parsed.sections.length === 0) {
     return null;

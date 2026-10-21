@@ -208,6 +208,30 @@ describe("document format audit · 从零起草（国标草案）", () => {
     );
     expect(codes(audit(padded, "retemplate"))).toContain("date.padding");
   });
+
+  it("does not treat a body sentence that mentions a date as the 成文日期", () => {
+    // 最后一段提到日期，但不是独立落款行：不能按成文日期报格式问题。
+    const xml = doc(
+      [
+        {
+          text: "关于合同审查有关事项的通知",
+          font: "FangSong_GB2312",
+          halfPt: 44,
+          align: "center",
+        },
+        {
+          text: "本通知自2026年10月1日起施行，请各部门遵照执行。",
+          font: "FangSong_GB2312",
+          halfPt: 32,
+          firstLineChars: 200,
+        },
+      ],
+      A4_GB,
+    );
+    const report = audit(xml, "retemplate");
+    expect(codes(report).filter((code) => code.startsWith("date."))).toEqual([]);
+    expect(report.unchecked.some((item) => item.includes("成文日期"))).toBe(true);
+  });
 });
 
 describe("document format audit · 外来件跟随原文", () => {

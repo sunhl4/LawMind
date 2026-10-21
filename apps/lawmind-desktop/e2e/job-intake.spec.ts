@@ -9,7 +9,8 @@ import {
 
 test.describe("Job intake & template gallery", () => {
   test.beforeEach(async ({ page }) => {
-    await installE2eBrowserPrefs(page);
+    // 这里会打开草稿台（assertReviewGateList）：中栏要 filesystem bridge 才显示。
+    await installE2eBrowserPrefs(page, { filesystemBridge: true });
   });
 
   test("compose gallery form-first fills 【交办】 prompt", async ({ page }) => {

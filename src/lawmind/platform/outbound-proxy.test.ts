@@ -4,6 +4,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { auditFileNameFor } from "../audit/index.js";
 import { createOutboundProxy } from "./outbound-proxy.js";
 
 function parseJsonDetail(raw: unknown): Record<string, unknown> {
@@ -199,8 +200,7 @@ describe("outbound-proxy", () => {
         headers: { "content-type": "application/json" },
       });
       expect(res.status).toBe(201);
-      const today = new Date().toISOString().slice(0, 10);
-      const logPath = path.join(auditDir, `${today}.jsonl`);
+      const logPath = path.join(auditDir, auditFileNameFor());
       const lines = fs.readFileSync(logPath, "utf8").split("\n").filter(Boolean);
       expect(lines).toHaveLength(1);
       const event = JSON.parse(lines[0]) as Record<string, unknown>;

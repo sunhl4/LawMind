@@ -11,6 +11,10 @@ export const PKULAW_DEFAULT_CASE_ENDPOINT =
   "https://apim-gateway.pkulaw.com/mcp-case-search-service";
 
 export const AUTHORITY_API_KEY_ENV = "LAWMIND_AUTHORITY_API_KEY";
+/** 元典开放平台独立 Key（不与法宝共用）。 */
+export const YUANDIAN_API_KEY_ENV = "LAWMIND_YUANDIAN_API_KEY";
+/** 元典 Streamable HTTP MCP 默认端点。 */
+export const YUANDIAN_DEFAULT_ENDPOINT = "https://open.chineselaw.com/mcp";
 
 const MODE_ENV_KEYS = [
   "LAWMIND_PKULAW_MODE",
@@ -112,19 +116,32 @@ export function authorityProviderUsesStoredKey(providerRaw) {
 }
 
 /**
- * Preserve 同库族之外的独立 Key 库 token（目前仅元典）：
- * 设置页保存法宝时，`LAWMIND_AUTHORITY_PROVIDER` 不能静默把用户手配的
- * `yuandian` / `yuandian,pkulaw` 覆盖成单值 `pkulaw`，否则多库 fan-out 退化。
- * 其他 token（open/generic/lexis 等互斥端点形态）仍按选择覆盖。
+ * 是否应注入元典独立 Key。
+ * 只要 provider 列表含元典 token 就注入（`yuandian` 与 `yuandian,pkulaw` 都要）。
+ * @param {string | undefined} providerRaw
+ */
+export function authorityProviderUsesYuandianKey(providerRaw) {
+  return authorityProviderTokensList(providerRaw).some((token) => YUANDIAN_TOKENS.has(token));
+}
+
+/**
+ * 保存时把「另一家独立 Key 库」保留下来，避免设置页保存静默退化多库配置。
+ * - 保存法宝时保留元典 token → `yuandian,pkulaw`
+ * - 保存元典时保留法宝系 token → `yuandian,pkulaw`
+ * 其他 token（open/generic/lexis 等互斥端点形态）仍按选择覆盖：`generic`/`lexis`
+ * 虽然与法宝共用同一个钥匙串账户，但适配器语义不同，不能改写成 `pkulaw`。
  * @param {string | undefined} existingRaw
- * @param {string} next 已选择的单值 provider（"pkulaw"）
+ * @param {"pkulaw" | "yuandian"} next
  * @returns {string}
  */
 export function mergeAuthorityProviderOnSave(existingRaw, next) {
-  const yuandianKept = authorityProviderTokensList(existingRaw).some((t) =>
-    YUANDIAN_TOKENS.has(t),
-  );
-  return yuandianKept && next === "pkulaw" ? ["yuandian", next].join(",") : next;
+  const tokens = authorityProviderTokensList(existingRaw);
+  const hasYuandian = tokens.some((t) => YUANDIAN_TOKENS.has(t));
+  const hasPkulaw = tokens.some((t) => PKULAW_FAMILY_TOKENS.has(t));
+  if (next === "pkulaw") {
+    return hasYuandian ? "yuandian,pkulaw" : "pkulaw";
+  }
+  return hasPkulaw ? "yuandian,pkulaw" : "yuandian";
 }
 
 /**
@@ -132,15 +149,18 @@ export function mergeAuthorityProviderOnSave(existingRaw, next) {
  *   provider?: string;
  *   lawEndpoint?: string;
  *   caseEndpoint?: string;
+ *   yuandianEndpoint?: string;
  *   apiKey?: string;
  *   hasExistingKey?: boolean;
+ *   hasExistingYuandianKey?: boolean;
  *   existingProvider?: string;
  * }} input
  */
 export function planAuthoritySave(input) {
-  const provider = input?.provider === "open" ? "open" : input?.provider === "pkulaw" ? "pkulaw" : "";
+  const raw = input?.provider;
+  const provider = raw === "open" || raw === "pkulaw" || raw === "yuandian" ? raw : "";
   if (!provider) {
-    return { ok: false, error: "请选择北大法宝或公开法规" };
+    return { ok: false, error: "请选择北大法宝、元典智库或公开法规" };
   }
   if (provider === "open") {
     return {
@@ -149,6 +169,32 @@ export function planAuthoritySave(input) {
       assignments: { LAWMIND_AUTHORITY_PROVIDER: "open" },
       removeKeys: ["LAWMIND_AUTHORITY_ENDPOINT", "LAWMIND_PKULAW_CASE_ENDPOINT", ...MODE_ENV_KEYS],
       storeApiKey: "",
+    };
+  }
+  if (provider === "yuandian") {
+    // 元典用独立的 LAWMIND_YUANDIAN_API_KEY（不共用法宝令牌）。
+    const endpointRaw = (input.yuandianEndpoint ?? "").trim() || YUANDIAN_DEFAULT_ENDPOINT;
+    const endpoint = validateAuthoritySetupUrl(endpointRaw);
+    if (!endpoint.ok) {
+      return { ok: false, error: `元典地址：${endpoint.message}` };
+    }
+    const pasted = (input.apiKey ?? "").trim();
+    if (!pasted && !input.hasExistingYuandianKey) {
+      return { ok: false, error: "请填写元典开放平台 API Key" };
+    }
+    return {
+      ok: true,
+      provider: "yuandian",
+      assignments: {
+        LAWMIND_AUTHORITY_PROVIDER: mergeAuthorityProviderOnSave(
+          input?.existingProvider,
+          "yuandian",
+        ),
+        LAWMIND_YUANDIAN_ENDPOINT: endpoint.normalized,
+      },
+      removeKeys: [],
+      storeApiKey: pasted,
+      keyEnv: YUANDIAN_API_KEY_ENV,
     };
   }
   const lawRaw = (input.lawEndpoint ?? "").trim() || PKULAW_DEFAULT_LAW_ENDPOINT;
@@ -191,6 +237,7 @@ export function planAuthoritySave(input) {
     assignments,
     removeKeys,
     storeApiKey: pasted,
+    keyEnv: AUTHORITY_API_KEY_ENV,
   };
 }
 
@@ -205,7 +252,7 @@ export function planAuthoritySave(input) {
  * @param {{ keychainAvailable?: boolean }} options
  */
 export function placeAuthorityApiKey(plan, options) {
-  if (!plan?.ok || plan.provider !== "pkulaw") {
+  if (!plan?.ok || (plan.provider !== "pkulaw" && plan.provider !== "yuandian")) {
     return plan;
   }
   if (options?.keychainAvailable) {
@@ -215,12 +262,13 @@ export function placeAuthorityApiKey(plan, options) {
   if (!pasted) {
     return plan;
   }
+  const keyEnv = plan.keyEnv || AUTHORITY_API_KEY_ENV;
   return {
     ...plan,
     storeApiKey: "",
     assignments: {
       ...plan.assignments,
-      [AUTHORITY_API_KEY_ENV]: pasted,
+      [keyEnv]: pasted,
     },
   };
 }

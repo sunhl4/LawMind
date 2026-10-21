@@ -1,4 +1,10 @@
 import { serializeWordRunText } from "../word-surface-breaks.js";
+import {
+  elementInner,
+  indexOfMatchingClose,
+  indexOfWordOpen,
+  indexOfXmlTagEnd,
+} from "../word-xml-span.js";
 import type { WordRevisionRun, WordRevisionTrack } from "./types.js";
 
 export function encodeXml(text: string): string {
@@ -327,84 +333,12 @@ function rewriteParagraphs(xml: string, rewrite: (inner: string) => string): str
   return out;
 }
 
-export function elementInner(xml: string, name: string): string {
-  const start = indexOfWordOpen(xml, name, 0);
-  if (start < 0) {
-    return "";
-  }
-  const openEnd = indexOfXmlTagEnd(xml, start);
-  if (openEnd < 0) {
-    return "";
-  }
-  if (xml[openEnd - 1] === "/") {
-    return "";
-  }
-  const end = indexOfMatchingClose(xml, start, name);
-  return xml.slice(openEnd + 1, end - `</w:${name}>`.length);
-}
-
-export function indexOfWordOpen(xml: string, name: string, from: number): number {
-  const needle = `<w:${name}`;
-  let cursor = from;
-  while (cursor < xml.length) {
-    const start = xml.indexOf(needle, cursor);
-    if (start < 0) {
-      return -1;
-    }
-    const next = xml[start + needle.length];
-    if (next === ">" || next === "/" || (next !== undefined && /\s/u.test(next))) {
-      return start;
-    }
-    cursor = start + needle.length;
-  }
-  return -1;
-}
-
-export function indexOfXmlTagEnd(xml: string, from: number): number {
-  let quote: '"' | "'" | null = null;
-  for (let i = from; i < xml.length; i += 1) {
-    const ch = xml[i];
-    if (quote) {
-      if (ch === quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      continue;
-    }
-    if (ch === ">") {
-      return i;
-    }
-  }
-  return -1;
-}
-
-export function indexOfMatchingClose(xml: string, openStart: number, name: string): number {
-  const closeNeedle = `</w:${name}>`;
-  let depth = 0;
-  let cursor = openStart;
-  while (cursor < xml.length) {
-    const nextOpen = indexOfWordOpen(xml, name, cursor);
-    const nextClose = xml.indexOf(closeNeedle, cursor);
-    if (nextClose < 0) {
-      return xml.length;
-    }
-    if (nextOpen >= 0 && nextOpen < nextClose) {
-      depth += 1;
-      const openEnd = indexOfXmlTagEnd(xml, nextOpen);
-      cursor = openEnd >= 0 ? openEnd + 1 : nextOpen + name.length + 3;
-      continue;
-    }
-    depth -= 1;
-    cursor = nextClose + closeNeedle.length;
-    if (depth === 0) {
-      return cursor;
-    }
-  }
-  return xml.length;
-}
+export {
+  elementInner,
+  indexOfMatchingClose,
+  indexOfWordOpen,
+  indexOfXmlTagEnd,
+} from "../word-xml-span.js";
 
 /**
  * Insert an empty row after `afterRowIndex` in the `tableIndex`-th `w:tbl`

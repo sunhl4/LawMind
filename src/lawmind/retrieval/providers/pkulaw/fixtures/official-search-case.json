@@ -1,0 +1,56 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "_meta": {
+      "pkulaw/evidence": {
+        "origin": "semantic",
+        "confidence": "B",
+        "verifiedByApi": true,
+        "retrievedAt": "2026-10-21T12:47:33Z",
+        "notes": ["类案结果为语义检索候选，引用前请核对案号与北大法宝正文链接。"]
+      }
+    },
+    "content": [
+      {
+        "text": "共返回 2 条案例（语义检索候选，请结合案号与链接核对）：\n\n1. [普通案例] 张孝玉与汤浅(天津)实业有限公司劳动合同纠纷上诉案 | (2016)津02民终619号\n   链接：https://pkulaw.com/pfnl/a25051f3312b07f3.html?way=mcp",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "data": [
+        {
+          "title": "张孝玉与汤浅(天津)实业有限公司劳动合同纠纷上诉案",
+          "caseNumber": "(2016)津02民终619号",
+          "url": "https://pkulaw.com/pfnl/a25051f3312b07f3459ed1cc29df28c4db2195016c7f6ccbbdfb.html?way=mcp",
+          "docType": "判决书",
+          "caseType": "民事案件",
+          "courthouseName": "天津市第二中级人民法院",
+          "decisionDate": "2016-02-26",
+          "causeOfAction": "劳动合同纠纷",
+          "ascertain": "经审理查明,张孝玉于2015年4月期间调整至汤浅公司品质保证部品质管理课。",
+          "identified": "本院认为,本案争议焦点在于上诉人与被上诉人是否存在违法解除劳动合同的情形。",
+          "refereeResult": "驳回上诉,维持原判。\n本判决为终审判决。",
+          "caseGrade": "普通案例",
+          "content": ""
+        },
+        {
+          "title": "马玉峰与潍坊远届传媒有限公司劳动争议一审民事判决书",
+          "caseNumber": "(2019)鲁0791民初1596号",
+          "url": "https://pkulaw.com/pfnl/b35051f3312b07f3.html?way=mcp",
+          "docType": "判决书",
+          "caseType": "民事案件",
+          "courthouseName": "山东省潍坊高新技术产业开发区人民法院",
+          "decisionDate": "2020-01-28",
+          "causeOfAction": "劳动争议",
+          "ascertain": "2016年6月20日，原告马玉峰入职被告处。",
+          "identified": "本院认为,被告系违法解除劳动合同。",
+          "refereeResult": "被告支付违法解除劳动合同赔偿金。",
+          "caseGrade": "普通案例",
+          "content": ""
+        }
+      ]
+    }
+  }
+}

@@ -61,7 +61,7 @@ export function toolRequiresLawyerPause(name?: string | null): boolean {
 }
 ```
 
-草稿、渲染、改稿、导出**都不**弹确认。代码注释把理由写得很直白：这些动作的结果留在本地、律师看得见、可撤销；只有「从律师这边发出去」才不可回头。而 `ToolGovernanceMetadata` 里有 30 个工具被标成 `lawyer_approved_write`（`src/lawmind/agent/tool-name-sets.ts:90`）——**治理元数据比运行期门禁宽得多**。读文档时区分这两层，否则会以为写合同也要拍板。
+草稿、渲染、改稿、导出**都不**弹确认。代码注释把理由写得很直白：这些动作的结果留在本地、律师看得见、可撤销；只有「从律师这边发出去」才不可回头。而 `ToolGovernanceMetadata` 把整组 `WRITE_TOOLS` 标成 `lawyer_approved_write`（`src/lawmind/agent/tool-name-sets.ts:90`）——**治理元数据比运行期门禁宽得多**。读文档时区分这两层，否则会以为写合同也要拍板。
 
 **⑤ 功能可扩展，但边界必须稳定**
 
@@ -977,7 +977,7 @@ JSON.stringify({ eventId, taskId, kind, actor, actorId, detail, timestamp });
 ### 12.2 两层「审批」名字撞车，语义不对齐（开放）
 
 - 运行期工具审批：`toolRequiresExplicitApproval` → 实际只对 `send_email` 为真（经由 `toolRequiresLawyerPause`）。
-- 治理元数据：`ToolGovernanceMetadata.requiresApproval` = `definition.requiresApproval === true || runtimeMode !== "readonly"`，覆盖 30 个 `WRITE_TOOLS`。
+- 治理元数据：`ToolGovernanceMetadata.requiresApproval` = `definition.requiresApproval === true || runtimeMode !== "readonly"`，覆盖整个 `WRITE_TOOLS`。
 - 还有第三套：案件级 `ApprovalRequest`（写进 `approvals.jsonl`，由 `request_approval` 工具产生）。
 
 三套东西都叫「approval」，读者必须靠上下文区分。`tool-name-sets.ts` 的文件头声称「aligned by construction」，但运行期门禁明显窄于 `WRITE_TOOLS`。

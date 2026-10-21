@@ -10,10 +10,11 @@
  * - 永远写副本，不改原文件；写前写后对账原有 `w:ins` / `w:del`，丢一条就报错。
  */
 
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import JSZip from "jszip";
 import { auditDocumentFormat, type FormatAuditMode } from "./document-format-audit.js";
+import { loadDocxZip } from "./docx-size.js";
 import { verifyDocxRevisionPreservation } from "./word-revision/preservation-file.js";
 import type {
   WordLayoutBlock,
@@ -21,6 +22,7 @@ import type {
   WordLineSpacing,
 } from "./word-surface-layout.js";
 import { readDocxDocumentLayout } from "./word-surface.js";
+import { elementSpan, type WordElementSpan } from "./word-xml-span.js";
 
 export type FormatFixKind = "body.font" | "body.size" | "body.line" | "body.indent";
 
@@ -156,18 +158,48 @@ function locateParagraph(
   };
 }
 
-function elementInner(xml: string, name: string): { inner: string; found: boolean } {
-  const match = xml.match(new RegExp(`<w:${name}\\b[^>]*>([\\s\\S]*?)</w:${name}>`));
-  if (match) {
-    return { inner: match[1] ?? "", found: true };
-  }
-  return { inner: "", found: new RegExp(`<w:${name}\\b[^>]*/>`).test(xml) };
+/**
+ * 定位最外层 `<w:name>` 元素（实现见 `word-xml-span.ts`）。
+ *
+ * 为什么不能再用懒惰正则：`<w:rPr>` / `<w:pPr>` **可以嵌套**——已有修订的
+ * `<w:rPrChange><w:rPr>旧属性</w:rPr></w:rPrChange>` 会先遇到内层 `</w:rPr>`，
+ * 懒惰匹配在那里就截断，随后重建时把外层尾巴留在文档里，产出的
+ * `document.xml` 不闭合（Word 打开报「内容有问题」）。
+ */
+function findElementSpan(xml: string, name: string, from = 0): WordElementSpan | undefined {
+  return elementSpan(xml, name, from);
 }
 
+function elementInner(xml: string, name: string): { inner: string; found: boolean } {
+  const span = findElementSpan(xml, name);
+  if (!span) {
+    return { inner: "", found: false };
+  }
+  return {
+    inner: span.selfClosing ? "" : xml.slice(span.innerStart, span.innerEnd),
+    found: true,
+  };
+}
+
+/** 删掉所有最外层 `<w:name>`（含嵌套在内层里的同名元素交给所属外层）。 */
 function removeElement(xml: string, name: string): string {
-  return xml
-    .replace(new RegExp(`<w:${name}\\b[^>]*/>`, "g"), "")
-    .replace(new RegExp(`<w:${name}\\b[^>]*>[\\s\\S]*?</w:${name}>`, "g"), "");
+  let out = xml;
+  for (;;) {
+    const span = findElementSpan(out, name);
+    if (!span) {
+      return out;
+    }
+    out = `${out.slice(0, span.start)}${out.slice(span.end)}`;
+  }
+}
+
+/** 用 `replacement` 替换第一个最外层 `<w:name>`；找不到时返回原串。 */
+function replaceElement(xml: string, name: string, replacement: string): string {
+  const span = findElementSpan(xml, name);
+  if (!span) {
+    return xml;
+  }
+  return `${xml.slice(0, span.start)}${replacement}${xml.slice(span.end)}`;
 }
 
 /**
@@ -232,9 +264,30 @@ function insertPPrChild(pPrInner: string, childName: string, xml: string): strin
 }
 
 /** 在已有 `w:spacing` 上改行距，保留段前后间距等其它属性。 */
+/** 取 `pPr` 里的某个简单子元素（自闭合或成对写法都认）。 */
+function findSimpleChild(xml: string, name: string): string | undefined {
+  return (
+    xml.match(new RegExp(`<w:${name}\\b[^>]*/>`))?.[0] ??
+    xml.match(new RegExp(`<w:${name}\\b[^>]*>[\\s\\S]*?</w:${name}>`))?.[0]
+  );
+}
+
+/** 成对写法（`<w:spacing …></w:spacing>`）归一成自闭合，避免再插一个同名子元素。 */
+function selfCloseTag(tag: string): string {
+  if (tag.endsWith("/>")) {
+    return tag;
+  }
+  const openEnd = tag.indexOf(">");
+  if (openEnd < 0) {
+    return tag;
+  }
+  return `${tag.slice(0, openEnd).replace(/\s*\/$/, "")}/>`;
+}
+
 function patchSpacing(pPrInner: string, line: WordLineSpacing): string {
-  const existing = pPrInner.match(/<w:spacing\b[^>]*\/>/)?.[0];
-  if (!existing) {
+  const found = findSimpleChild(pPrInner, "spacing");
+  const existing = found ? selfCloseTag(found) : undefined;
+  if (!found || !existing) {
     if (line.rule === "auto") {
       return insertPPrChild(
         pPrInner,
@@ -249,18 +302,20 @@ function patchSpacing(pPrInner: string, line: WordLineSpacing): string {
       `<w:spacing w:line="${twips}" w:lineRule="${line.rule}"/>`,
     );
   }
-  const next =
-    line.rule === "auto"
-      ? existing
-          .replace(/\s*w:line="[^"]*"/, ` w:line="${Math.round(line.multiple * 240)}"`)
-          .replace(/\s*w:lineRule="[^"]*"/, ` w:lineRule="auto"`)
-      : existing
-          .replace(/\s*w:line="[^"]*"/, ` w:line="${Math.round((line.px / (96 / 72)) * 20)}"`)
-          .replace(/\s*w:lineRule="[^"]*"/, ` w:lineRule="${line.rule}"`);
-  const withRule = /w:lineRule=/.test(next)
-    ? next
-    : next.replace(/^<w:spacing\b/, `<w:spacing w:lineRule="${line.rule}"`);
-  return pPrInner.replace(existing, withRule);
+  const lineValue =
+    line.rule === "auto" ? Math.round(line.multiple * 240) : Math.round((line.px / (96 / 72)) * 20);
+  const ruleValue = line.rule === "auto" ? "auto" : line.rule;
+  let next = existing
+    .replace(/\s*w:line="[^"]*"/, ` w:line="${lineValue}"`)
+    .replace(/\s*w:lineRule="[^"]*"/, ` w:lineRule="${ruleValue}"`);
+  // 已有 `w:spacing` 但没写 `w:line` 时，只补 lineRule 等于什么都没改：补上数值。
+  if (!/\sw:line="/.test(next)) {
+    next = next.replace(/^<w:spacing\b/, `<w:spacing w:line="${lineValue}"`);
+  }
+  if (!/\sw:lineRule="/.test(next)) {
+    next = next.replace(/^<w:spacing\b/, `<w:spacing w:lineRule="${ruleValue}"`);
+  }
+  return pPrInner.replace(found, next);
 }
 
 /** 首行缩进 2 字。悬挂缩进（编号/列表）保持原样——那是 B 层。 */
@@ -269,15 +324,80 @@ function patchFirstLineIndent(pPrInner: string, chars: number): string {
     return pPrInner;
   }
   const hundredths = Math.round(chars * 100);
-  const existing = pPrInner.match(/<w:ind\b[^>]*\/>/)?.[0];
-  if (!existing) {
+  const found = findSimpleChild(pPrInner, "ind");
+  const existing = found ? selfCloseTag(found) : undefined;
+  if (!found || !existing) {
     return insertPPrChild(pPrInner, "ind", `<w:ind w:firstLineChars="${hundredths}"/>`);
   }
   const stripped = existing
     .replace(/\s*w:firstLineChars="[^"]*"/, "")
     .replace(/\s*w:firstLine="[^"]*"/, "");
   const next = stripped.replace(/\/>$/, ` w:firstLineChars="${hundredths}"/>`);
-  return pPrInner.replace(existing, next);
+  return pPrInner.replace(found, next);
+}
+
+/**
+ * `w:rPr` 的子元素同样有序（ECMA-376 CT_RPr）：`rFonts` 在 `b/sz/szCs` 之前，
+ * `rPrChange` 永远最后。追加到末尾会让 Word 认为层级不对。
+ */
+const RPR_CHILD_ORDER = [
+  "rStyle",
+  "rFonts",
+  "b",
+  "bCs",
+  "i",
+  "iCs",
+  "caps",
+  "smallCaps",
+  "strike",
+  "dstrike",
+  "outline",
+  "shadow",
+  "emboss",
+  "imprint",
+  "noProof",
+  "snapToGrid",
+  "vanish",
+  "webHidden",
+  "color",
+  "spacing",
+  "w",
+  "kern",
+  "position",
+  "sz",
+  "szCs",
+  "highlight",
+  "u",
+  "effect",
+  "bdr",
+  "shd",
+  "fitText",
+  "vertAlign",
+  "rtl",
+  "cs",
+  "em",
+  "lang",
+  "eastAsianLayout",
+  "specVanish",
+  "oMath",
+  "rPrChange",
+] as const;
+
+function insertRPrChild(rPrInner: string, childName: string, xml: string): string {
+  const rank = RPR_CHILD_ORDER.indexOf(childName as (typeof RPR_CHILD_ORDER)[number]);
+  if (rank < 0) {
+    return `${rPrInner}${xml}`;
+  }
+  for (const match of rPrInner.matchAll(/<w:([A-Za-z]+)\b/g)) {
+    const existingRank = RPR_CHILD_ORDER.indexOf(
+      (match[1] ?? "") as (typeof RPR_CHILD_ORDER)[number],
+    );
+    if (existingRank > rank) {
+      const at = match.index ?? 0;
+      return `${rPrInner.slice(0, at)}${xml}${rPrInner.slice(at)}`;
+    }
+  }
+  return `${rPrInner}${xml}`;
 }
 
 function patchRPr(
@@ -293,18 +413,20 @@ function patchRPr(
   if (fonts) {
     next = /<w:rFonts\b[^>]*\/>/.test(next)
       ? next.replace(/<w:rFonts\b[^>]*\/>/, fonts)
-      : `${next}${fonts}`;
+      : insertRPrChild(next, "rFonts", fonts);
   }
   if (target.halfPt) {
     const half = Math.round(target.halfPt);
+    const hadSz = /<w:sz\b/.test(next);
+    const hadSzCs = /<w:szCs\b/.test(next);
     next = next
       .replace(/<w:sz\b[^>]*\/>/g, `<w:sz w:val="${half}"/>`)
       .replace(/<w:szCs\b[^>]*\/>/g, `<w:szCs w:val="${half}"/>`);
-    if (!/<w:sz\b/.test(next)) {
-      next = `${next}<w:sz w:val="${half}"/><w:szCs w:val="${half}"/>`;
+    if (!hadSz) {
+      next = insertRPrChild(next, "sz", `<w:sz w:val="${half}"/>`);
     }
-    if (!/<w:szCs\b/.test(next)) {
-      next = `${next}<w:szCs w:val="${half}"/>`;
+    if (!hadSzCs) {
+      next = insertRPrChild(next, "szCs", `<w:szCs w:val="${half}"/>`);
     }
   }
   return next;
@@ -328,9 +450,10 @@ function patchRunsInParagraph(
   paragraphXml: string,
   target: { fontFamily?: string; rFontsXml?: string; halfPt?: number },
   track: { id: string; author: string; date: string },
-): { xml: string; patched: number } {
+): { xml: string; patched: number; skippedExistingChange: number } {
   const ranges = trackRanges(paragraphXml);
   let patched = 0;
+  let skippedExistingChange = 0;
   const xml = paragraphXml.replace(RUN_RE, (runXml, offset: number) => {
     if (insideRanges(offset, ranges) || runXml.endsWith("/>")) {
       return runXml;
@@ -339,15 +462,21 @@ function patchRunsInParagraph(
       return runXml;
     }
     const { inner: rPrInner, found } = elementInner(runXml, "rPr");
-    const oldInner = removeElement(rPrInner, "rPrChange");
-    const nextInner = patchRPr(oldInner, target);
-    if (nextInner === oldInner) {
+    // `w:rPrChange` 只能有一条，且它记着「谁、何时」把格式改成现在这样。
+    // 再叠一条就得先把它删掉——那等于抹掉对方的格式修订署名。
+    // 宁可这一段不改，也不改写它；要改格式请先接受/清除原有修订。
+    if (/<w:rPrChange\b/.test(rPrInner)) {
+      skippedExistingChange += 1;
       return runXml;
     }
-    const change = `<w:rPrChange w:id="${track.id}" w:author="${track.author}" w:date="${track.date}"><w:rPr>${oldInner}</w:rPr></w:rPrChange>`;
+    const nextInner = patchRPr(rPrInner, target);
+    if (nextInner === rPrInner) {
+      return runXml;
+    }
+    const change = `<w:rPrChange w:id="${track.id}" w:author="${track.author}" w:date="${track.date}"><w:rPr>${rPrInner}</w:rPr></w:rPrChange>`;
     const rPrXml = `<w:rPr>${nextInner}${change}</w:rPr>`;
     const nextRun = found
-      ? runXml.replace(/<w:rPr\b[^>]*(?:\/>|>[\s\S]*?<\/w:rPr>)/, rPrXml)
+      ? replaceElement(runXml, "rPr", rPrXml)
       : runXml.replace(/(<w:r\b[^>]*>)/, `$1${rPrXml}`);
     if (nextRun === runXml) {
       return runXml;
@@ -355,7 +484,7 @@ function patchRunsInParagraph(
     patched += 1;
     return nextRun;
   });
-  return { xml, patched };
+  return { xml, patched, skippedExistingChange };
 }
 
 export type ApplyFormatFixesInput = {
@@ -408,6 +537,8 @@ export function applyFormatFixesToXml(input: ApplyFormatFixesInput): {
       target.kinds.includes("body.line") || target.kinds.includes("body.indent");
     let paragraphXml = hit.xml;
     const beforeRuns = appliedRuns;
+    let skippedExistingChange = 0;
+    let skippedExistingParagraphChange = false;
 
     if (wantsRuns) {
       const patched = patchRunsInParagraph(
@@ -421,6 +552,7 @@ export function applyFormatFixesToXml(input: ApplyFormatFixesInput): {
       );
       paragraphXml = patched.xml;
       appliedRuns += patched.patched;
+      skippedExistingChange += patched.skippedExistingChange;
     }
 
     if (wantsParagraph) {
@@ -430,19 +562,24 @@ export function applyFormatFixesToXml(input: ApplyFormatFixesInput): {
         const open = paragraphXml.slice(0, openEnd + 1);
         const inner = paragraphXml.slice(openEnd + 1, close);
         const pPr = elementInner(inner, "pPr").inner;
-        let nextPPr = removeElement(pPr, "pPrChange");
-        const beforePPr = nextPPr;
-        if (input.target.line && target.kinds.includes("body.line")) {
-          nextPPr = patchSpacing(nextPPr, input.target.line);
-        }
-        if (input.target.firstIndentChars != null && target.kinds.includes("body.indent")) {
-          nextPPr = patchFirstLineIndent(nextPPr, input.target.firstIndentChars);
-        }
-        if (nextPPr !== beforePPr) {
-          const change = `<w:pPrChange w:id="${input.nextTrackId()}" w:author="${input.author}" w:date="${input.now}"><w:pPr>${beforePPr}</w:pPr></w:pPrChange>`;
-          const pPrXml = `<w:pPr>${nextPPr}${change}</w:pPr>`;
-          const withoutPPr = inner.replace(/<w:pPr\b[^>]*(?:\/>|>[\s\S]*?<\/w:pPr>)/, "");
-          paragraphXml = `${open}${pPrXml}${withoutPPr}</w:p>`;
+        // 段落格式修订同理：再叠一条就得先删掉原有的，作者/时间随之丢失。
+        if (/<w:pPrChange\b/.test(pPr)) {
+          skippedExistingParagraphChange = true;
+        } else {
+          let nextPPr = pPr;
+          const beforePPr = nextPPr;
+          if (input.target.line && target.kinds.includes("body.line")) {
+            nextPPr = patchSpacing(nextPPr, input.target.line);
+          }
+          if (input.target.firstIndentChars != null && target.kinds.includes("body.indent")) {
+            nextPPr = patchFirstLineIndent(nextPPr, input.target.firstIndentChars);
+          }
+          if (nextPPr !== beforePPr) {
+            const change = `<w:pPrChange w:id="${input.nextTrackId()}" w:author="${input.author}" w:date="${input.now}"><w:pPr>${beforePPr}</w:pPr></w:pPrChange>`;
+            const pPrXml = `<w:pPr>${nextPPr}${change}</w:pPr>`;
+            const withoutPPr = removeElement(inner, "pPr");
+            paragraphXml = `${open}${pPrXml}${withoutPPr}</w:p>`;
+          }
         }
       }
     }
@@ -454,10 +591,16 @@ export function applyFormatFixesToXml(input: ApplyFormatFixesInput): {
         (sum, match) => sum + [...(match[0] ?? "").matchAll(RUN_RE)].length,
         0,
       );
+      const hasHanging =
+        /<w:ind\b[^>]*\bw:hanging(?:Chars)?="/.test(hit.xml) || /<w:numPr\b/.test(hit.xml);
       const reason =
-        wantsRuns && appliedRuns === beforeRuns && runCount > 0 && trackedRuns >= runCount
-          ? "这段文字全在别人的修改痕迹里，未动（保留原有修订）"
-          : "本来就符合目标格式，未改";
+        skippedExistingChange > 0 || skippedExistingParagraphChange
+          ? "这段已有格式修订（作者/时间要保留），未叠加；如需统一格式，请先在 Word 里接受或清除原有格式修订"
+          : wantsRuns && appliedRuns === beforeRuns && runCount > 0 && trackedRuns >= runCount
+            ? "这段文字全在别人的修改痕迹里，未动（保留原有修订）"
+            : hasHanging
+              ? "悬挂缩进/编号列表属 B 层，未改（A 层不动缩进层级）"
+              : "本来就符合目标格式，未改";
       skipped.push({ paragraphIndex: target.paragraphIndex, reason });
       continue;
     }
@@ -497,6 +640,8 @@ export function planFormatFixes(params: {
     mode: params.mode,
     ...(params.hasTextBoxes ? { hasTextBoxes: true } : {}),
     ...(params.lawmindParagraphs ? { lawmindParagraphs: params.lawmindParagraphs } : {}),
+    // 计划必须看见全部段落的命中项：报告上限只是界面展开口径。
+    maxFindings: Number.MAX_SAFE_INTEGER,
   });
 
   const byIndex = new Map<number, FormatFixKind[]>();
@@ -597,6 +742,19 @@ export function planFormatFixes(params: {
   };
 }
 
+/**
+ * 两个路径是否指向同一个文件（含符号链接、硬链接、大小写变体）。
+ */
+function sameFile(a: string, b: string): boolean {
+  try {
+    const sa = fsSync.statSync(a);
+    const sb = fsSync.statSync(b);
+    return sa.dev === sb.dev && sa.ino === sb.ino;
+  } catch {
+    return false;
+  }
+}
+
 /** 写一份带格式修订的副本；原文件不动，原有修订逐条对账。 */
 export async function applyFormatFixesToDocxFile(params: {
   inputAbs: string;
@@ -606,7 +764,9 @@ export async function applyFormatFixesToDocxFile(params: {
   lawmindParagraphs?: readonly number[];
   now?: string;
 }): Promise<FormatFixResult> {
-  if (params.inputAbs === params.outputAbs) {
+  // 字符串不等不代表不是同一个文件：输出可以是原件的符号链接/硬链接，
+  // 或 macOS 大小写变体（回稿.DOCX）。直接 writeFile 会截断原件。
+  if (params.inputAbs === params.outputAbs || sameFile(params.inputAbs, params.outputAbs)) {
     return {
       ok: false,
       code: "in_place_refused",
@@ -641,7 +801,11 @@ export async function applyFormatFixesToDocxFile(params: {
     };
   }
 
-  const zip = await JSZip.loadAsync(await fs.readFile(params.inputAbs));
+  const loaded = await loadDocxZip(params.inputAbs);
+  if (!loaded.ok) {
+    return { ok: false, code: "unreadable_docx", error: loaded.reason };
+  }
+  const zip = loaded.zip;
   const documentFile = zip.file("word/document.xml");
   if (!documentFile) {
     return { ok: false, code: "not_a_docx", error: "这份文件里没有 word/document.xml。" };
@@ -664,18 +828,33 @@ export async function applyFormatFixesToDocxFile(params: {
   });
 
   if (applied.appliedParagraphs === 0) {
+    const reasons = [...new Set(applied.skipped.map((item) => item.reason))].slice(0, 3);
     return {
       ok: true,
       plan,
       appliedParagraphs: 0,
       appliedRuns: 0,
-      warning: "体检指出了问题，但每一段都没能安全定位，未改动文件。",
+      warning: reasons.length
+        ? `没有段落被改动：${reasons.join("；")}`
+        : "体检指出了问题，但每一段都没能安全定位，未改动文件。",
     };
   }
 
   zip.file("word/document.xml", applied.xml);
   await fs.mkdir(path.dirname(params.outputAbs), { recursive: true }).catch(() => {});
-  await fs.writeFile(params.outputAbs, await zip.generateAsync({ type: "nodebuffer" }));
+  // 先写临时文件再原子替换：中途崩了不会留下一份看起来能打开的半截 .docx。
+  const tmpOut = `${params.outputAbs}.${process.pid}.${Date.now()}.lawmind-tmp`;
+  try {
+    await fs.writeFile(tmpOut, await zip.generateAsync({ type: "nodebuffer" }));
+    await fs.rename(tmpOut, params.outputAbs);
+  } catch (error) {
+    await fs.rm(tmpOut, { force: true }).catch(() => undefined);
+    return {
+      ok: false,
+      code: "io_error",
+      error: `写副本失败：${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 
   const revisions = await verifyDocxRevisionPreservation({
     beforeAbs: params.inputAbs,

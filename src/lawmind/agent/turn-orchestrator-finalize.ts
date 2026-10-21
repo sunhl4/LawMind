@@ -201,6 +201,8 @@ export function finalizeAgentTurn(opts: {
   actorId: string;
   resolvedAssistantId: string | undefined;
   modelName: string;
+  /** 回合汇总行的计费口径；订阅用户不能记成 byok。 */
+  billingScope?: "byok" | "subscription";
 }): {
   turn: AgentTurn;
   reply: string;
@@ -456,7 +458,7 @@ export function finalizeAgentTurn(opts: {
         promptTokens: turnUsage.promptTokens,
         completionTokens: turnUsage.completionTokens,
         totalTokens: turnUsage.totalTokens,
-        billingScope: "byok",
+        billingScope: opts.billingScope ?? "byok",
       });
     } catch {
       /* ledger is best-effort */

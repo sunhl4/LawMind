@@ -8,13 +8,10 @@ import {
   isDocxPath,
   isOcrImagePath,
   isPdfPath,
+  extractPdfTextWithFallbacks,
   readDocxText,
   readImageTextHybrid,
-  readPdfText,
-  readPdfTextByOcr,
-  readPdfTextByVision,
   readSafe,
-  shouldUseVisionFallback,
   visionUsageContextFromAgentCtx,
 } from "../agent/tools/legal/ingest-helpers.js";
 import { isPathInsideRoot } from "../runtime/workspace-path.js";
@@ -43,17 +40,11 @@ export async function readDeskMaterialText(
   }
   try {
     if (isPdfPath(abs)) {
-      let text = await readPdfText(abs);
-      let sourceType = "pdf_text";
-      if (!text.trim()) {
-        text = await readPdfTextByOcr(abs, usageCtx);
-        sourceType = "pdf_ocr";
+      const extracted = await extractPdfTextWithFallbacks(abs, { usageCtx });
+      if (!extracted.ok) {
+        return { ok: false, error: extracted.reason };
       }
-      if (!text.trim() && shouldUseVisionFallback()) {
-        text = await readPdfTextByVision(abs, usageCtx);
-        sourceType = "pdf_vision";
-      }
-      return { ok: true, text: text.trim(), sourceType };
+      return { ok: true, text: extracted.text.trim(), sourceType: extracted.sourceType };
     }
     if (isOcrImagePath(abs)) {
       const hybrid = await readImageTextHybrid(abs, usageCtx);

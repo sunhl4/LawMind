@@ -43,11 +43,8 @@ import {
   normalizeRelPath,
   readDocxText,
   readXlsxPlainText,
-  readPdfText,
   readImageTextHybrid,
-  readPdfTextByOcr,
-  readPdfTextByVision,
-  shouldUseVisionFallback,
+  extractPdfTextWithFallbacks,
   unsupportedOfficeIngestReason,
   searchProjectTextFiles,
   sliceDocumentPage,
@@ -630,26 +627,19 @@ export const readProjectFile: AgentTool = {
           ),
         );
       }
-      const text = await readPdfText(full);
-      if (text) {
-        return toProjectSuccess("pdf", text, st.size, "pdf_text");
-      }
-      const ocrText = await readPdfTextByOcr(full, visionUsageContextFromAgentCtx(ctx));
-      if (ocrText) {
-        return toProjectSuccess("pdf_ocr", ocrText, st.size, "pdf_ocr");
-      }
-      if (shouldUseVisionFallback()) {
-        const visionText = await readPdfTextByVision(full, visionUsageContextFromAgentCtx(ctx));
-        if (visionText) {
-          return toProjectSuccess("pdf_vision", visionText, st.size, "pdf_vision");
-        }
+      const extracted = await extractPdfTextWithFallbacks(full, {
+        usageCtx: visionUsageContextFromAgentCtx(ctx),
+      });
+      if (extracted.ok) {
+        return toProjectSuccess(
+          extracted.sourceType === "pdf_text" ? "pdf" : extracted.sourceType,
+          extracted.text,
+          st.size,
+          extracted.sourceType,
+        );
       }
       return toolFailureFromIngest(
-        ingestFailure(
-          "INGEST_EMPTY_CONTENT",
-          "pdf_vision",
-          "PDF 无可提取文本（OCR/视觉兜底后仍为空）",
-        ),
+        ingestFailure("INGEST_EMPTY_CONTENT", extracted.stage, extracted.reason, extracted.hint),
       );
     }
     if (st.size > MAX_PROJECT_READ_BYTES) {

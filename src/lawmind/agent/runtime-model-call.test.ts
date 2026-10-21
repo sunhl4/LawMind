@@ -166,6 +166,36 @@ describe("wire-level tool pairing guard", () => {
     ).rejects.toThrow(/自动修复历史并重发/);
   });
 
+  it("retries once without stream_options when the endpoint rejects that field", async () => {
+    const server = await startCassetteModelServer();
+    servers.push(server);
+    server.enqueue(
+      cassetteHttpError(
+        400,
+        JSON.stringify({
+          error: { message: "Unrecognized request argument supplied: stream_options" },
+        }),
+      ),
+      cassetteAssistant("stream-ok"),
+    );
+
+    const response = await callModelWithRetry(
+      config(server.url),
+      [{ role: "user", content: "hi" }],
+      [],
+      { stream: true },
+    );
+
+    expect(response.choices[0]?.message.content).toBe("stream-ok");
+    expect(server.requests).toHaveLength(2);
+    const first = JSON.parse(server.requests[0]?.rawBody ?? "{}") as { stream_options?: unknown };
+    const second = JSON.parse(server.requests[1]?.rawBody ?? "{}") as { stream_options?: unknown };
+    expect(first.stream_options).toEqual({ include_usage: true });
+    // 降级只去掉该字段，不动消息与工具，也不消耗普通 retry 预算。
+    expect(second.stream_options).toBeUndefined();
+    expect(server.requests[1]?.messages()).toEqual(server.requests[0]?.messages());
+  });
+
   it("halves the live model cap when the provider returns 429", async () => {
     delete process.env.LAWMIND_MAX_MODEL_CONCURRENCY;
     resetTurnAdmissionForTests();

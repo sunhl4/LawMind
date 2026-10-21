@@ -180,11 +180,16 @@ export function WordFormatAuditPanel({
         ...(paragraphs ? { lawmindParagraphs: paragraphs } : {}),
       });
       if (body.ok && body.outputPath) {
+        const omitted = report?.omittedFindings ?? 0;
         setFixNote(
           `已写副本 ${body.outputPath}（改 ${body.appliedParagraphs ?? 0} 段）。` +
             (body.revisions?.verified
               ? `原有的修改痕迹 ${body.revisions.beforeCount} 条仍在。`
               : "原有的修改痕迹无法核验，请打开副本核对。") +
+            // imported 只改清单里列出的段落；清单被上限截断时要说清没处理的部分。
+            (omitted > 0 && report?.mode === "imported"
+              ? ` 另有 ${omitted} 条同类问题未在清单里展开，本次没有处理。`
+              : "") +
             (body.warning ? ` ${body.warning}` : ""),
         );
       } else {
@@ -232,10 +237,18 @@ export function WordFormatAuditPanel({
               className="lm-btn lm-btn-secondary lm-btn-sm"
               data-testid="lm-format-fix"
               disabled={fixing || busy}
-              title="只统一字体/字号/行距/缩进，写成 Word 的格式改动，落一份副本"
+              title={
+                report?.mode === "imported"
+                  ? "只统一字体/字号/行距/缩进，写成 Word 的格式改动，落一份副本"
+                  : "按国标草案（仿宋三号、固定行距、首行缩进）统一正文，写成 Word 的格式改动，落一份副本"
+              }
               onClick={() => void applyFix()}
             >
-              {fixing ? "写入中…" : "按原文统一格式（副本）"}
+              {fixing
+                ? "写入中…"
+                : report?.mode === "imported"
+                  ? "按原文统一格式（副本）"
+                  : "按国标格式统一（副本）"}
             </button>
           ) : null}
           <button
@@ -269,7 +282,11 @@ export function WordFormatAuditPanel({
       ) : null}
 
       {fixNote ? (
-        <p className="lm-word-format-audit-fixnote" role="status">
+        <p
+          className="lm-word-format-audit-fixnote"
+          role="status"
+          data-testid="lm-format-fix-note"
+        >
           {fixNote}
         </p>
       ) : null}

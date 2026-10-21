@@ -444,9 +444,13 @@ export async function openWorkspaceChat(page: Page): Promise<void> {
   ).toBeVisible({ timeout: 30_000 });
 }
 
-/** 工作台在，全文改稿台不在。 */
+/**
+ * 工作台与草稿台都在：审稿只在中栏草稿台里发生，不再有独立的「全文改稿」一级页。
+ * （旧断言要求 `.lm-review-workbench` 必须为 0——那是已被删掉的整页改稿台；
+ *  但 `openReviewDraft` 现在真的会打开中栏草稿台，该断言会把正常界面判成失败。）
+ */
 export async function assertReviewGateList(page: Page): Promise<void> {
   await openReviewDraft(page);
-  await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
+  await expect(page.getByTestId("lm-middle-draft-desk")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible({ timeout: 30_000 });
 }

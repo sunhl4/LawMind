@@ -29,9 +29,10 @@ const STATUS_PRIORITY: AuthorityCallStatus[] = [
   "not_configured",
 ];
 
-function worseStatus(a: AuthorityCallStatus, b: AuthorityCallStatus): AuthorityCallStatus {
+function betterStatus(a: AuthorityCallStatus, b: AuthorityCallStatus): AuthorityCallStatus {
   const ai = STATUS_PRIORITY.indexOf(a);
   const bi = STATUS_PRIORITY.indexOf(b);
+  // 前一项是「更可用」的状态；多库合并取最优（有库成功就不把整轮说成失败）。
   return ai <= bi ? a : b;
 }
 
@@ -51,7 +52,7 @@ export function mergeAuthorityOutcomes(
   let httpStatus: number | undefined = undefined;
   let hitCount = 0;
   for (const o of present) {
-    status = worseStatus(status, o.status);
+    status = betterStatus(status, o.status);
     httpStatus ??= o.httpStatus;
     hitCount += o.hitCount;
   }

@@ -32,6 +32,7 @@ import { mergeRetrievalResults } from "./authority-merge.js";
 import { authorityCallSucceeded, authorityHttpStatus } from "./authority-outcome.js";
 import { createPinnedAuthorityFetch } from "./authority-pinned-fetch.js";
 import {
+  authorityProviderLabel,
   authorityProviderUnrecognized,
   resolveAuthorityProvider,
   resolveAuthorityProviderList,
@@ -174,6 +175,38 @@ type ProviderAttempt = {
   result: RetrievalResult;
   httpStatus?: number;
 };
+
+/**
+ * Multi-vendor: 把「以整库口吻说话」的兜底文案缩到**具体库**。
+ *
+ * `mapHitsToRetrievalResult([])` 与失败兜底写的是「权威库无命中」「权威检索不可用」。
+ * 多库时其中一家有命中、另一家空/失败，直接并集会让模型同时看到「有命中」与
+ * 「权威库无命中」，于是要么不敢引用已找到的条文，要么把缺源说成整库故障。
+ * 这里只改前缀，vendor-specific 文案（如「元典智库未配置」）原样保留。
+ */
+function scopeVendorNotes(attempt: ProviderAttempt): RetrievalResult {
+  const label = authorityProviderLabel(attempt.provider);
+  const scope = (note: string): string => {
+    if (note === "权威库无命中") {
+      return `${label}无命中`;
+    }
+    if (note.startsWith("权威库未检索到")) {
+      return `${label}未检索到${note.slice("权威库未检索到".length)}`;
+    }
+    if (note.startsWith("权威检索不可用")) {
+      return `${label}不可用${note.slice("权威检索不可用".length)}`;
+    }
+    if (note.startsWith("权威检索异常")) {
+      return `${label}检索异常${note.slice("权威检索异常".length)}`;
+    }
+    return note;
+  };
+  return {
+    ...attempt.result,
+    riskFlags: attempt.result.riskFlags.map(scope),
+    missingItems: attempt.result.missingItems.map(scope),
+  };
+}
 
 /** Per-provider config gate: attempted only when its own credentials exist. */
 function providerConfigured(
@@ -376,7 +409,7 @@ export function createAuthorityAdapterFromEnv(opts?: {
         }
       } else {
         attempts = await Promise.all(providerList.map((id) => attemptProvider(id, query)));
-        const merged = mergeRetrievalResults(attempts.map((a) => a.result));
+        const merged = mergeRetrievalResults(attempts.map((a) => scopeVendorNotes(a)));
         result = merged;
         const attemptedAny = attempts.some((a) => a.attempted);
         if (!attemptedAny && !result.authorityOutcome) {
@@ -394,8 +427,13 @@ export function createAuthorityAdapterFromEnv(opts?: {
       }
 
       // Per-provider metering (multi-vendor keeps byProvider attribution honest).
+      // Only real calls are metered: a skipped (unconfigured) vendor must not look
+      // like a failed request in Doctor's 今日调用统计.
       if (workspaceDir) {
         for (const attempt of attempts) {
+          if (!attempt.attempted) {
+            continue;
+          }
           try {
             const call = attempt.result.authorityOutcome;
             recordAuthorityUsage(workspaceDir, {

@@ -9,6 +9,13 @@
  */
 
 import { decodeXmlEntities, normalizeWordControls, wordSymbolText } from "./word-surface-breaks.js";
+import {
+  elementInner,
+  indexOfMatchingClose,
+  indexOfWordOpen,
+  indexOfXmlTagEnd,
+  isWordNameBoundary,
+} from "./word-xml-span.js";
 
 export type WordAlign = "left" | "center" | "right" | "both";
 
@@ -416,12 +423,12 @@ function walkBlocks(
       cursor = openEnd + 1;
       continue;
     }
-    const close = xml.indexOf("</w:p>", openEnd + 1);
-    const innerEnd = close >= 0 ? close : xml.length;
+    const end = indexOfMatchingClose(xml, paragraphAt, "p");
+    const innerEnd = Math.max(openEnd + 1, end - "</w:p>".length);
     blocks.push(
       parseParagraph(xml.slice(openEnd + 1, innerEnd), styles, numbering, defaults, comments),
     );
-    cursor = close >= 0 ? close + "</w:p>".length : xml.length;
+    cursor = end;
   }
   return blocks;
 }
@@ -932,9 +939,8 @@ function collectRuns(
       cursor = end;
       continue;
     }
-    const close = inner.indexOf("</w:r>", openEnd + 1);
-    const runEnd = close >= 0 ? close + "</w:r>".length : inner.length;
-    const runInner = inner.slice(openEnd + 1, close >= 0 ? close : inner.length);
+    const runEnd = indexOfMatchingClose(inner, next.at, "r");
+    const runInner = inner.slice(openEnd + 1, Math.max(openEnd + 1, runEnd - "</w:r>".length));
     const text = runVisibleText(runInner);
     const comments = [...new Set([...inheritedComments, ...commentsAt(inner, next.at)])];
     if (text) {
@@ -1079,7 +1085,7 @@ function indexOfRunToken(
     }
     for (const [name, kind] of RUN_TOKENS) {
       const needle = `<w:${name}`;
-      if (xml.startsWith(needle, at) && isNameBoundary(xml, at + needle.length)) {
+      if (xml.startsWith(needle, at) && isWordNameBoundary(xml, at + needle.length)) {
         return { at, kind };
       }
     }
@@ -1092,19 +1098,6 @@ function stripFieldInstructions(inner: string): string {
   return inner
     .replace(/<w:instrText\b[^>]*>[\s\S]*?<\/w:instrText>/g, "")
     .replace(/<w:delInstrText\b[^>]*>[\s\S]*?<\/w:delInstrText>/g, "");
-}
-
-function elementInner(xml: string, name: string): string {
-  const start = indexOfWordOpen(xml, name, 0);
-  if (start < 0) {
-    return "";
-  }
-  const openEnd = indexOfXmlTagEnd(xml, start);
-  if (openEnd < 0 || xml[openEnd - 1] === "/") {
-    return "";
-  }
-  const close = xml.indexOf(`</w:${name}>`, openEnd + 1);
-  return close >= 0 ? xml.slice(openEnd + 1, close) : "";
 }
 
 function parseStyles(stylesXml: string): Map<string, StyleRaw> {
@@ -1399,7 +1392,7 @@ function toggle(block: string, tag: string): boolean | undefined {
     if (at < 0) {
       break;
     }
-    if (!isNameBoundary(block, at + needle.length)) {
+    if (!isWordNameBoundary(block, at + needle.length)) {
       cursor = at + needle.length;
       continue;
     }
@@ -1424,7 +1417,7 @@ function underlineOf(block: string): boolean | undefined {
     if (at < 0) {
       break;
     }
-    if (!isNameBoundary(block, at + needle.length)) {
+    if (!isWordNameBoundary(block, at + needle.length)) {
       cursor = at + needle.length;
       continue;
     }
@@ -1704,71 +1697,4 @@ function numberIn(tag: string, attr: string): number | undefined {
 
 function twipsToPx(twips: number): number {
   return Math.round((twips / 15) * 10) / 10;
-}
-
-function indexOfWordOpen(xml: string, name: string, from: number): number {
-  const needle = `<w:${name}`;
-  let cursor = from;
-  while (cursor < xml.length) {
-    const start = xml.indexOf(needle, cursor);
-    if (start < 0) {
-      return -1;
-    }
-    if (isNameBoundary(xml, start + needle.length)) {
-      return start;
-    }
-    cursor = start + needle.length;
-  }
-  return -1;
-}
-
-function isNameBoundary(xml: string, index: number): boolean {
-  const next = xml[index];
-  return next === ">" || next === "/" || (next !== undefined && /\s/u.test(next));
-}
-
-function indexOfMatchingClose(xml: string, openStart: number, name: string): number {
-  const closeNeedle = `</w:${name}>`;
-  let depth = 0;
-  let cursor = openStart;
-  while (cursor < xml.length) {
-    const nextOpen = indexOfWordOpen(xml, name, cursor);
-    const nextClose = xml.indexOf(closeNeedle, cursor);
-    if (nextClose < 0) {
-      return xml.length;
-    }
-    if (nextOpen >= 0 && nextOpen < nextClose) {
-      depth += 1;
-      const openEnd = indexOfXmlTagEnd(xml, nextOpen);
-      cursor = openEnd >= 0 ? openEnd + 1 : nextOpen + name.length + 3;
-      continue;
-    }
-    depth -= 1;
-    cursor = nextClose + closeNeedle.length;
-    if (depth === 0) {
-      return cursor;
-    }
-  }
-  return xml.length;
-}
-
-function indexOfXmlTagEnd(xml: string, from: number): number {
-  let quote: '"' | "'" | null = null;
-  for (let i = from; i < xml.length; i += 1) {
-    const ch = xml[i];
-    if (quote) {
-      if (ch === quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      continue;
-    }
-    if (ch === ">") {
-      return i;
-    }
-  }
-  return -1;
 }

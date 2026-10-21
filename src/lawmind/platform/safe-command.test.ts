@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { auditFileNameFor } from "../audit/index.js";
 import {
   buildMinimalChildEnv,
   buildSandboxChildEnv,
@@ -232,8 +233,7 @@ describe("safe-command", () => {
         actor: "system",
         timeoutMs: 2000,
       });
-      const today = new Date().toISOString().slice(0, 10);
-      const logPath = path.join(auditDir, `${today}.jsonl`);
+      const logPath = path.join(auditDir, auditFileNameFor());
       const lines = fs.readFileSync(logPath, "utf8").split("\n").filter(Boolean);
       expect(lines).toHaveLength(1);
       const event = JSON.parse(lines[0]) as Record<string, unknown>;

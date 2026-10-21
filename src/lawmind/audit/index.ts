@@ -26,12 +26,20 @@ import { appendAuditRootAnchor } from "./root-anchor.js";
 // 工具
 // ─────────────────────────────────────────────
 
+/**
+ * 审计日文件名按**本地日**（律师所在时区）分文件，不是 UTC。
+ * 测试也要用这个函数算路径：0:00–8:00（UTC+8）时 UTC 日期还是前一天，
+ * 自己拼 `toISOString()` 会去找昨天的文件。
+ */
+export function auditFileNameFor(date: Date = new Date()): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}.jsonl`;
+}
+
 function todayAuditPath(auditDir: string): string {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return path.join(auditDir, `${yyyy}-${mm}-${dd}.jsonl`);
+  return path.join(auditDir, auditFileNameFor());
 }
 
 // ─────────────────────────────────────────────

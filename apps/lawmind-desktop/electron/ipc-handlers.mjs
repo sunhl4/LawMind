@@ -69,6 +69,8 @@ import {
   AUTHORITY_API_KEY_ENV,
   PKULAW_DEFAULT_CASE_ENDPOINT,
   PKULAW_DEFAULT_LAW_ENDPOINT,
+  YUANDIAN_API_KEY_ENV,
+  YUANDIAN_DEFAULT_ENDPOINT,
   authorityProviderTokensList,
   ENDPOINT_KEY_TOKENS,
   PKULAW_FAMILY_TOKENS,
@@ -678,11 +680,11 @@ export function registerIpcHandlers(deps) {
       : {};
     const providerRaw = String(vars.LAWMIND_AUTHORITY_PROVIDER || "").trim().toLowerCase();
     const providerTokens = authorityProviderTokensList(providerRaw);
-    const provider = providerTokens.some((t) => PKULAW_FAMILY_TOKENS.has(t) || ENDPOINT_KEY_TOKENS.has(t))
-      ? "pkulaw"
-      : providerTokens.some((t) => YUANDIAN_TOKENS.has(t))
-        ? "yuandian"
-        : "open";
+    const pkulawToken = providerTokens.some(
+      (t) => PKULAW_FAMILY_TOKENS.has(t) || ENDPOINT_KEY_TOKENS.has(t),
+    );
+    const yuandianToken = providerTokens.some((t) => YUANDIAN_TOKENS.has(t));
+    const provider = pkulawToken ? "pkulaw" : yuandianToken ? "yuandian" : "open";
     let chainKey = "";
     if (keyVault.isAvailable()) {
       try {
@@ -691,14 +693,28 @@ export function registerIpcHandlers(deps) {
         chainKey = "";
       }
     }
+    let yuandianChainKey = "";
+    if (keyVault.isAvailable()) {
+      try {
+        yuandianChainKey =
+          (await keyVault.readSecret(KEYCHAIN_ACCOUNTS.authorityYuandianApiKey)) || "";
+      } catch {
+        yuandianChainKey = "";
+      }
+    }
     const envKey = String(vars.LAWMIND_AUTHORITY_API_KEY || "").trim();
+    const envYuandianKey = String(vars.LAWMIND_YUANDIAN_API_KEY || "").trim();
     return {
       ok: true,
       provider,
+      providers: { pkulaw: pkulawToken, yuandian: yuandianToken },
       lawEndpoint: String(vars.LAWMIND_AUTHORITY_ENDPOINT || "").trim() || PKULAW_DEFAULT_LAW_ENDPOINT,
       caseEndpoint:
         String(vars.LAWMIND_PKULAW_CASE_ENDPOINT || "").trim() || PKULAW_DEFAULT_CASE_ENDPOINT,
+      yuandianEndpoint:
+        String(vars.LAWMIND_YUANDIAN_ENDPOINT || "").trim() || YUANDIAN_DEFAULT_ENDPOINT,
       hasApiKey: Boolean(chainKey || envKey),
+      hasYuandianKey: Boolean(yuandianChainKey || envYuandianKey),
       keychainAvailable: keyVault.isAvailable(),
     };
   });
@@ -710,12 +726,20 @@ export function registerIpcHandlers(deps) {
       ? parseEnvAssignments(fs.readFileSync(paths.envFilePath, "utf8"))
       : {};
     const envKey = String(existingVars.LAWMIND_AUTHORITY_API_KEY || "").trim();
+    const envYuandianKey = String(existingVars.LAWMIND_YUANDIAN_API_KEY || "").trim();
     let chainKey = "";
+    let chainYuandianKey = "";
     if (keyVault.isAvailable()) {
       try {
         chainKey = (await keyVault.readSecret(KEYCHAIN_ACCOUNTS.authorityApiKey)) || "";
       } catch {
         chainKey = "";
+      }
+      try {
+        chainYuandianKey =
+          (await keyVault.readSecret(KEYCHAIN_ACCOUNTS.authorityYuandianApiKey)) || "";
+      } catch {
+        chainYuandianKey = "";
       }
     }
     const plan = placeAuthorityApiKey(
@@ -723,8 +747,10 @@ export function registerIpcHandlers(deps) {
         provider: payload?.provider,
         lawEndpoint: payload?.lawEndpoint,
         caseEndpoint: payload?.caseEndpoint,
+        yuandianEndpoint: payload?.yuandianEndpoint,
         apiKey: payload?.apiKey,
         hasExistingKey: Boolean(envKey || chainKey),
+        hasExistingYuandianKey: Boolean(envYuandianKey || chainYuandianKey),
         existingProvider: String(existingVars.LAWMIND_AUTHORITY_PROVIDER || ""),
       }),
       { keychainAvailable: keyVault.isAvailable() },
@@ -732,12 +758,20 @@ export function registerIpcHandlers(deps) {
     if (!plan.ok) {
       return { ok: false, error: plan.error };
     }
-    const removeKeys = [...plan.removeKeys];
-    if (plan.provider === "pkulaw" && keyVault.isAvailable()) {
-      const keyToStore = plan.storeApiKey || chainKey || envKey;
+    const removeKeys = [...(plan.removeKeys || [])];
+    const keychainAccount =
+      plan.provider === "yuandian"
+        ? KEYCHAIN_ACCOUNTS.authorityYuandianApiKey
+        : plan.provider === "pkulaw"
+          ? KEYCHAIN_ACCOUNTS.authorityApiKey
+          : null;
+    if (keychainAccount && keyVault.isAvailable()) {
+      const existingChainKey = plan.provider === "yuandian" ? chainYuandianKey : chainKey;
+      const existingEnvKey = plan.provider === "yuandian" ? envYuandianKey : envKey;
+      const keyToStore = plan.storeApiKey || existingChainKey || existingEnvKey;
       if (keyToStore) {
         try {
-          const saved = await keyVault.saveSecret(KEYCHAIN_ACCOUNTS.authorityApiKey, keyToStore);
+          const saved = await keyVault.saveSecret(keychainAccount, keyToStore);
           if (!saved) {
             return {
               ok: false,
@@ -752,14 +786,17 @@ export function registerIpcHandlers(deps) {
             code: "keychain_write_failed",
           };
         }
-        removeKeys.push(AUTHORITY_API_KEY_ENV);
+        removeKeys.push(plan.keyEnv || AUTHORITY_API_KEY_ENV);
       }
     }
     writeMergedLawmindEnv(paths.envFilePath, plan.assignments);
     if (removeKeys.length > 0) {
       writeLawmindEnvWithoutKeys(paths.envFilePath, removeKeys);
     }
-    if (plan.assignments?.[AUTHORITY_API_KEY_ENV]) {
+    if (
+      plan.assignments?.[AUTHORITY_API_KEY_ENV] ||
+      plan.assignments?.[YUANDIAN_API_KEY_ENV]
+    ) {
       try {
         fs.chmodSync(paths.envFilePath, 0o600);
       } catch {

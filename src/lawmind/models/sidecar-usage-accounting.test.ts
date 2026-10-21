@@ -119,18 +119,23 @@ describe("sidecar model usage accounting", () => {
         }),
       ),
     );
-    const intent = {
+    const intent: TaskIntent = {
       kind: "draft.word",
+      output: "docx",
       instruction: "起草回函",
       summary: "试用期解除",
       taskId: "t1",
       matterId: "m1",
-    } as TaskIntent;
+    };
     const bundle: ResearchBundle = {
+      taskId: "t1",
+      query: "试用期解除",
       claims: [],
       sources: [],
       riskFlags: [],
       missingItems: [],
+      requiresReview: false,
+      completedAt: new Date().toISOString(),
     };
     const draft = await buildDraftWithModel(
       { intent, bundle, workspaceDir: ws },

@@ -115,16 +115,41 @@ export async function extractReadableFileText(
       if (size > MAX_WORKSPACE_PDF_READ_BYTES) {
         return { ok: false, reason: "PDF 文件过大" };
       }
-      const text =
-        (await readPdfText(abs).catch((err: unknown) => {
+      let text = "";
+      let textError: string | undefined;
+      try {
+        text = await readPdfText(abs);
+      } catch (err) {
+        if (err instanceof IcloudLawyerPrompt) {
+          throw err;
+        }
+        text = "";
+        textError = err instanceof Error ? err.message : String(err);
+      }
+      if (!text.trim()) {
+        try {
+          text = await readPdfTextByOcr(abs);
+        } catch (err) {
           if (err instanceof IcloudLawyerPrompt) {
             throw err;
           }
-          return "";
-        })) || (await readPdfTextByOcr(abs));
-      return text.trim()
-        ? { ok: true, text }
-        : { ok: false, reason: "PDF 无可提取文本（扫描件请用 analyze_document 单读）" };
+          // 批量读不弹视觉兜底（贵且慢），但要把真实原因带给律师，
+          // 而不是让模型归纳成「本机没有 OCR」。
+          return {
+            ok: false,
+            reason: `扫描件 OCR 失败：${err instanceof Error ? err.message : String(err)}。请用 analyze_document 单读该文件（会继续走视觉兜底）。`,
+          };
+        }
+      }
+      if (text.trim()) {
+        return { ok: true, text };
+      }
+      return {
+        ok: false,
+        reason: textError
+          ? `PDF 无可提取文本（文字层解析失败：${textError}；扫描件请用 analyze_document 单读）`
+          : "PDF 无可提取文本（扫描件请用 analyze_document 单读）",
+      };
     }
     if (isOcrImagePath(abs)) {
       return { ok: false, reason: "图片需单独 OCR：请用 analyze_document 读取该文件" };

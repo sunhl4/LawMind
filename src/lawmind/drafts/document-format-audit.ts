@@ -150,6 +150,11 @@ export type FormatAuditInput = {
    * 这些段落必须跟随文件自身的主流格式，而不是我们的模板。
    */
   lawmindParagraphs?: readonly number[];
+  /**
+   * 报告里展开的条目上限（默认 40，界面上只铺这么多）。
+   * 生成改动计划时必须放开：否则整篇套模板只会改前 40 条命中的段落。
+   */
+  maxFindings?: number;
 };
 
 const REPORT_LIMIT = 40;
@@ -529,6 +534,8 @@ class FindingSink {
   warning = 0;
   info = 0;
 
+  constructor(private readonly limit: number = REPORT_LIMIT) {}
+
   add(finding: FormatAuditFinding): void {
     if (finding.severity === "error") {
       this.error += 1;
@@ -537,7 +544,7 @@ class FindingSink {
     } else {
       this.info += 1;
     }
-    if (this.findings.length < REPORT_LIMIT) {
+    if (this.findings.length < this.limit) {
       this.findings.push(finding);
     } else {
       this.omitted += 1;
@@ -549,7 +556,11 @@ export function auditDocumentFormat(input: FormatAuditInput): FormatAuditReport 
   const flat = flattenParagraphs(input.blocks);
   const profile = buildDocumentFormatProfile(input.blocks);
   const unchecked: string[] = [];
-  const sink = new FindingSink();
+  const sink = new FindingSink(
+    typeof input.maxFindings === "number" && input.maxFindings > 0
+      ? Math.floor(input.maxFindings)
+      : REPORT_LIMIT,
+  );
 
   if (input.mode === "imported") {
     auditImported({ ...input, flat }, profile, sink, unchecked);
@@ -874,15 +885,21 @@ function checkDate(
   basisZh: string,
   unchecked: string[],
 ): void {
+  // 成文日期是**独立的一行日期**。正文里「本通知自2026年10月1日起施行」提到日期，
+  // 不代表那就是落款日期；按「最后一个含日期的段落」取会把正文句子当成日期行，
+  // 报出一串不存在的格式问题。这里只认日期之外几乎没字的那一行。
   let hit: FlatParagraph | undefined;
   for (const item of flat) {
-    // 表格里的日期（交付清单、签署页）不是成文日期。
-    if (!item.inTable && DATE_LINE.test(item.paragraph.text)) {
+    if (item.inTable || !DATE_LINE.test(item.paragraph.text)) {
+      continue;
+    }
+    const rest = item.paragraph.text.replace(DATE_LINE, "").replace(/[\s　]+/g, "");
+    if (rest.length <= 8) {
       hit = item;
     }
   }
   if (!hit) {
-    unchecked.push("成文日期（未找到日期行）");
+    unchecked.push("成文日期（未找到独立的日期行）");
     return;
   }
   const text = hit.paragraph.text.trim();

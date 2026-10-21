@@ -948,3 +948,37 @@ describe("formatted word surface", () => {
     expect(surface.docxComments?.[0]?.body).toBe("看这里");
   });
 });
+
+describe("preview of a format-revised document", () => {
+  // `fix_document_format` 写出的副本就长这样：外层是"现在的"属性，
+  // `<w:pPrChange>` / `<w:rPrChange>` 里存着"改之前的"同名属性。
+  const xml =
+    `<w:document><w:body><w:p>` +
+    `<w:pPr><w:spacing w:line="560" w:lineRule="exact"/><w:ind w:firstLineChars="200"/>` +
+    `<w:pPrChange w:id="1" w:author="前手"><w:pPr><w:spacing w:line="240" w:lineRule="auto"/>` +
+    `<w:ind w:firstLineChars="0"/></w:pPr></w:pPrChange></w:pPr>` +
+    `<w:r><w:rPr><w:rFonts w:eastAsia="仿宋_GB2312" w:ascii="Times New Roman"/><w:sz w:val="32"/>` +
+    `<w:rPrChange w:id="2" w:author="前手"><w:rPr><w:sz w:val="24"/></w:rPr></w:rPrChange>` +
+    `</w:rPr><w:t>合同自双方签署之日生效。</w:t></w:r>` +
+    `</w:p></w:body></w:document>`;
+
+  it("keeps the outer properties and preserves the whole pPr for round-trip", () => {
+    const paragraph = extractDocxLayout(xml).blocks[0];
+    expect(paragraph?.kind).toBe("paragraph");
+    if (paragraph?.kind !== "paragraph") {
+      return;
+    }
+    expect(paragraph.line).toEqual({ rule: "exact", px: 37.3 });
+    expect(paragraph.firstIndent).toEqual({ unit: "em", value: 2 });
+    const textRun = paragraph.runs.find((run) => run.text.includes("合同"));
+    expect(textRun?.fontSizePt).toBe(16);
+    expect(textRun?.fontFamily).toContain("FangSong");
+
+    // 旧实现用 `indexOf("</w:pPr>")` 定位，会停在内层 pPr，pPrInner 少掉
+    // `</w:pPrChange></w:pPr>`；保存时按它重建段落，document.xml 就不闭合了。
+    const pPrInner = paragraph.pPrInner ?? "";
+    expect(pPrInner.endsWith("</w:pPrChange>")).toBe(true);
+    expect(pPrInner.match(/<\/w:pPr>/g)).toHaveLength(1);
+    expect(pPrInner.match(/<w:pPr>/g)).toHaveLength(1);
+  });
+});

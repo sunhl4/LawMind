@@ -136,6 +136,44 @@ test.describe("LawMind golden path", () => {
     await slowResponse;
   });
 
+  test("steers the live turn instead of queueing when 改这一轮 is used", async ({ page }) => {
+    await gotoShell(page);
+    await openWorkspaceChat(page);
+    const composer = page.getByLabel("消息输入").first();
+    await expect(composer).toBeVisible({ timeout: 15_000 });
+    const slowResponse = page.waitForResponse(
+      (res) =>
+        res.url().includes("/api/chat") &&
+        res.request().method() === "POST" &&
+        !res.url().includes("/resume"),
+      { timeout: 20_000 },
+    );
+    const slowRequest = page.waitForRequest(
+      (req) =>
+        req.url().includes("/api/chat") &&
+        req.method() === "POST" &&
+        !req.url().includes("/resume"),
+    );
+    await composer.fill("e2e-slow-steer-first");
+    await page.getByRole("button", { name: "发送" }).click();
+    await slowRequest;
+    await expect(page.getByRole("button", { name: "停止" })).toBeVisible({ timeout: 5_000 });
+
+    await composer.fill("e2e-mid-turn-steer");
+    const steerWait = page.waitForResponse(
+      (res) => res.url().endsWith("/steer") && res.request().method() === "POST",
+      { timeout: 10_000 },
+    );
+    // 只允许点「改这一轮」这一条路；排队/收件箱由上面那条用例覆盖。
+    await page.getByTestId("lm-compose-steer-current").click();
+    const steerResponse = await steerWait;
+    expect(steerResponse.ok()).toBe(true);
+    // 插进这一轮后输入框清空，且没有排进「下一轮」队列。
+    await expect(composer).toHaveValue("");
+    await expect(page.locator(".lm-compose-queue")).toHaveCount(0);
+    await slowResponse;
+  });
+
   test("compose permission mode select is available in workspace chat", async ({ page }) => {
     await gotoShell(page);
     await openWorkspaceChat(page);

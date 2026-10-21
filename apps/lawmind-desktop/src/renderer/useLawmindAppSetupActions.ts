@@ -57,16 +57,18 @@ export async function startWorkingConversation(
 }
 
 /** Live check after the token is stored. A 502 body carries probe.error, not a top-level message. */
-async function confirmPkulawConnected(apiBase: string): Promise<void> {
+async function confirmAuthorityConnected(apiBase: string, vendorLabel: string): Promise<void> {
   let probed: { authorityCorpus?: { provider?: string } };
   try {
     probed = await apiSendJson(apiBase, "/api/authority/probe", "POST", {});
   } catch (cause) {
     const body = cause instanceof ApiRequestError ? cause.body : null;
-    throw new Error(authorityProbeFailureText(body), { cause: cause });
+    throw new Error(authorityProbeFailureText(body, vendorLabel), { cause: cause });
   }
-  if (probed.authorityCorpus?.provider !== "pkulaw") {
-    throw new Error("令牌已保存，但还没有切到北大法宝。请再保存一次。");
+  // 多库（yuandian,pkulaw）时 probe 只报首个就绪库，两家里任一是 live 就算接上。
+  const provider = probed.authorityCorpus?.provider;
+  if (provider !== "pkulaw" && provider !== "yuandian") {
+    throw new Error("令牌已保存，但还没有切到商业法源库。请再保存一次。");
   }
 }
 
@@ -217,7 +219,7 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
     async (payload: AuthoritySavePayload) => {
       const bridge = window.lawmindDesktop;
       if (!bridge?.saveAuthority || !config) {
-        throw new Error("请在桌面应用里连接北大法宝");
+        throw new Error("请在桌面应用里连接权威库");
       }
       setAuthoritySaving(true);
       setError(null);
@@ -232,11 +234,14 @@ export function useLawmindAppSetupActions(params: UseLawmindAppSetupActionsParam
         setHealth(mapHealthState(snapshot.health));
         setHealthPayload(snapshot.health);
         applyBootstrapSnapshot(snapshot);
-        if (payload.provider === "pkulaw") {
-          await confirmPkulawConnected(nextBase);
+        if (payload.provider === "pkulaw" || payload.provider === "yuandian") {
+          await confirmAuthorityConnected(
+            nextBase,
+            payload.provider === "yuandian" ? "元典智库" : "北大法宝",
+          );
         }
       } catch (cause) {
-        const message = errorMessage(cause, "连接北大法宝失败");
+        const message = errorMessage(cause, "连接权威库失败");
         setError(message);
         throw new Error(message, { cause: cause });
       } finally {

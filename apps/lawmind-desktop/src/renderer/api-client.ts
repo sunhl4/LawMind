@@ -82,11 +82,16 @@ export async function apiGetJson<T>(apiBase: string, path: string, init?: Pick<R
   return body;
 }
 
-export async function apiSendJson<TResponse>(
+/**
+ * `TBody` 只在调用方标注请求体形状（`apiSendJson<Res, Body>(…)`），函数体里
+ * 仍按 JSON 序列化；参数表里只出现一次是刻意的，不是漏用。
+ */
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- TBody is call-site documentation
+export async function apiSendJson<TResponse, TBody = unknown>(
   apiBase: string,
   path: string,
   method: "POST" | "PUT" | "PATCH" | "DELETE",
-  body?: unknown,
+  body?: TBody,
 ): Promise<TResponse> {
   const run = (base: string) =>
     fetchApi(

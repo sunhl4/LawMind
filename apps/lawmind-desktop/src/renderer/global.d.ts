@@ -186,20 +186,24 @@ declare global {
       readAuthoritySettings: () => Promise<{
         ok: boolean;
         provider?: "pkulaw" | "yuandian" | "open";
+        providers?: { pkulaw?: boolean; yuandian?: boolean };
         lawEndpoint?: string;
         caseEndpoint?: string;
+        yuandianEndpoint?: string;
         hasApiKey?: boolean;
+        hasYuandianKey?: boolean;
         keychainAvailable?: boolean;
         error?: string;
       }>;
       saveAuthority: (payload: {
-        provider: "pkulaw" | "open";
+        provider: "pkulaw" | "yuandian" | "open";
         lawEndpoint?: string;
         caseEndpoint?: string;
+        yuandianEndpoint?: string;
         apiKey?: string;
       }) => Promise<{
         ok: boolean;
-        provider?: "pkulaw" | "open";
+        provider?: "pkulaw" | "yuandian" | "open";
         apiBase?: string;
         apiAuthToken?: string;
         code?: string;

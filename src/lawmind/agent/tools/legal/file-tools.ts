@@ -37,11 +37,8 @@ import {
   readSafe,
   readDocxText,
   readXlsxPlainText,
-  readPdfText,
   readImageTextHybrid,
-  readPdfTextByOcr,
-  readPdfTextByVision,
-  shouldUseVisionFallback,
+  extractPdfTextWithFallbacks,
   isPdfPath,
   isDocxPath,
   isXlsxPath,
@@ -342,26 +339,16 @@ export const analyzeDocument: AgentTool = {
           ),
         );
       }
-      const content = await readPdfText(filePath);
-      if (content) {
-        return toAnalyzeSuccess("pdf", content, st.size, "pdf_text");
-      }
-      const ocrText = await readPdfTextByOcr(filePath, visionUsageContextFromAgentCtx(ctx));
-      if (ocrText) {
-        return toAnalyzeSuccess("pdf_ocr", ocrText, st.size, "pdf_ocr");
-      }
-      if (shouldUseVisionFallback()) {
-        const visionText = await readPdfTextByVision(filePath, visionUsageContextFromAgentCtx(ctx));
-        if (visionText) {
-          return toAnalyzeSuccess("pdf_vision", visionText, st.size, "pdf_vision");
-        }
+      const extracted = await extractPdfTextWithFallbacks(filePath, {
+        usageCtx: visionUsageContextFromAgentCtx(ctx),
+      });
+      if (extracted.ok) {
+        const source: IngestSourceType =
+          extracted.sourceType === "pdf_text" ? "pdf" : extracted.sourceType;
+        return toAnalyzeSuccess(source, extracted.text, st.size, extracted.sourceType);
       }
       return toolFailureFromIngest(
-        ingestFailure(
-          "INGEST_EMPTY_CONTENT",
-          "pdf_vision",
-          "PDF 无可提取文本（OCR/视觉兜底后仍为空）",
-        ),
+        ingestFailure("INGEST_EMPTY_CONTENT", extracted.stage, extracted.reason, extracted.hint),
       );
     }
     const content = await readSafe(filePath);

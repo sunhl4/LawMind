@@ -33,7 +33,10 @@ import {
   inferWizardProviderId,
   writeWizardDefaultModelId,
 } from "./wizard-model-store.mjs";
-import { authorityProviderUsesStoredKey } from "./authority-setup.mjs";
+import {
+  authorityProviderUsesStoredKey,
+  authorityProviderUsesYuandianKey,
+} from "./authority-setup.mjs";
 
 export { defaultModelIdForWizardModel, inferWizardProviderId, writeWizardDefaultModelId };
 
@@ -61,6 +64,8 @@ export const KEYCHAIN_ACCOUNTS = {
   webSearchApiKey: "wizard.webSearch.apiKey",
   /** 北大法宝 / 商业法源访问令牌。注入为 LAWMIND_AUTHORITY_API_KEY。 */
   authorityApiKey: "authority.pkulaw.apiKey",
+  /** 元典开放平台独立 Key。注入为 LAWMIND_YUANDIAN_API_KEY（不与法宝共用）。 */
+  authorityYuandianApiKey: "authority.yuandian.apiKey",
   customApiKey: (modelId) => `custom.${String(modelId).replace(/^custom:/, "")}.apiKey`,
   mcpSecret: (serverId) => `mcp.${String(serverId).replace(/[^a-zA-Z0-9_-]/g, "_")}.secret`,
   /** 审计链 HMAC 密钥（hex）：keychain 保管，注入子进程；headless 降级为工作区外 key 文件。 */
@@ -205,6 +210,15 @@ export async function collectSecretsForServerEnv(parsedEnvVars) {
       authorityProviderUsesStoredKey(parsedEnvVars.LAWMIND_AUTHORITY_PROVIDER)
     ) {
       out.LAWMIND_AUTHORITY_API_KEY = authorityKey;
+    }
+    // 元典走独立钥匙串账户与独立 env；多库列表（yuandian,pkulaw）下两把钥匙都要在。
+    const yuandianKey = await keyVault.readSecret(KEYCHAIN_ACCOUNTS.authorityYuandianApiKey);
+    if (
+      yuandianKey &&
+      !parsedEnvVars.LAWMIND_YUANDIAN_API_KEY &&
+      authorityProviderUsesYuandianKey(parsedEnvVars.LAWMIND_AUTHORITY_PROVIDER)
+    ) {
+      out.LAWMIND_YUANDIAN_API_KEY = yuandianKey;
     }
     const all = await keyVault.listSecrets();
     for (const entry of all) {

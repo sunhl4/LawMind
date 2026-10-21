@@ -109,6 +109,24 @@ describe("tool governance drift", () => {
     }
   });
 
+  it("format fix is classified as a write, format audit as a read", () => {
+    const registry = createLegalToolRegistry({
+      allowWebSearch: true,
+      enableCollaboration: true,
+      baseConfig,
+    });
+    const meta = new Map(listToolGovernanceMetadata(registry).map((m) => [m.name, m]));
+
+    const fix = meta.get("fix_document_format");
+    expect(fix?.runtimeMode).toBe("lawyer_approved_write");
+    expect(fix?.idempotent).toBe(false);
+    expect(fix?.retryable).toBe(false);
+
+    const audit = meta.get("check_document_format");
+    expect(audit?.runtimeMode).toBe("readonly");
+    expect(audit?.idempotent).toBe(true);
+  });
+
   it("apply_surgical_edits advertised description is a Craft/gate pointer, not the span essay", () => {
     const registry = createLegalToolRegistry({
       allowWebSearch: true,

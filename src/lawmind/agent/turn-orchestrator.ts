@@ -929,6 +929,7 @@ export async function runTurn(opts: {
         actorId,
         resolvedAssistantId,
         modelName: config.model.model,
+        billingScope: config.billingScope ?? "byok",
       });
     }
 
@@ -1002,6 +1003,7 @@ export async function runTurn(opts: {
       actorId,
       resolvedAssistantId,
       modelName: config.model.model,
+      billingScope: config.billingScope ?? "byok",
     });
   } catch (err) {
     cleanupFailedTurn({

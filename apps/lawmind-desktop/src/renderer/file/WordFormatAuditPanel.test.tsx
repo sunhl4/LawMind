@@ -186,6 +186,39 @@ describe("WordFormatAuditPanel", () => {
     await act(async () => second.root.unmount());
   });
 
+  it("clicks through the fix path and reports what was written", async () => {
+    apiSendJson.mockResolvedValueOnce({ ok: true, report: importedReport() });
+    const { host, root } = await renderPanel();
+    apiSendJson.mockResolvedValueOnce({
+      ok: true,
+      outputPath: "材料/合同_格式修订.docx",
+      appliedParagraphs: 2,
+      revisions: { verified: true, beforeCount: 4, afterCount: 6 },
+    });
+    const button = host.querySelector<HTMLButtonElement>('[data-testid="lm-format-fix"]');
+    expect(button).toBeTruthy();
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    // 请求体带着体检点名的段落，且不带 outputPath（用默认副本名）。
+    const fixCall = apiSendJson.mock.calls.find(
+      (call) => call[1] === "/api/documents/format-fix",
+    );
+    expect(fixCall).toBeDefined();
+    const fixBody = fixCall?.[3] as { lawmindParagraphs?: number[]; outputPath?: string };
+    expect(fixBody.lawmindParagraphs).toEqual([2, 3]);
+    expect(fixBody.outputPath).toBeUndefined();
+
+    // 回执要写清副本名、段数与原有修订仍在；不能只显示「成功」。
+    const note = host.querySelector('[data-testid="lm-format-fix-note"]')?.textContent ?? "";
+    expect(note).toContain("合同_格式修订.docx");
+    expect(note).toContain("改 2 段");
+    expect(note).toContain("4 条仍在");
+    await act(async () => root.unmount());
+  });
+
   it("reports a readable error instead of an empty success", async () => {
     apiSendJson.mockRejectedValueOnce(new Error("网络断了"));
     const { host, root } = await renderPanel();

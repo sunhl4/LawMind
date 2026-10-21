@@ -19,14 +19,16 @@ export type LawmindAuthorityUsageSummary = {
 };
 
 export type AuthoritySavePayload = {
-  provider: "pkulaw" | "open";
+  provider: "pkulaw" | "yuandian" | "open";
   lawEndpoint?: string;
   caseEndpoint?: string;
+  yuandianEndpoint?: string;
   apiKey?: string;
 };
 
 const DEFAULT_LAW_ENDPOINT = "https://apim-gateway.pkulaw.com/mcp-law-search-service";
 const DEFAULT_CASE_ENDPOINT = "https://apim-gateway.pkulaw.com/mcp-case-search-service";
+const DEFAULT_YUANDIAN_ENDPOINT = "https://open.chineselaw.com/mcp";
 
 type Props = {
   authorityCorpus?: LawmindSettingsAuthorityCorpus | null;
@@ -61,8 +63,11 @@ export function LawmindAuthoritySetup({
   const commercialOn = pkulawOn || yuandianOn || authorityCorpus?.provider === "generic";
   const [lawEndpoint, setLawEndpoint] = useState(DEFAULT_LAW_ENDPOINT);
   const [caseEndpoint, setCaseEndpoint] = useState(DEFAULT_CASE_ENDPOINT);
+  const [yuandianEndpoint, setYuandianEndpoint] = useState(DEFAULT_YUANDIAN_ENDPOINT);
   const [apiKey, setApiKey] = useState("");
+  const [yuandianKey, setYuandianKey] = useState("");
   const [hasExistingKey, setHasExistingKey] = useState(Boolean(authorityCorpus?.authConfigured));
+  const [hasExistingYuandianKey, setHasExistingYuandianKey] = useState(false);
   const [formMsg, setFormMsg] = useState<string | null>(null);
   const [settingsReady, setSettingsReady] = useState(
     () => typeof window.lawmindDesktop?.readAuthoritySettings !== "function",
@@ -89,7 +94,11 @@ export function LawmindAuthoritySetup({
         if (res.caseEndpoint) {
           setCaseEndpoint(res.caseEndpoint);
         }
+        if (res.yuandianEndpoint) {
+          setYuandianEndpoint(res.yuandianEndpoint);
+        }
         setHasExistingKey(Boolean(res.hasApiKey));
+        setHasExistingYuandianKey(Boolean(res.hasYuandianKey));
       })
       .finally(() => {
         if (!cancelled) {
@@ -109,9 +118,22 @@ export function LawmindAuthoritySetup({
     setFormMsg(null);
     try {
       await onSaveAuthority(payload);
-      setApiKey("");
+      if (payload.provider === "pkulaw") {
+        setApiKey("");
+      } else if (payload.provider === "yuandian") {
+        setYuandianKey("");
+      }
       setHasExistingKey(payload.provider === "pkulaw" ? true : hasExistingKey);
-      setFormMsg(payload.provider === "pkulaw" ? "已连接北大法宝。" : "已改用公开法规。");
+      setHasExistingYuandianKey(
+        payload.provider === "yuandian" ? true : hasExistingYuandianKey,
+      );
+      setFormMsg(
+        payload.provider === "pkulaw"
+          ? "已连接北大法宝。"
+          : payload.provider === "yuandian"
+            ? "已连接元典智库。"
+            : "已改用公开法规。",
+      );
     } catch (cause) {
       setFormMsg(cause instanceof Error ? cause.message : "保存失败");
     }
@@ -127,10 +149,10 @@ export function LawmindAuthoritySetup({
       <p className="lm-settings-caption" role="status">
         未命中则不编造。北大法宝用你自己的访问令牌，只存在这台电脑上。
       </p>
-      {yuandianOn ? (
-        <p className="lm-settings-caption lm-settings-caption--warn" role="note">
-          元典智库由启动配置启用（LAWMIND_YUANDIAN_API_KEY，见 docs/LAWMIND-YUANDIAN-INTEGRATION.md）。
-          本页的保存动作会整体覆盖 provider 设置（改成北大法宝或公开法规），请先确认再保存。
+      {yuandianOn || pkulawOn ? (
+        <p className="lm-settings-caption" role="note">
+          两库可以同用：{yuandianOn && pkulawOn ? "当前已是" : "接入另一家后会自动变成"}
+          「元典 + 北大法宝」并行检索，命中都保留来源标注。
         </p>
       ) : null}
       <div className="lm-settings-row">
@@ -244,7 +266,7 @@ export function LawmindAuthoritySetup({
         >
           {authoritySaving ? "正在保存…" : pkulawOn ? "更新北大法宝" : "连接北大法宝"}
         </button>
-        {pkulawOn ? (
+        {pkulawOn || yuandianOn ? (
           <button
             type="button"
             className="lm-btn lm-btn-secondary lm-btn-sm"
@@ -261,6 +283,67 @@ export function LawmindAuthoritySetup({
           </button>
         ) : null}
         {probeControl}
+      </div>
+      <div className="lm-settings-divider" role="separator" />
+      <h4 className="lm-settings-subtitle" data-testid="lm-authority-yuandian">
+        元典智库
+      </h4>
+      <p className="lm-settings-caption" role="status">
+        独立 Key，和北大法宝分开计费；两库可同时启用，命中各自标注来源。
+      </p>
+      <label className="lm-field">
+        <span>元典开放平台 API Key</span>
+        <input
+          type="password"
+          autoComplete="off"
+          data-testid="lm-authority-yuandian-token"
+          value={yuandianKey}
+          disabled={authoritySaving || !settingsReady}
+          placeholder={
+            hasExistingYuandianKey ? "留空则保留已保存的 Key" : "粘贴元典开放平台 API Key"
+          }
+          onChange={(e) => setYuandianKey(e.target.value)}
+        />
+      </label>
+      <details className="lm-settings-advanced">
+        <summary>地址（默认 open.chineselaw.com/mcp）</summary>
+        <div className="lm-settings-advanced-body">
+          <label className="lm-field">
+            <span>元典地址</span>
+            <input
+              type="text"
+              data-testid="lm-authority-yuandian-endpoint"
+              value={yuandianEndpoint}
+              disabled={authoritySaving || !settingsReady}
+              onChange={(e) => setYuandianEndpoint(e.target.value)}
+            />
+          </label>
+        </div>
+      </details>
+      <div className="lm-settings-actions">
+        <button
+          type="button"
+          className="lm-btn lm-btn-accent lm-btn-sm"
+          data-testid="lm-authority-yuandian-save"
+          disabled={authoritySaving || !settingsReady || !onSaveAuthority}
+          onClick={() =>
+            void save({
+              provider: "yuandian",
+              yuandianEndpoint,
+              apiKey: yuandianKey,
+            })
+          }
+        >
+          {authoritySaving ? "正在保存…" : yuandianOn ? "更新元典智库" : "连接元典智库"}
+        </button>
+        <span
+          className={
+            hasExistingYuandianKey ? "lm-pill lm-pill-success" : "lm-pill lm-pill-warn"
+          }
+          data-testid="lm-authority-yuandian-status"
+        >
+          {hasExistingYuandianKey ? "Key 已保存" : "未配置"}
+        </span>
       </div>
       {formMsg ? (
         <p className="lm-settings-caption" role="status" data-testid="lm-authority-save-msg">

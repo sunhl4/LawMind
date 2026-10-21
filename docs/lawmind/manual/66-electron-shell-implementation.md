@@ -633,7 +633,7 @@ syncWordAddinManifest({ downloadsFallback: false })
 ### 其余几条容易漏的行为
 
 - **`inspect-workspace-volume`** 只查询不判断：返回 `fstype`（macOS `stat -f %T` / Linux `/proc/mounts`）、`driveType`（Windows PowerShell）与 `freeBytes`（`statfs`），文案判断留在渲染层。
-- **权威库两条通道**：`read-authority-settings` 返回 provider（`pkulaw` / `open`）、两个端点、是否有令牌；`save-authority` 写 `.env.lawmind` 并重启服务。令牌默认进钥匙串（`authority.pkulaw.apiKey`）并从 env 抹掉明文；**钥匙串不可用是唯一的明文例外**——`placeAuthorityApiKey` 会把令牌写进 `.env.lawmind` 并 `chmod 0600`，否则设置页只能报「无法安全保存」而接不上法源。这条例外是刻意的（fresh clone / 无桌面会话的场景）。
+- **权威库两条通道**：`read-authority-settings` 返回 provider（`pkulaw` / `yuandian` / `open`）、各库端点、是否有令牌；`save-authority` 写 `.env.lawmind` 并重启服务。令牌默认进各自钥匙串（`authority.pkulaw.apiKey` / `authority.yuandian.apiKey`）并从 env 抹掉明文；**钥匙串不可用是唯一的明文例外**——`placeAuthorityApiKey` 会把令牌写进 `.env.lawmind` 并 `chmod 0600`，否则设置页只能报「无法安全保存」而接不上法源。这条例外是刻意的（fresh clone / 无桌面会话的场景）。
 - **本机文件夹上限 16 个**（`add-host-folder`），超出返回「本机文件夹已达上限」；删除一个挂载后 `projectDir` 回落到剩下的第一个。
 - **`open-aux-window` 只认 `kind: "review-preview"` + `taskId`**：同 key 已存在则聚焦，否则按鼠标所在屏幕在 720px 宽、560–900px 高之间开窗；渲染页用 hash `lm-popout=review-preview&taskId=...`，`listAppWindows()` 靠 `lm-popout=` 把它从「主窗候选」里排除。
 - **`show-item-in-folder` 有独立的根守卫**：只允许展示 workspace / project / 挂载根内的路径，否则 `outside_allowed_roots`；它不经过 `resolveFsPath`，所以单独补了这一道。
@@ -954,7 +954,7 @@ the deprecated `keytar` native module.
 | `mailSecretsKey`             | `mail.secretsKey`                     |
 | `localApiInstallationSecret` | `localApi.installationSecret`         |
 
-**八个账号分三类**：三个用户/法源填的密钥（前三条）、两个工厂账号（自定义模型与 MCP）、三个本地对称密钥（审计链、邮件、本机 API 根密钥）。`authority.pkulaw.apiKey` 是唯一的**明文例外**：钥匙串不可用时，`placeAuthorityApiKey` 会把令牌写进 `.env.lawmind` 并 `chmod 0600`，而不是拒绝保存（否则 fresh clone / 无桌面会话就接不上法源）。模型 Key 与 MCP 密钥没有这条例外。
+**八个账号分三类**：三个用户/法源填的密钥（前三条）、两个工厂账号（自定义模型与 MCP）、三个本地对称密钥（审计链、邮件、本机 API 根密钥）。`authority.pkulaw.apiKey` 与 `authority.yuandian.apiKey` 是**明文例外**：钥匙串不可用时，`placeAuthorityApiKey` 会把令牌写进 `.env.lawmind` 并 `chmod 0600`，而不是拒绝保存（否则 fresh clone / 无桌面会话就接不上法源）。模型 Key 与 MCP 密钥没有这条例外。
 
 ### 落盘的三道保护
 

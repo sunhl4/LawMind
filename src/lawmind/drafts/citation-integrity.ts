@@ -49,7 +49,7 @@ export function validateDraftCitationsAgainstBundle(
   const hasSources = bundle.sources.length > 0;
 
   for (const sec of draft.sections) {
-    const cites = (sec.citations ?? []).map((c) => c.trim()).filter(Boolean);
+    const cites = (sec.citations ?? []).map((c) => (c ?? "").trim()).filter(Boolean);
     if (cites.length === 0) {
       if (hasSources && (sec.body ?? "").trim().length > UNANCHORED_BODY_MIN_LENGTH) {
         unanchoredSections.push({

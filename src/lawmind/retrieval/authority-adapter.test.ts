@@ -325,6 +325,67 @@ describe("createAuthorityAdapterFromEnv", () => {
     }
   });
 
+  it("multi-vendor mode scopes zero-hit wording to the vendor that had none", async () => {
+    const prevKey = process.env.LAWMIND_YUANDIAN_API_KEY;
+    process.env.LAWMIND_YUANDIAN_API_KEY = "yd-test-key";
+    const prevProvider = process.env.LAWMIND_AUTHORITY_PROVIDER;
+    process.env.LAWMIND_AUTHORITY_PROVIDER = "yuandian,pkulaw";
+    try {
+      const fetchImpl = vi.fn(
+        async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+          const url =
+            typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+          const bodyText = typeof init?.body === "string" ? init.body : "{}";
+          const body = JSON.parse(bodyText) as Record<string, unknown>;
+          if (url.includes("authority.example")) {
+            return Response.json({
+              hits: [{ id: "pk-9", title: "劳动合同法第八十七条", kind: "statute" }],
+            });
+          }
+          if (body.method === "initialize") {
+            return new Response(JSON.stringify({ jsonrpc: "2.0", id: 0, result: {} }), {
+              status: 200,
+              headers: { "mcp-session-id": "sess-empty" },
+            });
+          }
+          if (body.method === "notifications/initialized") {
+            return new Response(null, { status: 202 });
+          }
+          // 元典确实调用成功，但零命中。
+          return Response.json({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { structuredContent: { list: [] } },
+          });
+        },
+      );
+      const adapter = createAuthorityAdapterFromEnv({
+        endpoint: "https://authority.example/pkulaw",
+        apiKey: "pku-key",
+        provider: "yuandian,pkulaw",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      const r = await adapter.retrieve({ intent: legalIntent(), memory: emptyMemory() });
+      expect(r.sources).toHaveLength(1);
+      // 有库命中时，不能同时说「权威库无命中」——模型会据此不敢引用。
+      expect(r.riskFlags).not.toContain("权威库无命中");
+      expect(r.missingItems.join("\n")).not.toContain("权威库未检索到");
+      expect(r.riskFlags.join("\n")).toContain("元典智库无命中");
+      expect(r.authorityOutcome?.status).toBe("ok");
+    } finally {
+      if (prevKey === undefined) {
+        delete process.env.LAWMIND_YUANDIAN_API_KEY;
+      } else {
+        process.env.LAWMIND_YUANDIAN_API_KEY = prevKey;
+      }
+      if (prevProvider === undefined) {
+        delete process.env.LAWMIND_AUTHORITY_PROVIDER;
+      } else {
+        process.env.LAWMIND_AUTHORITY_PROVIDER = prevProvider;
+      }
+    }
+  });
+
   it("multi-vendor mode skips unconfigured vendors and keeps the configured one working", async () => {
     const prevKey = process.env.LAWMIND_YUANDIAN_API_KEY;
     delete process.env.LAWMIND_YUANDIAN_API_KEY;

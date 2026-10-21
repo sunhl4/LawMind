@@ -47,9 +47,15 @@ describe("lawmind-app-utils", () => {
     expect(formatRelativeTime(now)).toBe("刚刚");
     const minsAgo = new Date(Date.now() - 5 * 60_000).toISOString();
     expect(formatRelativeTime(minsAgo)).toContain("分钟前");
-    const today = new Date();
-    today.setHours(today.getHours() - 1);
-    expect(formatRelativeTime(today.toISOString())).toContain("今天");
+    // 「1 小时前」在本地 0:00–1:00 之间属于昨天：断言要跟着日界走，
+    // 否则每天头一小时这条用例都会假红。
+    const anHourAgo = new Date(Date.now() - 60 * 60_000);
+    const current = new Date();
+    const sameLocalDay =
+      anHourAgo.getFullYear() === current.getFullYear() &&
+      anHourAgo.getMonth() === current.getMonth() &&
+      anHourAgo.getDate() === current.getDate();
+    expect(formatRelativeTime(anHourAgo.toISOString())).toContain(sameLocalDay ? "今天" : "昨天");
   });
 
   it("legalStatusLabel and badge classes", () => {

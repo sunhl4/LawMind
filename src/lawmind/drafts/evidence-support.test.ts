@@ -126,6 +126,30 @@ describe("checkEvidenceSupport", () => {
     expect(result.status).toBe("quote_mismatch");
   });
 
+  it("reads GBK material instead of calling a present quote a mismatch", () => {
+    const ws = tmpWorkspace();
+    const rel = "cases/m/materials/合同.txt";
+    fs.mkdirSync(path.dirname(path.join(ws, rel)), { recursive: true });
+    // GBK「合同价款为人民币」（Word/老系统导出的 txt 常见编码）
+    fs.writeFileSync(path.join(ws, rel), Buffer.from("bacfcdacbcdbbfeeceaac8cbc3f1b1d2", "hex"));
+    const result = checkEvidenceSupport({
+      rootDir: ws,
+      relPath: rel,
+      quote: "合同价款为人民币",
+    });
+    expect(result.status).toBe("supported");
+  });
+
+  it("does not block on undecodable bytes; reports unverifiable", () => {
+    const ws = tmpWorkspace();
+    const rel = "cases/m/materials/未知编码.txt";
+    fs.mkdirSync(path.dirname(path.join(ws, rel)), { recursive: true });
+    // 0x81 0x20 既不是合法 UTF-8，也不是合法 GBK（尾字节范围不对）。
+    fs.writeFileSync(path.join(ws, rel), Buffer.from([0x81, 0x20, 0x81, 0x20]));
+    const result = checkEvidenceSupport({ rootDir: ws, relPath: rel, quote: "任意" });
+    expect(result.status).toBe("unverifiable");
+  });
+
   it("reports missing when the source file is gone", () => {
     const ws = tmpWorkspace();
     const result = checkEvidenceSupport({

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
+import { IcloudDatalessError } from "../../../runtime/icloud-materialize.js";
 import {
   DOCUMENT_PAGE_DEFAULT_CHARS,
   DOCUMENT_PAGE_MAX_CHARS,
@@ -16,8 +17,11 @@ import {
   readSafe,
   searchProjectTextFiles,
   shouldUseVisionFallback,
+  resolveOcrBudgetMs,
   sliceDocumentPage,
+  visionFallbackUnavailableReason,
   visionUsageContextFromAgentCtx,
+  withPdfReadFallbacks,
 } from "./ingest-helpers.js";
 
 describe("isPathInsideRoot", () => {
@@ -148,6 +152,143 @@ describe("shouldUseVisionFallback", () => {
     } else {
       process.env.LAWMIND_AGENT_MODEL = prevModel;
     }
+  });
+});
+
+describe("resolveOcrBudgetMs", () => {
+  it("defaults to 90s and honors a positive override", () => {
+    expect(resolveOcrBudgetMs({})).toBe(90_000);
+    expect(resolveOcrBudgetMs({ LAWMIND_OCR_BUDGET_MS: "15000" })).toBe(15_000);
+    expect(resolveOcrBudgetMs({ LAWMIND_OCR_BUDGET_MS: "0" })).toBe(90_000);
+    expect(resolveOcrBudgetMs({ LAWMIND_OCR_BUDGET_MS: "nope" })).toBe(90_000);
+  });
+});
+
+describe("visionFallbackUnavailableReason", () => {
+  it("names the missing config instead of a generic failure", () => {
+    const prev = {
+      mode: process.env.LAWMIND_DOC_READ_MODE,
+      base: process.env.LAWMIND_AGENT_BASE_URL,
+      key: process.env.LAWMIND_AGENT_API_KEY,
+      model: process.env.LAWMIND_AGENT_MODEL,
+    };
+    delete process.env.LAWMIND_DOC_READ_MODE;
+    delete process.env.LAWMIND_AGENT_BASE_URL;
+    delete process.env.LAWMIND_AGENT_API_KEY;
+    delete process.env.LAWMIND_AGENT_MODEL;
+    try {
+      expect(visionFallbackUnavailableReason()).toContain("LAWMIND_AGENT_BASE_URL");
+      process.env.LAWMIND_AGENT_BASE_URL = "https://example.invalid/v1";
+      expect(visionFallbackUnavailableReason()).toContain("LAWMIND_AGENT_API_KEY");
+      process.env.LAWMIND_AGENT_API_KEY = "sk-test";
+      expect(visionFallbackUnavailableReason()).toContain("LAWMIND_VISION_MODEL");
+      process.env.LAWMIND_DOC_READ_MODE = "ocr_only";
+      expect(visionFallbackUnavailableReason()).toContain("ocr_only");
+    } finally {
+      for (const [key, value] of [
+        ["LAWMIND_DOC_READ_MODE", prev.mode],
+        ["LAWMIND_AGENT_BASE_URL", prev.base],
+        ["LAWMIND_AGENT_API_KEY", prev.key],
+        ["LAWMIND_AGENT_MODEL", prev.model],
+      ] as const) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  });
+});
+
+describe("withPdfReadFallbacks", () => {
+  it("stops at the text layer when it has content", async () => {
+    const result = await withPdfReadFallbacks({
+      readText: async () => "合同正文",
+      readOcr: async () => {
+        throw new Error("不应该走到 OCR");
+      },
+    });
+    expect(result).toEqual({ ok: true, text: "合同正文", sourceType: "pdf_text" });
+  });
+
+  it("falls back to OCR when the PDF has no text layer", async () => {
+    const result = await withPdfReadFallbacks({
+      readText: async () => "",
+      readOcr: async () => "扫描件正文",
+    });
+    expect(result).toEqual({ ok: true, text: "扫描件正文", sourceType: "pdf_ocr" });
+  });
+
+  it("still reaches the vision model when OCR throws", async () => {
+    const result = await withPdfReadFallbacks({
+      readText: async () => "",
+      readOcr: async () => {
+        throw new Error("OCR 语言包（chi_sim）不可用：fetch failed");
+      },
+      readVision: async () => "视觉识别正文",
+    });
+    expect(result).toEqual({ ok: true, text: "视觉识别正文", sourceType: "pdf_vision" });
+  });
+
+  it("carries partial OCR output through instead of discarding it", async () => {
+    const partial = "前两页正文\n\n【未读完】扫描件只识别了前 2 页，共 20 页。";
+    const result = await withPdfReadFallbacks({
+      readText: async () => "",
+      readOcr: async () => partial,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.text).toContain("【未读完】");
+  });
+
+  it("reports each stage's real failure instead of claiming no OCR", async () => {
+    const result = await withPdfReadFallbacks({
+      readText: async () => "",
+      readOcr: async () => {
+        throw new Error("OCR 语言包（chi_sim）不可用：fetch failed");
+      },
+      readVision: async () => {
+        throw new Error("HTTP 400: image_url unsupported");
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("没有文字层");
+      expect(result.reason).toContain("本地 OCR 不可用：OCR 语言包");
+      expect(result.reason).toContain("视觉兜底失败：HTTP 400");
+      expect(result.hint).toContain("LAWMIND_VISION_MODEL");
+    }
+  });
+
+  it("explains why the vision stage was skipped", async () => {
+    const result = await withPdfReadFallbacks({
+      readText: async () => {
+        throw new Error("DOMMatrix is not defined");
+      },
+      readOcr: async () => "",
+      visionUnavailableReason: "未配置视觉模型（LAWMIND_VISION_MODEL）",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("文字层解析失败：DOMMatrix is not defined");
+      expect(result.reason).toContain("未配置视觉模型（LAWMIND_VISION_MODEL）");
+      // 视觉不可用时，审计阶段不能记成 pdf_vision。
+      expect(result.stage).toBe("pdf_ocr");
+    }
+  });
+
+  it("does not swallow iCloud materialization prompts", async () => {
+    const err = new IcloudDatalessError(["/tmp/未下载的合同.pdf"]);
+    await expect(
+      withPdfReadFallbacks({
+        readText: async () => {
+          throw err;
+        },
+        readOcr: async () => {
+          throw new Error("不应该走到 OCR");
+        },
+      }),
+    ).rejects.toBe(err);
   });
 });
 

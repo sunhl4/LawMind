@@ -4,7 +4,11 @@ import path from "node:path";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import { auditDocumentFormat } from "./document-format-audit.js";
-import { applyFormatFixesToDocxFile, planFormatFixes } from "./format-fix.js";
+import {
+  applyFormatFixesToDocxFile,
+  applyFormatFixesToXml,
+  planFormatFixes,
+} from "./format-fix.js";
 import { verifyDocxRevisionPreservation } from "./word-revision/preservation-file.js";
 import {
   compareRevisionPreservation,
@@ -106,6 +110,32 @@ describe("原有修订对账", () => {
     expect(revisions.find((item) => item.id === "3")?.kind).toBe("format");
   });
 
+  it("keeps authors with `>` and nested format changes inside an insertion", () => {
+    // 旧正则 `[^>]*` 会在 `甲>乙` 的 `>` 处截断，整条插入漏记；
+    // 跳过外层内文时，套在插入里的 rPrChange 也会漏。
+    const xml =
+      `<w:ins w:id="1" w:author="甲>乙" w:date="2026-10-01T00:00:00Z">` +
+      `<w:r><w:rPr><w:sz w:val="32"/>` +
+      `<w:rPrChange w:id="9" w:author="前手"><w:rPr><w:sz w:val="24"/></w:rPr></w:rPrChange>` +
+      `</w:rPr><w:t>五日</w:t></w:r></w:ins>`;
+    const revisions = snapshotDocumentRevisions(xml);
+    expect(revisions.map((item) => item.id).toSorted()).toEqual(["1", "9"]);
+    expect(revisions.find((item) => item.id === "1")?.author).toBe("甲>乙");
+    expect(revisions.find((item) => item.id === "1")?.text).toBe("五日");
+    expect(revisions.find((item) => item.id === "9")?.kind).toBe("format");
+  });
+
+  it("still finds nested revisions when the outer track has no w:id", () => {
+    const xml =
+      `<w:ins w:author="无名">` +
+      `<w:r><w:rPr><w:rPrChange w:id="9" w:author="前手"><w:rPr/></w:rPrChange></w:rPr>` +
+      `<w:t>五日</w:t></w:r></w:ins>`;
+    const revisions = snapshotDocumentRevisions(xml);
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0]?.id).toBe("9");
+    expect(revisions[0]?.kind).toBe("format");
+  });
+
   it("fails when a revision disappears or is retyped", () => {
     const before = snapshotDocumentRevisions(
       `<w:ins w:id="1" w:author="甲"><w:r><w:t>五日</w:t></w:r></w:ins>` +
@@ -198,6 +228,123 @@ describe("原有修订对账", () => {
     expect(result.verified).toBe(false);
     expect(result.ok).toBe(false);
     expect(result.note).toContain("无法核对");
+  });
+});
+
+describe("已带格式修订的回稿再修", () => {
+  /** 对方已经留下 rPrChange / pPrChange 的段落，不能被叠加覆盖。 */
+  const beforeXml =
+    `<w:document xmlns:w="${W}"><w:body>` +
+    `<w:p><w:pPr><w:spacing w:line="240" w:lineRule="auto"/>` +
+    `<w:pPrChange w:id="5" w:author="对方律师" w:date="2026-10-01T00:00:00Z"><w:pPr><w:spacing w:line="300" w:lineRule="auto"/></w:pPr></w:pPrChange>` +
+    `</w:pPr>` +
+    `<w:r><w:rPr><w:b/>` +
+    `<w:rPrChange w:id="6" w:author="对方律师" w:date="2026-10-01T00:00:00Z"><w:rPr><w:b/></w:rPr></w:rPrChange>` +
+    `</w:rPr><w:t>本合同自双方签署之日起生效。</w:t></w:r></w:p>` +
+    `<w:p><w:r><w:rPr><w:rFonts w:eastAsia="SimSun" w:ascii="SimSun"/></w:rPr>` +
+    `<w:t>双方应就保密义务另行签署书面协议。</w:t></w:r></w:p>` +
+    `<w:sectPr/></w:body></w:document>`;
+
+  function count(haystack: string, needle: string): number {
+    return haystack.split(needle).length - 1;
+  }
+
+  it("refuses to overwrite an existing format revision and fixes the rest", () => {
+    const before = snapshotDocumentRevisions(beforeXml);
+    expect(before.map((item) => item.id).toSorted()).toEqual(["5", "6"]);
+
+    const result = applyFormatFixesToXml({
+      documentXml: beforeXml,
+      blocks: [],
+      targets: [
+        {
+          paragraphIndex: 0,
+          text: "本合同自双方签署之日起生效。",
+          kinds: ["body.font", "body.size"],
+        },
+        {
+          paragraphIndex: 1,
+          text: "双方应就保密义务另行签署书面协议。",
+          kinds: ["body.font", "body.size"],
+        },
+      ],
+      target: { fontFamily: "FangSong", halfPt: 32 },
+      author: "LawMind",
+      now: "2026-10-21T00:00:00Z",
+      nextTrackId: () => "100",
+    });
+
+    // 只有第二段被改；第一段保留对方的格式修订署名。
+    expect(result.appliedParagraphs).toBe(1);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]?.reason).toContain("已有格式修订");
+
+    const xml = result.xml;
+    expect(count(xml, 'w:id="5"')).toBe(1);
+    expect(count(xml, 'w:id="6"')).toBe(1);
+    // 标签必须闭合：懒惰正则会停在内层 </w:rPr>，留下未闭合的外层。
+    expect(count(xml, "<w:rPr>")).toBe(count(xml, "</w:rPr>"));
+    expect(count(xml, "<w:pPr>")).toBe(count(xml, "</w:pPr>"));
+    expect(count(xml, "<w:pPrChange")).toBe(count(xml, "</w:pPrChange>"));
+    expect(count(xml, "<w:rPrChange")).toBe(count(xml, "</w:rPrChange>"));
+    // 不能套娃：每个 rPrChange 区间里最多只有它自己的开标签。
+    for (const segment of xml.split("</w:rPrChange>")) {
+      expect(segment.split("<w:rPrChange").length - 1).toBeLessThanOrEqual(1);
+    }
+    expect(xml).toContain('w:author="LawMind"');
+
+    const preserved = compareRevisionPreservation(before, snapshotDocumentRevisions(xml));
+    expect(preserved.ok).toBe(true);
+    expect(preserved.missing).toEqual([]);
+  });
+
+  it("says why a paragraph was skipped instead of claiming it already conformed", () => {
+    const result = applyFormatFixesToXml({
+      documentXml: beforeXml,
+      blocks: [],
+      targets: [
+        {
+          paragraphIndex: 0,
+          text: "本合同自双方签署之日起生效。",
+          kinds: ["body.font", "body.size"],
+        },
+      ],
+      target: { fontFamily: "FangSong", halfPt: 32 },
+      author: "LawMind",
+      now: "2026-10-21T00:00:00Z",
+      nextTrackId: () => "101",
+    });
+    expect(result.appliedParagraphs).toBe(0);
+    expect(result.skipped[0]?.reason).not.toBe("本来就符合目标格式，未改");
+    expect(result.xml).toBe(beforeXml);
+  });
+
+  it("normalizes a paired w:spacing instead of adding a duplicate child", () => {
+    const paired =
+      `<w:document xmlns:w="${W}"><w:body>` +
+      `<w:p><w:pPr><w:spacing w:line="400" w:lineRule="auto"></w:spacing></w:pPr>` +
+      `<w:r><w:t>本条约定以书面形式作出变更方为有效。</w:t></w:r></w:p>` +
+      `<w:sectPr/></w:body></w:document>`;
+    const result = applyFormatFixesToXml({
+      documentXml: paired,
+      blocks: [],
+      targets: [
+        { paragraphIndex: 0, text: "本条约定以书面形式作出变更方为有效。", kinds: ["body.line"] },
+      ],
+      target: { line: { rule: "exact", px: 28 } },
+      author: "LawMind",
+      now: "2026-10-21T00:00:00Z",
+      nextTrackId: () => "200",
+    });
+    expect(result.appliedParagraphs).toBe(1);
+    // 新的 pPr 里只能有一条 spacing；旧属性记录在 pPrChange 里。
+    const outerPPr = result.xml.slice(
+      result.xml.indexOf("<w:pPr>"),
+      result.xml.indexOf("<w:pPrChange"),
+    );
+    expect(count(outerPPr, "<w:spacing")).toBe(1);
+    expect(outerPPr).not.toContain("</w:spacing>");
+    expect(result.xml).toContain('w:line="420"');
   });
 });
 
@@ -416,7 +563,7 @@ describe("格式自动修（A 层，写副本）", () => {
     expect(report.unchecked.join("")).toContain("文本框");
   });
 
-  it("refuses to guess when two paragraphs have identical text", async () => {
+  it("fixes both duplicate paragraphs by ordinal instead of confusing them", async () => {
     const text = "甲方应于验收合格后三十日内支付价款，逾期按日万分之五计息。";
     const p =
       `<w:p><w:r><w:rPr><w:rFonts w:eastAsia="FangSong_GB2312"/><w:sz w:val="32"/></w:rPr>` +

@@ -15,4 +15,10 @@ describe("authorityProbeFailureText", () => {
     expect(authorityProbeFailureText(null)).toContain("没有连上");
     expect(authorityProbeFailureText({ ok: false })).not.toContain("undefined");
   });
+
+  it("names the vendor the lawyer was actually connecting", () => {
+    const text = authorityProbeFailureText({ ok: false }, "元典智库");
+    expect(text).toContain("元典智库没有连上");
+    expect(text).not.toContain("北大法宝");
+  });
 });

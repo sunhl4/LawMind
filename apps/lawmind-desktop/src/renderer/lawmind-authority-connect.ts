@@ -1,6 +1,6 @@
-/** Lawyer-facing text when the saved 北大法宝 token did not survive a live check. */
-export function authorityProbeFailureText(body: unknown): string {
-  const fallback = "令牌已保存，但北大法宝没有连上。请核对访问令牌和网络。";
+/** Lawyer-facing text when the saved commercial-library token did not survive a live check. */
+export function authorityProbeFailureText(body: unknown, vendorLabel = "北大法宝"): string {
+  const fallback = `令牌已保存，但${vendorLabel}没有连上。请核对访问令牌和网络。`;
   if (!body || typeof body !== "object") {
     return fallback;
   }
@@ -9,5 +9,5 @@ export function authorityProbeFailureText(body: unknown): string {
   if (!detail) {
     return fallback;
   }
-  return `令牌已保存，但北大法宝没有连上。${detail}`;
+  return `令牌已保存，但${vendorLabel}没有连上。${detail}`;
 }

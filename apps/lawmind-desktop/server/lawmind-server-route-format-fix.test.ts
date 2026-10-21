@@ -16,6 +16,8 @@ type ResBody = {
   outputPath?: string;
   appliedParagraphs?: number;
   revisions?: { verified: boolean; beforeCount: number; afterCount: number };
+  replacedExisting?: boolean;
+  warning?: string;
 };
 
 function mockRes(): http.ServerResponse & { body?: ResBody; status?: number } {
@@ -132,6 +134,91 @@ describe("format fix route", () => {
     expect(res.body?.revisions?.verified).toBe(true);
     // 原文件字节不变
     expect((await fs.readFile(path.join(workspaceDir, "材料/回稿.docx"))).equals(before)).toBe(true);
+  });
+
+  it("refuses to clobber an existing explicit outputPath without opt-in", async () => {
+    const workspaceDir = await workspace();
+    await writeDocx(workspaceDir, "材料/回稿.docx");
+    // 律师已签的另一份稿子，占了同一个名字。
+    await writeDocx(workspaceDir, "材料/已签意见书.docx");
+    const signed = await fs.readFile(path.join(workspaceDir, "材料/已签意见书.docx"));
+
+    const res = mockRes();
+    await handleFormatFixRoutes({
+      ctx: ctxFor(workspaceDir),
+      req: reqWith({
+        root: "workspace",
+        path: "材料/回稿.docx",
+        mode: "imported",
+        lawmindParagraphs: [2],
+        outputPath: "材料/已签意见书.docx",
+      }),
+      res,
+      url: new URL("http://127.0.0.1/api/documents/format-fix"),
+      pathname: "/api/documents/format-fix",
+      c: {},
+    });
+    expect(res.status).toBe(409);
+    expect(res.body?.error).toBe("output_exists");
+    expect(
+      (await fs.readFile(path.join(workspaceDir, "材料/已签意见书.docx"))).equals(signed),
+    ).toBe(true);
+
+    const overwritten = mockRes();
+    await handleFormatFixRoutes({
+      ctx: ctxFor(workspaceDir),
+      req: reqWith({
+        root: "workspace",
+        path: "材料/回稿.docx",
+        mode: "imported",
+        lawmindParagraphs: [2],
+        outputPath: "材料/已签意见书.docx",
+        overwrite: true,
+      }),
+      res: overwritten,
+      url: new URL("http://127.0.0.1/api/documents/format-fix"),
+      pathname: "/api/documents/format-fix",
+      c: {},
+    });
+    expect(overwritten.status).toBe(200);
+  });
+
+  it("says so when it replaces its own earlier copy", async () => {
+    const workspaceDir = await workspace();
+    await writeDocx(workspaceDir, "材料/回稿.docx");
+    const run = () =>
+      handleFormatFixRoutes({
+        ctx: ctxFor(workspaceDir),
+        req: reqWith({
+          root: "workspace",
+          path: "材料/回稿.docx",
+          mode: "imported",
+          lawmindParagraphs: [2],
+        }),
+        res: mockRes(),
+        url: new URL("http://127.0.0.1/api/documents/format-fix"),
+        pathname: "/api/documents/format-fix",
+        c: {},
+      });
+    await run();
+    // 第二次会覆盖自己的产物：不拦，但必须如实说明。
+    const second = mockRes();
+    await handleFormatFixRoutes({
+      ctx: ctxFor(workspaceDir),
+      req: reqWith({
+        root: "workspace",
+        path: "材料/回稿.docx",
+        mode: "imported",
+        lawmindParagraphs: [2],
+      }),
+      res: second,
+      url: new URL("http://127.0.0.1/api/documents/format-fix"),
+      pathname: "/api/documents/format-fix",
+      c: {},
+    });
+    expect(second.status).toBe(200);
+    expect(second.body?.replacedExisting).toBe(true);
+    expect(String(second.body?.warning)).toContain("已覆盖上一次");
   });
 
   it("refuses in-place and non-docx", async () => {

@@ -9,6 +9,8 @@
  * 那不算篡改修订内容。
  */
 
+import { elementSpan, indexOfWordOpen } from "../word-xml-span.js";
+
 export type RevisionKind = "ins" | "del" | "moveFrom" | "moveTo" | "format";
 
 export type RevisionFingerprint = {
@@ -50,11 +52,17 @@ export type RevisionPreservation = {
   afterCount: number;
 };
 
-const TRACK_OPEN_RE = /<w:(ins|del|moveFrom|moveTo|rPrChange|pPrChange)\b([^>]*)>/g;
+const TRACK_TAGS = ["ins", "del", "moveFrom", "moveTo", "rPrChange", "pPrChange"] as const;
 
-function attr(attrs: string, name: string): string | undefined {
-  const match = attrs.match(new RegExp(`\\b${name}="([^"]*)"`));
-  return match ? decodeXml(match[1] ?? "") : undefined;
+function attr(openTag: string, name: string): string | undefined {
+  const needle = `${name}="`;
+  const at = openTag.indexOf(needle);
+  if (at < 0) {
+    return undefined;
+  }
+  const start = at + needle.length;
+  const end = openTag.indexOf('"', start);
+  return end < 0 ? undefined : decodeXml(openTag.slice(start, end));
 }
 
 function decodeXml(text: string): string {
@@ -74,35 +82,69 @@ function kindOfTag(tag: string): "ins" | "del" | "moveFrom" | "moveTo" | "format
   if (tag === "rPrChange" || tag === "pPrChange") {
     return "format";
   }
-  return tag as "ins" | "del" | "moveFrom" | "moveTo";
+  if (tag === "ins" || tag === "del" || tag === "moveFrom" || tag === "moveTo") {
+    return tag;
+  }
+  return undefined;
+}
+
+/**
+ * 下一个修订开标签：按文档顺序扫，不用 `[^>]*` 正则——属性值里的 `>`
+ * （`w:author="甲>乙"`）会让旧正则提前截断，整条修订漏记。
+ */
+function nextTrackOpen(
+  xml: string,
+  from: number,
+): { at: number; name: (typeof TRACK_TAGS)[number] } | null {
+  let bestAt = -1;
+  let bestName: (typeof TRACK_TAGS)[number] | null = null;
+  for (const name of TRACK_TAGS) {
+    const at = indexOfWordOpen(xml, name, from);
+    if (at >= 0 && (bestAt < 0 || at < bestAt)) {
+      bestAt = at;
+      bestName = name;
+    }
+  }
+  return bestName == null ? null : { at: bestAt, name: bestName };
 }
 
 /**
  * 收集文档里的修订条目。同一 id 的多个 run 合并成一条（Word 会把一条插入拆成多 run）。
  * 自闭合的空标记（`<w:ins …/>`，用于表格行/段落标记）也计入，文本为空。
+ *
+ * 内文用平衡配对：属性值里的 `>` 不会截断开标签；嵌套修订（外层 `ins` 里的
+ * `rPrChange`）靠「只推进到开标签之后」继续扫到，不会被外层一次跳过。
  */
 export function snapshotDocumentRevisions(xml: string): RevisionFingerprint[] {
   const out: RevisionFingerprint[] = [];
   const seen = new Map<string, RevisionFingerprint>();
-  for (const match of xml.matchAll(TRACK_OPEN_RE)) {
-    const kind = kindOfTag(match[1] ?? "");
+  let cursor = 0;
+  while (cursor < xml.length) {
+    const next = nextTrackOpen(xml, cursor);
+    if (!next) {
+      break;
+    }
+    const kind = kindOfTag(next.name);
     if (!kind) {
+      cursor = next.at + 1;
       continue;
     }
-    const attrs = match[2] ?? "";
-    const id = attr(attrs, "w:id");
+    const span = elementSpan(xml, next.name, next.at);
+    if (!span || span.start !== next.at) {
+      cursor = next.at + 1;
+      continue;
+    }
+    // 无论有没有 id，都只跨过开标签——无 id 的外层里仍可能套着带 id 的内层修订。
+    const advance = span.selfClosing ? span.end : span.innerStart;
+    const openTag = xml.slice(span.start, span.innerStart);
+    const id = attr(openTag, "w:id");
     if (id == null) {
+      cursor = advance;
       continue;
     }
-    const author = attr(attrs, "w:author") ?? "";
-    const date = attr(attrs, "w:date");
-    const openEnd = xml.indexOf(">", match.index ?? 0);
-    const selfClosing = openEnd > 0 && xml[openEnd - 1] === "/";
-    let inner = "";
-    if (!selfClosing) {
-      const closeAt = xml.indexOf(`</w:${match[1]}>`, openEnd + 1);
-      inner = closeAt > openEnd ? xml.slice(openEnd + 1, closeAt) : "";
-    }
+    const author = attr(openTag, "w:author") ?? "";
+    const date = attr(openTag, "w:date");
+    const inner = span.selfClosing ? "" : xml.slice(span.innerStart, span.innerEnd);
     const text = stripTags(inner).replace(/\s+/g, " ").trim();
     const existing = seen.get(id);
     if (existing) {
@@ -110,17 +152,18 @@ export function snapshotDocumentRevisions(xml: string): RevisionFingerprint[] {
       if (!existing.date && date) {
         existing.date = date;
       }
-      continue;
+    } else {
+      const fingerprint: RevisionFingerprint = {
+        id,
+        kind,
+        author,
+        ...(date ? { date } : {}),
+        text,
+      };
+      seen.set(id, fingerprint);
+      out.push(fingerprint);
     }
-    const fingerprint: RevisionFingerprint = {
-      id,
-      kind,
-      author,
-      ...(date ? { date } : {}),
-      text,
-    };
-    seen.set(id, fingerprint);
-    out.push(fingerprint);
+    cursor = advance;
   }
   return out;
 }

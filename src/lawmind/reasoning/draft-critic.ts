@@ -9,6 +9,7 @@ import {
   reasoningLlmConfigFromEnv,
   type OpenAiJsonClientConfig,
 } from "../llm/openai-json.js";
+import { createModelUsageRecorder } from "../models/model-usage.js";
 import type { ArtifactDraft } from "../types.js";
 import {
   attachClauseCriticNotes,
@@ -24,6 +25,30 @@ const CRITIC_PREFIX = DRAFT_CRITIC_PREFIX;
 export const CLAUSE_MAP_CAP = 8;
 const LONG_DRAFT_SECTION_CAP = 24;
 const LONG_DRAFT_CHAR_CAP = 24 * 1200;
+
+/** 逐次用量上下文。不传只影响账本，不影响审稿行为。 */
+export type DraftCriticUsageContext = {
+  workspaceDir: string;
+  sessionId?: string;
+  turnId?: string;
+  matterId?: string;
+};
+
+function criticAttemptOpts(cfg: OpenAiJsonClientConfig, usage?: DraftCriticUsageContext) {
+  const workspaceDir = usage?.workspaceDir?.trim();
+  if (!workspaceDir) {
+    return undefined;
+  }
+  return {
+    onAttempt: createModelUsageRecorder(workspaceDir, {
+      purpose: "review" as const,
+      model: cfg.model,
+      ...(usage?.sessionId ? { sessionId: usage.sessionId } : {}),
+      ...(usage?.turnId ? { turnId: usage.turnId } : {}),
+      ...(usage?.matterId ? { matterId: usage.matterId } : {}),
+    }),
+  };
+}
 
 export type DraftCriticResult = {
   draft: ArtifactDraft;
@@ -133,8 +158,9 @@ export async function critiqueDraftWithModel(
   draft: ArtifactDraft,
   cfg: OpenAiJsonClientConfig,
   graph?: ClauseGraph,
+  usage?: DraftCriticUsageContext,
 ): Promise<string[] | null> {
-  const mapped = await critiqueClausesWithModel(draft, cfg, graph);
+  const mapped = await critiqueClausesWithModel(draft, cfg, graph, usage);
   return mapped?.summaryNotes ?? null;
 }
 
@@ -142,40 +168,45 @@ export async function critiqueClausesWithModel(
   draft: ArtifactDraft,
   cfg: OpenAiJsonClientConfig,
   graph?: ClauseGraph,
+  usage?: DraftCriticUsageContext,
 ): Promise<{ graph: ClauseGraph; summaryNotes: string[] } | null> {
   const clauseGraph = graph ?? buildClauseGraphFromDraft(draft);
   const parsed = await completeJsonObject<{
     clauses?: unknown;
     summary?: unknown;
     notes?: unknown;
-  }>(cfg, [
-    {
-      role: "system",
-      content: [
-        "你是执业律师的第二审阅人。先逐条指出该条款外发前应处理的缺口，再汇总全文。",
-        "不要改写正文，不要输出【标签】。",
-        '只输出 JSON：{ "clauses": [{ "id": "c1", "notes": ["中文短句"] }], "summary": ["全文短句"] }。',
-        "没有实质问题时对应数组为空。每条不超过 80 字，针对争议解决、期限、责任后果、空条款或与检索材料明显冲突。",
-      ].join("\n"),
-    },
-    {
-      role: "user",
-      content: [
-        `标题: ${draft.title}`,
-        `交付类型: ${draft.deliverableType ?? "未指定"}`,
-        `摘要: ${draft.summary}`,
-        "",
-        "条款图（请按 id 回写意见）:",
-        clauseGraphDigest(clauseGraph),
-        "",
-        "正文:",
-        draft.sections
-          .slice(0, 24)
-          .map((section) => `## ${section.heading}\n${section.body.slice(0, 1200)}`)
-          .join("\n\n"),
-      ].join("\n"),
-    },
-  ]);
+  }>(
+    cfg,
+    [
+      {
+        role: "system",
+        content: [
+          "你是执业律师的第二审阅人。先逐条指出该条款外发前应处理的缺口，再汇总全文。",
+          "不要改写正文，不要输出【标签】。",
+          '只输出 JSON：{ "clauses": [{ "id": "c1", "notes": ["中文短句"] }], "summary": ["全文短句"] }。',
+          "没有实质问题时对应数组为空。每条不超过 80 字，针对争议解决、期限、责任后果、空条款或与检索材料明显冲突。",
+        ].join("\n"),
+      },
+      {
+        role: "user",
+        content: [
+          `标题: ${draft.title}`,
+          `交付类型: ${draft.deliverableType ?? "未指定"}`,
+          `摘要: ${draft.summary}`,
+          "",
+          "条款图（请按 id 回写意见）:",
+          clauseGraphDigest(clauseGraph),
+          "",
+          "正文:",
+          draft.sections
+            .slice(0, 24)
+            .map((section) => `## ${section.heading}\n${section.body.slice(0, 1200)}`)
+            .join("\n\n"),
+        ].join("\n"),
+      },
+    ],
+    criticAttemptOpts(cfg, usage),
+  );
   return applyModelClauseNotes(clauseGraph, parsed);
 }
 
@@ -223,6 +254,7 @@ export async function critiqueFlaggedClausesWithModel(
   draft: ArtifactDraft,
   cfg: OpenAiJsonClientConfig,
   graph: ClauseGraph,
+  usage?: DraftCriticUsageContext,
 ): Promise<{ graph: ClauseGraph; summaryNotes: string[] } | null> {
   const flagged = flaggedClausesForCriticPass(graph).slice(0, 12);
   if (flagged.length === 0) {
@@ -232,35 +264,42 @@ export async function critiqueFlaggedClausesWithModel(
     clauses?: unknown;
     summary?: unknown;
     notes?: unknown;
-  }>(cfg, [
-    {
-      role: "system",
-      content: [
-        "你是执业律师的第二审阅人。只针对已标风险或缺项的条款补充意见，不要改写正文，不要输出【标签】。",
-        '只输出 JSON：{ "clauses": [{ "id": "c1", "notes": ["中文短句"] }], "summary": ["全文短句"] }。',
-        "没有新问题时对应数组为空。每条不超过 80 字。",
-      ].join("\n"),
-    },
-    {
-      role: "user",
-      content: [
-        `标题: ${draft.title}`,
-        `交付类型: ${draft.deliverableType ?? "未指定"}`,
-        "",
-        "需二次复核的条款:",
-        flagged
-          .map(
-            (clause) =>
-              `- ${clause.id} ${clause.heading}: ${clause.body.slice(0, 2000)} [${[...clause.risks, ...clause.missing, ...clause.criticNotes].join("；")}]`,
-          )
-          .join("\n"),
-      ].join("\n"),
-    },
-  ]);
+  }>(
+    cfg,
+    [
+      {
+        role: "system",
+        content: [
+          "你是执业律师的第二审阅人。只针对已标风险或缺项的条款补充意见，不要改写正文，不要输出【标签】。",
+          '只输出 JSON：{ "clauses": [{ "id": "c1", "notes": ["中文短句"] }], "summary": ["全文短句"] }。',
+          "没有新问题时对应数组为空。每条不超过 80 字。",
+        ].join("\n"),
+      },
+      {
+        role: "user",
+        content: [
+          `标题: ${draft.title}`,
+          `交付类型: ${draft.deliverableType ?? "未指定"}`,
+          "",
+          "需二次复核的条款:",
+          flagged
+            .map(
+              (clause) =>
+                `- ${clause.id} ${clause.heading}: ${clause.body.slice(0, 2000)} [${[...clause.risks, ...clause.missing, ...clause.criticNotes].join("；")}]`,
+            )
+            .join("\n"),
+        ].join("\n"),
+      },
+    ],
+    criticAttemptOpts(cfg, usage),
+  );
   return applyModelClauseNotes(graph, parsed);
 }
 
-export async function runDraftCriticAsync(draft: ArtifactDraft): Promise<DraftCriticResult> {
+export async function runDraftCriticAsync(
+  draft: ArtifactDraft,
+  usage?: DraftCriticUsageContext,
+): Promise<DraftCriticResult> {
   const graph = buildClauseGraphFromDraft(draft);
   if (hasCriticNotes(draft)) {
     return { draft, graph };
@@ -271,7 +310,7 @@ export async function runDraftCriticAsync(draft: ArtifactDraft): Promise<DraftCr
   if (isModelCriticEnabled()) {
     const cfg = reasoningLlmConfigFromEnv();
     if (cfg) {
-      const mapped = await critiqueClausesWithModel(draft, cfg, graph);
+      const mapped = await critiqueClausesWithModel(draft, cfg, graph, usage);
       if (mapped) {
         modelGraph = mapped.graph;
         modelNotes = mapped.summaryNotes;
@@ -280,7 +319,7 @@ export async function runDraftCriticAsync(draft: ArtifactDraft): Promise<DraftCr
         isLongDraftForCritic(draft, modelGraph) &&
         flaggedClausesForCriticPass(modelGraph).length > 0
       ) {
-        const second = await critiqueFlaggedClausesWithModel(draft, cfg, modelGraph);
+        const second = await critiqueFlaggedClausesWithModel(draft, cfg, modelGraph, usage);
         if (second) {
           modelGraph = second.graph;
           modelNotes = unique([...modelNotes, ...second.summaryNotes]).slice(0, 16);

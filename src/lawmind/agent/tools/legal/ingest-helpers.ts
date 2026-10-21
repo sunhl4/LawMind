@@ -12,6 +12,12 @@ import {
 } from "../../../runtime/icloud-materialize.js";
 import { isPathInsideRoot } from "../../../runtime/workspace-path.js";
 import { resolveDocumentPageChars } from "../../document-read-budget.js";
+import {
+  ensureOcrLangData,
+  OcrLangDataError,
+  resolveOcrLangs,
+  type OcrLangData,
+} from "./ocr-langdata.js";
 import { loadXlsxAsTsv } from "./xlsx-workbook.js";
 
 const visionProxy = createOutboundProxy({ requestTag: "vision-ocr" });
@@ -135,22 +141,22 @@ function asDataUrl(buffer: Buffer | Uint8Array, mime: string): string {
 }
 
 export function shouldUseVisionFallback(): boolean {
-  const mode = (process.env.LAWMIND_DOC_READ_MODE ?? "").trim().toLowerCase();
-  if (mode === "ocr_only") {
-    return false;
-  }
-  if (mode === "ocr_then_vision") {
-    return true;
-  }
-  // Default: vision fallback when the same agent vision endpoint is configured.
-  return resolveVisionModelConfig() !== null;
+  return visionFallbackIssue() === null;
 }
 
-function resolveVisionModelConfig(): {
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-} | null {
+/**
+ * 视觉兜底为什么不可用（给律师/模型看的原话）。
+ * OCR 失败时调用方把这句话写进 tool 结果，避免模型自行编成「本机没有 OCR 能力」。
+ */
+export function visionFallbackUnavailableReason(): string {
+  return visionFallbackIssue() ?? "视觉兜底不可用";
+}
+
+function visionFallbackIssue(): string | null {
+  const mode = (process.env.LAWMIND_DOC_READ_MODE ?? "").trim().toLowerCase();
+  if (mode === "ocr_only") {
+    return "文档读取模式为 ocr_only，已关闭视觉兜底";
+  }
   const baseUrl =
     process.env.LAWMIND_AGENT_BASE_URL?.trim() ||
     process.env.QWEN_BASE_URL?.trim() ||
@@ -164,10 +170,44 @@ function resolveVisionModelConfig(): {
     process.env.LAWMIND_AGENT_MODEL?.trim() ||
     process.env.QWEN_MODEL?.trim() ||
     process.env.LAWMIND_QWEN_MODEL?.trim();
-  if (!baseUrl || !apiKey || !model) {
+  if (!baseUrl) {
+    return "未配置模型服务地址（LAWMIND_AGENT_BASE_URL）；视觉兜底未启用";
+  }
+  if (!apiKey) {
+    return "未配置模型密钥（LAWMIND_AGENT_API_KEY）；视觉兜底未启用";
+  }
+  if (!model) {
+    return "未配置视觉模型（LAWMIND_VISION_MODEL 或 LAWMIND_AGENT_MODEL）；视觉兜底未启用";
+  }
+  return null;
+}
+
+function resolveVisionModelConfig(): {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+} | null {
+  if (visionFallbackIssue() !== null) {
     return null;
   }
-  return { baseUrl, apiKey, model };
+  return {
+    baseUrl:
+      process.env.LAWMIND_AGENT_BASE_URL?.trim() ||
+      process.env.QWEN_BASE_URL?.trim() ||
+      process.env.LAWMIND_QWEN_BASE_URL?.trim() ||
+      "",
+    apiKey:
+      process.env.LAWMIND_AGENT_API_KEY?.trim() ||
+      process.env.QWEN_API_KEY?.trim() ||
+      process.env.LAWMIND_QWEN_API_KEY?.trim() ||
+      "",
+    model:
+      process.env.LAWMIND_VISION_MODEL?.trim() ||
+      process.env.LAWMIND_AGENT_MODEL?.trim() ||
+      process.env.QWEN_MODEL?.trim() ||
+      process.env.LAWMIND_QWEN_MODEL?.trim() ||
+      "",
+  };
 }
 
 function readChoiceText(raw: unknown): string {
@@ -312,30 +352,103 @@ async function readXlsxPlainText(filePath: string): Promise<string> {
   return normalizeExtractedText(await loadXlsxAsTsv(filePath));
 }
 
-async function createOcrWorker() {
-  const mod = await import("tesseract.js");
+/** OCR 引擎/语言包不可用。消息可以直接回给律师，不要吞成裸 `fetch failed`。 */
+export class OcrUnavailableError extends Error {
+  readonly name = "OcrUnavailableError";
+}
+
+type OcrWorker = {
+  recognize: (image: Buffer | Uint8Array) => Promise<{ data?: { text?: string } }>;
+  terminate: () => Promise<unknown>;
+};
+
+/**
+ * OCR / 视觉兜底时间预算（`LAWMIND_OCR_BUDGET_MS`）。
+ * 默认 90s：PDF 的「文字层 → 本地 OCR → 视觉」共用这一份，留在 180s 的工具墙钟以内。
+ */
+const DEFAULT_OCR_BUDGET_MS = 90_000;
+
+export function resolveOcrBudgetMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.LAWMIND_OCR_BUDGET_MS?.trim();
+  if (!raw) {
+    return DEFAULT_OCR_BUDGET_MS;
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_OCR_BUDGET_MS;
+}
+
+class OcrDeadlineError extends Error {
+  readonly name = "OcrDeadlineError";
+}
+
+/** 到点就拒绝；调用方据此保留已识别页、或转视觉兜底。 */
+function raceWithDeadline<T>(work: Promise<T>, deadline: number): Promise<T> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    return Promise.reject(new OcrDeadlineError("OCR 超出本轮时间预算"));
+  }
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new OcrDeadlineError("OCR 超出本轮时间预算")), remaining);
+  });
+  return Promise.race([work, timeout]).finally(() => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  });
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+async function createOcrWorker(deadline?: number): Promise<OcrWorker> {
+  const mod = await import("tesseract.js").catch((err: unknown) => {
+    throw new OcrUnavailableError(`OCR 引擎不可用：${errorMessage(err)}`);
+  });
   const maybeFactory =
     (mod as { createWorker?: unknown }).createWorker ??
     (mod as { default?: { createWorker?: unknown } }).default?.createWorker ??
     (mod as { default?: unknown }).default;
   if (typeof maybeFactory !== "function") {
-    throw new Error("OCR worker initialization failed");
+    throw new OcrUnavailableError("OCR 引擎不可用：tesseract.js 未正确加载");
   }
-  const langs = (process.env.LAWMIND_OCR_LANGS?.trim() || "chi_sim+eng").split("+").filter(Boolean);
-  return (
-    maybeFactory as (langs?: string | string[]) => Promise<{
-      recognize: (image: Buffer | Uint8Array) => Promise<{ data?: { text?: string } }>;
-      terminate: () => Promise<unknown>;
-    }>
-  )(langs.length === 0 ? "eng" : langs);
+  const langs = resolveOcrLangs();
+  let langData: OcrLangData;
+  try {
+    langData = await ensureOcrLangData(langs, { deadline });
+  } catch (err) {
+    if (err instanceof OcrLangDataError) {
+      throw new OcrUnavailableError(err.message);
+    }
+    throw new OcrUnavailableError(`OCR 语言包不可用：${errorMessage(err)}`);
+  }
+  try {
+    return await (
+      maybeFactory as (
+        langs?: string | string[],
+        oem?: number,
+        options?: Record<string, unknown>,
+      ) => Promise<OcrWorker>
+    )(langs, undefined, {
+      // 显式指定数据目录：不写进程 CWD，也不再由 tesseract 自己联网下载。
+      langPath: langData.dir,
+      cachePath: langData.dir,
+      cacheMethod: "none",
+      gzip: langData.gzip,
+    });
+  } catch (err) {
+    throw new OcrUnavailableError(`OCR 引擎启动失败：${errorMessage(err)}`);
+  }
 }
 
 async function readImageTextByOcr(filePath: string): Promise<string> {
   await ensureLocalFile(filePath);
   const image = await fs.readFile(filePath);
-  const worker = await createOcrWorker();
+  const deadline = Date.now() + resolveOcrBudgetMs();
+  const worker = await createOcrWorker(deadline);
   try {
-    const result = await worker.recognize(image);
+    const result = await raceWithDeadline(worker.recognize(image), deadline);
     return normalizeExtractedText(result.data?.text ?? "");
   } finally {
     await worker.terminate().catch(() => undefined);
@@ -346,25 +459,45 @@ async function readImageTextHybrid(
   filePath: string,
   usageCtx?: VisionOcrUsageContext,
 ): Promise<{ text: string; sourceType: "image_ocr" | "image_vision" } | null> {
-  const ocrText = await readImageTextByOcr(filePath);
-  if (ocrText) {
-    return { text: ocrText, sourceType: "image_ocr" };
+  let ocrError: unknown;
+  try {
+    const ocrText = await readImageTextByOcr(filePath);
+    if (ocrText) {
+      return { text: ocrText, sourceType: "image_ocr" };
+    }
+  } catch (err) {
+    if (err instanceof IcloudDatalessError || err instanceof IcloudLawyerPrompt) {
+      throw err;
+    }
+    // OCR 坏了不等于没有识别能力：视觉兜底仍值得一试。
+    ocrError = err;
   }
-  if (!shouldUseVisionFallback()) {
-    return null;
+  const visionConfigured = shouldUseVisionFallback();
+  if (visionConfigured) {
+    await ensureLocalFile(filePath);
+    const image = await fs.readFile(filePath);
+    const visionText = await readImageTextByVisionModel(
+      image,
+      mimeFromImagePath(filePath),
+      undefined,
+      usageCtx,
+    );
+    if (visionText) {
+      return { text: visionText, sourceType: "image_vision" };
+    }
+    if (!ocrError) {
+      return null;
+    }
   }
-  await ensureLocalFile(filePath);
-  const image = await fs.readFile(filePath);
-  const visionText = await readImageTextByVisionModel(
-    image,
-    mimeFromImagePath(filePath),
-    undefined,
-    usageCtx,
-  );
-  if (!visionText) {
-    return null;
+  if (ocrError) {
+    const reason = errorMessage(ocrError);
+    throw new OcrUnavailableError(
+      visionConfigured
+        ? `本地 OCR 不可用（${reason}）；视觉兜底也未识别出文字`
+        : `本地 OCR 不可用：${reason}`,
+    );
   }
-  return { text: visionText, sourceType: "image_vision" };
+  return null;
 }
 
 async function readPdfText(filePath: string): Promise<string> {
@@ -383,12 +516,15 @@ async function readPdfText(filePath: string): Promise<string> {
 export async function readPdfTextByOcr(
   filePath: string,
   _usageCtx?: VisionOcrUsageContext,
+  /** 与文字层/视觉兜底共享的总预算；缺省时按 `LAWMIND_OCR_BUDGET_MS` 现算。 */
+  deadlineOverride?: number,
 ): Promise<string> {
+  const deadline = deadlineOverride ?? Date.now() + resolveOcrBudgetMs();
   await ensureLocalFile(filePath);
   const buffer = await fs.readFile(filePath);
   const mod = await import("pdf-parse");
   const parser = new mod.PDFParse({ data: buffer });
-  const worker = await createOcrWorker();
+  let worker: OcrWorker | undefined;
   try {
     const screenshot = await parser.getScreenshot({
       first: MAX_PDF_OCR_PAGES,
@@ -396,22 +532,40 @@ export async function readPdfTextByOcr(
       imageBuffer: true,
       imageDataUrl: false,
     });
+    // 先切图再建 worker：坏的 PDF 不该触发语言包下载。
+    worker = await createOcrWorker(deadline);
     const chunks: string[] = [];
+    let recognized = 0;
     for (const page of screenshot.pages ?? []) {
+      if (Date.now() >= deadline) {
+        break;
+      }
       const image = Buffer.from(page.data ?? []);
       if (image.length === 0) {
         continue;
       }
-      const result = await worker.recognize(image);
+      let result: Awaited<ReturnType<OcrWorker["recognize"]>>;
+      try {
+        result = await raceWithDeadline(worker.recognize(image), deadline);
+      } catch (err) {
+        // 预算用完就收下已识别的页，别把整份结果丢掉。
+        if (err instanceof OcrDeadlineError) {
+          break;
+        }
+        throw err;
+      }
+      recognized += 1;
       const text = normalizeExtractedText(result.data?.text ?? "");
       if (text) {
         chunks.push(text);
       }
     }
     const body = normalizeExtractedText(chunks.join("\n\n"));
-    return `${body}${ocrUnreadNote(screenshot.pages?.length ?? 0, screenshot.total)}`;
+    // 没有正文时不要只回一条【未读完】：调用方会把它当成读到了内容。
+    const note = body ? ocrUnreadNote(recognized, screenshot.total) : "";
+    return `${body}${note}`;
   } finally {
-    await worker.terminate().catch(() => undefined);
+    await worker?.terminate().catch(() => undefined);
     await parser.destroy().catch(() => undefined);
   }
 }
@@ -419,7 +573,10 @@ export async function readPdfTextByOcr(
 export async function readPdfTextByVision(
   filePath: string,
   usageCtx?: VisionOcrUsageContext,
+  /** 与本地 OCR 共享的总预算；缺省时按 `LAWMIND_OCR_BUDGET_MS` 现算。 */
+  deadlineOverride?: number,
 ): Promise<string> {
+  const deadline = deadlineOverride ?? Date.now() + resolveOcrBudgetMs();
   await ensureLocalFile(filePath);
   const buffer = await fs.readFile(filePath);
   const mod = await import("pdf-parse");
@@ -432,21 +589,144 @@ export async function readPdfTextByVision(
       imageDataUrl: false,
     });
     const chunks: string[] = [];
+    let recognized = 0;
     for (const page of screenshot.pages ?? []) {
+      if (Date.now() >= deadline) {
+        break;
+      }
       const image = Buffer.from(page.data ?? []);
       if (image.length === 0) {
         continue;
       }
-      const text = await readImageTextByVisionModel(image, "image/png", undefined, usageCtx);
+      let text: string;
+      try {
+        text = await raceWithDeadline(
+          readImageTextByVisionModel(image, "image/png", undefined, usageCtx),
+          deadline,
+        );
+      } catch (err) {
+        // 预算用完就收下已识别的页，并让「未读完」的页数如实减少。
+        if (err instanceof OcrDeadlineError) {
+          break;
+        }
+        throw err;
+      }
+      recognized += 1;
       if (text) {
         chunks.push(text);
       }
     }
     const body = normalizeExtractedText(chunks.join("\n\n"));
-    return `${body}${ocrUnreadNote(screenshot.pages?.length ?? 0, screenshot.total)}`;
+    // 没有正文时不要只回一条【未读完】：调用方会把它当成读到了内容。
+    const note = body ? ocrUnreadNote(recognized, screenshot.total) : "";
+    return `${body}${note}`;
   } finally {
     await parser.destroy().catch(() => undefined);
   }
+}
+
+export type PdfExtractSource = "pdf_text" | "pdf_ocr" | "pdf_vision";
+
+export type PdfTextExtraction =
+  | { ok: true; text: string; sourceType: PdfExtractSource }
+  /** `stage` = 最后尝试的那一环，供 ingest 审计记录真实阶段。 */
+  | { ok: false; reason: string; hint: string; stage: PdfExtractSource };
+
+export type PdfReadDeps = {
+  readText: () => Promise<string>;
+  readOcr: () => Promise<string>;
+  readVision?: () => Promise<string>;
+  /** `readVision` 缺省时，说明为什么没启用。 */
+  visionUnavailableReason?: string;
+};
+
+/** iCloud 未下载 / 需要律师确认属于「停下来问人」，不能被兜底链吞成识别失败。 */
+function rethrowIcloud(err: unknown): void {
+  if (err instanceof IcloudDatalessError || err instanceof IcloudLawyerPrompt) {
+    throw err;
+  }
+}
+
+/**
+ * PDF 读取兜底链：文字层 → 本地 OCR → 视觉模型。
+ *
+ * 关键约束：**任一环节失败都不能中断后续环节**。此前 OCR 抛 `fetch failed`
+ * 会直接穿透到模型，模型只能归纳成「本机没有 OCR 能力」；视觉兜底从未被尝试。
+ * 这里把每一环的错误收下来，最后合成一句可执行的失败原因。
+ */
+export async function withPdfReadFallbacks(deps: PdfReadDeps): Promise<PdfTextExtraction> {
+  let textError: string | undefined;
+  try {
+    const text = (await deps.readText()).trim();
+    if (text) {
+      return { ok: true, text, sourceType: "pdf_text" };
+    }
+  } catch (err) {
+    rethrowIcloud(err);
+    textError = errorMessage(err);
+  }
+
+  let ocrError: string | undefined;
+  try {
+    const ocr = (await deps.readOcr()).trim();
+    if (ocr) {
+      return { ok: true, text: ocr, sourceType: "pdf_ocr" };
+    }
+  } catch (err) {
+    rethrowIcloud(err);
+    ocrError = errorMessage(err);
+  }
+
+  let visionNote = deps.visionUnavailableReason ?? "视觉兜底未启用";
+  if (deps.readVision) {
+    try {
+      const vision = (await deps.readVision()).trim();
+      if (vision) {
+        return { ok: true, text: vision, sourceType: "pdf_vision" };
+      }
+      visionNote = "视觉兜底未识别出文字";
+    } catch (err) {
+      rethrowIcloud(err);
+      visionNote = `视觉兜底失败：${errorMessage(err)}`;
+    }
+  }
+
+  const detail = [
+    textError ? `文字层解析失败：${textError}` : "没有文字层",
+    ocrError ? `本地 OCR 不可用：${ocrError}` : "本地 OCR 未识别出文字",
+    visionNote,
+  ].join("；");
+  return {
+    ok: false,
+    stage: deps.readVision ? "pdf_vision" : "pdf_ocr",
+    reason: `PDF 没有可读正文（${detail}）`,
+    hint: "可把关键页另存为 .docx/.txt 后再读；或在设置里指定支持图片的视觉模型（LAWMIND_VISION_MODEL）后重试。",
+  };
+}
+
+/** 按当前配置读取一份 PDF；失败时给出每一环的真实原因。 */
+export async function extractPdfTextWithFallbacks(
+  filePath: string,
+  opts: { usageCtx?: VisionOcrUsageContext; budgetMs?: number } = {},
+): Promise<PdfTextExtraction> {
+  // 文字层 → OCR → 视觉共用一份预算：两段各给 90s 会直接越过工具墙钟。
+  const deadline = Date.now() + (opts.budgetMs ?? resolveOcrBudgetMs());
+  const visionEnabled = shouldUseVisionFallback();
+  return withPdfReadFallbacks({
+    readText: () => readPdfText(filePath),
+    readOcr: () => readPdfTextByOcr(filePath, opts.usageCtx, deadline),
+    ...(visionEnabled
+      ? {
+          readVision: () => {
+            if (Date.now() >= deadline) {
+              throw new Error("超出本轮时间预算（LAWMIND_OCR_BUDGET_MS）");
+            }
+            return readPdfTextByVision(filePath, opts.usageCtx, deadline);
+          },
+        }
+      : {}),
+    visionUnavailableReason: visionEnabled ? undefined : visionFallbackUnavailableReason(),
+  });
 }
 
 function normalizeRelPath(p: string): string {

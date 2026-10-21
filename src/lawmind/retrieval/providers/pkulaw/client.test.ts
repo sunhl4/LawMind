@@ -232,6 +232,74 @@ describe("pkulawRetrieve", () => {
     }
   });
 
+  it("mcp_tools_call maps official case structuredContent.data (real gateway shape)", async () => {
+    const officialCase = readFileSync(
+      path.join(HERE, "fixtures/official-search-case.json"),
+      "utf8",
+    );
+    const prevCase = process.env.LAWMIND_PKULAW_CASE_ENDPOINT;
+    process.env.LAWMIND_PKULAW_CASE_ENDPOINT = "https://apim-gateway.example/mcp-case";
+    try {
+      const fetchImpl = vi.fn(async () => new Response(officialCase, { status: 200 }));
+      const { result } = await pkulawRetrieve({
+        endpointNormalized: "https://apim-gateway.example/mcp-law",
+        query: "劳动合同 违法解除",
+        mode: "mcp_tools_call",
+        // 显式走类案通道：不指定时该查询会被推成 laws，类案端点根本没被请求。
+        searchKind: "case",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(String(fetchImpl.mock.calls[0]?.[0])).toContain("mcp-case");
+      // 真实网关把类案放在结构化 data[]，此前完全没被采集 → invalid_response。
+      expect(result.authorityOutcome?.status).toBe("ok");
+      expect(result.sources).toHaveLength(2);
+      expect(result.sources[0]?.kind).toBe("case");
+      expect(result.sources[0]?.citation).toBe("(2016)津02民终619号");
+      expect(result.sources[0]?.url).toContain("pkulaw.com/pfnl/");
+      expect(result.sources[0]?.excerpt).toContain("本院认为");
+      expect(result.claims.length).toBe(2);
+    } finally {
+      if (prevCase === undefined) {
+        delete process.env.LAWMIND_PKULAW_CASE_ENDPOINT;
+      } else {
+        process.env.LAWMIND_PKULAW_CASE_ENDPOINT = prevCase;
+      }
+    }
+  });
+
+  it("official case gateway zero hits is empty, not invalid_response", async () => {
+    const emptyCase = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [{ text: "未检索到匹配的司法案例。", type: "text" }],
+        isError: false,
+        structuredContent: { data: [] },
+      },
+    });
+    const prevCase = process.env.LAWMIND_PKULAW_CASE_ENDPOINT;
+    process.env.LAWMIND_PKULAW_CASE_ENDPOINT = "https://apim-gateway.example/mcp-case";
+    try {
+      const fetchImpl = vi.fn(async () => new Response(emptyCase, { status: 200 }));
+      const { result } = await pkulawRetrieve({
+        endpointNormalized: "https://apim-gateway.example/mcp-law",
+        query: "（2021）京01民终1234号",
+        mode: "mcp_tools_call",
+        searchKind: "case",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      expect(result.authorityOutcome?.status).toBe("empty");
+      expect(result.sources).toHaveLength(0);
+    } finally {
+      if (prevCase === undefined) {
+        delete process.env.LAWMIND_PKULAW_CASE_ENDPOINT;
+      } else {
+        process.env.LAWMIND_PKULAW_CASE_ENDPOINT = prevCase;
+      }
+    }
+  });
+
   it("runs two 法宝 searches at the same time", async () => {
     let inFlight = 0;
     let max = 0;

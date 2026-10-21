@@ -23,7 +23,8 @@ import {
   writeMatterMailMessage,
 } from "../../../src/lawmind/platform/lawyer-automations.js";
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
-import { outboundBindingProblems } from "../../../src/lawmind/platform/outbound-approval-binding.js";import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
+import { outboundBindingProblems } from "../../../src/lawmind/platform/outbound-approval-binding.js";
+import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 import { sendMailViaAccount } from "../../../src/lawmind/mail/index.js";
 import { validateAutomationConfirmations } from "../../../src/lawmind/platform/lawyer-automations.js";
 import { validateEventTrigger } from "../../../src/lawmind/platform/automation-event-trigger.js";

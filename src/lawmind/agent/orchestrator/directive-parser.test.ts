@@ -139,6 +139,12 @@ describe("directive-parser", () => {
     );
     expect(parsed?.name).toBe("测试流");
     expect(parsed?.steps).toHaveLength(1);
+    const ledger = fs
+      .readFileSync(path.join(ws, "model-usage", "ledger.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { purpose?: string; failed?: boolean });
+    expect(ledger).toEqual([expect.objectContaining({ purpose: "plan", failed: false })]);
   });
 
   it("parseDirectiveWithModel returns undefined on HTTP error", async () => {
@@ -155,6 +161,39 @@ describe("directive-parser", () => {
       ws,
     );
     expect(parsed).toBeUndefined();
+    const ledger = fs
+      .readFileSync(path.join(ws, "model-usage", "ledger.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map(
+        (line) => JSON.parse(line) as { purpose?: string; failed?: boolean; errorKind?: string },
+      );
+    expect(ledger).toEqual([
+      expect.objectContaining({ purpose: "plan", failed: true, errorKind: "http_500" }),
+    ]);
+  });
+
+  it("records one row when a 200 response is not JSON (no phantom transport failure)", async () => {
+    const ws = tmpWorkspace();
+    const server = await startServer();
+    server.enqueue(cassetteAssistant("这不是 JSON"));
+    const parsed = await parseDirectiveWithModel(
+      "审合同",
+      {
+        model: "test-model",
+        apiKey: "k",
+        baseUrl: server.url,
+      },
+      ws,
+    );
+    expect(parsed).toBeUndefined();
+    const ledger = fs
+      .readFileSync(path.join(ws, "model-usage", "ledger.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { purpose?: string; failed?: boolean });
+    // 请求已被上游计费：只该有一行「成功」，不能解析失败再补一条失败账。
+    expect(ledger).toEqual([expect.objectContaining({ purpose: "plan", failed: false })]);
   });
 
   it("parseAndBuildWorkflow falls back to heuristic", async () => {

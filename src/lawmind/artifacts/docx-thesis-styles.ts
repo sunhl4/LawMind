@@ -14,6 +14,7 @@ import {
   type IStylesOptions,
 } from "docx";
 import JSZip from "jszip";
+import { elementSpan, indexOfWordOpen } from "../drafts/word-xml-span.js";
 import {
   COLOR_TEXT,
   LEGAL_BODY_FONT,
@@ -209,16 +210,31 @@ const STYLE_INDENT: Record<string, string> = {
 
 function replaceInsideStyle(xml: string, styleId: string, edit: (block: string) => string): string {
   const marker = `w:styleId="${styleId}"`;
-  const start = xml.indexOf(marker);
-  if (start < 0) {
+  const markerAt = xml.indexOf(marker);
+  if (markerAt < 0) {
     return xml;
   }
-  const end = xml.indexOf("</w:style>", start);
-  if (end < 0) {
+  // `styleId` 写在开标签上；从标记往前找配对的 `<w:style`，再用平衡闭合截块，
+  // 避免将来若 styles.xml 出现嵌套同名标签时懒 `indexOf("</w:style>")` 截断。
+  let openAt = -1;
+  let from = 0;
+  while (from <= markerAt) {
+    const at = indexOfWordOpen(xml, "style", from);
+    if (at < 0 || at > markerAt) {
+      break;
+    }
+    openAt = at;
+    from = at + 1;
+  }
+  if (openAt < 0) {
     return xml;
   }
-  const block = xml.slice(start, end);
-  return xml.slice(0, start) + edit(block) + xml.slice(end);
+  const span = elementSpan(xml, "style", openAt);
+  if (!span || span.start !== openAt || span.selfClosing || markerAt >= span.innerStart) {
+    return xml;
+  }
+  const block = xml.slice(markerAt, span.innerEnd);
+  return xml.slice(0, markerAt) + edit(block) + xml.slice(span.innerEnd);
 }
 
 function patchStyleSpacing(xml: string, styleId: string, attrs: string): string {

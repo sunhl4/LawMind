@@ -74,7 +74,13 @@ export const UNKNOWN_PROVIDER_CAPABILITIES: ProviderCapabilities = {
   labelZh: "未知服务商",
   cacheUsage: "none",
   supportsSeed: false,
-  supportsJsonObject: false,
+  /**
+   * 仍按支持 `json_object` 处理：LawMind 只连 OpenAI-compatible 的
+   * `/chat/completions`，而「不认识的端点」若真的拒绝该字段，调用方有 400 降级
+   * （见 `guardian/run.ts` 的 `shouldRetryGuardianWithoutJsonMode`）。反过来把
+   * 字段悄悄去掉，会得到一段散文当 JSON，表现为审稿静默跳过——更糟。
+   */
+  supportsJsonObject: true,
   defaultBillingScope: "byok",
 };
 

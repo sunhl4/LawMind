@@ -87,6 +87,9 @@
 | `LAWMIND_VISION_MODEL`       | OCR/图像理解模型                                               | 回退 `LAWMIND_AGENT_MODEL` |
 | `LAWMIND_OCR_CLOUD`          | `1` 时启用云 OCR（**材料出域**，需供应商密钥）                 | 关                         |
 | `LAWMIND_OCR_LANGS`          | tesseract 语言包                                               | `chi_sim+eng`              |
+| `LAWMIND_OCR_BUDGET_MS`      | OCR / 视觉兜底时间预算（PDF 三环共用）                         | `90000`                    |
+| `LAWMIND_OCR_CACHE_DIR`      | 语言包缓存目录（按需下载一次，带完整性校验）                   | 用户缓存目录               |
+| `LAWMIND_OCR_DATA_DIR`       | 已有语言包的只读目录（缺文件报错，不联网）                     | 空                         |
 | `LAWMIND_DOC_READ_MODE`      | 文档读取模式（`ocr_only` 时禁用原生文本层）                    | 空                         |
 
 ### 邮箱

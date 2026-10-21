@@ -39,6 +39,38 @@ export type EvidenceSupport = {
   actualVersion?: string;
 };
 
+/**
+ * 解码纯文本来源。中文材料常见 GBK/GB18030，按 UTF-8 强读会把原句读成乱码，
+ * 进而把「编码不对」误判成「原句找不到」并挡住交件。这里 BOM → UTF-8 → GBK 依次尝试；
+ * 都不行就返回失败，让调用方标「无法判定」而不是「不一致」。
+ */
+export function decodePlainText(
+  bytes: Buffer | Uint8Array,
+): { ok: true; text: string } | { ok: false } {
+  const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    return { ok: true, text: buf.subarray(3).toString("utf8") };
+  }
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
+    return { ok: true, text: buf.subarray(2).toString("utf16le") };
+  }
+  try {
+    const utf8 = new TextDecoder("utf-8", { fatal: true }).decode(buf);
+    return { ok: true, text: utf8 };
+  } catch {
+    /* 不是合法 UTF-8：继续试中文常见编码。 */
+  }
+  for (const label of ["gb18030", "gbk"]) {
+    try {
+      const text = new TextDecoder(label, { fatal: true }).decode(buf);
+      return { ok: true, text };
+    } catch {
+      /* 该编码也解不了 */
+    }
+  }
+  return { ok: false };
+}
+
 /** 归一化：全半角、中文标点、空白与大小写差异不应当成「原文对不上」。 */
 export function normalizeForQuoteMatch(text: string): string {
   return text
@@ -123,7 +155,17 @@ export function checkEvidenceSupport(opts: {
   }
   let raw = "";
   try {
-    raw = fs.readFileSync(abs, "utf8");
+    const bytes = fs.readFileSync(abs);
+    const decoded = decodePlainText(bytes);
+    if (!decoded.ok) {
+      // 编码认不出就不判「原句不存在」：那是 false block，比「未核对」更糟。
+      return {
+        status: "unverifiable",
+        reasonZh: "来源文件编码无法识别（既不是 UTF-8 也不是 GBK），本次未核对原句。",
+        actualVersion,
+      };
+    }
+    raw = decoded.text;
   } catch {
     return {
       status: "unverifiable",
@@ -147,11 +189,13 @@ export function checkEvidenceSupport(opts: {
     }
     raw = all.slice(start - 1, end).join("\n");
   }
-  if (fileVersionOf(abs) !== actualVersion) {
+  // 读完之后再核一次版本：只算一次，别在「变更」分支里重算第二遍（大文件上是纯浪费）。
+  const recheckedVersion = fileVersionOf(abs);
+  if (recheckedVersion !== actualVersion) {
     return {
       status: "stale",
       reasonZh: "核对过程中来源文件发生变更，请重新读取。",
-      actualVersion: fileVersionOf(abs),
+      actualVersion: recheckedVersion,
     };
   }
   if (!quoteAppearsIn(normalizeForQuoteMatch(raw), opts.quote)) {

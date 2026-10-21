@@ -280,6 +280,13 @@ export function modelFailureKind(err: unknown): string {
 export type CallModelOptions = {
   /** Request streaming SSE; deltas are pushed via `onDelta` and finally assembled to ChatCompletionResponse. */
   stream?: boolean;
+  /**
+   * Ask the upstream to include a usage block in the SSE tail
+   * (`stream_options.include_usage`). Default true. Set false after an upstream
+   * rejects the field: not every OpenAI-compatible endpoint accepts it, and one
+   * 400 there would otherwise fail every streamed turn.
+   */
+  streamUsage?: boolean;
   /** Per-chunk content delta (final round only). */
   onDelta?: (chunk: string) => void;
   /** When aborted (e.g. Stop button), cancel in-flight fetch/stream. */
@@ -511,7 +518,9 @@ async function callModelOnce(
   const wantStream = opts.stream === true;
   if (wantStream) {
     body.stream = true;
-    body.stream_options = { include_usage: true };
+    if (opts.streamUsage !== false) {
+      body.stream_options = { include_usage: true };
+    }
   }
 
   if (opts.signal?.aborted) {
@@ -675,6 +684,13 @@ async function callModelWithRetryHeld(
   let current = messages;
   let attempt = 0;
   let httpAttempt = 0;
+  /**
+   * 兼容性降级：部分 OpenAI-compatible 端点不认 `stream_options`（400
+   * "Unrecognized request argument"）。不降级就等于每一次流式回合都失败，
+   * 所以这里用一次不计预算的重发换掉该字段，换取「能用但无 usage」。
+   */
+  let effectiveOpts = opts;
+  let streamUsageRepairUsed = false;
   const notifyUsage = (event: ModelUsageEvent) => {
     try {
       opts.onModelUsage?.(event);
@@ -688,7 +704,7 @@ async function callModelWithRetryHeld(
     const startedAt = Date.now();
     httpAttempt += 1;
     try {
-      const response = await callModelOnce(config, current, tools, opts);
+      const response = await callModelOnce(config, current, tools, effectiveOpts);
       noteModelSampleSuccess();
       notifyUsage({
         attempt: httpAttempt,
@@ -713,6 +729,20 @@ async function callModelWithRetryHeld(
       // Never retry user Stop — that would ignore the lawyer's cancel.
       if (err instanceof ModelCallUserAbortError || opts.signal?.aborted) {
         break;
+      }
+      // 上游不认 `stream_options`：去掉该字段重发一次（不计普通 retry 预算）。
+      // 这是「字段兼容」而不是「等一下再试」——重发一定会换掉请求体。
+      if (
+        !streamUsageRepairUsed &&
+        opts.stream === true &&
+        opts.streamUsage !== false &&
+        err instanceof ModelCallHttpError &&
+        err.status === 400 &&
+        /stream_options|include_usage/i.test(err.body)
+      ) {
+        streamUsageRepairUsed = true;
+        effectiveOpts = { ...opts, streamUsage: false };
+        continue;
       }
       // 工具配对损坏：修复来源历史后重发一次。这一次不计入普通 retry 预算，
       // 因为它是确定性修复（历史变了），而不是「等一下再试同一个请求」。

@@ -3,7 +3,10 @@ import {
   AUTHORITY_API_KEY_ENV,
   PKULAW_DEFAULT_CASE_ENDPOINT,
   PKULAW_DEFAULT_LAW_ENDPOINT,
+  YUANDIAN_API_KEY_ENV,
+  YUANDIAN_DEFAULT_ENDPOINT,
   authorityProviderUsesStoredKey,
+  authorityProviderUsesYuandianKey,
   placeAuthorityApiKey,
   planAuthoritySave,
   validateAuthoritySetupUrl,
@@ -154,6 +157,108 @@ describe("placeAuthorityApiKey", () => {
     }
     // 不重复追加，幂等
     expect(planNoYuandian.assignments.LAWMIND_AUTHORITY_PROVIDER).toBe("yuandian,pkulaw");
+  });
+});
+
+describe("元典 save plan", () => {
+  it("写独立 env、默认端点，且不碰法宝端点", () => {
+    const plan = planAuthoritySave({ provider: "yuandian", apiKey: "yd-1" });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) {
+      return;
+    }
+    expect(plan.provider).toBe("yuandian");
+    expect(plan.keyEnv).toBe(YUANDIAN_API_KEY_ENV);
+    expect(plan.assignments.LAWMIND_AUTHORITY_PROVIDER).toBe("yuandian");
+    expect(plan.assignments.LAWMIND_YUANDIAN_ENDPOINT).toBe(YUANDIAN_DEFAULT_ENDPOINT);
+    expect(plan.assignments.LAWMIND_AUTHORITY_ENDPOINT).toBeUndefined();
+    expect(plan.assignments[AUTHORITY_API_KEY_ENV]).toBeUndefined();
+    expect(plan.storeApiKey).toBe("yd-1");
+  });
+
+  it("已有法宝时保存元典 → yuandian,pkulaw 双库", () => {
+    const plan = planAuthoritySave({
+      provider: "yuandian",
+      apiKey: "yd-1",
+      existingProvider: "pkulaw",
+    });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) {
+      return;
+    }
+    expect(plan.assignments.LAWMIND_AUTHORITY_PROVIDER).toBe("yuandian,pkulaw");
+  });
+
+  it("没有 Key 且无存量时拒绝，避免写入一个连不上的库", () => {
+    const plan = planAuthoritySave({ provider: "yuandian" });
+    expect(plan.ok).toBe(false);
+  });
+
+  it("keychain 不可用时元典 Key 落到独立 env（不是法宝那个）", () => {
+    const plan = planAuthoritySave({ provider: "yuandian", apiKey: "yd-plain" });
+    const placed = placeAuthorityApiKey(plan, { keychainAvailable: false });
+    expect(placed.ok).toBe(true);
+    if (!placed.ok) {
+      return;
+    }
+    expect(placed.storeApiKey).toBe("");
+    expect(placed.assignments.LAWMIND_YUANDIAN_API_KEY).toBe("yd-plain");
+    expect(placed.assignments[AUTHORITY_API_KEY_ENV]).toBeUndefined();
+  });
+
+  it("留空时保留已保存的元典 Key，不写入空值", () => {
+    const plan = planAuthoritySave({ provider: "yuandian", hasExistingYuandianKey: true });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) {
+      return;
+    }
+    expect(plan.storeApiKey).toBe("");
+  });
+
+  it("已有元典时保存法宝 → 反向也保留 yuandian,pkulaw", () => {
+    const plan = planAuthoritySave({
+      provider: "pkulaw",
+      apiKey: "pku-1",
+      existingProvider: "yuandian",
+    });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) {
+      return;
+    }
+    expect(plan.assignments.LAWMIND_AUTHORITY_PROVIDER).toBe("yuandian,pkulaw");
+  });
+
+  it("不把 generic/lexis 端点静默改写成 pkulaw", () => {
+    for (const existingProvider of ["generic", "lexis", "lexisnexis"]) {
+      const plan = planAuthoritySave({ provider: "yuandian", apiKey: "yd", existingProvider });
+      expect(plan.ok).toBe(true);
+      if (!plan.ok) {
+        continue;
+      }
+      // 共用钥匙串账户不等于同一适配器：generic/lexis 改写成 pkulaw 会改变请求形态。
+      expect(plan.assignments.LAWMIND_AUTHORITY_PROVIDER).toBe("yuandian");
+    }
+  });
+
+  it("keychain 可用时元典 Key 交给钥匙串，不写明文", () => {
+    const plan = planAuthoritySave({ provider: "yuandian", apiKey: "yd-1" });
+    const placed = placeAuthorityApiKey(plan, { keychainAvailable: true });
+    expect(placed.ok).toBe(true);
+    if (!placed.ok) {
+      return;
+    }
+    expect(placed.storeApiKey).toBe("yd-1");
+    expect(placed.assignments.LAWMIND_YUANDIAN_API_KEY).toBeUndefined();
+  });
+});
+
+describe("authorityProviderUsesYuandianKey", () => {
+  it("多库列表里含元典就注入元典 Key", () => {
+    expect(authorityProviderUsesYuandianKey("yuandian")).toBe(true);
+    expect(authorityProviderUsesYuandianKey("yuandian,pkulaw")).toBe(true);
+    expect(authorityProviderUsesYuandianKey("元典智库,北大法宝")).toBe(true);
+    expect(authorityProviderUsesYuandianKey("pkulaw")).toBe(false);
+    expect(authorityProviderUsesYuandianKey("")).toBe(false);
   });
 });
 

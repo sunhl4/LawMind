@@ -8,7 +8,7 @@
 
 | 格式                                                | 工作区 `analyze_document`                                                                                                                      | 项目目录 `read_project_file`   |
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| `.pdf`                                              | 先 `pdf-parse` 文本层；空则 OCR（最多前 5 页）；仍空且已配视觉端点（或 `LAWMIND_DOC_READ_MODE=ocr_then_vision`）时用视觉模型；`ocr_only` 关掉  | 同左；正文片段上限约 500k 字符 |
+| `.pdf`                                              | 先 `pdf-parse` 文本层；空则本地 OCR（最多前 12 页）；仍空且已配视觉端点时用视觉模型；任何一环报错都不会中断下一环，`ocr_only` 关掉视觉兜底     | 同左；正文片段上限约 500k 字符 |
 | `.docx`                                             | 解压 `word/document.xml` 抽取纯文本（无版式）                                                                                                  | 同左                           |
 | `.xlsx`                                             | **支持**：SheetJS 将各工作表转为 **TSV 纯文本**（无公式求值、无图表对象）；最多前 **32** 张表、每表解析约前 **5000** 行（见 `legal-tools.ts`） | 同左                           |
 | `.doc` / `.xls` / `.ppt`                            | **不支持**（旧二进制）                                                                                                                         | **不支持**                     |
@@ -18,8 +18,11 @@
 
 ## 环境变量
 
-- **`LAWMIND_OCR_LANGS`**：Tesseract 语言包，默认 `chi_sim+eng`。
-- **`LAWMIND_DOC_READ_MODE`**：默认在已配置 Agent 视觉端点时，OCR 为空后走视觉兜底。显式设为 **`ocr_only`** 可关掉；设为 **`ocr_then_vision`** 强制开启（即使未改其他项）。视觉端点与 Agent 相同（`LAWMIND_AGENT_*` / `QWEN_*` 等）。`sourceType`：`image_vision` / `pdf_vision`。
+- **`LAWMIND_OCR_LANGS`**：Tesseract 语言包，默认 `chi_sim+eng`（只配 `eng` 会把中文扫描件读成空白）。
+- **`LAWMIND_OCR_BUDGET_MS`**：OCR / 视觉兜底的时间预算，默认 `90000`。PDF 的「文字层 → 本地 OCR → 视觉」共用这一份预算；到点先收下已识别页，并在正文里标【未读完】。
+- **`LAWMIND_OCR_CACHE_DIR`**：语言包缓存目录（默认用户缓存目录，如 macOS `~/Library/Caches/LawMind/ocr/tessdata`）。语言包只在这里下载一次，带 gzip 完整性校验与大小上限。
+- **`LAWMIND_OCR_DATA_DIR`**：已有语言包的只读目录（`.traineddata.gz`）；指向这里时缺文件直接报错，不会偷偷联网。`LAWMIND_RESOURCES_PATH/tessdata` 也会被当作随包目录。
+- **`LAWMIND_DOC_READ_MODE`**：默认在已配置 Agent 视觉端点时，OCR 为空后走视觉兜底。显式设为 **`ocr_only`** 可关掉；`ocr_then_vision` 与默认一致（仍需配置视觉端点）。视觉端点与 Agent 相同（`LAWMIND_AGENT_*` / `QWEN_*` 等，可用 `LAWMIND_VISION_MODEL` 单独指定模型）。`sourceType`：`image_vision` / `pdf_vision`。
 
 ## 工具分工（执行任务时怎么用）
 
@@ -31,7 +34,7 @@
 ## 体积与页数上限（实现常量）
 
 - PDF / DOCX / XLSX / 单张图片：约 **20MB**（见 `legal-tools.ts` 中 `MAX_*_READ_BYTES`）。
-- PDF OCR / 视觉：最多前 **`MAX_PDF_OCR_PAGES`（5）** 页。
+- PDF OCR / 视觉：最多前 **`MAX_PDF_OCR_PAGES`（12）** 页。
 - `analyze_document` 对 PDF/图片/DOCX/XLSX 返回内容默认截断预览（如 8000 字符）；`read_project_file` 允许更大片段。
 
 ## 依赖

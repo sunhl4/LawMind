@@ -83,6 +83,16 @@ export const MATTER_SCOPE_REQUIRED = new Set<string>([
 
 export const BACKGROUND_JOB_TOOLS = new Set<string>(["execute_workflow"]);
 
+/**
+ * 并发安全、可重试的**只读**工具。三个消费方共用这一份名单：
+ *   - `runtime/tool-concurrency.ts` + `tool-pipeline.ts`：同一批并行执行；
+ *   - `tools/governance.ts`：`idempotent` / `retryable` 元数据。
+ *
+ * 与 `WRITE_TOOLS` **必须互斥**（`governance-drift.test.ts` 断言）。
+ * `fix_document_format` 曾误放在这里：它不改原文件，但会写出一份副本，放进来
+ * 等于允许它与其他工具并行（两次调用争同一个默认副本名），并在「等律师澄清」
+ * 与「无新指令」两个闸门期间照样落盘。写入类工具的唯一去处是 `WRITE_TOOLS`。
+ */
 export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "search_matter",
   "search_workspace",
@@ -105,7 +115,6 @@ export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "analyze_document",
   "compare_documents",
   "check_document_format",
-  "fix_document_format",
   "list_tasks",
   "list_drafts",
   "get_audit_trail",
@@ -155,6 +164,7 @@ export const WRITE_TOOLS = new Set<string>([
   "apply_surgical_edits",
   "render_document",
   "render_tracked_draft",
+  "fix_document_format",
   "execute_workflow",
   "request_review",
   "delegate_task",

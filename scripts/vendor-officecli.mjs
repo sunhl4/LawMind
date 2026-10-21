@@ -475,18 +475,23 @@ async function main() {
       return;
     }
     // 下载失败但本机已有可运行的 vendored 副本时，复用它而不是让打包失败。
+    // 但**不改 VERSION 哨兵**：那份文件记录的是「本仓库期望的版本」，
+    // 把它改成实际二进制版本，等于让 pin 事后自证合规；下次联网也看不出要补下载。
     if (fs.existsSync(destBin)) {
       try {
         const local = officecliVersionOf(destBin);
-        const oldSidecar = readPinnedVersion(destDir);
-        if (oldSidecar !== local) {
-          writeSidecar(destDir, local);
-          process.stderr.write(
-            `  已将 VERSION 哨兵对齐本机二进制版本 v${local}（原 ${oldSidecar || "无"}）。\n`,
-          );
+        const pinned = readPinnedVersion(destDir);
+        process.stderr.write(
+          `! 下载失败，沿用本机已 vendored 的 officecli v${local} → ${path.relative(REPO_ROOT, destBin)}\n` +
+            `  注意：这不是期望版本 v${pinned || version}。本安装包内的 officecli 与 pin 不一致；` +
+            "联网后请重跑 pnpm lawmind:vendor:officecli 对齐，或在发版说明里注明。\n",
+        );
+        if (local !== pinned) {
+          // 只留证据，不改哨兵：发版审计要能看出这包用的是哪个版本。
+          fs.writeFileSync(path.join(destDir, "VERSION.shipped"), `${local}\n`, "utf8");
         }
         process.stdout.write(
-          `✓ 下载失败，沿用本机已 vendored 的 officecli v${local} → ${path.relative(REPO_ROOT, destBin)}\n`,
+          `✓ 打包继续（离线回退）：officecli v${local}，期望 v${pinned || version}\n`,
         );
         return;
       } catch {

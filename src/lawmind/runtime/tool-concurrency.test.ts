@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { WRITE_TOOLS } from "../agent/tool-name-sets.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
 import { executeToolBatches } from "../agent/turn-orchestrator-tool-round.js";
 import type { AgentTool } from "../agent/types.js";
@@ -75,6 +76,25 @@ describe("partitionToolCalls", () => {
       "list_mail_inbox",
     ]);
     expect(batches[1]?.concurrencySafe).toBe(false);
+  });
+
+  it("never falls back to concurrency-safe for a write tool", () => {
+    const registry = new ToolRegistry();
+    for (const name of WRITE_TOOLS) {
+      registry.register(stubTool(name));
+    }
+    for (const name of WRITE_TOOLS) {
+      expect(isToolConcurrencySafe(registry, name), name).toBe(false);
+    }
+  });
+
+  it("serializes the format fixer but batches the format audit", () => {
+    const registry = new ToolRegistry();
+    // 两个工具都不设 isConcurrencySafe：分类只来自 tool-name-sets 的集合。
+    registry.register(stubTool("fix_document_format"));
+    registry.register(stubTool("check_document_format"));
+    expect(isToolConcurrencySafe(registry, "fix_document_format")).toBe(false);
+    expect(isToolConcurrencySafe(registry, "check_document_format")).toBe(true);
   });
 });
 

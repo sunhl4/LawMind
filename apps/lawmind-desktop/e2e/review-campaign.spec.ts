@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { gotoShell, installE2eBrowserPrefs, openReviewDraft } from "./e2e-helpers";
+import { gotoShell, installE2eBrowserPrefs, openDeskTab, openDraftDesk } from "./e2e-helpers";
 
 /**
  * 审查专案组（Skills E2）在改稿台上的**接线**测试。
@@ -17,14 +17,21 @@ import { gotoShell, installE2eBrowserPrefs, openReviewDraft } from "./e2e-helper
 
 test.describe("审查专案组 (Skills E2)", () => {
   test.beforeEach(async ({ page }) => {
-    await installE2eBrowserPrefs(page);
+    // 草稿台住在中栏，中栏要 filesystem bridge 才显示；只用 boot stub 会永远等不到。
+    await installE2eBrowserPrefs(page, { filesystemBridge: true });
   });
 
-  test("专案组不挂在在办页", async ({ page }) => {
+  test("专案组不挂在在办页，而在改稿台上", async ({ page }) => {
     await gotoShell(page);
-    await openReviewDraft(page);
-    await expect(page.locator(".lm-review-workbench-root, .lm-review-workbench")).toHaveCount(0);
+    // 只切到「工作台」一级 tab：此时不该有改稿台。
+    await openDeskTab(page);
+    await expect(page.locator(".lm-review-workbench-root")).toHaveCount(0);
     await expect(page.getByTestId("lm-tab-agents")).toHaveCount(0);
     await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible();
+
+    // 打开草稿台后，专案组面板才出现在改稿台上（这才是它真正的挂载点）。
+    await openDraftDesk(page);
+    await expect(page.getByTestId("lm-middle-draft-desk")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("lm-review-campaign")).toBeVisible({ timeout: 30_000 });
   });
 });

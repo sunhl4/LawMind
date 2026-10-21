@@ -131,7 +131,10 @@ export async function draftAsyncImpl(
   draft = await attachContractEditContext(ctx, intent, bundle, draft);
   record("draft_contract_baseline", t);
   t = Date.now();
-  const criticized = await runDraftCriticAsync(draft);
+  const criticized = await runDraftCriticAsync(draft, {
+    workspaceDir: ctx.workspaceDir,
+    matterId: intent.matterId,
+  });
   record("draft_critic", t);
   draft = criticized.draft;
   persistClauseSnapshot(ctx.workspaceDir, criticized.graph);

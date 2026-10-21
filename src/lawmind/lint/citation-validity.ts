@@ -41,11 +41,11 @@ export function lintMalformedCitations(body: string): LegalLintFinding[] {
   const findings: LegalLintFinding[] = [];
   const seen = new Set<number>();
   const record = (anchor: string, index: number, span: string, message: string): void => {
-    const start = index >= 0 ? index : Math.max(0, body.indexOf(anchor));
-    if (start < 0 || seen.has(start)) {
+    const found = index >= 0 ? index : body.indexOf(anchor);
+    if (found < 0 || seen.has(found)) {
       return;
     }
-    seen.add(start);
+    seen.add(found);
     const preview = span.length > 48 ? `${span.slice(0, 48)}…` : span;
     findings.push(
       finding(malformedRule, "warning", `${message}（原文摘录：${preview}）`, { anchor }),

@@ -11,6 +11,7 @@
 
 import fs from "node:fs/promises";
 import JSZip from "jszip";
+import { indexOfMatchingClose, indexOfWordOpen, indexOfXmlTagEnd } from "./word-xml-span.js";
 
 export type TrackedDecision = "accept" | "reject";
 
@@ -349,67 +350,4 @@ function attrOf(openTag: string, name: string): string {
   const start = at + needle.length;
   const end = openTag.indexOf('"', start);
   return end < 0 ? "" : openTag.slice(start, end);
-}
-
-function indexOfWordOpen(xml: string, name: string, from: number): number {
-  const needle = `<w:${name}`;
-  let cursor = from;
-  while (cursor < xml.length) {
-    const start = xml.indexOf(needle, cursor);
-    if (start < 0) {
-      return -1;
-    }
-    const next = xml[start + needle.length];
-    if (next === ">" || next === "/" || (next !== undefined && /\s/u.test(next))) {
-      return start;
-    }
-    cursor = start + needle.length;
-  }
-  return -1;
-}
-
-function indexOfXmlTagEnd(xml: string, from: number): number {
-  let quote: '"' | "'" | null = null;
-  for (let i = from; i < xml.length; i += 1) {
-    const ch = xml[i];
-    if (quote) {
-      if (ch === quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      continue;
-    }
-    if (ch === ">") {
-      return i;
-    }
-  }
-  return -1;
-}
-
-function indexOfMatchingClose(xml: string, openStart: number, name: string): number {
-  const closeNeedle = `</w:${name}>`;
-  let depth = 0;
-  let cursor = openStart;
-  while (cursor < xml.length) {
-    const nextOpen = indexOfWordOpen(xml, name, cursor);
-    const nextClose = xml.indexOf(closeNeedle, cursor);
-    if (nextClose < 0) {
-      return xml.length;
-    }
-    if (nextOpen >= 0 && nextOpen < nextClose) {
-      depth += 1;
-      const openEnd = indexOfXmlTagEnd(xml, nextOpen);
-      cursor = openEnd >= 0 ? openEnd + 1 : nextOpen + name.length + 3;
-      continue;
-    }
-    depth -= 1;
-    cursor = nextClose + closeNeedle.length;
-    if (depth === 0) {
-      return cursor;
-    }
-  }
-  return xml.length;
 }

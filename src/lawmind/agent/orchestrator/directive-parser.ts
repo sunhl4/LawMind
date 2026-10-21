@@ -12,14 +12,15 @@
 
 import { randomUUID } from "node:crypto";
 import { loadAssistantProfiles } from "../../assistants/store.js";
-import { createOutboundProxy } from "../../platform/outbound-proxy.js";
-
-const directiveProxy = createOutboundProxy({ requestTag: "directive-plan" });
 import {
   resolveCapabilityEnvelope,
   resolveTemperatureForTask,
 } from "../../models/capability-envelope.js";
+import { createModelUsageRecorder } from "../../models/model-usage.js";
+import { createOutboundProxy } from "../../platform/outbound-proxy.js";
 import type { AgentConfig, AgentModelConfig } from "../types.js";
+
+const directiveProxy = createOutboundProxy({ requestTag: "directive-plan" });
 import type {
   CollaborationWorkflow,
   WorkflowStep,
@@ -33,10 +34,9 @@ import type {
  */
 export function parseDirectiveHeuristic(
   directive: string,
-  workspaceDir: string,
+  /** 保留形参：调用方按位置传工作区；启发式解析本身不需要它。 */
+  _workspaceDir: string,
 ): ParsedDirective | undefined {
-  const _lawMindRoot = workspaceDir.replace(/[\\/]workspace$/, "") || workspaceDir;
-
   const steps: ParsedDirectiveStep[] = [];
 
   // Sequential pattern: "让A做X，然后让B做Y" or "先让A做X，再让B做Y"
@@ -150,6 +150,23 @@ ${assistantList}
 - assigneeHint 尽量匹配上面的助手名称或 ID`;
 
   const url = `${modelConfig.baseUrl.replace(/\/$/, "")}/chat/completions`;
+  const recordAttempt = workspaceDir.trim()
+    ? createModelUsageRecorder(workspaceDir, {
+        purpose: "plan",
+        model: modelConfig.model,
+        provider: modelConfig.provider,
+      })
+    : undefined;
+  const startedAt = Date.now();
+  /** 一次 HTTP 只记一行：成功后再解析失败，不能又补一条 transport。 */
+  let settled = false;
+  const recordOnce = (info: Parameters<NonNullable<typeof recordAttempt>>[0]) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    recordAttempt?.(info);
+  };
 
   try {
     const response = await directiveProxy.fetch(url, {
@@ -174,12 +191,32 @@ ${assistantList}
     });
 
     if (!response.ok) {
+      // 失败请求也可能已计费；记一行，别让成本凭空消失。
+      recordOnce({
+        attempt: 1,
+        latencyMs: Date.now() - startedAt,
+        failed: true,
+        errorKind: `http_${response.status}`,
+      });
       return undefined;
     }
 
     const data = (await response.json()) as {
       choices: Array<{ message: { content: string } }>;
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number } | null;
+        completion_tokens_details?: { reasoning_tokens?: number } | null;
+      };
     };
+    recordOnce({
+      attempt: 1,
+      latencyMs: Date.now() - startedAt,
+      failed: false,
+      usage: data.usage,
+    });
     const content = data.choices[0]?.message?.content ?? "";
 
     const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -189,6 +226,12 @@ ${assistantList}
 
     return JSON.parse(jsonMatch[0]) as ParsedDirective;
   } catch {
+    recordOnce({
+      attempt: 1,
+      latencyMs: Date.now() - startedAt,
+      failed: true,
+      errorKind: "transport",
+    });
     return undefined;
   }
 }

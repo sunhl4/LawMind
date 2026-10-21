@@ -28,11 +28,15 @@
 - 真实材料探针：新增 `pnpm lawmind:task-chains`（离线、不调模型）：在本机案件材料上跑「最短锚点改 Word → 带修订导出 → 原件未变」与「真材料批量抽取 → 逐行可追溯 → 歧义可见」。成稿链没有模型时明确 SKIP。
 - 缓存 A/B：新增 `pnpm lawmind:cache-ab`（默认 `--dry-run`；真实运行只用合成法条文本，不读工作区材料），三测冷启动/复读/变表，上游不报缓存字段时输出 `absent`。
 - 修一处会直接崩的断点：`ingest-helpers.ts` 使用 `resolveDocumentPageChars` 却未导入，补齐导入。
+- 旧引擎与规划账本（第四轮）：`buildDraftWithModel` → `draft`，`critiqueClausesWithModel` / 二次 flagged 审 → `review`（`engine/drafting.ts` 传入 workspaceDir），`parseDirectiveWithModel` → `plan`（成功与 HTTP/传输失败都记行）。桌面 `apiSendJson` 恢复可选第二泛型，避免并行改动把 renderer typecheck 打穿。
+- 复核修正（第五轮）：OCR 语言包默认值恢复 `chi_sim+eng`（只认英文会把中文扫描件读空）；`plan` 账本一次 HTTP 只记一行（200 但非 JSON 不再补一条假 transport）；PDF 兜底链任一环报错不中断下一环、iCloud 未下载提示不再被吞、OCR 与视觉共用一份时间预算（不再两段各 90s 越过墙钟）、OCR 无正文时不再只回一条【未读完】冒充成功；本地 OCR 失败时图片仍会尝试视觉兜底；语言包下载加大小上限与并发合并，显式目录里的 0 字节文件视为缺失。元典独立 Key：钥匙串账户 `authority.yuandian.apiKey` + `.env.lawmind` 降级，保存任一家不把另一家覆盖掉，`generic`/`lexis` 不被静默改写成 `pkulaw`。
+- 复核修正（第六轮，含 20:48 提交）：多库检索的「权威库无命中/不可用」改为按库署名（有库命中时不再同时说整库无命中）；未配置的库不再计成一次失败调用；流式请求对不认 `stream_options` 的端点做一次性降级重发；未知 provider 仍发 `response_format`（真拒绝时 guardian 有 400 降级），回合汇总行按实际计费口径。格式自动修：`rPr`/`pPr` 改为标签配对扫描（原懒惰正则在带 `rPrChange`/`pPrChange` 的回稿上会产出未闭合 XML）；已有格式修订的段落改为跳过并说明原因（不再覆盖对方的修订署名）；`rPr` 子元素按 schema 顺序插入；成对 `<w:spacing>/<w:ind>` 归一化；输出改为临时文件 + 原子替换，并识别符号链接/硬链接/大小写变体指向原件；整篇套模板不再受 40 条报告上限限制；显式 `outputPath` 命中已有文件需 `overwrite: true`；交付前增加「修订标签未闭合」判定。证据核对按 BOM→UTF-8→GB18030/GBK 解码，编码认不出时记「无法判定」而不是「原句不一致」；成文日期只认独立日期行。e2e：`openReviewDraft` 真的打开中栏草稿台后，`review-campaign` / `job-intake` 补上 filesystem bridge，并把「全文改稿台必须不存在」的过时断言改到当前界面契约。
+- 复核修正（第七轮）：新增 `drafts/docx-size.ts`，`.docx` 进 `JSZip` 前先卡 20MB / 4000 部件（超限返回 413，不当成空文档），`word-surface`、修订对账、格式自动修三条解析入口统一走它；默认副本名覆盖自己上次产物时如实回报 `replacedExisting`（律师可能已在旧副本上手改）；`vendor-officecli` 下载失败的离线回退**不再改写 `VERSION` 哨兵**（pin 不再事后自证合规），改为明确写出「实际版本 ≠ 期望版本」并另写 `VERSION.shipped` 留痕；补回 `/steer` 的 e2e 覆盖（「改这一轮」必须走 steer，不许排进下一轮队列）；补 `WordFormatAuditPanel` 真正点「格式自动修」的用例（原来只断言按钮存在），以及路由层的 `output_exists` / 覆盖自产物两条用例。
 
 ## 已执行验证
 
-- 最后一次全量 Vitest：**7902 tests / 1095 files 通过**，4 tests / 2 files skipped，耗时约 152 秒（改造前基线 7 个失败：consult 检索锁定、discovery 收表、审计日文件时区、相对时间跨日、并发排队）。
-- 新增/修复的准入用例：`task-chains.test.ts`（三条任务链）、`task-chain-probe.test.ts`（真 docx/真 txt 上的确定性链）、`sample-until-done.test.ts`（子工轮次/截断/回滚开关）、`atomic-write.test.ts`（版本冲突）、`outbound-approval-binding.test.ts`（附件版本变化拒绝发送）、`sidecar-usage-accounting.test.ts`（审稿员成功/失败都入账）、`cache-ab.test.ts`（缺缓存字段不写 0）、`session-event-log.test.ts`（重启中断回放）、`turn-orchestrator-cassettes.test.ts`（W7 工具表排序与披露增量）、`review-table-patterns.test.ts`（多候选歧义）、`evidence-support.test.ts`（stale / quote 不匹配）。
+- 最后一次全量 Vitest：**7905 tests / 1095 files 通过**，4 tests / 2 files skipped，耗时约 158 秒（改造前基线 7 个失败：consult 检索锁定、discovery 收表、审计日文件时区、相对时间跨日、并发排队）。
+- 新增/修复的准入用例：`task-chains.test.ts`（三条任务链）、`task-chain-probe.test.ts`（真 docx/真 txt 上的确定性链）、`sample-until-done.test.ts`（子工轮次/截断/回滚开关）、`atomic-write.test.ts`（版本冲突）、`outbound-approval-binding.test.ts`（附件版本变化拒绝发送）、`sidecar-usage-accounting.test.ts`（审稿员成功/失败 + 成稿 `draft` 入账）、`directive-parser.test.ts`（`plan` 成功/失败入账）、`cache-ab.test.ts`（缺缓存字段不写 0）、`session-event-log.test.ts`（重启中断回放）、`turn-orchestrator-cassettes.test.ts`（W7 工具表排序与披露增量）、`review-table-patterns.test.ts`（多候选歧义）、`evidence-support.test.ts`（stale / quote 不匹配）。
 - `pnpm typecheck`、`pnpm --filter lawmind-desktop typecheck`、`pnpm typecheck:desktop-node` 均通过。
 - `pnpm lawmind:bundle:desktop-server` 与 `pnpm --filter lawmind-desktop build:renderer` 通过；有既有大 chunk 警告。
 - 真实 Electron 启动和本地服务崩溃恢复测试 2/2 通过。使用隔离测试数据，不把 Vite 页面当产品。
@@ -44,7 +48,7 @@
 - 检索：联网检索把查询发送给启用的检索提供方，受现有出网策略约束。
 - 外发：沿用人工签批与待发路径，本轮没有把工具自动执行等同于外发授权。
 - 引文匹配只证明文本能核对，不证明法律适用或语义正确；二进制材料未接专用抽取器时不能宣称原句验证通过。
-- 逐次用量已覆盖：主循环、只读子工、材料摘要子工、压缩摘要、案卷简报/案卷行热因、图片与 PDF 视觉 OCR、独立审稿员、路由分类。仍未覆盖：旧实现回滚路径、标题生成、`probe` 连通性测试、`openai-json` 的成稿/审稿旁路（`buildDraftWithModel` / `critiqueDraftWithModel`）、自动化规划解析（`directive-parser` 直连请求）；这些调用要么量小、要么走旧引擎，但在补齐前不能说「所有模型调用都已记账」。
+- 逐次用量已覆盖：主循环、只读子工、材料摘要子工、压缩摘要、案卷简报/案卷行热因、图片与 PDF 视觉 OCR、独立审稿员、路由分类、旧引擎成稿（`draft`）、旧引擎审稿 critic（`review`）、工作流指令解析（`plan`）。仍未覆盖：旧实现回滚路径、`probe` 连通性测试；会话标题是启发式取首句，不调模型。补齐前不能说「所有模型调用都已记账」，但主产品路径旁路已不再漏账。
 - 文件冲突保护从首次读取/触碰目标开始，不是 turn 开始时扫描全工作区。外部 Word/Finder 不受进程内锁约束，最后检查与 rename 之间仍有小竞态窗口；本轮未建立通用历史备份系统。
 - 外发绑定覆盖「排队 → 批准发送」这条路；旧会话遗留的 `__approved` 直发路径没有历史绑定可比对。
 - 三条链的自动化用例使用合成材料。`pnpm lawmind:task-chains` 可在真实材料上跑确定性部分，但本机 `workspace/cases/*` 目前没有材料（`materials` 均为空），脚本如实返回 `skipped: no_matter_materials`；没有材料就不产出「真实任务对照」。
