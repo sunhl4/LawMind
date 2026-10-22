@@ -39,13 +39,35 @@ describe("buildRuleGoal", () => {
   it("tells the worker that an absent clause is unacceptable when the rule forbids absence", () => {
     const rule = CN_SALES_RULES.find((r) => r.ruleId === "liability.cap.counterparty")!;
     expect(rule.absentAllowed).toBe(false);
-    expect(buildRuleGoal(rule)).toContain("不得判 compliant");
+    expect(buildRuleGoal(rule)).toContain("判 unacceptable（本规则不允许缺失）");
   });
 
   it("does not turn absence into a defect when the rule allows it", () => {
     const rule = CN_SALES_RULES.find((r) => r.ruleId === "termination.symmetry.counterparty")!;
     expect(rule.absentAllowed).toBe(true);
-    expect(buildRuleGoal(rule)).toContain("判 absent 不算缺陷");
+    expect(buildRuleGoal(rule)).toContain("判 absent（absent 是最终结论");
+  });
+
+  it("orders the verdict ladder so compliant is not skipped for acceptable", () => {
+    const rule = CN_SALES_RULES.find(
+      (r) => r.ruleId === "confidentiality.noncompete.counterparty",
+    )!;
+    const goal = buildRuleGoal(rule);
+    const absentAt = goal.indexOf("判 absent");
+    const unacceptableAt = goal.indexOf("永不接受）");
+    const acceptableAt = goal.indexOf("判 acceptable_deviation");
+    const compliantAt = goal.indexOf("判 compliant");
+    expect(absentAt).toBeGreaterThan(-1);
+    expect(acceptableAt).toBeGreaterThan(unacceptableAt);
+    expect(compliantAt).toBeGreaterThan(acceptableAt);
+  });
+
+  it("states the sufficient conditions for compliant so verdicts do not drift", () => {
+    const rule = CN_SALES_RULES.find((r) => r.ruleId === "liability.cap.counterparty")!;
+    expect(rule.compliantWhen?.length).toBeGreaterThan(0);
+    const goal = buildRuleGoal(rule);
+    expect(goal).toContain("以下条件全部满足");
+    expect(goal).toContain("不得作为降档理由");
   });
 });
 
@@ -154,5 +176,63 @@ describe("runRuleAllPassModelArm", () => {
       },
     });
     expect(result.cases[0]?.score.pass).toBe(true);
+  });
+});
+
+describe("trials and stability", () => {
+  it("takes the majority verdict across samples", async () => {
+    // Per-rule counter: the third sample of each rule deviates.
+    const seen = new Map<string, number>();
+    const result = await runRuleAllPassModelArm({
+      cases: [firstCase],
+      chatModel: model,
+      trials: 3,
+      classifyRule: async ({ rule }) => {
+        const n = (seen.get(rule.ruleId) ?? 0) + 1;
+        seen.set(rule.ruleId, n);
+        const expected = firstCase.expected[rule.ruleId];
+        const kind = n === 3 ? "acceptable_deviation" : expected;
+        return { classification: { ruleId: rule.ruleId, kind } };
+      },
+    });
+    expect(result.cases[0]?.score.pass).toBe(true);
+    for (const r of result.cases[0].perRule) {
+      expect(r.samples).toHaveLength(3);
+      // A rule whose fixture expectation is already acceptable_deviation stays
+      // stable; every other rule splits 2:1.
+      expect(r.stable).toBe(firstCase.expected[r.ruleId] === "acceptable_deviation");
+    }
+  });
+
+  it("breaks a tie toward the more conservative verdict", async () => {
+    const seen = new Map<string, number>();
+    const result = await runRuleAllPassModelArm({
+      cases: [firstCase],
+      chatModel: model,
+      trials: 2,
+      classifyRule: async ({ rule }) => {
+        const n = (seen.get(rule.ruleId) ?? 0) + 1;
+        seen.set(rule.ruleId, n);
+        const kind = n === 1 ? "compliant" : "acceptable_deviation";
+        return { classification: { ruleId: rule.ruleId, kind } };
+      },
+    });
+    for (const r of result.cases[0].perRule) {
+      expect(r.kind).toBe("acceptable_deviation");
+    }
+    expect(result.cases[0]?.score.pass).toBe(false);
+  });
+
+  it("marks a fully agreeing rule as stable", async () => {
+    const result = await runRuleAllPassModelArm({
+      cases: [firstCase],
+      chatModel: model,
+      trials: 2,
+      classifyRule: perfectClassifier(),
+    });
+    for (const r of result.cases[0].perRule) {
+      expect(r.stable).toBe(true);
+    }
+    expect(result.totalCalls).toBe(filterRulesForPaper(CN_SALES_RULES, firstCase.paper).length * 2);
   });
 });

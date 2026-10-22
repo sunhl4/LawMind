@@ -14,6 +14,13 @@ export type ReviewRule = {
   /** Whose paper this rule's thresholds apply to. */
   paper: PaperSide;
   standard: string;
+  /**
+   * Sufficient conditions for `compliant`. When present, a clause that meets
+   * every item is compliant and must not be downgraded for extra niceties the
+   * rule does not ask for. Without it, `standard` alone is the yardstick and
+   * verdicts drift toward acceptable_deviation.
+   */
+  compliantWhen?: string[];
   acceptable: string[];
   unacceptable: string[];
   guidance?: string;
@@ -89,6 +96,9 @@ export function normalizeReviewRules(rules: readonly ReviewRule[]): ReviewRule[]
       ...rule,
       title: rule.title.trim(),
       standard: rule.standard.trim(),
+      ...(rule.compliantWhen && rule.compliantWhen.length > 0
+        ? { compliantWhen: rule.compliantWhen.map((s) => s.trim()).filter(Boolean) }
+        : {}),
       acceptable: rule.acceptable.map((s) => s.trim()).filter(Boolean),
       unacceptable: rule.unacceptable.map((s) => s.trim()).filter(Boolean),
       guidance: rule.guidance?.trim() || undefined,

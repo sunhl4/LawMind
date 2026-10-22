@@ -30,6 +30,13 @@ export type ModelArmOptions = {
   /** Cap the number of cases (budget guard). */
   maxCases?: number;
   /**
+   * Independent samples per rule. A single sample is not reproducible: the same
+   * prompt on the same model can flip between acceptable_deviation and
+   * compliant. With trials > 1 the verdict is the majority and `stable` records
+   * whether every sample agreed.
+   */
+  trials?: number;
+  /**
    * Test seam: classify one rule. Production omits it and uses the real review
    * worker. Exposed so the arm's bookkeeping can be tested without a provider.
    */
@@ -44,6 +51,12 @@ export type ModelArmOptions = {
 export type ModelArmRuleResult = {
   ruleId: string;
   kind?: RuleClassificationKind;
+  /** Why the model chose this verdict. Kept for diagnosis, not scoring. */
+  rationale?: string;
+  /** Every sample's verdict, in order. Length equals `trials`. */
+  samples?: Array<RuleClassificationKind | "error">;
+  /** True when all samples agreed. Absent for a single-trial run. */
+  stable?: boolean;
   error?: string;
 };
 
@@ -64,17 +77,39 @@ export type ModelArmResult = {
   stoppedEarly: boolean;
 };
 
-/** Goal text for one rule: the worker must judge this rule, nothing else. */
+/**
+ * Goal text for one rule: the worker must judge this rule, nothing else.
+ *
+ * The verdict ladder is explicit and ordered. Without it, models treat
+ * "does not satisfy every compliant condition" as unacceptable and skip the
+ * acceptable-deviation rung entirely.
+ */
 export function buildRuleGoal(rule: ReviewRule): string {
+  const ladder = [
+    "判定顺序（必须按此顺序，命中即停）：",
+    rule.absentAllowed
+      ? "  1. 合同完全没有涉及本规则事项 → 判 absent（absent 是最终结论，不是缺陷，不要再往下判）。"
+      : "  1. 合同完全没有涉及本规则事项 → 判 unacceptable（本规则不允许缺失）。",
+    rule.unacceptable.length > 0
+      ? `  2. 命中「永不接受」任一项 → 判 unacceptable。永不接受：${rule.unacceptable.join("；")}`
+      : "  2. 无「永不接受」项。",
+    rule.acceptable.length > 0
+      ? `  3. 命中「可接受回退」任一项 → 判 acceptable_deviation（不要再因为不满足 compliant 全部条件而升到 unacceptable）。可接受回退：${rule.acceptable.join("；")}`
+      : "  3. 无「可接受回退」项。",
+    rule.compliantWhen && rule.compliantWhen.length > 0
+      ? [
+          "  4. 以下条件全部满足 → 判 compliant（规则没有要求的额外保护，不得作为降档理由）：",
+          ...rule.compliantWhen.map((item) => `     - ${item}`),
+        ].join("\n")
+      : "  4. 与标准立场一致 → 判 compliant。",
+    "  5. 以上都不成立且材料确实不足以判定 → 判 needs_human，并在理由里写明缺哪一份材料。",
+  ];
+
   return [
     `审查这条规则并给出一个判定：${rule.ruleId}（${rule.title}）。`,
     `标准立场：${rule.standard}`,
-    rule.acceptable.length > 0 ? `可接受回退：${rule.acceptable.join("；")}` : "",
-    rule.unacceptable.length > 0 ? `永不接受：${rule.unacceptable.join("；")}` : "",
+    ...ladder,
     rule.guidance ? `判定指引：${rule.guidance}` : "",
-    rule.absentAllowed
-      ? "条款缺失时判 absent 不算缺陷。"
-      : "条款缺失属于不可接受，不得判 compliant。",
     "只交回这一条规则的分类与依据，不要评价其他规则，不要改原文。",
   ]
     .filter(Boolean)
@@ -88,6 +123,18 @@ const KINDS: ReadonlySet<string> = new Set<RuleClassificationKind>([
   "absent",
   "needs_human",
 ]);
+
+/**
+ * Tie-break order for a split vote: lower wins. A rule whose samples disagree
+ * is reported at its most conservative reading, never its most flattering one.
+ */
+const CONSERVATIVE_ORDER: Record<RuleClassificationKind, number> = {
+  unacceptable: 0,
+  needs_human: 1,
+  absent: 2,
+  acceptable_deviation: 3,
+  compliant: 4,
+};
 
 function toClassification(ruleId: string, raw: unknown): RuleClassification | undefined {
   if (!raw || typeof raw !== "object") {
@@ -181,39 +228,87 @@ export async function runRuleAllPassModelArm(opts: ModelArmOptions): Promise<Mod
   const cases: ModelArmCaseResult[] = [];
   const failures: ModelArmResult["failures"] = [];
   const classify = opts.classifyRule ?? classifyOneRule;
+  const trials = Math.max(1, opts.trials ?? 1);
   let done = 0;
   let stoppedEarly = false;
+  const totalSamples = totalCalls * trials;
 
   for (const c of plannedCases) {
     const applicable = filterRulesForPaper(rules, c.paper);
     const outcomes = await mapWithConcurrency(applicable, concurrency, async (rule) => {
-      try {
-        return {
-          rule,
-          ...(await withTimeout(
+      const samples: Array<{ kind?: RuleClassificationKind; rationale?: string; error?: string }> =
+        [];
+      for (let t = 0; t < trials; t += 1) {
+        try {
+          const got = await withTimeout(
             classify({ rule, contract: c.contract, chatModel: opts.chatModel }),
             timeoutMs,
-            rule.ruleId,
-          )),
-        };
-      } catch (err) {
-        return { rule, error: err instanceof Error ? err.message : String(err) };
-      } finally {
+            `${rule.ruleId}#${t + 1}`,
+          );
+          samples.push({
+            ...(got.classification ? { kind: got.classification.kind } : {}),
+            ...(got.classification?.rationale ? { rationale: got.classification.rationale } : {}),
+            ...(got.error ? { error: got.error } : {}),
+          });
+        } catch (err) {
+          samples.push({ error: err instanceof Error ? err.message : String(err) });
+        }
         done += 1;
-        opts.onProgress?.({ caseId: c.caseId, ruleId: rule.ruleId, done, total: totalCalls });
+        opts.onProgress?.({
+          caseId: c.caseId,
+          ruleId: rule.ruleId,
+          done,
+          total: totalSamples,
+        });
       }
+
+      // Majority over successful samples. Ties break toward the more
+      // conservative verdict so an unstable rule is never reported better
+      // than its weakest sample.
+      const kinds = samples
+        .map((s) => s.kind)
+        .filter((k): k is RuleClassificationKind => Boolean(k));
+      const counts = new Map<RuleClassificationKind, number>();
+      for (const kind of kinds) {
+        counts.set(kind, (counts.get(kind) ?? 0) + 1);
+      }
+      let winner: RuleClassificationKind | undefined;
+      let best = 0;
+      for (const [kind, n] of counts) {
+        if (
+          n > best ||
+          (n === best && winner && CONSERVATIVE_ORDER[kind] < CONSERVATIVE_ORDER[winner])
+        ) {
+          winner = kind;
+          best = n;
+        }
+      }
+      const stable = kinds.length === samples.length && new Set(kinds).size === 1;
+      const firstRationale = samples.find((s) => s.rationale)?.rationale;
+      const error = samples.find((s) => s.error)?.error;
+      return { rule, winner, stable, firstRationale, error, samples };
     });
 
     const perRule: ModelArmRuleResult[] = [];
     const classifications: RuleClassification[] = [];
     for (const outcome of outcomes) {
-      if (outcome.classification) {
-        perRule.push({ ruleId: outcome.rule.ruleId, kind: outcome.classification.kind });
-        classifications.push(outcome.classification);
+      const samples = outcome.samples.map((s) => s.kind ?? ("error" as const));
+      if (outcome.winner) {
+        perRule.push({
+          ruleId: outcome.rule.ruleId,
+          kind: outcome.winner,
+          ...(outcome.firstRationale ? { rationale: outcome.firstRationale } : {}),
+          ...(trials > 1 ? { samples, stable: outcome.stable } : {}),
+        });
+        classifications.push({ ruleId: outcome.rule.ruleId, kind: outcome.winner });
         continue;
       }
       const error = outcome.error ?? "no verdict";
-      perRule.push({ ruleId: outcome.rule.ruleId, error });
+      perRule.push({
+        ruleId: outcome.rule.ruleId,
+        error,
+        ...(trials > 1 ? { samples } : {}),
+      });
       failures.push({ caseId: c.caseId, ruleId: outcome.rule.ruleId, error });
       // Auth / config errors would burn the whole budget scoring nothing.
       if (/401|403|unauthorized|api key|未配置|not configured/i.test(error)) {

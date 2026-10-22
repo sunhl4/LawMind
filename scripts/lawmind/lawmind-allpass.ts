@@ -56,6 +56,14 @@ for (let i = 0; i < argv.length; i += 1) {
   }
 }
 
+let trials = 1;
+for (let i = 0; i < argv.length; i += 1) {
+  if (argv[i] === "--trials" && argv[i + 1]) {
+    trials = Math.max(1, Number.parseInt(argv[i + 1], 10) || 1);
+    i += 1;
+  }
+}
+
 let concurrency = 3;
 for (let i = 0; i < argv.length; i += 1) {
   if (argv[i] === "--concurrency" && argv[i + 1]) {
@@ -241,6 +249,7 @@ const modelRun = await runRuleAllPassModelArm({
   cases: loaded.cases,
   chatModel: resolved.config,
   concurrency,
+  trials,
   ...(maxCases > 0 ? { maxCases } : {}),
   onProgress: (event) => {
     if (!jsonOut) {
@@ -275,6 +284,7 @@ finish(
       totalCalls: modelRun.totalCalls,
       stoppedEarly: modelRun.stoppedEarly,
       elapsedMs: Date.now() - armStart,
+      trials,
       failures: modelRun.failures,
       perCase: modelRun.cases.map((c) => ({
         caseId: c.caseId,

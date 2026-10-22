@@ -324,13 +324,22 @@ export type RuleAllPassModelArmSummary = {
   totalCalls: number;
   stoppedEarly: boolean;
   elapsedMs: number;
+  /** Independent samples per rule. 1 means no stability information. */
+  trials?: number;
   failures: Array<{ caseId: string; ruleId: string; error: string }>;
   perCase: Array<{
     caseId: string;
     pass: boolean;
     missing: string[];
     mismatches: Array<{ ruleId: string; expected: string; actual: string }>;
-    perRule: Array<{ ruleId: string; kind?: string; error?: string }>;
+    perRule: Array<{
+      ruleId: string;
+      kind?: string;
+      rationale?: string;
+      samples?: string[];
+      stable?: boolean;
+      error?: string;
+    }>;
   }>;
 };
 
@@ -409,6 +418,7 @@ export function buildRuleAllPassReportMarkdown(report: RuleAllPassReport): strin
       `- 调用次数：${m.totalCalls}`,
       `- 耗时：${(m.elapsedMs / 1000).toFixed(1)}s`,
       `- 提前中止：${m.stoppedEarly ? "是（配置/鉴权错误）" : "否"}`,
+      `- 每规则采样：${m.trials ?? 1} 次${(m.trials ?? 1) > 1 ? "（取多数；平票取更保守的一档）" : "（单次采样，不含稳定性信息）"}`,
       "",
       "> 夹具是**合成**的：此分数衡量「流程能否驱动模型按规则结构判定」，",
       "> **不能**作为真实合同上的准确性证据对外引用。",
@@ -419,6 +429,19 @@ export function buildRuleAllPassReportMarkdown(report: RuleAllPassReport): strin
         lines.push(`- ${f.caseId} / ${f.ruleId}：${f.error}`);
       }
     }
+    const unstable = m.perCase.flatMap((c) =>
+      c.perRule.filter((r) => r.stable === false).map((r) => `${c.caseId}/${r.ruleId}`),
+    );
+    if (unstable.length > 0) {
+      lines.push(
+        "",
+        `### 采样不一致（${unstable.length} 条规则）`,
+        "",
+        "> 同一规则多次采样给出不同判定。这些数字不能当稳定结论引用。",
+        "",
+        ...unstable.map((x) => `- ${x}`),
+      );
+    }
     const failedCases = m.perCase.filter((c) => !c.pass);
     if (failedCases.length > 0) {
       lines.push("", "### 未通过用例", "");
@@ -427,6 +450,13 @@ export function buildRuleAllPassReportMarkdown(report: RuleAllPassReport): strin
           .map((x) => `${x.ruleId}（期望 ${x.expected}，实得 ${x.actual}）`)
           .join("；");
         lines.push(`- ${c.caseId}：漏判 ${c.missing.join("、") || "—"}；错判 ${mismatches || "—"}`);
+        // Rationale for the rules that disagreed with the fixture.
+        for (const m2 of c.mismatches) {
+          const detail = c.perRule.find((r) => r.ruleId === m2.ruleId);
+          if (detail?.rationale) {
+            lines.push(`  - 模型理由（${m2.ruleId}）：${detail.rationale}`);
+          }
+        }
       }
     }
   }
