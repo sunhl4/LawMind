@@ -13,6 +13,11 @@ vi.mock("./render-docx.js", () => ({
   renderDocxWithOptions: vi.fn(async () => ({ ok: true, outputPath: "/tmp/out.docx" })),
 }));
 
+// 只测落改逻辑：officecli 定位不得依赖本机是否装了二进制 / vendor 布局是否存在。
+// 桩路径必须是真实存在的可执行文件——safe-command 的 resolveCommandPath 会做 existsSync 校验，
+// 且 `node:child_process` 已被 mock，不会真的执行它。
+vi.mock("./officecli-bin.js", () => ({ resolveOfficeCliBin: () => process.execPath }));
+
 const spawnState = vi.hoisted(() => ({
   /** When true, `set` exits 0 with matched>0; otherwise exit 1. */
   setSucceeds: false,
