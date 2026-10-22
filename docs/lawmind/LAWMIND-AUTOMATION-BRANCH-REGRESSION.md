@@ -69,10 +69,11 @@
 
 新增断言：
 
-- `turn-orchestrator-cassettes.test.ts`：flag 关 —— `draft_worker` 无 `rule_id`、无 `finalize_rule_review`；flag 开 —— 两者都在。这是「关 = 逐字节一致」的机器证据。
-- `finalize-rule-review-tool.test.ts`：漏规则返回 `rule_review_incomplete` + `missingRuleIds`；全分类才 `coverageComplete: true`；未知 playbook 不回落到默认；纸别外的判定不算覆盖。
+- `turn-orchestrator-cassettes.test.ts`（5 条）：flag 关 —— `draft_worker` 无 `rule_id`、无 `finalize_rule_review`；flag 开 —— 两者都在；六条规则派完 → `finalize_rule_review` 返回 `coverageComplete`、`ruleCount=6`、`conflictCount=0`；只派两条 → `ok:false` + `rule_review_incomplete` + 恰好 4 条 missing 且不含已派的两条；同一句两规则给不同改法 → `conflictCount=1` 且并列列出，不替你择一。这是「关 = 逐字节一致」与「漏规则不得声称完成」的机器证据。
+- `finalize-rule-review-tool.test.ts`（13 条）：漏规则返回 `rule_review_incomplete` + `missingRuleIds`；全分类才 `coverageComplete: true`；同句异值报 `same_anchor_different_text`；同句同值不报冲突；`base_version` 只做留痕回显（不声称合并）；未知 playbook 不回落到默认；纸别外的判定不算覆盖。
 - `review/bridge.test.ts`：缺 `ruleId` / 计划外 / 重复 / 缺分类都进 `invalid`，引擎不补默认值。
 - `agent/factor-state.test.ts`：同句多改不再取第一条（B2 回归）。
+- `evaluation/rule-allpass.test.ts`：漏判、错判、越界、重复判定、夹具覆盖不完备、非法期望值、正文过短、SKIP/validate 报告不得出现准确率。
 
 ### 未随本轮验证（诚实标注）
 

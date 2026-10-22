@@ -4,13 +4,18 @@ import { filterRulesForPaper } from "../../../review/rules.js";
 import { emptyFactorState, ingestToolResult } from "../../factor-state.js";
 import type { AgentTool } from "../../types.js";
 import {
+  collectRulePatchConflicts,
   FINALIZE_RULE_REVIEW_TOOL_NAME,
   finalizeRuleReviewTool,
 } from "./finalize-rule-review-tool.js";
 
 type Ctx = Parameters<AgentTool["execute"]>[1];
 
-function ctxWith(records: Array<{ ruleId: string; kind: string }>, workspaceDir = "/tmp/lm-final") {
+function ctxWith(
+  records: Array<{ ruleId: string; kind: string }>,
+  patches: Array<{ find: string; replace: string; span?: string; ruleId?: string }> = [],
+  workspaceDir = "/tmp/lm-final",
+) {
   const factorState = emptyFactorState();
   for (const record of records) {
     ingestToolResult(factorState, "draft_worker", {
@@ -18,10 +23,14 @@ function ctxWith(records: Array<{ ruleId: string; kind: string }>, workspaceDir 
       classification: { kind: record.kind, rationale: "测试" },
     });
   }
+  if (patches.length > 0) {
+    ingestToolResult(factorState, "draft_worker", { patches });
+  }
   return { factorState, workspaceDir } as unknown as Ctx;
 }
 
 const counterpartyRules = filterRulesForPaper(CN_SALES_RULES, "counterparty");
+const SPAN = "甲方应在三十日内支付违约金。";
 
 afterEach(() => {
   delete process.env.LAWMIND_RULE_BRANCH_WRITE;
@@ -52,9 +61,91 @@ describe("finalize_rule_review", () => {
       ctxWith(counterpartyRules.map((r) => ({ ruleId: r.ruleId, kind: "compliant" }))),
     );
     expect(result.ok).toBe(true);
-    const data = result.data as { coverageComplete: boolean; ruleCount: number };
+    const data = result.data as {
+      coverageComplete: boolean;
+      ruleCount: number;
+      conflictCount: number;
+      ruleConflicts: unknown[];
+    };
     expect(data.coverageComplete).toBe(true);
     expect(data.ruleCount).toBe(counterpartyRules.length);
+    expect(data.conflictCount).toBe(0);
+    expect(data.ruleConflicts).toEqual([]);
+  });
+
+  it("surfaces same-sentence disagreement between two rules before any write", async () => {
+    const result = await finalizeRuleReviewTool.execute(
+      { playbook_id: "cn-sales-v0", paper: "counterparty" },
+      ctxWith(
+        counterpartyRules.map((r) => ({ ruleId: r.ruleId, kind: "acceptable_deviation" })),
+        [
+          {
+            find: "三十日",
+            replace: "六十日",
+            span: SPAN,
+            ruleId: "payment.acceptance.counterparty",
+          },
+          {
+            find: "三十日",
+            replace: "十五日",
+            span: SPAN,
+            ruleId: "termination.symmetry.counterparty",
+          },
+        ],
+      ),
+    );
+    expect(result.ok).toBe(true);
+    const data = result.data as {
+      conflictCount: number;
+      ruleConflicts: Array<{
+        find: string;
+        reason: string;
+        candidates: Array<{ ruleId?: string; replace: string }>;
+      }>;
+      message: string;
+    };
+    expect(data.conflictCount).toBe(1);
+    expect(data.ruleConflicts[0]?.find).toBe("三十日");
+    expect(data.ruleConflicts[0]?.reason).toBe("same_anchor_different_text");
+    const byLocale = (a: string, b: string) => a.localeCompare(b);
+    expect(data.ruleConflicts[0]?.candidates.map((c) => c.ruleId ?? "").toSorted(byLocale)).toEqual(
+      ["payment.acceptance.counterparty", "termination.symmetry.counterparty"].toSorted(byLocale),
+    );
+    expect(data.message).toContain("请先定夺");
+  });
+
+  it("does not flag a conflict when two rules agree on the same text", async () => {
+    const result = await finalizeRuleReviewTool.execute(
+      { playbook_id: "cn-sales-v0", paper: "counterparty" },
+      ctxWith(
+        counterpartyRules.map((r) => ({ ruleId: r.ruleId, kind: "compliant" })),
+        [
+          {
+            find: "三十日",
+            replace: "六十日",
+            span: SPAN,
+            ruleId: "payment.acceptance.counterparty",
+          },
+          {
+            find: "三十日",
+            replace: "六十日",
+            span: SPAN,
+            ruleId: "termination.symmetry.counterparty",
+          },
+        ],
+      ),
+    );
+    expect(result.ok).toBe(true);
+    expect((result.data as { conflictCount: number }).conflictCount).toBe(0);
+  });
+
+  it("echoes base_version for traceability without claiming a merge", async () => {
+    const result = await finalizeRuleReviewTool.execute(
+      { playbook_id: "cn-sales-v0", paper: "counterparty", base_version: "sha256:abc" },
+      ctxWith(counterpartyRules.map((r) => ({ ruleId: r.ruleId, kind: "compliant" }))),
+    );
+    expect(result.ok).toBe(true);
+    expect((result.data as { baseVersion: string }).baseVersion).toBe("sha256:abc");
   });
 
   it("rejects an unknown playbook instead of falling back to a default", async () => {
@@ -87,5 +178,47 @@ describe("finalize_rule_review", () => {
   it("is not a write tool (no file writes, no approval gate)", () => {
     expect(finalizeRuleReviewTool.definition.category).toBe("draft");
     expect(finalizeRuleReviewTool.definition.riskLevel).toBe("low");
+  });
+});
+
+describe("collectRulePatchConflicts", () => {
+  it("returns nothing for disjoint finds", () => {
+    expect(
+      collectRulePatchConflicts([
+        { find: "三十日", replace: "六十日", ruleId: "a" },
+        { find: "乙方", replace: "卖方", ruleId: "b" },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("deduplicates identical replacements from different rules", () => {
+    expect(
+      collectRulePatchConflicts([
+        { find: "三十日", replace: "六十日", ruleId: "a" },
+        { find: "三十日", replace: "六十日", ruleId: "b" },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("reports every distinct replacement, preserving rule ids", () => {
+    const conflicts = collectRulePatchConflicts([
+      { find: "三十日", replace: "六十日", ruleId: "a" },
+      { find: "三十日", replace: "十五日", ruleId: "b" },
+      { find: "三十日", replace: "九十日", ruleId: "c" },
+    ]);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]?.candidates).toHaveLength(3);
+    expect(
+      conflicts[0]?.candidates.map((c) => c.ruleId).toSorted((a, b) => a.localeCompare(b)),
+    ).toEqual(["a", "b", "c"]);
+  });
+
+  it("ignores blank find values", () => {
+    expect(
+      collectRulePatchConflicts([
+        { find: "  ", replace: "六十日", ruleId: "a" },
+        { find: "", replace: "十五日", ruleId: "b" },
+      ]),
+    ).toEqual([]);
   });
 });

@@ -5142,6 +5142,40 @@ describe("rule-level review admission (LAWMIND_RULE_BRANCH_WRITE)", () => {
     }
   }
 
+  const COUNTERPARTY_RULES = [
+    "liability.cap.counterparty",
+    "dispute.forum.counterparty",
+    "termination.symmetry.counterparty",
+    "ip.data.counterparty",
+    "payment.acceptance.counterparty",
+    "confidentiality.noncompete.counterparty",
+  ] as const;
+
+  function ruleWorkerCall(ruleId: string, patches?: Array<Record<string, string>>) {
+    return {
+      name: "draft_worker",
+      arguments: {
+        goal: `审查这条规则：${ruleId}`,
+        role: "review",
+        section: ruleId,
+        rule_id: ruleId,
+        ...(patches ? { patches } : {}),
+      },
+    };
+  }
+
+  function finalizeResult(result: { turn: { messages: AgentMessage[] } }) {
+    const hit = result.turn.messages
+      .flatMap((m) => m.toolCallResponses ?? [])
+      .find((r) => r.name === "finalize_rule_review");
+    return hit as
+      | {
+          ok: boolean;
+          result?: { ok?: boolean; data?: Record<string, unknown> };
+        }
+      | undefined;
+  }
+
   it("flag off: draft_worker advertises no rule_id and finalize_rule_review is absent", async () => {
     await withFlag(undefined, async () => {
       await withTestLawMind(
@@ -5170,6 +5204,159 @@ describe("rule-level review admission (LAWMIND_RULE_BRANCH_WRITE)", () => {
           expect(tools).toContain("finalize_rule_review");
           expect(h.request(0).rawBody).toContain('"rule_id"');
           expect(h.request(0).rawBody).toContain("finalize_rule_review");
+        },
+      );
+    });
+  });
+
+  it("flag on: six rules dispatched then finalize reports complete coverage", async () => {
+    await withFlag("1", async () => {
+      await withTestLawMind(
+        (b) =>
+          b.withLegalTools().withToolExecute("draft_worker", async (args) => {
+            const ruleId = typeof args.rule_id === "string" ? args.rule_id : "";
+            return {
+              ok: true,
+              data: {
+                role: "draft-worker",
+                taskRole: "review",
+                section: ruleId,
+                draft: `规则 ${ruleId} 的审查依据说明。`,
+                conclusion: "已审",
+                citations: [],
+                gaps: [],
+                ruleId,
+                classification: { kind: "compliant", rationale: "与标准立场一致" },
+              },
+            };
+          }),
+        async (h) => {
+          h.enqueue(
+            cassetteToolCalls(COUNTERPARTY_RULES.map((ruleId) => ruleWorkerCall(ruleId))),
+            cassetteToolCall("finalize_rule_review", {
+              playbook_id: "cn-sales-v0",
+              paper: "counterparty",
+            }),
+            cassetteAssistant("六条规则已收口。"),
+          );
+          const result = await h.runTurn("按对方纸规则级审查这份合同。");
+          expect(result.turn.status).toBe("completed");
+          const hit = finalizeResult(result);
+          expect(hit?.result?.ok).toBe(true);
+          const data = hit?.result?.data as {
+            coverageComplete: boolean;
+            ruleCount: number;
+            conflictCount: number;
+          };
+          expect(data.coverageComplete).toBe(true);
+          expect(data.ruleCount).toBe(COUNTERPARTY_RULES.length);
+          expect(data.conflictCount).toBe(0);
+        },
+      );
+    });
+  });
+
+  it("flag on: finalize refuses when a planned rule never got a verdict", async () => {
+    await withFlag("1", async () => {
+      await withTestLawMind(
+        (b) =>
+          b.withLegalTools().withToolExecute("draft_worker", async (args) => {
+            const ruleId = typeof args.rule_id === "string" ? args.rule_id : "";
+            return {
+              ok: true,
+              data: {
+                role: "draft-worker",
+                taskRole: "review",
+                section: ruleId,
+                draft: `规则 ${ruleId} 的审查依据说明。`,
+                conclusion: "已审",
+                citations: [],
+                gaps: [],
+                ruleId,
+                classification: { kind: "unacceptable", rationale: "触碰底线" },
+              },
+            };
+          }),
+        async (h) => {
+          // Only two of six rules are dispatched.
+          h.enqueue(
+            cassetteToolCalls([
+              ruleWorkerCall("liability.cap.counterparty"),
+              ruleWorkerCall("dispute.forum.counterparty"),
+            ]),
+            cassetteToolCall("finalize_rule_review", {
+              playbook_id: "cn-sales-v0",
+              paper: "counterparty",
+            }),
+            cassetteAssistant("还差四条。"),
+          );
+          const result = await h.runTurn("先看责任上限和管辖，再收口。");
+          const hit = finalizeResult(result);
+          expect(hit?.result?.ok).toBe(false);
+          const data = hit?.result?.data as {
+            code: string;
+            missingRuleIds: string[];
+            conflictCount: number;
+          };
+          expect(data.code).toBe("rule_review_incomplete");
+          expect(data.missingRuleIds).toHaveLength(COUNTERPARTY_RULES.length - 2);
+          expect(data.missingRuleIds).not.toContain("liability.cap.counterparty");
+          expect(data.missingRuleIds).not.toContain("dispute.forum.counterparty");
+          expect(data.missingRuleIds).toContain("payment.acceptance.counterparty");
+        },
+      );
+    });
+  });
+
+  it("flag on: finalize surfaces a same-sentence disagreement without writing", async () => {
+    await withFlag("1", async () => {
+      await withTestLawMind(
+        (b) =>
+          b.withLegalTools().withToolExecute("draft_worker", async (args) => {
+            const ruleId = typeof args.rule_id === "string" ? args.rule_id : "";
+            const replace = ruleId.startsWith("payment.") ? "六十日" : "十五日";
+            return {
+              ok: true,
+              data: {
+                role: "draft-worker",
+                taskRole: "review",
+                section: ruleId,
+                draft: `规则 ${ruleId} 的审查依据说明。`,
+                conclusion: "已审",
+                citations: [],
+                gaps: [],
+                ruleId,
+                classification: { kind: "acceptable_deviation", rationale: "可接受回退" },
+                patches: [
+                  {
+                    find: "三十日",
+                    replace,
+                    span: "甲方应在三十日内支付违约金",
+                    ruleId,
+                  },
+                ],
+              },
+            };
+          }),
+        async (h) => {
+          h.enqueue(
+            cassetteToolCalls(COUNTERPARTY_RULES.map((ruleId) => ruleWorkerCall(ruleId))),
+            cassetteToolCall("finalize_rule_review", {
+              playbook_id: "cn-sales-v0",
+              paper: "counterparty",
+            }),
+            cassetteAssistant("有一处需要你定夺。"),
+          );
+          const result = await h.runTurn("按对方纸规则级审查这份合同。");
+          const hit = finalizeResult(result);
+          expect(hit?.result?.ok).toBe(true);
+          const data = hit?.result?.data as {
+            conflictCount: number;
+            ruleConflicts: Array<{ find: string; candidates: Array<{ replace: string }> }>;
+          };
+          expect(data.conflictCount).toBe(1);
+          expect(data.ruleConflicts[0]?.find).toBe("三十日");
+          expect(data.ruleConflicts[0]?.candidates).toHaveLength(2);
         },
       );
     });
