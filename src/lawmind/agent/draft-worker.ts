@@ -99,13 +99,71 @@ export type DraftWorkerInput = {
   followUp?: string;
   /** Codex agent type. Parent sets this the way Cursor sets subagent_type. */
   role?: "review" | "draft" | "explore";
+  /** Playbook rule this worker owns (rule-level review only). */
+  ruleId?: string;
 };
+
+/**
+ * Rule verdict a review worker returns for its own rule.
+ *
+ * `kind` mirrors `review/rules.ts` `RuleClassificationKind`; it is declared
+ * locally so the worker payload stays a leaf type. Unknown kinds are dropped at
+ * parse time — the engine never invents a verdict for a rule.
+ */
+export type WorkerRuleClassificationKind =
+  | "compliant"
+  | "acceptable_deviation"
+  | "unacceptable"
+  | "absent"
+  | "needs_human";
+
+export type WorkerRuleClassification = {
+  kind: WorkerRuleClassificationKind;
+  rationale?: string;
+  /** Chosen fallback text when kind is acceptable_deviation. */
+  position?: string;
+  risk?: "high" | "medium" | "low";
+  evidence?: string[];
+};
+
+const WORKER_CLASSIFICATION_KINDS: readonly WorkerRuleClassificationKind[] = new Set([
+  "compliant",
+  "acceptable_deviation",
+  "unacceptable",
+  "absent",
+  "needs_human",
+]);
+
+function parseRuleClassification(raw: unknown): WorkerRuleClassification | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const o = raw as Record<string, unknown>;
+  const kind = typeof o.kind === "string" ? o.kind.trim() : "";
+  if (!WORKER_CLASSIFICATION_KINDS.has(kind as WorkerRuleClassificationKind)) {
+    return undefined;
+  }
+  const rationale = typeof o.rationale === "string" ? o.rationale.trim() : "";
+  const position = typeof o.position === "string" ? o.position.trim() : "";
+  const riskRaw = typeof o.risk === "string" ? o.risk.trim() : "";
+  const risk =
+    riskRaw === "high" || riskRaw === "medium" || riskRaw === "low" ? riskRaw : undefined;
+  const evidence = stringList(o.evidence);
+  return {
+    kind: kind as WorkerRuleClassificationKind,
+    ...(rationale ? { rationale } : {}),
+    ...(position ? { position } : {}),
+    ...(risk ? { risk } : {}),
+    ...(evidence.length > 0 ? { evidence } : {}),
+  };
+}
 
 export type DraftWorkerModelPayload = {
   draft: string;
   citations: string[];
   gaps: string[];
   conclusion?: string;
+  classification?: WorkerRuleClassification;
   patches?: Array<{
     find: string;
     replace: string;
@@ -188,6 +246,9 @@ export type DraftWorkerOutput =
           anchor?: string;
           ruleId?: string;
         }>;
+        /** Present only for rule-level review workers. */
+        ruleId?: string;
+        classification?: WorkerRuleClassification;
       };
     }
   | {
@@ -306,11 +367,13 @@ export function parseDraftWorkerModelText(raw: string): DraftWorkerModelPayload 
   if (rec) {
     const draft = typeof rec.draft === "string" ? rec.draft.trim() : "";
     if (draft.length >= MIN_DRAFT_CHARS) {
+      const classification = parseRuleClassification(rec.classification);
       return {
         draft,
         citations: stringList(rec.citations),
         gaps: stringList(rec.gaps),
         conclusion: oneLine(rec.conclusion),
+        ...(classification ? { classification } : {}),
         patches: parsePatches(rec.patches),
       };
     }
@@ -574,10 +637,15 @@ function buildDraftUserPrompt(
   const skeleton = selectSkeleton({
     revisingDocument: Boolean(input.path?.trim() || input.materials?.trim()),
   });
+  const ruleId = (input.ruleId ?? "").trim();
+  const classificationSchema = ruleId
+    ? `, "classification": { "kind": "compliant | acceptable_deviation | unacceptable | absent | needs_human", "rationale": "一句理由", "position": "选定的回退立场（仅 acceptable_deviation）", "risk": "high | medium | low", "evidence": ["材料原句"] }`
+    : "";
   return [
     skeleton.header ?? "",
     ask,
-    `JSON schema: { "draft": "string", "conclusion": "一句结论", "citations": ["材料出处"], "gaps": ["待补缺口"], "patches": [{ "find": "原句", "replace": "改后句", "span": "材料原句", "anchor": "clause:…", "ruleId": "可选：这条补丁对应的规则 id" }] }`,
+    ruleId ? `本次只审这一条规则：${ruleId}。classification.kind 必填。` : "",
+    `JSON schema: { "draft": "string", "conclusion": "一句结论", "citations": ["材料出处"], "gaps": ["待补缺口"]${classificationSchema}, "patches": [{ "find": "原句", "replace": "改后句", "span": "材料原句", "anchor": "clause:…", "ruleId": "可选：这条补丁对应的规则 id" }] }`,
     "",
     brief,
     `章节：${section}`,
@@ -857,6 +925,7 @@ export async function runDraftWorker(
       ),
       isolationKey(ctx?.workspaceDir ?? "", ctx?.sessionId || "draft-worker"),
       review ? "review" : "draft",
+      input.ruleId?.trim() || undefined,
     );
   }
 
@@ -995,6 +1064,7 @@ function successResult(
   workerId?: string,
   sessionKey?: string,
   taskRole: "review" | "draft" = "draft",
+  ruleId?: string,
 ): DraftWorkerOutput {
   const grounded = groundDraftCitations(parsed.citations, `${loaded.text}\n${extraGrounding}`);
   const gaps = [...parsed.gaps];
@@ -1028,6 +1098,8 @@ function successResult(
       toolsUsed,
       steps,
       ...(parsed.patches && parsed.patches.length > 0 ? { patches: parsed.patches } : {}),
+      ...(ruleId ? { ruleId } : {}),
+      ...(parsed.classification ? { classification: parsed.classification } : {}),
     },
   };
 }
@@ -1205,6 +1277,7 @@ async function resumeDraftWorker(
     saved?.id ?? prior.id,
     isolationKey(workspaceDir, sessionId),
     review ? "review" : "draft",
+    input.ruleId?.trim() || undefined,
   );
 }
 

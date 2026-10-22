@@ -53,3 +53,28 @@
 
 1. 关开关 `LAWMIND_RULE_BRANCH_WRITE`（或删掉该 env）；
 2. 若已合 main 且出现问题：revert 本分支 runtime 提交即可，`review/` 与 `branch.ts` 无数据格式迁移，无持久化 schema 变更。
+
+---
+
+## 7. 本轮实测（2026-10-22，`feat/automation-parity`）
+
+环境：worktree `../LawMind-automation`；根 `node_modules` 与 `apps/*/node_modules` 软链到主检出；本地生成 `.gitignore` 内的 `sandbox-runtime.js`（`apps/lawmind-desktop/scripts/build-canvas-sandbox.mjs`）。
+
+| 检查     | 命令                                      | 结果                                                                       |
+| -------- | ----------------------------------------- | -------------------------------------------------------------------------- |
+| 引擎类型 | `npx tsc --noEmit -p tsconfig.json`       | 无错                                                                       |
+| 全量测试 | `pnpm test`                               | 1107 passed / 2 skipped（1109 文件）；8041 passed / 5 skipped（8046 用例） |
+| 桌面类型 | `pnpm --filter lawmind-desktop typecheck` | 无错                                                                       |
+| 编译门禁 | `pnpm lawmind:compiler-gate`              | pass（rules=74 shadows=12 plantedRecall=1）                                |
+
+新增断言：
+
+- `turn-orchestrator-cassettes.test.ts`：flag 关 —— `draft_worker` 无 `rule_id`、无 `finalize_rule_review`；flag 开 —— 两者都在。这是「关 = 逐字节一致」的机器证据。
+- `finalize-rule-review-tool.test.ts`：漏规则返回 `rule_review_incomplete` + `missingRuleIds`；全分类才 `coverageComplete: true`；未知 playbook 不回落到默认；纸别外的判定不算覆盖。
+- `review/bridge.test.ts`：缺 `ruleId` / 计划外 / 重复 / 缺分类都进 `invalid`，引擎不补默认值。
+- `agent/factor-state.test.ts`：同句多改不再取第一条（B2 回归）。
+
+### 未随本轮验证（诚实标注）
+
+- 真机 Word 侧载与桌面 5 分钟手工回归（§2）尚未执行——需人机交互，留待合 main 前由工程师按清单走一遍。
+- `fixtures/lawmind-allpass/` 20 份夹具与 `pnpm lawmind:allpass` CLI 不在本轮范围。

@@ -76,10 +76,10 @@ LawMind **不把可审计当作产品价值、法律质量证明或用户信任�
 - [x] **A2 规则对象**：`src/lawmind/review/` — `ReviewRule` / `planRuleReview` / 覆盖检查 / 12 条 v0（来自 `contract-playbook-review` 底线项 × 纸别）
 - [x] **A3 编辑分支合并**：`drafts/branch.ts`（`EditOp` / `mergeBranches` / conflict never auto-resolved）+ `drafts/span-id.ts`；11 条合并测试
 - [x] **A4 worker 分支写（编排层）**：`review/execute.ts`；`LAWMIND_RULE_BRANCH_WRITE=1` 默认关；关时返回 `enabled:false`、无 merge、不因覆盖不全抛错；worker 写工具白名单硬拒
-- [ ] **A4b worker 侧 JSON 分类契约 + `runDraftWorker` 桥接**：须先补 cassette，未接线前不默认调用
+- [x] **A4b worker JSON 分类契约 + 桥接**：`WorkerPatch.ruleId` / `WorkerRuleClassification`（五态，非法即丢）；`createDraftWorkerTool({ ruleLevel })` 条件广告 `rule_id`；`review/bridge.ts` 收集与校验；`finalize_rule_review` 只做覆盖与冲突裁决、不写盘；flag 关时工具表与今日逐字节一致（cassette 双向断言）
 - [x] **A5 all-pass**：`evaluation/all-pass.ts` + `BaselineCriterion.mustPass`（缺省 false，旧 rubric 不变）
 - [x] **A6 guardrails**：`review/runner.ts` — 并发上限 / 单规则超时 / 只重试受影响规则 / 流式 `rule_finished` / abort
-- [ ] **A7 合 main 门槛**：清单 [docs/lawmind/LAWMIND-AUTOMATION-BRANCH-REGRESSION.md](docs/lawmind/LAWMIND-AUTOMATION-BRANCH-REGRESSION.md)；全量 `pnpm test` 与桌面 typecheck 待跑
+- [x] **A7 合 main 门槛（工程侧）**：`pnpm test` 8041 passed、双端 typecheck、`lawmind:compiler-gate` 全绿；清单见 [docs/lawmind/LAWMIND-AUTOMATION-BRANCH-REGRESSION.md](docs/lawmind/LAWMIND-AUTOMATION-BRANCH-REGRESSION.md) §7。**仍待人机项**：真机 Word 侧载 + 日常助手 5 分钟手工回归
 
 ### 第十九期 · LawMind Bench（中国律师自建评测 · 独立仓库 · 2026-10-08）
 

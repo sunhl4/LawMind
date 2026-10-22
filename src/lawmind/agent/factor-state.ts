@@ -126,6 +126,12 @@ export type FactorState = {
   /** Worker patches that passed span checks. Surgical apply uses these on matching finds. */
   pendingPatches?: WorkerPatch[];
   /**
+   * Rule verdicts returned by review workers (rule-level review only).
+   * Stored raw so the finalizer can decide coverage; the engine never fills a
+   * missing verdict in.
+   */
+  ruleClassifications?: RuleClassificationRecord[];
+  /**
    * Same-`find` patches that disagreed on `replace` during the last reconcile.
    * Reported, never auto-resolved: the engine does not pick a winner between
    * two rules that want different text at the same spot.
@@ -157,6 +163,24 @@ export type WorkerPatch = {
   span?: string;
   /** Playbook rule that produced this patch (rule-level review only). */
   ruleId?: string;
+};
+
+/**
+ * Worker verdict for one rule, stored verbatim. `kind` is a plain string here
+ * so this leaf module does not depend on the review layer; the finalizer
+ * validates it against the five legal kinds.
+ */
+export type RuleClassificationRecord = {
+  ruleId: string;
+  agentId?: string;
+  section?: string;
+  classification: {
+    kind: string;
+    rationale?: string;
+    position?: string;
+    risk?: string;
+    evidence?: string[];
+  };
 };
 
 export type SyndromeHit = {
@@ -200,6 +224,7 @@ export function emptyFactorState(): FactorState {
     demoSpanIds: [],
     pendingPatches: [],
     patchConflicts: [],
+    ruleClassifications: [],
   };
 }
 
@@ -1289,6 +1314,13 @@ export function reconcileSurgicalEditsWithPatches(
 /** Conflicts recorded by the most recent reconcile pass. */
 export function readPatchConflicts(state: FactorState | undefined): WorkerPatchConflict[] {
   return state?.patchConflicts ?? [];
+}
+
+/** Rule verdicts collected this turn (rule-level review only). */
+export function readRuleClassifications(
+  state: FactorState | undefined,
+): RuleClassificationRecord[] {
+  return state?.ruleClassifications ?? [];
 }
 
 export function mapEditsToFactorAnchors(state: FactorState | undefined, edits: unknown): string[] {
@@ -2529,6 +2561,37 @@ function ingestWorkerRecord(state: FactorState, record: Record<string, unknown>)
   const anchor = typeof record.anchor === "string" ? record.anchor.trim() : "";
   const outcomeId = typeof record.outcomeId === "string" ? record.outcomeId.trim() : "";
   const span = typeof record.span === "string" ? record.span.trim() : "";
+  const recordRuleId = typeof record.ruleId === "string" ? record.ruleId.trim() : "";
+  const rawClassification = record.classification;
+  if (recordRuleId && rawClassification && typeof rawClassification === "object") {
+    const c = rawClassification as Record<string, unknown>;
+    const kind = typeof c.kind === "string" ? c.kind.trim() : "";
+    if (kind) {
+      state.ruleClassifications = state.ruleClassifications ?? [];
+      const agentId = typeof record.workerId === "string" ? record.workerId.trim() : "";
+      const section = typeof record.section === "string" ? record.section.trim() : "";
+      const rationale = typeof c.rationale === "string" ? c.rationale.trim() : "";
+      const position = typeof c.position === "string" ? c.position.trim() : "";
+      const risk = typeof c.risk === "string" ? c.risk.trim() : "";
+      const evidence = Array.isArray(c.evidence)
+        ? c.evidence
+            .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+            .map((item) => item.trim())
+        : [];
+      state.ruleClassifications.push({
+        ruleId: recordRuleId,
+        ...(agentId ? { agentId } : {}),
+        ...(section ? { section } : {}),
+        classification: {
+          kind,
+          ...(rationale ? { rationale } : {}),
+          ...(position ? { position } : {}),
+          ...(risk ? { risk } : {}),
+          ...(evidence.length > 0 ? { evidence } : {}),
+        },
+      });
+    }
+  }
   const grounded = outcomeId.length > 0 && spanAttestsOutcome(span, outcomeId);
   if (anchor && outcomeId) {
     recordReading(state, anchor, "clause", outcomeId, grounded, span);

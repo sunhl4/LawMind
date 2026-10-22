@@ -5120,3 +5120,58 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 });
+
+describe("rule-level review admission (LAWMIND_RULE_BRANCH_WRITE)", () => {
+  const FLAG = "LAWMIND_RULE_BRANCH_WRITE";
+
+  async function withFlag<T>(value: string | undefined, fn: () => Promise<T>): Promise<T> {
+    const prev = process.env[FLAG];
+    if (value === undefined) {
+      delete process.env[FLAG];
+    } else {
+      process.env[FLAG] = value;
+    }
+    try {
+      return await fn();
+    } finally {
+      if (prev === undefined) {
+        delete process.env[FLAG];
+      } else {
+        process.env[FLAG] = prev;
+      }
+    }
+  }
+
+  it("flag off: draft_worker advertises no rule_id and finalize_rule_review is absent", async () => {
+    await withFlag(undefined, async () => {
+      await withTestLawMind(
+        (b) => b.withLegalTools(),
+        async (h) => {
+          h.enqueue(cassetteAssistant("好的。"));
+          await h.runTurn("这份合同的违约金条款怎么看？");
+          const tools = h.request(0).advertisedToolNames();
+          expect(tools).toContain("draft_worker");
+          expect(tools).not.toContain("finalize_rule_review");
+          expect(h.request(0).rawBody).not.toContain('"rule_id"');
+        },
+      );
+    });
+  });
+
+  it("flag on: rule_id and finalize_rule_review are advertised", async () => {
+    await withFlag("1", async () => {
+      await withTestLawMind(
+        (b) => b.withLegalTools(),
+        async (h) => {
+          h.enqueue(cassetteAssistant("好的。"));
+          await h.runTurn("这份合同的违约金条款怎么看？");
+          const tools = h.request(0).advertisedToolNames();
+          expect(tools).toContain("draft_worker");
+          expect(tools).toContain("finalize_rule_review");
+          expect(h.request(0).rawBody).toContain('"rule_id"');
+          expect(h.request(0).rawBody).toContain("finalize_rule_review");
+        },
+      );
+    });
+  });
+});

@@ -35,3 +35,8 @@ export {
   type RuleRunOptions,
   type RuleRunResult,
 } from "./runner.js";
+export {
+  collectRuleOutputs,
+  type CollectRuleOutputsResult,
+  type RuleWorkerResult,
+} from "./bridge.js";
