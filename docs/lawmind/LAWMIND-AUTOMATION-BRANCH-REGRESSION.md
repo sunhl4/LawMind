@@ -110,7 +110,19 @@
 逐项归因：
 
 - `sandbox-runtime.js` 是 gitignore 的生成物，CI 的 `verify` / `desktop-e2e-mock` / `acceptance-gate` 却直接跑测试或起 Vite，导致 2 个 renderer 测试与 e2e 失败。**已在本分支补构建步**（`lawmind-ci.yml`、`lawmind-deliverable-gate.yml`、`lawmind-desktop-e2e.yml`）。
-- `render-docx-tracked`（9 例）、`task-chains`、`safe-shell-command` 依赖本机 `officecli` / WPS，CI 无此环境——main 同样红，未在本轮处理。
-- `shadow-engine-replay`（3 例）与 `closed-matter-shadow`（1 例）是**超时**失败，不是断言失败：`180013ms` / `120003ms` / `60003ms`。已在未改动的 main 检出单独验证，同样 3 条失败、同样超时数字。这也解释了本地全量跑需要 25 分钟以上——不是死锁，是被这批超时拖住。
-- `file-size-check`：13 处存量超标，全在本分支未触及的文件。
+- `render-docx-tracked`（9 例）：**已修**（`fix/ci-existing-red`）。根因是测试只 mock 了
+  `node:child_process`，没 mock `officecli-bin`；CI 无二进制时 `resolveOfficeCliBin()` 返回
+  undefined，落到裸命令 `officecli` 后在 PATH 找不到，于是 `applied=0`。
+  修法 `vi.mock("./officecli-bin.js", ...)`；桩值必须用真实存在的可执行文件
+  （`process.execPath`），因为 `resolveCommandPath` 会对绝对路径做 `existsSync`。
+  模拟 CI 环境验证：9 failed → 17 passed。
+- `shadow-engine-replay`（3 例）与 `closed-matter-shadow`（1 例）：**已修**（`fix/ci-existing-red`）。
+  不是真慢也不是死锁，是**白等网络**：两套回放自称离线，却没关 `LAWMIND_OPEN_LAW_NPC`
+  （默认开），于是 `draft_document` 每轮真发 HTTPS 到 `flk.npc.gov.cn`，
+  拿不到响应就等满 `AbortSignal.timeout(10_000)`。补 `vi.stubEnv("LAWMIND_OPEN_LAW_NPC", "0")`
+  后单例从 180s 降到 2.7s。未改生产默认值、未改 timeout。
+- `file-size-check`：**部分修**（`fix/ci-existing-red`）。13 处逐条分类：7 条进
+  [`LAWMIND-FILE-SIZE-SPLIT-BACKLOG.md`](LAWMIND-FILE-SIZE-SPLIT-BACKLOG.md)
+  并**刻意保持红**（职责混杂、严重超标），6 条显式登记冻结上限。
+  因此该 job 这一轮仍不会绿——这是有据可查的待拆清单，不是遗漏。
 - `lawmind-desktop-e2e-electron`：实际用例通过，失败在 `Upload E2E diagnostics`——GitHub Actions artifact 存储配额用尽。
