@@ -106,7 +106,14 @@ export type DraftWorkerModelPayload = {
   citations: string[];
   gaps: string[];
   conclusion?: string;
-  patches?: Array<{ find: string; replace: string; span?: string; anchor?: string }>;
+  patches?: Array<{
+    find: string;
+    replace: string;
+    span?: string;
+    anchor?: string;
+    /** Playbook rule that produced this patch (rule-level review only). */
+    ruleId?: string;
+  }>;
 };
 
 export type DraftWorkerContext = Partial<
@@ -174,7 +181,13 @@ export type DraftWorkerOutput =
         sources: string[];
         toolsUsed: string[];
         steps: Array<{ tool: string; ok: boolean }>;
-        patches?: Array<{ find: string; replace: string; span?: string; anchor?: string }>;
+        patches?: Array<{
+          find: string;
+          replace: string;
+          span?: string;
+          anchor?: string;
+          ruleId?: string;
+        }>;
       };
     }
   | {
@@ -359,12 +372,14 @@ function parsePatches(raw: unknown): DraftWorkerModelPayload["patches"] {
     }
     const span = typeof row.span === "string" ? row.span.trim() : "";
     const anchor = typeof row.anchor === "string" ? row.anchor.trim() : "";
+    const ruleId = typeof row.ruleId === "string" ? row.ruleId.trim() : "";
     return [
       {
         find,
         replace,
         ...(span ? { span } : {}),
         ...(anchor ? { anchor } : {}),
+        ...(ruleId ? { ruleId } : {}),
       },
     ];
   });
@@ -562,7 +577,7 @@ function buildDraftUserPrompt(
   return [
     skeleton.header ?? "",
     ask,
-    `JSON schema: { "draft": "string", "conclusion": "一句结论", "citations": ["材料出处"], "gaps": ["待补缺口"], "patches": [{ "find": "原句", "replace": "改后句", "span": "材料原句", "anchor": "clause:…" }] }`,
+    `JSON schema: { "draft": "string", "conclusion": "一句结论", "citations": ["材料出处"], "gaps": ["待补缺口"], "patches": [{ "find": "原句", "replace": "改后句", "span": "材料原句", "anchor": "clause:…", "ruleId": "可选：这条补丁对应的规则 id" }] }`,
     "",
     brief,
     `章节：${section}`,

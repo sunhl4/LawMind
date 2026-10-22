@@ -37,6 +37,8 @@ import {
   recordBodySnapshot,
   recordInverseEdits,
   recordReading,
+  reconcileSurgicalEditsWithPatches,
+  readPatchConflicts,
   restoreBodies,
   revertProposals,
   selectInverseEditsForCone,
@@ -945,5 +947,105 @@ describe("stated material amounts", () => {
     expect(foreign?.outcomes.some((outcome) => outcome.grounded === true)).not.toBe(true);
     const reading = renderEngineReadings(state);
     expect(reading).not.toContain("泰国商事法：live");
+  });
+});
+
+describe("worker patch reconciliation", () => {
+  const span = "甲方应在三十日内支付违约金。";
+
+  function stateWithPatches(
+    patches: Array<{ find: string; replace: string; span?: string; ruleId?: string }>,
+  ) {
+    const state = emptyFactorState();
+    ingestToolResult(state, "draft_worker", { patches });
+    return state;
+  }
+
+  it("keeps the old behaviour when a single patch matches", () => {
+    const state = stateWithPatches([{ find: "三十日", replace: "六十日", span }]);
+    const out = reconcileSurgicalEditsWithPatches(state, [
+      { find: "三十日", replace: "父模型写法" },
+    ]) as Array<{ replace: string }>;
+    expect(out[0]?.replace).toBe("六十日");
+    expect(readPatchConflicts(state)).toEqual([]);
+  });
+
+  it("applies the shared replacement when several patches agree", () => {
+    const state = stateWithPatches([
+      { find: "三十日", replace: "六十日", span, ruleId: "payment.acceptance.own" },
+      { find: "三十日", replace: "六十日", span, ruleId: "termination.symmetry.own" },
+    ]);
+    const out = reconcileSurgicalEditsWithPatches(state, [
+      { find: "三十日", replace: "父模型写法" },
+    ]) as Array<{ replace: string }>;
+    expect(out[0]?.replace).toBe("六十日");
+    expect(readPatchConflicts(state)).toEqual([]);
+  });
+
+  it("never picks a winner when two rules disagree on the same sentence", () => {
+    const state = stateWithPatches([
+      { find: "三十日", replace: "六十日", span, ruleId: "payment.acceptance.own" },
+      { find: "三十日", replace: "十五日", span, ruleId: "termination.symmetry.own" },
+    ]);
+    const out = reconcileSurgicalEditsWithPatches(state, [
+      { find: "三十日", replace: "父模型写法" },
+    ]) as Array<{ replace: string }>;
+    // The caller's text survives; no rule's wording is silently adopted.
+    expect(out[0]?.replace).toBe("父模型写法");
+    const conflicts = readPatchConflicts(state);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]?.find).toBe("三十日");
+    const byLocale = (a: string, b: string) => a.localeCompare(b);
+    expect(conflicts[0]?.candidates.map((c) => c.replace).toSorted(byLocale)).toEqual(
+      ["六十日", "十五日"].toSorted(byLocale),
+    );
+    expect(conflicts[0]?.candidates.map((c) => c.ruleId).toSorted(byLocale)).toEqual(
+      ["payment.acceptance.own", "termination.symmetry.own"].toSorted(byLocale),
+    );
+  });
+
+  it("keeps unrelated edits untouched", () => {
+    const state = stateWithPatches([{ find: "三十日", replace: "六十日", span }]);
+    const edits = [
+      { find: "三十日", replace: "父子" },
+      { find: "乙方", replace: "卖方" },
+    ];
+    const out = reconcileSurgicalEditsWithPatches(state, edits) as Array<{ replace: string }>;
+    expect(out[0]?.replace).toBe("六十日");
+    expect(out[1]?.replace).toBe("卖方");
+  });
+
+  it("returns edits unchanged when no patches were recorded", () => {
+    const state = emptyFactorState();
+    const edits = [{ find: "三十日", replace: "父子" }];
+    expect(reconcileSurgicalEditsWithPatches(state, edits)).toBe(edits);
+    expect(readPatchConflicts(state)).toEqual([]);
+  });
+
+  it("recomputes conflicts per pass instead of accumulating", () => {
+    const state = stateWithPatches([
+      { find: "三十日", replace: "六十日", span, ruleId: "a" },
+      { find: "三十日", replace: "十五日", span, ruleId: "b" },
+    ]);
+    reconcileSurgicalEditsWithPatches(state, [{ find: "三十日", replace: "x" }]);
+    expect(readPatchConflicts(state)).toHaveLength(1);
+    reconcileSurgicalEditsWithPatches(state, [{ find: "乙方", replace: "卖方" }]);
+    expect(readPatchConflicts(state)).toEqual([]);
+  });
+
+  it("beginTurnFactors clears conflicts from the previous turn", () => {
+    const state = stateWithPatches([
+      { find: "三十日", replace: "六十日", span, ruleId: "a" },
+      { find: "三十日", replace: "十五日", span, ruleId: "b" },
+    ]);
+    reconcileSurgicalEditsWithPatches(state, [{ find: "三十日", replace: "x" }]);
+    expect(readPatchConflicts(state)).toHaveLength(1);
+    beginTurnFactors(state);
+    expect(readPatchConflicts(state)).toEqual([]);
+  });
+
+  it("drops patches whose span does not attest the material", () => {
+    const state = stateWithPatches([{ find: "三十日", replace: "六十日", span: "" }]);
+    expect(state.pendingPatches).toEqual([]);
   });
 });
