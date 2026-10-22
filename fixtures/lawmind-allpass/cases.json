@@ -1,0 +1,505 @@
+{
+  "schemaVersion": 1,
+  "playbookId": "cn-sales-v0",
+  "note": "合成夹具：句子按规则原文措辞构造，只用于校验规则级 all-pass 的量规、覆盖与评分接线，不代表真实法律判断质量，也不得作为对外准确性证据。真实脱敏合同请放 fixtures/lawmind-true-manuscript/。",
+  "cases": [
+    {
+      "caseId": "s01",
+      "paper": "counterparty",
+      "title": "买卖合同·全项合规",
+      "clauses": [
+        "买卖合同（对方模板）",
+        "甲方（卖方）：华东精密制造有限公司",
+        "乙方（买方）：南方商贸有限公司",
+        "第一条 标的与价款。甲方向乙方供应精密配件一批，总价款人民币八十万元。",
+        "第二条 付款与验收。交付后由双方共同验收，验收标准以本合同附件一为准；验收合格后十五日内付款。",
+        "第三条 责任限制。任一方因本合同产生的赔偿责任，均以本合同总价款为上限；双方上限一致，排除范围对称，且均不排除故意或重大过失责任。",
+        "第四条 争议解决。因本合同产生的争议，由被告住所地人民法院管辖。",
+        "第五条 合同解除。双方均可在一方根本违约且经催告十五日仍未改正时解除本合同，并互不承担违约责任以外的赔偿。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本合同不构成任何权属转让，数据仅用于履行本合同之目的。",
+        "第七条 保密与竞业。双方对履约中知悉的商业秘密负保密义务，保密期三年；竞业限制限于本合同约定的产品类别，期限一年。",
+        "第八条 本合同自双方签章之日起生效。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "s02",
+      "paper": "counterparty",
+      "title": "买卖合同·责任上限单方缺失",
+      "clauses": [
+        "买卖合同（对方模板）",
+        "甲方（卖方）：华中机械有限公司",
+        "乙方（买方）：北辰贸易有限公司",
+        "第一条 标的与价款。甲方向乙方供应机械设备两台，总价款人民币一百二十万元。",
+        "第二条 付款与验收。交付后由双方共同验收，验收标准以本合同附件一为准；验收合格后十五日内付款。",
+        "第三条 责任限制。甲方（卖方）的赔偿责任不设上限，乙方（买方）的赔偿责任以合同总价款为上限；甲方不得就任何间接损失主张赔偿。",
+        "第四条 争议解决。因本合同产生的争议，由被告住所地人民法院管辖。",
+        "第五条 合同解除。双方均可在一方根本违约且经催告十五日仍未改正时解除本合同。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本合同不构成任何权属转让。",
+        "第七条 保密与竞业。双方对履约中知悉的商业秘密负保密义务，保密期三年；竞业限制限于本合同约定的产品类别，期限一年。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "unacceptable",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "s03",
+      "paper": "counterparty",
+      "title": "买卖合同·管辖单方指定",
+      "clauses": [
+        "买卖合同（对方模板）",
+        "甲方（卖方）：西部材料有限公司",
+        "乙方（买方）：东岸科技有限公司",
+        "第一条 标的与价款。甲方向乙方供应原材料，总价款人民币六十万元。",
+        "第二条 付款与验收。交付后由双方共同验收，验收标准以本合同附件一为准；验收合格后十五日内付款。",
+        "第三条 责任限制。任一方因本合同产生的赔偿责任，均以本合同总价款为上限；双方上限一致。",
+        "第四条 争议解决。因本合同产生的争议，由乙方所在地人民法院管辖；双方也可以选择提交仲裁。",
+        "第五条 合同解除。双方均可在一方根本违约且经催告十五日仍未改正时解除本合同。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本合同不构成任何权属转让。",
+        "第七条 保密与竞业。双方对履约中知悉的商业秘密负保密义务，保密期三年。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "unacceptable",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "s04",
+      "paper": "counterparty",
+      "title": "买卖合同·对方任意解除",
+      "clauses": [
+        "买卖合同（对方模板）",
+        "甲方（卖方）：江南包装有限公司",
+        "乙方（买方）：云仓供应链有限公司",
+        "第一条 标的与价款。甲方向乙方供应包装材料，总价款人民币三十五万元。",
+        "第二条 付款与验收。交付后由双方共同验收，验收标准以本合同附件一为准；验收合格后十五日内付款。",
+        "第三条 责任限制。任一方因本合同产生的赔偿责任，均以本合同总价款为上限；双方上限一致。",
+        "第四条 争议解决。因本合同产生的争议，由被告住所地人民法院管辖。",
+        "第五条 合同解除。乙方可随时书面通知解除本合同，无需说明理由，无需补偿；甲方不得解除本合同。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本合同不构成任何权属转让。",
+        "第七条 保密与竞业。双方对履约中知悉的商业秘密负保密义务，保密期三年。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "unacceptable",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "s05",
+      "paper": "counterparty",
+      "title": "买卖合同·成果权属永久转让",
+      "clauses": [
+        "买卖合同（对方模板）",
+        "甲方（卖方）：启明软件有限公司",
+        "乙方（买方）：恒信制造有限公司",
+        "第一条 标的与价款。甲方向乙方提供生产管理系统并完成部署，总价款人民币二百万元。",
+        "第二条 付款与验收。交付后由双方共同验收，验收标准以本合同附件一为准；验收合格后十五日内付款。",
+        "第三条 责任限制。任一方因本合同产生的赔偿责任，均以本合同总价款为上限；双方上限一致。",
+        "第四条 争议解决。因本合同产生的争议，由被告住所地人民法院管辖。",
+        "第五条 合同解除。双方均可在一方根本违约且经催告十五日仍未改正时解除本合同。",
+        "第六条 知识产权与数据。甲方为本合同交付的全部成果及其背景知识产权，自本合同生效之日起永久转让给乙方；乙方可将其用于任何目的。",
+        "第七条 保密与竞业。双方对履约中知悉的商业秘密负保密义务，保密期三年。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "unacceptable",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "s06",
+      "paper": "counterparty",
+      "title": "买卖合同·验收单方决定且付款倒挂",
+      "clauses": [
+        "买卖合同（对方模板）",
+        "甲方（卖方）：瑞丰电子有限公司",
+        "乙方（买方）：中天设备有限公司",
+        "第一条 标的与价款。甲方向乙方供应电子组件，总价款人民币九十万元。",
+        "第二条 付款与验收。是否验收合格由乙方单方决定，甲方无异议权；乙方在验收前无需支付任何款项，且可在验收后一年内付款。",
+        "第三条 责任限制。任一方因本合同产生的赔偿责任，均以本合同总价款为上限；双方上限一致。",
+        "第四条 争议解决。因本合同产生的争议，由被告住所地人民法院管辖。",
+        "第五条 合同解除。双方均可在一方根本违约且经催告十五日仍未改正时解除本合同。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本合同不构成任何权属转让。",
+        "第七条 保密与竞业。双方对履约中知悉的商业秘密负保密义务，保密期三年。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "unacceptable",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "s07",
+      "paper": "counterparty",
+      "title": "买卖合同·永久保密加无补偿竞业",
+      "clauses": [
+        "买卖合同（对方模板）",
+        "甲方（卖方）：广源化工有限公司",
+        "乙方（买方）：海科贸易有限公司",
+        "第一条 标的与价款。甲方向乙方供应化工原料，总价款人民币七十万元。",
+        "第二条 付款与验收。交付后由双方共同验收，验收标准以本合同附件一为准；验收合格后十五日内付款。",
+        "第三条 责任限制。任一方因本合同产生的赔偿责任，均以本合同总价款为上限；双方上限一致。",
+        "第四条 争议解决。因本合同产生的争议，由被告住所地人民法院管辖。",
+        "第五条 合同解除。双方均可在一方根本违约且经催告十五日仍未改正时解除本合同。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本合同不构成任何权属转让。",
+        "第七条 保密与竞业。甲方对履约中知悉的一切信息承担永久保密义务；合同终止后三年内，甲方不得从事任何与本合同相关的经营活动，且无补偿。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "unacceptable"
+      }
+    },
+    {
+      "caseId": "s08",
+      "paper": "counterparty",
+      "title": "买卖合同·责任与管辖双缺陷",
+      "clauses": [
+        "买卖合同（对方模板）",
+        "甲方（卖方）：长风重工有限公司",
+        "乙方（买方）：汇达物流有限公司",
+        "第一条 标的与价款。甲方向乙方供应运输设备，总价款人民币一百五十万元。",
+        "第二条 付款与验收。交付后由双方共同验收，验收标准以本合同附件一为准；验收合格后十五日内付款。",
+        "第三条 责任限制。甲方（卖方）的赔偿责任不设上限，乙方（买方）的赔偿责任以合同总价款为上限。",
+        "第四条 争议解决。因本合同产生的争议，由乙方所在地人民法院管辖；双方也可以选择提交仲裁。",
+        "第五条 合同解除。双方均可在一方根本违约且经催告十五日仍未改正时解除本合同。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本合同不构成任何权属转让。",
+        "第七条 保密与竞业。双方对履约中知悉的商业秘密负保密义务，保密期三年。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "unacceptable",
+        "dispute.forum.counterparty": "unacceptable",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "s09",
+      "paper": "counterparty",
+      "title": "买卖合同·仲裁与共同验收的两处偏离",
+      "clauses": [
+        "买卖合同（对方模板）",
+        "甲方（卖方）：恒通仪器有限公司",
+        "乙方（买方）：博远检测有限公司",
+        "第一条 标的与价款。甲方向乙方供应检测仪器，总价款人民币五十五万元。",
+        "第二条 付款与验收。以乙方验收为准，甲方有七日异议期；争议由双方共同委托的第三方检测机构鉴定，鉴定期间暂缓付款。",
+        "第三条 责任限制。任一方因本合同产生的赔偿责任，均以本合同总价款为上限；双方上限一致。",
+        "第四条 争议解决。因本合同产生的争议，提交中国国际经济贸易仲裁委员会仲裁，仲裁地为合同履行地。",
+        "第五条 合同解除。双方均可在一方根本违约且经催告十五日仍未改正时解除本合同。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本合同不构成任何权属转让。",
+        "第七条 保密与竞业。双方对履约中知悉的商业秘密负保密义务，保密期三年。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "acceptable_deviation",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "acceptable_deviation",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "s10",
+      "paper": "counterparty",
+      "title": "买卖合同·解除与保密条款缺失",
+      "clauses": [
+        "买卖合同（对方模板）",
+        "甲方（卖方）：鑫源五金有限公司",
+        "乙方（买方）：万顺商行",
+        "第一条 标的与价款。甲方向乙方供应五金件，总价款人民币二十八万元。",
+        "第二条 付款与验收。交付后由双方共同验收，验收标准以本合同附件一为准；验收合格后十五日内付款。",
+        "第三条 责任限制。任一方因本合同产生的赔偿责任，均以本合同总价款为上限；双方上限一致。",
+        "第四条 争议解决。因本合同产生的争议，由被告住所地人民法院管辖。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本合同不构成任何权属转让。",
+        "第八条 本合同自双方签章之日起生效，未尽事宜按法律规定处理。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "absent",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "absent"
+      }
+    },
+    {
+      "caseId": "s11",
+      "paper": "counterparty",
+      "title": "买卖合同·知识产权与解除均未约定",
+      "clauses": [
+        "买卖合同（对方模板）",
+        "甲方（卖方）：宁泰塑业有限公司",
+        "乙方（买方）：嘉禾实业有限公司",
+        "第一条 标的与价款。甲方向乙方供应塑料制品，总价款人民币四十二万元。",
+        "第二条 付款与验收。交付后由双方共同验收，验收标准以本合同附件一为准；验收合格后十五日内付款。",
+        "第三条 责任限制。任一方因本合同产生的赔偿责任，均以本合同总价款为上限；双方上限一致。",
+        "第四条 争议解决。因本合同产生的争议，由被告住所地人民法院管辖。",
+        "第七条 保密与竞业。双方对履约中知悉的商业秘密负保密义务，保密期三年。",
+        "第八条 本合同自双方签章之日起生效，未尽事宜按法律规定处理。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "absent",
+        "ip.data.counterparty": "absent",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "s12",
+      "paper": "counterparty",
+      "title": "买卖合同·四处缺陷混合",
+      "clauses": [
+        "买卖合同（对方模板）",
+        "甲方（卖方）：华远智造有限公司",
+        "乙方（买方）：瑞成科技有限公司",
+        "第一条 标的与价款。甲方向乙方供应自动化产线并完成安装调试，总价款人民币六百万元。",
+        "第二条 付款与验收。交付后由双方共同验收，验收标准以本合同附件一为准；验收合格后十五日内付款。",
+        "第三条 责任限制。任一方因本合同产生的赔偿责任，均以本合同总价款为上限；双方上限一致。",
+        "第四条 争议解决。因本合同产生的争议，由乙方所在地人民法院管辖；双方也可以选择提交仲裁。",
+        "第五条 合同解除。乙方可提前三十日书面通知解除本合同，并就甲方已发生的直接成本予以补偿。",
+        "第六条 知识产权与数据。甲方为本合同交付的全部成果及其背景知识产权，永久转让给乙方。",
+        "第七条 保密与竞业。保密期五年，范围限于技术资料与商业计划等商业秘密；不设竞业限制。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "unacceptable",
+        "termination.symmetry.counterparty": "acceptable_deviation",
+        "ip.data.counterparty": "unacceptable",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "acceptable_deviation"
+      }
+    },
+    {
+      "caseId": "n01",
+      "paper": "counterparty",
+      "title": "技术保密协议·全项合规",
+      "clauses": [
+        "技术保密与评估协议（对方模板）",
+        "披露方：北方新材料有限公司",
+        "接收方：东方精工有限公司",
+        "第一条 保密信息范围为技术资料、配方与商业计划。",
+        "第二条 评估费用。接收方为评估支付费用人民币五万元；评估完成后双方共同确认评估结论，确认后十五日内付款。",
+        "第三条 责任限制。任一方因本协议产生的赔偿责任，均以本协议项下费用总额为上限；双方上限一致。",
+        "第四条 争议解决。因本协议产生的争议，由被告住所地人民法院管辖。",
+        "第五条 协议终止。双方均可在一方根本违约且经催告十五日仍未改正时终止本协议。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本协议不构成任何权属转让，保密信息仅用于评估目的。",
+        "第七条 保密与竞业。接收方对保密信息负保密义务，保密期三年；不设竞业限制。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "n02",
+      "paper": "counterparty",
+      "title": "技术保密协议·永久保密与无补偿竞业",
+      "clauses": [
+        "技术保密与评估协议（对方模板）",
+        "披露方：恒美生物有限公司",
+        "接收方：康泰制药有限公司",
+        "第一条 保密信息范围为临床试验资料与生产工艺。",
+        "第二条 评估费用。接收方支付评估费用人民币三十万元；评估完成后双方共同确认评估结论，确认后十五日内付款。",
+        "第三条 责任限制。任一方因本协议产生的赔偿责任，均以本协议项下费用总额为上限；双方上限一致。",
+        "第四条 争议解决。因本协议产生的争议，由被告住所地人民法院管辖。",
+        "第五条 协议终止。双方均可在一方根本违约且经催告十五日仍未改正时终止本协议。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本协议不构成任何权属转让。",
+        "第七条 保密与竞业。接收方对评估中知悉的一切信息承担永久保密义务；协议终止后三年内，接收方不得从事任何相关经营活动，且无补偿。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "unacceptable"
+      }
+    },
+    {
+      "caseId": "n03",
+      "paper": "counterparty",
+      "title": "技术保密协议·背景知识产权转让",
+      "clauses": [
+        "技术保密与评估协议（对方模板）",
+        "披露方：中芯装备有限公司",
+        "接收方：联创自动化有限公司",
+        "第一条 保密信息范围为设备图纸与控制算法。",
+        "第二条 评估费用。接收方支付评估费用人民币十八万元；评估完成后双方共同确认评估结论，确认后十五日内付款。",
+        "第三条 责任限制。任一方因本协议产生的赔偿责任，均以本协议项下费用总额为上限；双方上限一致。",
+        "第四条 争议解决。因本协议产生的争议，由被告住所地人民法院管辖。",
+        "第五条 协议终止。双方均可在一方根本违约且经催告十五日仍未改正时终止本协议。",
+        "第六条 知识产权与数据。接收方在评估中接触的全部背景知识产权，自本协议生效之日起永久转让给披露方；披露方可将其用于任何目的。",
+        "第七条 保密与竞业。接收方对保密信息负保密义务，保密期三年。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "unacceptable",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "n04",
+      "paper": "counterparty",
+      "title": "技术保密协议·责任上限单方缺失",
+      "clauses": [
+        "技术保密与评估协议（对方模板）",
+        "披露方：国科检测有限公司",
+        "接收方：华测服务有限公司",
+        "第一条 保密信息范围为检测方法与客户名录。",
+        "第二条 评估费用。接收方支付评估费用人民币十二万元；评估完成后双方共同确认评估结论，确认后十五日内付款。",
+        "第三条 责任限制。接收方的赔偿责任不设上限，披露方的赔偿责任以本协议项下费用总额为上限。",
+        "第四条 争议解决。因本协议产生的争议，由被告住所地人民法院管辖。",
+        "第五条 协议终止。双方均可在一方根本违约且经催告十五日仍未改正时终止本协议。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本协议不构成任何权属转让。",
+        "第七条 保密与竞业。接收方对保密信息负保密义务，保密期三年。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "unacceptable",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "n05",
+      "paper": "counterparty",
+      "title": "技术保密协议·管辖单方指定",
+      "clauses": [
+        "技术保密与评估协议（对方模板）",
+        "披露方：金桥资本管理有限公司",
+        "接收方：德胜咨询有限公司",
+        "第一条 保密信息范围为交易结构与估值模型。",
+        "第二条 评估费用。接收方支付评估费用人民币八万元；评估完成后双方共同确认评估结论，确认后十五日内付款。",
+        "第三条 责任限制。任一方因本协议产生的赔偿责任，均以本协议项下费用总额为上限；双方上限一致。",
+        "第四条 争议解决。因本协议产生的争议，由披露方所在地人民法院管辖；双方也可以选择提交仲裁。",
+        "第五条 协议终止。双方均可在一方根本违约且经催告十五日仍未改正时终止本协议。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本协议不构成任何权属转让。",
+        "第七条 保密与竞业。接收方对保密信息负保密义务，保密期三年。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "unacceptable",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "n06",
+      "paper": "counterparty",
+      "title": "技术保密协议·披露方任意终止",
+      "clauses": [
+        "技术保密与评估协议（对方模板）",
+        "披露方：远洋能源有限公司",
+        "接收方：海通工程有限公司",
+        "第一条 保密信息范围为勘探数据与工艺参数。",
+        "第二条 评估费用。接收方支付评估费用人民币二十四万元；评估完成后双方共同确认评估结论，确认后十五日内付款。",
+        "第三条 责任限制。任一方因本协议产生的赔偿责任，均以本协议项下费用总额为上限；双方上限一致。",
+        "第四条 争议解决。因本协议产生的争议，由被告住所地人民法院管辖。",
+        "第五条 协议终止。披露方可随时书面通知终止本协议，无需说明理由，无需补偿；接收方不得终止本协议。",
+        "第六条 知识产权与数据。双方各自保留其背景知识产权；本协议不构成任何权属转让。",
+        "第七条 保密与竞业。接收方对保密信息负保密义务，保密期三年。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "unacceptable",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "n07",
+      "paper": "counterparty",
+      "title": "技术保密协议·终止与知识产权均未约定",
+      "clauses": [
+        "技术保密与评估协议（对方模板）",
+        "披露方：静安医疗科技有限公司",
+        "接收方：瑞康器械有限公司",
+        "第一条 保密信息范围为产品设计文件与临床数据。",
+        "第二条 评估费用。接收方支付评估费用人民币十五万元；评估完成后双方共同确认评估结论，确认后十五日内付款。",
+        "第三条 责任限制。任一方因本协议产生的赔偿责任，均以本协议项下费用总额为上限；双方上限一致。",
+        "第四条 争议解决。因本协议产生的争议，由被告住所地人民法院管辖。",
+        "第七条 保密与竞业。接收方对保密信息负保密义务，保密期三年；不设竞业限制。",
+        "第八条 本协议自双方签章之日起生效，未尽事宜按法律规定处理。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "absent",
+        "ip.data.counterparty": "absent",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "n08",
+      "paper": "counterparty",
+      "title": "技术保密协议·两处可接受偏离",
+      "clauses": [
+        "技术保密与评估协议（对方模板）",
+        "披露方：云图数据有限公司",
+        "接收方：弘信信息有限公司",
+        "第一条 保密信息范围为数据接口文档与用户行为模型。",
+        "第二条 评估费用。以接收方验收为准，披露方有七日异议期；争议由双方共同委托的第三方检测机构鉴定，鉴定期间暂缓付款。",
+        "第三条 责任限制。任一方因本协议产生的赔偿责任，均以本协议项下费用总额为上限；双方上限一致。",
+        "第四条 争议解决。因本协议产生的争议，由被告住所地人民法院管辖。",
+        "第五条 协议终止。双方均可在一方根本违约且经催告十五日仍未改正时终止本协议。",
+        "第六条 知识产权与数据。披露方授予接收方在评估期内在中华人民共和国境内使用评估材料的非独占许可，期限届满自动终止。",
+        "第七条 保密与竞业。保密期五年，范围限于技术资料与商业计划等商业秘密；不设竞业限制。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "acceptable_deviation",
+        "payment.acceptance.counterparty": "acceptable_deviation",
+        "confidentiality.noncompete.counterparty": "acceptable_deviation"
+      }
+    }
+  ]
+}

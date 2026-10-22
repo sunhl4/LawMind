@@ -80,6 +80,7 @@ LawMind **不把可审计当作产品价值、法律质量证明或用户信任�
 - [x] **A5 all-pass**：`evaluation/all-pass.ts` + `BaselineCriterion.mustPass`（缺省 false，旧 rubric 不变）
 - [x] **A6 guardrails**：`review/runner.ts` — 并发上限 / 单规则超时 / 只重试受影响规则 / 流式 `rule_finished` / abort
 - [x] **A7 合 main 门槛（工程侧）**：`pnpm test` 8041 passed、双端 typecheck、`lawmind:compiler-gate` 全绿；清单见 [docs/lawmind/LAWMIND-AUTOMATION-BRANCH-REGRESSION.md](docs/lawmind/LAWMIND-AUTOMATION-BRANCH-REGRESSION.md) §7。**仍待人机项**：真机 Word 侧载 + 日常助手 5 分钟手工回归
+- [x] **A8 规则级 all-pass 夹具与 CLI**：`fixtures/lawmind-allpass/`（20 份合成夹具 + README）、`evaluation/rule-allpass.ts`（逐规则评分、夹具覆盖校验）、`pnpm lawmind:allpass`（`--validate` / 默认诚实 SKIP / `--arm oracle` 自检 20/20）。**真实模型臂未接线，因此没有可对外引用的模型分数。**
 
 ### 第十九期 · LawMind Bench（中国律师自建评测 · 独立仓库 · 2026-10-08）
 

@@ -126,7 +126,7 @@ export type WorkerRuleClassification = {
   evidence?: string[];
 };
 
-const WORKER_CLASSIFICATION_KINDS: readonly WorkerRuleClassificationKind[] = new Set([
+const WORKER_CLASSIFICATION_KINDS: ReadonlySet<WorkerRuleClassificationKind> = new Set([
   "compliant",
   "acceptable_deviation",
   "unacceptable",

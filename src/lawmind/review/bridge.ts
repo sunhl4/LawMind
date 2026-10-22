@@ -11,7 +11,7 @@ import type { RuleWorkerOutput } from "./execute.js";
 import type { RuleReviewPlan } from "./plan.js";
 import type { RuleClassification, RuleClassificationKind } from "./rules.js";
 
-const CLASSIFICATION_KINDS: readonly RuleClassificationKind[] = new Set([
+const CLASSIFICATION_KINDS: ReadonlySet<RuleClassificationKind> = new Set([
   "compliant",
   "acceptable_deviation",
   "unacceptable",

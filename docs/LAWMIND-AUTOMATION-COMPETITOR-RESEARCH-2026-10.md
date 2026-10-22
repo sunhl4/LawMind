@@ -167,16 +167,17 @@
 
 ## 8. 落地计划与分支边界
 
-| 阶段 | 内容                                          | 合入              |
-| ---- | --------------------------------------------- | ----------------- |
-| A0   | worktree `feat/automation-parity`             | 纪律              |
-| A1   | 本文 + GOALS 指针                             | 可 docs PR → main |
-| A2   | `src/lawmind/review/` 规则对象 + 12 条 v0     | branch            |
-| A3   | `drafts/branch.ts` 合并                       | branch            |
-| A4   | worker 分支写（flag 默认关）                  | branch            |
-| A5   | all-pass 扩 `BaselineCriterion`               | branch            |
-| A6   | phase timeout / 定向重试 / 流式 `rule_result` | branch            |
-| A7   | 验收报告；仅文档与报告回 main                 | 门槛              |
+- **A0** worktree `feat/automation-parity`（纪律，不进任何分支）
+- **A1** 本文 + GOALS 指针（可 docs PR 到 main）
+- **A2** `src/lawmind/review/` 规则对象 + 12 条 v0（branch）
+- **A3** `drafts/branch.ts` 合并（branch）
+- **A4** worker 分支写，flag 默认关（branch）
+- **A5** all-pass 扩 `BaselineCriterion`（branch）
+- **A6** phase timeout / 定向重试 / 流式 `rule_result`（branch）
+- **A7** 验收报告；仅文档与报告可回 main（门槛）
+- **A8** 规则级 all-pass 夹具（20 例）+ `lawmind:allpass` CLI（branch）
+
+**A8 口径**：夹具是合成的，只校验量规与评分接线；`--arm oracle` 的 20/20 是自检通过，不是模型分数。真实模型臂未接线前，不得对外引用任何 all-pass 数字。
 
 **不做**：审计台账对外化当卖点、Vault 军备、无人律所叙事（与 `GOALS.md` §二 冲突）。
 

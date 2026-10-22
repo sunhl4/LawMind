@@ -60,12 +60,12 @@
 
 环境：worktree `../LawMind-automation`；根 `node_modules` 与 `apps/*/node_modules` 软链到主检出；本地生成 `.gitignore` 内的 `sandbox-runtime.js`（`apps/lawmind-desktop/scripts/build-canvas-sandbox.mjs`）。
 
-| 检查     | 命令                                      | 结果                                                                       |
-| -------- | ----------------------------------------- | -------------------------------------------------------------------------- |
-| 引擎类型 | `npx tsc --noEmit -p tsconfig.json`       | 无错                                                                       |
-| 全量测试 | `pnpm test`                               | 1107 passed / 2 skipped（1109 文件）；8041 passed / 5 skipped（8046 用例） |
-| 桌面类型 | `pnpm --filter lawmind-desktop typecheck` | 无错                                                                       |
-| 编译门禁 | `pnpm lawmind:compiler-gate`              | pass（rules=74 shadows=12 plantedRecall=1）                                |
+- 引擎类型：`npx tsc --noEmit -p tsconfig.json` → 无错
+- 全量测试：`pnpm test` → 1108 passed / 2 skipped（1110 文件）；8059 passed / 5 skipped（8064 用例）
+- 桌面类型：`pnpm --filter lawmind-desktop typecheck` → 无错
+- 编译门禁：`pnpm lawmind:compiler-gate` → pass（rules=74 shadows=12 plantedRecall=1）
+- 规则级 all-pass 夹具：`pnpm lawmind:allpass --validate` → PASS（20 用例，每例覆盖其纸别下全部 6 条规则）
+- 评分器自检：`pnpm lawmind:allpass --arm oracle` → PASS 20/20（oracle 回放，非模型分数）
 
 新增断言：
 
@@ -77,4 +77,4 @@
 ### 未随本轮验证（诚实标注）
 
 - 真机 Word 侧载与桌面 5 分钟手工回归（§2）尚未执行——需人机交互，留待合 main 前由工程师按清单走一遍。
-- `fixtures/lawmind-allpass/` 20 份夹具与 `pnpm lawmind:allpass` CLI 不在本轮范围。
+- 规则级 all-pass 目前只有 `oracle` 自检臂（20/20，仅证明评分器接线）；真实模型臂未接线，因此**没有任何模型分数可以对外引用**。见 `fixtures/lawmind-allpass/README.md`。
