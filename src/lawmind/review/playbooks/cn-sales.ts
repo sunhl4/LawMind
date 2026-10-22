@@ -2,22 +2,29 @@
  * v0 rule set for Chinese sales / general commercial contracts.
  * Extracted from `skills/builtin/contract-playbook-review.md` 底线项 × 纸别.
  *
- * `compliantWhen` is the sufficient-condition list: meeting every item makes
- * the clause compliant. Extra protections the rule does not ask for must not
- * downgrade it — without that boundary, verdicts drift to acceptable_deviation.
+ * Every rule is expressed as atomic yes/no criteria. The model answers the
+ * questions; `verdict.ts` decides the tier. Prose (`standard`, `guidance`) is
+ * for the lawyer and never decides anything.
+ *
+ * Two rules are written deliberately narrowly because they were the unstable
+ * ones in testing (ip.data 65%, confidentiality 80%):
+ *   - `ip.data` separates "is there a transfer" (always askable) from
+ *     "does a data-delivery contract limit use to the contract purpose"
+ *     (only askable when data is actually delivered).
+ *   - `confidentiality.noncompete` uses a countable boundary (3 years) instead
+ *     of "reasonable", and splits "is there a non-compete" from "is it complete".
  */
 
 import type { ReviewRule } from "../rules.js";
 
 const SRC = "skills/builtin/contract-playbook-review.md#底线项";
 
-function pair(
-  baseId: string,
-  title: string,
-  body: Omit<ReviewRule, "ruleId" | "title" | "paper" | "source" | "guidance"> & {
-    guidance?: string;
-  },
-): ReviewRule[] {
+type RuleBody = Omit<ReviewRule, "ruleId" | "title" | "paper" | "source" | "guidance"> & {
+  guidance?: string;
+};
+
+function pair(baseId: string, title: string, body: RuleBody): ReviewRule[] {
+  const ownCriteria = body.criteria.map((c) => ({ ...c, id: c.id }));
   return [
     {
       ruleId: `${baseId}.counterparty`,
@@ -32,6 +39,7 @@ function pair(
       paper: "own",
       source: `${SRC}-${baseId}`,
       ...body,
+      criteria: ownCriteria,
       // Own paper: any deviation from house template needs explanation.
       guidance: [body.guidance ?? "", "己方纸：偏离我方模板即需说明；口径从严。"]
         .filter(Boolean)
@@ -46,94 +54,210 @@ export const CN_SALES_PLAYBOOK_ID = "cn-sales-v0";
 export const CN_SALES_RULES: ReviewRule[] = [
   ...pair("liability.cap", "责任上限与责任排除对等性", {
     standard: "双方责任上限与排除对等，或对我方更有利",
-    compliantWhen: [
-      "双方赔偿上限对等（或我方上限更低）",
-      "排除范围对称，不存在一方无限责任",
-      "未出现单方免除故意或重大过失责任",
+    criteria: [
+      {
+        id: "uncapped",
+        question: "是否有一方的赔偿责任不设金额上限？",
+        verdictIfMet: "unacceptable",
+      },
+      {
+        id: "gross_negligence_exempt",
+        question: "是否约定免除一方因故意或重大过失产生的责任？",
+        verdictIfMet: "unacceptable",
+      },
+      {
+        id: "caps_unequal",
+        question: "双方赔偿上限的金额是否不一致？",
+        verdictIfMet: "acceptable_deviation",
+      },
+      {
+        id: "caps_symmetric",
+        question: "双方赔偿责任是否都设有金额上限且数额一致？",
+        verdictIfMet: "compliant",
+      },
+      {
+        id: "exclusions_symmetric",
+        question: "双方排除赔偿的范围是否对称（不存在只免除一方的情形）？",
+        verdictIfMet: "compliant",
+      },
     ],
-    acceptable: ["双方同等封顶且排除范围对称", "仅轻微数字差异且有商业交换"],
-    unacceptable: ["一方无限责任而另一方封顶", "单方免除故意或重大过失责任"],
     guidance:
-      "对方纸以「能否接受」为主；无限责任不对等即永不接受。未额外约定保密/IP 例外不影响「合规」，只在可接受回退里提示补强。",
+      "未额外约定保密/IP 例外不影响合规；只在可接受回退里提示补强。无限责任不对等即永不接受。",
     absentAllowed: false,
     escalateWhen: "行业监管要求强制责任形态，模型无法判断",
   }),
   ...pair("dispute.forum", "争议解决与管辖", {
     standard: "管辖法院为被告住所地或合同履行地，双方对等；或裁或诉二选一",
-    compliantWhen: [
-      "只有一个争议解决方式（诉讼或仲裁，不并存）",
-      "管辖连接点与合同有实际联系（被告住所地或履行地等）",
-      "未单方指定仅对一方有利的法院",
+    criteria: [
+      {
+        id: "unilateral_forum",
+        question: "是否只约定由一方所在地法院管辖，且该地与合同履行地无实际联系？",
+        verdictIfMet: "unacceptable",
+      },
+      {
+        id: "litigation_and_arbitration",
+        question: "是否同时约定诉讼与仲裁两种争议解决方式？",
+        verdictIfMet: "unacceptable",
+      },
+      {
+        id: "single_mechanism",
+        question: "是否只约定了一种争议解决方式（诉讼或仲裁，二者不并存）？",
+        verdictIfMet: "compliant",
+      },
+      {
+        id: "forum_nexus",
+        question: "约定的管辖连接点是否与合同有实际联系（被告住所地、履行地或仲裁地）？",
+        verdictIfMet: "compliant",
+      },
     ],
-    acceptable: ["约定中立仲裁机构且地与履行地合理关联"],
-    unacceptable: ["单方指定对方所在地法院", "或裁或诉并存"],
-    guidance: "与履行地明显不符即归永不接受。约定被告住所地即属合规，不因未同时写入履行地而降档。",
+    guidance: "约定被告住所地即属合规，不因未同时写入履行地而降档。与履行地明显不符即永不接受。",
     absentAllowed: false,
     escalateWhen: "管辖地与交易实质无任何关联且当事人特殊地位不清",
   }),
   ...pair("termination.symmetry", "解除与终止对等性", {
     standard: "双方解除/终止权对等或有合理补偿结构",
-    compliantWhen: [
-      "解除权对等，或单方解除附提前通知与补偿",
-      "不存在一方任意解除而另一方无对等权利",
-      "根本违约解除需经催告或合理期限",
+    criteria: [
+      {
+        id: "one_sided_termination",
+        question: "是否约定一方可随时任意解除，而另一方没有对等的任意解除权？",
+        verdictIfMet: "unacceptable",
+      },
+      {
+        id: "compensation_direct_cost_only",
+        question: "单方任意解除的补偿是否只覆盖已发生的直接成本、不包含合理利润？",
+        verdictIfMet: "unacceptable",
+      },
+      {
+        id: "notice_threshold",
+        question: "单方任意解除是否附有不少于三十日的提前通知？",
+        verdictIfMet: "acceptable_deviation",
+      },
+      {
+        id: "rights_symmetric",
+        question: "双方的解除权是否对等（不存在只有一方享有任意解除权）？",
+        verdictIfMet: "compliant",
+      },
+      {
+        id: "breach_cure_period",
+        question: "因根本违约解除是否须经催告或给予合理纠正期？",
+        verdictIfMet: "compliant",
+      },
     ],
-    acceptable: ["对方任意解除，但附不少于三十日提前通知，且补偿覆盖已发生直接成本与合理利润"],
-    unacceptable: [
-      "对方保留任意解除而我方无对等权利且无补偿",
-      "单方任意解除仅补偿直接成本、不含合理利润",
-    ],
-    guidance:
-      "优先扫单方任意解除。补偿是否充分以「覆盖直接成本与合理利润」为准；只补直接成本视为不可接受。未约定解除条款时按 absent 判定，不要推断为 needs_human。",
+    guidance: "补偿是否充分以是否覆盖直接成本与合理利润为准。未约定解除条款时按 absent 判定。",
     absentAllowed: true,
     escalateWhen: "行业惯例允许单方解除但补偿公式缺失",
   }),
   ...pair("ip.data", "知识产权与数据范围", {
     standard: "不构成权属转让或超范围授权；数据使用限于本合同目的",
-    compliantWhen: [
-      "背景知识产权各自保留",
-      "不存在明示或默示的权属转让",
-      "不存在超合同目的的永久授权",
-      "数据使用限于履行本合同之目的（买卖合同未涉及数据交付的，视为满足）",
+    criteria: [
+      {
+        id: "ownership_transfer",
+        question: "合同是否将一方的知识产权权属转让给另一方？",
+        verdictIfMet: "unacceptable",
+      },
+      {
+        id: "perpetual_overbroad_license",
+        question: "合同是否授予超出合同目的、无期限或永久性的知识产权或数据授权？",
+        verdictIfMet: "unacceptable",
+      },
+      {
+        id: "data_purpose_missing",
+        question: "本合同涉及数据交付，但未约定交付的数据仅用于履行本合同之目的？",
+        verdictIfMet: "acceptable_deviation",
+      },
+      {
+        id: "background_ip_reserved",
+        question: "是否约定双方各自保留其背景知识产权？",
+        verdictIfMet: "compliant",
+      },
+      {
+        id: "no_transfer_declared",
+        question: "合同是否明确声明不构成知识产权权属转让？",
+        verdictIfMet: "compliant",
+      },
     ],
-    acceptable: ["有限许可、期限与地域明确、可撤销"],
-    unacceptable: ["默示权属转让", "超合同目的的数据永久授权"],
     guidance:
-      "只做货物买卖、不涉及数据交付的合同，不因缺数据条款而降档。权属转让与超范围授权为永不接受。",
+      "只做货物买卖、不涉及数据交付的合同，`data_purpose_missing` 答 false 即可，不因此降档。权属转让与超范围授权为永不接受。",
     absentAllowed: true,
     escalateWhen: "开源组件或背景 IP 边界不清",
   }),
   ...pair("payment.acceptance", "付款与验收主导权", {
     standard: "验收标准客观或双方共同确认；付款与验收挂钩合理",
-    compliantWhen: [
-      "验收由双方共同确认，或标准客观可核",
-      "付款与验收挂钩，不存在验收前全额支付且无担保",
-      "不存在验收由对方单方决定且无救济",
+    criteria: [
+      {
+        id: "unilateral_acceptance",
+        question: "验收是否由对方单方决定，且我方没有异议或救济机制？",
+        verdictIfMet: "unacceptable",
+      },
+      {
+        id: "prepay_without_security",
+        question: "是否约定验收前全额付款且没有任何担保？",
+        verdictIfMet: "unacceptable",
+      },
+      {
+        id: "acceptance_dispute_fallback",
+        question: "验收由对方主导，但约定了异议期或第三方鉴定？",
+        verdictIfMet: "acceptable_deviation",
+      },
+      {
+        id: "joint_acceptance",
+        question: "验收是否由双方共同确认，或标准客观可核（如国家标准、交货单）？",
+        verdictIfMet: "compliant",
+      },
+      {
+        id: "payment_tied_to_acceptance",
+        question: "付款是否与验收挂钩（而非验收前全额支付）？",
+        verdictIfMet: "compliant",
+      },
     ],
-    acceptable: ["对方主导验收但有异议期与第三方鉴定"],
-    unacceptable: ["验收由对方单方决定且无救济", "付款严重倒挂且无担保"],
-    guidance:
-      "双方共同验收即属合规；异议期、第三方鉴定属于「可接受回退」里的补强建议，不因此把合规降档。",
+    guidance: "双方共同验收即属合规；异议期、第三方鉴定属于补强建议，不因此把合规降档。",
     absentAllowed: false,
     escalateWhen: "行业特殊验收惯例（如分阶段里程碑）需人工定档",
   }),
   ...pair("confidentiality.noncompete", "保密与竞业边界", {
     standard:
       "保密期限与范围限于必要；如设竞业限制，须有合理地域、时间与补偿；不设竞业限制不构成缺陷",
-    compliantWhen: [
-      "保密范围限于商业秘密，不覆盖已公开信息",
-      "保密期限确定，且不超过三年或与交易周期相匹配",
-      "未设竞业限制，或所设竞业有地域、期限与补偿",
+    criteria: [
+      {
+        id: "unbounded_noncompete",
+        question: "是否约定无期限的竞业限制，且不支付任何补偿？",
+        verdictIfMet: "unacceptable",
+      },
+      {
+        id: "perpetual_confidentiality",
+        question: "保密义务是否无期限（永久保密）？",
+        verdictIfMet: "unacceptable",
+      },
+      {
+        id: "term_over_three_years",
+        question: "保密期限是否超过三年？",
+        verdictIfMet: "acceptable_deviation",
+      },
+      {
+        id: "noncompete_incomplete",
+        question: "是否设有竞业限制，但缺少地域、期限或补偿中的至少一项？",
+        verdictIfMet: "acceptable_deviation",
+      },
+      {
+        id: "scope_confined",
+        question: "保密范围是否限于商业秘密，并明确排除已公开信息？",
+        verdictIfMet: "compliant",
+      },
+      {
+        id: "term_bounded",
+        question: "保密期限是否明确且不超过三年？",
+        verdictIfMet: "compliant",
+      },
     ],
-    acceptable: ["保密期限长于三年但范围仍限于商业秘密", "不设竞业限制（对接收方更有利）"],
-    unacceptable: ["无限期全领域竞业且无补偿", "保密范围覆盖公知信息"],
-    guidance:
-      "期限、范围超出必要即抬档：保密期超过三年即从 compliant 落到 acceptable_deviation。设了竞业却缺地域或补偿的，也属可接受回退；完全未设竞业仍算合规。",
+    guidance: "完全未设竞业限制不构成缺陷。期限超过三年即从 compliant 落到 acceptable_deviation。",
     absentAllowed: true,
     escalateWhen: "关键岗位竞业与劳动法规冲突需人工",
   }),
 ];
 
 export function loadCnSalesRules(): ReviewRule[] {
-  return CN_SALES_RULES.map((r) => ({ ...r }));
+  return CN_SALES_RULES.map((r) => ({
+    ...r,
+    criteria: r.criteria.map((c) => ({ ...c })),
+  }));
 }

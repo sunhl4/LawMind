@@ -104,58 +104,95 @@ export type DraftWorkerInput = {
 };
 
 /**
- * Rule verdict a review worker returns for its own rule.
- *
- * `kind` mirrors `review/rules.ts` `RuleClassificationKind`; it is declared
- * locally so the worker payload stays a leaf type. Unknown kinds are dropped at
- * parse time — the engine never invents a verdict for a rule.
+ * A review worker answers its rule's atomic criteria. It never picks a tier —
+ * `review/verdict.ts` maps answers deterministically. Asking the model for a
+ * tier directly was measured unstable (12% of rules flipped between runs).
  */
-export type WorkerRuleClassificationKind =
-  | "compliant"
-  | "acceptable_deviation"
-  | "unacceptable"
-  | "absent"
-  | "needs_human";
+export type WorkerCriterionMet = boolean | "unknown" | "not_applicable";
 
-export type WorkerRuleClassification = {
-  kind: WorkerRuleClassificationKind;
-  rationale?: string;
-  /** Chosen fallback text when kind is acceptable_deviation. */
-  position?: string;
-  risk?: "high" | "medium" | "low";
-  evidence?: string[];
+export type WorkerVerdictAnswers = {
+  clausePresent: boolean;
+  answers: Array<{
+    criterionId: string;
+    met: WorkerCriterionMet;
+    evidence?: string;
+  }>;
 };
 
-const WORKER_CLASSIFICATION_KINDS: ReadonlySet<WorkerRuleClassificationKind> = new Set([
-  "compliant",
-  "acceptable_deviation",
-  "unacceptable",
-  "absent",
-  "needs_human",
+const WORKER_MET_VALUES: ReadonlySet<string> = new Set([
+  "true",
+  "false",
+  "unknown",
+  "not_applicable",
 ]);
 
-function parseRuleClassification(raw: unknown): WorkerRuleClassification | undefined {
+function parseMetValue(raw: unknown): WorkerCriterionMet | undefined {
+  if (typeof raw === "boolean") {
+    return raw;
+  }
+  if (typeof raw === "string") {
+    const v = raw.trim();
+    if (v === "true") {
+      return true;
+    }
+    if (v === "false") {
+      return false;
+    }
+    if (WORKER_MET_VALUES.has(v)) {
+      return v as WorkerCriterionMet;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Parse `verdictAnswers`. Returns undefined when the shape is unusable, so the
+ * caller reports "no answers" instead of inventing a verdict. Individual
+ * unparsable answers are dropped, not defaulted to false.
+ */
+export function parseVerdictAnswers(raw: unknown): WorkerVerdictAnswers | undefined {
   if (!raw || typeof raw !== "object") {
     return undefined;
   }
   const o = raw as Record<string, unknown>;
-  const kind = typeof o.kind === "string" ? o.kind.trim() : "";
-  if (!WORKER_CLASSIFICATION_KINDS.has(kind as WorkerRuleClassificationKind)) {
+  let clausePresent: boolean | undefined;
+  if (typeof o.clausePresent === "boolean") {
+    clausePresent = o.clausePresent;
+  } else if (typeof o.clausePresent === "string") {
+    const v = o.clausePresent.trim();
+    if (v === "true") {
+      clausePresent = true;
+    } else if (v === "false") {
+      clausePresent = false;
+    }
+  }
+  if (clausePresent === undefined) {
     return undefined;
   }
-  const rationale = typeof o.rationale === "string" ? o.rationale.trim() : "";
-  const position = typeof o.position === "string" ? o.position.trim() : "";
-  const riskRaw = typeof o.risk === "string" ? o.risk.trim() : "";
-  const risk =
-    riskRaw === "high" || riskRaw === "medium" || riskRaw === "low" ? riskRaw : undefined;
-  const evidence = stringList(o.evidence);
-  return {
-    kind: kind as WorkerRuleClassificationKind,
-    ...(rationale ? { rationale } : {}),
-    ...(position ? { position } : {}),
-    ...(risk ? { risk } : {}),
-    ...(evidence.length > 0 ? { evidence } : {}),
-  };
+  const rawAnswers = Array.isArray(o.answers) ? o.answers : [];
+  const answers: WorkerVerdictAnswers["answers"] = [];
+  for (const item of rawAnswers) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const row = item as Record<string, unknown>;
+    const criterionId =
+      typeof row.criterionId === "string"
+        ? row.criterionId.trim()
+        : typeof row.id === "string"
+          ? row.id.trim()
+          : "";
+    if (!criterionId) {
+      continue;
+    }
+    const met = parseMetValue(row.met);
+    if (met === undefined) {
+      continue;
+    }
+    const evidence = typeof row.evidence === "string" ? row.evidence.trim() : "";
+    answers.push({ criterionId, met, ...(evidence ? { evidence } : {}) });
+  }
+  return { clausePresent, answers };
 }
 
 export type DraftWorkerModelPayload = {
@@ -163,7 +200,7 @@ export type DraftWorkerModelPayload = {
   citations: string[];
   gaps: string[];
   conclusion?: string;
-  classification?: WorkerRuleClassification;
+  verdictAnswers?: WorkerVerdictAnswers;
   patches?: Array<{
     find: string;
     replace: string;
@@ -248,7 +285,7 @@ export type DraftWorkerOutput =
         }>;
         /** Present only for rule-level review workers. */
         ruleId?: string;
-        classification?: WorkerRuleClassification;
+        verdictAnswers?: WorkerVerdictAnswers;
       };
     }
   | {
@@ -367,13 +404,13 @@ export function parseDraftWorkerModelText(raw: string): DraftWorkerModelPayload 
   if (rec) {
     const draft = typeof rec.draft === "string" ? rec.draft.trim() : "";
     if (draft.length >= MIN_DRAFT_CHARS) {
-      const classification = parseRuleClassification(rec.classification);
+      const verdictAnswers = parseVerdictAnswers(rec.verdictAnswers);
       return {
         draft,
         citations: stringList(rec.citations),
         gaps: stringList(rec.gaps),
         conclusion: oneLine(rec.conclusion),
-        ...(classification ? { classification } : {}),
+        ...(verdictAnswers ? { verdictAnswers } : {}),
         patches: parsePatches(rec.patches),
       };
     }
@@ -638,14 +675,16 @@ function buildDraftUserPrompt(
     revisingDocument: Boolean(input.path?.trim() || input.materials?.trim()),
   });
   const ruleId = (input.ruleId ?? "").trim();
-  const classificationSchema = ruleId
-    ? `, "classification": { "kind": "compliant | acceptable_deviation | unacceptable | absent | needs_human", "rationale": "一句理由", "position": "选定的回退立场（仅 acceptable_deviation）", "risk": "high | medium | low", "evidence": ["材料原句"] }`
+  const verdictSchema = ruleId
+    ? `, "verdictAnswers": { "clausePresent": true, "answers": [{ "criterionId": "题目 id", "met": "true | false | unknown | not_applicable", "evidence": "材料原句" }] }`
     : "";
   return [
     skeleton.header ?? "",
     ask,
-    ruleId ? `本次只审这一条规则：${ruleId}。classification.kind 必填。` : "",
-    `JSON schema: { "draft": "string", "conclusion": "一句结论", "citations": ["材料出处"], "gaps": ["待补缺口"]${classificationSchema}, "patches": [{ "find": "原句", "replace": "改后句", "span": "材料原句", "anchor": "clause:…", "ruleId": "可选：这条补丁对应的规则 id" }] }`,
+    ruleId
+      ? `本次只审这一条规则：${ruleId}。逐题作答 verdictAnswers，不要给档位结论，档位由引擎判定。`
+      : "",
+    `JSON schema: { "draft": "string", "conclusion": "一句结论", "citations": ["材料出处"], "gaps": ["待补缺口"]${verdictSchema}, "patches": [{ "find": "原句", "replace": "改后句", "span": "材料原句", "anchor": "clause:…", "ruleId": "可选：这条补丁对应的规则 id" }] }`,
     "",
     brief,
     `章节：${section}`,
@@ -1099,7 +1138,7 @@ function successResult(
       steps,
       ...(parsed.patches && parsed.patches.length > 0 ? { patches: parsed.patches } : {}),
       ...(ruleId ? { ruleId } : {}),
-      ...(parsed.classification ? { classification: parsed.classification } : {}),
+      ...(parsed.verdictAnswers ? { verdictAnswers: parsed.verdictAnswers } : {}),
     },
   };
 }

@@ -15,15 +15,11 @@
  * table is unchanged for every existing path.
  */
 
-import { collectRuleOutputs, type RuleWorkerResult } from "../../../review/bridge.js";
+import { collectRuleOutputs } from "../../../review/bridge.js";
 import { planRuleReview } from "../../../review/plan.js";
 import { CN_SALES_PLAYBOOK_ID, CN_SALES_RULES } from "../../../review/playbooks/cn-sales.js";
 import type { PaperSide, ReviewRule } from "../../../review/rules.js";
-import {
-  readRuleClassifications,
-  type RuleClassificationRecord,
-  type WorkerPatch,
-} from "../../factor-state.js";
+import { readRuleAnswers, type RuleAnswerRecord, type WorkerPatch } from "../../factor-state.js";
 import type { AgentTool } from "../../types.js";
 
 export const FINALIZE_RULE_REVIEW_TOOL_NAME = "finalize_rule_review";
@@ -44,12 +40,15 @@ function resolveRules(playbookId: string): ReviewRule[] | undefined {
   return PLAYBOOKS[playbookId];
 }
 
-function asWorkerResults(records: readonly RuleClassificationRecord[]): RuleWorkerResult[] {
+function asWorkerResults(records: readonly RuleAnswerRecord[]) {
   return records.map((record) => ({
     ruleId: record.ruleId,
     ...(record.agentId ? { agentId: record.agentId } : {}),
     ...(record.section ? { section: record.section } : {}),
-    classification: record.classification,
+    verdictAnswers: {
+      clausePresent: record.clausePresent,
+      answers: record.answers,
+    },
   }));
 }
 
@@ -144,7 +143,7 @@ export const finalizeRuleReviewTool: AgentTool = {
       };
     }
 
-    const records = readRuleClassifications(ctx.factorState);
+    const records = readRuleAnswers(ctx.factorState);
     const collected = collectRuleOutputs({ plan, results: asWorkerResults(records) });
     const patches = ctx.factorState?.pendingPatches ?? [];
     const ruleConflicts = collectRulePatchConflicts(patches);

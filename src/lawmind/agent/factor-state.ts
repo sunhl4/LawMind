@@ -126,11 +126,11 @@ export type FactorState = {
   /** Worker patches that passed span checks. Surgical apply uses these on matching finds. */
   pendingPatches?: WorkerPatch[];
   /**
-   * Rule verdicts returned by review workers (rule-level review only).
-   * Stored raw so the finalizer can decide coverage; the engine never fills a
-   * missing verdict in.
+   * Atomic criterion answers returned by review workers (rule-level review
+   * only). Stored raw so the finalizer can map them to a verdict; the engine
+   * never fills a missing answer in.
    */
-  ruleClassifications?: RuleClassificationRecord[];
+  ruleAnswers?: RuleAnswerRecord[];
   /**
    * Same-`find` patches that disagreed on `replace` during the last reconcile.
    * Reported, never auto-resolved: the engine does not pick a winner between
@@ -166,21 +166,16 @@ export type WorkerPatch = {
 };
 
 /**
- * Worker verdict for one rule, stored verbatim. `kind` is a plain string here
- * so this leaf module does not depend on the review layer; the finalizer
- * validates it against the five legal kinds.
+ * Worker answers for one rule, stored verbatim. The worker never supplies a
+ * tier; `finalize_rule_review` maps these through `review/verdict.ts`. Kept as
+ * loose shapes here so this leaf module does not depend on the review layer.
  */
-export type RuleClassificationRecord = {
+export type RuleAnswerRecord = {
   ruleId: string;
   agentId?: string;
   section?: string;
-  classification: {
-    kind: string;
-    rationale?: string;
-    position?: string;
-    risk?: string;
-    evidence?: string[];
-  };
+  clausePresent: boolean;
+  answers: Array<{ criterionId: string; met: boolean | string; evidence?: string }>;
 };
 
 export type SyndromeHit = {
@@ -224,7 +219,7 @@ export function emptyFactorState(): FactorState {
     demoSpanIds: [],
     pendingPatches: [],
     patchConflicts: [],
-    ruleClassifications: [],
+    ruleAnswers: [],
   };
 }
 
@@ -1316,11 +1311,9 @@ export function readPatchConflicts(state: FactorState | undefined): WorkerPatchC
   return state?.patchConflicts ?? [];
 }
 
-/** Rule verdicts collected this turn (rule-level review only). */
-export function readRuleClassifications(
-  state: FactorState | undefined,
-): RuleClassificationRecord[] {
-  return state?.ruleClassifications ?? [];
+/** Rule criterion answers collected this turn (rule-level review only). */
+export function readRuleAnswers(state: FactorState | undefined): RuleAnswerRecord[] {
+  return state?.ruleAnswers ?? [];
 }
 
 export function mapEditsToFactorAnchors(state: FactorState | undefined, edits: unknown): string[] {
@@ -2562,33 +2555,39 @@ function ingestWorkerRecord(state: FactorState, record: Record<string, unknown>)
   const outcomeId = typeof record.outcomeId === "string" ? record.outcomeId.trim() : "";
   const span = typeof record.span === "string" ? record.span.trim() : "";
   const recordRuleId = typeof record.ruleId === "string" ? record.ruleId.trim() : "";
-  const rawClassification = record.classification;
-  if (recordRuleId && rawClassification && typeof rawClassification === "object") {
-    const c = rawClassification as Record<string, unknown>;
-    const kind = typeof c.kind === "string" ? c.kind.trim() : "";
-    if (kind) {
-      state.ruleClassifications = state.ruleClassifications ?? [];
+  const rawVerdict = record.verdictAnswers;
+  if (recordRuleId && rawVerdict && typeof rawVerdict === "object") {
+    const v = rawVerdict as Record<string, unknown>;
+    if (typeof v.clausePresent === "boolean") {
+      state.ruleAnswers = state.ruleAnswers ?? [];
       const agentId = typeof record.workerId === "string" ? record.workerId.trim() : "";
       const section = typeof record.section === "string" ? record.section.trim() : "";
-      const rationale = typeof c.rationale === "string" ? c.rationale.trim() : "";
-      const position = typeof c.position === "string" ? c.position.trim() : "";
-      const risk = typeof c.risk === "string" ? c.risk.trim() : "";
-      const evidence = Array.isArray(c.evidence)
-        ? c.evidence
-            .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-            .map((item) => item.trim())
-        : [];
-      state.ruleClassifications.push({
+      const rawAnswers = Array.isArray(v.answers) ? v.answers : [];
+      const answers: RuleAnswerRecord["answers"] = [];
+      for (const item of rawAnswers) {
+        if (!item || typeof item !== "object") {
+          continue;
+        }
+        const row = item as Record<string, unknown>;
+        const criterionId = typeof row.criterionId === "string" ? row.criterionId.trim() : "";
+        const met =
+          typeof row.met === "boolean"
+            ? row.met
+            : typeof row.met === "string" && row.met.trim()
+              ? row.met.trim()
+              : undefined;
+        if (!criterionId || met === undefined) {
+          continue;
+        }
+        const evidence = typeof row.evidence === "string" ? row.evidence.trim() : "";
+        answers.push({ criterionId, met, ...(evidence ? { evidence } : {}) });
+      }
+      state.ruleAnswers.push({
         ruleId: recordRuleId,
         ...(agentId ? { agentId } : {}),
         ...(section ? { section } : {}),
-        classification: {
-          kind,
-          ...(rationale ? { rationale } : {}),
-          ...(position ? { position } : {}),
-          ...(risk ? { risk } : {}),
-          ...(evidence.length > 0 ? { evidence } : {}),
-        },
+        clausePresent: v.clausePresent,
+        answers,
       });
     }
   }

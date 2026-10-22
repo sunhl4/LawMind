@@ -5151,6 +5151,17 @@ describe("rule-level review admission (LAWMIND_RULE_BRANCH_WRITE)", () => {
     "confidentiality.noncompete.counterparty",
   ] as const;
 
+  /** Stub answer synthesis: the tier comes from the engine, not the stub. */
+  async function ruleAnswersFor(ruleId: string, kind: string) {
+    const { CN_SALES_RULES } = await import("../review/playbooks/cn-sales.js");
+    const { synthesizeAnswers } = await import("../review/verdict-oracle.js");
+    const rule = CN_SALES_RULES.find((r) => r.ruleId === ruleId);
+    if (!rule) {
+      throw new Error(`unknown rule ${ruleId}`);
+    }
+    return synthesizeAnswers(rule, kind as never);
+  }
+
   function ruleWorkerCall(ruleId: string, patches?: Array<Record<string, string>>) {
     return {
       name: "draft_worker",
@@ -5226,7 +5237,7 @@ describe("rule-level review admission (LAWMIND_RULE_BRANCH_WRITE)", () => {
                 citations: [],
                 gaps: [],
                 ruleId,
-                classification: { kind: "compliant", rationale: "与标准立场一致" },
+                verdictAnswers: await ruleAnswersFor(ruleId, "compliant"),
               },
             };
           }),
@@ -5273,7 +5284,7 @@ describe("rule-level review admission (LAWMIND_RULE_BRANCH_WRITE)", () => {
                 citations: [],
                 gaps: [],
                 ruleId,
-                classification: { kind: "unacceptable", rationale: "触碰底线" },
+                verdictAnswers: await ruleAnswersFor(ruleId, "unacceptable"),
               },
             };
           }),
@@ -5326,7 +5337,7 @@ describe("rule-level review admission (LAWMIND_RULE_BRANCH_WRITE)", () => {
                 citations: [],
                 gaps: [],
                 ruleId,
-                classification: { kind: "acceptable_deviation", rationale: "可接受回退" },
+                verdictAnswers: await ruleAnswersFor(ruleId, "acceptable_deviation"),
                 patches: [
                   {
                     find: "三十日",

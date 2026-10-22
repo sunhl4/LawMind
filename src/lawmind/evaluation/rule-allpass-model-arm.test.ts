@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { AgentModelConfig } from "../agent/types.js";
 import { CN_SALES_RULES } from "../review/playbooks/cn-sales.js";
-import { filterRulesForPaper, type RuleClassification } from "../review/rules.js";
+import { filterRulesForPaper } from "../review/rules.js";
+import { synthesizeAnswers } from "../review/verdict-oracle.js";
 import { buildRuleGoal, runRuleAllPassModelArm } from "./rule-allpass-model-arm.js";
 import { loadRuleAllPassFixtures, oracleClassifications } from "./rule-allpass.js";
 
@@ -15,59 +16,57 @@ const model: AgentModelConfig = {
 const loaded = loadRuleAllPassFixtures();
 const firstCase = loaded.cases[0];
 
-/** Answers correctly, like a perfect model would. */
+/** Answers every criterion correctly, like a perfect reader would. */
 function perfectClassifier() {
   return async ({ rule }: { rule: { ruleId: string } }) => {
     const kind = firstCase.expected[rule.ruleId];
     if (!kind) {
       return { error: `no expectation for ${rule.ruleId}` };
     }
-    return { classification: { ruleId: rule.ruleId, kind } satisfies RuleClassification };
+    return { answers: synthesizeAnswers(rule as never, kind) };
   };
 }
 
 describe("buildRuleGoal", () => {
-  it("carries the rule's own standard, fallbacks and guidance", () => {
+  it("asks the rule's own criteria by id and carries the standard", () => {
     const rule = CN_SALES_RULES.find((r) => r.ruleId === "dispute.forum.counterparty")!;
     const goal = buildRuleGoal(rule);
     expect(goal).toContain(rule.ruleId);
     expect(goal).toContain(rule.standard);
-    expect(goal).toContain("永不接受");
-    expect(goal).toContain("只交回这一条规则");
+    for (const criterion of rule.criteria) {
+      expect(goal).toContain(criterion.question);
+      expect(goal).toContain(`[${criterion.id}]`);
+    }
+    expect(goal).toContain("只交回本规则的逐题答案");
   });
 
-  it("tells the worker that an absent clause is unacceptable when the rule forbids absence", () => {
+  it("never asks the model to pick a tier", () => {
+    // The whole point of the redesign: the model must not choose compliant /
+    // acceptable / unacceptable. Guard the prompt against regressing.
+    for (const rule of CN_SALES_RULES) {
+      const goal = buildRuleGoal(rule);
+      expect(goal).not.toContain("判 compliant");
+      expect(goal).not.toContain("判 unacceptable");
+      expect(goal).not.toContain("判 acceptable_deviation");
+      expect(goal).toContain("档位由引擎");
+    }
+  });
+
+  it("tells the worker what an absent clause means for this rule", () => {
+    const forbids = CN_SALES_RULES.find((r) => r.ruleId === "liability.cap.counterparty")!;
+    expect(forbids.absentAllowed).toBe(false);
+    expect(buildRuleGoal(forbids)).toContain("clausePresent 填 false；本规则不允许缺失");
+
+    const allows = CN_SALES_RULES.find((r) => r.ruleId === "termination.symmetry.counterparty")!;
+    expect(allows.absentAllowed).toBe(true);
+    expect(buildRuleGoal(allows)).toContain("clausePresent 填 false（不要逐题作答）");
+  });
+
+  it("keeps unknown reserved, not a blanket safe answer", () => {
     const rule = CN_SALES_RULES.find((r) => r.ruleId === "liability.cap.counterparty")!;
-    expect(rule.absentAllowed).toBe(false);
-    expect(buildRuleGoal(rule)).toContain("判 unacceptable（本规则不允许缺失）");
-  });
-
-  it("does not turn absence into a defect when the rule allows it", () => {
-    const rule = CN_SALES_RULES.find((r) => r.ruleId === "termination.symmetry.counterparty")!;
-    expect(rule.absentAllowed).toBe(true);
-    expect(buildRuleGoal(rule)).toContain("判 absent（absent 是最终结论");
-  });
-
-  it("orders the verdict ladder so compliant is not skipped for acceptable", () => {
-    const rule = CN_SALES_RULES.find(
-      (r) => r.ruleId === "confidentiality.noncompete.counterparty",
-    )!;
     const goal = buildRuleGoal(rule);
-    const absentAt = goal.indexOf("判 absent");
-    const unacceptableAt = goal.indexOf("永不接受）");
-    const acceptableAt = goal.indexOf("判 acceptable_deviation");
-    const compliantAt = goal.indexOf("判 compliant");
-    expect(absentAt).toBeGreaterThan(-1);
-    expect(acceptableAt).toBeGreaterThan(unacceptableAt);
-    expect(compliantAt).toBeGreaterThan(acceptableAt);
-  });
-
-  it("states the sufficient conditions for compliant so verdicts do not drift", () => {
-    const rule = CN_SALES_RULES.find((r) => r.ruleId === "liability.cap.counterparty")!;
-    expect(rule.compliantWhen?.length).toBeGreaterThan(0);
-    const goal = buildRuleGoal(rule);
-    expect(goal).toContain("以下条件全部满足");
-    expect(goal).toContain("不得作为降档理由");
+    expect(goal).toContain("unknown 仅用于");
+    expect(goal).toContain("不要为了保守而滥答 unknown");
   });
 });
 
@@ -99,7 +98,7 @@ describe("runRuleAllPassModelArm", () => {
       classifyRule: async ({ rule }) => {
         const expected = firstCase.expected[rule.ruleId];
         const kind = rule.ruleId === target ? "unacceptable" : expected;
-        return { classification: { ruleId: rule.ruleId, kind } };
+        return { answers: synthesizeAnswers(rule as never, kind as never) };
       },
     });
     expect(result.cases[0]?.score.pass).toBe(false);
@@ -114,7 +113,7 @@ describe("runRuleAllPassModelArm", () => {
       chatModel: model,
       classifyRule: async ({ rule }) => {
         if (rule.ruleId === skipped) {
-          return { error: "worker returned no valid classification" };
+          return { error: "worker returned no verdictAnswers" };
         }
         return perfectClassifier()({ rule });
       },
@@ -171,11 +170,19 @@ describe("runRuleAllPassModelArm", () => {
       cases: [firstCase],
       chatModel: model,
       classifyRule: async ({ rule }) => {
-        const found = oracleClassifications(firstCase).find((c) => c.ruleId === rule.ruleId);
-        return found ? { classification: found } : { error: "missing" };
+        const expected = firstCase.expected[rule.ruleId];
+        if (!expected) {
+          return { error: "missing" };
+        }
+        return { answers: synthesizeAnswers(rule as never, expected as never) };
       },
     });
     expect(result.cases[0]?.score.pass).toBe(true);
+    // The oracle helper and the arm must agree about every rule.
+    const oracleKinds = new Map(oracleClassifications(firstCase).map((c) => [c.ruleId, c.kind]));
+    for (const perRule of result.cases[0].perRule) {
+      expect(perRule.kind).toBe(oracleKinds.get(perRule.ruleId));
+    }
   });
 });
 
@@ -192,7 +199,7 @@ describe("trials and stability", () => {
         seen.set(rule.ruleId, n);
         const expected = firstCase.expected[rule.ruleId];
         const kind = n === 3 ? "acceptable_deviation" : expected;
-        return { classification: { ruleId: rule.ruleId, kind } };
+        return { answers: synthesizeAnswers(rule as never, kind as never) };
       },
     });
     expect(result.cases[0]?.score.pass).toBe(true);
@@ -214,7 +221,7 @@ describe("trials and stability", () => {
         const n = (seen.get(rule.ruleId) ?? 0) + 1;
         seen.set(rule.ruleId, n);
         const kind = n === 1 ? "compliant" : "acceptable_deviation";
-        return { classification: { ruleId: rule.ruleId, kind } };
+        return { answers: synthesizeAnswers(rule as never, kind as never) };
       },
     });
     for (const r of result.cases[0].perRule) {

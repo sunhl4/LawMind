@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { CN_SALES_RULES } from "../../../review/playbooks/cn-sales.js";
 import { filterRulesForPaper } from "../../../review/rules.js";
+import { synthesizeAnswers } from "../../../review/verdict-oracle.js";
 import { emptyFactorState, ingestToolResult } from "../../factor-state.js";
 import type { AgentTool } from "../../types.js";
 import {
@@ -11,6 +12,14 @@ import {
 
 type Ctx = Parameters<AgentTool["execute"]>[1];
 
+function ruleOf(ruleId: string) {
+  const rule = CN_SALES_RULES.find((r) => r.ruleId === ruleId);
+  if (!rule) {
+    throw new Error(`rule not found: ${ruleId}`);
+  }
+  return rule;
+}
+
 function ctxWith(
   records: Array<{ ruleId: string; kind: string }>,
   patches: Array<{ find: string; replace: string; span?: string; ruleId?: string }> = [],
@@ -20,7 +29,10 @@ function ctxWith(
   for (const record of records) {
     ingestToolResult(factorState, "draft_worker", {
       ruleId: record.ruleId,
-      classification: { kind: record.kind, rationale: "测试" },
+      verdictAnswers: synthesizeAnswers(
+        ruleOf(record.ruleId),
+        record.kind as Parameters<typeof synthesizeAnswers>[1],
+      ),
     });
   }
   if (patches.length > 0) {

@@ -16,6 +16,8 @@ import { fileURLToPath } from "node:url";
 import { CN_SALES_PLAYBOOK_ID, CN_SALES_RULES } from "../review/playbooks/cn-sales.js";
 import { filterRulesForPaper, type PaperSide, type RuleClassification } from "../review/rules.js";
 import type { RuleClassificationKind } from "../review/rules.js";
+import { synthesizeAnswers } from "../review/verdict-oracle.js";
+import { decideVerdict } from "../review/verdict.js";
 
 export const RULE_ALLPASS_DIR_REL = "fixtures/lawmind-allpass";
 
@@ -315,8 +317,24 @@ export function summarizeRuleAllPass(
 }
 
 /** Verdicts reconstructed from the fixture. Harness self-test only. */
+/**
+ * Verdicts a perfect answerer would produce: synthesize answers from the
+ * fixture expectation, then map them. This makes the oracle arm a real check of
+ * the criteria ↔ verdict mapping, not a string comparison.
+ */
 export function oracleClassifications(c: RuleAllPassCase): RuleClassification[] {
-  return Object.entries(c.expected).map(([ruleId, kind]) => ({ ruleId, kind }));
+  const rules = filterRulesForPaper(CN_SALES_RULES, c.paper);
+  const byId = new Map(rules.map((r) => [r.ruleId, r]));
+  const out: RuleClassification[] = [];
+  for (const [ruleId, kind] of Object.entries(c.expected)) {
+    const rule = byId.get(ruleId);
+    if (!rule) {
+      continue;
+    }
+    const synthesized = synthesizeAnswers(rule, kind);
+    out.push(decideVerdict(rule, synthesized));
+  }
+  return out;
 }
 
 export type RuleAllPassModelArmSummary = {

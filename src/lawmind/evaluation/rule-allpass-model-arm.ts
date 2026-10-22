@@ -15,7 +15,14 @@ import { runDraftWorker } from "../agent/draft-worker.js";
 import type { AgentModelConfig } from "../agent/types.js";
 import { CN_SALES_RULES } from "../review/playbooks/cn-sales.js";
 import { filterRulesForPaper, type ReviewRule } from "../review/rules.js";
-import type { RuleClassification, RuleClassificationKind } from "../review/rules.js";
+import type { RuleClassificationKind } from "../review/rules.js";
+import type { RuleClassification } from "../review/rules.js";
+import {
+  decideVerdict,
+  type CriterionAnswer,
+  type CriterionMet,
+  type VerdictInput,
+} from "../review/verdict.js";
 import { scoreRuleAllPassCase, type RuleAllPassCase, type RuleCaseScore } from "./rule-allpass.js";
 
 export type ModelArmOptions = {
@@ -37,14 +44,15 @@ export type ModelArmOptions = {
    */
   trials?: number;
   /**
-   * Test seam: classify one rule. Production omits it and uses the real review
-   * worker. Exposed so the arm's bookkeeping can be tested without a provider.
+   * Test seam: answer one rule's criteria. Production omits it and uses the
+   * real review worker. Returns answers, not a tier — the tier is mapped by
+   * `decideVerdict` so this seam cannot accidentally test model tier-picking.
    */
   classifyRule?: (input: {
     rule: ReviewRule;
     contract: string;
     chatModel: AgentModelConfig;
-  }) => Promise<{ classification?: RuleClassification; error?: string }>;
+  }) => Promise<{ answers?: VerdictInput; error?: string }>;
   onProgress?: (event: { caseId: string; ruleId: string; done: number; total: number }) => void;
 };
 
@@ -78,51 +86,32 @@ export type ModelArmResult = {
 };
 
 /**
- * Goal text for one rule: the worker must judge this rule, nothing else.
+ * Prompt for one rule: the worker answers the rule's criteria, nothing else.
  *
- * The verdict ladder is explicit and ordered. Without it, models treat
- * "does not satisfy every compliant condition" as unacceptable and skip the
- * acceptable-deviation rung entirely.
+ * The prompt deliberately does NOT ask for a tier. Asking for a tier is what
+ * produced 12% unstable verdicts; yes/no answers are stable. Mapping to a tier
+ * is `decideVerdict`'s job.
  */
 export function buildRuleGoal(rule: ReviewRule): string {
-  const ladder = [
-    "判定顺序（必须按此顺序，命中即停）：",
-    rule.absentAllowed
-      ? "  1. 合同完全没有涉及本规则事项 → 判 absent（absent 是最终结论，不是缺陷，不要再往下判）。"
-      : "  1. 合同完全没有涉及本规则事项 → 判 unacceptable（本规则不允许缺失）。",
-    rule.unacceptable.length > 0
-      ? `  2. 命中「永不接受」任一项 → 判 unacceptable。永不接受：${rule.unacceptable.join("；")}`
-      : "  2. 无「永不接受」项。",
-    rule.acceptable.length > 0
-      ? `  3. 命中「可接受回退」任一项 → 判 acceptable_deviation（不要再因为不满足 compliant 全部条件而升到 unacceptable）。可接受回退：${rule.acceptable.join("；")}`
-      : "  3. 无「可接受回退」项。",
-    rule.compliantWhen && rule.compliantWhen.length > 0
-      ? [
-          "  4. 以下条件全部满足 → 判 compliant（规则没有要求的额外保护，不得作为降档理由）：",
-          ...rule.compliantWhen.map((item) => `     - ${item}`),
-        ].join("\n")
-      : "  4. 与标准立场一致 → 判 compliant。",
-    "  5. 以上都不成立且材料确实不足以判定 → 判 needs_human，并在理由里写明缺哪一份材料。",
-  ];
-
+  const questions = rule.criteria.map(
+    (criterion, index) => `  ${index + 1}. [${criterion.id}] ${criterion.question}`,
+  );
   return [
-    `审查这条规则并给出一个判定：${rule.ruleId}（${rule.title}）。`,
-    `标准立场：${rule.standard}`,
-    ...ladder,
-    rule.guidance ? `判定指引：${rule.guidance}` : "",
-    "只交回这一条规则的分类与依据，不要评价其他规则，不要改原文。",
+    `审查这条规则并逐题作答：${rule.ruleId}（${rule.title}）。`,
+    `标准立场（供理解，不作为判定依据）：${rule.standard}`,
+    "",
+    "对下列每一题回答 true / false / unknown / not_applicable，并给出合同原文证据：",
+    ...questions,
+    "",
+    rule.absentAllowed
+      ? "如果合同完全没有涉及本规则事项，clausePresent 填 false（不要逐题作答）。"
+      : "如果合同完全没有涉及本规则事项，clausePresent 填 false；本规则不允许缺失。",
+    "unknown 仅用于「合同写了但读不出结论」，并在理由里写明缺什么；不要为了保守而滥答 unknown。",
+    "只交回本规则的逐题答案，不要给档位结论——档位由引擎按固定规则判定，不要评价其他规则，不要改原文。",
   ]
-    .filter(Boolean)
+    .filter((line) => line !== undefined)
     .join("\n");
 }
-
-const KINDS: ReadonlySet<string> = new Set<RuleClassificationKind>([
-  "compliant",
-  "acceptable_deviation",
-  "unacceptable",
-  "absent",
-  "needs_human",
-]);
 
 /**
  * Tie-break order for a split vote: lower wins. A rule whose samples disagree
@@ -136,23 +125,44 @@ const CONSERVATIVE_ORDER: Record<RuleClassificationKind, number> = {
   compliant: 4,
 };
 
-function toClassification(ruleId: string, raw: unknown): RuleClassification | undefined {
+function toVerdictInput(raw: unknown): VerdictInput | undefined {
   if (!raw || typeof raw !== "object") {
     return undefined;
   }
   const o = raw as Record<string, unknown>;
-  const kind = typeof o.kind === "string" ? o.kind.trim() : "";
-  if (!KINDS.has(kind)) {
+  if (typeof o.clausePresent !== "boolean") {
     return undefined;
   }
-  const rationale = typeof o.rationale === "string" ? o.rationale.trim() : "";
-  const position = typeof o.position === "string" ? o.position.trim() : "";
-  return {
-    ruleId,
-    kind: kind as RuleClassificationKind,
-    ...(rationale ? { rationale } : {}),
-    ...(position ? { position } : {}),
-  };
+  const rawAnswers = Array.isArray(o.answers) ? o.answers : [];
+  const answers: CriterionAnswer[] = [];
+  for (const item of rawAnswers) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const row = item as Record<string, unknown>;
+    const criterionId =
+      typeof row.criterionId === "string"
+        ? row.criterionId.trim()
+        : typeof row.id === "string"
+          ? row.id.trim()
+          : "";
+    if (!criterionId) {
+      continue;
+    }
+    const metRaw = row.met;
+    let met: CriterionMet | undefined;
+    if (typeof metRaw === "boolean") {
+      met = metRaw;
+    } else if (metRaw === "unknown" || metRaw === "not_applicable") {
+      met = metRaw;
+    }
+    if (met === undefined) {
+      continue;
+    }
+    const evidence = typeof row.evidence === "string" ? row.evidence.trim() : "";
+    answers.push({ criterionId, met, ...(evidence ? { evidence } : {}) });
+  }
+  return { clausePresent: o.clausePresent, answers };
 }
 
 async function mapWithConcurrency<T, R>(
@@ -183,7 +193,7 @@ async function classifyOneRule(params: {
   rule: ReviewRule;
   contract: string;
   chatModel: AgentModelConfig;
-}): Promise<{ classification?: RuleClassification; error?: string }> {
+}): Promise<{ answers?: VerdictInput; error?: string }> {
   const result = await runDraftWorker(
     {
       goal: buildRuleGoal(params.rule),
@@ -198,12 +208,12 @@ async function classifyOneRule(params: {
   if (!result.ok) {
     return { error: result.error };
   }
-  const data = result.data as { classification?: unknown };
-  const classification = toClassification(params.rule.ruleId, data.classification);
-  if (!classification) {
-    return { error: "worker returned no valid classification" };
+  const data = result.data as { verdictAnswers?: unknown };
+  const answers = toVerdictInput(data.verdictAnswers);
+  if (!answers) {
+    return { error: "worker returned no verdictAnswers" };
   }
-  return { classification };
+  return { answers };
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
@@ -245,11 +255,16 @@ export async function runRuleAllPassModelArm(opts: ModelArmOptions): Promise<Mod
             timeoutMs,
             `${rule.ruleId}#${t + 1}`,
           );
-          samples.push({
-            ...(got.classification ? { kind: got.classification.kind } : {}),
-            ...(got.classification?.rationale ? { rationale: got.classification.rationale } : {}),
-            ...(got.error ? { error: got.error } : {}),
-          });
+          if (got.answers) {
+            // Tier comes from the deterministic mapper, never from the model.
+            const decision = decideVerdict(rule, got.answers);
+            samples.push({
+              kind: decision.kind,
+              ...(decision.rationale ? { rationale: decision.rationale } : {}),
+            });
+          } else {
+            samples.push({ error: got.error ?? "no verdictAnswers" });
+          }
         } catch (err) {
           samples.push({ error: err instanceof Error ? err.message : String(err) });
         }

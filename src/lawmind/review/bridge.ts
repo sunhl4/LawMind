@@ -1,35 +1,24 @@
 /**
- * Bridge from worker results to rule-level review (B4).
+ * Bridge from worker answers to rule-level review (B4).
  *
  * Pure functions only: no model calls, no disk writes. The parent collects what
- * each worker returned, this module states whether the plan was covered, and
- * `executeRuleReview` decides the merge.
+ * each worker answered, this module says whether the plan was covered, and the
+ * tier comes from `decideVerdict` — never from the worker.
  */
 
 import type { WorkerPatch } from "../agent/factor-state.js";
 import type { RuleWorkerOutput } from "./execute.js";
 import type { RuleReviewPlan } from "./plan.js";
-import type { RuleClassification, RuleClassificationKind } from "./rules.js";
-
-const CLASSIFICATION_KINDS: ReadonlySet<RuleClassificationKind> = new Set([
-  "compliant",
-  "acceptable_deviation",
-  "unacceptable",
-  "absent",
-  "needs_human",
-]);
+import { decideVerdict, missingCriterionIds, type CriterionAnswer } from "./verdict.js";
 
 /** Shape a worker hands back to the parent (subset of DraftWorkerOutput.data). */
 export type RuleWorkerResult = {
   ruleId?: string;
   agentId?: string;
   section?: string;
-  classification?: {
-    kind?: string;
-    rationale?: string;
-    position?: string;
-    risk?: string;
-    evidence?: string[];
+  verdictAnswers?: {
+    clausePresent?: unknown;
+    answers?: unknown;
   };
   patches?: readonly WorkerPatch[];
 };
@@ -38,23 +27,53 @@ export type CollectRuleOutputsResult = {
   outputs: RuleWorkerOutput[];
   /** Results that cannot be attributed to a planned rule. Never silently dropped. */
   invalid: Array<{ ruleId: string; reason: string }>;
+  /** Rules whose answers were unusable; these keep coverage incomplete. */
+  unansweredRuleIds: string[];
 };
 
+function toAnswers(raw: RuleWorkerResult["verdictAnswers"]): CriterionAnswer[] {
+  if (!raw || !Array.isArray(raw.answers)) {
+    return [];
+  }
+  const answers: CriterionAnswer[] = [];
+  for (const item of raw.answers) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const row = item as Record<string, unknown>;
+    const criterionId = typeof row.criterionId === "string" ? row.criterionId.trim() : "";
+    if (!criterionId) {
+      continue;
+    }
+    const metRaw = row.met;
+    const met =
+      typeof metRaw === "boolean" || metRaw === "unknown" || metRaw === "not_applicable"
+        ? metRaw
+        : undefined;
+    if (met === undefined) {
+      continue;
+    }
+    const evidence = typeof row.evidence === "string" ? row.evidence.trim() : "";
+    answers.push({ criterionId, met, ...(evidence ? { evidence } : {}) });
+  }
+  return answers;
+}
+
 /**
- * Validate worker results against the plan.
+ * Validate worker results against the plan and map answers to verdicts.
  *
- * A missing `ruleId`, an unplanned `ruleId`, a duplicate, or a missing/invalid
- * classification makes the result invalid. Invalid results are returned rather
- * than guessed at, so the caller reports `coverage: incomplete`.
+ * A missing `ruleId`, an unplanned `ruleId`, or a duplicate makes the result
+ * invalid. A result without a usable `clausePresent` is reported as unanswered:
+ * the engine never invents `clausePresent` or a missing criterion answer.
  */
 export function collectRuleOutputs(params: {
   plan: RuleReviewPlan;
   results: readonly RuleWorkerResult[];
-  /** Patches dropped for any reason; surfaced so the caller can explain. */
 }): CollectRuleOutputsResult {
-  const planned = new Set(params.plan.assignments.map((a) => a.ruleId));
+  const planned = new Map(params.plan.assignments.map((a) => [a.ruleId, a.rule]));
   const outputs: RuleWorkerOutput[] = [];
   const invalid: CollectRuleOutputsResult["invalid"] = [];
+  const unansweredRuleIds: string[] = [];
   const seen = new Set<string>();
 
   for (const result of params.results) {
@@ -63,7 +82,8 @@ export function collectRuleOutputs(params: {
       invalid.push({ ruleId: "", reason: "missing_rule_id" });
       continue;
     }
-    if (!planned.has(ruleId)) {
+    const rule = planned.get(ruleId);
+    if (!rule) {
       invalid.push({ ruleId, reason: "unplanned_rule_id" });
       continue;
     }
@@ -72,10 +92,26 @@ export function collectRuleOutputs(params: {
       continue;
     }
 
-    const classification = toClassification(ruleId, result.classification);
-    if (!classification) {
-      invalid.push({ ruleId, reason: "missing_classification" });
+    const raw = result.verdictAnswers;
+    const clausePresent = typeof raw?.clausePresent === "boolean" ? raw.clausePresent : undefined;
+    if (clausePresent === undefined) {
+      invalid.push({ ruleId, reason: "missing_clause_present" });
+      unansweredRuleIds.push(ruleId);
       continue;
+    }
+
+    const answers = toAnswers(raw);
+    if (clausePresent) {
+      const missing = missingCriterionIds(rule, answers);
+      if (missing.length > 0) {
+        // Retry is the caller's job; here we report rather than default to false.
+        invalid.push({
+          ruleId,
+          reason: `missing_criteria:${missing.join(",")}`,
+        });
+        unansweredRuleIds.push(ruleId);
+        continue;
+      }
     }
 
     seen.add(ruleId);
@@ -83,7 +119,7 @@ export function collectRuleOutputs(params: {
       ruleId,
       agentId: (result.agentId ?? `agent:${ruleId}`).trim(),
       branchId: `branch:${ruleId}`,
-      classification,
+      classification: decideVerdict(rule, { clausePresent, answers }),
       ops: [],
       ...(typeof result.section === "string" && result.section.trim()
         ? { memo: result.section.trim() }
@@ -91,36 +127,5 @@ export function collectRuleOutputs(params: {
     });
   }
 
-  return { outputs, invalid };
-}
-
-function toClassification(
-  ruleId: string,
-  raw: RuleWorkerResult["classification"],
-): RuleClassification | undefined {
-  if (!raw || typeof raw !== "object") {
-    return undefined;
-  }
-  const kind = typeof raw.kind === "string" ? raw.kind.trim() : "";
-  if (!CLASSIFICATION_KINDS.has(kind as RuleClassificationKind)) {
-    return undefined;
-  }
-  const rationale = typeof raw.rationale === "string" ? raw.rationale.trim() : "";
-  const position = typeof raw.position === "string" ? raw.position.trim() : "";
-  const riskRaw = typeof raw.risk === "string" ? raw.risk.trim() : "";
-  const risk =
-    riskRaw === "high" || riskRaw === "medium" || riskRaw === "low" ? riskRaw : undefined;
-  const evidence = Array.isArray(raw.evidence)
-    ? raw.evidence
-        .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-        .map((item) => item.trim())
-    : [];
-  return {
-    ruleId,
-    kind: kind as RuleClassificationKind,
-    ...(rationale ? { rationale } : {}),
-    ...(position ? { position } : {}),
-    ...(risk ? { risk } : {}),
-    ...(evidence.length > 0 ? { evidence } : {}),
-  };
+  return { outputs, invalid, unansweredRuleIds };
 }
