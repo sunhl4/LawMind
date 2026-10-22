@@ -41,6 +41,11 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # Generated, gitignored. Renderer tests that import the canvas sandbox
+      # fail at module resolution without it.
+      - name: Build canvas sandbox runtime
+        run: node apps/lawmind-desktop/scripts/build-canvas-sandbox.mjs
+
       - name: List built-in deliverable specs
         run: pnpm lawmind:gate -- --specs
 

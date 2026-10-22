@@ -115,3 +115,12 @@ export {
   type RuleAllPassSummary,
   type RuleCaseScore,
 } from "./rule-allpass.js";
+export {
+  buildRuleGoal,
+  runRuleAllPassModelArm,
+  type ModelArmCaseResult,
+  type ModelArmOptions,
+  type ModelArmResult,
+  type ModelArmRuleResult,
+} from "./rule-allpass-model-arm.js";
+export type { RuleAllPassModelArmSummary } from "./rule-allpass.js";

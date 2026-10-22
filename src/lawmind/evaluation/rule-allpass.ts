@@ -319,6 +319,21 @@ export function oracleClassifications(c: RuleAllPassCase): RuleClassification[] 
   return Object.entries(c.expected).map(([ruleId, kind]) => ({ ruleId, kind }));
 }
 
+export type RuleAllPassModelArmSummary = {
+  model: string;
+  totalCalls: number;
+  stoppedEarly: boolean;
+  elapsedMs: number;
+  failures: Array<{ caseId: string; ruleId: string; error: string }>;
+  perCase: Array<{
+    caseId: string;
+    pass: boolean;
+    missing: string[];
+    mismatches: Array<{ ruleId: string; expected: string; actual: string }>;
+    perRule: Array<{ ruleId: string; kind?: string; error?: string }>;
+  }>;
+};
+
 export type RuleAllPassReport = {
   generatedAt: string;
   status: "skip" | "pass" | "fail";
@@ -329,6 +344,8 @@ export type RuleAllPassReport = {
   summary: RuleAllPassSummary;
   /** True only for the oracle arm: proves the scorer, claims nothing about models. */
   harnessSelfTest: boolean;
+  /** Present only for a real-model arm. */
+  modelArm?: RuleAllPassModelArmSummary;
   reportZh: string;
 };
 
@@ -379,6 +396,38 @@ export function buildRuleAllPassReportMarkdown(report: RuleAllPassReport): strin
     lines.push("", "## 逐规则", "", "| 规则 | 用例 | 正确 | 准确率 |", "| --- | --- | --- | --- |");
     for (const r of report.summary.byRule) {
       lines.push(`| ${r.ruleId} | ${r.cases} | ${r.correct} | ${(r.accuracy * 100).toFixed(0)}% |`);
+    }
+  }
+
+  if (report.modelArm) {
+    const m = report.modelArm;
+    lines.push(
+      "",
+      "## 模型臂明细",
+      "",
+      `- 模型：${m.model}`,
+      `- 调用次数：${m.totalCalls}`,
+      `- 耗时：${(m.elapsedMs / 1000).toFixed(1)}s`,
+      `- 提前中止：${m.stoppedEarly ? "是（配置/鉴权错误）" : "否"}`,
+      "",
+      "> 夹具是**合成**的：此分数衡量「流程能否驱动模型按规则结构判定」，",
+      "> **不能**作为真实合同上的准确性证据对外引用。",
+    );
+    if (m.failures.length > 0) {
+      lines.push("", "### 未产出判定的规则", "");
+      for (const f of m.failures) {
+        lines.push(`- ${f.caseId} / ${f.ruleId}：${f.error}`);
+      }
+    }
+    const failedCases = m.perCase.filter((c) => !c.pass);
+    if (failedCases.length > 0) {
+      lines.push("", "### 未通过用例", "");
+      for (const c of failedCases) {
+        const mismatches = c.mismatches
+          .map((x) => `${x.ruleId}（期望 ${x.expected}，实得 ${x.actual}）`)
+          .join("；");
+        lines.push(`- ${c.caseId}：漏判 ${c.missing.join("、") || "—"}；错判 ${mismatches || "—"}`);
+      }
     }
   }
   return `${lines.join("\n")}\n`;

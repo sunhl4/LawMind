@@ -33,6 +33,13 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # Generated artifact (gitignored). `dev` and `build:renderer` produce it,
+      # but this job runs `pnpm test` directly — without it every canvas-importing
+      # renderer test and the e2e webserver fail on
+      # `Failed to resolve import "./sandbox-runtime.js?raw"`.
+      - name: Build canvas sandbox runtime
+        run: node apps/lawmind-desktop/scripts/build-canvas-sandbox.mjs
+
       - name: Test with coverage (one pass)
         run: pnpm test:coverage
 
@@ -132,6 +139,11 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      # Vite resolves `./sandbox-runtime.js?raw` at dev-server start; the file is
+      # generated and gitignored, so the e2e webserver needs it built first.
+      - name: Build canvas sandbox runtime
+        run: node apps/lawmind-desktop/scripts/build-canvas-sandbox.mjs
 
       - name: Install Playwright Chromium
         run: pnpm --filter lawmind-desktop exec playwright install chromium --with-deps

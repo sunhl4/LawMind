@@ -80,7 +80,8 @@ LawMind **不把可审计当作产品价值、法律质量证明或用户信任�
 - [x] **A5 all-pass**：`evaluation/all-pass.ts` + `BaselineCriterion.mustPass`（缺省 false，旧 rubric 不变）
 - [x] **A6 guardrails**：`review/runner.ts` — 并发上限 / 单规则超时 / 只重试受影响规则 / 流式 `rule_finished` / abort
 - [x] **A7 合 main 门槛（工程侧）**：`pnpm test` 8041 passed、双端 typecheck、`lawmind:compiler-gate` 全绿；清单见 [docs/lawmind/LAWMIND-AUTOMATION-BRANCH-REGRESSION.md](docs/lawmind/LAWMIND-AUTOMATION-BRANCH-REGRESSION.md) §7。**仍待人机项**：真机 Word 侧载 + 日常助手 5 分钟手工回归
-- [x] **A8 规则级 all-pass 夹具与 CLI**：`fixtures/lawmind-allpass/`（20 份合成夹具 + README）、`evaluation/rule-allpass.ts`（逐规则评分、夹具覆盖校验）、`pnpm lawmind:allpass`（`--validate` / 默认诚实 SKIP / `--arm oracle` 自检 20/20）。**真实模型臂未接线，因此没有可对外引用的模型分数。**
+- [x] **A8 规则级 all-pass 夹具与 CLI**：`fixtures/lawmind-allpass/`（20 份合成夹具 + README）、`evaluation/rule-allpass.ts`（逐规则评分、夹具覆盖校验）、`pnpm lawmind:allpass`（`--validate` / 默认诚实 SKIP / `--arm oracle` 自检 20/20 / `--arm deepseek` 真实模型臂，走生产 `draft_worker` review 路径）。**合成夹具上的模型分数只说明接线，不得作为真实合同准确性证据。**
+- [x] **A9 CI 存量红定位与 sandbox 构建步**：`main` 本身 6 文件 / 12 用例红；本分支新增失败 0。已补 `sandbox-runtime.js` 构建步（`lawmind-ci.yml`、`lawmind-deliverable-gate.yml`、`lawmind-desktop-e2e.yml`）。officecli/WPS 依赖类与 file-size 棘轮属存量，未在本轮处理；e2e-electron 失败为 GitHub artifact 配额。
 
 ### 第十九期 · LawMind Bench（中国律师自建评测 · 独立仓库 · 2026-10-08）
 

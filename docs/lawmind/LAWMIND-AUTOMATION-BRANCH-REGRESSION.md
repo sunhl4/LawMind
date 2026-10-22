@@ -74,8 +74,25 @@
 - `review/bridge.test.ts`：缺 `ruleId` / 计划外 / 重复 / 缺分类都进 `invalid`，引擎不补默认值。
 - `agent/factor-state.test.ts`：同句多改不再取第一条（B2 回归）。
 - `evaluation/rule-allpass.test.ts`：漏判、错判、越界、重复判定、夹具覆盖不完备、非法期望值、正文过短、SKIP/validate 报告不得出现准确率。
+- `evaluation/rule-allpass-model-arm.test.ts`（10 条）：每条规则恰好一次调用；错判记 mismatch 不算通过；缺判定记 missing + failures；401 即 `stoppedEarly` 且只跑完当前例；单规则超时记 missing 不拖垮整臂；`maxCases` 生效；完美分类器与 oracle 结果一致。
 
 ### 未随本轮验证（诚实标注）
 
 - 真机 Word 侧载与桌面 5 分钟手工回归（§2）尚未执行——需人机交互，留待合 main 前由工程师按清单走一遍。
-- 规则级 all-pass 目前只有 `oracle` 自检臂（20/20，仅证明评分器接线）；真实模型臂未接线，因此**没有任何模型分数可以对外引用**。见 `fixtures/lawmind-allpass/README.md`。
+- 规则级 all-pass：`oracle` 自检 20/20（仅证明评分器接线）；`--arm deepseek` 真实模型臂已接线（走生产 `draft_worker` review 路径），但**合成夹具上的分数只能说明流程接线，不得作为真实合同准确性证据**。真实准确性需律师提供脱敏真稿后另跑。见 `fixtures/lawmind-allpass/README.md`。
+
+### CI 存量红（与本分支无关，已定位）
+
+`main`（`c5bd27ef3`）本身 CI 为 failure；本分支继承同一批红，**新增失败 0 个**：
+
+|        | 失败文件 | 失败用例 | 通过用例 |
+| ------ | -------- | -------- | -------- |
+| `main` | 6        | 12       | 7948     |
+| 本分支 | 6        | 12       | 8045     |
+
+逐项归因：
+
+- `sandbox-runtime.js` 是 gitignore 的生成物，CI 的 `verify` / `desktop-e2e-mock` / `acceptance-gate` 却直接跑测试或起 Vite，导致 2 个 renderer 测试与 e2e 失败。**已在本分支补构建步**（`lawmind-ci.yml`、`lawmind-deliverable-gate.yml`、`lawmind-desktop-e2e.yml`）。
+- `render-docx-tracked`（9 例）、`task-chains`、`safe-shell-command` 依赖本机 `officecli` / WPS，CI 无此环境——main 同样红，未在本轮处理。
+- `file-size-check`：13 处存量超标，全在本分支未触及的文件。
+- `lawmind-desktop-e2e-electron`：实际用例通过，失败在 `Upload E2E diagnostics`——GitHub Actions artifact 存储配额用尽。

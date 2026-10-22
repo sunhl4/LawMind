@@ -14,6 +14,8 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import type { AgentModelConfig } from "../../src/lawmind/agent/types.js";
+import { runRuleAllPassModelArm } from "../../src/lawmind/evaluation/rule-allpass-model-arm.js";
 import {
   buildRuleAllPassReportMarkdown,
   loadRuleAllPassFixtures,
@@ -23,6 +25,7 @@ import {
   validateRuleAllPassFixtures,
   type RuleAllPassReport,
 } from "../../src/lawmind/evaluation/rule-allpass.js";
+import { getProviderDefinition } from "../../src/lawmind/models/providers.js";
 import type { RuleClassification } from "../../src/lawmind/review/rules.js";
 
 const argv = process.argv.slice(2);
@@ -33,6 +36,30 @@ let arm = "";
 for (let i = 0; i < argv.length; i += 1) {
   if (argv[i] === "--arm" && argv[i + 1]) {
     arm = argv[i + 1].trim();
+    i += 1;
+  }
+}
+
+let modelId = "";
+for (let i = 0; i < argv.length; i += 1) {
+  if (argv[i] === "--model" && argv[i + 1]) {
+    modelId = argv[i + 1].trim();
+    i += 1;
+  }
+}
+
+let maxCases = 0;
+for (let i = 0; i < argv.length; i += 1) {
+  if (argv[i] === "--max-cases" && argv[i + 1]) {
+    maxCases = Number.parseInt(argv[i + 1], 10) || 0;
+    i += 1;
+  }
+}
+
+let concurrency = 3;
+for (let i = 0; i < argv.length; i += 1) {
+  if (argv[i] === "--concurrency" && argv[i + 1]) {
+    concurrency = Math.max(1, Number.parseInt(argv[i + 1], 10) || 3);
     i += 1;
   }
 }
@@ -140,29 +167,123 @@ if (!arm) {
   );
 }
 
-if (arm !== "oracle") {
+function resolveDeepSeekModel(explicit: string): { config: AgentModelConfig } | { error: string } {
+  const provider = getProviderDefinition("deepseek");
+  let apiKey = "";
+  for (const key of provider.apiKeyEnvKeys) {
+    const value = process.env[key]?.trim();
+    if (value) {
+      apiKey = value;
+      break;
+    }
+  }
+  if (!apiKey) {
+    return {
+      error: `未配置 DeepSeek key。设置其中之一：${provider.apiKeyEnvKeys.join(" / ")}`,
+    };
+  }
+  return {
+    config: {
+      provider: "openai-compatible",
+      baseUrl: provider.defaultBaseUrl,
+      apiKey,
+      model: explicit || "deepseek-chat",
+      temperature: 0,
+      maxRetries: 1,
+      timeoutMs: 120_000,
+      ...(process.env.LAWMIND_ALLPASS_SEED
+        ? { seed: Number.parseInt(process.env.LAWMIND_ALLPASS_SEED, 10) }
+        : {}),
+    },
+  };
+}
+
+if (arm === "oracle") {
+  const scores = loaded.cases.map((c) => {
+    const actual: RuleClassification[] = oracleClassifications(c);
+    return scoreRuleAllPassCase(c, actual);
+  });
+  const summary = summarizeRuleAllPass(loaded.cases, scores);
+  const status: RuleAllPassReport["status"] = summary.failed === 0 ? "pass" : "fail";
+
+  finish(
+    {
+      generatedAt: new Date().toISOString(),
+      status,
+      dir: loaded.dir,
+      arm: "oracle",
+      summary,
+      harnessSelfTest: true,
+      reportZh: "",
+    },
+    status === "pass" ? 0 : 1,
+  );
+}
+
+if (arm !== "deepseek") {
   console.error(
-    `未知执行臂：${arm}。当前只内置 oracle（夹具自检，不代表模型质量）。` +
-      "真实模型臂需要显式接线后再生效，未接线前不会给出任何分数。",
+    `未知执行臂：${arm}。可用：oracle（夹具自检）、deepseek（真实模型）。` +
+      "未知臂不会给出任何分数。",
   );
   process.exit(2);
 }
 
-const scores = loaded.cases.map((c) => {
-  const actual: RuleClassification[] = oracleClassifications(c);
-  return scoreRuleAllPassCase(c, actual);
+// ── 4. 真实模型臂（DeepSeek） ────────────────────────────────────
+const resolved = resolveDeepSeekModel(modelId);
+if ("error" in resolved) {
+  console.error(resolved.error);
+  // 配置缺失不是「零分」，不能落成 fail 报告。
+  process.exit(2);
+}
+
+const armStart = Date.now();
+const modelRun = await runRuleAllPassModelArm({
+  cases: loaded.cases,
+  chatModel: resolved.config,
+  concurrency,
+  ...(maxCases > 0 ? { maxCases } : {}),
+  onProgress: (event) => {
+    if (!jsonOut) {
+      process.stderr.write(`\r[${event.done}/${event.total}] ${event.caseId} ${event.ruleId}   `);
+    }
+  },
 });
-const summary = summarizeRuleAllPass(loaded.cases, scores);
-const status: RuleAllPassReport["status"] = summary.failed === 0 ? "pass" : "fail";
+if (!jsonOut) {
+  process.stderr.write("\n");
+}
+
+const scoredCases = loaded.cases.slice(0, modelRun.cases.length);
+const scores = modelRun.cases.map((c) => c.score);
+const summary = summarizeRuleAllPass(scoredCases, scores);
+const status: RuleAllPassReport["status"] =
+  modelRun.stoppedEarly || modelRun.failures.length > 0
+    ? "fail"
+    : summary.failed === 0
+      ? "pass"
+      : "fail";
 
 finish(
   {
     generatedAt: new Date().toISOString(),
     status,
     dir: loaded.dir,
-    arm: "oracle",
+    arm: modelRun.arm,
     summary,
-    harnessSelfTest: true,
+    harnessSelfTest: false,
+    modelArm: {
+      model: modelRun.model,
+      totalCalls: modelRun.totalCalls,
+      stoppedEarly: modelRun.stoppedEarly,
+      elapsedMs: Date.now() - armStart,
+      failures: modelRun.failures,
+      perCase: modelRun.cases.map((c) => ({
+        caseId: c.caseId,
+        pass: c.score.pass,
+        missing: c.score.missing,
+        mismatches: c.score.mismatches,
+        perRule: c.perRule,
+      })),
+    },
     reportZh: "",
   },
   status === "pass" ? 0 : 1,

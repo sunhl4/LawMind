@@ -40,6 +40,11 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # The e2e webserver runs Vite, which resolves `./sandbox-runtime.js?raw`
+      # (generated + gitignored) at startup.
+      - name: Build canvas sandbox runtime
+        run: node apps/lawmind-desktop/scripts/build-canvas-sandbox.mjs
+
       - name: Install Playwright Chromium
         run: pnpm --filter lawmind-desktop exec playwright install chromium --with-deps
 
