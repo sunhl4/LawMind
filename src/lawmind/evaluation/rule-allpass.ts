@@ -10,6 +10,7 @@
  * wired deliberately; without one the CLI reports an honest SKIP.
  */
 
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +30,12 @@ const KINDS: ReadonlySet<RuleClassificationKind> = new Set([
   "needs_human",
 ]);
 
+/**
+ * Above this ratio of unstable rules, the accuracy number must not be quoted:
+ * the run is measuring noise. Chosen from the 2026-10-22 baseline (12%).
+ */
+export const RULE_ALLPASS_MAX_UNSTABLE_RATIO = 0.05;
+
 /** Minimum contract length: a stub cannot exercise a rule. */
 export const RULE_ALLPASS_MIN_CONTRACT_CHARS = 200;
 
@@ -37,6 +44,12 @@ export type RuleAllPassCase = {
   paper: PaperSide;
   title?: string;
   contract: string;
+  /**
+   * The original clause lines. `contract` is their join; the lines are kept so
+   * integrity checks (dangling attachments, clause numbering) can point at a
+   * specific sentence instead of a character offset.
+   */
+  clauses: string[];
   /** ruleId -> expected verdict. Must cover exactly the applicable rules. */
   expected: Record<string, RuleClassificationKind>;
 };
@@ -191,6 +204,7 @@ export function loadRuleAllPassFixtures(opts?: {
       paper,
       ...(typeof item.title === "string" && item.title.trim() ? { title: item.title.trim() } : {}),
       contract,
+      clauses,
       expected,
     });
   }
@@ -337,6 +351,17 @@ export function oracleClassifications(c: RuleAllPassCase): RuleClassification[] 
   return out;
 }
 
+export type RuleAllPassFingerprint = {
+  /** Hash of the rule set actually used, so a rule edit invalidates comparison. */
+  rulesHash: string;
+  playbookId: string;
+  /** Upstream model id, or "oracle" for the self-test arm. */
+  model: string;
+  /** Short commit SHA when available. */
+  commit?: string;
+  trials: number;
+};
+
 export type RuleAllPassModelArmSummary = {
   model: string;
   totalCalls: number;
@@ -373,8 +398,45 @@ export type RuleAllPassReport = {
   harnessSelfTest: boolean;
   /** Present only for a real-model arm. */
   modelArm?: RuleAllPassModelArmSummary;
+  /**
+   * Run fingerprint. A report without one is not comparable to any other run:
+   * rules, model, commit and trials all change what the number means.
+   */
+  fingerprint?: RuleAllPassFingerprint;
   reportZh: string;
 };
+
+/** Rules hash: a rule edit must invalidate cross-run comparison. */
+export function hashRules(rules: readonly unknown[]): string {
+  return createHash("sha256").update(JSON.stringify(rules), "utf8").digest("hex").slice(0, 16);
+}
+
+export type StabilitySummary = {
+  totalRules: number;
+  unstableRules: number;
+  ratio: number;
+  unstable: string[];
+  /** True when the ratio exceeds the threshold and accuracy must not be quoted. */
+  unreliable: boolean;
+};
+
+export function summarizeStability(
+  modelArm: RuleAllPassModelArmSummary | undefined,
+): StabilitySummary {
+  const perRule =
+    modelArm?.perCase.flatMap((c) =>
+      c.perRule.map((r) => ({ caseId: c.caseId, ruleId: r.ruleId, stable: r.stable })),
+    ) ?? [];
+  const unstable = perRule.filter((r) => r.stable === false);
+  const ratio = perRule.length === 0 ? 0 : unstable.length / perRule.length;
+  return {
+    totalRules: perRule.length,
+    unstableRules: unstable.length,
+    ratio,
+    unstable: unstable.map((r) => `${r.caseId}/${r.ruleId}`),
+    unreliable: perRule.length > 0 && ratio > RULE_ALLPASS_MAX_UNSTABLE_RATIO,
+  };
+}
 
 export function buildRuleAllPassReportMarkdown(report: RuleAllPassReport): string {
   const lines = [
@@ -385,6 +447,16 @@ export function buildRuleAllPassReportMarkdown(report: RuleAllPassReport): strin
     `- 夹具目录：${report.dir}`,
     ...(report.arm ? [`- 执行臂：${report.arm}`] : []),
   ];
+
+  if (report.fingerprint) {
+    const fp = report.fingerprint;
+    lines.push(
+      `- 运行指纹：rules ${fp.rulesHash} · model ${fp.model} · trials ${fp.trials}` +
+        (fp.commit ? ` · commit ${fp.commit}` : ""),
+    );
+  } else if (report.mode !== "validate") {
+    lines.push("", "> **无运行指纹**：本报告不可与任何其他运行对比，也不得作为结论引用。");
+  }
 
   if (report.mode === "validate") {
     lines.push(
@@ -419,13 +491,6 @@ export function buildRuleAllPassReportMarkdown(report: RuleAllPassReport): strin
       lines.push(`- ${p.caseId || "(全局)"}：${p.problem}`);
     }
   }
-  if (report.mode !== "validate" && report.status !== "skip" && report.summary.byRule.length > 0) {
-    lines.push("", "## 逐规则", "", "| 规则 | 用例 | 正确 | 准确率 |", "| --- | --- | --- | --- |");
-    for (const r of report.summary.byRule) {
-      lines.push(`| ${r.ruleId} | ${r.cases} | ${r.correct} | ${(r.accuracy * 100).toFixed(0)}% |`);
-    }
-  }
-
   if (report.modelArm) {
     const m = report.modelArm;
     lines.push(
@@ -447,18 +512,27 @@ export function buildRuleAllPassReportMarkdown(report: RuleAllPassReport): strin
         lines.push(`- ${f.caseId} / ${f.ruleId}：${f.error}`);
       }
     }
-    const unstable = m.perCase.flatMap((c) =>
-      c.perRule.filter((r) => r.stable === false).map((r) => `${c.caseId}/${r.ruleId}`),
-    );
-    if (unstable.length > 0) {
+    // 稳定性必须先于准确率出现：一个不稳的跑分，准确率没有意义。
+    const stability = summarizeStability(m);
+    if (stability.totalRules > 0) {
+      const pct = (stability.ratio * 100).toFixed(0);
       lines.push(
         "",
-        `### 采样不一致（${unstable.length} 条规则）`,
+        `### 稳定性（先看这一节）`,
         "",
-        "> 同一规则多次采样给出不同判定。这些数字不能当稳定结论引用。",
-        "",
-        ...unstable.map((x) => `- ${x}`),
+        `- 采样不一致：${stability.unstableRules}/${stability.totalRules} 条规则（${pct}%）`,
+        `- 判据：超过 ${(RULE_ALLPASS_MAX_UNSTABLE_RATIO * 100).toFixed(0)}% 即视为该跑分不可引用`,
       );
+      if (stability.unreliable) {
+        lines.push(
+          "",
+          `> **警告：不稳定率 ${pct}% 超过阈值。下面的 all-pass 与逐规则准确率衡量的是噪声，`,
+          "> 不得作为结论、不得对外引用。先降不稳率，再看准确率。**",
+        );
+      }
+      if (stability.unstable.length > 0) {
+        lines.push("", "不一致的规则：", "", ...stability.unstable.map((x) => `- ${x}`));
+      }
     }
     const failedCases = m.perCase.filter((c) => !c.pass);
     if (failedCases.length > 0) {
@@ -478,5 +552,12 @@ export function buildRuleAllPassReportMarkdown(report: RuleAllPassReport): strin
       }
     }
   }
+  if (report.mode !== "validate" && report.status !== "skip" && report.summary.byRule.length > 0) {
+    lines.push("", "## 逐规则", "", "| 规则 | 用例 | 正确 | 准确率 |", "| --- | --- | --- | --- |");
+    for (const r of report.summary.byRule) {
+      lines.push(`| ${r.ruleId} | ${r.cases} | ${r.correct} | ${(r.accuracy * 100).toFixed(0)}% |`);
+    }
+  }
+
   return `${lines.join("\n")}\n`;
 }

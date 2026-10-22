@@ -129,7 +129,7 @@ export const CN_SALES_RULES: ReviewRule[] = [
       },
       {
         id: "notice_threshold",
-        question: "单方任意解除是否附有不少于三十日的提前通知？",
+        question: "存在单方任意解除，但通知期不足三十日或未约定通知期？",
         verdictIfMet: "acceptable_deviation",
       },
       {
@@ -195,11 +195,6 @@ export const CN_SALES_RULES: ReviewRule[] = [
         verdictIfMet: "unacceptable",
       },
       {
-        id: "acceptance_dispute_fallback",
-        question: "验收由对方主导，但约定了异议期或第三方鉴定？",
-        verdictIfMet: "acceptable_deviation",
-      },
-      {
         id: "joint_acceptance",
         question: "验收是否由双方共同确认，或标准客观可核（如国家标准、交货单）？",
         verdictIfMet: "compliant",
@@ -235,7 +230,7 @@ export const CN_SALES_RULES: ReviewRule[] = [
       },
       {
         id: "noncompete_incomplete",
-        question: "是否设有竞业限制，但缺少地域、期限或补偿中的至少一项？",
+        question: "是否设有竞业限制，但地域、期限、补偿三项中有一项完全未约定？",
         verdictIfMet: "acceptable_deviation",
       },
       {

@@ -104,6 +104,12 @@ pnpm lawmind:allpass --arm deepseek --model deepseek-reasoner --json
 
 ## 实测记录（2026-10-22，deepseek-flash）
 
+> **最新一轮（判定改为原子题作答）结果是反向的：0% all-pass、39–53% 采样不一致。**
+> 原因不是架构，是 `deepseek-flash` 对否定型 yes-no 问题系统性答 true
+> （s01 全项合规样本上三条缺陷题全答「存在」）。详见
+> `docs/lawmind/LAWMIND-RULE-VERDICT-CONVERGENCE-PLAN.md` 的「实测结果」。
+> 下面的 55% / 12% 来自**档位直选**那一版，不是当前代码。
+
 这是**校准过程**，不是成绩单。每一次分数变化都对应一次规则/夹具修改，不能据此说模型变好或变差。
 
 | 轮次 | 改动                                             | all-pass         | 关键观察                                                                               |

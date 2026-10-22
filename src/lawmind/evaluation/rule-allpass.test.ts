@@ -7,12 +7,15 @@ import { filterRulesForPaper, type RuleClassification } from "../review/rules.js
 import {
   buildRuleAllPassReportMarkdown,
   loadRuleAllPassFixtures,
+  hashRules,
   oracleClassifications,
+  summarizeStability,
   resolveRuleAllPassDir,
   scoreRuleAllPassCase,
   summarizeRuleAllPass,
   validateRuleAllPassFixtures,
   type RuleAllPassCase,
+  type RuleAllPassModelArmSummary,
   type RuleAllPassReport,
 } from "./rule-allpass.js";
 
@@ -272,5 +275,104 @@ describe("report markdown", () => {
     });
     expect(md).toContain("不执行评分");
     expect(md).not.toContain("| 准确率 |");
+  });
+});
+
+describe("stability gates the accuracy claim", () => {
+  function modelArmWith(stableFlags: boolean[]): RuleAllPassModelArmSummary {
+    return {
+      model: "deepseek-flash",
+      totalCalls: stableFlags.length * 3,
+      stoppedEarly: false,
+      elapsedMs: 1000,
+      trials: 3,
+      failures: [],
+      perCase: [
+        {
+          caseId: "s01",
+          pass: true,
+          missing: [],
+          mismatches: [],
+          perRule: stableFlags.map((stable, i) => ({
+            ruleId: `rule.${i}`,
+            kind: "compliant",
+            stable,
+          })),
+        },
+      ],
+    };
+  }
+
+  it("reports the unstable ratio and flags unreliable above the threshold", () => {
+    const arm = modelArmWith([true, true, true, false, false, false]);
+    const stability = summarizeStability(arm);
+    expect(stability.totalRules).toBe(6);
+    expect(stability.unstableRules).toBe(3);
+    expect(stability.ratio).toBeCloseTo(0.5);
+    expect(stability.unreliable).toBe(true);
+  });
+
+  it("does not flag a run inside the threshold", () => {
+    const arm = modelArmWith([true, true, true, true, true, true]);
+    expect(summarizeStability(arm).unreliable).toBe(false);
+  });
+
+  it("puts stability before accuracy and warns when unreliable", () => {
+    const c = fixtureCase();
+    const score = scoreRuleAllPassCase(c, oracleClassifications(c));
+    const md = buildRuleAllPassReportMarkdown({
+      generatedAt: "2026-10-22T00:00:00.000Z",
+      status: "pass",
+      dir: resolveRuleAllPassDir(),
+      arm: "model:deepseek-flash",
+      summary: summarizeRuleAllPass([c], [score]),
+      harnessSelfTest: false,
+      fingerprint: {
+        rulesHash: "abc123",
+        playbookId: "cn-sales-v0",
+        model: "deepseek-flash",
+        commit: "deadbee",
+        trials: 3,
+      },
+      modelArm: modelArmWith([true, false, false, false, false, false]),
+      reportZh: "",
+    });
+    const stabilityAt = md.indexOf("### 稳定性");
+    const accuracyAt = md.indexOf("## 逐规则");
+    expect(stabilityAt).toBeGreaterThan(-1);
+    expect(accuracyAt).toBeGreaterThan(-1);
+    expect(stabilityAt).toBeLessThan(accuracyAt);
+    expect(md).toContain("衡量的是噪声");
+    expect(md).toContain("deadbee");
+  });
+
+  it("marks a report without a fingerprint as non-comparable", () => {
+    const c = fixtureCase();
+    const score = scoreRuleAllPassCase(c, oracleClassifications(c));
+    const md = buildRuleAllPassReportMarkdown({
+      generatedAt: "2026-10-22T00:00:00.000Z",
+      status: "pass",
+      dir: resolveRuleAllPassDir(),
+      arm: "model:x",
+      summary: summarizeRuleAllPass([c], [score]),
+      harnessSelfTest: false,
+      reportZh: "",
+    });
+    expect(md).toContain("无运行指纹");
+  });
+
+  it("hashing rules changes when a criterion changes", () => {
+    const before = hashRules(CN_SALES_RULES);
+    const mutated = CN_SALES_RULES.map((r, i) =>
+      i === 0
+        ? {
+            ...r,
+            criteria: r.criteria.map((c, j) =>
+              j === 0 ? { ...c, question: c.question + "？" } : c,
+            ),
+          }
+        : r,
+    );
+    expect(hashRules(mutated)).not.toBe(before);
   });
 });

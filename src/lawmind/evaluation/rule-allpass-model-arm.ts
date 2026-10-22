@@ -92,17 +92,37 @@ export type ModelArmResult = {
  * produced 12% unstable verdicts; yes/no answers are stable. Mapping to a tier
  * is `decideVerdict`'s job.
  */
-export function buildRuleGoal(rule: ReviewRule): string {
-  const questions = rule.criteria.map(
-    (criterion, index) => `  ${index + 1}. [${criterion.id}] ${criterion.question}`,
+export function buildRuleGoal(
+  rule: ReviewRule,
+  opts?: { missingCriterionIds?: readonly string[] },
+): string {
+  const missing = new Set(opts?.missingCriterionIds ?? []);
+  const relevant =
+    missing.size > 0 ? rule.criteria.filter((c) => missing.has(c.id)) : rule.criteria;
+  // Every question carries its polarity. Without this the model reads
+  // "是否附有三十日通知" as a defect when it is actually a protection.
+  const polarityLabel: Record<string, string> = {
+    unacceptable: "不可接受项：答 true 表示存在该缺陷",
+    acceptable_deviation: "偏离项：答 true 表示存在该偏离",
+    compliant: "合规要件：答 true 表示该保护已具备",
+  };
+  const questions = relevant.map(
+    (criterion, index) =>
+      `  ${index + 1}. [${criterion.id}]（${polarityLabel[criterion.verdictIfMet] ?? ""}）${criterion.question}`,
   );
+  const retryNote =
+    missing.size > 0
+      ? ["", `上次漏答了这些题：${[...missing].join("、")}。本次只需补答下列题目，其余不用重复。`]
+      : [];
   return [
     `审查这条规则并逐题作答：${rule.ruleId}（${rule.title}）。`,
     `标准立场（供理解，不作为判定依据）：${rule.standard}`,
+    ...retryNote,
     "",
     "对下列每一题回答 true / false / unknown / not_applicable，并给出合同原文证据：",
     ...questions,
     "",
+    "每一题都必须回答，不能因为「看起来没问题」就省略；漏答的题会导致整条规则需要人工复核。",
     rule.absentAllowed
       ? "如果合同完全没有涉及本规则事项，clausePresent 填 false（不要逐题作答）。"
       : "如果合同完全没有涉及本规则事项，clausePresent 填 false；本规则不允许缺失。",
@@ -188,32 +208,78 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-/** One rule through the production review worker. */
+/**
+ * One rule through the production review worker.
+ *
+ * Workers routinely answer only the criteria that look problematic and skip the
+ * satisfied ones. That used to surface as `needs_human` on a perfectly fine
+ * clause. One follow-up asking for the missing ids fixes it in practice, so the
+ * arm retries once before reporting the rule as unanswered.
+ */
 async function classifyOneRule(params: {
   rule: ReviewRule;
   contract: string;
   chatModel: AgentModelConfig;
 }): Promise<{ answers?: VerdictInput; error?: string }> {
-  const result = await runDraftWorker(
-    {
-      goal: buildRuleGoal(params.rule),
-      notGoal: "不要起草或改写条款，不要评价其他规则，不要导出文件",
-      excerpt: params.contract,
-      section: params.rule.ruleId,
-      role: "review",
-      ruleId: params.rule.ruleId,
-    },
-    { chatModel: params.chatModel, sidecarRole: "review" },
-  );
-  if (!result.ok) {
-    return { error: result.error };
+  const collected = new Map<string, CriterionAnswer>();
+  let clausePresent: boolean | undefined;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const stillMissing = params.rule.criteria.map((c) => c.id).filter((id) => !collected.has(id));
+    if (attempt > 0 && stillMissing.length === 0) {
+      break;
+    }
+    const result = await runDraftWorker(
+      {
+        // Only the second attempt may claim a previous round was incomplete.
+        goal: buildRuleGoal(
+          params.rule,
+          attempt > 0 && stillMissing.length > 0
+            ? { missingCriterionIds: stillMissing }
+            : undefined,
+        ),
+        notGoal: "不要起草或改写条款，不要评价其他规则，不要导出文件",
+        excerpt: params.contract,
+        section: params.rule.ruleId,
+        role: "review",
+        ruleId: params.rule.ruleId,
+      },
+      { chatModel: params.chatModel, sidecarRole: "review" },
+    );
+    if (!result.ok) {
+      if (attempt === 1) {
+        return { error: result.error };
+      }
+      continue;
+    }
+    const data = result.data as { verdictAnswers?: unknown };
+    const parsed = toVerdictInput(data.verdictAnswers);
+    if (!parsed) {
+      if (attempt === 1) {
+        return { error: "worker returned no verdictAnswers" };
+      }
+      continue;
+    }
+    clausePresent = clausePresent ?? parsed.clausePresent;
+    for (const answer of parsed.answers) {
+      if (!collected.has(answer.criterionId)) {
+        collected.set(answer.criterionId, answer);
+      }
+    }
+    if (!clausePresent) {
+      break;
+    }
+    if (params.rule.criteria.every((c) => collected.has(c.id))) {
+      break;
+    }
   }
-  const data = result.data as { verdictAnswers?: unknown };
-  const answers = toVerdictInput(data.verdictAnswers);
-  if (!answers) {
+
+  if (clausePresent === undefined) {
     return { error: "worker returned no verdictAnswers" };
   }
-  return { answers };
+  return {
+    answers: { clausePresent, answers: [...collected.values()] },
+  };
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {

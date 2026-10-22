@@ -12,12 +12,18 @@
  * LAWMIND_REQUIRE_ALLPASS=1 → 非 pass 即非零退出（nightly / 本地；默认 CI 不挡）。
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { AgentModelConfig } from "../../src/lawmind/agent/types.js";
+import {
+  checkFixtures,
+  formatIntegrityFindings,
+} from "../../src/lawmind/evaluation/fixture-integrity.js";
 import { runRuleAllPassModelArm } from "../../src/lawmind/evaluation/rule-allpass-model-arm.js";
 import {
   buildRuleAllPassReportMarkdown,
+  hashRules,
   loadRuleAllPassFixtures,
   oracleClassifications,
   scoreRuleAllPassCase,
@@ -26,6 +32,7 @@ import {
   type RuleAllPassReport,
 } from "../../src/lawmind/evaluation/rule-allpass.js";
 import { getProviderDefinition } from "../../src/lawmind/models/providers.js";
+import { CN_SALES_RULES } from "../../src/lawmind/review/playbooks/cn-sales.js";
 import type { RuleClassification } from "../../src/lawmind/review/rules.js";
 
 const argv = process.argv.slice(2);
@@ -56,7 +63,9 @@ for (let i = 0; i < argv.length; i += 1) {
   }
 }
 
-let trials = 1;
+// 单次采样不可引用：同代码同模型会翻转判定。模型臂默认 3 次取多数；
+// 要单次必须显式 --trials 1，报告会标注「不含稳定性信息」。
+let trials = 3;
 for (let i = 0; i < argv.length; i += 1) {
   if (argv[i] === "--trials" && argv[i + 1]) {
     trials = Math.max(1, Number.parseInt(argv[i + 1], 10) || 1);
@@ -78,6 +87,27 @@ for (let i = 0; i < argv.length; i += 1) {
     workspaceDir = path.resolve(process.cwd(), argv[i + 1]);
     i += 1;
   }
+}
+
+function shortCommit(): string | undefined {
+  try {
+    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+const COMMIT = shortCommit();
+const RULES_HASH = hashRules(CN_SALES_RULES);
+
+function fingerprintOf(model: string, trials: number) {
+  return {
+    rulesHash: RULES_HASH,
+    playbookId: "cn-sales-v0",
+    model,
+    ...(COMMIT ? { commit: COMMIT } : {}),
+    trials,
+  };
 }
 
 const require = ["1", "true", "yes"].includes(
@@ -114,6 +144,36 @@ function finish(report: RuleAllPassReport, exitCode: number): never {
 }
 
 // ── 1. 夹具完整性 ────────────────────────────────────────────────
+// 形状问题（缺字段/非法枚举）先报；再跑语义完整性（悬空附件、无确定标准措辞、
+// 缺失未声明、条款跳号、规则题面重复）。后者才是本轮实测里靠读模型理由才发现的那类。
+const integrityFindings = checkFixtures(loaded.cases, CN_SALES_RULES);
+if (integrityFindings.length > 0) {
+  const summary = summarizeRuleAllPass(
+    loaded.cases,
+    [],
+    [
+      ...problems,
+      ...integrityFindings.map((f) => ({ caseId: f.caseId, problem: `[${f.code}] ${f.problem}` })),
+    ],
+  );
+  if (!jsonOut) {
+    console.error("夹具语义完整性未通过：");
+    console.error(formatIntegrityFindings(integrityFindings));
+  }
+  finish(
+    {
+      generatedAt: new Date().toISOString(),
+      status: "fail",
+      mode: "validate",
+      dir: loaded.dir,
+      summary,
+      harnessSelfTest: false,
+      reportZh: "",
+    },
+    1,
+  );
+}
+
 if (problems.length > 0) {
   const summary = summarizeRuleAllPass(loaded.cases, [], problems);
   finish(
@@ -222,6 +282,7 @@ if (arm === "oracle") {
       arm: "oracle",
       summary,
       harnessSelfTest: true,
+      fingerprint: fingerprintOf("oracle", 1),
       reportZh: "",
     },
     status === "pass" ? 0 : 1,
@@ -279,6 +340,7 @@ finish(
     arm: modelRun.arm,
     summary,
     harnessSelfTest: false,
+    fingerprint: fingerprintOf(modelRun.model, trials),
     modelArm: {
       model: modelRun.model,
       totalCalls: modelRun.totalCalls,
