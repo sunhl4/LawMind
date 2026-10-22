@@ -322,3 +322,16 @@ export {
   type ProvenanceEvent,
   type ProvenanceEventType,
 } from "./provenance.js";
+export {
+  mergeBranches,
+  mergeFingerprint,
+  minimizeMergedSpanChange,
+  replayOpsOnText,
+  type DocumentBranch,
+  type EditOp,
+  type EditOpKind,
+  type MergeConflict,
+  type MergeConflictReason,
+  type MergeResult,
+} from "./branch.js";
+export { contentHashOf, deriveSpanId, deriveSpanIds, type SpanIdInput } from "./span-id.js";

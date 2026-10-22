@@ -67,6 +67,20 @@ LawMind **不把可审计当作产品价值、法律质量证明或用户信任�
 
 ## 三、当前期次与未完成项
 
+### 第二十期 — 全自动化执行层（规则级编排 · 2026-10-22）
+
+依据：[docs/LAWMIND-AUTOMATION-COMPETITOR-RESEARCH-2026-10.md](docs/LAWMIND-AUTOMATION-COMPETITOR-RESEARCH-2026-10.md)。分支 `feat/automation-parity`（worktree）。**默认助手路径行为不得变坏**；新能力挂显式入口与 `LAWMIND_RULE_BRANCH_WRITE`（默认关）。
+
+- [x] **A0 隔离**：`git worktree add ../LawMind-automation -b feat/automation-parity`
+- [x] **A1 调研文档**：[docs/LAWMIND-AUTOMATION-COMPETITOR-RESEARCH-2026-10.md](docs/LAWMIND-AUTOMATION-COMPETITOR-RESEARCH-2026-10.md)
+- [x] **A2 规则对象**：`src/lawmind/review/` — `ReviewRule` / `planRuleReview` / 覆盖检查 / 12 条 v0（来自 `contract-playbook-review` 底线项 × 纸别）
+- [x] **A3 编辑分支合并**：`drafts/branch.ts`（`EditOp` / `mergeBranches` / conflict never auto-resolved）+ `drafts/span-id.ts`；11 条合并测试
+- [x] **A4 worker 分支写（编排层）**：`review/execute.ts`；`LAWMIND_RULE_BRANCH_WRITE=1` 默认关；关时返回 `enabled:false`、无 merge、不因覆盖不全抛错；worker 写工具白名单硬拒
+- [ ] **A4b worker 侧 JSON 分类契约 + `runDraftWorker` 桥接**：须先补 cassette，未接线前不默认调用
+- [x] **A5 all-pass**：`evaluation/all-pass.ts` + `BaselineCriterion.mustPass`（缺省 false，旧 rubric 不变）
+- [x] **A6 guardrails**：`review/runner.ts` — 并发上限 / 单规则超时 / 只重试受影响规则 / 流式 `rule_finished` / abort
+- [ ] **A7 合 main 门槛**：清单 [docs/lawmind/LAWMIND-AUTOMATION-BRANCH-REGRESSION.md](docs/lawmind/LAWMIND-AUTOMATION-BRANCH-REGRESSION.md)；全量 `pnpm test` 与桌面 typecheck 待跑
+
 ### 第十九期 · LawMind Bench（中国律师自建评测 · 独立仓库 · 2026-10-08）
 
 > 公开中国法 Agent 集可对齐研究，但不能验收「法宝真检索 + 交件」。自建 Bench 是公司资产，与本产品仓**平级独立开发**（本机常见路径 `../LawMind-Bench/`），不嵌在本仓库内。

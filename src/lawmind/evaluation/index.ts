@@ -91,3 +91,9 @@ export {
   type FidelityFactKind,
   type FidelityTurn,
 } from "./compaction-fidelity-cases.js";
+export {
+  rubricHasMustPass,
+  scoreAllPass,
+  type AllPassCriterionResult,
+  type AllPassResult,
+} from "./all-pass.js";
