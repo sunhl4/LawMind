@@ -125,6 +125,27 @@ export type FactorState = {
   demoSpanIds?: string[];
   /** Worker patches that passed span checks. Surgical apply uses these on matching finds. */
   pendingPatches?: WorkerPatch[];
+  /**
+   * Rule verdicts returned by review workers (rule-level review only).
+   * Stored raw so the finalizer can decide coverage; the engine never fills a
+   * missing verdict in.
+   */
+  ruleClassifications?: RuleClassificationRecord[];
+  /**
+   * Same-`find` patches that disagreed on `replace` during the last reconcile.
+   * Reported, never auto-resolved: the engine does not pick a winner between
+   * two rules that want different text at the same spot.
+   */
+  patchConflicts?: WorkerPatchConflict[];
+};
+
+/**
+ * Two or more worker patches matched the same `find` but proposed different
+ * replacements. The caller must surface this instead of silently keeping one.
+ */
+export type WorkerPatchConflict = {
+  find: string;
+  candidates: Array<{ replace: string; ruleId?: string; span?: string; anchor?: string }>;
 };
 
 export type InverseEdit = {
@@ -140,6 +161,26 @@ export type WorkerPatch = {
   find: string;
   replace: string;
   span?: string;
+  /** Playbook rule that produced this patch (rule-level review only). */
+  ruleId?: string;
+};
+
+/**
+ * Worker verdict for one rule, stored verbatim. `kind` is a plain string here
+ * so this leaf module does not depend on the review layer; the finalizer
+ * validates it against the five legal kinds.
+ */
+export type RuleClassificationRecord = {
+  ruleId: string;
+  agentId?: string;
+  section?: string;
+  classification: {
+    kind: string;
+    rationale?: string;
+    position?: string;
+    risk?: string;
+    evidence?: string[];
+  };
 };
 
 export type SyndromeHit = {
@@ -182,6 +223,8 @@ export function emptyFactorState(): FactorState {
     definitionCycles: [],
     demoSpanIds: [],
     pendingPatches: [],
+    patchConflicts: [],
+    ruleClassifications: [],
   };
 }
 
@@ -194,6 +237,7 @@ const STATED_AMOUNT_CAP = 24;
 export function beginTurnFactors(state: FactorState): FactorState {
   state.calculatedSlots = [];
   state.redlineFailures = [];
+  state.patchConflicts = [];
   state.adiabaticStep = 0;
   state.factors = state.factors.filter((factor) => !factor.anchor.startsWith(STATED_AMOUNT_PREFIX));
   for (const factor of state.factors) {
@@ -1203,6 +1247,36 @@ export function recordSurgicalAnchors(state: FactorState, anchors: readonly stri
   state.lastSurgicalAnchors = [...new Set(next)];
 }
 
+/** Distinct replacements among patches matching one `find`, in first-seen order. */
+function distinctPatchReplacements(
+  patches: readonly WorkerPatch[],
+): WorkerPatchConflict["candidates"] {
+  const out: WorkerPatchConflict["candidates"] = [];
+  const seen = new Set<string>();
+  for (const patch of patches) {
+    if (seen.has(patch.replace)) {
+      continue;
+    }
+    seen.add(patch.replace);
+    out.push({
+      replace: patch.replace,
+      ...(patch.ruleId ? { ruleId: patch.ruleId } : {}),
+      ...(patch.span ? { span: patch.span } : {}),
+      ...(patch.anchor ? { anchor: patch.anchor } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * Let verified worker patches supply the `replace` text for the parent's edits.
+ *
+ * Only unambiguous cases are applied: when the patches matching a `find` agree
+ * on one replacement, that replacement wins (identical to the old first-match
+ * behaviour). When two rules propose different text at the same spot, nothing
+ * is chosen — the caller's text stays and the conflict is recorded in
+ * `state.patchConflicts` so it can be surfaced to the lawyer.
+ */
 export function reconcileSurgicalEditsWithPatches(
   state: FactorState | undefined,
   edits: unknown,
@@ -1210,7 +1284,9 @@ export function reconcileSurgicalEditsWithPatches(
   if (!state?.pendingPatches?.length || !Array.isArray(edits)) {
     return edits;
   }
-  return edits.map((edit) => {
+  // Recompute each pass so conflicts never accumulate across turns.
+  const conflicts: WorkerPatchConflict[] = [];
+  const next = edits.map((edit) => {
     if (!edit || typeof edit !== "object") {
       return edit;
     }
@@ -1218,12 +1294,33 @@ export function reconcileSurgicalEditsWithPatches(
     if (typeof find !== "string") {
       return edit;
     }
-    const patch = state.pendingPatches?.find((item) => item.find === find);
-    if (!patch) {
+    const matches = state.pendingPatches?.filter((item) => item.find === find) ?? [];
+    if (matches.length === 0) {
       return edit;
     }
-    return { ...edit, replace: patch.replace };
+    const candidates = distinctPatchReplacements(matches);
+    if (candidates.length === 1) {
+      return { ...edit, replace: candidates[0].replace };
+    }
+    conflicts.push({ find, candidates });
+    // Deliberately keep the caller's text: picking one rule's wording would be
+    // a silent legal decision the engine is not entitled to make.
+    return edit;
   });
+  state.patchConflicts = conflicts;
+  return next;
+}
+
+/** Conflicts recorded by the most recent reconcile pass. */
+export function readPatchConflicts(state: FactorState | undefined): WorkerPatchConflict[] {
+  return state?.patchConflicts ?? [];
+}
+
+/** Rule verdicts collected this turn (rule-level review only). */
+export function readRuleClassifications(
+  state: FactorState | undefined,
+): RuleClassificationRecord[] {
+  return state?.ruleClassifications ?? [];
 }
 
 export function mapEditsToFactorAnchors(state: FactorState | undefined, edits: unknown): string[] {
@@ -2464,6 +2561,37 @@ function ingestWorkerRecord(state: FactorState, record: Record<string, unknown>)
   const anchor = typeof record.anchor === "string" ? record.anchor.trim() : "";
   const outcomeId = typeof record.outcomeId === "string" ? record.outcomeId.trim() : "";
   const span = typeof record.span === "string" ? record.span.trim() : "";
+  const recordRuleId = typeof record.ruleId === "string" ? record.ruleId.trim() : "";
+  const rawClassification = record.classification;
+  if (recordRuleId && rawClassification && typeof rawClassification === "object") {
+    const c = rawClassification as Record<string, unknown>;
+    const kind = typeof c.kind === "string" ? c.kind.trim() : "";
+    if (kind) {
+      state.ruleClassifications = state.ruleClassifications ?? [];
+      const agentId = typeof record.workerId === "string" ? record.workerId.trim() : "";
+      const section = typeof record.section === "string" ? record.section.trim() : "";
+      const rationale = typeof c.rationale === "string" ? c.rationale.trim() : "";
+      const position = typeof c.position === "string" ? c.position.trim() : "";
+      const risk = typeof c.risk === "string" ? c.risk.trim() : "";
+      const evidence = Array.isArray(c.evidence)
+        ? c.evidence
+            .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+            .map((item) => item.trim())
+        : [];
+      state.ruleClassifications.push({
+        ruleId: recordRuleId,
+        ...(agentId ? { agentId } : {}),
+        ...(section ? { section } : {}),
+        classification: {
+          kind,
+          ...(rationale ? { rationale } : {}),
+          ...(position ? { position } : {}),
+          ...(risk ? { risk } : {}),
+          ...(evidence.length > 0 ? { evidence } : {}),
+        },
+      });
+    }
+  }
   const grounded = outcomeId.length > 0 && spanAttestsOutcome(span, outcomeId);
   if (anchor && outcomeId) {
     recordReading(state, anchor, "clause", outcomeId, grounded, span);
@@ -2481,6 +2609,7 @@ function ingestWorkerRecord(state: FactorState, record: Record<string, unknown>)
     const patchSpan = typeof row.span === "string" ? row.span.trim() : span;
     const patchAnchor = typeof row.anchor === "string" ? row.anchor.trim() : anchor;
     const patchOutcome = typeof row.outcomeId === "string" ? row.outcomeId.trim() : outcomeId;
+    const patchRuleId = typeof row.ruleId === "string" ? row.ruleId.trim() : "";
     if (!find || !replace || !spanAccepted(state, patchSpan, patchOutcome)) {
       continue;
     }
@@ -2489,6 +2618,7 @@ function ingestWorkerRecord(state: FactorState, record: Record<string, unknown>)
       find,
       replace,
       ...(patchSpan ? { span: patchSpan } : {}),
+      ...(patchRuleId ? { ruleId: patchRuleId } : {}),
     });
     if (patchAnchor && patchOutcome) {
       recordReading(state, patchAnchor, "clause", patchOutcome, true, patchSpan);

@@ -56,6 +56,11 @@ export type BaselineCriterion = {
   /** 出现即记违规 */
   mustNotAppear?: string[];
   weight?: number;
+  /**
+   * all-pass：这一条不满足即整题失败（不受 weight 稀释）。
+   * 缺省 false，旧 rubric 行为不变。
+   */
+  mustPass?: boolean;
 };
 
 export type BaselineRubric = {
@@ -163,6 +168,7 @@ function parseRubric(raw: unknown): BaselineRubric | undefined {
       ...(strList(c.allOf) ? { allOf: strList(c.allOf) } : {}),
       ...(strList(c.mustNotAppear) ? { mustNotAppear: strList(c.mustNotAppear) } : {}),
       ...(typeof c.weight === "number" && c.weight > 0 ? { weight: c.weight } : {}),
+      ...(c.mustPass === true ? { mustPass: true } : {}),
     });
   }
   return criteria.length > 0 ? { taskType, criteria } : undefined;

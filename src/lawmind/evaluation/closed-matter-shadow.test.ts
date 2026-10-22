@@ -27,6 +27,10 @@ beforeEach(() => {
   ]) {
     vi.stubEnv(key, "");
   }
+  // 法规库在线检索（flk.npc.gov.cn）默认开：draft_document 会真发一次 HTTPS，
+  // 拿不到响应就等满 npc-flk 的 AbortSignal.timeout(10s)。回放必须离线确定，
+  // 否则 CI 每轮起草都白等 10s 以上，整改例撞穿 60s 超时。
+  vi.stubEnv("LAWMIND_OPEN_LAW_NPC", "0");
 });
 
 afterEach(() => {

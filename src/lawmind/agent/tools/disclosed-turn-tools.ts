@@ -282,6 +282,10 @@ export function extraToolsForInstruction(
   const chatTask = text.length >= 4 && !isNoTaskUtterance(text) && !isGreetingOnly(text);
   if (chatTask && !parentKeepsTheWrite && !instructionLooksLikeLetterQa(text)) {
     extrasTools.push("draft_worker");
+    // Rule-level review is opt-in; the closing tool appears only with the flag.
+    if (process.env.LAWMIND_RULE_BRANCH_WRITE === "1") {
+      extrasTools.push("finalize_rule_review");
+    }
   }
   if (
     hardBind &&

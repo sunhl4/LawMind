@@ -2,7 +2,9 @@
  * LawMind legal tool registry (thin facade).
  */
 import { loadAssistantProfiles, resolveLawMindRoot } from "../../assistants/store.js";
+import { ruleBranchWriteEnabled } from "../../review/execute.js";
 import { buildCollaborationPolicyFromAssistants } from "../collaboration/collaboration-policy-from-org.js";
+import { DRAFT_WORKER_TOOL_NAME } from "../draft-worker.js";
 import type { AgentConfig } from "../types.js";
 import type { AgentTool } from "../types.js";
 import {
@@ -26,9 +28,13 @@ import { searchCompanyRegistry } from "./legal/company-registry-tool.js";
 import { compareDocuments } from "./legal/compare-documents.js";
 import { deskTools } from "./legal/desk-tools.js";
 import { digestMaterialsTool } from "./legal/digest-materials-tool.js";
-import { draftWorkerTool } from "./legal/draft-worker-tool.js";
+import { createDraftWorkerTool, draftWorkerTool } from "./legal/draft-worker-tool.js";
 import { exploreFolderTool } from "./legal/explore-folder-tool.js";
 import { analyzeDocument, writeDocument } from "./legal/file-tools.js";
+import {
+  FINALIZE_RULE_REVIEW_TOOL_NAME,
+  finalizeRuleReviewTool,
+} from "./legal/finalize-rule-review-tool.js";
 import { checkDocumentFormat } from "./legal/format-audit-tool.js";
 import { fixDocumentFormat } from "./legal/format-fix-tool.js";
 import {
@@ -120,6 +126,7 @@ export function createLegalToolRegistry(opts?: {
     runAnalysis,
     writeDocument,
     draftWorkerTool,
+    finalizeRuleReviewTool,
     sendEmail,
     prepareOutboundMail,
     listMailInbox,
@@ -168,7 +175,18 @@ export function createLegalToolRegistry(opts?: {
 
   tools.push(...engineTools);
 
-  for (const tool of tools) {
+  // Rule-level review is opt-in: with the flag off, neither `rule_id` nor
+  // `finalize_rule_review` is advertised, so the tool table is exactly today's.
+  const ruleLevel = ruleBranchWriteEnabled();
+  const advertised = ruleLevel
+    ? tools.map((tool) =>
+        tool.definition.name === DRAFT_WORKER_TOOL_NAME
+          ? createDraftWorkerTool({ ruleLevel: true })
+          : tool,
+      )
+    : tools.filter((tool) => tool.definition.name !== FINALIZE_RULE_REVIEW_TOOL_NAME);
+
+  for (const tool of advertised) {
     registry.register(tool);
   }
   return registry;

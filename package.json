@@ -8,6 +8,7 @@
   "scripts": {
     "lawmind:acceptance": "node --import tsx scripts/lawmind/lawmind-acceptance.ts",
     "lawmind:agent": "node --import tsx scripts/lawmind/lawmind-agent.ts",
+    "lawmind:allpass": "node --import tsx scripts/lawmind/lawmind-allpass.ts",
     "lawmind:backup": "bash scripts/lawmind/lawmind-backup.sh",
     "lawmind:benchmark": "node --import tsx scripts/lawmind/lawmind-benchmark.ts",
     "lawmind:bootstrap:renderer-css-markers": "node scripts/lawmind/lawmind-bootstrap-renderer-css-markers.mjs",

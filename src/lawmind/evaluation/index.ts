@@ -91,3 +91,36 @@ export {
   type FidelityFactKind,
   type FidelityTurn,
 } from "./compaction-fidelity-cases.js";
+export {
+  rubricHasMustPass,
+  scoreAllPass,
+  type AllPassCriterionResult,
+  type AllPassResult,
+} from "./all-pass.js";
+export {
+  buildRuleAllPassReportMarkdown,
+  loadRuleAllPassFixtures,
+  oracleClassifications,
+  resolveRuleAllPassDir,
+  scoreRuleAllPassCase,
+  summarizeRuleAllPass,
+  validateRuleAllPassCase,
+  validateRuleAllPassFixtures,
+  RULE_ALLPASS_DIR_REL,
+  RULE_ALLPASS_MIN_CONTRACT_CHARS,
+  type FixtureProblem,
+  type LoadedFixtures,
+  type RuleAllPassCase,
+  type RuleAllPassReport,
+  type RuleAllPassSummary,
+  type RuleCaseScore,
+} from "./rule-allpass.js";
+export {
+  buildRuleGoal,
+  runRuleAllPassModelArm,
+  type ModelArmCaseResult,
+  type ModelArmOptions,
+  type ModelArmResult,
+  type ModelArmRuleResult,
+} from "./rule-allpass-model-arm.js";
+export type { RuleAllPassModelArmSummary } from "./rule-allpass.js";

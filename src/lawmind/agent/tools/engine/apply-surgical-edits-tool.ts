@@ -22,6 +22,7 @@ import {
   ingestDraftBody,
   rememberSkeleton,
   reconcileSurgicalEditsWithPatches,
+  readPatchConflicts,
   mapEditsToFactorAnchors,
   recordBodySnapshot,
   recordInverseEdits,
@@ -321,6 +322,7 @@ export const applySurgicalEdits: AgentTool = {
       const otherSkipped = applied.skipped.filter((s) => !s.reason.includes("未找到"));
       // 术语自适应兜底：这次落改是否把另一套当事人称谓带了进来。
       const terminologyWarnings = applied.terminologyWarnings;
+      const patchConflicts = readPatchConflicts(ctx.factorState);
       return {
         ok: true,
         data: {
@@ -333,6 +335,7 @@ export const applySurgicalEdits: AgentTool = {
           craftSignals,
           draftPath: `drafts/${taskId}.json`,
           ...terminologyWarningsPatch(terminologyWarnings),
+          ...(patchConflicts.length > 0 ? { patchConflicts } : {}),
           ...(editsFromPlan ? { editsFromPlan: true as const } : {}),
           message:
             redlinePending >= 1
@@ -353,10 +356,20 @@ export const applySurgicalEdits: AgentTool = {
                   terminologyWarnings.length
                     ? `术语提示：本次写入出现本文未定义的当事人叫法（${terminologyWarnings.map((w) => w.token).join("、")}），请改用本文术语后再导出。`
                     : "",
+                  patchConflicts.length
+                    ? `${patchConflicts.length} 处同一句收到多个不同改法（${patchConflicts.map((c) => c.candidates.map((x) => x.ruleId ?? "未标规则").join(" vs ")).join("；")}），这些位置保留了你给的写法，未替你择一。`
+                    : "",
                 ]
                   .filter(Boolean)
                   .join("")
-              : `已落改 ${applied.applied.length} 处，但 redlinePending=0；请检查 find 是否相对 baseline 有实质变化后重试。`,
+              : [
+                  `已落改 ${applied.applied.length} 处，但 redlinePending=0；请检查 find 是否相对 baseline 有实质变化后重试。`,
+                  patchConflicts.length
+                    ? `${patchConflicts.length} 处同一句收到多个不同改法，未替你择一。`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(""),
           ...(redlinePending === 0
             ? {
                 gateDecision: {
