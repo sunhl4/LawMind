@@ -111,5 +111,6 @@
 
 - `sandbox-runtime.js` 是 gitignore 的生成物，CI 的 `verify` / `desktop-e2e-mock` / `acceptance-gate` 却直接跑测试或起 Vite，导致 2 个 renderer 测试与 e2e 失败。**已在本分支补构建步**（`lawmind-ci.yml`、`lawmind-deliverable-gate.yml`、`lawmind-desktop-e2e.yml`）。
 - `render-docx-tracked`（9 例）、`task-chains`、`safe-shell-command` 依赖本机 `officecli` / WPS，CI 无此环境——main 同样红，未在本轮处理。
+- `shadow-engine-replay`（3 例）与 `closed-matter-shadow`（1 例）是**超时**失败，不是断言失败：`180013ms` / `120003ms` / `60003ms`。已在未改动的 main 检出单独验证，同样 3 条失败、同样超时数字。这也解释了本地全量跑需要 25 分钟以上——不是死锁，是被这批超时拖住。
 - `file-size-check`：13 处存量超标，全在本分支未触及的文件。
 - `lawmind-desktop-e2e-electron`：实际用例通过，失败在 `Upload E2E diagnostics`——GitHub Actions artifact 存储配额用尽。
