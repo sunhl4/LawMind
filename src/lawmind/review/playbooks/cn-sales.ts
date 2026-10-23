@@ -57,7 +57,12 @@ export const CN_SALES_RULES: ReviewRule[] = [
     criteria: [
       {
         id: "uncapped",
-        question: "是否有一方的赔偿责任不设金额上限？",
+        // Reworded 2026-10-23 after a measurable failure: 「是否有一方…不设金额上限」
+        // is a double negative inside a yes/no frame, and it is the exact logical
+        // negation of `caps_symmetric`, so both could be answered "true" at once
+        // (a contradiction the ladder then resolved toward "unacceptable").
+        // Asking for the literal clause instead fixed 4/4 cases with known truth.
+        question: "合同是否把某一方的赔偿责任上限写成「无限」或「不受金额限制」？",
         verdictIfMet: "unacceptable",
       },
       {
