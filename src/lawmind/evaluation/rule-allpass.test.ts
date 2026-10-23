@@ -384,3 +384,41 @@ describe("stability gates the accuracy claim", () => {
     expect(hashRules(mutated)).not.toBe(before);
   });
 });
+
+describe("an infrastructure-aborted run may not print an accuracy", () => {
+  it("replaces the rate with INVALID and points at the cause", () => {
+    const c = fixtureCase();
+    const score = scoreRuleAllPassCase(c, oracleClassifications(c));
+    const md = buildRuleAllPassReportMarkdown({
+      generatedAt: "2026-10-23T00:00:00.000Z",
+      status: "fail",
+      dir: resolveRuleAllPassDir(),
+      arm: "model:deepseek-flash",
+      summary: summarizeRuleAllPass([c], [score]),
+      harnessSelfTest: false,
+      fingerprint: {
+        rulesHash: "abc",
+        playbookId: "cn-sales-v0",
+        model: "deepseek-flash",
+        trials: 3,
+      },
+      modelArm: {
+        model: "deepseek-flash",
+        totalCalls: 6,
+        stoppedEarly: true,
+        infraError: 'Model API error 402: {"message":"Insufficient Balance"}',
+        elapsedMs: 1000,
+        trials: 3,
+        failures: [{ caseId: "s01", ruleId: "x", error: "402" }],
+        perCase: [],
+      },
+      generalization: { cases: 0, passed: 0, allPassRate: 0, caseIds: [] },
+      reportZh: "",
+    });
+    expect(md).toContain("INVALID");
+    expect(md).toContain("Insufficient Balance");
+    expect(md).not.toContain("all-pass 率");
+    // The generalisation section must not appear on an invalid run.
+    expect(md).not.toContain("## 泛化");
+  });
+});

@@ -3,7 +3,11 @@ import type { AgentModelConfig } from "../agent/types.js";
 import { CN_SALES_RULES } from "../review/playbooks/cn-sales.js";
 import { filterRulesForPaper } from "../review/rules.js";
 import { synthesizeAnswers } from "../review/verdict-oracle.js";
-import { buildRuleGoal, runRuleAllPassModelArm } from "./rule-allpass-model-arm.js";
+import {
+  buildRuleGoal,
+  isInfrastructureError,
+  runRuleAllPassModelArm,
+} from "./rule-allpass-model-arm.js";
 import { loadRuleAllPassFixtures, oracleClassifications } from "./rule-allpass.js";
 
 const model: AgentModelConfig = {
@@ -241,5 +245,44 @@ describe("trials and stability", () => {
       expect(r.stable).toBe(true);
     }
     expect(result.totalCalls).toBe(filterRulesForPaper(CN_SALES_RULES, firstCase.paper).length * 2);
+  });
+});
+
+describe("infrastructure errors invalidate the run", () => {
+  it("classifies balance/auth/network errors, not ordinary failures", () => {
+    expect(
+      isInfrastructureError('Model API error 402: {"error":{"message":"Insufficient Balance"}}'),
+    ).toBe(true);
+    expect(isInfrastructureError("401 Unauthorized")).toBe(true);
+    expect(isInfrastructureError("429 rate limit exceeded")).toBe(true);
+    expect(isInfrastructureError("ECONNREFUSED 127.0.0.1:8080")).toBe(true);
+    // A malformed model answer is NOT an infra error: the run is still valid.
+    expect(isInfrastructureError("worker returned no verdictAnswers")).toBe(false);
+    expect(isInfrastructureError("rule has no criteria")).toBe(false);
+  });
+
+  it("stops the arm on a 402 instead of burning calls on the remaining cases", async () => {
+    const result = await runRuleAllPassModelArm({
+      cases: loaded.cases,
+      chatModel: model,
+      concurrency: 1,
+      classifyRule: async () => ({
+        error: 'Model API error 402: {"error":{"message":"Insufficient Balance"}}',
+      }),
+    });
+    expect(result.stoppedEarly).toBe(true);
+    expect(result.infraError).toContain("402");
+    // One case was attempted; the rest must not be called.
+    expect(result.cases).toHaveLength(1);
+  });
+
+  it("does not set infraError for ordinary model failures", async () => {
+    const result = await runRuleAllPassModelArm({
+      cases: [firstCase],
+      chatModel: model,
+      classifyRule: async () => ({ error: "worker returned no verdictAnswers" }),
+    });
+    expect(result.infraError).toBeUndefined();
+    expect(result.failures.length).toBeGreaterThan(0);
   });
 });

@@ -378,6 +378,7 @@ finish(
       model: modelRun.model,
       totalCalls: modelRun.totalCalls,
       stoppedEarly: modelRun.stoppedEarly,
+      ...(modelRun.infraError ? { infraError: modelRun.infraError } : {}),
       elapsedMs: Date.now() - armStart,
       trials,
       failures: modelRun.failures,

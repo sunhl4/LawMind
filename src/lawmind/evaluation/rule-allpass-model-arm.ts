@@ -11,18 +11,13 @@
  * contracts. Never quote this number as accuracy evidence.
  */
 
-import { runDraftWorker } from "../agent/draft-worker.js";
+import { callModelWithRetry } from "../agent/runtime-model-call.js";
 import type { AgentModelConfig } from "../agent/types.js";
 import { CN_SALES_RULES } from "../review/playbooks/cn-sales.js";
-import { filterRulesForPaper, type ReviewRule } from "../review/rules.js";
+import { filterRulesForPaper, type ReviewRule, type RuleCriterion } from "../review/rules.js";
 import type { RuleClassificationKind } from "../review/rules.js";
 import type { RuleClassification } from "../review/rules.js";
-import {
-  decideVerdict,
-  type CriterionAnswer,
-  type CriterionMet,
-  type VerdictInput,
-} from "../review/verdict.js";
+import { decideVerdict, type CriterionAnswer, type VerdictInput } from "../review/verdict.js";
 import { scoreRuleAllPassCase, type RuleAllPassCase, type RuleCaseScore } from "./rule-allpass.js";
 
 export type ModelArmOptions = {
@@ -81,8 +76,14 @@ export type ModelArmResult = {
   /** Rules that produced no verdict or errored; these make coverage incomplete. */
   failures: Array<{ caseId: string; ruleId: string; error: string }>;
   totalCalls: number;
-  /** True when the arm aborted on an auth/config error instead of scoring garbage. */
+  /** True when the arm aborted instead of scoring garbage. */
   stoppedEarly: boolean;
+  /**
+   * The error that aborted the run, when it was infrastructure rather than the
+   * model's judgement (auth, balance, quota, connectivity). Present means the
+   * accuracy numbers are meaningless and must not be quoted.
+   */
+  infraError?: string;
 };
 
 /**
@@ -145,46 +146,6 @@ const CONSERVATIVE_ORDER: Record<RuleClassificationKind, number> = {
   compliant: 4,
 };
 
-function toVerdictInput(raw: unknown): VerdictInput | undefined {
-  if (!raw || typeof raw !== "object") {
-    return undefined;
-  }
-  const o = raw as Record<string, unknown>;
-  if (typeof o.clausePresent !== "boolean") {
-    return undefined;
-  }
-  const rawAnswers = Array.isArray(o.answers) ? o.answers : [];
-  const answers: CriterionAnswer[] = [];
-  for (const item of rawAnswers) {
-    if (!item || typeof item !== "object") {
-      continue;
-    }
-    const row = item as Record<string, unknown>;
-    const criterionId =
-      typeof row.criterionId === "string"
-        ? row.criterionId.trim()
-        : typeof row.id === "string"
-          ? row.id.trim()
-          : "";
-    if (!criterionId) {
-      continue;
-    }
-    const metRaw = row.met;
-    let met: CriterionMet | undefined;
-    if (typeof metRaw === "boolean") {
-      met = metRaw;
-    } else if (metRaw === "unknown" || metRaw === "not_applicable") {
-      met = metRaw;
-    }
-    if (met === undefined) {
-      continue;
-    }
-    const evidence = typeof row.evidence === "string" ? row.evidence.trim() : "";
-    answers.push({ criterionId, met, ...(evidence ? { evidence } : {}) });
-  }
-  return { clausePresent: o.clausePresent, answers };
-}
-
 async function mapWithConcurrency<T, R>(
   items: readonly T[],
   limit: number,
@@ -209,77 +170,173 @@ async function mapWithConcurrency<T, R>(
 }
 
 /**
- * One rule through the production review worker.
- *
- * Workers routinely answer only the criteria that look problematic and skip the
- * satisfied ones. That used to surface as `needs_human` on a perfectly fine
- * clause. One follow-up asking for the missing ids fixes it in practice, so the
- * arm retries once before reporting the rule as unanswered.
+ * Parse a one-word answer. Tolerates the forms models actually emit (Chinese
+ * 是/否, trailing punctuation, a leading "答案："), because a parsing miss used
+ * to turn into `unknown` and then into a silent `needs_human`.
  */
+export function parsePolarityAnswer(raw: unknown): boolean | "unknown" {
+  const text = (typeof raw === "string" ? raw : "")
+    .trim()
+    .toLowerCase()
+    .replace(/^[\s"'`「『]+|[\s"'`」』。.!！?？]+$/gu, "");
+  if (!text) {
+    return "unknown";
+  }
+  const head = text.replace(/^答案[:：\s]*/u, "");
+  if (/^(true|yes|y)\b/u.test(head) || /^(是|对|正确|有|存在|具备|已具备)/u.test(head)) {
+    return true;
+  }
+  if (/^(false|no|n)\b/u.test(head) || /^(否|不|没有|不存在|不具备|未)/u.test(head)) {
+    return false;
+  }
+  return "unknown";
+}
+
+/** Answer-only system prompt. Deliberately not the review-worker role. */
+const ONE_QUESTION_SYSTEM = [
+  "你只做一件事：根据合同原文回答一个是非题。",
+  "只输出 true 或 false，不要解释，不要加引号或其他字符。true 表示「是」，false 表示「否」。",
+].join("");
+
+/**
+ * Ask one criterion in isolation.
+ *
+ * Measured 2026-10-23: asking the same production criteria one per call put
+ * 12/12 fixture verdicts back in agreement (s01 and s02, clean and defective),
+ * while the same criteria asked as a batch of 4-5 in one JSON payload collapsed
+ * to "yes" on every defect question (0% all-pass). The batch payload was the
+ * defect, not the criteria and not the model's reading of polarity.
+ *
+ * Hence: one criterion, one call, one word.
+ */
+async function askCriterion(params: {
+  contract: string;
+  criterion: RuleCriterion;
+  chatModel: AgentModelConfig;
+}): Promise<boolean | "unknown"> {
+  const polarity =
+    params.criterion.verdictIfMet === "compliant"
+      ? "本题问的是「某项保护是否已经具备」：具备答 true，不具备答 false。"
+      : "本题问的是「某个缺陷是否存在」：存在答 true，不存在答 false。";
+  const response = await callModelWithRetry(
+    params.chatModel,
+    [
+      { role: "system", content: ONE_QUESTION_SYSTEM },
+      {
+        role: "user",
+        content: [
+          "【合同】",
+          params.contract,
+          "",
+          "【问题】",
+          params.criterion.question,
+          "",
+          polarity,
+          "如果合同里根本没有涉及这件事，按「不存在/不具备」回答 false。",
+          "只输出 true 或 false。",
+        ].join("\n"),
+      },
+    ],
+    [],
+  );
+  const content = (response as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]
+    ?.message?.content;
+  return parsePolarityAnswer(content);
+}
+
+/**
+ * Ask whether the contract addresses this rule's topic at all.
+ *
+ * `clausePresent` was previously hardcoded `true`, which made `absent`
+ * unreachable and silently mislabeled genuine absence as a deviation. One
+ * extra question per rule is cheaper than that class of error.
+ */
+async function askClausePresent(params: {
+  contract: string;
+  rule: ReviewRule;
+  chatModel: AgentModelConfig;
+}): Promise<boolean | "unknown"> {
+  const response = await callModelWithRetry(
+    params.chatModel,
+    [
+      { role: "system", content: ONE_QUESTION_SYSTEM },
+      {
+        role: "user",
+        content: [
+          "【合同】",
+          params.contract,
+          "",
+          "【问题】",
+          [
+            `本合同是否就下列任一项作出了约定？（规则：${params.rule.title}）`,
+            ...params.rule.criteria.map((c) => `- ${c.question}`),
+            "只要合同中有一句涉及上述任一项，答 true；整份合同完全没有提到，答 false。",
+          ].join("\n"),
+          "只输出 true 或 false。",
+        ].join("\n"),
+      },
+    ],
+    [],
+  );
+  const content = (response as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]
+    ?.message?.content;
+  return parsePolarityAnswer(content);
+}
+
+/** Answer every criterion of one rule, one call each. */
 async function classifyOneRule(params: {
   rule: ReviewRule;
   contract: string;
   chatModel: AgentModelConfig;
 }): Promise<{ answers?: VerdictInput; error?: string }> {
-  const collected = new Map<string, CriterionAnswer>();
-  let clausePresent: boolean | undefined;
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const stillMissing = params.rule.criteria.map((c) => c.id).filter((id) => !collected.has(id));
-    if (attempt > 0 && stillMissing.length === 0) {
-      break;
-    }
-    const result = await runDraftWorker(
-      {
-        // Only the second attempt may claim a previous round was incomplete.
-        goal: buildRuleGoal(
-          params.rule,
-          attempt > 0 && stillMissing.length > 0
-            ? { missingCriterionIds: stillMissing }
-            : undefined,
-        ),
-        notGoal: "不要起草或改写条款，不要评价其他规则，不要导出文件",
-        excerpt: params.contract,
-        section: params.rule.ruleId,
-        role: "review",
-        ruleId: params.rule.ruleId,
-      },
-      { chatModel: params.chatModel, sidecarRole: "review" },
-    );
-    if (!result.ok) {
-      if (attempt === 1) {
-        return { error: result.error };
-      }
-      continue;
-    }
-    const data = result.data as { verdictAnswers?: unknown };
-    const parsed = toVerdictInput(data.verdictAnswers);
-    if (!parsed) {
-      if (attempt === 1) {
-        return { error: "worker returned no verdictAnswers" };
-      }
-      continue;
-    }
-    clausePresent = clausePresent ?? parsed.clausePresent;
-    for (const answer of parsed.answers) {
-      if (!collected.has(answer.criterionId)) {
-        collected.set(answer.criterionId, answer);
-      }
-    }
-    if (!clausePresent) {
-      break;
-    }
-    if (params.rule.criteria.every((c) => collected.has(c.id))) {
-      break;
+  let clausePresent: boolean | "unknown" = "unknown";
+  try {
+    clausePresent = await askClausePresent({
+      contract: params.contract,
+      rule: params.rule,
+      chatModel: params.chatModel,
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+  // Absence short-circuits: asking the criteria would only invite the model to
+  // invent readings of a clause that is not there.
+  if (clausePresent === false) {
+    return { answers: { clausePresent: false, answers: [] } };
+  }
+  const answers: CriterionAnswer[] = [];
+  for (const criterion of params.rule.criteria) {
+    try {
+      const met = await askCriterion({
+        contract: params.contract,
+        criterion,
+        chatModel: params.chatModel,
+      });
+      answers.push({ criterionId: criterion.id, met });
+    } catch (err) {
+      answers.push({
+        criterionId: criterion.id,
+        met: "unknown",
+        evidence: err instanceof Error ? err.message : String(err),
+      });
     }
   }
-
-  if (clausePresent === undefined) {
-    return { error: "worker returned no verdictAnswers" };
+  if (answers.length === 0) {
+    return { error: "rule has no criteria" };
   }
-  return {
-    answers: { clausePresent, answers: [...collected.values()] },
-  };
+  return { answers: { clausePresent: true, answers } };
+}
+
+/**
+ * Errors that mean "the run cannot measure anything", not "the model answered
+ * wrong". A 402 Insufficient Balance used to be classified as an ordinary
+ * failure, so the arm kept calling the API for the rest of the cases and the
+ * report printed an accuracy number computed almost entirely from errors.
+ */
+export function isInfrastructureError(message: string): boolean {
+  return /\b(401|402|403|429)\b|unauthorized|insufficient[ _]?balance|quota|rate.?limit|api key|未配置|not configured|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|socket hang up/i.test(
+    message,
+  );
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
@@ -307,6 +364,7 @@ export async function runRuleAllPassModelArm(opts: ModelArmOptions): Promise<Mod
   const trials = Math.max(1, opts.trials ?? 1);
   let done = 0;
   let stoppedEarly = false;
+  let infraError: string | undefined;
   const totalSamples = totalCalls * trials;
 
   for (const c of plannedCases) {
@@ -365,7 +423,14 @@ export async function runRuleAllPassModelArm(opts: ModelArmOptions): Promise<Mod
         }
       }
       const stable = kinds.length === samples.length && new Set(kinds).size === 1;
-      const firstRationale = samples.find((s) => s.rationale)?.rationale;
+      // Report the rationale of a sample that actually produced the winning
+      // verdict. Taking "the first sample that has one" attributed a
+      // needs_human explanation to a compliant verdict and sent diagnosis down
+      // the wrong path.
+      const winnerRationale =
+        samples.find((s) => s.kind === winner && s.rationale)?.rationale ??
+        samples.find((s) => s.rationale)?.rationale;
+      const firstRationale = winnerRationale;
       const error = samples.find((s) => s.error)?.error;
       return { rule, winner, stable, firstRationale, error, samples };
     });
@@ -391,9 +456,9 @@ export async function runRuleAllPassModelArm(opts: ModelArmOptions): Promise<Mod
         ...(trials > 1 ? { samples } : {}),
       });
       failures.push({ caseId: c.caseId, ruleId: outcome.rule.ruleId, error });
-      // Auth / config errors would burn the whole budget scoring nothing.
-      if (/401|403|unauthorized|api key|未配置|not configured/i.test(error)) {
+      if (isInfrastructureError(error)) {
         stoppedEarly = true;
+        infraError = infraError ?? error;
       }
     }
 
@@ -414,5 +479,6 @@ export async function runRuleAllPassModelArm(opts: ModelArmOptions): Promise<Mod
     failures,
     totalCalls: done,
     stoppedEarly,
+    ...(infraError ? { infraError } : {}),
   };
 }

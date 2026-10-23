@@ -426,6 +426,8 @@ export type RuleAllPassModelArmSummary = {
   model: string;
   totalCalls: number;
   stoppedEarly: boolean;
+  /** Present when the abort was infrastructural: no accuracy may be quoted. */
+  infraError?: string;
   elapsedMs: number;
   /** Independent samples per rule. 1 means no stability information. */
   trials?: number;
@@ -543,6 +545,18 @@ export function buildRuleAllPassReportMarkdown(report: RuleAllPassReport): strin
       "> 夹具与评分器可用，但本次没有跑模型，因此不给出任何准确率。",
       "> 自检接线：`pnpm lawmind:allpass --arm oracle`（用期望值回放，只验证评分器，不代表模型质量）。",
     );
+  } else if (report.modelArm?.infraError || report.modelArm?.stoppedEarly) {
+    // A run that lost auth or balance measured almost nothing. Printing a rate
+    // here would be the exact kind of false number this harness exists to stop.
+    lines.push(
+      `- 用例：${report.summary.cases}（其中因基础设施失败未测量 ${report.summary.failed}）`,
+      "- 评分：**无效（INVALID）** —— 运行被基础设施错误中止，没有可用准确率",
+      "",
+      `> ${report.modelArm?.infraError ?? "运行提前中止"}`,
+      ">",
+      "> 本报告**不代表**模型能力，也不代表过拟合或欠拟合。补足额度/凭据后重跑，",
+      "> 并按交付集与留出集分别报数。",
+    );
   } else {
     lines.push(
       `- 用例：${report.summary.cases}（通过 ${report.summary.passed} / 失败 ${report.summary.failed}）`,
@@ -562,7 +576,8 @@ export function buildRuleAllPassReportMarkdown(report: RuleAllPassReport): strin
       lines.push(`- ${p.caseId || "(全局)"}：${p.problem}`);
     }
   }
-  if (report.generalization) {
+  const invalidRun = Boolean(report.modelArm?.infraError || report.modelArm?.stoppedEarly);
+  if (report.generalization && !invalidRun) {
     const g = report.generalization;
     lines.push(
       "",
