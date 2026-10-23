@@ -52,6 +52,14 @@ export {
   type RuleRunResult,
 } from "./runner.js";
 export {
+  extractPlaybookStructure,
+  summarizePlaybookCoverage,
+  type PlaybookCoverage,
+  type PlaybookExtract,
+  type PlaybookLine,
+  type PlaybookTier,
+} from "./playbook-parse.js";
+export {
   collectRuleOutputs,
   type CollectRuleOutputsResult,
   type RuleWorkerResult,
