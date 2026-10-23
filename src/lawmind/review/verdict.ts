@@ -53,11 +53,21 @@ export type VerdictStep =
   | "unknown_answer"
   | "no_compliant_requirement_met";
 
+export type VerdictSuggestion = {
+  criterionId: string;
+  question: string;
+};
+
 export type VerdictDecision = RuleClassification & {
   /** Which rule step produced the verdict, for debugging and reports. */
   step: VerdictStep;
   /** Criteria that were unanswered, unparsable, or answered unknown. */
   unresolvedCriterionIds: string[];
+  /**
+   * Unmet advisory criteria. These never change `kind`; they are the "提示项"
+   * a lawyer may choose to take up.
+   */
+  suggestions?: VerdictSuggestion[];
 };
 
 const MET_VALUES = new Set<CriterionMet>([true, false, "unknown", "not_applicable"]);
@@ -82,8 +92,17 @@ function metOf(answer: CriterionAnswer | undefined): CriterionMet | "missing" {
   return MET_VALUES.has(answer.met) ? answer.met : "missing";
 }
 
+/**
+ * Criteria that decide the verdict. Advisory criteria are excluded on purpose:
+ * a suggestion must never move a clause up or down a tier, otherwise "we
+ * recommend X" silently becomes "this clause is defective".
+ */
 function criteriaOf(rule: ReviewRule, kind: RuleCriterion["verdictIfMet"]): RuleCriterion[] {
-  return rule.criteria.filter((c) => c.verdictIfMet === kind);
+  return rule.criteria.filter((c) => c.advisory !== true && c.verdictIfMet === kind);
+}
+
+function advisoryCriteriaOf(rule: ReviewRule): RuleCriterion[] {
+  return rule.criteria.filter((c) => c.advisory === true);
 }
 
 /**
@@ -92,7 +111,7 @@ function criteriaOf(rule: ReviewRule, kind: RuleCriterion["verdictIfMet"]): Rule
  * Unanswered or invalid criteria count as unresolved. They never become an
  * implicit "false": a missing answer must not flatter the clause.
  */
-export function decideVerdict(rule: ReviewRule, input: VerdictInput): VerdictDecision {
+function decideCore(rule: ReviewRule, input: VerdictInput): VerdictDecision {
   if (!input.clausePresent) {
     if (rule.absentAllowed) {
       return {
@@ -221,6 +240,38 @@ export function decideVerdict(rule: ReviewRule, input: VerdictInput): VerdictDec
     step: "no_compliant_requirement_met",
     unresolvedCriterionIds: [],
   };
+}
+
+/**
+ * Unmet advisory criteria, as suggestions. `clausePresent: false` yields none:
+ * there is nothing to suggest about a clause that is not there.
+ */
+export function collectSuggestions(rule: ReviewRule, input: VerdictInput): VerdictSuggestion[] {
+  if (!input.clausePresent) {
+    return [];
+  }
+  const byId = indexAnswers(input.answers);
+  const out: VerdictSuggestion[] = [];
+  for (const criterion of advisoryCriteriaOf(rule)) {
+    const met = metOf(byId.get(criterion.id));
+    if (met === false) {
+      out.push({ criterionId: criterion.id, question: criterion.question });
+    }
+  }
+  return out;
+}
+
+/**
+ * Map answers to a verdict.
+ *
+ * Advisory criteria are attached afterwards rather than woven into the ladder,
+ * so no early return can accidentally skip them and no suggestion can ever move
+ * the tier.
+ */
+export function decideVerdict(rule: ReviewRule, input: VerdictInput): VerdictDecision {
+  const core = decideCore(rule, input);
+  const suggestions = collectSuggestions(rule, input);
+  return suggestions.length > 0 ? { ...core, suggestions } : core;
 }
 
 /** Every criterion id the model is expected to answer for this rule. */

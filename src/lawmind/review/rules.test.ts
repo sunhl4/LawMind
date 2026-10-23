@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { assertPlanCoversRules, planRuleReview } from "./plan.js";
 import { CN_SALES_PLAYBOOK_ID, CN_SALES_RULES, loadCnSalesRules } from "./playbooks/cn-sales.js";
 import {
+  assertValidReviewRule,
   classifyAbsence,
   coverageOf,
   filterRulesForPaper,
@@ -92,5 +93,66 @@ describe("coverage and absence", () => {
     const rule = CN_SALES_RULES.find((r) => r.ruleId === "termination.symmetry.counterparty")!;
     expect(rule.absentAllowed).toBe(true);
     expect(classifyAbsence(rule).kind).toBe("absent");
+  });
+});
+
+describe("advisory criteria are validated differently", () => {
+  const base = {
+    title: "演示",
+    paper: "counterparty" as const,
+    standard: "演示标准",
+    source: "skills/builtin/contract-playbook-review.md#底线项-demo",
+    absentAllowed: true,
+  };
+
+  it("accepts a positively-phrased advisory criterion", () => {
+    // A suggestion asks "is this nice-to-have present?", so it must NOT be
+    // forced into defect phrasing. That is why advisory is exempt.
+    const rule = {
+      ...base,
+      ruleId: "demo.tip",
+      criteria: [
+        { id: "good", question: "是否约定了保护条款？", verdictIfMet: "compliant" as const },
+        {
+          id: "tip",
+          question: "是否写明了测试方法与判定值？",
+          verdictIfMet: "compliant" as const,
+          advisory: true,
+        },
+      ],
+    };
+    expect(() => assertValidReviewRule(rule)).not.toThrow();
+  });
+
+  it("still rejects a positively-phrased defect criterion", () => {
+    const rule = {
+      ...base,
+      ruleId: "demo.bad",
+      criteria: [
+        { id: "good", question: "是否约定了保护条款？", verdictIfMet: "compliant" as const },
+        {
+          id: "warn",
+          question: "验收期是否附有三十日通知？",
+          verdictIfMet: "acceptable_deviation" as const,
+        },
+      ],
+    };
+    expect(() => assertValidReviewRule(rule)).toThrow(/缺陷是否存在/);
+  });
+
+  it("does not let advisory criteria satisfy the compliant requirement", () => {
+    const rule = {
+      ...base,
+      ruleId: "demo.only-tips",
+      criteria: [
+        {
+          id: "tip",
+          question: "是否写明测试方法？",
+          verdictIfMet: "compliant" as const,
+          advisory: true,
+        },
+      ],
+    };
+    expect(() => assertValidReviewRule(rule)).toThrow(/缺少非建议类的 compliant/);
   });
 });

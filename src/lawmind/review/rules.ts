@@ -34,8 +34,19 @@ export type RuleCriterion = {
    *
    * `acceptable_deviation` / `unacceptable`: a defect question — "yes" means
    * the defect is present, so the verdict is that tier.
+   *
+   * Ignored when `advisory` is true.
    */
   verdictIfMet: CriterionKind;
+  /**
+   * A suggestion, not a requirement — the third tier real firm playbooks use
+   * ("三级：提示项" / "nice to have"). An unmet advisory criterion never
+   * downgrades the verdict; it is reported as a suggestion for the lawyer to
+   * decide. Keeping this off the verdict enum is deliberate: "advisory" is not
+   * a judgement about the clause's acceptability, so a clause can be compliant
+   * and still carry suggestions.
+   */
+  advisory?: boolean;
 };
 
 export type ReviewRule = {
@@ -147,6 +158,7 @@ export function criterionProblems(criterion: RuleCriterion): string[] {
   // Defect tier must read as "the defect is present"; otherwise a truthful
   // "yes" marks a clean clause as defective.
   if (
+    criterion.advisory !== true &&
     (criterion.verdictIfMet === "unacceptable" ||
       criterion.verdictIfMet === "acceptable_deviation") &&
     question &&
@@ -190,9 +202,10 @@ export function assertValidReviewRule(rule: ReviewRule): void {
     }
     seen.add(criterion.id);
   }
-  // A rule with no positive requirement can never reach compliant.
-  if (!rule.criteria.some((c) => c.verdictIfMet === "compliant")) {
-    throw new Error(`rule ${rule.ruleId}: 缺少 compliant 类 criterion，永远无法判合规`);
+  // A rule with no positive requirement can never reach compliant. Advisory
+  // criteria do not count: they never affect the verdict.
+  if (!rule.criteria.some((c) => c.advisory !== true && c.verdictIfMet === "compliant")) {
+    throw new Error(`rule ${rule.ruleId}: 缺少非建议类的 compliant criterion，永远无法判合规`);
   }
 }
 
@@ -213,6 +226,7 @@ export function normalizeReviewRules(rules: readonly ReviewRule[]): ReviewRule[]
         id: c.id.trim(),
         question: c.question.trim(),
         verdictIfMet: c.verdictIfMet,
+        ...(c.advisory === true ? { advisory: true } : {}),
       })),
       guidance: rule.guidance?.trim() || undefined,
       escalateWhen: rule.escalateWhen?.trim() || undefined,

@@ -210,3 +210,107 @@ describe("helpers", () => {
     expect(VERDICT_STEPS.at(-1)).toBe("no_compliant_requirement_met");
   });
 });
+
+describe("advisory criteria (the third playbook tier)", () => {
+  function advisoryRule(): ReviewRule {
+    return {
+      ruleId: "demo.advisory",
+      title: "含建议项的规则",
+      paper: "counterparty",
+      standard: "演示",
+      source: "skills/builtin/contract-playbook-review.md#底线项-demo",
+      absentAllowed: true,
+      criteria: [
+        { id: "bad", question: "是否存在致命缺陷？", verdictIfMet: "unacceptable" },
+        { id: "good", question: "是否约定了保护条款？", verdictIfMet: "compliant" },
+        {
+          id: "tip",
+          question: "是否写明了测试方法与判定值？",
+          verdictIfMet: "compliant",
+          advisory: true,
+        },
+      ],
+    };
+  }
+
+  it("never downgrades a verdict, however it is answered", () => {
+    const r = advisoryRule();
+    const base = { clausePresent: true as const };
+    const withoutTip = decideVerdict(r, {
+      ...base,
+      answers: [
+        { criterionId: "bad", met: false },
+        { criterionId: "good", met: true },
+        { criterionId: "tip", met: true },
+      ],
+    });
+    const withUnmetTip = decideVerdict(r, {
+      ...base,
+      answers: [
+        { criterionId: "bad", met: false },
+        { criterionId: "good", met: true },
+        { criterionId: "tip", met: false },
+      ],
+    });
+    expect(withoutTip.kind).toBe("compliant");
+    expect(withUnmetTip.kind).toBe("compliant");
+    expect(withUnmetTip.step).toBe(withoutTip.step);
+  });
+
+  it("surfaces an unmet advisory as a suggestion", () => {
+    const d = decideVerdict(advisoryRule(), {
+      clausePresent: true,
+      answers: [
+        { criterionId: "bad", met: false },
+        { criterionId: "good", met: true },
+        { criterionId: "tip", met: false },
+      ],
+    });
+    expect(d.suggestions).toEqual([
+      { criterionId: "tip", question: "是否写明了测试方法与判定值？" },
+    ]);
+  });
+
+  it("omits suggestions when every advisory item is met", () => {
+    const d = decideVerdict(advisoryRule(), {
+      clausePresent: true,
+      answers: [
+        { criterionId: "bad", met: false },
+        { criterionId: "good", met: true },
+        { criterionId: "tip", met: true },
+      ],
+    });
+    expect(d.suggestions).toBeUndefined();
+  });
+
+  it("cannot make a defective clause look better", () => {
+    const d = decideVerdict(advisoryRule(), {
+      clausePresent: true,
+      answers: [
+        { criterionId: "bad", met: true },
+        { criterionId: "good", met: true },
+        { criterionId: "tip", met: false },
+      ],
+    });
+    expect(d.kind).toBe("unacceptable");
+  });
+
+  it("does not turn an unknown advisory into needs_human", () => {
+    const d = decideVerdict(advisoryRule(), {
+      clausePresent: true,
+      answers: [
+        { criterionId: "bad", met: false },
+        { criterionId: "good", met: true },
+        { criterionId: "tip", met: "unknown" },
+      ],
+    });
+    expect(d.kind).toBe("compliant");
+    expect(d.unresolvedCriterionIds).toEqual([]);
+  });
+
+  it("yields no suggestions for an absent clause", () => {
+    const d = decideVerdict(advisoryRule(), { clausePresent: false, answers: [] });
+    expect(d.kind).toBe("absent");
+    expect(d.suggestions).toBeUndefined();
+  });
+});

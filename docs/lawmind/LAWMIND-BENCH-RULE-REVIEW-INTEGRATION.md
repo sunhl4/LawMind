@@ -111,7 +111,35 @@ flowchart LR
 `08` 那份用速记体，几乎抽不出——是假设错了，不是材料有问题。已把断言改成
 「报告覆盖率，不假设覆盖率」。
 
-## 4. 从真实材料发现的一个模型缺口
+## 4. 三级缺口：已解决（属性化，不是加第六态）
+
+原缺口：采购 playbook 自带三级（一级不可让步 / 二级可交换 / 三级提示项），
+而 `verdictIfMet` 只能表达前两级。若把「提示项」映射成 `acceptable_deviation`，
+等于把「建议」说成「偏离」，会虚增缺陷。
+
+**决策依据（先调研再改）**：`RuleClassificationKind` 被 5 处消费——
+`CONSERVATIVE_ORDER`（全量 Record，加一态即编译报错）、夹具 `expected` 值、
+`KINDS` 白名单、`VERDICT_KINDS`、oracle 合成。加第六态会波及夹具与评分。
+更关键的是**语义不对**：合规条款也可以同时带建议，「提示项」不是对条款可接受性的判定。
+
+**采用属性化**：`RuleCriterion.advisory?: boolean`
+
+| playbook      | 表达方式                                  |
+| ------------- | ----------------------------------------- |
+| 一级 不可让步 | `verdictIfMet: "unacceptable"`            |
+| 二级 可交换   | `verdictIfMet: "acceptable_deviation"`    |
+| 三级 提示项   | `advisory: true`（`verdictIfMet` 被忽略） |
+
+三条不变量（均有测试）：
+
+1. 建议项**永不影响档位**——答 true / false / unknown 都不改变 `kind` 与 `step`；
+2. 未满足的建议项进 `decision.suggestions`，由律师自行取舍；
+3. 建议项答 `unknown` **不会**把规则推到 `needs_human`（它不是要件）；
+   且建议项**不满足**「至少一条 compliant」的校验要求（纯建议规则不成立）。
+
+改动零波及：`RuleClassificationKind` 五态不变、夹具 `expected` 不变、评分不变。
+
+## 4.1 原缺口记录
 
 采购验收 playbook 自带三层，且描述精确：
 

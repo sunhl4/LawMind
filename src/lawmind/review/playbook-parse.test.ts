@@ -168,3 +168,29 @@ describe("real playbooks (skips when the sibling bench repo is absent)", () => {
     }
   });
 });
+
+describe("tier to verdict mapping is expressible", () => {
+  it("maps the three playbook tiers onto the rule model", () => {
+    // must_not -> unacceptable; should_trade -> acceptable_deviation;
+    // advisory -> advisory flag. This test exists so the mapping cannot drift
+    // away from the model the parser feeds.
+    const text = [
+      "1. 一级：验收期不得少于 20 个工作日。",
+      "2. 二级：复验次数不少于 2 次。",
+      "3. 三级：建议写明测试方法与判定值。",
+    ].join("\n");
+    const out = extractPlaybookStructure(text, "p.md");
+    expect(out.lines.map((l) => l.tier)).toEqual(["must_not", "should_trade", "advisory"]);
+
+    const verdictFor = (tier?: string) =>
+      tier === "must_not"
+        ? "unacceptable"
+        : tier === "should_trade"
+          ? "acceptable_deviation"
+          : null;
+    expect(verdictFor(out.lines[0]?.tier)).toBe("unacceptable");
+    expect(verdictFor(out.lines[1]?.tier)).toBe("acceptable_deviation");
+    // Advisory has no verdict kind; it becomes the advisory flag instead.
+    expect(verdictFor(out.lines[2]?.tier)).toBeNull();
+  });
+});

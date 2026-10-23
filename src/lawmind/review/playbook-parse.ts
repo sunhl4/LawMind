@@ -14,7 +14,12 @@
  * cover all three, and pretending otherwise would silently drop red lines.
  */
 
-/** What a playbook line demands of the contract. */
+/**
+ * What a playbook line demands of the contract. Maps onto the rule model as:
+ *   must_not     -> criterion.verdictIfMet = "unacceptable"
+ *   should_trade -> criterion.verdictIfMet = "acceptable_deviation"
+ *   advisory     -> criterion.advisory = true (never affects the verdict)
+ */
 export type PlaybookTier = "must_not" | "should_trade" | "advisory";
 
 export type PlaybookLine = {

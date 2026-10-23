@@ -16,6 +16,7 @@ export {
   type RuleCriterion,
 } from "./rules.js";
 export {
+  collectSuggestions,
   criterionIdsOf,
   decideVerdict,
   indexAnswers,
@@ -26,6 +27,7 @@ export {
   type CriterionMet,
   type VerdictDecision,
   type VerdictInput,
+  type VerdictSuggestion,
   type VerdictStep,
 } from "./verdict.js";
 export {
