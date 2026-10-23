@@ -44,10 +44,18 @@ function fixtureCase(partial?: Partial<RuleAllPassCase>): RuleAllPassCase {
 describe("in-repo fixtures", () => {
   const loaded = loadRuleAllPassFixtures();
 
-  it("loads 20 synthetic cases with no integrity problems", () => {
+  it("loads dev cases plus the hold-out set with no integrity problems", () => {
     expect(loaded.problems).toEqual([]);
-    expect(loaded.cases).toHaveLength(20);
+    // 20 dev cases + 6 hold-out cases (holdout.json).
+    expect(loaded.cases).toHaveLength(26);
     expect(validateRuleAllPassFixtures(loaded)).toEqual([]);
+  });
+
+  it("keeps a non-empty hold-out set that is not marked as tuned", () => {
+    const holdout = loaded.cases.filter((c) => c.tunedOn !== true);
+    expect(holdout.length).toBeGreaterThan(0);
+    // Hold-out cases are authored before the run and must stay untouched.
+    expect(holdout.map((c) => c.caseId)).toContain("h01");
   });
 
   it("every case covers exactly the rules applicable to its paper", () => {

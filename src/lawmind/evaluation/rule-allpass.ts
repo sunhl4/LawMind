@@ -50,6 +50,12 @@ export type RuleAllPassCase = {
    * specific sentence instead of a character offset.
    */
   clauses: string[];
+  /**
+   * True when this case was edited while tuning the rules or the prompt.
+   * Such a case proves nothing about generalisation: it can pass because the
+   * rule was shaped around it. Reports quote the hold-out rate separately.
+   */
+  tunedOn?: boolean;
   /** ruleId -> expected verdict. Must cover exactly the applicable rules. */
   expected: Record<string, RuleClassificationKind>;
 };
@@ -97,11 +103,16 @@ function casesJsonPath(dir: string): string {
   return path.join(dir, "cases.json");
 }
 
+function holdoutJsonPath(dir: string): string {
+  return path.join(dir, "holdout.json");
+}
+
 type RawCase = {
   caseId?: unknown;
   paper?: unknown;
   title?: unknown;
   clauses?: unknown;
+  tunedOn?: unknown;
   expected?: unknown;
 };
 
@@ -205,8 +216,57 @@ export function loadRuleAllPassFixtures(opts?: {
       ...(typeof item.title === "string" && item.title.trim() ? { title: item.title.trim() } : {}),
       contract,
       clauses,
+      ...(item.tunedOn === true ? { tunedOn: true } : {}),
       expected,
     });
+  }
+
+  // Hold-out cases live in a separate file so they can be authored once and
+  // left alone. They are never marked `tunedOn`.
+  const holdoutFile = holdoutJsonPath(dir);
+  if (fs.existsSync(holdoutFile)) {
+    try {
+      const rawHoldout = JSON.parse(fs.readFileSync(holdoutFile, "utf8")) as {
+        cases?: RawCase[];
+      };
+      for (const item of Array.isArray(rawHoldout.cases) ? rawHoldout.cases : []) {
+        const caseId = typeof item.caseId === "string" ? item.caseId.trim() : "";
+        if (!caseId || seen.has(caseId)) {
+          continue;
+        }
+        const paper =
+          item.paper === "own" || item.paper === "counterparty" ? item.paper : undefined;
+        const clauses = Array.isArray(item.clauses)
+          ? item.clauses.filter((c): c is string => typeof c === "string")
+          : [];
+        if (!paper || clauses.join("\n").trim().length < RULE_ALLPASS_MIN_CONTRACT_CHARS) {
+          continue;
+        }
+        const expectedRaw = (item.expected ?? {}) as Record<string, unknown>;
+        const holdoutExpected: Record<string, RuleClassificationKind> = {};
+        for (const [ruleId, kind] of Object.entries(expectedRaw)) {
+          if (typeof kind === "string" && KINDS.has(kind as RuleClassificationKind)) {
+            holdoutExpected[ruleId] = kind as RuleClassificationKind;
+          }
+        }
+        seen.add(caseId);
+        cases.push({
+          caseId,
+          paper,
+          ...(typeof item.title === "string" && item.title.trim()
+            ? { title: item.title.trim() }
+            : {}),
+          contract: clauses.join("\n").trim(),
+          clauses,
+          expected: holdoutExpected,
+        });
+      }
+    } catch (err) {
+      problems.push({
+        caseId: "",
+        problem: `holdout.json 解析失败：${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
   }
 
   return { dir, playbookId, note, cases, problems };
@@ -403,6 +463,17 @@ export type RuleAllPassReport = {
    * rules, model, commit and trials all change what the number means.
    */
   fingerprint?: RuleAllPassFingerprint;
+  /**
+   * Cases that were never edited while tuning. Quoted separately from the full
+   * set so a rule shaped around a fixture cannot masquerade as generalisation.
+   */
+  generalization?: {
+    cases: number;
+    passed: number;
+    allPassRate: number;
+    /** Case ids, so a reader can inspect them. */
+    caseIds: string[];
+  };
   reportZh: string;
 };
 
@@ -491,6 +562,25 @@ export function buildRuleAllPassReportMarkdown(report: RuleAllPassReport): strin
       lines.push(`- ${p.caseId || "(全局)"}：${p.problem}`);
     }
   }
+  if (report.generalization) {
+    const g = report.generalization;
+    lines.push(
+      "",
+      "## 泛化（未参与调参的用例）",
+      "",
+      g.cases === 0
+        ? "> **没有任何用例是未参与调参的。** 本报告的准确率不能作为泛化证据。"
+        : [
+            `- 用例：${g.cases}（通过 ${g.passed}）`,
+            `- all-pass 率：${(g.allPassRate * 100).toFixed(1)}%`,
+            `- 用例：${g.caseIds.join("、")}`,
+          ].join("\n"),
+    );
+    if (g.cases > 0 && g.cases < 4) {
+      lines.push("", `> 样本量 ${g.cases} 太小，只能作为方向信号，不能当结论。`);
+    }
+  }
+
   if (report.modelArm) {
     const m = report.modelArm;
     lines.push(

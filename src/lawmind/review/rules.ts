@@ -100,7 +100,23 @@ const NON_ATOMIC_PATTERNS: Array<{ re: RegExp; why: string }> = [
   { re: /视为满足|视为符合|可视为/u, why: "含例外/推定，非单一事实" },
   { re: /另行协商|视情况|按法律规定|依法确定/u, why: "无确定标准" },
   { re: /原则上|一般应|尽可能/u, why: "程度限定，无法二值化" },
+  // Two requirements joined by 「并/且/同时」 cannot be answered with one word:
+  // the answer is undefined when exactly one of them holds. This is the failure
+  // that made a "scope is limited to trade secrets, and explicitly excludes
+  // public information" question unfalsifiable — the contract can satisfy one
+  // half and not the other.
+  { re: /[，,][^，,。？?]*[并且].*(?:是否|明确)/u, why: "一句话里塞了两个条件" },
 ];
+
+/**
+ * Defect criteria (`unacceptable` / `acceptable_deviation`) must be phrased as
+ * "the defect is present", because the answer is read as "this tier applies".
+ * A positively phrased defect question ("是否附有三十日通知？") inverts the whole
+ * ladder: answering the truthfully-observed "yes" marks a clean clause as
+ * defective.
+ */
+const DEFECT_MARKER_RE =
+  /(不|无|未|没有|超出|超|不足|缺|少|单方|永久|免除|免于|放弃|排除|丧失|同时|并存|两种|不一致|不对等|转让|改变)/u;
 
 /** Returns a list of reasons the criterion is not atomic; empty means OK. */
 export function criterionProblems(criterion: RuleCriterion): string[] {
@@ -127,6 +143,19 @@ export function criterionProblems(criterion: RuleCriterion): string[] {
     criterion.verdictIfMet !== "unacceptable"
   ) {
     problems.push(`criterion ${id}：verdictIfMet 非法`);
+  }
+  // Defect tier must read as "the defect is present"; otherwise a truthful
+  // "yes" marks a clean clause as defective.
+  if (
+    (criterion.verdictIfMet === "unacceptable" ||
+      criterion.verdictIfMet === "acceptable_deviation") &&
+    question &&
+    !DEFECT_MARKER_RE.test(question)
+  ) {
+    problems.push(
+      `criterion ${id}：${criterion.verdictIfMet} 类题必须问「缺陷是否存在」，` +
+        `当前问法读起来像「保护是否具备」→ ${question}`,
+    );
   }
   return problems;
 }

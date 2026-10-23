@@ -55,6 +55,17 @@ for (let i = 0; i < argv.length; i += 1) {
   }
 }
 
+let caseFilter: string[] = [];
+for (let i = 0; i < argv.length; i += 1) {
+  if (argv[i] === "--cases" && argv[i + 1]) {
+    caseFilter = argv[i + 1]
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    i += 1;
+  }
+}
+
 let maxCases = 0;
 for (let i = 0; i < argv.length; i += 1) {
   if (argv[i] === "--max-cases" && argv[i + 1]) {
@@ -306,8 +317,16 @@ if ("error" in resolved) {
 }
 
 const armStart = Date.now();
+const selectedCases =
+  caseFilter.length > 0 ? loaded.cases.filter((c) => caseFilter.includes(c.caseId)) : loaded.cases;
+
+if (selectedCases.length === 0) {
+  console.error(`--cases 没有匹配的用例：${caseFilter.join(",")}`);
+  process.exit(2);
+}
+
 const modelRun = await runRuleAllPassModelArm({
-  cases: loaded.cases,
+  cases: selectedCases,
   chatModel: resolved.config,
   concurrency,
   trials,
@@ -322,8 +341,21 @@ if (!jsonOut) {
   process.stderr.write("\n");
 }
 
-const scoredCases = loaded.cases.slice(0, modelRun.cases.length);
+const scoredCases = selectedCases.slice(0, modelRun.cases.length);
 const scores = modelRun.cases.map((c) => c.score);
+
+// Generalisation = cases never edited during tuning. Reported separately so a
+// rule shaped around a fixture cannot pass for general behaviour.
+const tunedIds = new Set(scoredCases.filter((c) => c.tunedOn === true).map((c) => c.caseId));
+const holdoutCases = scoredCases.filter((c) => !tunedIds.has(c.caseId));
+const holdoutScores = modelRun.cases.filter((c) => !tunedIds.has(c.caseId)).map((c) => c.score);
+const holdoutSummary = summarizeRuleAllPass(holdoutCases, holdoutScores);
+const generalization = {
+  cases: holdoutCases.length,
+  passed: holdoutSummary.passed,
+  allPassRate: holdoutSummary.allPassRate,
+  caseIds: holdoutCases.map((c) => c.caseId),
+};
 const summary = summarizeRuleAllPass(scoredCases, scores);
 const status: RuleAllPassReport["status"] =
   modelRun.stoppedEarly || modelRun.failures.length > 0
@@ -341,6 +373,7 @@ finish(
     summary,
     harnessSelfTest: false,
     fingerprint: fingerprintOf(modelRun.model, trials),
+    generalization,
     modelArm: {
       model: modelRun.model,
       totalCalls: modelRun.totalCalls,

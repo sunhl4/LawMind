@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "playbookId": "cn-sales-v0",
-  "note": "合成夹具：句子按规则原文措辞构造，只用于校验规则级 all-pass 的量规、覆盖与评分接线，不代表真实法律判断质量，也不得作为对外准确性证据。真实脱敏合同请放 fixtures/lawmind-true-manuscript/。",
+  "note": "合成夹具：句子按规则原文措辞构造，只用于校验规则级 all-pass 的量规、覆盖与评分接线，不代表真实法律判断质量，也不得作为对外准确性证据。标 tunedOn 的用例在调参时被改过，不能证明泛化；泛化请只看 holdout.json。真实脱敏合同请放 fixtures/lawmind-true-manuscript/。",
   "cases": [
     {
       "caseId": "s01",
@@ -27,7 +27,8 @@
         "ip.data.counterparty": "compliant",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "s02",
@@ -52,7 +53,8 @@
         "ip.data.counterparty": "compliant",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "s03",
@@ -77,7 +79,8 @@
         "ip.data.counterparty": "compliant",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "s04",
@@ -102,7 +105,8 @@
         "ip.data.counterparty": "compliant",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "s05",
@@ -127,7 +131,8 @@
         "ip.data.counterparty": "unacceptable",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "s06",
@@ -177,7 +182,8 @@
         "ip.data.counterparty": "compliant",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "unacceptable"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "s08",
@@ -202,7 +208,8 @@
         "ip.data.counterparty": "compliant",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "s09",
@@ -227,7 +234,8 @@
         "ip.data.counterparty": "compliant",
         "payment.acceptance.counterparty": "acceptable_deviation",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "s10",
@@ -252,7 +260,8 @@
         "ip.data.counterparty": "compliant",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "absent"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "s11",
@@ -277,7 +286,8 @@
         "ip.data.counterparty": "absent",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "s12",
@@ -302,7 +312,8 @@
         "ip.data.counterparty": "unacceptable",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "acceptable_deviation"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "n01",
@@ -327,7 +338,8 @@
         "ip.data.counterparty": "compliant",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "n02",
@@ -352,7 +364,8 @@
         "ip.data.counterparty": "compliant",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "unacceptable"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "n03",
@@ -377,7 +390,8 @@
         "ip.data.counterparty": "unacceptable",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "n04",
@@ -402,7 +416,8 @@
         "ip.data.counterparty": "compliant",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "n05",
@@ -427,7 +442,8 @@
         "ip.data.counterparty": "compliant",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "n06",
@@ -452,7 +468,8 @@
         "ip.data.counterparty": "compliant",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "n07",
@@ -477,7 +494,8 @@
         "ip.data.counterparty": "absent",
         "payment.acceptance.counterparty": "compliant",
         "confidentiality.noncompete.counterparty": "compliant"
-      }
+      },
+      "tunedOn": true
     },
     {
       "caseId": "n08",

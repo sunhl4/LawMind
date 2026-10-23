@@ -119,7 +119,11 @@ export const CN_SALES_RULES: ReviewRule[] = [
     criteria: [
       {
         id: "one_sided_termination",
-        question: "是否约定一方可随时任意解除，而另一方没有对等的任意解除权？",
+        // Must include "no compensation": an asymmetric-but-compensated
+        // termination right is a deviation, not a dealbreaker. Without this the
+        // unacceptable rung swallows the acceptable one.
+        question:
+          "是否约定一方可随时任意解除、另一方没有对等的任意解除权，且解除方不承担任何补偿？",
         verdictIfMet: "unacceptable",
       },
       {
@@ -235,7 +239,11 @@ export const CN_SALES_RULES: ReviewRule[] = [
       },
       {
         id: "scope_confined",
-        question: "保密范围是否限于商业秘密，并明确排除已公开信息？",
+        // Atomic by design: "limited to trade secrets" already excludes public
+        // information, because that is what the term means. Demanding a
+        // separate "excludes public info" clause made one question carry two
+        // conditions — it could not be answered yes/no without ambiguity.
+        question: "保密范围是否限定为商业秘密？",
         verdictIfMet: "compliant",
       },
       {
