@@ -25,6 +25,20 @@ import { bootstrapE2ePage, dismissBlockingDialogs } from "./e2e-helpers";
 
 const DOC_TEXT = "查询意见正文：本所认为该条款可以接受。";
 
+/**
+ * 在 `~/<subdir>/` 下建临时目录，**父目录不存在时先建**。
+ *
+ * `fs.mkdtemp` 要求父目录已存在。macOS 一定有 `~/Desktop` / `~/Downloads`，
+ * 但 ubuntu CI 的 `$HOME` 里一个都没有，于是这些用例会在 `mkdtemp` 处直接
+ * `ENOENT`（3ms 失败、retry 也一样），而报错看起来像「规格坏了」。
+ * 用例要验的是「工作区外的真实落点仍能打开」，与那次目录是否已存在无关。
+ */
+async function mkdtempUnderHome(subdir: string, prefix: string): Promise<string> {
+  const parent = path.join(os.homedir(), subdir);
+  await fs.mkdir(parent, { recursive: true });
+  return fs.mkdtemp(path.join(parent, prefix));
+}
+
 async function writeMinimalDocx(abs: string, text: string): Promise<void> {
   await fs.mkdir(path.dirname(abs), { recursive: true });
   const zip = new JSZip();
@@ -410,7 +424,7 @@ test.describe("工作区之外的真实文件 → 中栏", () => {
   test("桌面上的 docx：点对话里的绝对路径，中栏渲染出正文", async () => {
     const { userDataDir, workspaceDir: seedWorkspaceDir } = await prepareE2EUserData();
     const workspaceDir = await fs.realpath(seedWorkspaceDir);
-    const deskDir = await fs.realpath(await fs.mkdtemp(path.join(os.homedir(), "Desktop", "lawmind-e2e-")));
+    const deskDir = await fs.realpath(await mkdtempUnderHome("Desktop", "lawmind-e2e-"));
     await fs.writeFile(
       path.join(userDataDir, "LawMind", "desktop-config.json"),
       JSON.stringify({ workspaceDir, retrievalMode: "single" }, null, 2),
@@ -473,6 +487,8 @@ test.describe("其它真实落点 → 中栏", () => {
     );
     await markFirstRunDismissed(workspaceDir);
 
+    // `baseDir` 是 `~/Downloads` / `~/Documents`：ubuntu CI 上可能一个都不存在。
+    await fs.mkdir(baseDir, { recursive: true });
     const dir = await fs.realpath(await fs.mkdtemp(path.join(baseDir, "lawmind-e2e-")));
     const absDoc = path.join(dir, `${label}_20261022_01.docx`);
     await writeMinimalDocx(absDoc, `正文：${label}`);
@@ -553,7 +569,7 @@ test.describe("工作区之外的文件 → 中栏可编辑", () => {
     const { userDataDir, workspaceDir: seedWorkspaceDir } = await prepareE2EUserData();
     const workspaceDir = await fs.realpath(seedWorkspaceDir);
     const deskDir = await fs.realpath(
-      await fs.mkdtemp(path.join(os.homedir(), "Desktop", "lawmind-e2e-edit-")),
+      await mkdtempUnderHome("Desktop", "lawmind-e2e-edit-"),
     );
     await fs.writeFile(
       path.join(userDataDir, "LawMind", "desktop-config.json"),
@@ -619,7 +635,7 @@ test.describe("工作区之外的文本文件 → 中栏可编辑", () => {
     const { userDataDir, workspaceDir: seedWorkspaceDir } = await prepareE2EUserData();
     const workspaceDir = await fs.realpath(seedWorkspaceDir);
     const dlDir = await fs.realpath(
-      await fs.mkdtemp(path.join(os.homedir(), "Downloads", "lawmind-e2e-md-")),
+      await mkdtempUnderHome("Downloads", "lawmind-e2e-md-"),
     );
     await fs.writeFile(
       path.join(userDataDir, "LawMind", "desktop-config.json"),
@@ -852,7 +868,7 @@ test.describe("另存副本的落点", () => {
     const { userDataDir, workspaceDir: seedWorkspaceDir } = await prepareE2EUserData();
     const workspaceDir = await fs.realpath(seedWorkspaceDir);
     const deskDir = await fs.realpath(
-      await fs.mkdtemp(path.join(os.homedir(), "Desktop", "lawmind-e2e-copy-")),
+      await mkdtempUnderHome("Desktop", "lawmind-e2e-copy-"),
     );
     await fs.writeFile(
       path.join(userDataDir, "LawMind", "desktop-config.json"),
@@ -907,7 +923,7 @@ test.describe("外部文件授权的生命周期", () => {
     const { userDataDir, workspaceDir: seedWorkspaceDir } = await prepareE2EUserData();
     const workspaceDir = await fs.realpath(seedWorkspaceDir);
     const deskDir = await fs.realpath(
-      await fs.mkdtemp(path.join(os.homedir(), "Desktop", "lawmind-e2e-grant-")),
+      await mkdtempUnderHome("Desktop", "lawmind-e2e-grant-"),
     );
     await fs.writeFile(
       path.join(userDataDir, "LawMind", "desktop-config.json"),
