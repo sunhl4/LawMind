@@ -27,7 +27,7 @@ on:
 permissions:
   contents: read
 
-# Pages 发布开关。
+# Pages 发布开关（仓库变量 `LAWMIND_PAGES_ENABLED`，默认关闭）。
 #
 # 私有仓库 + 免费计划没有 GitHub Pages（`GET /repos/{owner}/{repo}/pages` 返回 404，
 # `has_pages: false`），而 `upload-pages-artifact` 会先建 artifact；账号级 Actions
@@ -37,9 +37,11 @@ permissions:
 #
 # 所以：构建与静态校验永远是门禁；**发布**只在显式打开开关时执行。
 # 启用 Pages（公开仓库或付费计划 + Settings → Pages → Source: GitHub Actions）后，
-# 设置仓库变量 `LAWMIND_PAGES_ENABLED=true` 即可恢复发布。
-env:
-  LAWMIND_PAGES_ENABLED: ${{ vars.LAWMIND_PAGES_ENABLED }}
+# 把仓库变量 `LAWMIND_PAGES_ENABLED` 设为 `true` 即可恢复发布。
+#
+# 注意：`vars` 只用在**步骤级** `if`。作业级 `if` 不提供 `env` 上下文，
+# 改动前曾把 `env.LAWMIND_PAGES_ENABLED` 写进作业级 `if`，结果是整份 workflow
+# 校验失败（run 名变成文件路径、一个 job 都不建），比原来的红更难看出问题。
 
 jobs:
   build:
@@ -74,14 +76,14 @@ jobs:
           echo "dist entries: $(find "${dist}" -maxdepth 1 | wc -l)"
 
       - name: Upload Pages artifact
-        if: env.LAWMIND_PAGES_ENABLED == 'true' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+        if: vars.LAWMIND_PAGES_ENABLED == 'true' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-pages-artifact@v3
         with:
           path: apps/lawmind-docs/docs/.vitepress/dist
 
   deploy:
     needs: build
-    if: env.LAWMIND_PAGES_ENABLED == 'true' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -95,8 +97,10 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Configure Pages
+        if: vars.LAWMIND_PAGES_ENABLED == 'true'
         uses: actions/configure-pages@v5
 
       - name: Deploy to GitHub Pages
         id: deploy
+        if: vars.LAWMIND_PAGES_ENABLED == 'true'
         uses: actions/deploy-pages@v4
