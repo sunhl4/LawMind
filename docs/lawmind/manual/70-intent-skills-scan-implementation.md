@@ -415,7 +415,7 @@ contract.review ↔ litigation.draft must not invert.
 /** When set, compiled delivery.artifactShape must match. */
 deliveryShape?
 /** When set, compiled delivery.outputPath must match. */
-deliveryPlace?
+deliveryPlaceRequested?
 ```
 
 **所以金标集不只测「绑哪个能力」，还测「交件形态与落盘位置」**——这是第 70.4 节那一层的回归锁。

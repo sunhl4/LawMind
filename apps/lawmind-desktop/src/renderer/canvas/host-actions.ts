@@ -6,7 +6,7 @@ import {
 } from "../../../../../src/lawmind/sources/lawyer-chat-link.ts";
 import {
   requestOpenWorkspaceFile,
-  type WorkspaceFileRoot,
+  type AnyFileRoot,
 } from "../lawmind-workspace-file-open";
 import { resolveOpenableOutputPath } from "../lawmind-app-utils";
 
@@ -72,7 +72,7 @@ export function requestCanvasComposer(
 /** 交付文件只交给本机 WPS。先试工作区，再试本机文件夹（project）。 */
 export async function openDeliverableInWps(
   relPath: string,
-  preferredRoot: WorkspaceFileRoot = "workspace",
+  preferredRoot: AnyFileRoot = "workspace",
 ): Promise<{ ok: boolean; error?: string }> {
   const safe = wpsDeliverablePath(relPath);
   if (!safe || typeof window === "undefined") {
@@ -82,8 +82,13 @@ export async function openDeliverableInWps(
   if (!openWithWps) {
     return { ok: false, error: "请完全退出 LawMind 后重新打开桌面版，再用 WPS 打开。" };
   }
-  const roots: WorkspaceFileRoot[] =
-    preferredRoot === "project" ? ["project", "workspace"] : ["workspace", "project"];
+  // 外部根优先（律师就是从那儿点开的），其余按原顺序兜底。
+  const roots: AnyFileRoot[] =
+    preferredRoot === "project"
+      ? ["project", "workspace"]
+      : preferredRoot === "workspace"
+        ? ["workspace", "project"]
+        : [preferredRoot, "workspace", "project"];
   let lastError = "WPS 没有打开这份文件。";
   for (const root of roots) {
     try {
@@ -158,7 +163,7 @@ export function openLawyerExternalUrl(url: string): void {
  */
 export function openLawyerHref(
   href: string,
-  fileRoot: WorkspaceFileRoot = "workspace",
+  fileRoot: AnyFileRoot = "workspace",
 ): boolean {
   const target = workspacePathTarget(href);
   if (target) {

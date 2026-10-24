@@ -7,6 +7,9 @@ interface ImportMetaEnv {
   readonly VITE_LAWMIND_INTERNAL_EXPERIMENT_UI?: string;
 }
 
+/** 可读写根：工作区/项目夹 + 按次授权的 `file:<id>`。 */
+type RootKeyLoose = "workspace" | "project" | `file:${string}`;
+
 declare global {
   interface Window {
     lawmindDesktop?: {
@@ -219,15 +222,15 @@ declare global {
       openExternal: (url: string) => Promise<void>;
       showItemInFolder: (fullPath: string) => Promise<{ ok: boolean; error?: string }>;
       openWithSystem: (payload: {
-        root: "workspace" | "project";
+        root: RootKeyLoose;
         path: string;
       }) => Promise<{ ok: boolean; error?: string }>;
       openWithWps: (payload: {
-        root: "workspace" | "project";
+        root: RootKeyLoose;
         path: string;
       }) => Promise<{ ok: boolean; error?: string }>;
       fsList: (payload: {
-        root: "workspace" | "project";
+        root: RootKeyLoose;
         path?: string;
       }) => Promise<{
         ok: boolean;
@@ -240,8 +243,20 @@ declare global {
         }>;
         error?: string;
       }>;
+      /**
+       * 工作区外的文件：按次登记成同级根（可读可写）。
+       * 主进程负责：必须存在、必须是文件、必须过密钥/治理数据拒绝名单、不能已在工作区内。
+       */
+      /** 关标签时释放外部文件授权（释放后该根的读写立即失效）。 */
+      releaseFileAccess: (rootKey: string) => Promise<{ ok: boolean; error?: string }>;
+      grantFileAccess: (absPath: string) => Promise<{
+        ok: boolean;
+        root?: string;
+        rel?: string;
+        error?: string;
+      }>;
       fsRead: (payload: {
-        root: "workspace" | "project";
+        root: RootKeyLoose;
         path: string;
       }) => Promise<{
         ok: boolean;
@@ -254,7 +269,7 @@ declare global {
         error?: string;
       }>;
       fsWrite: (payload: {
-        root: "workspace" | "project";
+        root: RootKeyLoose;
         path: string;
         content: string;
         expectedMtimeMs?: number;
@@ -268,20 +283,20 @@ declare global {
         error?: string;
       }>;
       fsMkdir: (payload: {
-        root: "workspace" | "project";
+        root: RootKeyLoose;
         path: string;
       }) => Promise<{ ok: boolean; error?: string }>;
       fsRename: (payload: {
-        root: "workspace" | "project";
+        root: RootKeyLoose;
         fromPath: string;
         toPath: string;
       }) => Promise<{ ok: boolean; error?: string }>;
       fsDelete: (payload: {
-        root: "workspace" | "project";
+        root: RootKeyLoose;
         path: string;
       }) => Promise<{ ok: boolean; error?: string }>;
       fsCopy: (payload: {
-        root: "workspace" | "project";
+        root: RootKeyLoose;
         fromPath: string;
         toPath: string;
       }) => Promise<{ ok: boolean; error?: string }>;

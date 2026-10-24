@@ -194,6 +194,25 @@ describe("renderDocxWithOptions", () => {
     expect(documentXml).not.toContain("SimHei");
   });
 
+  it("does not double the 关于 prefix when the title is already a subject", async () => {
+    const result = await renderDocxWithOptions(
+      makeDraft({
+        title: "关于装饰装修施工合同的查询意见",
+        audience: "甲公司",
+        createdAt: "2026-04-24T00:00:00.000Z",
+        sections: [{ heading: "一、结论", body: "付款节点可协商调整。", citations: [] }],
+      }),
+      outputDir,
+      {},
+    );
+    expect(result.ok).toBe(true);
+    const data = await fs.readFile(result.outputPath!);
+    const zip = await JSZip.loadAsync(data);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    expect(documentXml).toContain("事由：关于装饰装修施工合同的查询意见");
+    expect(documentXml).not.toContain("关于关于");
+  });
+
   it("renders research reports in thesis body style without school front matter", async () => {
     const result = await renderDocxWithOptions(
       makeDraft({

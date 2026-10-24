@@ -17,6 +17,7 @@
  * Export-pdf writes a sibling .pdf via LibreOffice when available.
  */
 
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -46,11 +47,21 @@ import {
   summarizeRedline,
 } from "../../../src/lawmind/drafts/redline-proposal.js";
 import { isInvalidRequestBodyError, parseJsonBodyZod } from "./lawmind-api-parse.js";
-import { safeOptionalProjectDir, sendJson } from "./lawmind-server-helpers.js";
+import {
+  EXTERNAL_FILE_WRITE_REFUSAL,
+  FILE_ROOT_PREFIX,
+  readFileGrantFiles,
+  resolveFsRoots,
+  safeOptionalProjectDir,
+  sendJson,
+} from "./lawmind-server-helpers.js";
 import { isSafeTaskIdSegment } from "./safe-task-id.js";
 import type { LawmindRouteContext } from "./lawmind-server-route-types.js";
 import type { WordBaselineRoot } from "../../../src/lawmind/artifacts/word-revision-delivery.js";
-import { resolveWordBaselineAbs } from "../../../src/lawmind/artifacts/word-revision-delivery.js";
+import {
+  exportDirForSource,
+  resolveWordBaselineAbs,
+} from "../../../src/lawmind/artifacts/word-revision-delivery.js";
 import { readDraft } from "../../../src/lawmind/drafts/index.js";
 
 async function captureWordSurfaceLearning(opts: {
@@ -81,8 +92,18 @@ const reviseSchema = z.object({
   after: z.string().max(50_000),
 });
 
+const externalRootSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .refine(
+    (value) => value === "workspace" || value === "project" || value.startsWith(FILE_ROOT_PREFIX),
+    { message: "invalid root" },
+  );
+
 const syncSchema = z.object({
-  root: z.enum(["workspace", "project"]),
+  root: externalRootSchema,
   path: z.string().trim().min(1).max(2_000),
   projectDir: z.string().optional(),
   paragraphs: z
@@ -97,7 +118,7 @@ const syncSchema = z.object({
 });
 
 const lawyerEditSchema = z.object({
-  root: z.enum(["workspace", "project"]),
+  root: externalRootSchema,
   path: z.string().trim().min(1).max(2_000),
   projectDir: z.string().optional(),
   before: z.string().max(50_000),
@@ -121,7 +142,7 @@ const commentUpdateSchema = z.object({
 });
 
 const trackedSchema = z.object({
-  root: z.enum(["workspace", "project"]),
+  root: externalRootSchema,
   path: z.string().trim().min(1).max(2_000),
   projectDir: z.string().optional(),
   decision: z.enum(["accept", "reject"]),
@@ -168,7 +189,7 @@ const paragraphListSchema = z.union([
 ]);
 
 const saveSchema = z.object({
-  root: z.enum(["workspace", "project"]),
+  root: externalRootSchema,
   path: z.string().trim().min(1).max(2_000),
   projectDir: z.string().optional(),
   /** Prefer `{ sourceIndex, runs }[]`; bare `runs[][]` still accepted for older clients. */
@@ -201,13 +222,13 @@ const saveSchema = z.object({
 
 const exportCopySchema = z.object({
   taskId: z.string().trim().min(1).max(200).optional(),
-  root: z.enum(["workspace", "project"]).optional(),
+  root: externalRootSchema.optional(),
   path: z.string().trim().min(1).max(2_000).optional(),
   projectDir: z.string().optional(),
 });
 
 const compareSchema = z.object({
-  root: z.enum(["workspace", "project"]),
+  root: externalRootSchema,
   path: z.string().trim().min(1).max(2_000),
   projectDir: z.string().optional(),
   otherRoot: z.enum(["workspace", "project"]),
@@ -215,7 +236,7 @@ const compareSchema = z.object({
 });
 
 const tableRowSchema = z.object({
-  root: z.enum(["workspace", "project"]),
+  root: externalRootSchema,
   path: z.string().trim().min(1).max(2_000),
   projectDir: z.string().optional(),
   tableIndex: z.number().int().min(0).max(500),
@@ -223,17 +244,101 @@ const tableRowSchema = z.object({
 });
 
 const exportPdfSchema = z.object({
-  root: z.enum(["workspace", "project"]),
+  root: externalRootSchema,
   path: z.string().trim().min(1).max(2_000),
   projectDir: z.string().optional(),
 });
 
-function parseRoot(raw: string | null): WordBaselineRoot | undefined {
+/**
+ * 路由里的 `root` 可能是 `file:<id>`（工作区外、律师显式碰过的文件）。
+ *
+ * 引擎只认 workspace/project，所以把授权目录当作一次性的 projectDir 交给它；
+ * 该目录的读写权限已由主进程登记时核过（存在性 + 拒绝名单）。
+ */
+function resolveWordRoot(
+  ctxWorkspaceDir: string,
+  rawRoot: string | null | undefined,
+  rawProjectDir?: string | null,
+  reqProjectDir?: string | null,
+): {
+  root: WordBaselineRoot;
+  projectDir?: string;
+  /** 外部根：只允许操作这一份文件（`body.path` 里塞同目录别的文件名要被拒）。 */
+  externalAbs?: string;
+} | null {
+  const raw = (rawRoot ?? "").trim();
   if (raw === "workspace" || raw === "project") {
-    return raw;
+    return {
+      root: raw,
+      projectDir: safeOptionalProjectDir(reqProjectDir ?? rawProjectDir ?? undefined),
+    };
   }
-  return undefined;
+  if (!raw.startsWith(FILE_ROOT_PREFIX)) {
+    return null;
+  }
+  const dir = resolveFsRoots(ctxWorkspaceDir)[raw];
+  if (!dir) {
+    return null;
+  }
+  const externalAbs = readFileGrantFiles(process.env.LAWMIND_FILE_GRANTS_FILE)[raw];
+  return { root: "project", projectDir: dir, ...(externalAbs ? { externalAbs } : {}) };
 }
+
+/**
+ * 同一守卫的相对路径版本：按 basename 比对（外部根的 rel 就是文件名）。
+ *
+ * 用于只拿到 snapshot.relPath、拿不到绝对路径的路由（sync / hunks）。
+ */
+function externalWriteBlockedByRel(
+  runRoot: { externalAbs?: string },
+  relPath: string,
+  res: http.ServerResponse,
+  c: Record<string, string>,
+): boolean {
+  if (!runRoot.externalAbs) {
+    return false;
+  }
+  const rel = relPath.trim().replace(/\\/g, "/");
+  const base = path.posix.basename(rel);
+  if (!rel.includes("/") && base === path.basename(runRoot.externalAbs)) {
+    return false;
+  }
+  sendJson(
+    res,
+    403,
+    { ok: false, error: "external_file_readonly", message: EXTERNAL_FILE_WRITE_REFUSAL },
+    c,
+  );
+  return true;
+}
+
+/**
+ * 外部根的**写**入参守卫：`body.path` 必须是授权的那一份文件。
+ *
+ * 读可以放开（律师可能从正文点到同目录附件），但写不行 —— 否则把 `path` 换成
+ * 同目录的 `别人的合同.docx` 就能改别人文件，绕过 fs 桥的精确匹配。
+ */
+function externalWriteBlocked(
+  runRoot: { externalAbs?: string },
+  absPath: string,
+  res: http.ServerResponse,
+  c: Record<string, string>,
+): boolean {
+  if (!runRoot.externalAbs) {
+    return false;
+  }
+  if (path.resolve(runRoot.externalAbs) === path.resolve(absPath)) {
+    return false;
+  }
+  sendJson(
+    res,
+    403,
+    { ok: false, error: "external_file_readonly", message: EXTERNAL_FILE_WRITE_REFUSAL },
+    c,
+  );
+  return true;
+}
+
 
 const wordSurfaceSource = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -328,12 +433,17 @@ export async function handleWordSurfaceRoutes({
   c,
 }: LawmindRouteContext): Promise<boolean> {
   if (pathname === "/api/word-surface" && req.method === "GET") {
-    const root = parseRoot(url.searchParams.get("root"));
+    const runRoot = resolveWordRoot(
+      ctx.workspaceDir,
+      url.searchParams.get("root"),
+      url.searchParams.get("projectDir"),
+    );
     const relPath = (url.searchParams.get("path") ?? "").trim();
-    if (!root || !relPath) {
+    if (!runRoot || !relPath) {
       sendJson(res, 400, { ok: false, error: "invalid_query" }, c);
       return true;
     }
+    const { root } = runRoot;
     const seenMtimeRaw = url.searchParams.get("fileMtime");
     const seenProposalAt = url.searchParams.get("proposalAt");
     const seenFileMtime =
@@ -343,7 +453,7 @@ export async function handleWordSurfaceRoutes({
     const loadWordSurface = await resolveLoadWordSurface();
     const loaded = await loadWordSurface({
       workspaceDir: ctx.workspaceDir,
-      projectDir: safeOptionalProjectDir(url.searchParams.get("projectDir")),
+      projectDir: runRoot.projectDir,
       root,
       relPath,
       ...(stampMatches &&
@@ -378,19 +488,23 @@ export async function handleWordSurfaceRoutes({
       }
       throw err;
     }
-    const root = parseRoot(body.root);
-    if (!root) {
+    const runRoot = resolveWordRoot(ctx.workspaceDir, body.root, body.projectDir);
+    if (!runRoot) {
       sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
       return true;
     }
+    const { root } = runRoot;
     const found = resolveWordBaselineAbs({
       workspaceDir: ctx.workspaceDir,
-      projectDir: safeOptionalProjectDir(body.projectDir),
+      projectDir: runRoot.projectDir,
       raw: body.path,
       preferredRoot: root,
     });
     if (!found || found.root !== root) {
       sendJson(res, 404, { ok: false, error: "not_found" }, c);
+      return true;
+    }
+    if (externalWriteBlocked(runRoot, found.abs, res, c)) {
       return true;
     }
     const decideTracked = await resolveDecideTracked();
@@ -418,15 +532,18 @@ export async function handleWordSurfaceRoutes({
       }
       throw err;
     }
-    const root = parseRoot(body.root);
-    if (!root) {
+    const runRoot = resolveWordRoot(ctx.workspaceDir, body.root, body.projectDir);
+    if (!runRoot) {
       sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+      return true;
+    }
+    if (externalWriteBlockedByRel(runRoot, body.path, res, c)) {
       return true;
     }
     const loaded = await loadWordSurfaceStatic({
       workspaceDir: ctx.workspaceDir,
-      projectDir: safeOptionalProjectDir(body.projectDir),
-      root,
+      projectDir: runRoot.projectDir,
+      root: runRoot.root,
       relPath: body.path,
     });
     if (!loaded.ok) {
@@ -476,16 +593,19 @@ export async function handleWordSurfaceRoutes({
       }
       throw err;
     }
-    const root = parseRoot(body.root);
+    const runRoot = resolveWordRoot(ctx.workspaceDir, body.root, body.projectDir, body.projectDir);
     const relPath = body.path.trim();
-    if (!root || !relPath) {
+    if (!runRoot || !relPath) {
       sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+      return true;
+    }
+    if (externalWriteBlockedByRel(runRoot, relPath, res, c)) {
       return true;
     }
     const loaded = await loadWordSurfaceStatic({
       workspaceDir: ctx.workspaceDir,
-      projectDir: safeOptionalProjectDir(body.projectDir),
-      root,
+      projectDir: runRoot.projectDir,
+      root: runRoot.root,
       relPath,
     });
     if (!loaded.ok) {
@@ -696,19 +816,23 @@ export async function handleWordSurfaceRoutes({
       }
       throw err;
     }
-    const root = parseRoot(body.root);
-    if (!root) {
+    const runRoot = resolveWordRoot(ctx.workspaceDir, body.root, body.projectDir);
+    if (!runRoot) {
       sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
       return true;
     }
+    const { root } = runRoot;
     const found = resolveWordBaselineAbs({
       workspaceDir: ctx.workspaceDir,
-      projectDir: safeOptionalProjectDir(body.projectDir),
+      projectDir: runRoot.projectDir,
       raw: body.path,
       preferredRoot: root,
     });
     if (!found || found.root !== root) {
       sendJson(res, 404, { ok: false, error: "not_found" }, c);
+      return true;
+    }
+    if (externalWriteBlocked(runRoot, found.abs, res, c)) {
       return true;
     }
     const saved = await saveParagraphRuns({
@@ -761,23 +885,35 @@ export async function handleWordSurfaceRoutes({
       }
       throw err;
     }
-    const found = resolveWordBaselineAbs({
-      workspaceDir: ctx.workspaceDir,
-      projectDir: safeOptionalProjectDir(body.projectDir),
-      raw: body.path,
-      preferredRoot: body.root,
-    });
-    if (!found || found.root !== body.root) {
+    const runRoot = resolveWordRoot(ctx.workspaceDir, body.root, body.projectDir);
+    if (!runRoot) {
       sendJson(res, 404, { ok: false, error: "not_found" }, c);
       return true;
     }
+    const found = resolveWordBaselineAbs({
+      workspaceDir: ctx.workspaceDir,
+      projectDir: runRoot.projectDir,
+      raw: body.path,
+      preferredRoot: runRoot.root,
+    });
+    if (!found || found.root !== runRoot.root) {
+      sendJson(res, 404, { ok: false, error: "not_found" }, c);
+      return true;
+    }
+    // PDF 只读原件（写到工作区导出位置），所以外部根不需要精确匹配守卫。
     const { exportDocxToPdf } = await import("../../../src/lawmind/drafts/docx-export-pdf.js");
     const abort = new AbortController();
     const onClose = () => abort.abort();
     res.once("close", onClose);
+    // 原件在工作区外时 PDF 也导到会话工作区的导出位置。
+    const pdfOutDir = exportDirForSource({
+      workspaceDir: ctx.workspaceDir,
+      sourceAbs: found.abs,
+    });
+    fsSync.mkdirSync(pdfOutDir, { recursive: true });
     let result: Awaited<ReturnType<typeof exportDocxToPdf>>;
     try {
-      result = await exportDocxToPdf(found.abs, { signal: abort.signal });
+      result = await exportDocxToPdf(found.abs, { signal: abort.signal, outDir: pdfOutDir });
     } finally {
       res.off("close", onClose);
     }
@@ -785,20 +921,16 @@ export async function handleWordSurfaceRoutes({
       sendJson(res, 400, { ok: false, error: result.error, message: result.error }, c);
       return true;
     }
-    const outRel =
-      body.root === "workspace"
-        ? path.relative(ctx.workspaceDir, result.outAbs).replace(/\\/g, "/")
-        : safeOptionalProjectDir(body.projectDir)
-          ? path
-              .relative(safeOptionalProjectDir(body.projectDir)!, result.outAbs)
-              .replace(/\\/g, "/")
-          : result.outFileName;
+    // 导出位置可能已不在请求的那个根里（外部原件 → 工作区），按实际落点回相对路径。
+    const underWorkspace = path.relative(ctx.workspaceDir, result.outAbs).replace(/\\/g, "/");
+    const inWorkspace = !underWorkspace.startsWith("..") && !path.isAbsolute(underWorkspace);
+    const outRel = inWorkspace ? underWorkspace : result.outFileName;
     sendJson(
       res,
       200,
       {
         ok: true,
-        root: body.root,
+        root: inWorkspace ? "workspace" : body.root,
         path: outRel,
         outputPath: result.outAbs,
         outputFileName: result.outFileName,
@@ -820,14 +952,22 @@ export async function handleWordSurfaceRoutes({
       }
       throw err;
     }
+    const runRoot = resolveWordRoot(ctx.workspaceDir, body.root, body.projectDir);
+    if (!runRoot) {
+      sendJson(res, 404, { ok: false, error: "not_found" }, c);
+      return true;
+    }
     const found = resolveWordBaselineAbs({
       workspaceDir: ctx.workspaceDir,
-      projectDir: safeOptionalProjectDir(body.projectDir),
+      projectDir: runRoot.projectDir,
       raw: body.path,
-      preferredRoot: body.root,
+      preferredRoot: runRoot.root,
     });
-    if (!found || found.root !== body.root) {
+    if (!found || found.root !== runRoot.root) {
       sendJson(res, 404, { ok: false, error: "not_found" }, c);
+      return true;
+    }
+    if (externalWriteBlocked(runRoot, found.abs, res, c)) {
       return true;
     }
     try {
@@ -893,26 +1033,38 @@ export async function handleWordSurfaceRoutes({
       return true;
     }
     const { writeDocxCompareCopy } = await import("../../../src/lawmind/drafts/docx-compare.js");
+    // 比较稿同样跟着原件走；原件在工作区外时落在会话工作区的导出位置。
+    const compareOutDir = exportDirForSource({
+      workspaceDir: ctx.workspaceDir,
+      sourceAbs: base.abs,
+    });
+    fsSync.mkdirSync(compareOutDir, { recursive: true });
     const result = await writeDocxCompareCopy({
       baseAbs: base.abs,
       otherAbs: other.abs,
+      outAbs: path.join(
+        compareOutDir,
+        path.basename(base.abs).replace(/\.docx$/i, "_比较稿.docx"),
+      ),
     });
     if (!result.ok) {
       sendJson(res, 400, { ok: false, error: result.error, message: result.error }, c);
       return true;
     }
-    const outRel =
-      body.root === "workspace"
-        ? path.relative(ctx.workspaceDir, result.outAbs).replace(/\\/g, "/")
-        : projectDir
-          ? path.relative(projectDir, result.outAbs).replace(/\\/g, "/")
-          : result.outFileName;
+    const relToWorkspace = path.relative(ctx.workspaceDir, result.outAbs).replace(/\\/g, "/");
+    const compareInWorkspace =
+      !relToWorkspace.startsWith("..") && !path.isAbsolute(relToWorkspace);
+    const outRel = compareInWorkspace
+      ? relToWorkspace
+      : projectDir
+        ? path.relative(projectDir, result.outAbs).replace(/\\/g, "/")
+        : result.outFileName;
     sendJson(
       res,
       200,
       {
         ok: true,
-        root: body.root,
+        root: compareInWorkspace ? "workspace" : body.root,
         path: outRel,
         outputPath: result.outAbs,
         outputFileName: result.outFileName,
@@ -935,20 +1087,26 @@ export async function handleWordSurfaceRoutes({
       }
       throw err;
     }
-    const root = parseRoot(body.root ?? null);
-    if (root && body.path) {
+    const runRoot = resolveWordRoot(ctx.workspaceDir, body.root ?? null, body.projectDir);
+    if (runRoot && body.path) {
       const found = resolveWordBaselineAbs({
         workspaceDir: ctx.workspaceDir,
-        projectDir: safeOptionalProjectDir(body.projectDir),
+        projectDir: runRoot.projectDir,
         raw: body.path,
-        preferredRoot: root,
+        preferredRoot: runRoot.root,
       });
-      if (!found || found.root !== root) {
+      if (!found || found.root !== runRoot.root) {
         sendJson(res, 404, { ok: false, error: "not_found" }, c);
         return true;
       }
       const destName = path.basename(found.abs).replace(/\.docx$/i, "_审阅稿.docx");
-      const destAbs = path.join(path.dirname(found.abs), destName);
+      // 副本跟着原件走；原件在工作区外时导到本次会话工作区的导出位置，
+      // 不往那个外部目录里新塞文件。
+      const destAbs = path.join(
+        exportDirForSource({ workspaceDir: ctx.workspaceDir, sourceAbs: found.abs }),
+        destName,
+      );
+      fsSync.mkdirSync(path.dirname(destAbs), { recursive: true });
       const copied = await copyDocx(found.abs, destAbs);
       if (!copied.ok) {
         sendJson(res, 409, { ok: false, error: copied.error, message: copied.error }, c);

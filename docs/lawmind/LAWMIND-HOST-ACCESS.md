@@ -113,7 +113,7 @@ Cursor 在第 4 句上几乎不做。LawMind 必须做，而且必须做在**网
 | `grant`      | 本轮/本会话/持久授权的单个路径 | 是                                  | 仅当授权写明 `write`              |
 | `locate-hit` | 本机查找命中、尚未授权         | **否**（只回文件名/目录/大小/日期） | 否                                |
 
-交件例外：律师在本轮指令里点名「桌面 / 下载 / 文稿」时，`render_document` 可以把**新的意见书**写到对应家目录。这不是挂载写权，也不是全盘写；只允许这三个目录，且不得覆盖源文件。实现：`src/lawmind/intent/delivery-intent.ts` + `src/lawmind/artifacts/named-user-place.ts`。
+交件例外**已取消**：对话产出（`render_document` / `write_document` / `write_spreadsheet`）一律写进会话工作区或案件 `artifacts/`，即使律师点名「桌面 / 下载 / 文稿」也不写到那儿。原因：落点在工作区外时中栏打不开、也改不了；律师要放桌面，自己从工作区拷出去。实现：`src/lawmind/artifacts/default-output-location.ts`；`namedPlaceDir` / `named-user-place.ts` 已删除。
 
 `resolveWorkspaceRelativePath` 保持给工作区相对路径。新增 `resolveHostPath`（`src/lawmind/host-access/access-broker.ts`）供本机工具使用。`fs-bridge`、`show-item-in-folder`、`open-with-system` 必须走同一套根集合，禁止再写一份 `workspace \|\| project` 判断。
 

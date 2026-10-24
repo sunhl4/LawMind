@@ -129,6 +129,8 @@ export type LawmindAgentFleetPanelProps = {
   apiBase: string;
   /** For opening exported Word via workspace-relative path */
   workspaceDir?: string;
+  /** 会话挂的本机项目夹（导出件可能落在那里）。 */
+  projectDir?: string | null;
   sessionId?: string;
   sessionRequiresActions?: LawMindRequiresAction[];
   assistantDisplayById: Record<string, string>;
@@ -155,6 +157,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
   const {
     apiBase,
     workspaceDir,
+    projectDir = null,
     sessionId,
     sessionRequiresActions = [],
     assistantDisplayById,
@@ -1247,6 +1250,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
             onOpenReview={onOpenReview}
             postApproveExport={postApproveExport}
             workspaceDir={workspaceDir}
+            projectDir={projectDir}
             onPostApproveExport={() => void runPostApproveExport()}
             onPostApproveTrackedExport={() => {
               void (async () => {

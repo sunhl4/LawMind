@@ -82,7 +82,7 @@ peek 有两个上限：最多 4 份文件、每份 8000 字。除诉状抬头（
 
 ## 4.8 金标集
 
-`src/lawmind/intent/gold-set.ts` 有 **75 个用例**，每条是「律师口吻的句子 ± 材料」+ 期望结果（含 `unbound` / `pipeline` / `deliveryShape` / `deliveryPlace` 四种期望）。它登记了**一对致命误绑**：`contract.review` ↔ `litigation.draft` 不得翻转。其中 `labor-plus-complaint-chain` 守「算赔偿并写起诉状」仍以劳动计算为主、链上保留诉讼文书；`invoice-xlsx` 守「进项发票.xlsx」不被表格扩展名抢走。
+`src/lawmind/intent/gold-set.ts` 有 **75 个用例**，每条是「律师口吻的句子 ± 材料」+ 期望结果（含 `unbound` / `pipeline` / `deliveryShape` / `deliveryPlaceRequested` 四种期望；落点已不收窄，只记「律师有没有提外部位置」）。它登记了**一对致命误绑**：`contract.review` ↔ `litigation.draft` 不得翻转。其中 `labor-plus-complaint-chain` 守「算赔偿并写起诉状」仍以劳动计算为主、链上保留诉讼文书；`invoice-xlsx` 守「进项发票.xlsx」不被表格扩展名抢走。
 
 用例形状与几个典型样本见第 4.11 节；逐条清单见第 70.3 节。
 
@@ -112,15 +112,15 @@ peek 有两个上限：最多 4 份文件、每份 8000 字。除诉状抬头（
 
 `gold-set.ts` 里的用例是「律师口吻的句子 ± 材料」+ 期望结果。几种典型的：
 
-| 用例 id                                     | 输入                                          | 期望                          |
-| ------------------------------------------- | --------------------------------------------- | ----------------------------- |
-| `review-nl`                                 | 「请审查这份采购合同的违约责任」              | `contract.review`             |
-| `letter-nl`                                 | 「写一封催款律师函」                          | `letter.draft`                |
-| `skill-dollar-override`                     | 「`$skill contract.review` 帮我看看这份材料」 | `contract.review`（覆盖生效） |
-| `research-nl`                               | 「查一下民法典违约责任」                      | `research.memo`               |
-| `web-fact`                                  | 「查一下 2026 年新说唱总冠军」                | **不绑定**（`unbound: true`） |
-| （带 `pipeline: "tracked_redline"` 的）     | 明示「改这份 Word」                           | 走修订轨                      |
-| （带 `deliveryShape` / `deliveryPlace` 的） | 说了「只出意见书」「放桌面」                  | 交付形态与落点匹配            |
+| 用例 id                                              | 输入                                          | 期望                           |
+| ---------------------------------------------------- | --------------------------------------------- | ------------------------------ |
+| `review-nl`                                          | 「请审查这份采购合同的违约责任」              | `contract.review`              |
+| `letter-nl`                                          | 「写一封催款律师函」                          | `letter.draft`                 |
+| `skill-dollar-override`                              | 「`$skill contract.review` 帮我看看这份材料」 | `contract.review`（覆盖生效）  |
+| `research-nl`                                        | 「查一下民法典违约责任」                      | `research.memo`                |
+| `web-fact`                                           | 「查一下 2026 年新说唱总冠军」                | **不绑定**（`unbound: true`）  |
+| （带 `pipeline: "tracked_redline"` 的）              | 明示「改这份 Word」                           | 走修订轨                       |
+| （带 `deliveryShape` / `deliveryPlaceRequested` 的） | 说了「只出意见书」「放桌面」                  | 交付形态匹配；落点一律在工作区 |
 
 **两条契约**：
 

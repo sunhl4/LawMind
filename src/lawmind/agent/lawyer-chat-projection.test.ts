@@ -52,6 +52,25 @@ describe("scrubLawyerFacingAssistantText", () => {
     expect(text).not.toContain("negation:");
   });
 
+  it("keeps a markdown deliverable: md 交付件也必须能在对话里点开", () => {
+    // 以前「含 .md 就整行删」会把这类交付句抹掉，律师拿到 md 却没有链接可点。
+    const raw = [
+      "工作笔记已写到下载：/Users/shl/Downloads/工作笔记.md",
+      "",
+      "另见 [工作笔记](/Users/shl/Downloads/工作笔记.md)。",
+    ].join("\n");
+    const text = scrubLawyerFacingAssistantText(raw);
+    expect(text).toContain("工作笔记已写到下载");
+    expect(text).toContain("/Users/shl/Downloads/工作笔记.md");
+  });
+
+  it("still hides a bare internal md path line", () => {
+    const raw = ["结论如下。", "", "`notes/内部清单_20260928.md`"].join("\n");
+    const text = scrubLawyerFacingAssistantText(raw);
+    expect(text).not.toContain("内部清单");
+    expect(text).toContain("结论如下");
+  });
+
   it("leaves ordinary legal prose unchanged", () => {
     const text = "违约金比例写在第 8 条，建议改成 20%。";
     expect(scrubLawyerFacingAssistantText(text)).toBe(text);

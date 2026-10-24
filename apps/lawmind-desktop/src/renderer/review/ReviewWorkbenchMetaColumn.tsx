@@ -97,6 +97,8 @@ export type ReviewWorkbenchMetaColumnProps = {
   onExportWord: () => void;
   onExportTrackedWord: () => void;
   onShowArtifact?: (outputPath: string) => void;
+  /** 导出的交付件在桌面中栏打开（审阅修订面），不必离开 LawMind。 */
+  onOpenInMiddleColumn?: (outputPath: string) => void;
   /** Open exported docx with system Word/WPS when Electron bridge is available. */
   onOpenWithSystem?: (outputPath: string) => void | Promise<void>;
   packExportEnabled: boolean;
@@ -165,6 +167,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
     onExportWord,
     onExportTrackedWord,
     onShowArtifact,
+    onOpenInMiddleColumn,
     onOpenWithSystem,
     packExportEnabled,
     onDownloadPack,
@@ -283,7 +286,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           reviewStatus={detail.reviewStatus}
           acceptance={acceptance}
           actionBusy={actionBusy}
-          lastOutputPath={lastExportPath ?? detail.output ?? null}
+          lastOutputPath={lastExportPath ?? detail.outputPath ?? null}
           onApprove={onApprove}
           approveDisabled={checklistBlocksApprove}
           onReject={onReject}
@@ -402,16 +405,29 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
           </p>
         ) : null}
 
-        {detail.outputPath && onShowArtifact ? (
+        {detail.outputPath && (onShowArtifact || onOpenInMiddleColumn) ? (
           <div className="lm-review-output-row">
-            <button
-              type="button"
-              className="lm-btn lm-btn-ghost lm-btn-small"
-              onClick={() => onShowArtifact(detail.outputPath!)}
-              title={detail.outputPath}
-            >
-              显示交付文件
-            </button>
+            {onOpenInMiddleColumn ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-secondary lm-btn-small"
+                onClick={() => onOpenInMiddleColumn(detail.outputPath!)}
+                title={`在中栏打开 ${detail.outputPath}`}
+                data-testid="lm-review-open-output-middle"
+              >
+                在中栏打开
+              </button>
+            ) : null}
+            {onShowArtifact ? (
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-small"
+                onClick={() => onShowArtifact(detail.outputPath!)}
+                title={detail.outputPath}
+              >
+                显示交付文件
+              </button>
+            ) : null}
           </div>
         ) : null}
 
@@ -483,7 +499,7 @@ export function ReviewWorkbenchMetaColumn(props: ReviewWorkbenchMetaColumnProps)
                   reviewStatus={detail.reviewStatus}
                   acceptance={acceptance}
                   actionBusy={actionBusy}
-                  lastOutputPath={lastExportPath ?? detail.output ?? null}
+                  lastOutputPath={lastExportPath ?? detail.outputPath ?? null}
                   onApprove={onApprove}
                   approveDisabled={checklistBlocksApprove}
                   onReject={onReject}

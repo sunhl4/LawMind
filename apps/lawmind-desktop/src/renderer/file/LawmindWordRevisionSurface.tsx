@@ -99,7 +99,8 @@ type MarkupMode = "all" | "simple" | "none" | "original";
 
 type LiveEdit = { key: string; before: string; after: string };
 
-type RootKey = "workspace" | "project";
+/** 可读写根：工作区 / 项目夹 / 按次授权的外部文件根（权限相同）。 */
+type RootKey = "workspace" | "project" | `file:${string}`;
 
 export type LawmindWordRevisionSurfaceProps = {
   apiBase: string;
@@ -1887,6 +1888,8 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   };
 
   const engineMode = snapshotHasEngine(snapshot);
+  /** 工作区外的文件：权限与工作区相同，但要让律师知道改动写到哪儿。 */
+  const externalFile = root !== "workspace" && root !== "project";
   const canExport = Boolean(snapshot) && !actionBusy;
   const serverHunks = snapshot?.hunks ?? [];
   const trackedAll = snapshot?.tracked ?? [];
@@ -2281,7 +2284,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
           </button>
         </div>
       </header>
-      {formatOpen ? (
+      {formatOpen && (root === "workspace" || root === "project") ? (
         <WordFormatAuditPanel
           apiBase={apiBase}
           root={root}
@@ -2292,7 +2295,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         />
       ) : null}
       {exportNote ? (
-        <div className="lm-word-surface-note" role="status">
+        <div className="lm-word-surface-note" role="status" data-testid="lm-word-export-note">
           <span>{exportNote}</span>
           {exportPath ? (
             <button
@@ -2304,6 +2307,11 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
             </button>
           ) : null}
         </div>
+      ) : null}
+      {externalFile ? (
+        <p className="lm-word-surface-note" role="status" data-testid="lm-word-surface-external">
+          这个文件在工作区之外；这里的改动会直接写回该文件。
+        </p>
       ) : null}
       {actionError ? (
         <p className="lm-word-surface-error" role="alert">

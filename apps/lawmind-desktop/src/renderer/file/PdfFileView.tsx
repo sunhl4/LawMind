@@ -1,3 +1,4 @@
+import type { AnyFileRoot } from "./file-workbench-types";
 /**
  * Middle-column PDF preview.
  *
@@ -10,7 +11,7 @@ import { AnnotationMode, getDocument, GlobalWorkerOptions, type PDFDocumentProxy
 import { EventBus, PDFPageView, RenderingStates } from "pdfjs-dist/web/pdf_viewer.mjs";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { errorMessage, fetchApi, fetchWithLoopbackAuthRetry } from "../api-client";
-import type { OpenFileTab, RootKey } from "./file-workbench-types";
+import type { OpenFileTab } from "./file-workbench-types";
 import { fitViewerScale, PDF_TO_CSS_UNITS } from "./pdf-preview-scale";
 import { expandMountedPages, installPdfTextDragSelect } from "./pdf-text-drag-select";
 import { PreviewCommonActions, type PreviewHeaderActions } from "./preview-registry";
@@ -36,7 +37,7 @@ const stubL10n = {
   resume: () => {},
 };
 
-function rawUrl(apiBase: string, root: RootKey, relPath: string): string {
+function rawUrl(apiBase: string, root: AnyFileRoot, relPath: string): string {
   const q = new URLSearchParams({ root, path: relPath });
   return `${apiBase.replace(/\/$/, "")}/api/fs/raw?${q.toString()}`;
 }

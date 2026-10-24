@@ -3,11 +3,13 @@
  */
 import type { ReactNode } from "react";
 import type { PostApproveExportState } from "./lawmind-post-approve-export";
-import { toWorkspaceRelativePath } from "./lawmind-workspace-relpath";
+import { openWithSystemForPath } from "./lawmind-workspace-file-open";
 
 export type LawmindFleetPostApproveBarProps = {
   state: PostApproveExportState;
   workspaceDir?: string;
+  /** 会话挂的本机项目夹；导出件落在那里时也要能打开。 */
+  projectDir?: string | null;
   onExport: () => void;
   /** 合同审阅稿（tracked changes）；有则显示次按钮 */
   onExportTracked?: () => void;
@@ -26,6 +28,7 @@ export function LawmindFleetPostApproveBar(props: LawmindFleetPostApproveBarProp
   const {
     state,
     workspaceDir,
+    projectDir,
     onExport,
     onExportTracked,
     trackedBusy = false,
@@ -114,8 +117,9 @@ export function LawmindFleetPostApproveBar(props: LawmindFleetPostApproveBarProp
         {state.status === "ok" && state.outputPath ? (
           <>
             {(() => {
-              const rel = toWorkspaceRelativePath(workspaceDir, state.outputPath);
-              if (!rel || !window.lawmindDesktop?.openWithSystem) {
+              // 导出件可能在项目夹（会话挂的本机文件夹），也可能在工作区。
+              // 以前这里只认工作区相对路径：项目夹里的稿静默没有按钮，律师以为导出失败。
+              if (!window.lawmindDesktop?.openWithSystem) {
                 return null;
               }
               return (
@@ -125,13 +129,14 @@ export function LawmindFleetPostApproveBar(props: LawmindFleetPostApproveBarProp
                   data-testid="lm-fleet-post-approve-word"
                   title="用本机 Word / WPS 打开（不回写）"
                   onClick={() => {
-                    void window.lawmindDesktop
-                      ?.openWithSystem?.({ root: "workspace", path: rel })
-                      .then((r) => {
-                        if (r && !r.ok) {
-                          onOpenError(r.error ?? "无法用系统应用打开该文件");
-                        }
-                      });
+                    void openWithSystemForPath(state.outputPath!, {
+                      workspaceDir,
+                      projectDir,
+                    }).then((r) => {
+                      if (!r.ok) {
+                        onOpenError(r.error);
+                      }
+                    });
                   }}
                 >
                   用 Word 打开

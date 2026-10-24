@@ -50,6 +50,7 @@ import {
   postLocalModelTest,
   setProjectDir,
   getAllowedRoots,
+  ensureFileGrantStore,
 } from "./local-server.mjs";
 import { importDroppedAbsPaths, importPastedBytes } from "./import-dropped-files.mjs";
 import {
@@ -975,6 +976,32 @@ export function registerIpcHandlers(deps) {
       return { ok: true, entries };
     } catch (e) {
       return fsErrorResult(e);
+    }
+  });
+
+  /**
+   * 工作区外的文件：按次登记成同级根（可读可写）。
+   *
+   * 返回 `{ ok: true, root: "file:<id>", rel }`，渲染层随后用普通文件接口读写它。
+   * 文件必须真的存在、必须是文件、必须过密钥/治理数据拒绝名单，且不能已在工作区内。
+   */
+  ipcMain.handle("lawmind:grant-file-access", (_evt, absPath) => {
+    try {
+      return ensureFileGrantStore().grant(absPath);
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  /**
+   * 关标签时释放外部文件授权：上限才不会被会话长度堆满，
+   * 也不会出现「为了腾位置而挤掉别人标签」的静默 404。
+   */
+  ipcMain.handle("lawmind:release-file-access", (_evt, rootKey) => {
+    try {
+      return { ok: ensureFileGrantStore().release(rootKey) };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   });
 

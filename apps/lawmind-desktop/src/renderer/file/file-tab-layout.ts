@@ -44,14 +44,26 @@ export function wpsTabLabel(name: string, maxUnits = WPS_TAB_NAME_UNITS): string
   return `${head}…`;
 }
 
-/** Local path shown on the tab hover card, as folder segments. */
+/**
+ * Local path shown on the tab hover card, as folder segments.
+ *
+ * 外部文件（`file:<id>`）的基目录是授权时记下的那个文件夹，不能拿工作区顶替 ——
+ * 否则悬停卡会把「桌面的合同」显示成「工作区里的合同」，比不显示更糟。
+ */
 export function fileTabAddress(
-  root: "workspace" | "project",
+  root: "workspace" | "project" | `file:${string}`,
   relPath: string,
   workspaceDir: string,
   projectDir: string | null | undefined,
+  externalDir?: string | null,
 ): string {
-  const base = (root === "project" ? projectDir : workspaceDir)?.trim() ?? "";
+  const base =
+    (root === "workspace" || root === "project"
+      ? root === "project"
+        ? projectDir
+        : workspaceDir
+      : externalDir
+    )?.trim() ?? "";
   const rel = relPath.replace(/^[/\\]+/, "").replace(/\\/g, "/");
   const joined = base
     ? `${base.replace(/[\\/]+$/, "")}${rel ? `/${rel}` : ""}`

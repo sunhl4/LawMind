@@ -63,8 +63,6 @@ export async function renderDraft(
     includeProvenance?: boolean;
     projectDir?: string;
     outputPath?: string;
-    namedPlaceDir?: string;
-    homeDir?: string;
     protectSourcePath?: string;
   },
 ): Promise<{
@@ -228,8 +226,6 @@ export async function renderDraft(
     sourcePath: draft.contractEdit?.baselineRelativePath,
     title: draft.title,
     extension: ext,
-    namedPlaceDir: opts?.namedPlaceDir,
-    homeDir: opts?.homeDir,
     protectSourcePath: opts?.protectSourcePath ?? draft.contractEdit?.baselineRelativePath,
   });
   if (!located.ok) {

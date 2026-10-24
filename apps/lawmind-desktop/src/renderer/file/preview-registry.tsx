@@ -3,7 +3,7 @@
  * kind → panel lives here so P2/P4 swap components without touching the editor shell.
  */
 import type { ReactNode } from "react";
-import type { FilePreviewKind, OpenFileTab, RootKey } from "./file-workbench-types";
+import type { AnyFileRoot, FilePreviewKind, OpenFileTab, RootKey } from "./file-workbench-types";
 import { LawmindWordRevisionSurface } from "./LawmindWordRevisionSurface";
 import { openDeliverableInWps } from "../canvas/host-actions";
 
@@ -15,18 +15,23 @@ export type PreviewHeaderActions = {
 };
 
 export function PreviewCommonActions(props: {
-  root: RootKey;
+  root: AnyFileRoot;
   relPath: string;
   actions: PreviewHeaderActions;
 }): ReactNode {
   const { root, relPath, actions } = props;
   return (
     <>
-      {actions.onAddToChatContext ? (
+      {actions.onAddToChatContext && (root === "workspace" || root === "project") ? (
         <button
           type="button"
           className="lm-btn lm-btn-ghost lm-btn-sm"
-          onClick={() => actions.onAddToChatContext?.({ root, relPath, kind: "file" })}
+          onClick={() => {
+            if (root !== "workspace" && root !== "project") {
+              return;
+            }
+            actions.onAddToChatContext?.({ root, relPath, kind: "file" });
+          }}
         >
           在对话中引用
         </button>

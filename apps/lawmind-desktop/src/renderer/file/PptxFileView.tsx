@@ -1,3 +1,4 @@
+import type { AnyFileRoot } from "./file-workbench-types";
 /**
  * Middle-column PowerPoint surface — WPS-like slide canvas via officecli screenshots,
  * plus simple shape-text editing (save writes back through /api/fs/pptx-save).
@@ -11,7 +12,7 @@ import {
   fetchApi,
   fetchWithLoopbackAuthRetry,
 } from "../api-client";
-import type { OpenFileTab, RootKey } from "./file-workbench-types";
+import type { OpenFileTab } from "./file-workbench-types";
 import { PreviewCommonActions, type PreviewHeaderActions } from "./preview-registry";
 
 export type PptxTextBlock = {
@@ -80,7 +81,7 @@ function conflictMtimeFromError(err: unknown): number | null {
 
 function slideImageUrl(
   apiBase: string,
-  root: RootKey,
+  root: AnyFileRoot,
   relPath: string,
   page1Based: number,
 ): string {
@@ -94,7 +95,7 @@ function slideImageUrl(
 
 async function loadSlideBlob(
   apiBase: string,
-  root: RootKey,
+  root: AnyFileRoot,
   relPath: string,
   page1Based: number,
 ): Promise<string> {

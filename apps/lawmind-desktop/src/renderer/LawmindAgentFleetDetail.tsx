@@ -88,6 +88,8 @@ export type LawmindAgentFleetDetailProps = {
   postApproveExport: PostApproveExportState | null;
   apiBase?: string;
   workspaceDir?: string;
+  /** 会话挂的本机项目夹；导出件落在那里时也要能打开。 */
+  projectDir?: string | null;
   onPostApproveExport: () => void;
   onPostApproveTrackedExport?: () => void | Promise<void>;
   trackedExportBusy?: boolean;
@@ -155,6 +157,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
     postApproveExport,
     apiBase = "",
     workspaceDir,
+    projectDir = null,
     onPostApproveExport,
     onPostApproveTrackedExport,
     trackedExportBusy = false,
@@ -660,6 +663,7 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
         <LawmindFleetPostApproveBar
           state={postApproveExport}
           workspaceDir={workspaceDir}
+          projectDir={projectDir}
           onExport={onPostApproveExport}
           onExportTracked={onPostApproveTrackedExport}
           trackedBusy={trackedExportBusy}

@@ -53,6 +53,51 @@ function matchesGlobish(pattern: string, absPosix: string, base: string): boolea
   return absPosix.includes(p.replace(/^\//, ""));
 }
 
+/**
+ * 工作区外「按次授权」的文件路径（`file:<id>` 根里的东西）。
+ *
+ * 与 `isDeniedHostPath` 共用同一份名单，但**不做工作区治理前缀扫描**：
+ * 外部路径不可能是工作区的 `audit/` `sessions/` `lawmind/`（授权时已拒绝工作区内文件），
+ * 若仍扫绝对路径前缀，`~/Downloads/audit/report.docx` 这类正常文件会被误拒。
+ */
+export function isDeniedExternalFilePath(
+  absPath: string,
+  opts?: { homeDir?: string; extraPatterns?: string[] },
+): boolean {
+  if (!absPath?.trim()) {
+    return true;
+  }
+  const real = realpathOrResolve(absPath);
+  const posix = real.replace(/\\/g, "/");
+  const base = path.basename(real);
+  const baseLower = base.toLowerCase();
+  const ext = path.extname(real).toLowerCase();
+  if (base.startsWith(".env")) {
+    return true;
+  }
+  if (DENY_BASENAMES.has(base) || DENY_BASENAMES.has(baseLower)) {
+    return true;
+  }
+  if (DENY_EXTENSIONS.has(ext)) {
+    return true;
+  }
+  const parts = posix.split("/").filter(Boolean);
+  if (parts.some((seg) => DENY_DIR_NAMES.has(seg))) {
+    return true;
+  }
+  for (const dir of defaultSensitiveHomeDirs(opts?.homeDir)) {
+    if (isUnderRoot(dir, real)) {
+      return true;
+    }
+  }
+  for (const pattern of opts?.extraPatterns ?? []) {
+    if (matchesGlobish(pattern, posix, base)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function isDeniedHostPath(
   absPath: string,
   opts?: { homeDir?: string; extraPatterns?: string[]; workspaceDir?: string },

@@ -461,3 +461,90 @@ describe("lawmind-server-route-fs", () => {
     });
   });
 });
+
+describe("/api/fs/xlsx-save 写回工作区外的表格（权限与工作区相同）", () => {
+  it("外部根里的 xlsx：能改单元格并落盘", async () => {
+    const workspaceDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "lm-xlsx-ext-ws-")));
+    const desk = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "lm-xlsx-ext-desk-")));
+    const { writeXlsxWorkbook } = await import(
+      "../../../src/lawmind/agent/tools/legal/xlsx-workbook.js"
+    );
+    const abs = path.join(desk, "费用台账.xlsx");
+    await writeXlsxWorkbook(abs, [{ name: "费用", rows: [["科目", "金额"], ["律师费", 12000]] }]);
+    const grantsFile = path.join(workspaceDir, "file-grants.json");
+    await fs.writeFile(
+      grantsFile,
+      JSON.stringify({ grants: [{ key: "file:x1", dirPath: desk, absPath: abs }] }),
+      "utf8",
+    );
+    process.env.LAWMIND_FILE_GRANTS_FILE = grantsFile;
+
+    const ctx = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false, policy: null },
+    } as LawmindDispatchContext;
+
+    const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+    const req = {
+      method: "POST",
+      on(event: string, cb: (...args: unknown[]) => void) {
+        const list = listeners.get(event) ?? [];
+        list.push(cb);
+        listeners.set(event, list);
+        return req;
+      },
+      destroy() {},
+    } as unknown as http.IncomingMessage;
+    queueMicrotask(() => {
+      const text = JSON.stringify({
+        root: "file:x1",
+        path: "费用台账.xlsx",
+        edits: [{ sheet: "费用", row: 2, col: 2, value: 20000 }],
+      });
+      for (const cb of listeners.get("data") ?? []) {
+        cb(Buffer.from(text, "utf8"));
+      }
+      for (const cb of listeners.get("end") ?? []) {
+        cb();
+      }
+    });
+
+    const out: { status?: number; body?: unknown } = {};
+    const res = {
+      writeHead(code: number) {
+        out.status = code;
+      },
+      end(payload?: string) {
+        if (payload) {
+          try {
+            out.body = JSON.parse(payload);
+          } catch {
+            out.body = { raw: payload };
+          }
+        }
+      },
+    } as unknown as http.ServerResponse;
+
+    await handleFilesystemRoute({
+      ctx,
+      req,
+      res,
+      url: new URL("http://127.0.0.1/api/fs/xlsx-save"),
+      pathname: "/api/fs/xlsx-save",
+      c: {},
+    });
+    expect(out.status, JSON.stringify(out.body)).toBe(200);
+
+    const { loadXlsxUiPreview } = await import(
+      "../../../src/lawmind/agent/tools/legal/xlsx-preview.js"
+    );
+    const preview = await loadXlsxUiPreview(abs);
+    expect(JSON.stringify(preview)).toContain("20000");
+
+    delete process.env.LAWMIND_FILE_GRANTS_FILE;
+    await fs.rm(workspaceDir, { recursive: true, force: true });
+    await fs.rm(desk, { recursive: true, force: true });
+  });
+});

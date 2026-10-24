@@ -17,7 +17,8 @@ export type IntentGoldCase = {
   pipeline?: "tracked_redline";
   /** When set, compiled delivery.artifactShape must match. */
   deliveryShape?: "opinion_memo" | "tracked_source" | "unspecified";
-  deliveryPlace?: "desktop" | "downloads" | "documents" | "unspecified";
+  /** When set, must equal whether the lawyer mentioned an outside place (prompt hint only). */
+  deliveryPlaceRequested?: boolean;
   /** When set, compiled.chain must equal this list (primary first). */
   chain?: readonly LawyerCapabilityId[];
 };
@@ -347,7 +348,7 @@ export const INTENT_GOLD_CASES: readonly IntentGoldCase[] = [
     },
     expect: "contract.review",
     deliveryShape: "opinion_memo",
-    deliveryPlace: "desktop",
+    deliveryPlaceRequested: true,
   },
   {
     id: "opinion-memo-paraphrase-new-file",

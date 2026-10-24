@@ -24,6 +24,7 @@ import type { ReviewOpenTarget } from "../LawmindChatReviewSticky";
 import type { LawmindLawyerWorkbenchProps } from "../LawmindLawyerWorkbench";
 import { LawmindLawyerWorkbench } from "../LawmindLawyerWorkbench";
 import { LawmindMiddleDraftDesk } from "../LawmindMiddleDraftDesk";
+import { openReviewedOutputInMiddleColumn } from "../lawmind-open-contract-revision";
 
 export type LawmindWorkspaceMainPaneProps = {
   canUseFilesystemBridge: boolean;
@@ -295,6 +296,14 @@ function LawmindWorkspaceMainPaneImpl({
             apiBase={config?.apiBase}
             assistantId={selectedAssistantId}
             hidden={showDesk}
+            workspaceDir={config?.workspaceDir}
+            projectDir={config?.projectDir}
+            onOpenArtifactInMiddleColumn={(outputPath) => {
+              void openReviewedOutputInMiddleColumn(outputPath, {
+                workspaceDir: config?.workspaceDir,
+                projectDir: config?.projectDir,
+              });
+            }}
           />
         </div>
         {showMiddle && wsShowChat ? (

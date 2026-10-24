@@ -23,12 +23,22 @@ const detail: ArtifactDraft = {
   createdAt: "2026-08-01T10:00:00.000Z",
 };
 
-function renderMetaColumn(host: HTMLDivElement, root: Root) {
+function renderMetaColumn(
+  host: HTMLDivElement,
+  root: Root,
+  opts: {
+    detail?: ArtifactDraft;
+    onOpenInMiddleColumn?: (outputPath: string) => void;
+    onShowArtifact?: (outputPath: string) => void;
+  } = {},
+) {
   return act(async () => {
     root.render(
       <ReviewWorkbenchMetaColumn        apiBase="http://127.0.0.1:8765"
         assistantId="default"
-        detail={detail}
+        detail={opts.detail ?? detail}
+        onOpenInMiddleColumn={opts.onOpenInMiddleColumn}
+        onShowArtifact={opts.onShowArtifact}
         selectedTaskId="task-1"
         acceptance={null}
         citationIntegrity={null}
@@ -92,6 +102,69 @@ describe("ReviewWorkbenchMetaColumn 律师语言", () => {
     });
     host.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("导出后给出「在中栏打开」，与「显示交付文件」并存", async () => {
+    const calls: string[] = [];
+    await renderMetaColumn(host, root, {
+      detail: { ...detail, outputPath: "/tmp/ws/artifacts/意见书_20261022_01.docx" },
+      onOpenInMiddleColumn: (p) => calls.push(`middle:${p}`),
+      onShowArtifact: (p) => calls.push(`finder:${p}`),
+    });
+    const middle = host.querySelector(
+      '[data-testid="lm-review-open-output-middle"]',
+    ) as HTMLButtonElement | null;
+    expect(middle).not.toBeNull();
+    expect(middle?.textContent).toBe("在中栏打开");
+    const finder = [...host.querySelectorAll("button")].find(
+      (b) => b.textContent === "显示交付文件",
+    );
+    expect(finder).toBeTruthy();
+
+    await act(async () => {
+      middle?.click();
+    });
+    expect(calls).toEqual(["middle:/tmp/ws/artifacts/意见书_20261022_01.docx"]);
+  });
+
+  it("没有交付件时不显示打开入口", async () => {
+    await renderMetaColumn(host, root, {
+      detail: { ...detail, outputPath: undefined },
+      onOpenInMiddleColumn: () => {},
+      onShowArtifact: () => {},
+    });
+    expect(host.querySelector('[data-testid="lm-review-open-output-middle"]')).toBeNull();
+  });
+
+  it("还没导出时不会把格式名 docx 当成文件路径塞给「文件夹」", async () => {
+    // `detail.output` 是格式（docx/pptx），不是路径；混用会让按钮指向 workspace/docx。
+    await renderMetaColumn(host, root, {
+      detail: { ...detail, output: "docx", outputPath: undefined },
+      onShowArtifact: () => {},
+    });
+    const finder = [...host.querySelectorAll("button")].find(
+      (b) => b.textContent === "文件夹",
+    );
+    expect(finder).toBeUndefined();
+    // 关键：不出现把 "docx" 当路径的按钮标题。
+    const bogus = [...host.querySelectorAll("button")].filter((b) => b.title === "docx");
+    expect(bogus).toHaveLength(0);
+  });
+
+  it("已导出过的草稿把真实的 outputPath 交给「文件夹」", async () => {
+    const calls: string[] = [];
+    await renderMetaColumn(host, root, {
+      detail: { ...detail, outputPath: "/tmp/ws/artifacts/意见书.docx" },
+      onShowArtifact: (p) => calls.push(p),
+    });
+    const finder = [...host.querySelectorAll("button")].find(
+      (b) => b.textContent === "文件夹",
+    );
+    expect(finder).toBeTruthy();
+    await act(async () => {
+      finder?.click();
+    });
+    expect(calls).toEqual(["/tmp/ws/artifacts/意见书.docx"]);
   });
 
   it("责任与交付权限使用律师语言（处理助手：默认助手）", async () => {

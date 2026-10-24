@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type Dispatch, SetStateAction } from "react";
-import { type RootKey, type OpenFileTab } from "./file-workbench-types";
+import { type AnyFileRoot, type OpenFileTab, type RootKey } from "./file-workbench-types";
 import { fileTabAddress, wpsTabLabel } from "./file-tab-layout";
 import { FileTabHoverCard, fileTabHoverTarget, useFileTabHover } from "./file-tab-hover";
 import { FileTypeMark } from "./file-type-mark";
 import { lawyerCanvasTitle } from "../lawmind-explorer-lawyer-view";
+import { grantedFileRootDir } from "../lawmind-workspace-file-open";
 import { CanvasFileView } from "../canvas/CanvasFileView";
 import { useLawmindCanvasKind } from "../canvas/theme";
 import {
@@ -47,10 +48,13 @@ export type FileWorkbenchEditorPaneProps = {
   updateActiveContent: (content: string) => void;
   saveActive: () => void | Promise<void>;
   saveActiveAs: () => void | Promise<void>;
-  doShowInFolder: (root: RootKey, relPath: string) => void | Promise<void>;
+  doShowInFolder: (root: AnyFileRoot, relPath: string) => void | Promise<void>;
   apiBase?: string;
   workspaceDir?: string;
   projectDir?: string | null;
+  /** 打开失败的原因；中栏为空时也要有话说。 */
+  openError?: string | null;
+  onDismissOpenError?: () => void;
 };
 
 function previewActionsFor(
@@ -92,6 +96,8 @@ export function FileWorkbenchEditorPane({
   apiBase = "",
   workspaceDir = "",
   projectDir = null,
+  openError = null,
+  onDismissOpenError,
 }: FileWorkbenchEditorPaneProps) {
   const canvasFile = Boolean(activeTab && activeTab.kind === "text" && /\.canvas\.tsx$/i.test(activeTab.path));
   const markdownFile = Boolean(
@@ -189,6 +195,25 @@ export function FileWorkbenchEditorPane({
 
   return (
     <section className="lm-files-editor" onClick={(e) => e.stopPropagation()}>
+      {openError ? (
+        <div
+          className="lm-callout lm-callout-danger lm-error--explorer lm-error--editor"
+          role="alert"
+          data-testid="lm-editor-open-error"
+        >
+          <p className="lm-callout-body">{openError}</p>
+          {onDismissOpenError ? (
+            <button
+              type="button"
+              className="lm-error-dismiss"
+              aria-label="关闭打开失败提示"
+              onClick={onDismissOpenError}
+            >
+              ×
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {showTabStrip ? (
         <div className="lm-file-tabs" role="tablist" aria-label="打开的文件">
           {tabs.map((tab) => {
@@ -278,12 +303,26 @@ export function FileWorkbenchEditorPane({
         <FileTabHoverCard
           hover={tabHover.hover}
           name={hoveredTab.name}
-          address={fileTabAddress(hoveredTab.root, hoveredTab.path, workspaceDir, projectDir)}
-          canAdd={Boolean(onAddToChatContext)}
+          address={fileTabAddress(
+            hoveredTab.root,
+            hoveredTab.path,
+            workspaceDir,
+            projectDir,
+            grantedFileRootDir(hoveredTab.root),
+          )}
+          canAdd={
+            Boolean(onAddToChatContext) &&
+            (hoveredTab.root === "workspace" || hoveredTab.root === "project")
+          }
           onPointerEnter={tabHover.cancelHide}
           onPointerLeave={tabHover.queueHide}
           onAdd={() => {
-            onAddToChatContext?.({ root: hoveredTab.root, relPath: hoveredTab.path, kind: "file" });
+            const root = hoveredTab.root;
+            if (root !== "workspace" && root !== "project") {
+              tabHover.dismiss();
+              return;
+            }
+            onAddToChatContext?.({ root, relPath: hoveredTab.path, kind: "file" });
             tabHover.dismiss();
           }}
         />
@@ -424,13 +463,18 @@ export function FileWorkbenchEditorPane({
               </div>
               <div className="lm-compose-actions">
                 {activeDirty && <span className="lm-dot lm-dot-warn">未保存</span>}
-                {onAddToChatContext ? (
+                {onAddToChatContext &&
+                (activeTab.root === "workspace" || activeTab.root === "project") ? (
                   <button
                     type="button"
                     className="lm-btn lm-btn-ghost lm-btn-sm"
-                    onClick={() =>
-                      onAddToChatContext({ root: activeTab.root, relPath: activeTab.path, kind: "file" })
-                    }
+                    onClick={() => {
+                      const root = activeTab.root;
+                      if (root !== "workspace" && root !== "project") {
+                        return;
+                      }
+                      onAddToChatContext({ root, relPath: activeTab.path, kind: "file" });
+                    }}
                   >
                     加入对话引用
                   </button>

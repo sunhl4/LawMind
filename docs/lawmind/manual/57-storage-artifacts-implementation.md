@@ -891,22 +891,25 @@ isWorkspaceDeliverableRel → artifacts/<x> 或 cases/<id>/artifacts/<x>
 | `note`        | 工作笔记 | `.md`      |
 | `deliverable` | 文书     | `.docx`    |
 
-## 57.11 三个「点名位置」的白名单
+## 57.11 点名位置：已取消（不留白名单）
 
-`named-user-place.ts` 很小，但它的头部注释把边界说得很清楚：
+早期实现允许「律师点名桌面 / 下载 / 文稿」时把交付件写到对应家目录
+（`named-user-place.ts` + `resolveDefaultDeliverableLocation` 的 `namedPlaceDir` 分支）。
 
-```text
-Lawyer-named well-known folders (桌面 / 下载 / 文稿).
-Not a host-mount write grant and not full-disk write. Only these three
-directories under the home folder may receive a deliverable when the
-compiled delivery intent named them.
-```
+**该通路已删除**，原因不是安全，而是产品一致性：落点在工作区外时中栏打不开、
+也改不了，而「对话产出的文件要能在中栏打开并编辑」是硬要求。
 
-**三句否定**：不是挂载点写权限、不是全盘写、只有这三个目录。
+现在的落点只有三种（`resolveDefaultDeliverableLocation`）：
 
-```ts
-PLACE_LEAF = { desktop: "Desktop", downloads: "Downloads", documents: "Documents" };
-```
+| 情况                                        | 落点                                 |
+| ------------------------------------------- | ------------------------------------ |
+| 显式 `outputPath`（必须在工作区或项目夹内） | 该路径；越界直接报错                 |
+| 有 `matterId`                               | `cases/<matterId>/artifacts/`        |
+| 在项目夹里                                  | 项目夹（其 `artifacts/` 或源文件旁） |
+| 其余                                        | 工作区 `artifacts/`                  |
+
+`DeliveryIntent` 里也不再保留「落到哪个盘」这一维：律师提到桌面时只记一个
+`placeRequested` 标记，用于在提示里说明「实际写进工作区」，避免模型去试外部路径。
 
 **`isAllowedNamedUserPlaceDir` 会 realpath 之后再比**——所以软链绕不过去。
 

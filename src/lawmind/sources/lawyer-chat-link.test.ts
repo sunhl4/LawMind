@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  absoluteChatFilePath,
   docxCellWithDirectory,
   publicWebUrl,
+  rootedWpsDeliverableHref,
   statuteJumpUrl,
   tryConsumeBareChatTarget,
   tryConsumeLawyerChatLink,
@@ -100,6 +102,123 @@ describe("lawyer chat links", () => {
     expect(wpsDeliverablePath("/tmp/secret.docx")).toBeNull();
     expect(wpsDeliverablePath("notes/memo.md")).toBeNull();
     expect(tryConsumeLawyerChatLink("[越界](lm-wps:..%2Fsecret.docx)", 0)?.link.kind).toBe("plain");
+  });
+
+  it("round-trips the root hint on a deliverable link", () => {
+    const workspaceHref = rootedWpsDeliverableHref(
+      "artifacts/查询意见_20261022_01.docx",
+      "workspace",
+    );
+    expect(workspaceHref).toBe(
+      `lm-wps:${encodeURIComponent("workspace")}%3A${encodeURIComponent("artifacts/查询意见_20261022_01.docx")}`,
+    );
+    expect(
+      tryConsumeLawyerChatLink(`[查询意见_20261022_01.docx](${workspaceHref})`, 0)?.link,
+    ).toEqual({
+      kind: "wps",
+      label: "查询意见_20261022_01.docx",
+      path: "artifacts/查询意见_20261022_01.docx",
+      root: "workspace",
+    });
+    const projectHref = rootedWpsDeliverableHref("非技术相关/小型施工合同_01.docx", "project");
+    expect(tryConsumeLawyerChatLink(`[小型施工合同_01.docx](${projectHref})`, 0)?.link).toEqual({
+      kind: "wps",
+      label: "小型施工合同_01.docx",
+      path: "非技术相关/小型施工合同_01.docx",
+      root: "project",
+    });
+    expect(tryConsumeLawyerChatLink("[小型施工合同_01.docx](lm-wps:junk%3Aabc)", 0)?.link).toEqual({
+      kind: "plain",
+      label: "小型施工合同_01.docx",
+    });
+    expect(tryConsumeLawyerChatLink("[小型施工合同_01.docx](lm-wps:)", 0)?.link).toEqual({
+      kind: "plain",
+      label: "小型施工合同_01.docx",
+    });
+    expect(rootedWpsDeliverableHref("notes/memo.md", "workspace")).toBeNull();
+    // 旧的根链接（无溯源）保持解析成无 root，点击侧按旧口径兜底。
+    expect(
+      tryConsumeLawyerChatLink(
+        "[派遣 协议.docx](lm-wps:cases%2Fm%2F%E6%B4%BE%E9%81%A3%20%E5%8D%8F%E8%AE%AE.docx)",
+        0,
+      )?.link,
+    ).toEqual({
+      kind: "wps",
+      label: "派遣 协议.docx",
+      path: "cases/m/派遣 协议.docx",
+    });
+  });
+
+  it("keeps spaces and decodes percent-encoded relative deliverable paths", () => {
+    expect(
+      tryConsumeLawyerChatLink("[意见 书.docx](artifacts/意见 书_20261022_01.docx)", 0)?.link,
+    ).toEqual({
+      kind: "wps",
+      label: "意见 书.docx",
+      path: "artifacts/意见 书_20261022_01.docx",
+    });
+    expect(
+      tryConsumeLawyerChatLink(
+        "[意见书.docx](artifacts/%E6%84%8F%E8%A7%81%E4%B9%A6_20261022_01.docx)",
+        0,
+      )?.link,
+    ).toEqual({
+      kind: "wps",
+      label: "意见书.docx",
+      path: "artifacts/意见书_20261022_01.docx",
+    });
+    // 解码后才做越界校验：%2E%2E 不能借编码绕过。
+    expect(tryConsumeLawyerChatLink("[越界](artifacts/%2E%2E/secret.docx)", 0)).toBeNull();
+  });
+
+  it("对话里写出的磁盘绝对路径也能点（桌面交付件最常见）", () => {
+    const abs = "/Users/shl/Desktop/查询意见_20261022_01.docx";
+    expect(tryConsumeLawyerChatLink(`[查询意见](${abs})`, 0)?.link).toEqual({
+      kind: "abs",
+      label: "查询意见",
+      path: abs,
+    });
+    // 句子里的裸路径（模型经常这么写）。
+    const bare = tryConsumeBareChatTarget(`已写到 ${abs}。`, 4);
+    expect(bare?.link).toEqual({ kind: "abs", label: abs, path: abs });
+    // 中文没有空格分隔时也要从「已写到」后面接上。
+    const glued = tryConsumeBareChatTarget(`已写到${abs}`, 3);
+    expect(glued?.link).toMatchObject({ kind: "abs", path: abs });
+    // Windows 盘符路径。
+    expect(
+      tryConsumeLawyerChatLink("[意见](C:/Users/shl/Desktop/意见.docx)", 0)?.link,
+    ).toMatchObject({ kind: "abs", path: "C:/Users/shl/Desktop/意见.docx" });
+  });
+
+  it("绝对路径里的 .. 与非交付后缀不收", () => {
+    expect(absoluteChatFilePath("/Users/shl/../etc/passwd.docx")).toBeNull();
+    expect(absoluteChatFilePath("/Users/shl/Desktop/notes.xyz")).toBeNull();
+    expect(tryConsumeLawyerChatLink("[x](/Users/shl/Desktop/a.bin)", 0)?.kind).toBeUndefined();
+  });
+
+  it("对话里写出的磁盘绝对路径也能点（桌面交付件最常见）", () => {
+    const abs = "/Users/shl/Desktop/查询意见_20261022_01.docx";
+    expect(tryConsumeLawyerChatLink(`[查询意见](${abs})`, 0)?.link).toEqual({
+      kind: "abs",
+      label: "查询意见",
+      path: abs,
+    });
+    // 句子里的裸路径（模型经常这么写）。
+    const bare = tryConsumeBareChatTarget(`已写到 ${abs}。`, 4);
+    expect(bare?.link).toEqual({ kind: "abs", label: abs, path: abs });
+    // 中文没有空格分隔时也要从「已写到」后面接上。
+    const glued = tryConsumeBareChatTarget(`已写到${abs}`, 3);
+    expect(glued?.link).toMatchObject({ kind: "abs", path: abs });
+    // Windows 盘符路径。
+    expect(
+      tryConsumeLawyerChatLink("[意见](C:/Users/shl/Desktop/意见.docx)", 0)?.link,
+    ).toMatchObject({ kind: "abs", path: "C:/Users/shl/Desktop/意见.docx" });
+  });
+
+  it("绝对路径里的 .. 与非交付后缀不收", () => {
+    expect(absoluteChatFilePath("/Users/shl/../etc/passwd.docx")).toBeNull();
+    expect(absoluteChatFilePath("/Users/shl/Desktop/notes.xyz")).toBeNull();
+    expect(tryConsumeLawyerChatLink("[x](/Users/shl/Desktop/a.bin)", 0)?.kind).toBeUndefined();
   });
 
   it("picks bare urls and files out of a sentence without eating the punctuation", () => {

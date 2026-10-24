@@ -65,6 +65,8 @@ export type LawmindMainBodyContentProps = {
   reviewLaunchedFromMatter: boolean;
   onReturnToMatter: () => void;
   onShowArtifact: (relPath: string) => void;
+  /** 审核台导出的交付件在中栏打开（缺省时该按钮不出现）。 */
+  onOpenArtifactInMiddleColumn?: (outputPath: string) => void;
   onRecordsChanged: () => void;
   onGoToChat: (opts: { taskId: string; matterId?: string; prompt?: string }) => void;
   /** 文书台 → 在办：正式签批 */

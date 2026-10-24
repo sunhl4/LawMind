@@ -184,6 +184,7 @@ describe("renderLegalMarkdown tables and math", () => {
           {renderLegalMarkdown(
             `| 文件 | 位置 |\n| --- | --- |\n| 国浩改-26年9月-装饰装修施工合同.docx | 非技术相关/采购合同模板/基建工程类合同/ |`,
             {
+              projectDir: "/Users/shl/matter",
               onReviewFileMenu: (_x, _y, path) => {
                 menuPath = path;
               },
@@ -207,6 +208,65 @@ describe("renderLegalMarkdown tables and math", () => {
     expect(menuPath).toBe(rel);
     window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
     window.lawmindDesktop = previousDesktop;
+  });
+
+  it("桌面上的绝对路径：点一下就按只读授权根送进中栏", async () => {
+    const opened: Array<{ relPath?: string; root?: string }> = [];
+    const onFile = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ relPath?: string; root?: string }>).detail;
+      opened.push({ relPath: detail?.relPath, root: detail?.root });
+    };
+    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+    const previousDesktop = window.lawmindDesktop;
+    const abs = "/Users/shl/Desktop/查询意见_20261022_01.docx";
+    window.lawmindDesktop = {
+      grantFileAccess: async (path: string) => ({
+        ok: true,
+        root: "file:abc123",
+        rel: path.split("/").pop(),
+        dirPath: "/Users/shl/Desktop",
+      }),
+    } as unknown as Window["lawmindDesktop"];
+    await act(async () => {
+      root.render(<div>{renderLegalMarkdown(`已写到 ${abs}。`)}</div>);
+    });
+    const link = host.querySelector("[data-testid='lm-md-abs-link']");
+    expect(link?.textContent).toBe(abs);
+    await act(async () => {
+      link?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+    window.lawmindDesktop = previousDesktop;
+    expect(opened).toEqual([{ relPath: "查询意见_20261022_01.docx", root: "file:abc123" }]);
+  });
+
+  it("绝对路径打不开时说清楚原因，不静默", async () => {
+    const errors: string[] = [];
+    const previousDesktop = window.lawmindDesktop;
+    window.lawmindDesktop = {
+      grantFileAccess: async () => ({ ok: false, error: "这份文件已经不在磁盘上了。" }),
+    } as unknown as Window["lawmindDesktop"];
+    await act(async () => {
+      root.render(
+        <div>
+          {renderLegalMarkdown("[意见](/Users/shl/Desktop/没有.docx)", {
+            onOpenError: (m) => errors.push(m),
+          })}
+        </div>,
+      );
+    });
+    const link = host.querySelector("[data-testid='lm-md-abs-link']");
+    await act(async () => {
+      link?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    window.lawmindDesktop = previousDesktop;
+    expect(errors[0]).toContain("打不开这个文件");
   });
 
   it("opens a deliverable Word address in the review surface", async () => {
@@ -261,6 +321,103 @@ describe("renderLegalMarkdown tables and math", () => {
     });
     expect(menuPath).toBe("cases/m/费用.xlsx");
     window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+  });
+
+  it("uses the link's root hint and treats project-less sessions as workspace", async () => {
+    const files: Array<{ relPath?: string; root?: string }> = [];
+    const onFile = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ relPath?: string; root?: string }>).detail;
+      files.push({ relPath: detail?.relPath, root: detail?.root });
+    };
+    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+    // 模型/脚本写的旧式链接：没有溯源。没有关联项目目录的会话文件只可能在工作区。
+    const legacyHref = `lm-wps:${encodeURIComponent("artifacts/查询意见_20261022_01.xlsx")}`;
+    // 引擎脚注的新式链接：自带 workspace 溯源。
+    const hintedHref = `lm-wps:${encodeURIComponent("workspace")}%3A${encodeURIComponent("artifacts/交付_20261022_01.xlsx")}`;
+    await act(async () => {
+      root.render(
+        <div>
+          {renderLegalMarkdown(
+            `交付文件\n- [查询意见_20261022_01.xlsx](${legacyHref})\n- [交付_20261022_01.xlsx](${hintedHref})`,
+          )}
+        </div>,
+      );
+    });
+    const links = [...host.querySelectorAll("[data-testid='lm-md-wps-link']")];
+    expect(links.map((node) => node.textContent)).toEqual([
+      "查询意见_20261022_01.xlsx",
+      "交付_20261022_01.xlsx",
+    ]);
+    await act(async () => {
+      for (const node of links) {
+        node?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      }
+    });
+    expect(files).toEqual([
+      { relPath: "artifacts/查询意见_20261022_01.xlsx", root: "workspace" },
+      { relPath: "artifacts/交付_20261022_01.xlsx", root: "workspace" },
+    ]);
+    window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+  });
+
+  it("still guesses the project root for a hint-less link when a project dir is attached", async () => {
+    const files: Array<{ relPath?: string; root?: string }> = [];
+    const onFile = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ relPath?: string; root?: string }>).detail;
+      files.push({ relPath: detail?.relPath, root: detail?.root });
+    };
+    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+    const legacyHref = `lm-wps:${encodeURIComponent("非技术相关/小型施工合同_01.docx")}`;
+    await act(async () => {
+      root.render(
+        <div>
+          {renderLegalMarkdown(`交付文件\n- [小型施工合同_01.docx](${legacyHref})`, {
+            projectDir: "/Users/shl/matter",
+          })}
+        </div>,
+      );
+    });
+    const link = host.querySelector("[data-testid='lm-word-check-open']");
+    expect(link?.textContent).toBe("小型施工合同_01.docx");
+    expect(link).not.toBeNull();
+    await act(async () => {
+      link?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(files).toEqual([{ relPath: "非技术相关/小型施工合同_01.docx", root: "project" }]);
+    window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+  });
+
+  it("点句子里的桌面绝对路径：按次授权后在中栏打开（file: 根）", async () => {
+    const files: Array<{ relPath?: string; root?: string }> = [];
+    const onFile = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ relPath?: string; root?: string }>).detail;
+      files.push({ relPath: detail?.relPath, root: detail?.root });
+    };
+    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+    const previous = window.lawmindDesktop;
+    const granted: string[] = [];
+    window.lawmindDesktop = {
+      grantFileAccess: async (abs: string) => {
+        granted.push(abs);
+        return { ok: true, root: "file:desk01", rel: "查询意见.docx", dirPath: "/Users/shl/Desktop" };
+      },
+    } as unknown as Window["lawmindDesktop"];
+    const abs = "/Users/shl/Desktop/查询意见.docx";
+    await act(async () => {
+      root.render(<div>{renderLegalMarkdown(`已写到 ${abs}。`)}</div>);
+    });
+    const link = host.querySelector("[data-testid='lm-md-abs-link']") as HTMLButtonElement | null;
+    expect(link).not.toBeNull();
+    await act(async () => {
+      link?.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onFile);
+    window.lawmindDesktop = previous;
+    expect(granted).toEqual([abs]);
+    expect(files).toEqual([{ relPath: "查询意见.docx", root: "file:desk01" }]);
   });
 
   it("renders CASE-style italic, h3, and multi-line list continuations", async () => {

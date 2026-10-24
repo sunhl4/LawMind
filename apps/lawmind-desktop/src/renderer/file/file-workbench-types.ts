@@ -1,6 +1,16 @@
 import type { ReactNode } from "react";
 
+/** 工作区 / 本机项目夹：两个「真」根，文件树与右键操作只认它们。 */
 export type RootKey = "workspace" | "project";
+
+/**
+ * 可读写的文件根。
+ *
+ * `file:<id>` 是律师让助手找到、工作区之外的文件。**权限与工作区相同**
+ * （可读可写，Cursor 的手感），由主进程按次登记；它不进文件树，
+ * 因为树的语义是「工作区内容」。
+ */
+export type AnyFileRoot = RootKey | `file:${string}`;
 
 export type FsEntry = {
   name: string;
@@ -26,7 +36,8 @@ export type FilePreviewKind =
 
 export type OpenFileTab = {
   id: string;
-  root: RootKey;
+  /** 可读写根：外部 `file:<id>` 与工作区同权限，所以也能进标签页。 */
+  root: AnyFileRoot;
   path: string;
   name: string;
   kind: FilePreviewKind;

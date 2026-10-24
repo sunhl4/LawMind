@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  type AnyFileRoot,
   type RootKey,
   type FsEntry,
   type OpenFileTab,
@@ -37,9 +38,13 @@ import { FileWorkbenchView } from "./FileWorkbenchView";
 import { describeFsWriteFailure } from "./fs-write-error";
 import {
   consumePendingOpenWorkspaceFile,
+  LAWMIND_OPEN_FILE_FAILED_EVENT,
   LAWMIND_OPEN_WORKSPACE_FILE_EVENT,
   LAWMIND_SHOW_WORD_SURFACE_EVENT,
+  grantedFileRootDir,
+  resolveExistingRootForRelPath,
   type OpenWorkspaceFileDetail,
+  type WorkspaceFileRoot,
 } from "../lawmind-workspace-file-open";
 import { setActiveWorkbenchWordFile } from "../lawmind-active-word-file";
 import { rememberFileContextPath } from "../lawmind-compose-context";
@@ -70,6 +75,8 @@ export function FileWorkbench(props: FileWorkbenchProps) {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 打开文件失败：中栏自己要说一句，否则没 tab 时就是一片空白。 */
+  const [openError, setOpenError] = useState<{ relPath: string; message: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog | null>(null);
   const [inlineInput, setInlineInput] = useState<InlineInput | null>(null);
@@ -127,8 +134,8 @@ export function FileWorkbench(props: FileWorkbenchProps) {
         : null;
     const next = fromTab ?? fromSelected;
     setActiveWorkbenchWordFile(next);
-    if (next) {
-      rememberFileContextPath({ ...next, kind: "file" });
+    if (next && (next.root === "workspace" || next.root === "project")) {
+      rememberFileContextPath({ kind: "file", root: next.root, relPath: next.relPath });
     }
     return () => {
       setActiveWorkbenchWordFile(null);
@@ -379,14 +386,27 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     window.dispatchEvent(new CustomEvent(LAWMIND_SHOW_WORD_SURFACE_EVENT));
   }, [portalHosts?.editor]);
 
-  const openFile = useCallback(async (root: RootKey, relPath: string) => {
+  /**
+   * 只有文件树里的两个真根才参与选中态与「材料已选」通知。
+   * 用 useCallback 固定身份：它进了 openFile 的依赖，否则每次渲染都会
+   * 重建 openFile → 深链监听器反复重订阅。
+   */
+  const selectIfWritable = useCallback((root: AnyFileRoot, relPath: string) => {
+    if (root !== "workspace" && root !== "project") {
+      return;
+    }
+    setSelected({ root, path: relPath, kind: "file" });
+    notifyMaterialChosen(root, relPath);
+  }, []);
+
+  const openFile = useCallback(async (root: AnyFileRoot, relPath: string) => {
     const tabId = `${root}:${relPath}`;
+    setOpenError(null);
     const existing = tabs.find((t) => t.id === tabId);
     if (existing) {
       setActiveTabId(existing.id);
-      setSelected({ root, path: relPath, kind: "file" });
+      selectIfWritable(root, relPath);
       setError(null);
-      notifyMaterialChosen(root, relPath);
       if (existing.kind === "word") {
         revealWordSurface(relPath);
       } else if (existing.kind === "text") {
@@ -412,9 +432,8 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       };
       setTabs((prev) => [...prev, tab]);
       setActiveTabId(tab.id);
-      setSelected({ root, path: relPath, kind: "file" });
+      selectIfWritable(root, relPath);
       setError(null);
-      notifyMaterialChosen(root, relPath);
       if (kind === "word") {
         revealWordSurface(relPath);
       }
@@ -440,9 +459,8 @@ export function FileWorkbench(props: FileWorkbenchProps) {
           };
           setTabs((prev) => [...prev, tab]);
           setActiveTabId(tab.id);
-          setSelected({ root, path: relPath, kind: "file" });
+          selectIfWritable(root, relPath);
           setError(null);
-          notifyMaterialChosen(root, relPath);
           return;
         }
         throw new Error(errText);
@@ -466,9 +484,8 @@ export function FileWorkbench(props: FileWorkbenchProps) {
         };
         setTabs((prev) => [...prev, tab]);
         setActiveTabId(tab.id);
-        setSelected({ root, path: relPath, kind: "file" });
+        selectIfWritable(root, relPath);
         setError(null);
-        notifyMaterialChosen(root, relPath);
         return;
       }
       if (typeof res.content !== "string") {
@@ -486,24 +503,32 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       };
       setTabs((prev) => [...prev, tab]);
       setActiveTabId(tab.id);
-      setSelected({ root, path: relPath, kind: "file" });
+      selectIfWritable(root, relPath);
       setError(null);
-      notifyMaterialChosen(root, relPath);
       revealCanvasSurface(relPath);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      setOpenError({ relPath, message });
     } finally {
       setBusy(false);
     }
-  }, [revealCanvasSurface, revealWordSurface, tabs]);
+  }, [revealCanvasSurface, revealWordSurface, selectIfWritable, tabs]);
 
   /** Deep-link from 交办结果 / 文书台：打开工作区相对路径并展开父目录。 */
   const openWorkspaceRelPath = useCallback(
-    async (rawPath: string, root: "workspace" | "project" = "workspace") => {
+    async (rawPath: string, hintRoot: WorkspaceFileRoot = "workspace") => {
       const relPath = rawPath.trim().replace(/^[/\\]+/, "");
       if (!relPath) {
         return;
       }
+      // 外部根没有文件树可展开：直接开那份文件。
+      if (hintRoot !== "workspace" && hintRoot !== "project") {
+        await openFile(hintRoot, relPath);
+        return;
+      }
+      // 对话里的链接只带相对路径，根提示可能是猜的（`cases/` → 工作区，其余 → 项目夹）。
+      const root = await resolveExistingRootForRelPath(relPath, hintRoot);
       const parts = relPath.split(/[/\\]/).filter(Boolean);
       let walk = "";
       const expand: Record<string, boolean> = {};
@@ -511,7 +536,8 @@ export function FileWorkbench(props: FileWorkbenchProps) {
         walk = walk ? `${walk}/${parts[i]}` : parts[i];
         expand[keyOf(root, walk)] = true;
         try {
-          await refreshDir(root, walk);
+          // 只铺开父目录；失败不在中栏报错，留给 openFile 报真正的原因。
+          await loadDir(root, walk);
         } catch {
           /* parent may be missing; openFile still surfaces error */
         }
@@ -520,7 +546,7 @@ export function FileWorkbench(props: FileWorkbenchProps) {
         setCasesSectionOpen(true);
         expand[keyOf("workspace", "cases")] = true;
         try {
-          await refreshDir("workspace", "cases");
+          await loadDir("workspace", "cases");
         } catch {
           /* ignore */
         }
@@ -530,18 +556,32 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       setExpanded((prev) => ({ ...prev, ...expand }));
       await openFile(root, relPath);
     },
-    [openFile, refreshDir],
+    [loadDir, openFile],
   );
 
   // 串行消费深链请求：连点不再被 in-flight 去重吞掉；挂载时消费 pending 路径。
   const openWorkspaceFileChainRef = useRef<Promise<void>>(Promise.resolve());
   const enqueueWorkspaceFileOpen = useCallback(
-    (relPath: string, root: "workspace" | "project" = "workspace") => {
+    (relPath: string, root: WorkspaceFileRoot = "workspace") => {
+      // 外部根由 openWorkspaceRelPath 内部直接打开（没有文件树可展开）。
       const run = () => openWorkspaceRelPath(relPath, root).catch(() => undefined);
       openWorkspaceFileChainRef.current = openWorkspaceFileChainRef.current.then(run, run);
     },
     [openWorkspaceRelPath],
   );
+
+  // 打开失败统一在中栏说一句（对话里的链接点击也走这条）。
+  useEffect(() => {
+    const onFailed = (event: Event) => {
+      const message = (event as CustomEvent<{ message?: string }>).detail?.message?.trim() ?? "";
+      if (!message) {
+        return;
+      }
+      setOpenError({ relPath: "", message });
+    };
+    window.addEventListener(LAWMIND_OPEN_FILE_FAILED_EVENT, onFailed);
+    return () => window.removeEventListener(LAWMIND_OPEN_FILE_FAILED_EVENT, onFailed);
+  }, []);
 
   useEffect((): void | (() => void) => {
     if (!canUseFilesystemBridge) {
@@ -559,13 +599,37 @@ export function FileWorkbench(props: FileWorkbenchProps) {
         return;
       }
       consumePendingOpenWorkspaceFile();
-      enqueueWorkspaceFileOpen(relPath, detail?.root === "project" ? "project" : "workspace");
+      // 根必须原样传下去：`file:<id>` 归一成 workspace 就会去工作区找同名文件（404）。
+      enqueueWorkspaceFileOpen(relPath, detail?.root ?? "workspace");
     };
     window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onOpen);
     return () => window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onOpen);
   }, [canUseFilesystemBridge, enqueueWorkspaceFileOpen]);
 
   // ── Close tab ────────────────────────────────────────────────
+  /** 关掉外部文件标签时释放授权：不让上限随会话变长堆满。 */
+  const releaseTabAccess = (tab: OpenFileTab) => {
+    if (tab.root === "workspace" || tab.root === "project") {
+      return;
+    }
+    void window.lawmindDesktop?.releaseFileAccess?.(tab.root);
+  };
+
+  /**
+   * 真正把标签从列表里拿掉时才释放授权。
+   *
+   * 不能放在 closeTab 开头：脏文件会先弹「确认关闭」，律师点了取消就什么都没关，
+   * 而授权已经没了 —— 那份文件之后的每次保存都会 404。
+   */
+  const dropTab = (tabId: string, tab: OpenFileTab) => {
+    setTabs((prev) => {
+      const next = prev.filter((t) => t.id !== tabId);
+      if (activeTabId === tabId) {setActiveTabId(next[next.length - 1]?.id ?? null);}
+      return next;
+    });
+    releaseTabAccess(tab);
+  };
+
   const closeTab = (tabId: string) => {
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) {return;}
@@ -574,21 +638,13 @@ export function FileWorkbench(props: FileWorkbenchProps) {
         kind: "simple",
         message: `文件 "${tab.name}" 有未保存修改，确认关闭？`,
         onConfirm: () => {
-          setTabs((prev) => {
-            const next = prev.filter((t) => t.id !== tabId);
-            if (activeTabId === tabId) {setActiveTabId(next[next.length - 1]?.id ?? null);}
-            return next;
-          });
+          dropTab(tabId, tab);
           setConfirmDialog(null);
         },
       });
       return;
     }
-    setTabs((prev) => {
-      const next = prev.filter((t) => t.id !== tabId);
-      if (activeTabId === tabId) {setActiveTabId(next[next.length - 1]?.id ?? null);}
-      return next;
-    });
+    dropTab(tabId, tab);
   };
 
   const updateActiveContent = (next: string) => {
@@ -838,9 +894,24 @@ export function FileWorkbench(props: FileWorkbenchProps) {
     }
   };
 
-  const doShowInFolder = async (root: RootKey, relPath: string) => {
+  const doShowInFolder = async (root: AnyFileRoot, relPath: string) => {
     setContextMenu(null);
     if (!canUseFilesystemBridge) {return;}
+    if (root !== "workspace" && root !== "project") {
+      const dir = grantedFileRootDir(root);
+      if (!dir) {
+        setError("这个文件所在的文件夹已经不在了，请重新从对话里点开。");
+        return;
+      }
+      const full = relPath
+        ? `${dir.replace(/\/+$/, "")}/${relPath}`.replace(/\\/g, "/")
+        : dir.replace(/\\/g, "/");
+      const res = await window.lawmindDesktop?.showItemInFolder(full);
+      if (res && !res.ok) {
+        setError(res.error ?? "无法在访达中显示该文件。");
+      }
+      return;
+    }
     const base = root === "workspace" ? workspaceDir : projectDir;
     if (!base) {return;}
     const full = relPath
@@ -972,6 +1043,10 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       inlineInputRef={inlineInputRef}
       activeTab={activeTab}
       activeDirty={activeDirty}
+      openError={
+        openError ? (openError.relPath ? `${openError.relPath}：${openError.message}` : openError.message) : null
+      }
+      onDismissOpenError={() => setOpenError(null)}
       toggleDir={toggleDir}
       openFile={openFile}
       closeTab={closeTab}

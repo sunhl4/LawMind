@@ -56,6 +56,8 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
   showItemInFolder: (fullPath) => ipcRenderer.invoke("lawmind:show-item-in-folder", fullPath),
   openWithSystem: (payload) => ipcRenderer.invoke("lawmind:open-with-system", payload ?? {}),
   openWithWps: (payload) => ipcRenderer.invoke("lawmind:open-with-wps", payload ?? {}),
+  grantFileAccess: (absPath) => ipcRenderer.invoke("lawmind:grant-file-access", absPath),
+  releaseFileAccess: (rootKey) => ipcRenderer.invoke("lawmind:release-file-access", rootKey),
   fsList: (payload) => ipcRenderer.invoke("lawmind:fs:list", payload),
   fsRead: (payload) => ipcRenderer.invoke("lawmind:fs:read", payload),
   fsWrite: (payload) => ipcRenderer.invoke("lawmind:fs:write", payload),

@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildWordRevisionFilename,
+  exportDirForSource,
   planTrackedWordDelivery,
   resolveWordBaselineAbs,
   stripWordRevisionStamp,
@@ -104,5 +105,57 @@ describe("word-revision-delivery", () => {
     expect(again.outputFileName).toBe(first.outputFileName);
     const bumped = planTrackedWordDelivery({ workspaceDir: ws, baselineRel: rel, at });
     expect(bumped.outputFileName).toBe("合作协议_20260827_02.docx");
+  });
+});
+
+describe("exportDirForSource（副本落点）", () => {
+  it("原件在工作区里：写在原件旁", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-exp-ws-"));
+    dirs.push(ws);
+    fs.mkdirSync(path.join(ws, "contracts"), { recursive: true });
+    const src = path.join(ws, "contracts", "合作协议.docx");
+    fs.writeFileSync(src, "x");
+    expect(exportDirForSource({ workspaceDir: ws, sourceAbs: src })).toBe(
+      path.join(ws, "contracts"),
+    );
+  });
+
+  it("原件在会话的工作区外：导到工作区 artifacts", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-exp-ws-"));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "lm-exp-out-"));
+    dirs.push(ws, outside);
+    const src = path.join(outside, "别的文件夹.docx");
+    fs.writeFileSync(src, "x");
+    expect(exportDirForSource({ workspaceDir: ws, sourceAbs: src })).toBe(
+      path.join(ws, "artifacts"),
+    );
+  });
+
+  it("有案件时导到案件 artifacts", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-exp-ws-"));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "lm-exp-out-"));
+    dirs.push(ws, outside);
+    const src = path.join(outside, "别的文件夹.docx");
+    fs.writeFileSync(src, "x");
+    expect(exportDirForSource({ workspaceDir: ws, matterId: "m-1", sourceAbs: src })).toBe(
+      path.join(ws, "cases", "m-1", "artifacts"),
+    );
+  });
+
+  it("不知道原件时按工作区导出位置处理", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-exp-ws-"));
+    dirs.push(ws);
+    expect(exportDirForSource({ workspaceDir: ws })).toBe(path.join(ws, "artifacts"));
+  });
+
+  it("项目夹里的原件仍在原文件旁（会话挂的本机文件夹）", () => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-exp-ws-"));
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), "lm-exp-proj-"));
+    dirs.push(ws, project);
+    const src = path.join(project, "本机合同.docx");
+    fs.writeFileSync(src, "x");
+    expect(exportDirForSource({ workspaceDir: ws, projectDir: project, sourceAbs: src })).toBe(
+      project,
+    );
   });
 });

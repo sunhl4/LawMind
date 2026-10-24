@@ -191,7 +191,9 @@ function chineseMemoDate(createdAt: string): string {
 
 function memoSubject(title: string, deliverableType?: ArtifactDraft["deliverableType"]): string {
   const text = title.trim() || "相关事项";
-  if (text.startsWith("关于") && (text.includes("备忘录") || text.includes("报告"))) {
+  // 标题自带「关于」时它已经是事由本身，再加前缀会变成「关于关于…」
+  // （真机实测：「关于装饰装修施工合同的查询意见」→「关于关于…的法律备忘录」）。
+  if (text.startsWith("关于")) {
     return text;
   }
   if (isBusinessReportDeliverable(deliverableType)) {

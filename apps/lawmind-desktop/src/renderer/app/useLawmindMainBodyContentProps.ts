@@ -9,6 +9,7 @@ import type { AppConfig } from "../lawmind-app-bootstrap";
 import type { LawmindMainView } from "../lawmind-main-view";
 import { requestOpenCollaborationSettings } from "../lawmind-automations-nav-bus";
 import { requestOpenContractRevision } from "../lawmind-workspace-file-open";
+import { openReviewedOutputInMiddleColumn } from "../lawmind-open-contract-revision";
 import type {
   CollabEvent,
   DelegationRow,
@@ -394,6 +395,12 @@ export function useLawmindMainBodyContentProps(
       onReturnToMatter: reviewLinks.onReturnToMatter,
       onOpenMatterOnDesk: openMatterOnDesk,
       onShowArtifact: (relPath) => openOutputInFolder(relPath),
+      onOpenArtifactInMiddleColumn: (outputPath) => {
+        void openReviewedOutputInMiddleColumn(outputPath, {
+          workspaceDir: config?.workspaceDir,
+          projectDir,
+        });
+      },
       onRecordsChanged: () => {
         setMatterRefreshVersion((v) => v + 1);
         void refreshLists();

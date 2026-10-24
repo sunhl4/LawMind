@@ -1,8 +1,6 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { linkDraftToDeliverable } from "../../../application/services/deliverable-service.js";
-import { namedPlaceDirFromDelivery } from "../../../artifacts/named-user-place.js";
 import { resolveWordBaselineAbs } from "../../../artifacts/word-revision-delivery.js";
 import { validateDraftAgainstSpec } from "../../../deliverables/index.js";
 import {
@@ -17,7 +15,6 @@ import {
   attachWordAddinResultSafely,
   wordAddinResultPatch,
 } from "../../../integrations/word-addin/attach-result.js";
-import { resolveTurnDeliveryIntent } from "../../../intent/delivery-intent.js";
 import {
   DOC_NEEDS_DOCX_MESSAGE,
   isBinaryWordDocBaseline,
@@ -40,7 +37,7 @@ import {
 } from "../../../tasks/index.js";
 import type { ArtifactSection, TaskIntent } from "../../../types.js";
 import { ingestDraftBody, resolveKnownTemplateId } from "../../factor-state.js";
-import type { AgentContext, AgentTool } from "../../types.js";
+import type { AgentTool } from "../../types.js";
 import { formatRenderToolError } from "../render-tool-messages.js";
 import {
   asNonEmptyString,
@@ -80,10 +77,6 @@ function recoverIntentFromResearchArtifacts(
   const intent: TaskIntent = { ...routed, taskId: reuseTaskId };
   ensureTaskRecord(workspaceDir, intent, { assistantId: opts?.assistantId });
   return intent;
-}
-
-function turnDelivery(ctx: AgentContext, instruction?: string) {
-  return ctx.deliveryIntent ?? resolveTurnDeliveryIntent(instruction, ctx.contextPins);
 }
 
 // ─────────────────────────────────────────────
@@ -1182,8 +1175,6 @@ export const renderDocument: AgentTool = {
         citationGateStrict: bypassGate ? false : undefined,
         projectDir: ctx.projectDir,
         outputPath: asOptionalString(params.output_path, "output_path", 1024),
-        namedPlaceDir: namedPlaceDirFromDelivery(turnDelivery(ctx).outputPlace),
-        homeDir: os.homedir(),
         protectSourcePath: approvedDraft.contractEdit?.baselineRelativePath,
       });
       if (result.ok) {

@@ -11,13 +11,15 @@ import {
 } from "./delivery-intent.js";
 
 describe("extractDeliveryIntent", () => {
-  it("treats 审查意见 + 放到桌面 + 不改原稿 as an opinion memo on the desktop", () => {
+  it("treats 审查意见 + 放到桌面 + 不改原稿 as an opinion memo（落点仍在工作区）", () => {
     const d = extractDeliveryIntent("请根据这个合同去给我一些审查意见放到桌面，不要在源文件上修改");
     expect(d.artifactShape).toBe("opinion_memo");
     expect(d.mutateSource).toBe("forbid");
-    expect(d.outputPlace).toBe("desktop");
+    expect(d.placeRequested).toBe(true);
     expect(d.chatMirror).toBe("required");
     expect(isOpinionMemoDelivery(d)).toBe(true);
+    // 交付契约里已经没有「写到哪个盘」这一维。
+    expect("outputPlace" in d).toBe(false);
   });
 
   it("accepts paraphrases without freezing one Chinese sentence", () => {
@@ -39,14 +41,14 @@ describe("extractDeliveryIntent", () => {
   it("does not override a plain 审查这份合同 into an opinion-memo sidecar", () => {
     const d = extractDeliveryIntent("请审查这份采购合同的违约责任");
     expect(d.artifactShape).toBe("unspecified");
-    expect(d.outputPlace).toBe("unspecified");
+    expect(d.placeRequested).toBeUndefined();
     expect(d.mutateSource).toBe("unspecified");
     expect(isOpinionMemoDelivery(d)).toBe(false);
   });
 
   it("does not treat 桌面端 / LawMind 桌面 as a filesystem destination", () => {
-    expect(extractDeliveryIntent("桌面端怎么导出 Word").outputPlace).toBe("unspecified");
-    expect(extractDeliveryIntent("打开 LawMind 桌面应用").outputPlace).toBe("unspecified");
+    expect(extractDeliveryIntent("桌面端怎么导出 Word").placeRequested).toBeUndefined();
+    expect(extractDeliveryIntent("打开 LawMind 桌面应用").placeRequested).toBeUndefined();
   });
 
   it("keeps tracked-source when the deliverable is a redline copy", () => {
@@ -60,14 +62,17 @@ describe("extractDeliveryIntent", () => {
     expect(d.artifactShape).toBe("unspecified");
   });
 
-  it("maps 下载 / 文稿 as named places", () => {
-    expect(extractDeliveryIntent("审查意见保存到下载文件夹").outputPlace).toBe("downloads");
-    expect(extractDeliveryIntent("把意见书输出到文稿").outputPlace).toBe("documents");
+  it("下载 / 文稿 / 桌面都只作为「律师提过落点」的标记", () => {
+    expect(extractDeliveryIntent("审查意见保存到下载文件夹").placeRequested).toBe(true);
+    expect(extractDeliveryIntent("把意见书输出到文稿").placeRequested).toBe(true);
+    expect(extractDeliveryIntent("出一个带修订痕迹的 Word，放我桌面").placeRequested).toBe(true);
+    expect(extractDeliveryIntent("放到我桌面").placeRequested).toBe(true);
   });
 
-  it("maps 放我桌面 the way the prompt chapter says it", () => {
-    expect(extractDeliveryIntent("出一个带修订痕迹的 Word，放我桌面").outputPlace).toBe("desktop");
-    expect(extractDeliveryIntent("放到我桌面").outputPlace).toBe("desktop");
+  it("提到落点时，提示词说明实际写进工作区（不让模型去试桌面路径）", () => {
+    const block = formatDeliveryConstraintPromptBlock(extractDeliveryIntent("把意见书放到我桌面"));
+    expect(block).toContain("会话工作区");
+    expect(block).not.toContain("系统桌面（引擎写入");
   });
 
   it("does not treat 别发邮件 as a must-send completion", () => {
@@ -88,7 +93,10 @@ describe("formatDeliveryConstraintPromptBlock", () => {
     );
     expect(block).toContain(DELIVERY_MARKER_OPINION_MEMO);
     expect(block).toContain("render_document");
-    expect(block).toContain("系统桌面");
+    // 律师说了「放到桌面」，但落点一律在工作区：提示必须交代清楚，
+    // 否则模型会去试桌面 output_path，被引擎拒掉白跑一轮。
+    expect(block).toContain("会话工作区");
+    expect(block).not.toContain("系统桌面（引擎写入");
     expect(block).toContain("工具表不收窄");
     expect(block).not.toContain("成套交件");
     expect(block).not.toContain("不要 `render_tracked_draft`");

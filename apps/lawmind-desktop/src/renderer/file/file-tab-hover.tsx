@@ -1,5 +1,5 @@
+import type { AnyFileRoot } from "./file-workbench-types";
 import { useEffect, useRef, useState } from "react";
-import type { RootKey } from "./file-workbench-types";
 
 export const FILE_TAB_HOVER_DELAY_MS = 380;
 
@@ -82,7 +82,7 @@ export function FileTabHoverCard({
 }
 
 export function fileTabHoverTarget(
-  tabs: ReadonlyArray<{ id: string; root: RootKey; path: string; name: string }>,
+  tabs: ReadonlyArray<{ id: string; root: AnyFileRoot; path: string; name: string }>,
   hover: FileTabHoverState | null,
 ) {
   if (!hover) {

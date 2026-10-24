@@ -542,14 +542,19 @@ export function XlsxFileView(props: XlsxFileViewProps): ReactNode {
           >
             {saving ? "保存中…" : "保存"}
           </button>
-          {actions.onAddToChatContext ? (
+          {actions.onAddToChatContext &&
+          (tab.root === "workspace" || tab.root === "project") ? (
             <button
               type="button"
               className="lm-btn lm-btn-ghost lm-btn-sm"
               data-testid="lm-xlsx-ask-agent"
-              onClick={() =>
-                actions.onAddToChatContext?.({ root: tab.root, relPath: tab.path, kind: "file" })
-              }
+              onClick={() => {
+                const root = tab.root;
+                if (root !== "workspace" && root !== "project") {
+                  return;
+                }
+                actions.onAddToChatContext?.({ root, relPath: tab.path, kind: "file" });
+              }}
             >
               让助手处理这张表
             </button>

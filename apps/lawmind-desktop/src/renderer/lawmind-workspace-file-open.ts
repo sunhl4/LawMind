@@ -8,7 +8,267 @@ export const LAWMIND_OPEN_WORKSPACE_FILE_EVENT = "lawmind:open-workspace-file";
 /** Reveal the chat middle column when a .docx is opened in the file workbench. */
 export const LAWMIND_SHOW_WORD_SURFACE_EVENT = "lawmind:show-word-surface";
 
-export type WorkspaceFileRoot = "workspace" | "project";
+/** 只属于文件树的两个真根（选中态、材料归属、写保护都只认它们）。 */
+export type WritableFileRoot = "workspace" | "project";
+
+/**
+ * 可读写根：工作区 / 项目夹 / 按次授权的 `file:<id>`。
+ *
+ * 三者在读写上**权限相同**（Cursor 手感）：工作区外的文件打开后一样能改。
+ * 差别只在语义：外部根不进文件树、不参与「材料已选」与案件归属。
+ */
+export type WorkspaceFileRoot = WritableFileRoot | `file:${string}`;
+
+/** 同义别名：读代码时「任意可读写根」比 WorkspaceFileRoot 更准确。 */
+export type AnyFileRoot = WorkspaceFileRoot;
+
+function dirnameOfRel(relPath: string): string {
+  const slash = relPath.lastIndexOf("/");
+  return slash >= 0 ? relPath.slice(0, slash) : "";
+}
+
+function basenameOfRel(relPath: string): string {
+  const slash = relPath.lastIndexOf("/");
+  return slash >= 0 ? relPath.slice(slash + 1) : relPath;
+}
+
+/**
+ * 相对路径到底在哪个根下。
+ *
+ * 对话里的链接只带相对路径（`artifacts/x.docx`），而同一相对路径既可能在项目夹、
+ * 也可能在工作区：交付件默认落项目夹，没有项目夹时落工作区 `artifacts/`。
+ * 先列父目录确认，不猜。
+ */
+async function relPathExistsUnderRoot(
+  root: WorkspaceFileRoot,
+  relPath: string,
+): Promise<boolean> {
+  const list = typeof window !== "undefined" ? window.lawmindDesktop?.fsList : undefined;
+  if (typeof list !== "function") {
+    return false;
+  }
+  try {
+    const res = await list({ root, path: dirnameOfRel(relPath) });
+    if (!res?.ok) {
+      return false;
+    }
+    const name = basenameOfRel(relPath);
+    return (res.entries ?? []).some((entry) => entry.name === name);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 深链的根提示可能过时。先按提示根找；找不到再看另一个根。
+ * 都找不到时保留提示根，让中栏照常报错，不把「文件不存在」伪装成成功打开。
+ */
+export async function resolveExistingRootForRelPath(
+  relPath: string,
+  preferredRoot: WritableFileRoot = "workspace",
+): Promise<WritableFileRoot> {
+  const rel = relPath.trim().replace(/\\/g, "/").replace(/^[/\\]+/, "");
+  if (!rel) {
+    return preferredRoot;
+  }
+  if (await relPathExistsUnderRoot(preferredRoot, rel)) {
+    return preferredRoot;
+  }
+  const other: WorkspaceFileRoot = preferredRoot === "workspace" ? "project" : "workspace";
+  if (await relPathExistsUnderRoot(other, rel)) {
+    return other;
+  }
+  return preferredRoot;
+}
+
+function isAbsoluteDiskPath(value: string): boolean {
+  return value.startsWith("/") || /^[A-Za-z]:\//.test(value);
+}
+
+function normRelPath(value: string): string {
+  return value.trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/^[/\\]+/, "");
+}
+
+/**
+ * 只知道相对路径时该先问哪个根：`cases/…` 必然在工作区；其余跟着会话走
+ * （挂了本机项目夹就先问项目夹）。**只是「先问谁」**，真实位置由
+ * `resolveWorkspaceFileTarget` 列目录确认。
+ */
+export function defaultRootForRelPath(
+  relPath: string,
+  projectDir?: string | null,
+): WorkspaceFileRoot {
+  const rel = normRelPath(relPath);
+  if (rel.startsWith("cases/")) {
+    return "workspace";
+  }
+  return projectDir?.trim() ? "project" : "workspace";
+}
+
+/**
+ * 磁盘路径或相对路径 → 「哪个根 + 相对路径」。
+ *
+ * 只解析工作区与项目夹：交付件一律生成在这两个根里（见 default-output-location），
+ * 真在根外的路径返回 null，由调用方**复制进本案**再打开，而不是就地改外部文件。
+ */
+/** 授权根 → 目录。用于「在访达中显示」这类需要绝对路径的地方。 */
+const externalRootDirs = new Map<string, string>();
+
+export function grantedFileRootDir(rootKey: string): string | undefined {
+  return externalRootDirs.get(rootKey);
+}
+
+/** 上一次「打不开」的具体原因。 */
+let lastError: string | null = null;
+
+export function lastOpenTargetError(): string | null {
+  return lastError;
+}
+
+/**
+ * 工作区外的真实文件：按次登记成同级根（与工作区同权限）。
+ *
+ * 产品规则：律师让助手找一个工作区外的文件时，那个文件必须能打开、能改
+ * （Cursor 的手感）。主进程负责校验存在性、是否文件、拒绝名单、是否已在工作区内。
+ */
+async function grantExternalFile(
+  absPath: string,
+): Promise<{ root: AnyFileRoot; rel: string } | null> {
+  lastError = null;
+  const grant =
+    typeof window !== "undefined" ? window.lawmindDesktop?.grantFileAccess : undefined;
+  if (typeof grant !== "function") {
+    lastError = "当前环境不能打开本机文件，请用桌面版 LawMind。";
+    return null;
+  }
+  try {
+    const res = await grant(absPath);
+    if (!res?.ok || !res.root) {
+      lastError = res?.error ?? "这份文件打不开。";
+      return null;
+    }
+    const dir = (res as { dirPath?: string }).dirPath;
+    if (dir) {
+      externalRootDirs.set(res.root, dir);
+    }
+    return {
+      root: res.root as AnyFileRoot,
+      rel: res.rel ?? absPath.split(/[/\\]/).pop() ?? "",
+    };
+  } catch (e) {
+    lastError = e instanceof Error ? e.message : String(e);
+    return null;
+  }
+}
+
+/**
+ * 路径 → 「哪个根 + 相对路径」。
+ *
+ * 对话产出的文件永远在会话工作区/案件目录里（由交付路径决定），所以这里是
+ * 「相对路径归到哪个根」；只有当律师从别处拉进来或让助手找到工作区外文件时，
+ * 才会走到按次授权那条分支。
+ */
+export async function resolveWorkspaceFileTarget(
+  rawPath: string,
+  opts?: { workspaceDir?: string | null; projectDir?: string | null },
+): Promise<{ root: AnyFileRoot; rel: string } | null> {
+  const raw = (rawPath ?? "").trim().replace(/\\/g, "/");
+  if (!raw) {
+    return null;
+  }
+  const workspaceDir = opts?.workspaceDir?.trim() ?? "";
+  const projectDir = opts?.projectDir?.trim() ?? "";
+  lastError = null;
+  if (isAbsoluteDiskPath(raw)) {
+    const mapped = resolveRelForAbs(workspaceDir, projectDir, raw);
+    if (mapped?.rel) {
+      return { root: mapped.root, rel: mapped.rel };
+    }
+    // 工作区外：按次授权成同级根（可读可写）。
+    return grantExternalFile(raw);
+  }
+  const rel = normRelPath(raw);
+  if (!rel) {
+    return null;
+  }
+  // 相对路径只可能在两个真根里：外部根必然来自绝对路径授权。
+  const root = await resolveExistingRootForRelPath(
+    rel,
+    projectDir?.trim() && !rel.startsWith("cases/") ? "project" : "workspace",
+  );
+  return { root, rel };
+}
+
+/** 工作区/项目夹内的路径 → 目标；不在两个根里时给出可执行的说法。 */
+export async function resolveWorkspaceFileTargetOrExplain(
+  rawPath: string,
+  opts?: { workspaceDir?: string | null; projectDir?: string | null },
+): Promise<{ root: AnyFileRoot; rel: string } | null> {
+  lastError = null;
+  const target = await resolveWorkspaceFileTarget(rawPath, opts);
+  if (target) {
+    return target;
+  }
+  const raw = (rawPath ?? "").trim();
+  // 保留更具体的原因（例如主进程说「已经不在磁盘上了」），别被这句话盖掉。
+  lastError ??= isAbsoluteDiskPath(raw)
+    ? "这个文件不在工作区或项目目录内。"
+    : "找不到这个文件。";
+  return null;
+}
+
+export type OpenWithSystemResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * 用本机默认应用打开一份交付件。**这是唯一入口**：
+ * 先归一 `{root, rel}`，再交给文件桥，避免把项目夹里的稿当工作区相对路径去解析。
+ */
+export async function openWithSystemForPath(
+  rawPath: string,
+  opts?: { workspaceDir?: string | null; projectDir?: string | null },
+): Promise<OpenWithSystemResult> {
+  if (typeof window === "undefined") {
+    return { ok: false, error: "当前不在桌面应用里，无法调用本机应用。" };
+  }
+  const open = window.lawmindDesktop?.openWithSystem;
+  if (typeof open !== "function") {
+    return { ok: false, error: "当前环境无法调用本机应用，请用「在访达中显示」后手动打开。" };
+  }
+  const target = await resolveWorkspaceFileTargetOrExplain(rawPath, opts);
+  if (!target) {
+    return {
+      ok: false,
+      error: lastError ?? "打不开这个文件。",
+    };
+  }
+  const res = await open({ root: target.root, path: target.rel });
+  if (res && !res.ok) {
+    return { ok: false, error: res.error ?? "无法用本机应用打开该文件。" };
+  }
+  return { ok: true };
+}
+
+/** 打开文件前先让中栏露出来（编辑区默认是收起的）。 */
+export const LAWMIND_PREPARE_WORKSPACE_FILE_EVENT = "lawmind:prepare-workspace-file";
+
+/**
+ * 打开失败的通知通道：对话里的链接以前没有消费者，打不开时界面什么都不说。
+ */
+export const LAWMIND_OPEN_FILE_FAILED_EVENT = "lawmind:open-file-failed";
+
+export function reportOpenFileFailure(message: string): void {
+  const text = message.trim();
+  if (!text || typeof window === "undefined") {
+    return;
+  }
+  // 中栏默认收起：不露出来，提示条就等于没写。
+  window.dispatchEvent(new CustomEvent(LAWMIND_PREPARE_WORKSPACE_FILE_EVENT));
+  window.dispatchEvent(
+    new CustomEvent<{ message: string }>(LAWMIND_OPEN_FILE_FAILED_EVENT, {
+      detail: { message: text },
+    }),
+  );
+}
 
 export type OpenWorkspaceFileDetail = {
   /** Workspace-relative path (e.g. cases/<matter>/foo.docx). */

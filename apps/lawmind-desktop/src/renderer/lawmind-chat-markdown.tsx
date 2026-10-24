@@ -12,7 +12,12 @@ import {
 } from "./lawmind-chat-markdown-table";
 import { docxCellWithDirectory } from "../../../../src/lawmind/sources/lawyer-chat-link.ts";
 import { openLawyerExternalUrl } from "./canvas/host-actions";
-import { openContractRevisionForTask, openDeliverableInMiddleColumn, openDocxInReviewSurface } from "./lawmind-open-contract-revision";
+import {
+  openAnyFileInMiddleColumn,
+  openContractRevisionForTask,
+  openDeliverableInMiddleColumn,
+  openDocxInReviewSurface,
+} from "./lawmind-open-contract-revision";
 import { requestOpenChatSession } from "./lawmind-open-chat-session-bus";
 import { requestOpenWorkspaceFile } from "./lawmind-workspace-file-open";
 
@@ -161,6 +166,7 @@ export function renderInlineLegalMarkdown(
                     workspaceDir: ctx.workspaceDir,
                     projectDir: ctx.projectDir,
                     fallbackRelPath: token.path,
+                    ...(token.root ? { fallbackRootHint: token.root } : {}),
                   }).then((result) => {
                     if (!result.ok) {
                       ctx.onOpenError?.(result.error);
@@ -179,6 +185,7 @@ export function renderInlineLegalMarkdown(
                 apiBase: ctx?.apiBase,
                 workspaceDir: ctx?.workspaceDir,
                 projectDir: ctx?.projectDir,
+                ...(token.root ? { rootHint: token.root } : {}),
                 onTask: (taskId) => openReview(taskId),
               });
             }}
@@ -199,11 +206,34 @@ export function renderInlineLegalMarkdown(
           data-testid="lm-md-wps-link"
           title="中栏打开。右键可以去本机目录，或用本机应用打开。"
           onClick={() => {
-            openDeliverableInMiddleColumn(token.path);
+            openDeliverableInMiddleColumn(token.path, ctx?.projectDir);
           }}
           onContextMenu={(event) => {
             event.preventDefault();
             ctx?.onReviewFileMenu?.(event.clientX, event.clientY, token.path);
+          }}
+        >
+          {token.label}
+        </button>
+      );
+    }
+    if (token.kind === "abs_link") {
+      return (
+        <button
+          key={`abs-${tokenIndex}`}
+          type="button"
+          className="lm-md-session-link"
+          data-testid="lm-md-abs-link"
+          title={`${token.path}（中栏打开；文件真在就按次授权只读）`}
+          onClick={() => {
+            void openAnyFileInMiddleColumn(token.path, {
+              workspaceDir: ctx?.workspaceDir,
+              projectDir: ctx?.projectDir,
+            }).then((opened) => {
+              if (!opened) {
+                ctx?.onOpenError?.(`打不开这个文件：${token.path}（可能已被移走，或属于密钥/治理数据）`);
+              }
+            });
           }}
         >
           {token.label}

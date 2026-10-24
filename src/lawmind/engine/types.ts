@@ -106,11 +106,11 @@ export type LawMindEngine = {
       includeProvenance?: boolean;
       /** Per-render override; takes precedence over config.projectDir */
       projectDir?: string;
-      /** Explicit file or directory; must stay in workspace, project, or a lawyer-named place */
+      /**
+       * Explicit file or directory. Must stay inside the workspace or the associated
+       * project folder — 对话产出不会落到工作区外（见 default-output-location）。
+       */
       outputPath?: string;
-      /** Lawyer-named Desktop / Downloads / Documents (compiled delivery). */
-      namedPlaceDir?: string;
-      homeDir?: string;
       protectSourcePath?: string;
     },
   ) => Promise<{

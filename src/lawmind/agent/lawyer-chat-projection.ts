@@ -71,9 +71,20 @@ function isLawyerHiddenTechLine(line: string): boolean {
   if (/隐藏文件|修订记录，不用管|redline-manifest/i.test(t) && /\.json\b/i.test(t)) {
     return true;
   }
-  // 纯 md/json 技术路径行（含表格单元格）；同行若还有 Word 则保留。
+  // 内部 md/json 清单行：只有「整行就是一条路径」时才藏起来。
+  //
+  // 以前是「只要含 .md/.json 就整行删」，于是律师拿到 `.md` 交付件时，
+  // 那句「笔记已写到下载：…/工作笔记.md」被整行抹掉，气泡变空、链接也点不到。
+  // 文档是律师的交付物，带叙述的行必须留下。
   if (/\.(?:md|json)\b/i.test(t) && !/\.(?:docx?|xlsx?|pptx?|pdf|wps)\b/i.test(t)) {
-    return true;
+    const bare = t
+      .replace(/^[-*+]\s+/, "")
+      .replace(/^`+|`+$/g, "")
+      .replace(/^["'“‘]+|["'”’]+$/g, "")
+      .trim();
+    if (!/[\u4e00-\u9fff]/.test(bare) && /\.(?:md|json)$/i.test(bare)) {
+      return true;
+    }
   }
   return false;
 }

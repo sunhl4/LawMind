@@ -5,6 +5,7 @@ import { installLawmindContentSecurityPolicy } from "./session-config.mjs";
 import { createFsBridge } from "./fs-bridge.mjs";
 import {
   ensureBackend,
+  ensureFileGrantStore,
   killLocalServer,
   getAllowedRoots,
   spawnWorkspaceDaemon,
@@ -50,7 +51,11 @@ let mainWindowRef = null;
 /** @type {Map<string, import("electron").BrowserWindow>} */
 const auxWindows = new Map();
 
-const fsBridge = createFsBridge(getAllowedRoots);
+const fsBridge = createFsBridge(getAllowedRoots, {
+  // 外部单文件根：写只认律师点过的那一份；目录里的密钥/治理文件读也挡。
+  grantedFileFor: (rootKey) => ensureFileGrantStore().grantedFileAbs(rootKey),
+  isDeniedExternal: (abs) => ensureFileGrantStore().isDenied(abs),
+});
 
 function windowUrl(win) {
   try {

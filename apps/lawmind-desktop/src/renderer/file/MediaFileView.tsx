@@ -1,3 +1,4 @@
+import type { AnyFileRoot } from "./file-workbench-types";
 /**
  * Middle-column audio/video preview. Loads /api/fs/raw with auth into a blob URL
  * so the media element can play (custom Authorization headers cannot be set on
@@ -5,7 +6,7 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { fetchApi, fetchWithLoopbackAuthRetry, errorMessage } from "../api-client";
-import type { OpenFileTab, RootKey } from "./file-workbench-types";
+import type { OpenFileTab } from "./file-workbench-types";
 import { PreviewCommonActions, type PreviewHeaderActions } from "./preview-registry";
 
 export type MediaFileViewProps = {
@@ -14,7 +15,7 @@ export type MediaFileViewProps = {
   actions: PreviewHeaderActions;
 };
 
-function rawUrl(apiBase: string, root: RootKey, relPath: string): string {
+function rawUrl(apiBase: string, root: AnyFileRoot, relPath: string): string {
   const q = new URLSearchParams({ root, path: relPath });
   return `${apiBase.replace(/\/$/, "")}/api/fs/raw?${q.toString()}`;
 }

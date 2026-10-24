@@ -7,12 +7,18 @@ import {
   MOUNT_WRITE_REFUSAL as MJS_MOUNT_REFUSAL,
   PROTECTED_WORKSPACE_WRITE_CODE as MJS_PROTECTED_CODE,
   PROTECTED_WORKSPACE_WRITE_REFUSAL as MJS_PROTECTED_REFUSAL,
+  EXTERNAL_FILE_WRITE_REFUSAL as MJS_EXTERNAL_WRITE_REFUSAL,
+  DENY_EXTERNAL_REFUSAL as MJS_DENY_EXTERNAL_REFUSAL,
   WRITABLE_ROOT_KEYS,
   assertWritableRoot,
   createFsBridge,
   isProtectedWorkspaceRel as mjsIsProtectedWorkspaceRel,
 } from "./fs-bridge.mjs";
 import { MOUNT_WRITE_REFUSAL } from "../../../src/lawmind/host-access/access-broker.js";
+import {
+  DENY_EXTERNAL_REFUSAL as TS_DENY_EXTERNAL_REFUSAL,
+  EXTERNAL_FILE_WRITE_REFUSAL as TS_EXTERNAL_WRITE_REFUSAL,
+} from "../server/lawmind-server-helpers.js";
 import {
   PROTECTED_WORKSPACE_WRITE_CODE as PROTECTED_WRITE_CODE,
   PROTECTED_WORKSPACE_WRITE_REFUSAL as PROTECTED_WRITE_REFUSAL,
@@ -34,6 +40,12 @@ describe("fs-bridge mirrors engine constants", () => {
   it("keeps the refusal messages identical", () => {
     expect(MJS_MOUNT_REFUSAL).toBe(MOUNT_WRITE_REFUSAL);
     expect(MJS_PROTECTED_REFUSAL).toBe(PROTECTED_WRITE_REFUSAL);
+  });
+
+  it("keeps the external-root refusal messages identical", () => {
+    // 外部单文件根：主进程与服务端必须同一句话，否则律师看到两种口径。
+    expect(MJS_EXTERNAL_WRITE_REFUSAL).toBe(TS_EXTERNAL_WRITE_REFUSAL);
+    expect(MJS_DENY_EXTERNAL_REFUSAL).toBe(TS_DENY_EXTERNAL_REFUSAL);
   });
 
   it("keeps the machine-readable codes identical", () => {
@@ -310,5 +322,83 @@ describe("write verbs share one protected-path gate", () => {
       fs.rmSync(workspace, { recursive: true, force: true });
       fs.rmSync(project, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * `file:<id>`（对话里点开的、工作区之外的文件）的授权边界。
+ *
+ * 授权的是**一份文件**，不是它所在的整个目录。目录级的写在 Cursor 手感
+ * 与安全之间是不划算的：一次点击就把桌面/下载变成可写区，同目录的别人文件
+ * 能被删、能新建、还能读到 `.env` 这类拒绝名单文件。
+ */
+describe("file:<id> 授权只覆盖那一份文件", () => {
+  function setup() {
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "lm-fsb-file-home-")));
+    const desk = path.join(home, "Desktop");
+    fs.mkdirSync(desk, { recursive: true });
+    const target = path.join(desk, "查询意见.docx");
+    fs.writeFileSync(target, "x");
+    fs.writeFileSync(path.join(desk, "别人的合同.docx"), "y");
+    fs.writeFileSync(path.join(desk, ".env"), "SECRET=1");
+    const roots = { "file:abc": desk };
+    const bridge = createFsBridge(() => roots, {
+      grantedFileFor: (key) => (key === "file:abc" ? target : null),
+      isDeniedExternal: (abs) =>
+        path.basename(abs) === ".env" || path.basename(abs) === "id_rsa",
+    });
+    return { home, desk, target, bridge };
+  }
+
+  it("写回授权的那一份文件：允许", () => {
+    const { bridge, target } = setup();
+    expect(
+      bridge.resolveFsPath("file:abc", "查询意见.docx", { access: "write" }).absPath,
+    ).toBe(target);
+  });
+
+  it("同目录的其它文件：不能写（否则一次点击等于开放整个桌面）", () => {
+    const { bridge } = setup();
+    expect(() =>
+      bridge.resolveFsPath("file:abc", "别人的合同.docx", { access: "write" }),
+    ).toThrow(/只能修改你在对话里点开的那份文件/);
+  });
+
+  it("在该目录新建文件：不允许", () => {
+    const { bridge } = setup();
+    expect(() => bridge.resolveFsPath("file:abc", "新建.docx", { access: "write" })).toThrow(
+      /只能修改你在对话里点开的那份文件/,
+    );
+  });
+
+  it("同目录里的 .env：读也挡住（拒绝名单不能被目录授权绕过）", () => {
+    const { bridge } = setup();
+    expect(() => bridge.resolveFsPath("file:abc", ".env", { access: "read" })).toThrow(
+      /密钥、钥匙串或 LawMind 的治理数据/,
+    );
+  });
+
+  it("读同目录的普通附件：允许（律师可能从正文点到它）", () => {
+    const { bridge } = setup();
+    expect(() =>
+      bridge.resolveFsPath("file:abc", "别人的合同.docx", { access: "read", mustExist: true }),
+    ).not.toThrow();
+  });
+
+  it("没有授权文件记录时：写一律拒绝", () => {
+    const { desk } = setup();
+    const bridge = createFsBridge(() => ({ "file:abc": desk }), {
+      grantedFileFor: () => null,
+    });
+    expect(() =>
+      bridge.resolveFsPath("file:abc", "查询意见.docx", { access: "write" }),
+    ).toThrow(/只能修改/);
+  });
+
+  it("授权目录之外：仍然越界拒绝", () => {
+    const { bridge } = setup();
+    expect(() => bridge.resolveFsPath("file:abc", "../escape.docx", { access: "read" })).toThrow(
+      /traversal|escapes/,
+    );
   });
 });

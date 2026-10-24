@@ -13,6 +13,9 @@ export type ReviewViewProps = {
   returnMatterId: string | null;
   onReturnToMatter: () => void;
   onShowArtifact: (relPath: string) => void;
+  onOpenArtifactInMiddleColumn?: (outputPath: string) => void;
+  workspaceDir?: string | null;
+  projectDir?: string | null;
   onRecordsChanged: () => void;
   onGoToChat: (opts: { taskId: string; matterId?: string; prompt?: string }) => void;
   onOpenAgentsDesk?: () => void;
@@ -37,6 +40,9 @@ function ReviewViewImpl(props: ReviewViewProps) {
         returnMatterId={props.returnMatterId}
         onReturnToMatter={props.onReturnToMatter}
         onShowArtifact={props.onShowArtifact}
+        onOpenArtifactInMiddleColumn={props.onOpenArtifactInMiddleColumn}
+        workspaceDir={props.workspaceDir}
+        projectDir={props.projectDir}
         onRecordsChanged={props.onRecordsChanged}
         onGoToChat={props.onGoToChat}
         onOpenAgentsDesk={props.onOpenAgentsDesk}

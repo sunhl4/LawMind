@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
+  type AnyFileRoot,
   type RootKey,
   type FsEntry,
   type OpenFileTab,
@@ -73,6 +74,9 @@ export type FileWorkbenchViewModel = {
   inlineInputRef: React.RefObject<HTMLInputElement | null>;
   activeTab: OpenFileTab | null | undefined;
   activeDirty: boolean;
+  /** 打开失败的原因（中栏要自己说一句，否则没 tab 时就是一片空白）。 */
+  openError: string | null;
+  onDismissOpenError: () => void;
   toggleDir: (root: RootKey, dirPath: string) => void | Promise<void>;
   openFile: (root: RootKey, path: string) => void | Promise<void>;
   closeTab: (id: string) => void;
@@ -82,7 +86,7 @@ export type FileWorkbenchViewModel = {
   startCreate: (root: RootKey, parentDir: string, kind: "file" | "folder") => void;
   startRename: (root: RootKey, relPath: string) => void;
   requestDelete: (root: RootKey, relPath: string, kind: "file" | "directory") => void;
-  doShowInFolder: (root: RootKey, relPath: string) => void | Promise<void>;
+  doShowInFolder: (root: AnyFileRoot, relPath: string) => void | Promise<void>;
   pasteInto: (root: RootKey, parentDir: string) => void | Promise<void>;
   moveWorkspaceItemIntoMatter: (
     matterId: string,
@@ -149,6 +153,8 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
     inlineInputRef,
     activeTab,
     activeDirty,
+    openError,
+    onDismissOpenError,
     toggleDir,
     openFile,
     closeTab,
@@ -402,6 +408,8 @@ export function FileWorkbenchView(vm: FileWorkbenchViewModel) {
       apiBase={casesNodeActions?.apiBase}
       workspaceDir={workspaceDir}
       projectDir={projectDir}
+      openError={openError}
+      onDismissOpenError={onDismissOpenError}
     />
   );
 

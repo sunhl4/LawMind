@@ -123,7 +123,7 @@ describe("compileIntent", () => {
     expect(compiled.capabilityId).toBe("contract.review");
     expect(compiled.pipelineOverride).toBeUndefined();
     expect(compiled.delivery.artifactShape).toBe("opinion_memo");
-    expect(compiled.delivery.outputPlace).toBe("desktop");
+    expect(compiled.delivery.placeRequested).toBe(true);
     expect(compiled.delivery.mutateSource).toBe("forbid");
   });
 

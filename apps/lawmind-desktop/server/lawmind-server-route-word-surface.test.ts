@@ -383,3 +383,201 @@ describe("word surface route", () => {
     }
   });
 });
+
+describe("另存副本的落点：跟着原件走，外部原件导到工作区", () => {
+  async function minimalDocx(abs: string, text: string): Promise<void> {
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    const zip = new JSZip();
+    zip.file(
+      "word/document.xml",
+      `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+        `<w:p><w:r><w:t>${text}</w:t></w:r></w:p>` +
+        `</w:body></w:document>`,
+    );
+    await fs.writeFile(abs, await zip.generateAsync({ type: "nodebuffer" }));
+  }
+
+  async function postExport(
+    ctx: LawmindDispatchContext,
+    body: Record<string, unknown>,
+  ): Promise<{ status?: number; body?: Record<string, unknown> }> {
+    const stream = new PassThrough();
+    stream.end(JSON.stringify(body), "utf8");
+    const res = mockRes();
+    await handleWordSurfaceRoutes({
+      ctx,
+      req: Object.assign(stream, { method: "POST" }) as http.IncomingMessage,
+      res,
+      url: new URL("http://127.0.0.1/api/word-surface/export"),
+      pathname: "/api/word-surface/export",
+      c: {},
+    });
+    return res as unknown as { status?: number; body?: Record<string, unknown> };
+  }
+
+  it("工作区里的原件：副本就写在原件旁", async () => {
+    const workspaceDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "lm-exp-copy-ws-")));
+    await minimalDocx(path.join(workspaceDir, "contracts", "合作协议.docx"), "正文");
+    const ctx = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false, policy: null },
+    } as LawmindDispatchContext;
+    const res = await postExport(ctx, { root: "workspace", path: "contracts/合作协议.docx" });
+    expect(res.status).toBe(200);
+    expect(res.body?.outputPath).toBe(path.join(workspaceDir, "contracts", "合作协议_审阅稿.docx"));
+    await fs.access(path.join(workspaceDir, "contracts", "合作协议_审阅稿.docx"));
+  });
+
+  it("工作区外的原件：副本导到工作区 artifacts，不写进外部目录", async () => {
+    const workspaceDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "lm-exp-copy-ws-")));
+    const outside = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "lm-exp-copy-out-")));
+    const abs = path.join(outside, "桌面合同.docx");
+    await minimalDocx(abs, "正文");
+    const grantsFile = path.join(workspaceDir, "file-grants.json");
+    await fs.writeFile(
+      grantsFile,
+      JSON.stringify({ grants: [{ key: "file:ext1", dirPath: outside, absPath: abs }] }),
+      "utf8",
+    );
+    process.env.LAWMIND_FILE_GRANTS_FILE = grantsFile;
+    const ctx = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false, policy: null },
+    } as LawmindDispatchContext;
+    const res = await postExport(ctx, { root: "file:ext1", path: "桌面合同.docx" });
+    expect(res.status).toBe(200);
+    expect(res.body?.outputPath).toBe(
+      path.join(workspaceDir, "artifacts", "桌面合同_审阅稿.docx"),
+    );
+    await fs.access(path.join(workspaceDir, "artifacts", "桌面合同_审阅稿.docx"));
+    // 外部目录里不许出现新文件。
+    const left = (await fs.readdir(outside)).filter((name) => name.includes("审阅稿"));
+    expect(left).toEqual([]);
+
+    delete process.env.LAWMIND_FILE_GRANTS_FILE;
+    await fs.rm(workspaceDir, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
+  });
+});
+
+/**
+ * 外部根（`file:<id>`）的写守卫：`path` 只能是律师点过的那一份。
+ *
+ * 读可以放开（从正文点同目录附件是正常操作），写不行 ——
+ * 否则把 path 换成同目录的文件名就能改别人的文件，绕过 fs 桥的精确匹配。
+ */
+describe("word-surface 外部根的写守卫", () => {
+  async function seed(): Promise<{
+    ctx: LawmindDispatchContext;
+    desk: string;
+    target: string;
+    sibling: string;
+  }> {
+    const workspaceDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "lm-ws-ext-ws-")));
+    const desk = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "lm-ws-ext-desk-")));
+    const target = path.join(desk, "查询意见.docx");
+    const sibling = path.join(desk, "别人的合同.docx");
+    for (const abs of [target, sibling]) {
+      const zip = new JSZip();
+      zip.file(
+        "word/document.xml",
+        `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+          `<w:p><w:r><w:t>正文</w:t></w:r></w:p>` +
+          `</w:body></w:document>`,
+      );
+      await fs.writeFile(abs, await zip.generateAsync({ type: "nodebuffer" }));
+    }
+    const grantsFile = path.join(workspaceDir, "file-grants.json");
+    await fs.writeFile(
+      grantsFile,
+      JSON.stringify({ grants: [{ key: "file:ext1", dirPath: desk, absPath: target }] }),
+      "utf8",
+    );
+    process.env.LAWMIND_FILE_GRANTS_FILE = grantsFile;
+    return {
+      ctx: {
+        workspaceDir,
+        envFile: undefined,
+        userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+        policy: { loaded: false, policy: null },
+      } as LawmindDispatchContext,
+      desk,
+      target,
+      sibling,
+    };
+  }
+
+  async function post(
+    ctx: LawmindDispatchContext,
+    pathname: string,
+    body: Record<string, unknown>,
+  ): Promise<{ status?: number; body?: Record<string, unknown> }> {
+    const stream = new PassThrough();
+    stream.end(JSON.stringify(body), "utf8");
+    const res = mockRes();
+    await handleWordSurfaceRoutes({
+      ctx,
+      req: Object.assign(stream, { method: "POST" }) as http.IncomingMessage,
+      res,
+      url: new URL(`http://127.0.0.1${pathname}`),
+      pathname,
+      c: {},
+    });
+    return res as unknown as { status?: number; body?: Record<string, unknown> };
+  }
+
+  it("save 授权的那一份：通过", async () => {
+    const { ctx } = await seed();
+    const res = await post(ctx, "/api/word-surface/save", {
+      root: "file:ext1",
+      path: "查询意见.docx",
+      paragraphs: [[{ text: "改后的正文" }]],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    delete process.env.LAWMIND_FILE_GRANTS_FILE;
+  });
+
+  it("save 同目录的别的文件：403，且那个文件没被改", async () => {
+    const { ctx, sibling } = await seed();
+    const before = await fs.readFile(sibling);
+    const res = await post(ctx, "/api/word-surface/save", {
+      root: "file:ext1",
+      path: "别人的合同.docx",
+      paragraphs: [[{ text: "被篡改" }]],
+    });
+    expect(res.status).toBe(403);
+    expect(await fs.readFile(sibling)).toEqual(before);
+    delete process.env.LAWMIND_FILE_GRANTS_FILE;
+  });
+
+  it("tracked / sync / hunks / table-row 同样不接受同目录其它文件", async () => {
+    const { ctx } = await seed();
+    for (const [pathname, body] of [
+      ["/api/word-surface/tracked", { root: "file:ext1", path: "别人的合同.docx", decision: "accept" }],
+      [
+        "/api/word-surface/sync",
+        {
+          root: "file:ext1",
+          path: "别人的合同.docx",
+          paragraphs: [{ baseline: "正文", current: "被改" }],
+        },
+      ],
+      [
+        "/api/word-surface/hunks",
+        { root: "file:ext1", path: "别人的合同.docx", before: "正文", after: "被改" },
+      ],
+      [
+        "/api/word-surface/table-row",
+        { root: "file:ext1", path: "别人的合同.docx", tableIndex: 0, afterRowIndex: 0 },
+      ],
+    ] as const) {
+      const res = await post(ctx, pathname, body as unknown as Record<string, unknown>);
+      expect(res.status, `${pathname} 应被拒`).not.toBe(200);
+    }
+    delete process.env.LAWMIND_FILE_GRANTS_FILE;
+  });
+});

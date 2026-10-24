@@ -43,3 +43,22 @@ describe("fileTabAddress", () => {
     );
   });
 });
+
+describe("fileTabAddress 对外部文件", () => {
+  it("用授权目录，不拿工作区顶替", () => {
+    expect(
+      fileTabAddress("file:abc", "查询意见.docx", "/Users/shl/ws", null, "/Users/shl/Desktop"),
+    ).toBe("Users › shl › Desktop › 查询意见.docx");
+  });
+
+  it("授权目录未知时只显示文件名，不编一个工作区路径", () => {
+    expect(fileTabAddress("file:abc", "查询意见.docx", "/Users/shl/ws", null)).toBe("查询意见.docx");
+  });
+
+  it("工作区/项目夹仍按原口径", () => {
+    expect(fileTabAddress("workspace", "cases/a/b.docx", "/ws", "/proj")).toBe(
+      "ws › cases › a › b.docx",
+    );
+    expect(fileTabAddress("project", "b.docx", "/ws", "/proj")).toBe("proj › b.docx");
+  });
+});

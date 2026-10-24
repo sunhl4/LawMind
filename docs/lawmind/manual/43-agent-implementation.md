@@ -382,52 +382,52 @@ LLM 增强是可选的（抽取式摘要打底，LLM 只做升级），且**不�
 
 ## 43.9 其他（简列）
 
-| 文件                                                                                              | 作用                                                                                                     |
-| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `types.ts`                                                                                        | 核心类型（`AgentTool` / `AgentContext` / `AgentMessage` / `AgentTurn` / `AgentSession` / `AgentConfig`） |
-| `no-task-turn.ts`                                                                                 | 「无任务回合」的提示与拒绝文案                                                                           |
-| `dangerous-tool-policy.ts`                                                                        | 子进程沙箱名单；`toolRequiresExplicitApproval` 因 `toolRequiresLawyerPause` 恒为 false 而直接返回 false  |
-| `approval-cache-key.ts`                                                                           | 审批缓存键（含参数绑定工具）                                                                             |
-| `confirmed-answers.ts`                                                                            | 合并已确认的澄清答案                                                                                     |
-| `document-read-budget.ts`                                                                         | 文档读取预算（按上下文伸缩）                                                                             |
-| `text-elide.ts`                                                                                   | 中段省略                                                                                                 |
-| `live-turn-progress.ts`                                                                           | 实时进度（含从事件重建）                                                                                 |
-| `embed-turn-events.ts`                                                                            | SSE 事件名映射与历史别名                                                                                 |
-| `model-error-message.ts`                                                                          | 模型错误的人话翻译                                                                                       |
-| `model-identity-reply.ts` / `model-connectivity-check.ts`                                         | 两个短路（问模型是谁、连通性自检）                                                                       |
-| `chat-folder.ts`                                                                                  | 对话挂本机文件夹（`normalizeChatFolderRel` / `normalizeChatWorkDir` / `chatFolderGroupKey`）             |
-| `fork-continue-request.ts`                                                                        | 识别律师原话里的「另起新对话并带上文」，由桌面执行 fork，不把这句话交给模型                              |
-| `deliverable-pipeline.ts`                                                                         | 自动交付物工作流（要不要跑、怎么跑）                                                                     |
-| `deliverable-shape.ts`                                                                            | 诉状 / 追问清单 / 备忘录的形态检查（缺节、清单条数）；只查形状，词仍由模型写                             |
-| `deliverable-chat-links.ts`                                                                       | 回合写出办公交付件后，把可点的 lm-wps 链接补进给律师的回复                                               |
-| `named-deliverable.ts`                                                                            | 从指令里识别点名交付文件；没落盘就隐藏 nudge 一次                                                        |
-| `issue-ledger.ts`                                                                                 | 审查类备忘录必须带的台账块（冲突、材料缺口、一处具体修改）                                               |
-| `write-synthesis.ts`                                                                              | 写前合成：检索够了 nudge 去写点名文件；仍缺则收锁检索（`withholdSearchTools`）、点名调用拒签             |
-| `review-board-export-deferral.ts`                                                                 | 「须审核台放行」推诿的隐藏反弹（同一回合最多 1 次，交办即终稿）                                          |
-| `mail-contract-fast-path.ts`                                                                      | 邮件合同改稿短路径的提示词与 deny 名单再导出                                                             |
-| `word-revision-auto-deliver.ts`                                                                   | Word 改稿回合完成后自动落 tracked 稿；澄清 / 暂停 / 只读不绕过管线落盘                                   |
-| `draft-worker.ts` / `draft-worker-loop.ts`                                                        | 并行写稿（含只读 worker 循环）                                                                           |
-| `draft-worker-batch.ts`                                                                           | 同轮多个 `draft_worker` 的分片冲突拒绝与合并索引                                                         |
-| `worker-brief.ts`                                                                                 | 隔离 worker 的自含任务书（子工看不到父对话，任务书必须写全）                                             |
-| `sidecar-resume.ts`                                                                               | 只读 sidecar 的续跑记录（父历史不存这份转录，只留 resume 指针）                                          |
-| `explore-folder-worker.ts`                                                                        | 文件夹探查 worker                                                                                        |
-| `readonly-worker-loop.ts`                                                                         | 只读 worker 循环（给子任务用）                                                                           |
-| `material-pile-digest.ts`                                                                         | `digest_materials`：一堆文件一次读出短卡（≤32 份，抽取并发 4）                                           |
-| `turn-plan.ts` / `turn-plan-model.ts`                                                             | `update_plan` 回合清单（2–8 步写进世界状态）；model 那份不含 Node 内置模块，渲染进程可安全引用           |
-| `tool-decision-sampling.ts`                                                                       | 工具轮的输出预算（`TOOL_DECISION_MAX_TOKENS = 4096`）与「被截断才抬预算」判定                            |
-| `lawyer-chat-projection.ts`                                                                       | 律师面气泡投影：合成 user 不上屏，最后一轮工具之后的正文合成一个气泡                                     |
-| `lawyer-close.ts` / `lawyer-close-anchors.ts`                                                     | 给律师的收口：删掉核对黑话所在行，把工具已返回的法条锚点嵌进模型写好的句子                               |
-| `resolve-transcript-cut.ts`                                                                       | 桌面气泡索引映射到持久气泡（编辑 / 删除跟 utterance 走，不按陈旧索引）                                   |
-| `runtime-model-call.ts`                                                                           | 模型调用（含 SSE 解析、重试、配对拒绝自愈）                                                              |
-| `runtime-resume.ts`                                                                               | 续跑（`resumeTurn` / `resumePausedTurn`）                                                                |
-| `runtime-tool-arg-normalize.ts` / `runtime-tool-validation.ts`                                    | 参数归一化与校验                                                                                         |
-| `assistant-presets.ts` / `agent-presets.ts`                                                       | 岗位预设（内置 6 个 + 工作区 `lawmind/agents/*.md`）                                                     |
-| `assistant-text.ts`                                                                               | 助手文本提取与截断判断                                                                                   |
-| `prompt-protocol-gate.ts`                                                                         | 协议门（哪些工具允许走研究协议/最短改动协议）                                                            |
-| `conversation-search.ts` / `conversation-search-query.ts`                                         | 跨对话检索（含相对时间解析）                                                                             |
-| `factor-state.ts` / `factor-conformal.ts`                                                         | 回合因子状态：引擎持有锚点与稳定子，模型只采样；conformal 门要求预测集大小为 1 才许写确定句              |
-| `skeleton-tree.ts` / `ooxml-skeleton.ts`                                                          | 草稿骨架：标题森林（模型可改的起点）与从 docx / 内置模板抽标题                                           |
-| `cuad-official-clauses.ts` / `factor-state-legal-industry-fixtures.ts` / `legal-bench-metrics.ts` | 评测夹具与打分函数（只被测试引用，不进生产链）                                                           |
+| 文件                                                                                              | 作用                                                                                                                                |
+| ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`                                                                                        | 核心类型（`AgentTool` / `AgentContext` / `AgentMessage` / `AgentTurn` / `AgentSession` / `AgentConfig`）                            |
+| `no-task-turn.ts`                                                                                 | 「无任务回合」的提示与拒绝文案                                                                                                      |
+| `dangerous-tool-policy.ts`                                                                        | 子进程沙箱名单；`toolRequiresExplicitApproval` 因 `toolRequiresLawyerPause` 恒为 false 而直接返回 false                             |
+| `approval-cache-key.ts`                                                                           | 审批缓存键（含参数绑定工具）                                                                                                        |
+| `confirmed-answers.ts`                                                                            | 合并已确认的澄清答案                                                                                                                |
+| `document-read-budget.ts`                                                                         | 文档读取预算（按上下文伸缩）                                                                                                        |
+| `text-elide.ts`                                                                                   | 中段省略                                                                                                                            |
+| `live-turn-progress.ts`                                                                           | 实时进度（含从事件重建）                                                                                                            |
+| `embed-turn-events.ts`                                                                            | SSE 事件名映射与历史别名                                                                                                            |
+| `model-error-message.ts`                                                                          | 模型错误的人话翻译                                                                                                                  |
+| `model-identity-reply.ts` / `model-connectivity-check.ts`                                         | 两个短路（问模型是谁、连通性自检）                                                                                                  |
+| `chat-folder.ts`                                                                                  | 对话挂本机文件夹（`normalizeChatFolderRel` / `normalizeChatWorkDir` / `chatFolderGroupKey`）                                        |
+| `fork-continue-request.ts`                                                                        | 识别律师原话里的「另起新对话并带上文」，由桌面执行 fork，不把这句话交给模型                                                         |
+| `deliverable-pipeline.ts`                                                                         | 自动交付物工作流（要不要跑、怎么跑）                                                                                                |
+| `deliverable-shape.ts`                                                                            | 诉状 / 追问清单 / 备忘录的形态检查（缺节、清单条数）；只查形状，词仍由模型写                                                        |
+| `deliverable-chat-links.ts`                                                                       | 回合写出办公交付件后，把可点的 lm-wps 链接补进给律师的回复；链接带 `workspace:` / `project:` 根溯源，点击侧不再按 `cases/` 前缀猜根 |
+| `named-deliverable.ts`                                                                            | 从指令里识别点名交付文件；没落盘就隐藏 nudge 一次                                                                                   |
+| `issue-ledger.ts`                                                                                 | 审查类备忘录必须带的台账块（冲突、材料缺口、一处具体修改）                                                                          |
+| `write-synthesis.ts`                                                                              | 写前合成：检索够了 nudge 去写点名文件；仍缺则收锁检索（`withholdSearchTools`）、点名调用拒签                                        |
+| `review-board-export-deferral.ts`                                                                 | 「须审核台放行」推诿的隐藏反弹（同一回合最多 1 次，交办即终稿）                                                                     |
+| `mail-contract-fast-path.ts`                                                                      | 邮件合同改稿短路径的提示词与 deny 名单再导出                                                                                        |
+| `word-revision-auto-deliver.ts`                                                                   | Word 改稿回合完成后自动落 tracked 稿；澄清 / 暂停 / 只读不绕过管线落盘                                                              |
+| `draft-worker.ts` / `draft-worker-loop.ts`                                                        | 并行写稿（含只读 worker 循环）                                                                                                      |
+| `draft-worker-batch.ts`                                                                           | 同轮多个 `draft_worker` 的分片冲突拒绝与合并索引                                                                                    |
+| `worker-brief.ts`                                                                                 | 隔离 worker 的自含任务书（子工看不到父对话，任务书必须写全）                                                                        |
+| `sidecar-resume.ts`                                                                               | 只读 sidecar 的续跑记录（父历史不存这份转录，只留 resume 指针）                                                                     |
+| `explore-folder-worker.ts`                                                                        | 文件夹探查 worker                                                                                                                   |
+| `readonly-worker-loop.ts`                                                                         | 只读 worker 循环（给子任务用）                                                                                                      |
+| `material-pile-digest.ts`                                                                         | `digest_materials`：一堆文件一次读出短卡（≤32 份，抽取并发 4）                                                                      |
+| `turn-plan.ts` / `turn-plan-model.ts`                                                             | `update_plan` 回合清单（2–8 步写进世界状态）；model 那份不含 Node 内置模块，渲染进程可安全引用                                      |
+| `tool-decision-sampling.ts`                                                                       | 工具轮的输出预算（`TOOL_DECISION_MAX_TOKENS = 4096`）与「被截断才抬预算」判定                                                       |
+| `lawyer-chat-projection.ts`                                                                       | 律师面气泡投影：合成 user 不上屏，最后一轮工具之后的正文合成一个气泡                                                                |
+| `lawyer-close.ts` / `lawyer-close-anchors.ts`                                                     | 给律师的收口：删掉核对黑话所在行，把工具已返回的法条锚点嵌进模型写好的句子                                                          |
+| `resolve-transcript-cut.ts`                                                                       | 桌面气泡索引映射到持久气泡（编辑 / 删除跟 utterance 走，不按陈旧索引）                                                              |
+| `runtime-model-call.ts`                                                                           | 模型调用（含 SSE 解析、重试、配对拒绝自愈）                                                                                         |
+| `runtime-resume.ts`                                                                               | 续跑（`resumeTurn` / `resumePausedTurn`）                                                                                           |
+| `runtime-tool-arg-normalize.ts` / `runtime-tool-validation.ts`                                    | 参数归一化与校验                                                                                                                    |
+| `assistant-presets.ts` / `agent-presets.ts`                                                       | 岗位预设（内置 6 个 + 工作区 `lawmind/agents/*.md`）                                                                                |
+| `assistant-text.ts`                                                                               | 助手文本提取与截断判断                                                                                                              |
+| `prompt-protocol-gate.ts`                                                                         | 协议门（哪些工具允许走研究协议/最短改动协议）                                                                                       |
+| `conversation-search.ts` / `conversation-search-query.ts`                                         | 跨对话检索（含相对时间解析）                                                                                                        |
+| `factor-state.ts` / `factor-conformal.ts`                                                         | 回合因子状态：引擎持有锚点与稳定子，模型只采样；conformal 门要求预测集大小为 1 才许写确定句                                         |
+| `skeleton-tree.ts` / `ooxml-skeleton.ts`                                                          | 草稿骨架：标题森林（模型可改的起点）与从 docx / 内置模板抽标题                                                                      |
+| `cuad-official-clauses.ts` / `factor-state-legal-industry-fixtures.ts` / `legal-bench-metrics.ts` | 评测夹具与打分函数（只被测试引用，不进生产链）                                                                                      |
 
 ## 43.10 读 `agent/` 的四个提示
 

@@ -7,6 +7,7 @@ import http from "node:http";
 import path from "node:path";
 import { createLawMindEngine } from "../../../src/lawmind/index.js";
 import { MOUNT_WRITE_REFUSAL } from "../../../src/lawmind/host-access/access-broker.js";
+import { isDeniedExternalFilePath } from "../../../src/lawmind/host-access/deny-list.js";
 import { buildLawMindRetrievalAdaptersFromEnvForTest } from "../../../src/lawmind/agent/tools/engine-tools.js";
 import {
   contextTokensForConversation,
@@ -412,6 +413,22 @@ export function normalizeRelPath(p: string): string {
  */
 export const WRITABLE_FS_ROOTS = new Set(["workspace", "project"]);
 
+/** `file:<id>`：律师让助手找到的工作区外文件，按次授权、不进静态白名单。 */
+export const FILE_ROOT_PREFIX = "file:";
+
+/** `file:<id>` 根：可写性按「哪一份文件」精确判（见 resolveFsPath）。 */
+export function isExternalFileRoot(rootKey: string): boolean {
+  return typeof rootKey === "string" && rootKey.startsWith(FILE_ROOT_PREFIX);
+}
+
+/** 外部单文件根的写拒绝文案。与 electron/fs-bridge.mjs 同文案（drift 测试守着）。 */
+export const EXTERNAL_FILE_WRITE_REFUSAL =
+  "只能修改你在对话里点开的那份文件；同目录的其他文件请先「收进本案」再改。";
+
+/** 外部目录里命中密钥/治理名单的文件（读也要挡）。 */
+export const DENY_EXTERNAL_REFUSAL =
+  "这个文件属于密钥、钥匙串或 LawMind 的治理数据，不能读取。请把需要的材料复制到本案或本机文件夹后再交办。";
+
 /** 机器可读的拒写原因。渲染进程与测试都按 code 判断，不依赖文案。 */
 export const FS_ROOT_NOT_WRITABLE_CODE = "root_not_writable";
 
@@ -423,7 +440,7 @@ export class FsWriteNotAllowedError extends Error {
 export type FsAccess = "read" | "write";
 
 export function isWritableFsRoot(rootKey: string): boolean {
-  return WRITABLE_FS_ROOTS.has(rootKey);
+  return WRITABLE_FS_ROOTS.has(rootKey) || isExternalFileRoot(rootKey);
 }
 
 function rootNotWritableError(rootKey: string): FsWriteNotAllowedError {
@@ -434,8 +451,67 @@ function rootNotWritableError(rootKey: string): FsWriteNotAllowedError {
   );
 }
 
+/**
+ * 授权清单由主进程写、本地服务读；每次请求重读，刚点的那份文件必须马上可读写。
+ */
+export function readFileGrantRoots(file?: string | null): Record<string, string> {
+  const filePath = file?.trim();
+  if (!filePath) {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  try {
+    if (!fs.existsSync(filePath)) {
+      return out;
+    }
+    const raw = JSON.parse(fs.readFileSync(filePath, "utf8")) as {
+      grants?: Array<{ key?: unknown; dirPath?: unknown }>;
+    };
+    for (const row of raw.grants ?? []) {
+      const key = typeof row?.key === "string" ? row.key : "";
+      const dir = typeof row?.dirPath === "string" ? row.dirPath.trim() : "";
+      if (key.startsWith(FILE_ROOT_PREFIX) && dir && path.isAbsolute(dir)) {
+        out[key] = dir;
+      }
+    }
+  } catch {
+    /* 坏文件按未授权处理。 */
+  }
+  return out;
+}
+
+/** `根 key → 授权文件绝对路径`：外部根的写操作按它做精确匹配。 */
+export function readFileGrantFiles(file?: string | null): Record<string, string> {
+  const filePath = file?.trim();
+  if (!filePath) {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  try {
+    if (!fs.existsSync(filePath)) {
+      return out;
+    }
+    const raw = JSON.parse(fs.readFileSync(filePath, "utf8")) as {
+      grants?: Array<{ key?: unknown; absPath?: unknown }>;
+    };
+    for (const row of raw.grants ?? []) {
+      const key = typeof row?.key === "string" ? row.key : "";
+      const abs = typeof row?.absPath === "string" ? row.absPath.trim() : "";
+      if (key.startsWith(FILE_ROOT_PREFIX) && abs && path.isAbsolute(abs)) {
+        out[key] = abs;
+      }
+    }
+  } catch {
+    /* 坏文件按未授权处理。 */
+  }
+  return out;
+}
+
 export function resolveFsRoots(workspaceDir: string): Record<string, string> {
-  const roots: Record<string, string> = { workspace: workspaceDir };
+  const roots: Record<string, string> = {
+    workspace: workspaceDir,
+    ...readFileGrantRoots(process.env.LAWMIND_FILE_GRANTS_FILE),
+  };
   const project = process.env.LAWMIND_PROJECT_DIR?.trim();
   if (project) {
     roots.project = path.resolve(project);
@@ -495,7 +571,10 @@ export function resolveFsPath(
     throw rootNotWritableError(rootKey);
   }
   const allowed =
-    rootKey === "workspace" || rootKey === "project" || rootKey.startsWith("mount:");
+    rootKey === "workspace" ||
+    rootKey === "project" ||
+    rootKey.startsWith("mount:") ||
+    isExternalFileRoot(rootKey);
   if (!allowed) {
     throw new Error("invalid root");
   }
@@ -515,6 +594,20 @@ export function resolveFsPath(
   const real = fs.existsSync(full) ? fs.realpathSync(full) : null;
   if (real && real !== rootAbs && !real.startsWith(rootAbs + path.sep)) {
     throw new Error("symlink escapes root");
+  }
+  if (isExternalFileRoot(rootKey)) {
+    const target = real ?? full;
+    // 外部目录里可能有 `.env` / 密钥这类拒绝名单文件：读也要挡住。
+    if (isDeniedExternalFilePath(target)) {
+      throw new FsWriteNotAllowedError(DENY_EXTERNAL_REFUSAL);
+    }
+    // 写只认授权的那一份文件：同目录别的文件、以及在这里新建文件都不放行。
+    if (opts.access === "write") {
+      const granted = readFileGrantFiles(process.env.LAWMIND_FILE_GRANTS_FILE)[rootKey];
+      if (!granted || path.resolve(granted) !== path.resolve(target)) {
+        throw new FsWriteNotAllowedError(EXTERNAL_FILE_WRITE_REFUSAL);
+      }
+    }
   }
   return { root: rootAbs, full, rel };
 }

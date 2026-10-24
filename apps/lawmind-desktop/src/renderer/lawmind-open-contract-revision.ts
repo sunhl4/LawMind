@@ -3,9 +3,14 @@
  */
 import { apiGetJson } from "./api-client";
 import {
+  defaultRootForRelPath,
   LAWMIND_SHOW_WORD_SURFACE_EVENT,
+  lastOpenTargetError,
+  reportOpenFileFailure,
   requestOpenWorkspaceFile,
+  resolveWorkspaceFileTarget,
   revisionColumnTarget,
+  type WorkspaceFileRoot,
 } from "./lawmind-workspace-file-open";
 
 export const LAWMIND_PREPARE_WORKSPACE_FILE_EVENT = "lawmind:prepare-workspace-file";
@@ -46,13 +51,17 @@ export function clearPendingDraftDesk(): void {
   pendingDraftDeskId = null;
 }
 
-function openMiddleColumnFile(relPath: string): void {
+function openMiddleColumnFile(
+  relPath: string,
+  projectDir?: string,
+  rootHint?: WorkspaceFileRoot,
+): void {
   const path = normPath(relPath);
   if (!path || typeof window === "undefined") {
     return;
   }
   prepareWorkspaceForFileOpen();
-  requestOpenWorkspaceFile(path, path.startsWith("cases/") ? "workspace" : "project");
+  requestOpenWorkspaceFile(path, rootHint ?? defaultRootForRelPath(path, projectDir));
   if (/\.docx?$/i.test(path)) {
     window.dispatchEvent(new CustomEvent(LAWMIND_SHOW_WORD_SURFACE_EVENT));
   }
@@ -65,6 +74,8 @@ export async function openContractRevisionForTask(opts: {
   projectDir?: string;
   /** 草稿没有可打开的 Word 时，改开用户点的这份文件。 */
   fallbackRelPath?: string;
+  /** fallback 文件在哪个根（lm-wps 链接自带溯源；缺省时按路径猜）。 */
+  fallbackRootHint?: WorkspaceFileRoot;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const taskId = opts.taskId?.trim();
   if (!taskId) {
@@ -89,7 +100,7 @@ export async function openContractRevisionForTask(opts: {
     }
     const fallback = normPath(opts.fallbackRelPath ?? "");
     if (fallback) {
-      openMiddleColumnFile(fallback);
+      openMiddleColumnFile(fallback, opts.projectDir, opts.fallbackRootHint);
       return { ok: true };
     }
     if (body.draft && requestOpenDraftDesk(taskId)) {
@@ -189,6 +200,8 @@ export async function openDocxInReviewSurface(opts: {
   apiBase?: string;
   workspaceDir?: string;
   projectDir?: string;
+  /** 链接自带根溯源（外部文件是 `file:<id>`）。 */
+  rootHint?: WorkspaceFileRoot;
   /** 找到绑了修订的任务后，交给审核台，而不是只打开预览。 */
   onTask?: (taskId: string) => void;
 }): Promise<void> {
@@ -214,6 +227,7 @@ export async function openDocxInReviewSurface(opts: {
           workspaceDir: opts.workspaceDir,
           projectDir: opts.projectDir,
           fallbackRelPath: path,
+          ...(opts.rootHint ? { fallbackRootHint: opts.rootHint } : {}),
         });
         if (opened.ok) {
           return;
@@ -223,17 +237,81 @@ export async function openDocxInReviewSurface(opts: {
       /* 对不上草稿时仍打开这份文件。 */
     }
   }
-  openMiddleColumnFile(path);
+  openMiddleColumnFile(path, opts.projectDir, opts.rootHint);
 }
 
 /** 对话里点非 Word 交付件：打开中间栏。项目目录里的稿不在工作区根上。 */
-export function openDeliverableInMiddleColumn(relPath: string): void {
+export function openDeliverableInMiddleColumn(
+  relPath: string,
+  projectDir?: string,
+): void {
   const path = normPath(relPath);
   if (!path || typeof window === "undefined") {
     return;
   }
   prepareWorkspaceForFileOpen();
-  requestOpenWorkspaceFile(path, path.startsWith("cases/") ? "workspace" : "project");
+  requestOpenWorkspaceFile(path, defaultRootForRelPath(path, projectDir));
+}
+
+/**
+ * 审核台/在办/导出条共用的「交付件 → 中栏」入口。
+ *
+ * 草稿的 `outputPath` 是磁盘绝对路径：先按工作区/项目夹归一，再走对话链接同一条
+ * 中栏入口，不另开一条打开路径。
+ */
+export async function openReviewedOutputInMiddleColumn(
+  outputPath: string,
+  opts?: { workspaceDir?: string | null; projectDir?: string | null },
+): Promise<boolean> {
+  const target = await resolveWorkspaceFileTarget(outputPath, opts);
+  if (!target) {
+    return false;
+  }
+  // 根必须原样传下去：外部根的 rel 只是文件名，按 workspace 解析会 404。
+  openInRoot(target.rel, target.root);
+  return true;
+}
+
+/** 按已解析好的根打开：中栏唯一的打开入口。 */
+function openInRoot(relPath: string, root: WorkspaceFileRoot): void {
+  const path = normPath(relPath);
+  if (!path || typeof window === "undefined") {
+    return;
+  }
+  prepareWorkspaceForFileOpen();
+  requestOpenWorkspaceFile(path, root);
+  if (/\.docx?$/i.test(path)) {
+    window.dispatchEvent(new CustomEvent(LAWMIND_SHOW_WORD_SURFACE_EVENT));
+  }
+}
+
+/**
+ * 对话里点到的工作区外文件。
+ *
+ * 产品规则：对话**产出**的文件一律在会话工作区 / 案件目录里（见交付路径），
+ * 所以这里遇到外部路径只有一种来源——律师让助手找的一个既有文件。
+ * 那种文件按 Cursor 的手感处理：按次授权成同级根，**权限与工作区相同**（可读可写）。
+ */
+export async function openAnyFileInMiddleColumn(
+  rawPath: string,
+  opts?: {
+    workspaceDir?: string | null;
+    projectDir?: string | null;
+  },
+): Promise<boolean> {
+  const raw = (rawPath ?? "").trim();
+  if (!raw || typeof window === "undefined") {
+    return false;
+  }
+  const target = await resolveWorkspaceFileTarget(raw, opts);
+  if (!target) {
+    reportOpenFileFailure(
+      `打不开这个文件：${raw}（${lastOpenTargetError() ?? "路径无效"}）`,
+    );
+    return false;
+  }
+  openInRoot(target.rel, target.root);
+  return true;
 }
 
 /**

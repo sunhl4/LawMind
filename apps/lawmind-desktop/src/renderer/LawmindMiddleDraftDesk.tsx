@@ -16,10 +16,22 @@ type Props = {
   assistantId?: string;
   /** 案卷占着中栏时先让开。 */
   hidden?: boolean;
+  /** 草稿已导出时：把交付件放到中栏打开（点后草稿台自动让位）。 */
+  onOpenArtifactInMiddleColumn?: (outputPath: string) => void;
+  /** 交付件所在根：「用本机应用打开」据此解析，不再一律当工作区。 */
+  workspaceDir?: string | null;
+  projectDir?: string | null;
 };
 
 export function LawmindMiddleDraftDesk(props: Props): ReactNode {
-  const { apiBase, assistantId, hidden = false } = props;
+  const {
+    apiBase,
+    assistantId,
+    hidden = false,
+    onOpenArtifactInMiddleColumn,
+    workspaceDir,
+    projectDir,
+  } = props;
   const [taskId, setTaskId] = useState<string | null>(() => peekPendingDraftDesk());
 
   useEffect(() => {
@@ -74,6 +86,9 @@ export function LawmindMiddleDraftDesk(props: Props): ReactNode {
         initialTaskId={taskId}
         initialStatusFilter="all"
         initialListMode="all"
+        onOpenArtifactInMiddleColumn={onOpenArtifactInMiddleColumn}
+        workspaceDir={workspaceDir}
+        projectDir={projectDir}
       />
     </div>
   );

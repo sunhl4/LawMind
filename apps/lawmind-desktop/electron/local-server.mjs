@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -27,6 +28,7 @@ import {
   windowsWordDeveloperRegArgs,
 } from "./local-api-port-contract.mjs";
 import { hostAccessFilePath, rootsFromStore } from "./host-access-store.mjs";
+import { FILE_GRANTS_FILENAME, createFileGrantStore } from "./file-grants.mjs";
 import { applyOfficeCliEnv, resolveOfficeCliExecutable } from "./officecli-runtime.mjs";
 import {
   defaultModelIdForWizardModel,
@@ -1054,6 +1056,7 @@ async function startLocalServerOnce(repoRoot, wsDir, envPath, retrievalMode, pro
         LAWMIND_RETRIEVAL_MODE: mode,
         LAWMIND_PROJECT_DIR: projectPath || "",
         LAWMIND_HOST_ACCESS_FILE: hostAccessFilePath(lawMindPaths().lawMindRoot),
+        LAWMIND_FILE_GRANTS_FILE: fileGrantsFilePath(),
         ...(auditExternalAnchorUrl
           ? { LAWMIND_AUDIT_EXTERNAL_ANCHOR_URL: auditExternalAnchorUrl }
           : {}),
@@ -1193,9 +1196,39 @@ export async function postLocalModelTest(modelId) {
   }
 }
 
+/**
+ * 本次运行登记过的「工作区外文件」根（`file:<id>`）。
+ *
+ * 律师让助手找到工作区外的文件时，点一下就在主进程里登记一次同级权限，
+ * 同时把交接单写到磁盘给本地服务进程读。启动时清空，所以不会累积成永久授权。
+ */
+let fileGrantStore = null;
+
+export function ensureFileGrantStore() {
+  if (fileGrantStore) {
+    return fileGrantStore;
+  }
+  const paths = lawMindPaths();
+  fileGrantStore = createFileGrantStore({
+    filePath: path.join(paths.lawMindRoot, FILE_GRANTS_FILENAME),
+    secretDirs: [paths.lawMindRoot, path.join(os.homedir(), ".lawmind")],
+  });
+  // 上一次运行的授权不留到这一次。
+  fileGrantStore.reset();
+  return fileGrantStore;
+}
+
+export function fileGrantsFilePath() {
+  return ensureFileGrantStore().filePath;
+}
+
 export function getAllowedRoots() {
   const paths = lawMindPaths();
-  return rootsFromStore(workspaceDir, projectDir, paths.lawMindRoot);
+  const roots = rootsFromStore(workspaceDir, projectDir, paths.lawMindRoot);
+  const store = ensureFileGrantStore();
+  // 已经在工作区里的文件不需要外部授权。
+  store.setKnownRoots([roots.workspace, roots.project].filter(Boolean));
+  return { ...roots, ...store.roots() };
 }
 
 export function setProjectDir(next) {

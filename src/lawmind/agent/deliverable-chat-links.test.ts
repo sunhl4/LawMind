@@ -1,10 +1,20 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { wpsDeliverableHref } from "../sources/lawyer-chat-link.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { rootedWpsDeliverableHref, wpsDeliverableHref } from "../sources/lawyer-chat-link.js";
 import { appendDeliverableFileLinks, collectDeliverablePaths } from "./deliverable-chat-links.js";
 import type { AgentMessage } from "./types.js";
 
 const workspaceDir = "/tmp/lawmind-deliverable-links";
+
+const tmpDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tmpDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 function toolReply(
   responses: NonNullable<AgentMessage["toolCallResponses"]>,
@@ -103,12 +113,50 @@ describe("deliverable chat links", () => {
     });
 
     expect(collectDeliverablePaths(messages, workspaceDir)).toEqual([
-      "cases/m/函.docx",
-      "cases/m/费用.xlsx",
-      "cases/m/证据/原.pdf",
-      "artifacts/out.xlsx",
-      "cases/m/合同.docx",
+      // 磁盘上没有这份文件时按旧口径兜底：cases/ 前缀=工作区，其余猜项目目录。
+      { path: "cases/m/函.docx", root: "workspace" },
+      { path: "cases/m/费用.xlsx", root: "workspace" },
+      { path: "cases/m/证据/原.pdf", root: "workspace" },
+      { path: "artifacts/out.xlsx", root: "project" },
+      { path: "cases/m/合同.docx", root: "workspace" },
     ]);
+  });
+
+  it("attributes the root by probing the disk instead of guessing prefixes", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lm-deliverable-roots-"));
+    tmpDirs.push(tmp);
+    const ws = path.join(tmp, "ws");
+    const project = path.join(tmp, "project");
+    fs.mkdirSync(path.join(ws, "artifacts"), { recursive: true });
+    fs.mkdirSync(path.join(project, "非技术相关"), { recursive: true });
+    fs.writeFileSync(path.join(ws, "artifacts", "查询意见_20261022_01.docx"), "x");
+    fs.writeFileSync(path.join(project, "非技术相关", "小型施工合同_01.docx"), "x");
+    const messages = toolReply([
+      {
+        toolCallId: "1",
+        name: "write_document",
+        result: { ok: true, data: { filePath: "artifacts/查询意见_20261022_01.docx" } },
+      },
+      {
+        toolCallId: "2",
+        name: "write_spreadsheet",
+        result: { ok: true, data: { path: "非技术相关/台账.xlsx" } },
+      },
+    ]);
+    expect(collectDeliverablePaths(messages, { workspaceDir: ws, projectDir: project })).toEqual([
+      { path: "artifacts/查询意见_20261022_01.docx", root: "workspace" },
+      { path: "非技术相关/台账.xlsx", root: "project" },
+    ]);
+    const linked = appendDeliverableFileLinks("写好了。", messages, {
+      workspaceDir: ws,
+      projectDir: project,
+    });
+    expect(linked).toContain(
+      `[查询意见_20261022_01.docx](${rootedWpsDeliverableHref("artifacts/查询意见_20261022_01.docx", "workspace")})`,
+    );
+    expect(linked).toContain(
+      `[台账.xlsx](${rootedWpsDeliverableHref("非技术相关/台账.xlsx", "project")})`,
+    );
   });
 
   it("appends a WPS link once, using the file name as the label", () => {
@@ -120,10 +168,25 @@ describe("deliverable chat links", () => {
       },
     ]);
     const first = appendDeliverableFileLinks("稿已写好。", messages, workspaceDir);
-    const href = wpsDeliverableHref("cases/m/派遣 协议.docx");
+    const href = rootedWpsDeliverableHref("cases/m/派遣 协议.docx", "workspace");
     expect(first).toBe(`稿已写好。\n\n交付文件\n- [派遣 协议.docx](${href})`);
     expect(appendDeliverableFileLinks(first, messages, workspaceDir)).toBe(first);
     expect(appendDeliverableFileLinks("没有文件。", [], workspaceDir)).toBe("没有文件。");
+  });
+
+  it("still skips the footer when the body already links the same file without a root hint", () => {
+    const messages = toolReply([
+      {
+        toolCallId: "1",
+        name: "write_document",
+        result: { ok: true, data: { filePath: "cases/m/函.docx" } },
+      },
+    ]);
+    const legacyHref = wpsDeliverableHref("cases/m/函.docx");
+    const withLegacy = `写好了。\n\n- [函.docx](${legacyHref})`;
+    expect(appendDeliverableFileLinks(withLegacy, messages, workspaceDir)).toBe(withLegacy);
+    const withPlainLink = "写好了，见下。\n\n- [函.docx](cases/m/函.docx)";
+    expect(appendDeliverableFileLinks(withPlainLink, messages, workspaceDir)).toBe(withPlainLink);
   });
 
   it("relativizes Word paths under projectDir and skips notes", () => {
@@ -148,10 +211,13 @@ describe("deliverable chat links", () => {
       },
     ]);
     expect(collectDeliverablePaths(messages, { workspaceDir, projectDir })).toEqual([
-      "非技术相关/采购合同模板/外协外包类合同/小型施工合同_01.docx",
+      { path: "非技术相关/采购合同模板/外协外包类合同/小型施工合同_01.docx", root: "project" },
     ]);
     const linked = appendDeliverableFileLinks("已改完。", messages, { workspaceDir, projectDir });
-    const href = wpsDeliverableHref("非技术相关/采购合同模板/外协外包类合同/小型施工合同_01.docx");
+    const href = rootedWpsDeliverableHref(
+      "非技术相关/采购合同模板/外协外包类合同/小型施工合同_01.docx",
+      "project",
+    );
     expect(linked).toContain(`[小型施工合同_01.docx](${href})`);
     expect(linked).not.toContain("notes/");
   });

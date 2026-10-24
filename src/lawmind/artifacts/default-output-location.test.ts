@@ -177,36 +177,16 @@ describe("resolveDefaultDeliverableLocation", () => {
     expect(result.planned.filename).not.toMatch(/_[0-9a-f]{8}\./i);
   });
 
-  it("writes to a lawyer-named Desktop instead of workspace artifacts", () => {
+  it("对话产出永远落在工作区：没有「律师点名的落点」这条通路", () => {
     const ws = tmpDir("lm-out-ws-");
     const home = tmpDir("lm-out-home-");
     const desktop = path.join(home, "Desktop");
     fs.mkdirSync(desktop);
-    const result = resolveDefaultDeliverableLocation({
-      workspaceDir: ws,
-      namedPlaceDir: desktop,
-      homeDir: home,
-      title: "合同审查意见",
-      extension: ".docx",
-      at,
-      protectSourcePath: path.join(desktop, "采购合同.docx"),
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-    expect(result.planned.reason).toBe("named_place");
-    expect(result.planned.outDir).toBe(desktop);
-    expect(result.planned.filename).toBe("合同审查意见_20260912_01.docx");
-    expect(result.planned.outputPath).not.toBe(path.join(desktop, "采购合同.docx"));
-  });
 
-  it("does not treat an arbitrary folder as a named place", () => {
-    const ws = tmpDir("lm-out-ws-");
-    const other = tmpDir("lm-out-other-");
+    // `namedPlaceDir` / `homeDir` 已从签名删除：外部落点连参数都不存在，
+    // 所以「写到桌面」在类型层面就不可表达。
     const result = resolveDefaultDeliverableLocation({
       workspaceDir: ws,
-      namedPlaceDir: other,
       title: "合同审查意见",
       extension: ".docx",
       at,
@@ -216,6 +196,28 @@ describe("resolveDefaultDeliverableLocation", () => {
       return;
     }
     expect(result.planned.reason).toBe("workspace_artifacts");
+    expect(result.planned.outDir).toBe(path.join(ws, "artifacts"));
+    expect(result.planned.filename).toBe("合同审查意见_20260912_01.docx");
+    // 桌面里什么都没写。
+    expect(fs.readdirSync(desktop)).toEqual([]);
+  });
+
+  it("显式 outputPath 指向工作区外：直接报错，不静默回落到 artifacts", () => {
+    const ws = tmpDir("lm-out-ws-");
+    const outside = tmpDir("lm-out-other-");
+    const result = resolveDefaultDeliverableLocation({
+      workspaceDir: ws,
+      explicitOutput: path.join(outside, "意见书.docx"),
+      title: "合同审查意见",
+      extension: ".docx",
+      at,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toContain("不在工作区");
+    expect(fs.readdirSync(outside)).toEqual([]);
   });
 });
 

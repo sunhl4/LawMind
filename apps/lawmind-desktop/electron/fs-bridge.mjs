@@ -190,6 +190,7 @@ function protectedWriteError() {
 // 规范实现：apps/lawmind-desktop/server/lawmind-server-helpers.ts 的 WRITABLE_FS_ROOTS。
 // 用白名单而非「root 以 mount: 开头」的否定式判断：新增根种类（如将来的 grant:）
 // 默认只读，必须显式加入才能写，避免默默开出一个新写入口。
+// file: 根在 assertWritableRoot 里单独放行（它按次授权、不进静态白名单）。
 export const WRITABLE_ROOT_KEYS = new Set(["workspace", "project"]);
 
 /** 机器可读的拒写原因，与 server 侧 FS_ROOT_NOT_WRITABLE_CODE 一致。 */
@@ -207,9 +208,40 @@ export function isMountRootKey(rootKey) {
   return typeof rootKey === "string" && rootKey.startsWith("mount:");
 }
 
+/**
+ * `file:<id>`：律师让助手找到的工作区外文件。
+ *
+ * 权限口径与工作区**相同**（可读可写）—— Cursor 里打开工作区外的文件也是这个手感。
+ * 但范围是「那份文件所在的目录」，按次登记、仅本次运行有效（见 `file-grants.mjs`）。
+ * 密钥 / 钥匙串 / LawMind 凭据目录在登记前就拒绝，这里不再重复。
+ */
+export const FILE_ROOT_PREFIX = "file:";
+
+export function isFileRootKey(rootKey) {
+  return typeof rootKey === "string" && rootKey.startsWith(FILE_ROOT_PREFIX);
+}
+
+/**
+ * 外部单文件根的写拒绝文案。与 server 侧 `EXTERNAL_FILE_WRITE_REFUSAL` 必须一致。
+ *
+ * 为什么写只认那一份文件：根是「文件所在目录」（fs-bridge 用目录做围栏），
+ * 若把整个目录当可写，一次点击就等于把桌面/下载变成可写区 ——
+ * 同目录的别的文件能被删、能新建、还能读到 `.env` 这类拒绝名单里的东西。
+ */
+export const EXTERNAL_FILE_WRITE_REFUSAL =
+  "只能修改你在对话里点开的那份文件；同目录的其他文件请先「收进本案」再改。";
+
+/** 外部目录里命中密钥/治理名单的文件（读也要挡）。 */
+export const DENY_EXTERNAL_REFUSAL =
+  "这个文件属于密钥、钥匙串或 LawMind 的治理数据，不能读取。请把需要的材料复制到本案或本机文件夹后再交办。";
+
 /** 所有写操作（write/mkdir/rename/delete/copy）在解析路径前必须先过这一关。 */
 export function assertWritableRoot(rootKey) {
   if (typeof rootKey === "string" && WRITABLE_ROOT_KEYS.has(rootKey)) {
+    return;
+  }
+  // 外部根：可写性按「哪一份文件」精确判，见 resolveFsPath 的 externalFileRoot 分支。
+  if (isFileRootKey(rootKey)) {
     return;
   }
   const err = new Error(
@@ -236,12 +268,20 @@ function isUnderRoot(rootPath, candidatePath) {
 /**
  * @param {() => Record<string, string>} getAllowedRoots
  */
-export function createFsBridge(getAllowedRoots) {
+/**
+ * @param {() => Record<string, string>} getAllowedRoots
+ * @param {{ grantedFileFor?: (rootKey: string) => string | null, isDeniedExternal?: (abs: string) => boolean }} [opts]
+ */
+export function createFsBridge(getAllowedRoots, opts = {}) {
+  const grantedFileFor = opts.grantedFileFor ?? (() => null);
+  const isDeniedExternal = opts.isDeniedExternal ?? (() => false);
+
   function assertRoot(rootKey) {
     const ok =
       rootKey === "workspace" ||
       rootKey === "project" ||
-      (typeof rootKey === "string" && rootKey.startsWith("mount:"));
+      (typeof rootKey === "string" && rootKey.startsWith("mount:")) ||
+      isFileRootKey(rootKey);
     if (!ok) {
       throw new Error("invalid root");
     }
@@ -260,8 +300,8 @@ export function createFsBridge(getAllowedRoots) {
    * `destructive: true` 表示「这个写会连带整棵子树」（删除、改名 from）——
    * 除保护路径本身外，还要扫目标目录里有没有保护文件。
    */
-  function resolveFsPath(rootKey, relPath = "", opts = {}) {
-    const { access, mustExist = false, allowRoot = true, destructive = false } = opts;
+  function resolveFsPath(rootKey, relPath = "", callOpts = {}) {
+    const { access, mustExist = false, allowRoot = true, destructive = false } = callOpts;
     if (access !== "read" && access !== "write") {
       throw new Error("internal: resolveFsPath requires access: read|write");
     }
@@ -294,6 +334,20 @@ export function createFsBridge(getAllowedRoots) {
     const real = realpathSafe(absPath);
     if (real && !isUnderRoot(rootPath, real)) {
       throw new Error("symlink escapes root");
+    }
+    // 外部根：目录里本来可能有 `.env` / 密钥这类拒绝名单文件，读也要挡住。
+    if (isFileRootKey(rootKey) && isDeniedExternal(real ?? absPath)) {
+      throw new Error(DENY_EXTERNAL_REFUSAL);
+    }
+    // 写只认授权的那一份文件：同目录的别的文件、以及在这里新建文件都不放行。
+    if (access === "write" && isFileRootKey(rootKey)) {
+      const granted = grantedFileFor(rootKey);
+      const target = real ?? absPath;
+      if (!granted || path.resolve(granted) !== path.resolve(target)) {
+        const err = new Error(EXTERNAL_FILE_WRITE_REFUSAL);
+        err.code = FS_ROOT_NOT_WRITABLE_CODE;
+        throw err;
+      }
     }
     // ② 目录内容扫描放在 symlink 校验**之后**：`RULES.md` 等是任意深度保护，无法用前缀
     //    枚举；但扫描必须确认目标没顺着软链逃出根，否则会去 readdir 根外目录。

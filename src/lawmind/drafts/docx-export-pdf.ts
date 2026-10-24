@@ -34,16 +34,17 @@ function runCommand(
 /** Convert `baseAbs` (.docx) to a sibling `*.pdf` next to it. */
 export async function exportDocxToPdf(
   baseAbs: string,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal; outDir?: string },
 ): Promise<ExportDocxPdfResult> {
   return withResourceLease(RESOURCE_LEASE_SOFFICE, () =>
-    exportDocxToPdfUnleased(baseAbs, opts?.signal),
+    exportDocxToPdfUnleased(baseAbs, opts?.signal, opts?.outDir),
   );
 }
 
 async function exportDocxToPdfUnleased(
   baseAbs: string,
   signal?: AbortSignal,
+  outDir?: string,
 ): Promise<ExportDocxPdfResult> {
   if (!/\.docx$/i.test(baseAbs)) {
     return { ok: false, error: "只能从 .docx 导出 PDF。" };
@@ -52,7 +53,10 @@ async function exportDocxToPdfUnleased(
     return { ok: false, error: "找不到这份 Word。" };
   }
   const outFileName = path.basename(baseAbs).replace(/\.docx$/i, ".pdf");
-  const outAbs = path.join(path.dirname(baseAbs), outFileName);
+  const outAbs = path.join(
+    outDir?.trim() ? path.resolve(outDir) : path.dirname(baseAbs),
+    outFileName,
+  );
   const candidates = [
     "soffice",
     "libreoffice",

@@ -1338,7 +1338,7 @@ describe("draft_document", () => {
         deliveryIntent: {
           artifactShape: "opinion_memo",
           mutateSource: "forbid",
-          outputPlace: "desktop",
+          placeRequested: true,
           chatMirror: "required",
         },
       }),
@@ -1386,7 +1386,7 @@ describe("render_tracked_draft hunk gate", () => {
         deliveryIntent: {
           artifactShape: "opinion_memo",
           mutateSource: "forbid",
-          outputPlace: "desktop",
+          placeRequested: true,
           chatMirror: "required",
         },
       }),

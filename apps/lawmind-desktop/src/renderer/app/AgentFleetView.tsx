@@ -171,6 +171,7 @@ function AgentFleetViewImpl(props: AgentFleetViewProps) {
           <LawmindAgentFleetPanel
             apiBase={props.config.apiBase}
             workspaceDir={props.config.workspaceDir}
+            projectDir={props.config.projectDir ?? null}
             sessionId={props.sessionId}
             sessionRequiresActions={props.sessionRequiresActions}
             assistantDisplayById={props.assistantDisplayById}

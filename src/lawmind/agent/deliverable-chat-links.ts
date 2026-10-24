@@ -6,8 +6,14 @@
  * notes/*.md 与 *.json 不进交付链接——那些留给模型上下文，不给律师点。
  */
 
+import fs from "node:fs";
 import path from "node:path";
-import { wpsDeliverableHref, wpsDeliverablePath } from "../sources/lawyer-chat-link.js";
+import {
+  rootedWpsDeliverableHref,
+  wpsDeliverableHref,
+  wpsDeliverablePath,
+  type LawyerChatRoot,
+} from "../sources/lawyer-chat-link.js";
 import type { AgentMessage } from "./types.js";
 
 const DELIVERABLE_TOOLS = new Set([
@@ -41,40 +47,69 @@ function relUnderRoot(root: string, absolute: string): string | null {
   return abs.slice(base.length).replace(/^\//, "");
 }
 
-function toDeliverableRel(roots: DeliverableLinkRoots, value: string): string | null {
+function toDeliverableTarget(
+  roots: DeliverableLinkRoots,
+  value: string,
+): { path: string; root: LawyerChatRoot } | null {
   let raw = value.trim().replace(/\\/g, "/");
   if (!raw) {
     return null;
   }
+  const finish = (rel: string, root: LawyerChatRoot) => {
+    const safe = wpsDeliverablePath(rel);
+    return safe ? { path: safe, root } : null;
+  };
   const absolute = raw.startsWith("/") || /^[A-Za-z]:\//.test(raw);
   if (absolute) {
     const underWorkspace = roots.workspaceDir.trim() ? relUnderRoot(roots.workspaceDir, raw) : null;
     if (underWorkspace) {
-      return wpsDeliverablePath(underWorkspace);
+      return finish(underWorkspace, "workspace");
     }
     const project = roots.projectDir?.trim();
     if (project) {
       const underProject = relUnderRoot(project, raw);
       if (underProject) {
-        return wpsDeliverablePath(underProject);
+        return finish(underProject, "project");
       }
     }
     return null;
   }
-  return wpsDeliverablePath(raw);
+  const rel = wpsDeliverablePath(raw);
+  if (!rel) {
+    return null;
+  }
+  // 相对路径本身说明不了 root。交付件是刚写出的，磁盘探测一次就能定案，
+  // 不再让点击侧拿 `cases/` 前缀猜（workspace 根的 artifacts/ 就是被这条猜测打错根的）。
+  if (roots.workspaceDir.trim() && fs.existsSync(path.join(roots.workspaceDir, rel))) {
+    return finish(rel, "workspace");
+  }
+  const project = roots.projectDir?.trim();
+  if (project && fs.existsSync(path.join(project, rel))) {
+    return finish(rel, "project");
+  }
+  // 磁盘上还看不见（挂载时机等）时沿用旧口径：cases/ 前缀=工作区，其余按项目目录。
+  return finish(rel, rel.startsWith("cases/") ? "workspace" : "project");
 }
 
-function pushPath(out: string[], roots: DeliverableLinkRoots, value: unknown): void {
+function pushPath(
+  out: Array<{ path: string; root: LawyerChatRoot }>,
+  roots: DeliverableLinkRoots,
+  value: unknown,
+): void {
   if (typeof value !== "string") {
     return;
   }
-  const rel = toDeliverableRel(roots, value);
-  if (rel && !out.includes(rel)) {
-    out.push(rel);
+  const target = toDeliverableTarget(roots, value);
+  if (target && !out.some((item) => item.path === target.path)) {
+    out.push(target);
   }
 }
 
-function pushAppliedLine(out: string[], roots: DeliverableLinkRoots, line: unknown): void {
+function pushAppliedLine(
+  out: Array<{ path: string; root: LawyerChatRoot }>,
+  roots: DeliverableLinkRoots,
+  line: unknown,
+): void {
   if (typeof line !== "string") {
     return;
   }
@@ -90,7 +125,11 @@ function pushAppliedLine(out: string[], roots: DeliverableLinkRoots, line: unkno
   pushPath(out, roots, dest);
 }
 
-function pushRecord(out: string[], roots: DeliverableLinkRoots, data: unknown): void {
+function pushRecord(
+  out: Array<{ path: string; root: LawyerChatRoot }>,
+  roots: DeliverableLinkRoots,
+  data: unknown,
+): void {
   if (!data || typeof data !== "object") {
     return;
   }
@@ -120,7 +159,7 @@ function officecliPaths(
   messages: AgentMessage[],
   toolCallId: string,
   roots: DeliverableLinkRoots,
-  out: string[],
+  out: Array<{ path: string; root: LawyerChatRoot }>,
 ): void {
   for (const msg of messages) {
     const call = msg.toolCalls?.find((item) => item.id === toolCallId);
@@ -152,14 +191,21 @@ function normalizeRoots(
   return workspaceDir;
 }
 
-/** 本轮成功写出、且 WPS 能打开的相对路径。读文件和失败的导出不算。 */
+export type DeliverablePathTarget = {
+  /** WPS 可打开的相对路径（相对 workspace 或 projectDir）。 */
+  path: string;
+  /** 这份交付件所在根，发链接时写进 `lm-wps:` 溯源，点击侧不再猜。 */
+  root: LawyerChatRoot;
+};
+
+/** 本轮成功写出、且 WPS 能打开的相对路径与所在根。读文件和失败的导出不算。 */
 export function collectDeliverablePaths(
   messages: AgentMessage[],
   workspaceDir: string | DeliverableLinkRoots,
   projectDir?: string,
-): string[] {
+): DeliverablePathTarget[] {
   const roots = normalizeRoots(workspaceDir, projectDir);
-  const out: string[] = [];
+  const out: DeliverablePathTarget[] = [];
   if (!roots.workspaceDir.trim() && !roots.projectDir?.trim()) {
     return out;
   }
@@ -199,13 +245,20 @@ export function appendDeliverableFileLinks(
   projectDir?: string,
 ): string {
   const roots = normalizeRoots(workspaceDir, projectDir);
-  const missing = collectDeliverablePaths(messages, roots).filter((rel) => {
-    const href = wpsDeliverableHref(rel);
+  const missing = collectDeliverablePaths(messages, roots).filter((target) => {
+    const href = rootedWpsDeliverableHref(target.path, target.root);
     if (!href) {
       return false;
     }
-    // 正文里已有 lm-wps 链接，或已写出同一相对路径 / 文件名的 Markdown 链，就不再重复脚注。
-    if (reply.includes(href) || reply.includes(`](${rel})`)) {
+    // 正文里已有同文件链接（带溯源或旧式无溯源都算），就不再重复脚注。
+    if (reply.includes(href)) {
+      return false;
+    }
+    const legacy = wpsDeliverableHref(target.path);
+    if (legacy && reply.includes(legacy)) {
+      return false;
+    }
+    if (reply.includes(`](${target.path})`)) {
       return false;
     }
     return true;
@@ -214,12 +267,12 @@ export function appendDeliverableFileLinks(
     return reply;
   }
   const lines = ["交付文件"];
-  for (const rel of missing) {
-    const href = wpsDeliverableHref(rel);
+  for (const target of missing) {
+    const href = rootedWpsDeliverableHref(target.path, target.root);
     if (!href) {
       continue;
     }
-    lines.push(`- [${markdownLabel(rel)}](${href})`);
+    lines.push(`- [${markdownLabel(target.path)}](${href})`);
   }
   if (lines.length === 1) {
     return reply;

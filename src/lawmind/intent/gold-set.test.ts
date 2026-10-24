@@ -36,9 +36,12 @@ describe("intent gold set", () => {
           `${row.id}: delivery shape expected ${row.deliveryShape}, got ${compiled.delivery.artifactShape}`,
         );
       }
-      if (row.deliveryPlace && compiled.delivery.outputPlace !== row.deliveryPlace) {
+      if (
+        row.deliveryPlaceRequested !== undefined &&
+        (compiled.delivery.placeRequested === true) !== row.deliveryPlaceRequested
+      ) {
         failures.push(
-          `${row.id}: delivery place expected ${row.deliveryPlace}, got ${compiled.delivery.outputPlace}`,
+          `${row.id}: placeRequested expected ${row.deliveryPlaceRequested}, got ${compiled.delivery.placeRequested === true}`,
         );
       }
       if (compiled.softAsk) {

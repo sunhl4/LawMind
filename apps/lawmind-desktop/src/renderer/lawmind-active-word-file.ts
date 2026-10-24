@@ -3,7 +3,7 @@ import { instructionLooksLikeWordEdit } from "../../../../src/lawmind/platform/w
 import { readRecentFileContextPaths } from "./lawmind-compose-context";
 
 export type ActiveWordFile = {
-  root: "workspace" | "project";
+  root: "workspace" | "project" | `file:${string}`;
   relPath: string;
 };
 
@@ -41,7 +41,8 @@ export function resolveImplicitWordPinsForChat(params: {
     return [];
   }
   const active = readActiveWorkbenchWordFile();
-  if (active) {
+  // agent 的读取面只到工作区/项目夹；外部文件不进「可引用材料」。
+  if (active && (active.root === "workspace" || active.root === "project")) {
     return [{ root: active.root, relPath: active.relPath, kind: "file" }];
   }
   const recent = readRecentFileContextPaths().find(

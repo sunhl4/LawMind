@@ -108,7 +108,9 @@ describe("opening a chat Word link", () => {
       onTask,
     });
     expect(onTask).not.toHaveBeenCalled();
-    expect(files.events).toEqual([{ relPath: "劳动法检索备忘_20261016_01.docx", root: "project" }]);
+    // 没传 projectDir：会话没挂本机文件夹时，相对路径只可能在工作区。
+    // 真在哪个根由中栏列目录确认（resolveExistingRootForRelPath），这里只断言提示值。
+    expect(files.events).toEqual([{ relPath: "劳动法检索备忘_20261016_01.docx", root: "workspace" }]);
     expect(desks.events).toEqual([]);
     files.stop();
     desks.stop();
@@ -167,7 +169,7 @@ describe("opening a chat Word link", () => {
       fallbackRelPath: "劳动法检索备忘_20261016_01.docx",
     });
     expect(result).toEqual({ ok: true });
-    expect(files.events).toEqual([{ relPath: "劳动法检索备忘_20261016_01.docx", root: "project" }]);
+    expect(files.events).toEqual([{ relPath: "劳动法检索备忘_20261016_01.docx", root: "workspace" }]);
     files.stop();
   });
 });

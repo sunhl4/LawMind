@@ -55,7 +55,7 @@ export {
   formatChatQaDeliveryPromptBlock,
   formatDeliveryConstraintPromptBlock,
   isOpinionMemoDelivery,
-  deliveryHasNamedPlace,
+  deliveryRequestedOutsidePlace,
   deliveryPinsIncludeWord,
   resolveTurnDeliveryIntent,
   DELIVERY_MARKER_CHAT_QA,
@@ -77,5 +77,4 @@ export type {
   DeliveryArtifactShape,
   DeliveryIntent,
   DeliveryMutateSource,
-  DeliveryOutputPlace,
 } from "./delivery-intent.js";

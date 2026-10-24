@@ -3,6 +3,7 @@ import {
   tryConsumeBareChatTarget,
   tryConsumeLawyerChatLink,
   type LawyerChatLink,
+  type LawyerChatRoot,
 } from "../../../../src/lawmind/sources/lawyer-chat-link.ts";
 import { tryConsumeLmSessionMarkdown } from "./lawmind-session-link";
 
@@ -16,7 +17,9 @@ export type InlineMarkdownToken =
   | { kind: "draft_link"; label: string; taskId: string }
   | { kind: "web_link"; label: string; url: string }
   | { kind: "file_link"; label: string; path: string; canvas: boolean; line?: number; column?: number }
-  | { kind: "wps_link"; label: string; path: string };
+  | { kind: "wps_link"; label: string; path: string; root?: LawyerChatRoot }
+  /** 磁盘绝对路径：文件真在就按次授权只读打开。 */
+  | { kind: "abs_link"; label: string; path: string };
 
 const KATEX_OPTIONS = {
   throwOnError: false,
@@ -226,8 +229,16 @@ function tokenFromLawyerLink(link: LawyerChatLink): InlineMarkdownToken {
       ...(link.column ? { column: link.column } : {}),
     };
   }
+  if (link.kind === "abs") {
+    return { kind: "abs_link", label: link.label, path: link.path };
+  }
   if (link.kind === "wps") {
-    return { kind: "wps_link", label: link.label, path: link.path };
+    return {
+      kind: "wps_link",
+      label: link.label,
+      path: link.path,
+      ...(link.root ? { root: link.root } : {}),
+    };
   }
   return { kind: "text", value: link.label };
 }

@@ -44,6 +44,7 @@ import { ReviewWorkbenchMetaColumn } from "./review/ReviewWorkbenchMetaColumn";
 import type { VerificationChecklistView } from "../../../../src/lawmind/deliverables/verification-checklist.ts";
 import { buildChecklistView } from "../../../../src/lawmind/deliverables/verification-checklist.ts";
 import type { ReviewCampaign } from "./lawmind-review-campaign-api";
+import { openWithSystemForPath } from "./lawmind-workspace-file-open";
 
 type Props = {
   apiBase: string;
@@ -57,6 +58,11 @@ type Props = {
   onShowArtifact?: (
     outputPath: string,
   ) => void | Promise<{ ok: boolean; error?: string } | void>;
+  /** 导出的交付件在中栏（Word 审阅面）打开。 */
+  onOpenArtifactInMiddleColumn?: (outputPath: string) => void | Promise<void>;
+  /** 交付件在磁盘上落在工作区还是本机项目夹；「用本机应用打开」据此解析根。 */
+  workspaceDir?: string | null;
+  projectDir?: string | null;
   onRecordsChanged?: () => void;
   onGoToChat?: (opts: { taskId: string; matterId?: string; prompt?: string }) => void;
   /** 文书台 → 在办：正式签批队列 */
@@ -76,6 +82,9 @@ export function ReviewWorkbench(props: Props) {
     returnMatterId = null,
     onReturnToMatter,
     onShowArtifact,
+    onOpenArtifactInMiddleColumn,
+    workspaceDir,
+    projectDir,
     onRecordsChanged,
     onGoToChat,
     onOpenAgentsDesk,
@@ -591,6 +600,7 @@ export function ReviewWorkbench(props: Props) {
                 onDeleteDraft={() => void deleteSelectedDraft()}
                 onExportWord={() => void submitRender({ includeProvenance })}
                 onExportTrackedWord={() => void submitRenderTracked({ includeProvenance })}
+                onOpenInMiddleColumn={onOpenArtifactInMiddleColumn}
                 onShowArtifact={
                   onShowArtifact
                     ? async (path) => {
@@ -614,17 +624,13 @@ export function ReviewWorkbench(props: Props) {
                       }
                     : undefined
                 }
-                onOpenWithSystem={async (relPath) => {
-                  if (!window.lawmindDesktop?.openWithSystem) {
-                    setActionMsg("当前环境无法调用本机 Word；请用「在文件夹中显示」后手动打开。");
-                    return;
-                  }
-                  const r = await window.lawmindDesktop.openWithSystem({
-                    root: "workspace",
-                    path: relPath,
+                onOpenWithSystem={async (path) => {
+                  const r = await openWithSystemForPath(path, {
+                    workspaceDir,
+                    projectDir,
                   });
-                  if (r && !r.ok) {
-                    setActionMsg(r.error ?? "无法用系统应用打开该文件。");
+                  if (!r.ok) {
+                    setActionMsg(r.error);
                   }
                 }}
                 packExportEnabled={edition.features.acceptancePackExport}

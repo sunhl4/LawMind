@@ -23,6 +23,7 @@ export const ELECTRON_SPEC_FILES = [
   "daemon-supervision.spec.ts",
   "electron-golden-path.spec.ts",
   "electron-file-deeplink.spec.ts",
+  "electron-chat-deliverable-link.spec.ts",
   "first-matter-journey.spec.ts",
   "judgment-escalation-electron.spec.ts",
   "server-crash-recovery.spec.ts",

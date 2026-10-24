@@ -5,15 +5,24 @@
  * - `[短标题](https://…)` 或句子里的公网地址，用系统浏览器打开
  * - `[短标题](相对路径)` 或句子里的工作区文件，在编辑区打开；`.canvas.tsx` 就是画布
  * - Word 相对路径 / `lm-wps:`：左键进中栏核对；Excel / PPT / PDF 左键进中栏；右键可去访达或用本机应用打开
+ * - 磁盘绝对路径：进中栏。工作区内的直接打开；工作区外的按次登记成同级根再打开
+ *   （权限与工作区文件相同，见 `electron/file-grants.mjs`）
  *
- * 内网、带账号密码的地址、磁盘绝对路径和 `..` 只留文字，不变成按钮。
+ * 内网、带账号密码的地址和含 `..` 的路径只留文字，不变成按钮。
  */
+
+export type LawyerChatRoot = "workspace" | "project";
 
 export type LawyerChatLink =
   | { kind: "draft"; label: string; taskId: string }
   | { kind: "web"; label: string; url: string }
   | { kind: "file"; label: string; path: string; canvas: boolean; line?: number; column?: number }
-  | { kind: "wps"; label: string; path: string }
+  | { kind: "wps"; label: string; path: string; root?: LawyerChatRoot }
+  /**
+   * 磁盘绝对路径。工作区内的直接打开；工作区外的按次登记成同级根
+   * （可读可写，权限与工作区文件相同）。文件不存在时中栏说出原因。
+   */
+  | { kind: "abs"; label: string; path: string }
   | { kind: "plain"; label: string };
 
 /** WPS 能直接打开的交付件。 */
@@ -22,6 +31,13 @@ const WPS_FILE_EXT = /\.(?:doc|docx|wps|xls|xlsx|et|ppt|pptx|dps|pdf)$/i;
 /** 对话里自动变成按钮的文件后缀。画布是其中的 `.canvas.tsx`。 */
 const CHAT_FILE_EXT =
   /\.(?:canvas\.tsx|docx|doc|pdf|xlsx|xls|pptx|ppt|md|txt|csv|json|html|png|jpe?g|webp|gif)$/i;
+
+/**
+ * 句子里的绝对路径。到空白或中文标点为止；Windows 反斜杠也认。
+ * 后缀仍由 `absoluteChatFilePath` 判定，避免把普通 URL 片段当文件。
+ */
+const BARE_ABS_FILE_RE =
+  /^(?:\/(?:[^\s/\\[\]()<>"'`，。；：、]+\/)*[^\s/\\[\]()<>"'`，。；：、]+|[A-Za-z]:[\\/](?:[^\s\\/[\]()<>"'`，。；：、]+[\\/])*[^\s\\/[\]()<>"'`，。；：、]+)/u;
 
 const BARE_FILE_RE =
   /^((?:[^\s/\\[\]()<>"'`，。；：、]+\/)*[^\s/\\[\]()<>"'`，。；：、]+\.(?:canvas\.tsx|docx|doc|pdf|xlsx|xls|pptx|ppt|md|txt|csv|json|html|png|jpe?g|webp|gif))(?::\d{1,6})?(?::\d{1,6})?/iu;
@@ -145,7 +161,7 @@ export function workspacePathTarget(href: string): WorkspacePathTarget | null {
       }
     }
   }
-  if (!raw || raw.startsWith("/") || raw.includes(":") || /\s/.test(raw)) {
+  if (!raw || raw.startsWith("/") || raw.includes(":")) {
     return null;
   }
   const parts = raw.split("/");
@@ -161,6 +177,22 @@ export function workspacePathTarget(href: string): WorkspacePathTarget | null {
 
 export function safeWorkspaceRelativePath(href: string): string | null {
   return workspacePathTarget(href)?.path ?? null;
+}
+
+/**
+ * 模型常把空格、中文写成 `%20` / `%E6…`。Markdown 链接里的百分号编码先还原；
+ * 还原后仍走 `workspacePathTarget` 的越界校验，`%2E%2E` 解出 `..` 会被拒绝。
+ * 文件名本身含 `%XX` 时优先保留原文（还原失败或还原后不像路径）。
+ */
+function decodeRelativeHref(href: string): string {
+  if (!/%[0-9A-Fa-f]{2}/.test(href)) {
+    return href;
+  }
+  try {
+    return decodeURIComponent(href);
+  } catch {
+    return href;
+  }
 }
 
 /**
@@ -191,6 +223,38 @@ export function wpsDeliverablePath(href: string): string | null {
   return parts.join("/");
 }
 
+/**
+ * 磁盘绝对路径（`/Users/…/a.docx`、`C:/Users/…/a.docx`）。
+ *
+ * 模型常把整条磁盘路径写进回复（例如律师让它找一个别的文件夹里的合同）；
+ * 这类文件不在工作区里，但**只要真的存在就必须能点开、能改**。
+ * 这里只做形状校验（绝对路径 + 后缀认识 + 无控制字符），
+ * 存在性与授权范围由主进程在登记时核（见 `electron/file-grants.mjs`）。
+ */
+export function absoluteChatFilePath(href: string): string | null {
+  const raw = href.trim();
+  if (!raw || raw.length > 400) {
+    return null;
+  }
+  for (let i = 0; i < raw.length; i += 1) {
+    if (raw.charCodeAt(i) < 32) {
+      return null;
+    }
+  }
+  const posix = raw.replace(/\\/g, "/");
+  const isAbs = posix.startsWith("/") || /^[A-Za-z]:\//.test(posix);
+  if (!isAbs) {
+    return null;
+  }
+  if (posix.split("/").some((part) => part === "..")) {
+    return null;
+  }
+  if (!CHAT_FILE_EXT.test(posix) && !WPS_FILE_EXT.test(posix)) {
+    return null;
+  }
+  return raw;
+}
+
 /** 对话里的 WPS 链接。路径先编码，避免空格把 Markdown 截断。 */
 export function wpsDeliverableHref(relPath: string): string | null {
   const safe = wpsDeliverablePath(relPath);
@@ -198,6 +262,32 @@ export function wpsDeliverableHref(relPath: string): string | null {
     return null;
   }
   return `lm-wps:${encodeURIComponent(safe)}`;
+}
+
+/**
+ * 带 root 溯源的同款链接：`lm-wps:workspace:%2F…` 告诉点击侧这份交付件在哪个根下，
+ * 不再靠 `cases/` 前缀猜。文件相对路径里不允许冒号，所以 `workspace:` / `project:`
+ * 前缀不会和真实文件名撞车。
+ */
+export function rootedWpsDeliverableHref(relPath: string, root: LawyerChatRoot): string | null {
+  const bare = wpsDeliverableHref(relPath);
+  if (!bare) {
+    return null;
+  }
+  const encodedPayload = bare.slice("lm-wps:".length);
+  return `lm-wps:${encodeURIComponent(root)}%3A${encodedPayload}`;
+}
+
+/** 从解码后的 payload 里剥出可选 root 前缀；剩余部分才交给 wpsDeliverablePath。 */
+export function peelWpsRootHint(decoded: string): { path: string; root?: LawyerChatRoot } {
+  const lower = decoded.toLowerCase();
+  if (lower.startsWith("workspace:") && decoded.length > "workspace:".length) {
+    return { path: decoded.slice("workspace:".length), root: "workspace" };
+  }
+  if (lower.startsWith("project:") && decoded.length > "project:".length) {
+    return { path: decoded.slice("project:".length), root: "project" };
+  }
+  return { path: decoded };
 }
 
 /**
@@ -277,7 +367,8 @@ export function tryConsumeLawyerChatLink(
     return null;
   }
   const href = text.slice(hrefStart, hrefEnd).trim();
-  if (!href || /\s/.test(href)) {
+  // Markdown 链接目标以 `)` 收尾，正文里的空格不是分隔符：文件名可以带空格。
+  if (!href || /[\t\r\n]/.test(href)) {
     return null;
   }
   const next = hrefEnd + 1;
@@ -297,11 +388,20 @@ export function tryConsumeLawyerChatLink(
     } catch {
       return { link: { kind: "plain", label }, next };
     }
-    const file = wpsDeliverablePath(decoded);
+    const peeled = peelWpsRootHint(decoded);
+    const file = wpsDeliverablePath(peeled.path);
     if (!file) {
       return { link: { kind: "plain", label }, next };
     }
-    return { link: { kind: "wps", label, path: file }, next };
+    return {
+      link: {
+        kind: "wps",
+        label,
+        path: file,
+        ...(peeled.root ? { root: peeled.root } : {}),
+      },
+      next,
+    };
   }
 
   if (/^https?:\/\//i.test(href)) {
@@ -312,7 +412,8 @@ export function tryConsumeLawyerChatLink(
     return { link: { kind: "web", label, url }, next };
   }
 
-  const file = workspaceChatFile(href);
+  const decodedHref = decodeRelativeHref(href);
+  const file = workspaceChatFile(decodedHref);
   if (file) {
     if (!file.canvas && WPS_FILE_EXT.test(file.path)) {
       return { link: { kind: "wps", label, path: file.path }, next };
@@ -330,8 +431,13 @@ export function tryConsumeLawyerChatLink(
     };
   }
 
-  if (/^(javascript|data|file|vbscript):/i.test(href)) {
+  if (/^(javascript|data|vbscript):/i.test(href)) {
     return { link: { kind: "plain", label }, next };
+  }
+
+  const absolute = absoluteChatFilePath(decodeRelativeHref(href));
+  if (absolute) {
+    return { link: { kind: "abs", label, path: absolute }, next };
   }
 
   return null;
@@ -368,6 +474,19 @@ export function tryConsumeBareChatTarget(
       return null;
     }
     return { link: { kind: "web", label: body, url }, next: start + body.length };
+  }
+  // 句子里直接写出的绝对路径（桌面交付件最常见）：不要求 Markdown 链接语法。
+  if (rest.startsWith("/") || /^[A-Za-z]:\//.test(rest)) {
+    const absMatch = BARE_ABS_FILE_RE.exec(rest);
+    const absRaw = absMatch?.[0] ?? "";
+    const absPath = absRaw ? absoluteChatFilePath(absRaw) : null;
+    if (absPath) {
+      return {
+        link: { kind: "abs", label: absRaw, path: absPath },
+        next: start + absRaw.length,
+      };
+    }
+    return null;
   }
   const fileMatch = BARE_FILE_RE.exec(rest);
   const raw = fileMatch?.[0];

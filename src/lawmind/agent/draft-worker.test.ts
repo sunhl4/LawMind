@@ -443,7 +443,6 @@ describe("draft-worker", () => {
       draftWorkerSidecarConstraint({
         artifactShape: "opinion_memo",
         mutateSource: "forbid",
-        outputPlace: "unspecified",
         chatMirror: "unspecified",
       }),
     ).toContain("不要改原件、不要导出、不要外发");
@@ -460,7 +459,6 @@ describe("draft-worker", () => {
       deliveryIntent: {
         artifactShape: "opinion_memo",
         mutateSource: "forbid",
-        outputPlace: "unspecified",
         chatMirror: "unspecified",
       },
       emitToolProgress: (label) => {

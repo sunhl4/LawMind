@@ -18,13 +18,19 @@ import { instructionLooksLikeLetterQa } from "./utterance-kind.js";
 
 export type DeliveryArtifactShape = "opinion_memo" | "tracked_source" | "unspecified";
 export type DeliveryMutateSource = "forbid" | "allow" | "unspecified";
-export type DeliveryOutputPlace = "desktop" | "downloads" | "documents" | "unspecified";
 export type DeliveryChatMirror = "required" | "unspecified";
 
 export type DeliveryIntent = {
   artifactShape: DeliveryArtifactShape;
   mutateSource: DeliveryMutateSource;
-  outputPlace: DeliveryOutputPlace;
+  /**
+   * 律师提到了落点（桌面 / 下载 / 文稿）。
+   *
+   * **不影响文件落点**：对话产出一律写进会话工作区 / 案件目录
+   * （见 `artifacts/default-output-location.ts`）。这个标记只有一个用途：
+   * 在提示里说明「实际会落在工作区」，免得模型去试着往桌面写、白跑一轮。
+   */
+  placeRequested?: boolean;
   chatMirror: DeliveryChatMirror;
   /** Lawyer said not to send. Sending is not a completion condition this turn. */
   holdOutbound?: boolean;
@@ -33,7 +39,6 @@ export type DeliveryIntent = {
 export const UNSPECIFIED_DELIVERY: DeliveryIntent = {
   artifactShape: "unspecified",
   mutateSource: "unspecified",
-  outputPlace: "unspecified",
   chatMirror: "unspecified",
 };
 
@@ -71,17 +76,11 @@ const DOCUMENTS_PLACE_RE =
 const BOTH_DELIVERABLES_RE =
   /意见.{0,6}(?:和|加|及|并).{0,6}(?:修订|红线|审阅痕迹)|(?:修订|红线).{0,6}(?:和|加|及|并).{0,6}意见/;
 
-function outputPlaceOf(text: string): DeliveryOutputPlace {
-  if (DESKTOP_PLACE_RE.test(text)) {
-    return "desktop";
-  }
-  if (DOWNLOADS_PLACE_RE.test(text)) {
-    return "downloads";
-  }
-  if (DOCUMENTS_PLACE_RE.test(text)) {
-    return "documents";
-  }
-  return "unspecified";
+/** 律师是否提到了一个外部落点（桌面 / 下载 / 文稿）。只用于提示，不改变落点。 */
+function placeRequestedOf(text: string): boolean {
+  return (
+    DESKTOP_PLACE_RE.test(text) || DOWNLOADS_PLACE_RE.test(text) || DOCUMENTS_PLACE_RE.test(text)
+  );
 }
 
 function mutateSourceOf(text: string): DeliveryMutateSource {
@@ -100,17 +99,12 @@ function lawyerNamedOpinionObject(text: string): boolean {
   return OPINION_OBJECT_RE.test(withoutForm);
 }
 
-function artifactShapeOf(
-  text: string,
-  mutateSource: DeliveryMutateSource,
-  outputPlace: DeliveryOutputPlace,
-): DeliveryArtifactShape {
+function artifactShapeOf(text: string, mutateSource: DeliveryMutateSource): DeliveryArtifactShape {
   const opinionObject = lawyerNamedOpinionObject(text);
   const weakOpinion = /意见/.test(text);
   const redlineObject = REDLINE_OBJECT_RE.test(text);
   const preserve = mutateSource === "forbid";
   const newFile = NEW_FILE_RE.test(text);
-  const namedPlace = outputPlace !== "unspecified";
   const review = extractTextIntent(text).verbs.includes("review");
   if (BOTH_DELIVERABLES_RE.test(text)) {
     return "unspecified";
@@ -118,7 +112,8 @@ function artifactShapeOf(
   if (redlineObject && !opinionObject) {
     return "tracked_source";
   }
-  const sidecarCue = preserve || newFile || namedPlace;
+  // 「放我桌面」不再是「另出文件」的线索：落点一律在工作区，形态要由别的词决定。
+  const sidecarCue = preserve || newFile;
   if (
     opinionObject ||
     (weakOpinion && sidecarCue && !redlineObject) ||
@@ -135,12 +130,12 @@ export function extractDeliveryIntent(instruction: string | undefined): Delivery
     return { ...UNSPECIFIED_DELIVERY };
   }
   const mutateSource = mutateSourceOf(text);
-  const outputPlace = outputPlaceOf(text);
-  const artifactShape = artifactShapeOf(text, mutateSource, outputPlace);
+  const artifactShape = artifactShapeOf(text, mutateSource);
+  const placeRequested = placeRequestedOf(text);
   return {
     artifactShape,
     mutateSource,
-    outputPlace,
+    ...(placeRequested ? { placeRequested: true } : {}),
     chatMirror: artifactShape === "opinion_memo" ? "required" : "unspecified",
     holdOutbound: HOLD_OUTBOUND_RE.test(text),
   };
@@ -164,9 +159,9 @@ export function isOpinionMemoDelivery(delivery: DeliveryIntent | undefined): boo
   return delivery?.artifactShape === "opinion_memo";
 }
 
-export function deliveryHasNamedPlace(delivery: DeliveryIntent | undefined): boolean {
-  const place = delivery?.outputPlace;
-  return place === "desktop" || place === "downloads" || place === "documents";
+/** 律师提到了外部落点（桌面 / 下载 / 文稿）——只用于提示，不改变写入位置。 */
+export function deliveryRequestedOutsidePlace(delivery: DeliveryIntent | undefined): boolean {
+  return delivery?.placeRequested === true;
 }
 
 export function formatDeliveryConstraintPromptBlock(
@@ -179,7 +174,7 @@ export function formatDeliveryConstraintPromptBlock(
     delivery.artifactShape !== "unspecified" ||
     delivery.mutateSource === "forbid" ||
     delivery.holdOutbound === true ||
-    deliveryHasNamedPlace(delivery);
+    deliveryRequestedOutsidePlace(delivery);
   if (!specified) {
     return undefined;
   }
@@ -207,12 +202,13 @@ export function formatDeliveryConstraintPromptBlock(
   if (delivery.holdOutbound) {
     lines.push("- 本轮不要把发邮件当成必须完成。不要准备外发，也不要代发。");
   }
-  if (delivery.outputPlace === "desktop") {
-    lines.push("- 落盘：系统桌面（引擎写入；不要改用工作区 artifacts 代替律师点名的位置）。");
-  } else if (delivery.outputPlace === "downloads") {
-    lines.push("- 落盘：系统下载文件夹（引擎写入）。");
-  } else if (delivery.outputPlace === "documents") {
-    lines.push("- 落盘：系统文稿文件夹（引擎写入）。");
+  if (delivery.placeRequested) {
+    // 律师说了「放桌面」，但我们不往那儿写。直接告诉他实际落点，
+    // 免得模型传一个桌面 output_path 后被拒、白跑一轮。
+    lines.push(
+      "- 落盘：本轮交付一律写进会话工作区（有案件则案件 artifacts/），不要写到桌面、下载或文稿；也不要传工作区外的 output_path。",
+    );
+    lines.push("- 回复里说明文件在工作区，需要的话律师可以自己拷到桌面。");
   }
   return lines.join("\n");
 }
