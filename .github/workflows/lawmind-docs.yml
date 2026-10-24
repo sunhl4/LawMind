@@ -27,6 +27,20 @@ on:
 permissions:
   contents: read
 
+# Pages 发布开关。
+#
+# 私有仓库 + 免费计划没有 GitHub Pages（`GET /repos/{owner}/{repo}/pages` 返回 404，
+# `has_pages: false`），而 `upload-pages-artifact` 会先建 artifact；账号级 Actions
+# 存储配额一旦被历史打包产物吃满，它就直接报
+# "Failed to CreateArtifact: Artifact storage quota has been hit"，
+# 把**本来只是想验证文档能构建**的 workflow 判红。
+#
+# 所以：构建与静态校验永远是门禁；**发布**只在显式打开开关时执行。
+# 启用 Pages（公开仓库或付费计划 + Settings → Pages → Source: GitHub Actions）后，
+# 设置仓库变量 `LAWMIND_PAGES_ENABLED=true` 即可恢复发布。
+env:
+  LAWMIND_PAGES_ENABLED: ${{ vars.LAWMIND_PAGES_ENABLED }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -60,14 +74,14 @@ jobs:
           echo "dist entries: $(find "${dist}" -maxdepth 1 | wc -l)"
 
       - name: Upload Pages artifact
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        if: env.LAWMIND_PAGES_ENABLED == 'true' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-pages-artifact@v3
         with:
           path: apps/lawmind-docs/docs/.vitepress/dist
 
   deploy:
     needs: build
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: env.LAWMIND_PAGES_ENABLED == 'true' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
