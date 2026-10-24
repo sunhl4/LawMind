@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import path from "node:path";
 import {
   hasNotaryCredentials,
   isDeveloperIdSigned,
@@ -44,5 +45,10 @@ export default async function afterAllArtifactBuild(buildResult) {
   }
 
   const result = notarizeAndStapleArtifacts(buildResult.artifactPaths ?? []);
-  console.log(`[lawmind-mac] notarized and stapled ${result.stapled.length} artifact(s)`);
+  const unstapleable = result.unstapleable.length
+    ? `, not stapleable: ${result.unstapleable.map((file) => path.basename(file)).join(", ")}`
+    : "";
+  console.log(
+    `[lawmind-mac] notarized ${result.notarized.length}, stapled ${result.stapled.length}${unstapleable}`,
+  );
 }

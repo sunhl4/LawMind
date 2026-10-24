@@ -820,7 +820,7 @@ listBundledHelperBinaries(appPath)
 /usr/bin/xcrun stapler staple <文件>
 ```
 
-**为什么自己写**：因为要支持三种凭据来源，并要能对**多个产物**（dmg + zip）逐个提交与装订。
+**为什么自己写**：因为要支持三种凭据来源，并要能对**多个产物**逐个提交。**装订只对 stapler 支持的类型执行**（`.app` / `.dmg` / `.pkg`）：`.zip` 可以提交公证，但票据无法装订进压缩包——装订只是离线加速，联网首次启动时 Gatekeeper 仍按 CDHash 在线校验。早先对 `.zip` 也调 `stapler staple`，会在公证**成功之后**让整个构建挂掉，现已按扩展名分流（`isStapleableArtifact`），并在日志里写明「notarized but not stapled」。
 
 **默认不要求公证**：`mac` 段里是 `notarize: false` + `hardenedRuntime: true` + `gatekeeperAssess: false`，没有 Developer ID 就是 adhoc 包。`LAWMIND_REQUIRE_NOTARIZED=1` 只在 tag 构建且配了 `MAC_CSC_LINK` 时由 CI 传入（`.github/workflows/lawmind-desktop-build.yml`），本机 `pnpm lawmind:desktop:dist` 仍是 `--publish never` 的 adhoc 包。所以「不公证」是默认路径，「必须公证」是发布时的显式开关。
 
@@ -832,7 +832,7 @@ listBundledHelperBinaries(appPath)
 | ② API Key        | `APPLE_API_KEY` + `APPLE_API_KEY_ID` + `APPLE_API_ISSUER`    |
 | ③ Apple ID       | `APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID` |
 
-一个都没有时是**跳过**而不是报错：`afterAllArtifactBuild` 打一行警告就返回；只有 `LAWMIND_REQUIRE_NOTARIZED=1` 才抛「notary credentials are not set」。直接调用 `notarizeAndStapleArtifacts` 的那个函数本身会抛 `missing Apple notary credentials`——钩子层已经先挡过一次，所以生产路径通常看不到它。
+一个都没有时是**跳过**而不是报错：`notarizeAndStapleArtifacts` 直接返回 `{ skipped: "no-notary-credentials", notarized: [], stapled: [], unstapleable: [] }`（钩子层在此之前已经警告过一次）；只有 `LAWMIND_REQUIRE_NOTARIZED=1` 才抛「notary credentials are not set」。`buildNotarytoolSubmitArgs` 自己也会抛 `missing Apple notary credentials`，但因为缺凭据时已经提前返回，生产路径通常看不到它。
 
 **三种都支持是为了适配本机开发与 CI 两种场景**（CI 用 ③ 或 ②，本机用 ①）。
 
@@ -851,14 +851,14 @@ listBundledHelperBinaries(appPath)
 [lawmind-mac] <adhoc|developer-id|named> sign: nodes=<节点数> identity=<env|keychain|adhoc>
 ```
 
-`after-all-artifact-build-mac.mjs`（48 行）：**所有产物出来之后公证**。五步：
+`after-all-artifact-build-mac.mjs`（54 行）：**所有产物出来之后公证**。五步：
 
 ```text
 ① 非 darwin → 返回
 ② 找到 app → codesign -dv 看签名
 ③ 不是 Developer ID 签名 → 警告（或 REQUIRE_NOTARIZED=1 就抛）
 ④ 有 Developer ID 但没凭据 → 警告（或抛）
-⑤ 都有 → 对每个 dmg/zip 提交公证 + 装订
+⑤ 都有 → 对每个 dmg/zip 提交公证；只对 `.app` / `.dmg` / `.pkg` 装订（`.zip` 只提交，日志写明 not stapled）
 ```
 
 **两级警告的文案都很有信息量**：

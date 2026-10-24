@@ -6,7 +6,10 @@ import {
   buildCodesignArgs,
   buildNotarytoolSubmitArgs,
   collectNotarizeArtifacts,
+  collectStapleArtifacts,
   hasNotaryCredentials,
+  isStapleableArtifact,
+  notarizeAndStapleArtifacts,
   resolvePackagedMacApp,
   isDeveloperIdSigned,
   listBundledNodeBinaries,
@@ -142,6 +145,93 @@ describe("notary helpers", () => {
       ),
     ).toBe(true);
     expect(isDeveloperIdSigned("Signature=adhoc\nTeamIdentifier=not set\n")).toBe(false);
+  });
+});
+
+describe("staple targets", () => {
+  it("accepts only what stapler supports (app / dmg / pkg)", () => {
+    expect(isStapleableArtifact("/out/LawMind-0.2.2-mac-arm64.dmg")).toBe(true);
+    expect(isStapleableArtifact("/out/LawMind-0.2.2-mac-x64.pkg")).toBe(true);
+    expect(isStapleableArtifact("/out/mac-arm64/LawMind.app")).toBe(true);
+    expect(isStapleableArtifact("/out/LawMind-0.2.2-mac-arm64.zip")).toBe(false);
+    expect(isStapleableArtifact("/out/LawMind-0.2.2-mac-arm64.ZIP")).toBe(false);
+    expect(isStapleableArtifact("")).toBe(false);
+    expect(isStapleableArtifact(undefined)).toBe(false);
+  });
+
+  it("collectStapleArtifacts drops the zip but keeps the dmg", () => {
+    expect(
+      collectStapleArtifacts([
+        "/out/LawMind-0.2.2-mac-arm64.dmg",
+        "/out/LawMind-0.2.2-mac-arm64.zip",
+        "/out/latest-mac.yml",
+      ]),
+    ).toEqual(["/out/LawMind-0.2.2-mac-arm64.dmg"]);
+  });
+});
+
+describe("notarizeAndStapleArtifacts", () => {
+  const dmg = "/out/LawMind-0.2.2-mac-arm64.dmg";
+  const zip = "/out/LawMind-0.2.2-mac-arm64.zip";
+  const credentials = {
+    APPLE_ID: "a@b.c",
+    APPLE_APP_SPECIFIC_PASSWORD: "xxxx-xxxx-xxxx-xxxx",
+    APPLE_TEAM_ID: "TEAM123",
+  };
+
+  it("submits dmg + zip but only staples the dmg", () => {
+    const calls: string[][] = [];
+    const warnings: string[] = [];
+    const result = notarizeAndStapleArtifacts([dmg, zip], {
+      env: credentials,
+      execFile: (_cmd: string, args: string[]) => {
+        calls.push(args);
+        return "";
+      },
+      log: { warn: (message: string) => warnings.push(message) },
+    });
+
+    expect(result.notarized).toEqual([dmg, zip]);
+    expect(result.stapled).toEqual([dmg]);
+    expect(result.unstapleable).toEqual([zip]);
+    // submit dmg → staple dmg → submit zip → (no staple for zip)
+    expect(calls.map((args) => args.slice(0, 2))).toEqual([
+      ["notarytool", "submit"],
+      ["stapler", "staple"],
+      ["notarytool", "submit"],
+    ]);
+    expect(calls[1]).toEqual(["stapler", "staple", dmg]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("not stapled");
+    expect(warnings[0]).toContain("LawMind-0.2.2-mac-arm64.zip");
+  });
+
+  it("does not call xcrun when credentials are absent", () => {
+    let called = 0;
+    const result = notarizeAndStapleArtifacts([dmg, zip], {
+      env: {},
+      execFile: () => {
+        called += 1;
+        return "";
+      },
+    });
+
+    expect(called).toBe(0);
+    expect(result).toEqual({
+      skipped: "no-notary-credentials",
+      notarized: [],
+      stapled: [],
+      unstapleable: [],
+    });
+  });
+
+  it("throws when notarized builds are required but credentials are missing", () => {
+    expect(() =>
+      notarizeAndStapleArtifacts([dmg], {
+        env: { LAWMIND_REQUIRE_NOTARIZED: "1" },
+        execFile: () => "",
+      }),
+    ).toThrow(/Apple notary credentials are not set/);
   });
 });
 

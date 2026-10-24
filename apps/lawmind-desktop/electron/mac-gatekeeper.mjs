@@ -263,26 +263,59 @@ export function collectNotarizeArtifacts(artifactPaths) {
   );
 }
 
+/**
+ * `stapler` accepts only .app bundles, .dmg and .pkg. A .zip can be submitted
+ * to the notary service, but the ticket cannot be attached to it — asking
+ * stapler to staple a zip fails the whole build *after* a successful notarize.
+ */
+const STAPLEABLE_EXTENSIONS = [".dmg", ".pkg", ".app"];
+
+export function isStapleableArtifact(file) {
+  if (typeof file !== "string" || file.length === 0) {
+    return false;
+  }
+  const lower = file.toLowerCase();
+  return STAPLEABLE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+export function collectStapleArtifacts(artifactPaths) {
+  return collectNotarizeArtifacts(artifactPaths).filter(isStapleableArtifact);
+}
+
 export function notarizeAndStapleArtifacts(artifactPaths, options = {}) {
-  const { env = process.env, execFile = defaultExecFile } = options;
+  const { env = process.env, execFile = defaultExecFile, log = console } = options;
   if (!hasNotaryCredentials(env)) {
     if (env.LAWMIND_REQUIRE_NOTARIZED === "1") {
       throw new Error("LAWMIND_REQUIRE_NOTARIZED=1 but Apple notary credentials are not set");
     }
-    return { skipped: "no-notary-credentials", stapled: [] };
+    return { skipped: "no-notary-credentials", notarized: [], stapled: [], unstapleable: [] };
   }
 
   const files = collectNotarizeArtifacts(artifactPaths);
+  const notarized = [];
   const stapled = [];
+  const unstapleable = [];
   for (const file of files) {
     execFile("/usr/bin/xcrun", buildNotarytoolSubmitArgs({ file, env }), {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });
+    notarized.push(file);
+    if (!isStapleableArtifact(file)) {
+      // Gatekeeper validates a notarized but unstapled zip online by CDHash;
+      // only offline first launch needs the stapled ticket.
+      unstapleable.push(file);
+      if (typeof log?.warn === "function") {
+        log.warn(
+          `[lawmind-mac] notarized but not stapled: ${path.basename(file)} (stapler does not support this format; first launch requires network)`,
+        );
+      }
+      continue;
+    }
     execFile("/usr/bin/xcrun", ["stapler", "staple", file], { encoding: "utf8" });
     stapled.push(file);
   }
-  return { skipped: "", stapled };
+  return { skipped: "", notarized, stapled, unstapleable };
 }
 
 function isDirectRun(href) {
