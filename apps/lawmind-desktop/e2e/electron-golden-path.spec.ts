@@ -4,7 +4,7 @@ import {
   bootstrapE2ePage,
   openReviewWorkbench,
 } from "./e2e-helpers";
-import { launchLawMindElectron, prepareE2EUserData } from "./helpers/app-driver.js";
+import { launchLawMindElectron, markFirstRunDismissed, prepareE2EUserData } from "./helpers/app-driver.js";
 
 /**
  * LawMind 真机 Electron 冒烟。
@@ -26,6 +26,7 @@ import { launchLawMindElectron, prepareE2EUserData } from "./helpers/app-driver.
 test.describe("LawMind Electron golden path", () => {
   test("shell loads with readiness strip or first-run wizard", async () => {
     const config = await prepareE2EUserData();
+    await markFirstRunDismissed(config.workspaceDir);
     const electronApp = await launchLawMindElectron(config);
 
     try {
@@ -47,6 +48,7 @@ test.describe("LawMind Electron golden path", () => {
 
   test("看修订回到对话，不打开改稿台", async () => {
     const config = await prepareE2EUserData();
+    await markFirstRunDismissed(config.workspaceDir);
     const electronApp = await launchLawMindElectron(config);
 
     try {
@@ -65,6 +67,7 @@ test.describe("LawMind Electron golden path", () => {
 
   test("review draft row shows gate list from seeded workspace draft", async () => {
     const config = await prepareE2EUserData();
+    await markFirstRunDismissed(config.workspaceDir);
     const electronApp = await launchLawMindElectron(config);
 
     try {
@@ -80,6 +83,7 @@ test.describe("LawMind Electron golden path", () => {
 
   test("file explorer mounts in sidebar with preload bridge", async () => {
     const config = await prepareE2EUserData();
+    await markFirstRunDismissed(config.workspaceDir);
     const electronApp = await launchLawMindElectron(config);
 
     try {

@@ -45,6 +45,25 @@ export async function prepareE2EUserData(opts: { matterId?: string } = {}): Prom
 }
 
 /**
+ * 种上「首跑向导已读过」的标记，避免那层 `role="dialog"` 遮罩挡住导航点击。
+ *
+ * 标记是**按工作区**存的（`<workspace>/.lawmind/firstrun-dismissed.json`），
+ * 不是 localStorage，也不是服务端开关 —— 后两条在真机 Electron 里都试过：
+ * `dismissServerFirstRun` 的 `POST /api/onboarding/firstrun-dismiss` 在无本地服务/
+ * 未授权时会被 `.catch` 吞掉，`dismissBlockingDialogs` 点「稍后再说」也只是本次
+ * 不显示，重载后又回来。遮罩一在，`mainNav.getByTestId("lm-tab-workspace").click()`
+ * 就会 30s 超时，而错误只说「element is visible… but <div role=dialog> intercepts
+ * pointer events」—— 看着像导航坏了，其实是首跑向导。
+ *
+ * 必须在 `launchLawMindElectron()` **之前**调用。
+ */
+export async function markFirstRunDismissed(workspaceDir: string): Promise<void> {
+  const file = path.join(workspaceDir, ".lawmind", "firstrun-dismissed.json");
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify({ dismissedAt: new Date().toISOString() }, null, 2), "utf8");
+}
+
+/**
  * 启动 LawMind Electron 应用，使用指定的 userDataDir。
  */
 /**

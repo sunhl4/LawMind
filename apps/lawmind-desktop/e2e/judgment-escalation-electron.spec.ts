@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
-import { launchLawMindElectron, prepareE2EUserData } from "./helpers/app-driver";
+import { launchLawMindElectron, markFirstRunDismissed, prepareE2EUserData } from "./helpers/app-driver";
 import { bootstrapE2ePage, openReviewDraft } from "./e2e-helpers";
 
 /**
@@ -61,6 +61,8 @@ async function runEscalationScenario(input: {
   // 与种子文件统一改写到 realpath 后的工作区，否则 fs-bridge 会判「symlink escapes root」。
   // 与 `electron-file-deeplink.spec.ts` 同一处理。
   const workspaceDir = await fs.realpath(fixture.workspaceDir);
+  // 首跑向导遮罩会挡住改稿台/侧车断言里的点击（见 app-driver 的注释）。
+  await markFirstRunDismissed(workspaceDir);
   await fs.writeFile(
     path.join(fixture.userDataDir, "LawMind", "desktop-config.json"),
     JSON.stringify({ workspaceDir, retrievalMode: "single" }, null, 2),

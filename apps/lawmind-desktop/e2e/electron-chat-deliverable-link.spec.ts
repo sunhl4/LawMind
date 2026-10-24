@@ -6,6 +6,7 @@ import { test, expect, type Page } from "@playwright/test";
 import {
   getRendererConfig,
   launchLawMindElectron,
+  markFirstRunDismissed,
   prepareE2EUserData,
 } from "./helpers/app-driver.js";
 import { bootstrapE2ePage, dismissBlockingDialogs } from "./e2e-helpers";
@@ -39,6 +40,15 @@ async function mkdtempUnderHome(subdir: string, prefix: string): Promise<string>
   return fs.mkdtemp(path.join(parent, prefix));
 }
 
+/**
+ * 主修饰键：macOS 是 ⌘，Linux（CI 的 xvfb）是 Ctrl。
+ *
+ * 这些用例要验「全选 + 保存」真的把改动写回磁盘。写死 `Meta` 时，Linux 上
+ * `Meta+A` 不会全选、`Meta+s` 不会保存 —— 结果是只插入了新句、原句没删，
+ * 断言 `w:del` 时看到一条只有 `w:ins` 的 XML，看起来像修订轨坏了。
+ */
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
 async function writeMinimalDocx(abs: string, text: string): Promise<void> {
   await fs.mkdir(path.dirname(abs), { recursive: true });
   const zip = new JSZip();
@@ -57,16 +67,6 @@ type SeedOpts = {
   /** 会话里那条助手回复的正文（含 Markdown 链接）。 */
   assistantText: string;
 };
-
-/**
- * 首跑向导的「不再自动打开」记在工作区（`workspace/.lawmind/firstrun-dismissed.json`），
- * 不是 localStorage。种上它，重载后就不会再弹一层挡住链接点击的遮罩。
- */
-async function markFirstRunDismissed(workspaceDir: string): Promise<void> {
-  const file = path.join(workspaceDir, ".lawmind", "firstrun-dismissed.json");
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify({ dismissedAt: new Date().toISOString() }, null, 2), "utf8");
-}
 
 async function seedSession(opts: SeedOpts): Promise<string> {
   const sessionId = "e2e-deliverable-link";
@@ -606,10 +606,10 @@ test.describe("工作区之外的文件 → 中栏可编辑", () => {
       // 真的改一个字，并用 ⌘S 保存（走 /api/word-surface/save）。
       const pageEl = page.locator(".lm-word-surface-page").first();
       await pageEl.click();
-      await page.keyboard.press("Meta+A");
+      await page.keyboard.press(`${MOD}+A`);
       await page.keyboard.type("改后的结论：条款需要再谈。");
       await page.waitForTimeout(600);
-      await page.keyboard.press("Meta+s");
+      await page.keyboard.press(`${MOD}+s`);
       await page.waitForTimeout(2500);
 
       // 从磁盘读回 docx，确认改动真的落盘（不是只改了 DOM）。
@@ -670,7 +670,7 @@ test.describe("工作区之外的文本文件 → 中栏可编辑", () => {
       const area = page.locator(".lm-files-editor textarea").first();
       await expect(area).toHaveValue(/# 工作笔记/, { timeout: 30_000 });
       await area.fill("# 工作笔记\n\n改后的记录：结论已更新。\n");
-      await page.keyboard.press("Meta+s");
+      await page.keyboard.press(`${MOD}+s`);
       await page.waitForTimeout(1200);
 
       const onDisk = await fs.readFile(absMd, "utf8");
