@@ -49,6 +49,10 @@ jobs:
           # 每次约 6.5MB；默认 90 天会把账号配额吃满（免费 500MB），
           # 配额一满，同账号下 docs 的 upload-pages-artifact 会直接失败。
           retention-days: 5
+        # 账号级 Actions 存储配额耗尽时（"Artifact storage quota has been hit"，
+        # 用量每 6–12 小时才重算一次），这里报错会让**整份 verify 变红**，
+        # 但代码检查本身早已全部通过。诊断产物属于附加信息，不该当门禁。
+        continue-on-error: true
 
       - name: Skills golden smoke (G0)
         run: pnpm lawmind:skills:golden -- --compare
@@ -60,6 +64,9 @@ jobs:
           name: skills-golden-compare
           path: docs/generated/skills-golden-compare-report.json
           if-no-files-found: ignore
+          retention-days: 5
+        # 同 coverage：配额耗尽不该把已通过的代码检查判红。
+        continue-on-error: true
 
       - name: Typecheck LawMind engine
         run: pnpm typecheck
@@ -106,6 +113,9 @@ jobs:
           name: release-readiness-report
           path: dist/lawmind-release-readiness.md
           if-no-files-found: warn
+          retention-days: 5
+        # 同 coverage：配额耗尽不该把已通过的代码检查判红。
+        continue-on-error: true
 
   file-size-check:
     runs-on: ubuntu-latest
