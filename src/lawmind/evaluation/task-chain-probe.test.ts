@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import JSZip from "jszip";
 import { afterEach, describe, expect, it } from "vitest";
+import { resolveOfficeCliBin } from "../artifacts/officecli-bin.js";
 import { persistDraft } from "../drafts/index.js";
 import {
   listProbeMatters,
@@ -10,6 +11,17 @@ import {
   probeDraftChainWithoutModel,
   probeWordRevisionChain,
 } from "./task-chain-probe.js";
+
+/**
+ * 「改 Word」探针要真的调用 officecli 才能产出 w:ins / w:del。
+ *
+ * CI 不 vendor 二进制（`scripts/vendor-officecli.mjs --postinstall` 明确跳过），
+ * 所以那条链在 CI 上只能走 plain_fallback → `insCount`/`delCount` 为 0、
+ * 产物目录空，用例报 `expected 'failed' to be 'done'`。这里按仓库既有约定
+ * （见 `agent/tools/legal/pptx-officecli.test.ts`）在有二进制时才跑，
+ * 不在 CI 上假装跑过。
+ */
+const officecliBin = resolveOfficeCliBin();
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -76,33 +88,36 @@ describe("task chain probe", () => {
     expect(pickAnchor("2024年签约，2024年交付。")?.find).toBeUndefined();
   });
 
-  it("runs the word chain on a real docx and leaves the original untouched", async () => {
-    const ws = seedWorkspace();
-    const materials = path.join(ws, "cases", "m-probe", "materials");
-    const rel = "cases/m-probe/materials/合同原件.docx";
-    await writeDocx(path.join(ws, rel), [
-      "技术服务合同",
-      "合同总价款为人民币500万元。",
-      "乙方应于收到款项后交付。",
-    ]);
+  it.runIf(Boolean(officecliBin))(
+    "runs the word chain on a real docx and leaves the original untouched",
+    async () => {
+      const ws = seedWorkspace();
+      const materials = path.join(ws, "cases", "m-probe", "materials");
+      const rel = "cases/m-probe/materials/合同原件.docx";
+      await writeDocx(path.join(ws, rel), [
+        "技术服务合同",
+        "合同总价款为人民币500万元。",
+        "乙方应于收到款项后交付。",
+      ]);
 
-    const report = await probeWordRevisionChain({
-      workspaceDir: ws,
-      matterId: "m-probe",
-      keepArtifacts: true,
-    });
-    expect(report.status).toBe("done");
-    expect(report.facts.anchor).toBe("500");
-    expect(report.facts.insCount).toBeGreaterThanOrEqual(1);
-    expect(report.facts.delCount).toBeGreaterThanOrEqual(1);
-    expect(report.facts.baselineUnchanged).toBe(true);
-    // 探针只在 lawmind/probe/ 下写副本，改稿产物也留在那里。
-    expect(String(report.facts.baseline)).toContain("lawmind/probe/");
-    expect(String(report.facts.outputPath)).toContain("合同原件_");
-    expect(fs.existsSync(String(report.facts.outputPath))).toBe(true);
-    expect(fs.readdirSync(materials)).toEqual(["合同原件.docx"]);
-    expect(fs.readdirSync(materials).some((name) => name.includes(".lawmind-tmp"))).toBe(false);
-  });
+      const report = await probeWordRevisionChain({
+        workspaceDir: ws,
+        matterId: "m-probe",
+        keepArtifacts: true,
+      });
+      expect(report.status).toBe("done");
+      expect(report.facts.anchor).toBe("500");
+      expect(report.facts.insCount).toBeGreaterThanOrEqual(1);
+      expect(report.facts.delCount).toBeGreaterThanOrEqual(1);
+      expect(report.facts.baselineUnchanged).toBe(true);
+      // 探针只在 lawmind/probe/ 下写副本，改稿产物也留在那里。
+      expect(String(report.facts.baseline)).toContain("lawmind/probe/");
+      expect(String(report.facts.outputPath)).toContain("合同原件_");
+      expect(fs.existsSync(String(report.facts.outputPath))).toBe(true);
+      expect(fs.readdirSync(materials)).toEqual(["合同原件.docx"]);
+      expect(fs.readdirSync(materials).some((name) => name.includes(".lawmind-tmp"))).toBe(false);
+    },
+  );
 
   it("runs extraction on real material files and keeps every row traceable", async () => {
     const ws = seedWorkspace({ docx: false });

@@ -13,6 +13,21 @@ vi.mock("./render-docx.js", () => ({
   renderDocxWithOptions: vi.fn(async () => ({ ok: true, outputPath: "/tmp/out.docx" })),
 }));
 
+/**
+ * 别让这组单元测试依赖仓库里是否 vendor 了 officecli 二进制。
+ *
+ * `runOfficeCli` 走 `runSafeCommand`，后者对**非绝对路径**命令做 PATH 查找并对
+ * 绝对路径做 `fs.existsSync` 校验。本机 `resources/officecli/<platform-arch>/` 有
+ * 二进制所以解析成功；CI（ubuntu、未 vendor）解析失败 → `runSafeCommand` 抛
+ * 「PATH 中找不到命令」→ 每个 hunk 都记失败 → 用例报 `expected +0 to be 1`。
+ *
+ * 这里断言的是「拿到 matched 之后怎么计数 / 怎么回滚 / 参数怎么拼」，与二进制从哪来
+ * 无关，所以把定位器钉到一个必然存在的绝对路径，执行仍由下面的 spawn mock 接管。
+ */
+vi.mock("./officecli-bin.js", () => ({
+  resolveOfficeCliBin: () => process.execPath,
+}));
+
 const spawnState = vi.hoisted(() => ({
   /** When true, `set` exits 0 with matched>0; otherwise exit 1. */
   setSucceeds: false,

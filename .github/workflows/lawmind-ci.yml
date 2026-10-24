@@ -46,6 +46,9 @@ jobs:
           name: coverage-report
           path: coverage/
           if-no-files-found: ignore
+          # 每次约 6.5MB；默认 90 天会把账号配额吃满（免费 500MB），
+          # 配额一满，同账号下 docs 的 upload-pages-artifact 会直接失败。
+          retention-days: 5
 
       - name: Skills golden smoke (G0)
         run: pnpm lawmind:skills:golden -- --compare

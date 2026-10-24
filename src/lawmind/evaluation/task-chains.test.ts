@@ -17,9 +17,20 @@ import JSZip from "jszip";
 import { describe, expect, it, vi } from "vitest";
 import { cassetteAssistant, cassetteToolCall, withTestLawMind } from "../agent/testkit/index.js";
 import type { TestLawMind } from "../agent/testkit/test-lawmind.js";
+import { resolveOfficeCliBin } from "../artifacts/officecli-bin.js";
 import { stableReviewRowId } from "../deliverables/review-table-extract.js";
 import { readReviewTable } from "../deliverables/review-table.js";
 import { persistDraft, readDraft } from "../drafts/index.js";
+
+/**
+ * chain 1 的核心断言是「产物里真的有 w:ins / w:del」，那必须真的跑 officecli。
+ * CI 不 vendor 二进制（`scripts/vendor-officecli.mjs --postinstall` 明确跳过），
+ * 缺它时 render_tracked_draft 会走 plain_fallback，产物里一个修订都没有 ——
+ * 于是 `outputs.length` 为 0、`<w:ins>` 匹配不上。按仓库既有约定
+ * （`agent/tools/legal/pptx-officecli.test.ts`）只在有二进制时跑，不假装通过。
+ * 工具广告面由 `agent/turn-orchestrator-cassettes.test.ts` 覆盖，不靠这条链。
+ */
+const officecliBin = resolveOfficeCliBin();
 
 /** 最小可读 docx：几段正文，够 splice 与 tracked render 用。 */
 async function writeMinimalDocx(absPath: string, body: string): Promise<void> {
@@ -81,16 +92,19 @@ function toolResults(h: TestLawMind): Array<{
 }
 
 describe("W11 task chains", () => {
-  it("chain 1 · 改这份 Word：整句锚点被收窄后同一回合改完，产物保留原文并带审阅痕迹", async () => {
-    // 独立审稿员是第二次模型调用，会吃掉 cassette 回合；本链只验改稿/导出链本身，
-    // 审稿员另有单测覆盖。
-    vi.stubEnv("LAWMIND_LEGAL_GUARDIAN", "0");
-    try {
-      await chain1();
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
+  it.runIf(Boolean(officecliBin))(
+    "chain 1 · 改这份 Word：整句锚点被收窄后同一回合改完，产物保留原文并带审阅痕迹",
+    async () => {
+      // 独立审稿员是第二次模型调用，会吃掉 cassette 回合；本链只验改稿/导出链本身，
+      // 审稿员另有单测覆盖。
+      vi.stubEnv("LAWMIND_LEGAL_GUARDIAN", "0");
+      try {
+        await chain1();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 
   async function chain1(): Promise<void> {
     await withTestLawMind(

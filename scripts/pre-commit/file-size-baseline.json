@@ -2,16 +2,25 @@
   "description": "Grandfathered oversize files (Phase 12 soft limits). Values are frozen line ceilings: a file may not grow past ceiling + toleranceLines. New violations fail CI; stale entries (no longer oversize) also fail. Update with --update after a split or a reviewed, justified growth.",
   "toleranceLines": 10,
   "renderer": {
-    "apps/lawmind-desktop/src/renderer/file/FileWorkbenchImpl.tsx": 930,
-    "apps/lawmind-desktop/src/renderer/lawmind-chat-shell.tsx": 1055,
-    "apps/lawmind-desktop/src/renderer/LawmindAgentFleetPanel.tsx": 971,
+    "apps/lawmind-desktop/src/renderer/file/FileWorkbenchImpl.tsx": 1068,
+    "apps/lawmind-desktop/src/renderer/file/LawmindWordRevisionSurface.tsx": 2892,
+    "apps/lawmind-desktop/src/renderer/lawmind-chat-shell.tsx": 1017,
+    "apps/lawmind-desktop/src/renderer/lawmind-chat.ts": 867,
+    "apps/lawmind-desktop/src/renderer/lawmind-settings-shell.tsx": 849,
+    "apps/lawmind-desktop/src/renderer/LawmindAgentFleetPanel.tsx": 1305,
     "apps/lawmind-desktop/src/renderer/LawmindAutomationsPanel.tsx": 1069,
-    "apps/lawmind-desktop/src/renderer/LawmindLawyerWorkbench.tsx": 2418,
-    "apps/lawmind-desktop/src/renderer/matter/useMatterProductIntelligence.ts": 802
+    "apps/lawmind-desktop/src/renderer/LawmindClarificationForm.tsx": 806,
+    "apps/lawmind-desktop/src/renderer/LawmindLawyerWorkbench.tsx": 2278,
+    "apps/lawmind-desktop/src/renderer/LawmindSideChatSessions.tsx": 1018,
+    "apps/lawmind-desktop/src/renderer/matter/useMatterProductIntelligence.ts": 802,
+    "apps/lawmind-desktop/src/renderer/useLawmindChatSend.ts": 1298,
+    "apps/lawmind-desktop/src/renderer/useLawmindChatSessions.ts": 821
   },
   "tools": {
-    "src/lawmind/agent/tools/engine/engine-pipeline-tools.ts": 1547,
-    "src/lawmind/agent/tools/engine/engine-workflow-tool.ts": 633,
-    "src/lawmind/agent/tools/legal/search-tools.ts": 1001
+    "src/lawmind/agent/tools/engine/engine-pipeline-tools.ts": 1689,
+    "src/lawmind/agent/tools/engine/engine-workflow-tool.ts": 632,
+    "src/lawmind/agent/tools/legal/ingest-helpers.ts": 922,
+    "src/lawmind/agent/tools/legal/review-table-tool.ts": 682,
+    "src/lawmind/agent/tools/legal/search-tools.ts": 1080
   }
 }

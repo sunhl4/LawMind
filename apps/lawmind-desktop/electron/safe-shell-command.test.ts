@@ -37,6 +37,13 @@ function tmpDir(): string {
 describe("safe-shell-command", () => {
   let workspaceDir: string;
 
+  // `safeOpenWithWps` 在非 darwin 上直接拒绝（"请先安装 WPS"），而它的 macOS 分支
+  // 只依赖 `/usr/bin/open`，spawn 已经 mock —— 所以这里把 platform 钉成 darwin，
+  // 让「WPS 能打开 / WPS 缺失不回落」这两个真实分支在 Linux CI 上也跑到。
+  // 不钉的话，ubuntu-latest 上会走拒绝分支，用例看着是「本机绿、CI 红」的假差异。
+  const pinPlatform = (value: NodeJS.Platform) =>
+    vi.spyOn(process, "platform", "get").mockReturnValue(value);
+
   beforeEach(() => {
     workspaceDir = tmpDir();
     openPath.mockReset().mockResolvedValue("");
@@ -46,6 +53,8 @@ describe("safe-shell-command", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
+    spawn.mockReset();
     fs.rmSync(workspaceDir, { recursive: true, force: true });
   });
 
@@ -63,6 +72,7 @@ describe("safe-shell-command", () => {
   }
 
   it("opens a workspace file with WPS", async () => {
+    pinPlatform("darwin");
     const file = path.join(workspaceDir, "函.docx");
     fs.writeFileSync(file, "x");
     spawn.mockImplementation(() => wpsChild(0));
@@ -76,7 +86,19 @@ describe("safe-shell-command", () => {
     expect(openPath).not.toHaveBeenCalled();
   });
 
+  it("refuses WPS outside macOS without spawning", async () => {
+    pinPlatform("linux");
+    const file = path.join(workspaceDir, "函.docx");
+    fs.writeFileSync(file, "x");
+    spawn.mockImplementation(() => wpsChild(0));
+    const res = await safeOpenWithWps(file, workspaceDir);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("WPS");
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it("does not fall back to another app when WPS is missing", async () => {
+    pinPlatform("darwin");
     const file = path.join(workspaceDir, "函.docx");
     fs.writeFileSync(file, "x");
     spawn.mockImplementation(() => wpsChild(1, "Unable to find application"));

@@ -14,6 +14,9 @@ export default defineConfig({
     unstubGlobals: true,
     pool: "forks",
     maxWorkers: isCI ? ciWorkers : localWorkers,
+    // 收集前补齐不入库的生成物（canvas/sandbox-runtime.js），否则全新克隆 / CI
+    // 会在 import analysis 阶段以「Failed to resolve import ... ?raw」整文件失败。
+    globalSetup: ["test/ensure-generated-artifacts.ts"],
     setupFiles: ["test/lawmind-setup.ts"],
     include: [
       "src/lawmind/**/*.test.ts",
@@ -21,6 +24,7 @@ export default defineConfig({
       "apps/lawmind-desktop/src/**/*.test.ts",
       "apps/lawmind-desktop/src/**/*.test.tsx",
       "apps/lawmind-desktop/electron/**/*.test.ts",
+      "apps/lawmind-desktop/scripts/**/*.test.ts",
       "scripts/pre-commit/**/*.test.ts",
     ],
     exclude: ["**/node_modules/**", "**/dist/**", "**/release/**"],

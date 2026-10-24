@@ -69,8 +69,43 @@ jobs:
             unset CSC_KEY_PASSWORD
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
-          pnpm lawmind:desktop:dist
+          # macOS 一次出 arm64 + x64 两个 .app（Intel Mac 的律师也能装）：
+          # 单次 electron-builder 调用才会生成同时列出两种架构的 latest-mac.yml。
+          if [ "$OS_LABEL" = "mac" ]; then
+            pnpm --filter lawmind-desktop run dist:electron:mac:both
+          else
+            pnpm lawmind:desktop:dist
+          fi
         shell: bash
+
+      - name: Verify packaged mac architectures
+        if: matrix.label == 'mac'
+        shell: bash
+        run: |
+          set -euo pipefail
+          expect_arch() {
+            dir="$1"; want="$2"
+            app="apps/lawmind-desktop/release/$dir/LawMind.app"
+            if [ ! -d "$app" ]; then
+              echo "::error::missing $app — the $dir package did not build"
+              exit 1
+            fi
+            got="$(lipo -archs "$app/Contents/MacOS/LawMind")"
+            echo "$dir → $got"
+            if [ "$got" != "$want" ]; then
+              echo "::error::$dir/LawMind.app is '$got', expected '$want'"
+              exit 1
+            fi
+            runtime="$app/Contents/Resources/node-runtime/darwin-$want/bin/node"
+            if [ ! -x "$runtime" ]; then
+              echo "::error::$dir is missing its bundled Node runtime ($runtime)"
+              exit 1
+            fi
+          }
+          expect_arch mac-arm64 arm64
+          expect_arch mac-x64 x86_64
+          echo "--- latest-mac.yml ---"
+          cat apps/lawmind-desktop/release/latest-mac.yml
 
       - name: Packaging trust report
         if: always()
@@ -91,6 +126,11 @@ jobs:
           name: lawmind-desktop-${{ matrix.label }}
           path: apps/lawmind-desktop/release/*
           if-no-files-found: error
+          # 安装包动辄数百 MB（mac 643MB / linux 494MB）。这三份产物是**构建结果**，
+          # 真源是源码 + tag；留 3 天够排查一次发布事故，再长就会把账号的
+          # Actions 存储配额（免费 500MB）吃光 —— 2026-10-24 正是这么让 docs 的
+          # `upload-pages-artifact` 报 "Artifact storage quota has been hit"。
+          retention-days: 3
 
   release:
     needs: package
