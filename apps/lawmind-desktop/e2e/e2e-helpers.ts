@@ -445,12 +445,17 @@ export async function openWorkspaceChat(page: Page): Promise<void> {
 }
 
 /**
- * 工作台与草稿台都在：审稿只在中栏草稿台里发生，不再有独立的「全文改稿」一级页。
- * （旧断言要求 `.lm-review-workbench` 必须为 0——那是已被删掉的整页改稿台；
- *  但 `openReviewDraft` 现在真的会打开中栏草稿台，该断言会把正常界面判成失败。）
+ * 中栏草稿台真的挂上了签批/门禁清单。
+ *
+ * 注意**不要**在这里断言 `lm-lawyer-workbench` 可见：`LawmindWorkspaceMainPane` 里
+ * 工作台是 `showDesk && deskPane ? <LawmindLawyerWorkbench/> : null`，而草稿台是
+ * `hidden={showDesk}` —— 也就是说「草稿台可见」和「工作台可见」在产品上互斥。
+ * 旧断言在 `openReviewDraft()` 之后要求工作台可见，等于要求两者同时成立，
+ * 在 CI 上必然 30s 超时（真机 macOS 上也只是被更快的时序掩盖）。
+ * 要验的其实是「审稿面真的把门禁列出来了」，所以直接查那份清单。
  */
 export async function assertReviewGateList(page: Page): Promise<void> {
   await openReviewDraft(page);
   await expect(page.getByTestId("lm-middle-draft-desk")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId("lm-lawyer-workbench")).toBeVisible({ timeout: 30_000 });
+  await ensureReviewMetaPaneVisible(page);
 }
