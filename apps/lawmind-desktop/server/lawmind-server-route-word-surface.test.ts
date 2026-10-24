@@ -246,6 +246,99 @@ describe("word surface route", () => {
     await fs.access(path.join(workspaceDir, "原稿_比较稿.docx"));
   });
 
+  /**
+   * 外部根（`file:<id>`）必须经 `resolveWordRoot` 翻译。
+   *
+   * 之前 compare 路由把 `body.root` 直接当 `preferredRoot` 传下去：类型上过不了
+   * `WordBaselineRoot`，行为上也匹配不上 `resolveWordBaselineAbs` 返回的 root，
+   * 于是比较稿固定 404。这条用例钉住「外部授权文件也能出比较稿」。
+   */
+  it("POST compare resolves an external file root instead of 404ing", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-word-compare-ext-"));
+    dirs.push(workspaceDir);
+    const grantDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-word-compare-grant-"));
+    dirs.push(grantDir);
+    const writeDoc = async (dir: string, name: string, text: string) => {
+      const zip = new JSZip();
+      zip.file(
+        "word/document.xml",
+        `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+          `<w:p><w:r><w:t>${text}</w:t></w:r></w:p>` +
+          `</w:body></w:document>`,
+      );
+      zip.file(
+        "[Content_Types].xml",
+        `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+          `<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>` +
+          `</Types>`,
+      );
+      await fs.writeFile(path.join(dir, name), await zip.generateAsync({ type: "nodebuffer" }));
+    };
+    await writeDoc(grantDir, "外部原稿.docx", "甲方应于十日内付款。");
+    await writeDoc(grantDir, "外部改稿.docx", "甲方应于五日内付款。");
+    // 授权单：主进程写的交接格式 —— `grants: [{ key, dirPath, absPath }]`。
+    // dirPath 决定 `file:<key>` 这个「同级根」，absPath 是律师点过的那一份文件。
+    const grantsFile = path.join(grantDir, "grants.json");
+    await fs.writeFile(
+      grantsFile,
+      JSON.stringify({
+        grants: [
+          {
+            key: "file:ext1",
+            dirPath: grantDir,
+            absPath: path.join(grantDir, "外部原稿.docx"),
+          },
+        ],
+      }),
+      "utf8",
+    );
+    const prevGrants = process.env.LAWMIND_FILE_GRANTS_FILE;
+    process.env.LAWMIND_FILE_GRANTS_FILE = grantsFile;
+    try {
+      const ctx = {
+        workspaceDir,
+        envFile: undefined,
+        userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+        policy: { loaded: false, policy: null },
+      } as LawmindDispatchContext;
+      const stream = new PassThrough();
+      stream.end(
+        JSON.stringify({
+          root: "file:ext1",
+          path: "外部原稿.docx",
+          otherRoot: "file:ext1",
+          otherPath: "外部改稿.docx",
+        }),
+        "utf8",
+      );
+      const res = mockRes();
+      const handled = await handleWordSurfaceRoutes({
+        ctx,
+        req: Object.assign(stream, { method: "POST" }) as http.IncomingMessage,
+        res,
+        url: new URL("http://127.0.0.1/api/word-surface/compare"),
+        pathname: "/api/word-surface/compare",
+        c: {},
+      });
+      expect(handled).toBe(true);
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(res.body).toMatchObject({
+        ok: true,
+        outputFileName: "外部原稿_比较稿.docx",
+        changed: 1,
+      });
+      // 原件在工作区外 → 比较稿落在会话工作区，不回写授权目录。
+      expect(String((res.body as { outputPath?: string }).outputPath)).toContain(workspaceDir);
+      await expect(fs.access(path.join(grantDir, "外部原稿_比较稿.docx"))).rejects.toThrow();
+    } finally {
+      if (prevGrants === undefined) {
+        delete process.env.LAWMIND_FILE_GRANTS_FILE;
+      } else {
+        process.env.LAWMIND_FILE_GRANTS_FILE = prevGrants;
+      }
+    }
+  });
+
   it("POST save writes runs back into the open file, and export copies it", async () => {
     const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-word-save-"));
     dirs.push(workspaceDir);

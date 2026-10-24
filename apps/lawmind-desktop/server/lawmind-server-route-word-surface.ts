@@ -19,6 +19,7 @@
 
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
+import type http from "node:http";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { z } from "zod";
@@ -231,7 +232,9 @@ const compareSchema = z.object({
   root: externalRootSchema,
   path: z.string().trim().min(1).max(2_000),
   projectDir: z.string().optional(),
-  otherRoot: z.enum(["workspace", "project"]),
+  // 两侧都可能是工作区外授权文件（`file:<key>`）：只放行一侧会逼出
+  // 「原件在桌面、改稿也在桌面」这种最常见的用法直接 400。
+  otherRoot: externalRootSchema,
   otherPath: z.string().trim().min(1).max(2_000),
 });
 
@@ -1011,24 +1014,34 @@ export async function handleWordSurfaceRoutes({
       }
       throw err;
     }
-    const projectDir = safeOptionalProjectDir(body.projectDir);
+    // 外部根（`file:<id>`）要和别的 word-surface 路由一样先经 `resolveWordRoot`
+    // 翻译成 { root, projectDir }：它把外部授权目录当成 project 根，
+    // 并带回 `externalAbs` 供写入守卫使用。直接把 `body.root`（可能是 `file:…`）
+    // 当 `preferredRoot` 传下去，既过不了 `WordBaselineRoot` 类型，也匹配不上
+    // `resolveWordBaselineAbs` 返回的 root，比较稿会莫名 404。
+    const baseRoot = resolveWordRoot(ctx.workspaceDir, body.root, body.projectDir);
+    const otherRoot = resolveWordRoot(ctx.workspaceDir, body.otherRoot, body.projectDir);
+    if (!baseRoot || !otherRoot) {
+      sendJson(res, 400, { ok: false, error: "invalid_request" }, c);
+      return true;
+    }
     const base = resolveWordBaselineAbs({
       workspaceDir: ctx.workspaceDir,
-      projectDir,
+      projectDir: baseRoot.projectDir,
       raw: body.path,
-      preferredRoot: body.root,
+      preferredRoot: baseRoot.root,
     });
     const other = resolveWordBaselineAbs({
       workspaceDir: ctx.workspaceDir,
-      projectDir,
+      projectDir: otherRoot.projectDir,
       raw: body.otherPath,
-      preferredRoot: body.otherRoot,
+      preferredRoot: otherRoot.root,
     });
-    if (!base || base.root !== body.root) {
+    if (!base || base.root !== baseRoot.root) {
       sendJson(res, 404, { ok: false, error: "not_found" }, c);
       return true;
     }
-    if (!other || other.root !== body.otherRoot) {
+    if (!other || other.root !== otherRoot.root) {
       sendJson(res, 404, { ok: false, error: "other_not_found" }, c);
       return true;
     }
@@ -1056,8 +1069,8 @@ export async function handleWordSurfaceRoutes({
       !relToWorkspace.startsWith("..") && !path.isAbsolute(relToWorkspace);
     const outRel = compareInWorkspace
       ? relToWorkspace
-      : projectDir
-        ? path.relative(projectDir, result.outAbs).replace(/\\/g, "/")
+      : baseRoot.projectDir
+        ? path.relative(baseRoot.projectDir, result.outAbs).replace(/\\/g, "/")
         : result.outFileName;
     sendJson(
       res,
