@@ -5,9 +5,9 @@
 ## 构建与产物
 
 - [ ] 版本号已更新：`apps/lawmind-desktop/package.json` 的 `version`。
-- [ ] 分别在 **Windows x64**、**macOS（目标架构）**、**Linux x64** 上执行 `pnpm lawmind:desktop:dist`（或 CI 矩阵），确认 `apps/lawmind-desktop/release/` 下产物齐全：
+- [ ] 分别在 **Windows x64**、**macOS（arm64 + x64）**、**Linux x64** 上执行 `pnpm lawmind:desktop:dist`（或 CI 矩阵），确认 `apps/lawmind-desktop/release/` 下产物齐全：
   - Windows：`nsis`、`portable`、`.zip`
-  - macOS：`dmg`、`zip`（内含 `.app`）
+  - macOS：`mac-arm64` 与 `mac`（Intel，electron-builder 对 x64 不加后缀）各一份 `dmg` + `zip`，`latest-mac.yml` **同时列出两个架构**
   - Linux：`AppImage`、`tar.gz`
 - [ ] 文件名含 **版本 + os + arch**（`artifactName` 已配置）。
 - [ ] 在干净虚拟机或新用户下 **安装包与 zip 解压版各测一条**：能打开向导、能连上本地服务、能发一条对话。
@@ -24,7 +24,8 @@ tag `lawmind-desktop-v*` 构建时：配了 `MAC_CSC_LINK` 才把 mac 侧 `LAWMI
 
 ## 安全与信任
 
-- [ ] **macOS**：对外分发需 Apple Developer **Developer ID Application 签名 + notarytool 公证 + staple**。把 `CSC_LINK` / `CSC_KEY_PASSWORD` 与 `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` 配进 GitHub Actions secrets（或本机钥匙串）。没有证书时本地包仍是 adhoc，别人下载后不能双击。可用 `LAWMIND_REQUIRE_NOTARIZED=1` 让未公证构建失败。
+- [ ] **macOS**：对外分发需 Apple Developer **Developer ID Application 签名 + notarytool 公证 + staple**。把 `MAC_CSC_LINK` / `MAC_CSC_KEY_PASSWORD` 与 `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` 配进 GitHub Actions secrets（或本机钥匙串）。没有证书时本地包仍是 adhoc，别人下载后不能双击。可用 `LAWMIND_REQUIRE_NOTARIZED=1` 让未公证构建失败。**完整操作步骤见 [SIGNING-NOTARIZATION.md](./SIGNING-NOTARIZATION.md)。**
+- [ ] **macOS 双架构**：`mac-arm64` 与 `mac`（Intel）两个 `.app` 都做过第 3 节的 `codesign --verify` + `spctl -a`；在 Intel Mac 上实测过一次安装。
 - [ ] **Windows**：计划内分发则 **Authenticode** 签名 `exe` / 安装包。
 - [ ] 随发布提供或可索取：**SBOM**（`pnpm lawmind:sbom:cyclonedx`）、已知依赖 CVE 说明（按客户要求）。
 

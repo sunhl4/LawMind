@@ -486,9 +486,12 @@ Word 加载项的侧载清单把端口钉死（http://localhost:<旧>/word-addin
 2. `vendor:node` → `resources/node-runtime/<平台-架构>/`
 3. `vendor:officecli` → `resources/officecli/<平台-架构>/`
 4. `build:renderer`（先建 canvas sandbox，再 `vite build`）
-5. `electron-builder --publish never`
+5. `scripts/assert-vendored-runtimes.mjs`（目标架构的运行时必须在场且 Mach-O 架构匹配）
+6. `electron-builder --publish never`
 
 产物：macOS 出 `dmg` + `zip`，Windows 出 `nsis` + `portable` + `zip`，Linux x64 出 `AppImage` + `tar.gz`。mac 配置开了 `hardenedRuntime`，但 electron-builder 自己的 `notarize` 是关掉的——签名与公证走 `afterPack` / `afterAllArtifactBuild` 两个钩子（下面的 `mac-gatekeeper.mjs` 家族），这样能同时管住打包进来的 node 与 officecli 二进制。
+
+**mac 要覆盖 Intel：** 用 `pnpm lawmind:desktop:dist:mac:both`（两个架构各 vendor 一次，然后**一次** `electron-builder --arm64 --x64`）。单次调用才能生成同时列出两种架构的 `latest-mac.yml`；产物是 `release/mac-arm64/LawMind.app` + `release/mac/LawMind.app`（electron-builder 的 appOutDir 对 x64 只叫 `mac`，dmg/zip 文件名里才是 `-mac-x64`）与各自的 dmg/zip。`extraResources` 用 `${platform}-${arch}` 宏，每个 app 只带自己的运行时。操作步骤（证书、公证凭据、GitHub Secrets、四道验证闸）见 [SIGNING-NOTARIZATION.md](../../../apps/lawmind-desktop/SIGNING-NOTARIZATION.md)。
 
 ### macOS 的两条硬规则
 

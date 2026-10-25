@@ -898,12 +898,14 @@ listBundledHelperBinaries(appPath)
 ```text
 server/dist                    → lawmind-server            （只收 *.cjs）
 ../../src/lawmind/skills/builtin → lawmind-server/builtin   （只收 *.md）
-resources/node-runtime         → node-runtime
-resources/officecli            → officecli
+resources/node-runtime/${platform}-${arch} → node-runtime/${platform}-${arch}
+resources/officecli/${platform}-${arch}    → officecli/${platform}-${arch}
 resources/word-addin           → word-addin
 ```
 
 **五项都是「必须随包」的东西**：服务端代码、技能种子、Node 运行时、officecli、Word 插件。**任何一项漏了功能就会缺一块。**
+
+后两项运行时用 `${platform}-${arch}` 宏（`FileMatcher` 会展开 `from` / `to`，`${arch}` 是**目标架构**，`${platform}` 是 `process.platform`）——所以一次 `electron-builder --arm64 --x64` 出两个 `.app` 时，每个包只带自己那份 108MB / 112MB 的 Node 运行时，不会互相污染。代价是 `from` 目录必须**先**存在：`copyFiles` 在源目录缺失时只打一行 `file source doesn't exist` 的 warn 然后照样出包，于是会得到一个「能装能开、但本地 API spawn 不到 node」的安装包。所以 `dist:electron*` 在 electron-builder 之前先跑 `apps/lawmind-desktop/scripts/assert-vendored-runtimes.mjs --arch ...`：文件必须存在、体积正常、Mach-O 头架构与目标一致，否则直接失败。
 
 而 `files` 只收三处：
 
@@ -922,12 +924,14 @@ dist/**/*
 
 `resources/node-runtime` 与 `resources/officecli` 都不是仓内产物：`pnpm lawmind:desktop:dist` 先 bundle 服务端、跑两个 vendor 脚本，把二进制拉进 `apps/lawmind-desktop/resources/<名字>/<platform-arch>/`，再由上面那五项 `extraResources` 整目录搬进 app。目录布局必须与读取端一致（`resolveNodeExecutable`、`resolveOfficeCliExecutable`），否则打包后找不到。
 
-| 脚本                                      | 钉版本的变量                                          | 当前缺省值  | 校验                                        |
-| ----------------------------------------- | ----------------------------------------------------- | ----------- | ------------------------------------------- |
-| `scripts/vendor-lawmind-desktop-node.mjs` | `LAWMIND_DESKTOP_NODE_VERSION`（或 `--node-version`） | **22.23.2** | 拉完跑 `node --version`，必须等于 `v<版本>` |
-| `scripts/vendor-officecli.mjs`            | `LAWMIND_OFFICECLI_VERSION`（或 `--version`）         | **1.0.149** | 必须过 release 的 `SHA256SUMS`              |
+| 脚本                                      | 钉版本的变量                                          | 当前缺省值  | 校验                                                                             |
+| ----------------------------------------- | ----------------------------------------------------- | ----------- | -------------------------------------------------------------------------------- |
+| `scripts/vendor-lawmind-desktop-node.mjs` | `LAWMIND_DESKTOP_NODE_VERSION`（或 `--node-version`） | **22.23.2** | 本机架构跑 `node --version`；交叉架构读 tarball 的 `include/node/node_version.h` |
+| `scripts/vendor-officecli.mjs`            | `LAWMIND_OFFICECLI_VERSION`（或 `--version`）         | **1.0.149** | 必须过 release 的 `SHA256SUMS`；本机架构再跑 `officecli --version`               |
 
-Node 侧：从 `nodejs.org/dist` 下载当前构建机同平台/架构的**官方独立构建**（自带 libnode，不依赖 Homebrew 那种带共享 dylib 的安装），落到 `resources/node-runtime/<platform-arch>/bin/node`（Windows 是 `node.exe`）。幂等规则是「目标已存在且 `--version` 与期望一致就跳过」。内网/离线用 `--node <独立二进制>` 直接复制——它也认 `LAWMIND_NODE_BIN`，与运行时覆盖是同一个变量名。
+两个脚本都认 `--arch arm64|x64`（以及 `LAWMIND_DESKTOP_ARCH`），默认本机架构。交叉架构（Apple 芯片上打 Intel 包）时**不执行**目标二进制——CI 的 arm64 runner 不一定装了 Rosetta；版本改由 tarball 头文件与 `VERSION` 岸标断言。`--node` / `--bin` 复制本地二进制只允许本机架构，否则直接报错。
+
+Node 侧：从 `nodejs.org/dist` 下载目标平台/架构的**官方独立构建**（自带 libnode，不依赖 Homebrew 那种带共享 dylib 的安装），落到 `resources/node-runtime/<platform-arch>/bin/node`（Windows 是 `node.exe`）。幂等规则是「`<arch>/VERSION` 与期望一致且二进制存在就跳过」；老目录没有 `VERSION` 时退回执行 `--version` 校验（仅本机架构）。内网/离线用 `--node <独立二进制>` 直接复制——它也认 `LAWMIND_NODE_BIN`，与运行时覆盖是同一个变量名。
 
 officecli 侧：按平台/架构选资产（`officecli-mac-arm64`、`officecli-linux-alpine-x64`、`officecli-win-x64.exe` 等，Linux 会用 `isMusl()` 区分 glibc 与 alpine），先试镜像 `d.officecli.ai` 再试 GitHub Release；下载后写一个 `VERSION` 旁车文件，并把 `third_party/officecli` 的 LICENSE / NOTICE 复制到旁边。它的 `--postinstall` 在 CI 里默认跳过（`CI` / `GITHUB_ACTIONS`，除非 `LAWMIND_VENDOR_OFFICECLI=1`，另可用 `LAWMIND_SKIP_OFFICECLI_VENDOR=1` 强制跳）：装依赖不该因为下载二进制失败而红，真正需要它的是 dist 脚本。
 

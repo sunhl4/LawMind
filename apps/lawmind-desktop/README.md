@@ -15,7 +15,7 @@ If you received a **zip** (macOS `.app`) or **portable / installer** (Windows):
 
 **Advanced:** set `LAWMIND_NODE_BIN` to force a different Node executable.
 
-**End users (简体中文):** 安装与系统说明见同目录 [**INSTALL.md**](./INSTALL.md)；对外发布前团队自查见 [**RELEASE-CHECKLIST.md**](./RELEASE-CHECKLIST.md)。**智能下载页**（按浏览器推断系统并高亮推荐包）：[docs.lawmind.ai/download](https://docs.lawmind.ai/download/)（源文件 [`download/index.html`](./download/index.html)；`?repo=组织/仓库` 可指向贵司 GitHub Release）。
+**End users (简体中文):** 安装与系统说明见同目录 [**INSTALL.md**](./INSTALL.md)；对外发布前团队自查见 [**RELEASE-CHECKLIST.md**](./RELEASE-CHECKLIST.md)；macOS 签名 / 公证 / GitHub Secrets 的完整操作见 [**SIGNING-NOTARIZATION.md**](./SIGNING-NOTARIZATION.md)。**智能下载页**（按浏览器推断系统并高亮推荐包）：[docs.lawmind.ai/download](https://docs.lawmind.ai/download/)（源文件 [`download/index.html`](./download/index.html)；`?repo=组织/仓库` 可指向贵司 GitHub Release）。
 
 ## 终端用户：更新与下载页
 
@@ -71,6 +71,12 @@ From **repo root** (推荐，与 CI 一致):
 pnpm lawmind:desktop:dist
 ```
 
+macOS 要同时覆盖 Apple 芯片与 Intel（内测分发基本都要）：
+
+```bash
+pnpm lawmind:desktop:dist:mac:both   # release/mac-arm64 + release/mac（Intel），一次生成 latest-mac.yml
+```
+
 或在本目录：
 
 ```bash
@@ -80,11 +86,12 @@ pnpm run dist:electron
 This runs:
 
 1. `pnpm bundle:server` — esbuild → `server/dist/lawmind-local-server.cjs`
-2. `pnpm vendor:node` — downloads Node for the **current** OS/arch into `resources/node-runtime/<platform-arch>/` (see [resources/node-runtime/README.md](resources/node-runtime/README.md))
-3. `pnpm vendor:officecli` — downloads OfficeCLI for the **current** OS/arch into `resources/officecli/<platform-arch>/` (see [resources/officecli/README.md](resources/officecli/README.md))
+2. `pnpm vendor:node` — downloads Node for the **current** OS/arch into `resources/node-runtime/<platform-arch>/` (see [resources/node-runtime/README.md](resources/node-runtime/README.md)); `--arch arm64|x64` 可交叉 vendoring
+3. `pnpm vendor:officecli` — downloads OfficeCLI for the **current** OS/arch into `resources/officecli/<platform-arch>/` (see [resources/officecli/README.md](resources/officecli/README.md)); 同样支持 `--arch`
 4. `vite build`
-5. `electron-builder` — outputs under `release/`，文件名含 **版本与 os-arch**（`artifactName`）：
-   - **macOS:** `dmg` + **`zip`**（解压后得到 `LawMind.app`）
+5. `node scripts/assert-vendored-runtimes.mjs` — 目标架构的运行时必须在场且架构匹配（electron-builder 在 `extraResources` 源目录缺失时只 warn，这里改成硬失败）
+6. `electron-builder` — outputs under `release/`，文件名含 **版本与 os-arch**（`artifactName`）：
+   - **macOS:** `dmg` + **`zip`**（解压后得到 `LawMind.app`）；`dist:electron:mac:both` 一次出 `mac-arm64` + `mac`（Intel）两个 `.app`，dmg/zip 文件名才是 `-mac-arm64` / `-mac-x64`
    - **Windows:** `nsis` 安装包 + **`portable`** 绿色版 + **`zip`**
    - **Linux (x64):** **`AppImage`** + **`tar.gz`**（解压即用目录）
 

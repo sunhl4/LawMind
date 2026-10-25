@@ -114,7 +114,7 @@ cd apps/lawmind-desktop && pnpm run dist:electron
 
 产出（在 `apps/lawmind-desktop/release/`，具体文件名随版本变化）：
 
-- **macOS**：`dmg` 安装包 + **`zip`**（解压后得到 `LawMind.app`，可直接双击；适合绿色分发）；
+- **macOS**：`dmg` 安装包 + **`zip`**（解压后得到 `LawMind.app`，可直接双击；适合绿色分发）；`pnpm lawmind:desktop:dist:mac:both` 会一次出 `mac-arm64` 与 `mac-x64` 两套（Intel 机器也能装），并且只有单次 `electron-builder` 调用才会生成同时列出两种架构的 `latest-mac.yml`；
 - **Windows**：`nsis` 安装包 + **`portable`** 绿色版（单文件可执行，或由 builder 配置决定的可搬运形态）。
 
 **最终用户**：安装版或解压版均**不要求**单独安装 Node 或 officecli；应用内已携带与本包架构匹配的 Node（启动 `lawmind-local-server.cjs`）和 OfficeCLI（Word 修订轨 / 改稿）。高级场景仍可用环境变量 `LAWMIND_NODE_BIN` / `LAWMIND_OFFICECLI` 指定其他路径。
@@ -130,6 +130,10 @@ cd apps/lawmind-desktop && pnpm run dist:electron
 3. 强制失败：`LAWMIND_REQUIRE_NOTARIZED=1`（没有 Developer ID 或公证凭证时直接退出）。
 
 内嵌 Node（`LawMind.app/Contents/Resources/node-runtime/<platform-arch>/bin/node`）与 OfficeCLI（`…/Resources/officecli/<platform-arch>/officecli`）与主程序使用同一身份签名。未公证的测试包仍可「右键 → 打开」。
+
+**双架构**：`extraResources` 用 `${platform}-${arch}` 宏，每个 `.app` 只带自己架构的运行时；`afterAllArtifactBuild` 会对**每一个** `.app` 校验 Developer ID（旧实现只看 `mac-arm64`，Intel 包可能没签也发出去）。`notarytool` 对 dmg/zip 都提交，但 `stapler` 只装订 `.app`/`.dmg`/`.pkg`——`.zip` 会记成 `notarized but not stapled`（票据只是离线加速，联网首启仍按 CDHash 在线校验）。
+
+**逐步操作（证书、公证凭据、GitHub Secrets、四道验证闸、故障排查）见 [apps/lawmind-desktop/SIGNING-NOTARIZATION.md](../apps/lawmind-desktop/SIGNING-NOTARIZATION.md)。**
 
 （内部发布细节以仓库内 `docs/platforms/mac/` 下签名与发布相关文档为准。）
 

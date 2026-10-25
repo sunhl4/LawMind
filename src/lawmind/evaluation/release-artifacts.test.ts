@@ -2,7 +2,48 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { formatReleaseArtifactsReport, inspectReleaseArtifacts } from "./release-artifacts.js";
+import {
+  formatReleaseArtifactsReport,
+  inspectReleaseArtifacts,
+  summarizeMacApp,
+} from "./release-artifacts.js";
+
+describe("summarizeMacApp (票据在 dmg 上时不能误判为未公证)", () => {
+  it("counts a stapled ticket on the app", () => {
+    const result = summarizeMacApp({
+      signed: true,
+      developerId: true,
+      stapled: true,
+      gatekeeperNotarized: false,
+    });
+    expect(result.notarized).toBe(true);
+    expect(result.detail).toContain("公证票据已装订");
+  });
+
+  it("accepts online Gatekeeper notarization when only the dmg carries the ticket", () => {
+    const result = summarizeMacApp({
+      signed: true,
+      developerId: true,
+      stapled: false,
+      gatekeeperNotarized: true,
+    });
+    expect(result.notarized).toBe(true);
+    expect(result.detail).toContain("公证通过 Gatekeeper 校验");
+    expect(result.detail).toContain("票据在 dmg 上");
+  });
+
+  it("still reports an adhoc app as unsigned and not notarized", () => {
+    const result = summarizeMacApp({
+      signed: true,
+      developerId: false,
+      stapled: false,
+      gatekeeperNotarized: false,
+    });
+    expect(result.notarized).toBe(false);
+    expect(result.detail).toContain("非 Developer ID");
+    expect(result.detail).toContain("未公证");
+  });
+});
 
 describe("release-artifacts (signing / notarization / updater manifest)", () => {
   let dir: string;

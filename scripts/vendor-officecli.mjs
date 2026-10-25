@@ -10,6 +10,7 @@
  *
  * 用法：
  *   node scripts/vendor-officecli.mjs
+ *   node scripts/vendor-officecli.mjs --arch x64          # 交叉 vendoring（Intel 包在 Apple 芯片上打）
  *   node scripts/vendor-officecli.mjs --version 1.0.149
  *   node scripts/vendor-officecli.mjs --bin /path/to/officecli
  *   node scripts/vendor-officecli.mjs --postinstall   # CI 默认跳过；失败不挡 pnpm install
@@ -38,6 +39,7 @@ function parseArgs(argv) {
   const out = {
     bin: "",
     version: "",
+    arch: "",
     clean: false,
     help: false,
     postinstall: false,
@@ -49,6 +51,10 @@ function parseArgs(argv) {
       out.bin = argv[++i] ?? "";
     } else if (a === "--version") {
       out.version = argv[++i] ?? "";
+    } else if (a === "--arch") {
+      out.arch = argv[++i] ?? "";
+    } else if (a.startsWith("--arch=")) {
+      out.arch = a.slice("--arch=".length);
     } else if (a === "--clean") {
       out.clean = true;
     } else if (a === "--postinstall") {
@@ -60,6 +66,14 @@ function parseArgs(argv) {
     }
   }
   return out;
+}
+
+function resolveTargetArch(raw) {
+  const value = String(raw || "").trim() || process.arch;
+  if (!["arm64", "x64"].includes(value)) {
+    throw new Error(`不支持的架构：${value}（officecli 仅 arm64 / x64）`);
+  }
+  return value;
 }
 
 function isMusl() {
@@ -330,9 +344,9 @@ function findPathOfficeCliMatching(version) {
   }
 }
 
-async function vendorFromDownload(version, destBin) {
+async function vendorFromDownload(version, destBin, targetArch) {
   const tag = `v${version}`;
-  const asset = detectOfficeCliAsset();
+  const asset = detectOfficeCliAsset(process.platform, targetArch);
   const urls = [
     `${MIRROR_BASE}/releases/download/${tag}/${asset}`,
     `${GITHUB_BASE}/releases/download/${tag}/${asset}`,
@@ -375,16 +389,18 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     process.stdout.write(
-      "用法: node scripts/vendor-officecli.mjs [--version 1.0.149] [--bin /path/to/officecli] [--postinstall] [--clean]\n",
+      "用法: node scripts/vendor-officecli.mjs [--arch arm64|x64] [--version 1.0.149] [--bin /path/to/officecli] [--postinstall] [--clean]\n",
     );
     return;
   }
+  const targetArch = resolveTargetArch(args.arch || process.env.LAWMIND_DESKTOP_ARCH);
+  const isCrossArch = targetArch !== process.arch;
   if (args.printAsset) {
-    process.stdout.write(`${detectOfficeCliAsset()}\n`);
+    process.stdout.write(`${detectOfficeCliAsset(process.platform, targetArch)}\n`);
     return;
   }
 
-  const key = runtimeKey();
+  const key = runtimeKey(process.platform, targetArch);
   const destDir = path.join(VENDOR_ROOT, key);
   const destBin = path.join(destDir, binaryName());
 
@@ -401,6 +417,11 @@ async function main() {
   if (localBin) {
     if (!fs.existsSync(localBin)) {
       throw new Error(`找不到 officecli 二进制：${localBin}`);
+    }
+    if (isCrossArch) {
+      throw new Error(
+        `--bin 只能复制本机可执行的二进制：本机 ${process.arch}，要求 --arch ${targetArch}`,
+      );
     }
     copyStandaloneBinary(localBin, destBin);
     let ver = pinVersion(args.version || process.env.LAWMIND_OFFICECLI_VERSION || "");
@@ -421,6 +442,13 @@ async function main() {
   );
 
   if (fs.existsSync(destBin) && readPinnedVersion(destDir) === version) {
+    if (isCrossArch) {
+      // 交叉架构：不能保证能执行目标二进制（依赖 Rosetta），以 VERSION 哨兵为准。
+      process.stdout.write(
+        `✓ 已 vendored（VERSION 一致，跳过）：${path.relative(REPO_ROOT, destBin)} [v${version}] arch=${targetArch}\n`,
+      );
+      return;
+    }
     try {
       const got = officecliVersionOf(destBin);
       if (got === version || got.startsWith(version)) {
@@ -434,7 +462,7 @@ async function main() {
     }
   }
 
-  const pathBin = findPathOfficeCliMatching(version);
+  const pathBin = isCrossArch ? "" : findPathOfficeCliMatching(version);
   if (pathBin && args.postinstall) {
     copyStandaloneBinary(pathBin, destBin);
     writeSidecar(destDir, version);
@@ -445,14 +473,20 @@ async function main() {
   }
 
   try {
-    await vendorFromDownload(version, destBin);
-    const got = officecliVersionOf(destBin);
-    if (got !== version && !got.startsWith(version)) {
-      throw new Error(`下载版本不一致：期望 ${version}，实际 ${got}`);
+    await vendorFromDownload(version, destBin, targetArch);
+    if (isCrossArch) {
+      process.stdout.write(
+        `  ⓘ 交叉架构（本机 ${process.arch} → 目标 ${targetArch}）：跳过执行 officecli --version\n`,
+      );
+    } else {
+      const got = officecliVersionOf(destBin);
+      if (got !== version && !got.startsWith(version)) {
+        throw new Error(`下载版本不一致：期望 ${version}，实际 ${got}`);
+      }
     }
     writeSidecar(destDir, version);
     process.stdout.write(
-      `✓ vendored officecli v${version} → ${path.relative(REPO_ROOT, destBin)}\n  key=${key}\n`,
+      `✓ vendored officecli v${version} → ${path.relative(REPO_ROOT, destBin)}\n  key=${key} arch=${targetArch}\n`,
     );
   } catch (e) {
     if (pathBin) {

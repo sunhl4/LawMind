@@ -84,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           expect_arch() {
-            dir="$1"; want="$2"
+            dir="$1"; want_lipo="$2"; want_runtime="$3"
             app="apps/lawmind-desktop/release/$dir/LawMind.app"
             if [ ! -d "$app" ]; then
               echo "::error::missing $app — the $dir package did not build"
@@ -92,18 +92,26 @@ jobs:
             fi
             got="$(lipo -archs "$app/Contents/MacOS/LawMind")"
             echo "$dir → $got"
-            if [ "$got" != "$want" ]; then
-              echo "::error::$dir/LawMind.app is '$got', expected '$want'"
+            if [ "$got" != "$want_lipo" ]; then
+              echo "::error::$dir/LawMind.app is '$got', expected '$want_lipo'"
               exit 1
             fi
-            runtime="$app/Contents/Resources/node-runtime/darwin-$want/bin/node"
+            runtime="$app/Contents/Resources/node-runtime/darwin-$want_runtime/bin/node"
             if [ ! -x "$runtime" ]; then
               echo "::error::$dir is missing its bundled Node runtime ($runtime)"
               exit 1
             fi
+            # 每个 app 只能带自己架构的运行时（extraResources 的 ${platform}-${arch} 宏）
+            extra="$(ls "$app/Contents/Resources/node-runtime" | grep -v "^darwin-$want_runtime$" || true)"
+            if [ -n "$extra" ]; then
+              echo "::error::$dir carries a foreign runtime: $extra"
+              exit 1
+            fi
           }
-          expect_arch mac-arm64 arm64
-          expect_arch mac-x64 x86_64
+          # 注意：electron-builder 给 x64 用的 appOutDir 是 `mac`（不是 mac-x64），
+          # 只有 dmg/zip 文件名里才出现 -mac-x64。
+          expect_arch mac-arm64 arm64 arm64
+          expect_arch mac x86_64 x64
           echo "--- latest-mac.yml ---"
           cat apps/lawmind-desktop/release/latest-mac.yml
 

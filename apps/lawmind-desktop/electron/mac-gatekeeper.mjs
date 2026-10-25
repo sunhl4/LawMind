@@ -249,12 +249,26 @@ export function signLawMindMacApp(appPath, options = {}) {
   return { picked, signedNodes: signed, appPath };
 }
 
-export function resolvePackagedMacApp(outDir, productFilename = "LawMind") {
+export function listPackagedMacApps(outDir, productFilename = "LawMind") {
   const name = `${productFilename}.app`;
-  const candidates = ["mac-arm64", "mac", "mac-universal", "mac-x64"].map((dir) =>
+  // electron-builder 的 appOutDir：x64 是裸 `mac`，其它架构带后缀（mac-arm64 / mac-universal）。
+  return ["mac-arm64", "mac", "mac-universal", "mac-x64"].map((dir) =>
     path.join(outDir, dir, name),
-  );
-  return candidates.find((file) => fs.existsSync(file)) ?? "";
+  ).filter((file) => fs.existsSync(file));
+}
+
+export function resolvePackagedMacApp(outDir, productFilename = "LawMind", arch = process.arch) {
+  const apps = listPackagedMacApps(outDir, productFilename);
+  const name = `${productFilename}.app`;
+  // x64 的 appOutDir 是裸 `mac`；arm64 / universal 带后缀。老目录名 `mac-x64` 也认。
+  const preferredDirs = arch === "x64" ? ["mac", "mac-x64"] : [`mac-${arch}`];
+  for (const dir of preferredDirs) {
+    const candidate = path.join(outDir, dir, name);
+    if (apps.includes(candidate)) {
+      return candidate;
+    }
+  }
+  return apps[0] ?? "";
 }
 
 export function collectNotarizeArtifacts(artifactPaths) {
@@ -327,10 +341,12 @@ if (isDirectRun(import.meta.url)) {
   const args = process.argv.slice(2);
   const appFlag = args.indexOf("--app");
   const here = path.dirname(fileURLToPath(import.meta.url));
+  const releaseDir = path.resolve(here, "../release");
+  // 本机架构优先（x64 的 appOutDir 是裸 `mac`），找不到再退回 arm64 目录。
   const appPath =
     appFlag >= 0
       ? path.resolve(args[appFlag + 1] ?? "")
-      : path.resolve(here, "../release/mac-arm64/LawMind.app");
+      : resolvePackagedMacApp(releaseDir) || path.join(releaseDir, "mac-arm64", "LawMind.app");
   const entitlements = path.join(here, "entitlements.mac.plist");
   const entitlementsInherit = path.join(here, "entitlements.mac.inherit.plist");
   const result = signLawMindMacApp(appPath, { entitlements, entitlementsInherit });

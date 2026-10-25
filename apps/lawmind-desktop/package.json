@@ -12,7 +12,10 @@
     "vendor:node": "pnpm -w lawmind:vendor:desktop-node",
     "vendor:officecli": "pnpm -w lawmind:vendor:officecli",
     "typecheck": "tsc --noEmit",
-    "dist:electron": "pnpm bundle:server && pnpm vendor:node && pnpm vendor:officecli && pnpm build:renderer && electron-builder --publish never",
+    "dist:electron": "pnpm bundle:server && pnpm vendor:node && pnpm vendor:officecli && pnpm build:renderer && node scripts/assert-vendored-runtimes.mjs && electron-builder --publish never",
+    "dist:electron:arm64": "pnpm bundle:server && pnpm vendor:node --arch arm64 && pnpm vendor:officecli --arch arm64 && pnpm build:renderer && node scripts/assert-vendored-runtimes.mjs --arch arm64 && electron-builder --arm64 --publish never",
+    "dist:electron:x64": "pnpm bundle:server && pnpm vendor:node --arch x64 && pnpm vendor:officecli --arch x64 && pnpm build:renderer && node scripts/assert-vendored-runtimes.mjs --arch x64 && electron-builder --x64 --publish never",
+    "dist:electron:mac:both": "pnpm bundle:server && pnpm vendor:node --arch arm64 && pnpm vendor:node --arch x64 && pnpm vendor:officecli --arch arm64 && pnpm vendor:officecli --arch x64 && pnpm build:renderer && node scripts/assert-vendored-runtimes.mjs --arch arm64,x64 && electron-builder --arm64 --x64 --publish never",
     "test:e2e": "playwright test",
     "test:e2e:electron": "playwright test --config playwright.electron.config.ts",
     "test:e2e:install": "playwright install chromium"
@@ -59,6 +62,13 @@
     ],
     "extraResources": [
       {
+        "from": "resources/node-runtime/${platform}-${arch}",
+        "to": "node-runtime/${platform}-${arch}",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "server/dist",
         "to": "lawmind-server",
         "filter": [
@@ -73,15 +83,8 @@
         ]
       },
       {
-        "from": "resources/node-runtime",
-        "to": "node-runtime",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "resources/officecli",
-        "to": "officecli",
+        "from": "resources/officecli/${platform}-${arch}",
+        "to": "officecli/${platform}-${arch}",
         "filter": [
           "**/*"
         ]

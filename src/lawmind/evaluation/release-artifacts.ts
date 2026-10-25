@@ -61,6 +61,38 @@ function findApps(dir: string): string[] {
   return out;
 }
 
+/**
+ * 把 codesign / stapler / spctl 的原始事实收敛成一句结论。
+ *
+ * 关键点：**票据通常订在 dmg 上，不在 .app 上**。`notarizeAndStapleArtifacts` 对 dmg
+ * 提交并装订，app 本身是「已公证但未装订」。只看 `stapler validate <app>` 会把它误判成
+ * 未公证，进而让 release-readiness 对一个合格的包报红。所以再加一条 Gatekeeper 在线校验：
+ * `spctl -a -t exec` 返回 accepted 且标明 Notarized Developer ID，同样是有效的公证证据。
+ */
+export function summarizeMacApp(facts: {
+  signed: boolean;
+  developerId: boolean;
+  stapled: boolean;
+  gatekeeperNotarized: boolean;
+}): { signed: boolean; developerId: boolean; notarized: boolean; detail: string } {
+  const notarized = facts.stapled || facts.gatekeeperNotarized;
+  const notarizeText = facts.stapled
+    ? "公证票据已装订"
+    : facts.gatekeeperNotarized
+      ? "公证通过 Gatekeeper 校验（票据在 dmg 上）"
+      : "未公证";
+  return {
+    signed: facts.signed,
+    developerId: facts.developerId,
+    notarized,
+    detail: [
+      facts.signed ? "签名校验通过" : "签名校验失败",
+      facts.developerId ? "Developer ID" : "非 Developer ID（adhoc 或未签名）",
+      notarizeText,
+    ].join("；"),
+  };
+}
+
 /** 只读询问 codesign：Developer ID 签名 + 公证是否已装订。 */
 function inspectMacApp(appPath: string): {
   signed: boolean;
@@ -88,13 +120,16 @@ function inspectMacApp(appPath: string): {
   const staple = spawnSync("/usr/bin/xcrun", ["stapler", "validate", appPath], {
     encoding: "utf8",
   });
-  const notarized = staple.status === 0;
-  const detail = [
-    signed ? "签名校验通过" : "签名校验失败",
-    developerId ? "Developer ID" : "非 Developer ID（adhoc 或未签名）",
-    notarized ? "公证已装订" : "未装订公证",
-  ].join("；");
-  return { signed, developerId, notarized, detail };
+  const assess = spawnSync("/usr/bin/spctl", ["-a", "-vv", "-t", "exec", appPath], {
+    encoding: "utf8",
+  });
+  const assessText = `${assess.stdout ?? ""}${assess.stderr ?? ""}`;
+  return summarizeMacApp({
+    signed,
+    developerId,
+    stapled: staple.status === 0,
+    gatekeeperNotarized: assess.status === 0 && /Notarized Developer ID/i.test(assessText),
+  });
 }
 
 export function inspectReleaseArtifacts(releaseDir: string | undefined): ReleaseArtifactsReport {

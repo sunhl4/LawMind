@@ -10,6 +10,7 @@ import {
   hasNotaryCredentials,
   isStapleableArtifact,
   notarizeAndStapleArtifacts,
+  listPackagedMacApps,
   resolvePackagedMacApp,
   isDeveloperIdSigned,
   listBundledNodeBinaries,
@@ -241,6 +242,37 @@ describe("resolvePackagedMacApp", () => {
     const app = path.join(root, "mac-arm64", "LawMind.app");
     fs.mkdirSync(app, { recursive: true });
     expect(resolvePackagedMacApp(root)).toBe(app);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("lists every packaged arch so both get signature-checked", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lm-out-both-"));
+    const arm = path.join(root, "mac-arm64", "LawMind.app");
+    const intel = path.join(root, "mac", "LawMind.app"); // electron-builder: x64 的 appOutDir 是裸 mac
+    fs.mkdirSync(arm, { recursive: true });
+    fs.mkdirSync(intel, { recursive: true });
+    expect(listPackagedMacApps(root).toSorted((a, b) => a.localeCompare(b))).toEqual(
+      [arm, intel].toSorted((a, b) => a.localeCompare(b)),
+    );
+    expect(resolvePackagedMacApp(root, "LawMind", "x64")).toBe(intel);
+    expect(resolvePackagedMacApp(root, "LawMind", "arm64")).toBe(arm);
+    // 未知架构回退到任意一个已存在的包，而不是返回空串。
+    expect(resolvePackagedMacApp(root, "LawMind", "ia32")).toBe(arm);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("still finds an app under a legacy mac-x64 directory", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lm-out-legacy-"));
+    const intel = path.join(root, "mac-x64", "LawMind.app");
+    fs.mkdirSync(intel, { recursive: true });
+    expect(resolvePackagedMacApp(root, "LawMind", "x64")).toBe(intel);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("returns an empty result when nothing was packaged", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lm-out-empty-"));
+    expect(listPackagedMacApps(root)).toEqual([]);
+    expect(resolvePackagedMacApp(root)).toBe("");
     fs.rmSync(root, { recursive: true, force: true });
   });
 });
