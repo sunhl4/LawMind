@@ -218,6 +218,7 @@ describe("tool-round policy table", () => {
     expect(TOOL_ROUND_POLICIES.map((policy) => policy.id)).toEqual([
       "write-synthesis",
       "pleading-sections",
+      "case-conclusion",
       "consult-questions",
       "memo-sections",
       "calculate-params",
@@ -251,6 +252,31 @@ describe("tool-round policy table", () => {
     }
     // Guard policies must not run while any coach fired (old `steeredToWrite` barrier).
     expect(facts.flags.identicalToolStreak).toBeNull();
+  });
+
+  it("case-conclusion nudges once when 【结论】 leads with odds instead of a verdict", () => {
+    const dir = emptyWorkspace();
+    const hedged = [
+      "## 【结论】",
+      "整体判断：异议请求难以获得支持；能争取到的最好结果是部分返还。",
+      "",
+      "## 【案情简述】",
+      "略。",
+    ].join("\n");
+    fs.writeFileSync(path.join(dir, "case-analysis-77.md"), hedged, "utf8");
+    const facts = toolFacts({
+      workspaceDir: dir,
+      instruction:
+        "按【结论】【案情简述】【分析过程】【依据法条】四段作答。写入 case-analysis-77.md。",
+      profile: profileWith(["write_synthesis", "case_conclusion"]),
+    });
+    const action = runToolRoundPolicies(facts);
+    expect(action?.kind).toBe("resample");
+    if (action?.kind === "resample") {
+      expect(action.messages?.[0]).toContain("【结论口径】");
+    }
+    expect(facts.flags.caseConclusionNudged).toBe(true);
+    expect(runToolRoundPolicies(facts)).toBeNull();
   });
 
   it("write-synthesis fires once, then keeps search locked while the named file is missing", () => {

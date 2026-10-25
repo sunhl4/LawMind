@@ -766,17 +766,21 @@ export async function prepareTurnPromptContext(opts: {
     }
     if (bound && hardBind) {
       const { planLeanSkillPrompt } = await import("../skills/skill-prompt-budget.js");
-      const lean = planLeanSkillPrompt(bound, instruction);
-      const bodies = readSkillPromptBodies(config.workspaceDir, lean.primaryIds);
-      queue(
-        "skill_index",
-        formatBoundCapabilityBlock(bound, bodies, {
-          indexLines: lean.indexLines,
+      // 预算按**最终入队字符串**量：这里把 compiled 一起渲染，编排侧不会多出
+      // 计划外文字去挤占 `skill_index` 的帽，也就不会出现「正文被按字符腰斩」。
+      const renderBlock = (ids: readonly string[], indexLines: readonly string[]) =>
+        formatBoundCapabilityBlock(bound, readSkillPromptBodies(config.workspaceDir, [...ids]), {
+          indexLines: [...indexLines],
           instruction,
           compiled,
-        }),
-        { overflow: { tool: "read_skill", path: "skills" } },
-      );
+        });
+      const lean = planLeanSkillPrompt(bound, instruction, { render: renderBlock });
+      queue("skill_index", renderBlock(lean.primaryIds, lean.indexLines), {
+        overflow: { tool: "read_skill", path: "skills" },
+        // 结构目标可能超过 `skill_index` 基准帽；传实测量，避免 `capFragmentBody`
+        // 按字符腰斩最后一份正文（旧实现正是在这里切掉了 Playbook 后半截）。
+        capTokens: lean.capTokens,
+      });
       const {
         formatPracticePlaybookPromptBlock,
         loadPracticePlaybook,

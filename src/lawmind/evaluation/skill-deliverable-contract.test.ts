@@ -254,7 +254,11 @@ describe("skill deliverable contract (synthetic)", () => {
 
     const timeline = bindLawyerCapability({ instruction: "把这些材料做成时间轴" })!;
     const timelinePlan = planLeanSkillPrompt(timeline, "把这些材料做成时间轴");
-    expect(timelinePlan.primaryIds).toEqual(["chronology-two-stage", "chronology-from-materials"]);
+    expect(timelinePlan.primaryIds.slice(0, 2)).toEqual([
+      "chronology-two-stage",
+      "chronology-from-materials",
+    ]);
+    expect(timelinePlan.primaryIds).toContain("legal-element-extraction");
 
     const status = bindLawyerCapability({ instruction: "写本案办案周报" })!;
     const statusPlan = planLeanSkillPrompt(status, "写本案办案周报");

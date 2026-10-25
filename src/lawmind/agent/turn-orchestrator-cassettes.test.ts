@@ -22,6 +22,7 @@ import { buildAgentFleetSummary } from "../platform/build-agent-fleet.js";
 import { COMPACT_REINJECTION_MARKER } from "./compact-insert.js";
 import { CONTEXT_DEFERRAL_BOUNCE_MARKER } from "./context-deferral.js";
 import {
+  CASE_CONCLUSION_MARKER,
   CONSULT_QUESTIONS_MARKER,
   MEMO_SECTION_MARKER,
   PLEADING_SECTION_MARKER,
@@ -485,6 +486,63 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(h.request(1).hasAdvertisedTool("search_statute")).toBe(true);
         expect(h.request(1).allText()).not.toContain(PLEADING_SECTION_MARKER);
         expect(h.request(1).allText()).not.toContain(CONSULT_QUESTIONS_MARKER);
+        expect(h.request(1).allText()).not.toContain(CASE_CONCLUSION_MARKER);
+      },
+    );
+  });
+
+  it("case-analysis frame: a conclusion that opens with odds is rewritten once around a verdict", async () => {
+    const oddsFirst = [
+      "## 【结论】",
+      "整体判断：异议请求难以获得支持；能争取到的最好结果是部分返还。",
+      "## 【案情简述】",
+      "略。",
+      "## 【分析过程】",
+      "略。",
+      "## 【依据法条】",
+      "《民事诉讼法》第二百三十二条。",
+    ].join("\n");
+    const verdictFirst = [
+      "## 【结论】",
+      "依题设事实，该执行异议不应支持；扣划超出债权额的部分应予返还。",
+      "## 【风险与备位】",
+      "实践中全额返还的主张胜算偏低，备位请求为返还超出部分。",
+      "## 【案情简述】",
+      "略。",
+      "## 【分析过程】",
+      "略。",
+      "## 【依据法条】",
+      "《民事诉讼法》第二百三十二条。",
+    ].join("\n");
+    await withTestLawMind(
+      (b) => b.withLegalTools(),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("write_document", {
+            file_path: "case-analysis-77.md",
+            content: oddsFirst,
+          }),
+          cassetteToolCall("write_document", {
+            file_path: "case-analysis-77.md",
+            content: verdictFirst,
+          }),
+          cassetteAssistant("分析已交。"),
+        );
+        const result = await h.runTurn(
+          [
+            "按题目要求用【结论】【案情简述】【分析过程】【依据法条】四段作答。",
+            "用 write_document 写入 case-analysis-77.md。",
+            "",
+            "某执行异议案：扣划金额超出债权额。",
+          ].join("\n"),
+        );
+        expect(h.request(1).allText()).toContain(CASE_CONCLUSION_MARKER);
+        const nudgeCount = h.request(2).allText().split(CASE_CONCLUSION_MARKER).length - 1;
+        expect(nudgeCount).toBe(1);
+        expect(result.turn.status).toBe("completed");
+        expect(fs.readFileSync(path.join(h.workspaceDir, "case-analysis-77.md"), "utf8")).toContain(
+          "风险与备位",
+        );
       },
     );
   });
@@ -1957,6 +2015,40 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("render_tracked_draft")).toBe(true);
         expect(h.request(0).hasAdvertisedTool("draft_document")).toBe(true);
+      },
+    );
+  });
+
+  it("ships the review specs plus invariants whole, with no truncation pointer", async () => {
+    // 结构目标注入的准入断言：看**实际发出的请求体**，不看提示词文案。
+    // 旧实现固定 2 篇，两篇正文已超 `skill_index` 帽 → Playbook 被按字符腰斩并留指针。
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已处理。"));
+        await h.runTurn(CONTRACT_DISPATCH, {
+          contextPins: [
+            {
+              pinKind: "file",
+              root: "project",
+              relPath: "nda.docx",
+              kind: "file",
+            },
+          ],
+        });
+        const first = h.request(0);
+        for (const skillHeading of [
+          "合同分层审查",
+          "合同 Playbook 审查",
+          "引用锚定",
+          "规范现行有效",
+          "法律要素提取",
+        ]) {
+          expect(first.contains(skillHeading), skillHeading).toBe(true);
+        }
+        expect(first.contains("…[截断，完整内容请用 read_skill")).toBe(false);
+        // 索引里仍披露未注入的改稿手艺，模型可按需取。
+        expect(first.contains("contract-redline-craft")).toBe(true);
       },
     );
   });

@@ -391,6 +391,16 @@
 
 **建议**：skill_index 片段帽随交付轮放大（1,200→4,000+）；让模型看到全部 Skill 一句话索引后**自选**注入哪几篇；read_skill 返回全文（或分段续读）而非 12k 死帽。
 
+**进展（2026-10-24）**：两条都已落地，但**结论与本文原判断不同**，以下为实测：
+
+- **索引帽不是瓶颈**。23 类办件实测：要进索引的行组最宽 581 字符（旧计划）/ 479 字符（新计划），而帽是 2,000 token —— 放大帽不解决任何问题（原建议「1,200→4,000+」不必要）。真正的瓶颈是**正文**：`contract.review` 固定注入的 2 篇已是 2,395 token（`estimateTextTokens` 对中文按 1 字符 ≈ 1 token），早已超过 2,000 帽，`capFragmentBody` 于是把 Playbook 后半截按字符切掉并留截断指针——**旧行为本身就在腰斩**。
+- **改为结构目标注入**（`skills/skill-prompt-budget.ts`）：注入「本阶段技能 + 跨交付物质量不变量」的全部正文，其余整篇降级为索引行。不变量 = `citation-grounding` / `norm-validity` / `legal-element-extraction`（`delivery-language` 排除：全局交付纪律，系统提示词与 `craft` 已有）。`STAGE_FIRST_BY_CAPABILITY` 只决定顺序，不再决定取舍。
+- **不切半篇**：`capTokens = max(skill_index 基准帽, 实测量)`，编排侧把它传给 `queue`，因此 `capFragmentBody` 不会再按字符腰斩。实测量量的是**最终入队字符串**（含 `compiled`），两层不会各算一套；`turn-orchestrator-prompt.test.ts` 断言「不出现 `read_skill` 截断指针」，该断言用固定 2,000 帽做变异验证会失败。
+- **`read_skill`** 不再有 12k 死帽，改为按 `##` 分节、`section` 按名取用，未读的节具名列出。
+- 不做「模型自选注入哪几篇」：那需要在本回合前额外调用一次模型，且实测结构目标已覆盖（最宽 `contract.review` 5 篇 ≈ 3,169 token）。模型仍可 `read_skill` 按需补。
+
+回归见 `skills/skill-prompt-budget.test.ts`（结构目标、噪声隔离、索引全覆盖、不切半篇）与 `agent/turn-orchestrator-prompt.test.ts`（真实装配下正文齐全且检索协议不被挤出）。**仍未做**：`FRAGMENT_SESSION_TAIL_BUDGET_TOKENS` 在超重回合（正文 + 全部协议 + 钉选）下的挤占仍只有观测，没有自动降级策略。
+
 ### F14. 工具调用的机械次数帽与「写前合成」收走检索工具 —— 中
 
 **证据**：`src/lawmind/runtime/tool-pipeline.ts:222-234`——`DISCOVERY_LOOP_TOOL_LIMITS`（search_workspace 3、search_matter 2、read_project_file 8、analyze_document 8…）；`:254-265,412-443` 检索/列表合计帽 8 至 32，超限直接返回错误；`agent/write-synthesis.ts:20-23,93-111`——`WRITE_SYNTHESIS_SEARCH_CAP = 4`，4 次检索后若指定交件未写出则从广告工具表**移除检索工具**直到文件落盘。

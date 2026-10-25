@@ -95,6 +95,52 @@ describe("turn-orchestrator-prompt", () => {
     expect(visiblePrompt(result, session)).not.toContain("Word 改稿 · 原文件审阅痕迹");
   });
 
+  it("injects review specs plus invariants and still leaves room for the protocol", async () => {
+    const session: AgentSession = {
+      sessionId: "sess-skill-target",
+      actorId: "system",
+      turns: [],
+      conversationHistory: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const result = await prepareTurnPromptContext({
+      config: {
+        workspaceDir,
+        model: { provider: "openai", model: "gpt-4o-mini", apiKey: "test" },
+      },
+      registry: new ToolRegistry(),
+      session,
+      instruction: "请审查这份采购合同的违约责任",
+      resolvedAssistantId: undefined,
+      linkedTaskIdForCtx: undefined,
+      projectDirResolved: "/tmp/project",
+      contextPins: [
+        {
+          pinKind: "file",
+          root: "project",
+          relPath: "采购合同.docx",
+          kind: "file",
+        },
+      ],
+    });
+    const prompt = visiblePrompt(result, session);
+    // 结构目标：本阶段技能 + 质量不变量（引用/效力/要素）必须进正文。
+    for (const needle of [
+      "合同分层审查",
+      "合同 Playbook 审查",
+      "引用锚定",
+      "规范现行有效",
+      "法律要素提取",
+    ]) {
+      expect(prompt, needle).toContain(needle);
+    }
+    // 篇幅增长不得挤掉检索协议（会话尾预算仍有余额）。
+    expect(prompt).toContain("## 检索协议");
+    // 不得出现按字符腰斩的截断指针——旧实现固定 2 篇时这里确实会出现。
+    expect(prompt).not.toContain("…[截断，完整内容请用 read_skill");
+  });
+
   it("does not pair redline when the lawyer named an opinion sidecar", async () => {
     const session: AgentSession = {
       sessionId: "sess-sidecar",

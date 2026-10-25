@@ -28,6 +28,15 @@ describe("named workspace deliverables", () => {
     expect(namedWorkspaceDeliverables("请读 facts.txt。不要估算。")).toEqual([]);
   });
 
+  it("reads the filename after a 相对路径 filler", () => {
+    expect(
+      namedWorkspaceDeliverables(
+        "写完后用 write_document 写入相对路径 case-analysis-244.md，再结束。",
+      ),
+    ).toEqual(["case-analysis-244.md"]);
+    expect(namedWorkspaceDeliverables("写入路径：核稿.md。")).toEqual(["核稿.md"]);
+  });
+
   it("reports a named file that is not at that workspace path", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-deliver-"));
     try {

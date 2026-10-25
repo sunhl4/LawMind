@@ -213,11 +213,16 @@ export async function startCassetteModelServer(
       writeError(res, 404, "cassette only serves POST /v1/chat/completions");
       return;
     }
-    let raw = "";
-    req.on("data", (chunk) => {
-      raw += chunk;
+    // 必须按 Buffer 收集后**一次性**解码：逐块 `str += buffer` 会各自调用
+    // `buffer.toString()`，多字节字符（中文提示词、工具说明）在 TCP 分片处被劈成
+    // U+FFFD，快照与断言就随机变成 `��件`。这条 flake 由长度变化触发，本身与
+    // 被测逻辑无关。
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer | string) => {
+      chunks.push(typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk);
     });
     req.on("end", () => {
+      const raw = Buffer.concat(chunks).toString("utf8");
       serving = serving
         .then(async () => {
           const snapshot = snapshotFromRawBody(requests.length, raw);

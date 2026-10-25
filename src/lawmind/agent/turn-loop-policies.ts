@@ -30,7 +30,9 @@ import {
   isContextBudgetDeferralReply,
 } from "./context-deferral.js";
 import {
+  caseConclusionGap,
   consultListGap,
+  formatCaseConclusionNudge,
   formatConsultQuestionsNudge,
   formatMemoSectionNudge,
   formatPleadingSectionNudge,
@@ -417,6 +419,20 @@ function consultQuestionsPolicy(facts: ToolRoundFacts): PolicyAction | null {
   };
 }
 
+function caseConclusionPolicy(facts: ToolRoundFacts): PolicyAction | null {
+  if (!facts.profile.coaches.has("case_conclusion") || facts.flags.caseConclusionNudged) {
+    return null;
+  }
+  if (!caseConclusionGap(facts.workspaceDir, facts.instruction)) {
+    return null;
+  }
+  facts.flags.caseConclusionNudged = true;
+  return {
+    kind: "resample",
+    message: formatCaseConclusionNudge(namedWorkspaceDeliverables(facts.instruction)),
+  };
+}
+
 function memoSectionsPolicy(facts: ToolRoundFacts): PolicyAction | null {
   if (!facts.profile.coaches.has("memo_sections") || facts.flags.memoNudged) {
     return null;
@@ -560,6 +576,7 @@ function identicalRepeatPolicy(facts: ToolRoundFacts): PolicyAction | null {
 export const TOOL_ROUND_COACH_POLICIES: readonly Policy<ToolRoundFacts>[] = [
   { id: "write-synthesis", apply: writeSynthesisPolicy },
   { id: "pleading-sections", apply: pleadingSectionsPolicy },
+  { id: "case-conclusion", apply: caseConclusionPolicy },
   { id: "consult-questions", apply: consultQuestionsPolicy },
   { id: "memo-sections", apply: memoSectionsPolicy },
   { id: "calculate-params", apply: calculateParamsPolicy },

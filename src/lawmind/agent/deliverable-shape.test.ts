@@ -3,13 +3,18 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  CASE_CONCLUSION_MARKER,
   CONSULT_QUESTIONS_MARKER,
   PLEADING_SECTION_MARKER,
+  caseConclusionGap,
+  caseConclusionLeadsWithOdds,
   consultListGap,
   consultListNeedsRewrite,
   consultQuestionCount,
+  formatCaseConclusionNudge,
   formatConsultQuestionsNudge,
   formatPleadingSectionNudge,
+  instructionFramesCaseAnalysis,
   instructionFramesConsultQuestions,
   instructionFramesPleading,
   missingPleadingSections,
@@ -91,5 +96,40 @@ describe("deliverable shape", () => {
     expect(consultListGap(dir, instruction)).toBe(true);
     expect(consultListGap(dir, CASE_FRAME)).toBe(false);
     expect(formatConsultQuestionsNudge(["追问清单-8.md"])).toContain(CONSULT_QUESTIONS_MARKER);
+  });
+
+  it("flags a case conclusion that opens with odds instead of a verdict", () => {
+    expect(instructionFramesCaseAnalysis(CASE_FRAME)).toBe(true);
+    expect(instructionFramesCaseAnalysis("撰写民事起诉状。写入 起诉状-5.md。")).toBe(false);
+
+    const oddsFirst = [
+      "## 【结论】",
+      "整体判断：异议请求难以获得支持；能争取到的最好结果是部分返还。",
+      "",
+      "## 【案情简述】",
+      "略。",
+    ].join("\n");
+    expect(caseConclusionLeadsWithOdds(oddsFirst)).toBe(true);
+
+    const verdictFirst = [
+      "## 【结论】",
+      "依题设事实，该异议请求不应支持；超出债权额部分应予返还。",
+      "",
+      "## 【风险与备位】",
+      "实践中该主张胜算偏低，备位请求为部分返还。",
+      "",
+      "## 【案情简述】",
+      "略。",
+    ].join("\n");
+    expect(caseConclusionLeadsWithOdds(verdictFirst)).toBe(false);
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lm-case-"));
+    expect(caseConclusionGap(dir, CASE_FRAME)).toBe(false);
+    fs.writeFileSync(path.join(dir, "case-analysis-8.md"), oddsFirst, "utf8");
+    expect(caseConclusionGap(dir, CASE_FRAME)).toBe(true);
+    expect(caseConclusionGap(dir, "撰写民事起诉状。写入 起诉状-5.md。")).toBe(false);
+    const nudge = formatCaseConclusionNudge(["case-analysis-8.md"]);
+    expect(nudge.startsWith(CASE_CONCLUSION_MARKER)).toBe(true);
+    expect(nudge).toContain("风险与备位");
   });
 });

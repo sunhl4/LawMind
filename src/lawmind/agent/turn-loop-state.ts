@@ -115,6 +115,8 @@ export type LoopFlags = {
   pleadingNudged: boolean;
   memoNudged: boolean;
   consultNudged: boolean;
+  /** Case-analysis conclusion口径 coach fired. */
+  caseConclusionNudged: boolean;
   /** One extra sample after a finished Word-revision reread. */
   documentRereadContinued: boolean;
   /** Word revision export coach fired. */
@@ -145,6 +147,7 @@ export function createLoopFlags(): LoopFlags {
     pleadingNudged: false,
     memoNudged: false,
     consultNudged: false,
+    caseConclusionNudged: false,
     documentRereadContinued: false,
     wordRevisionExportNudged: false,
     reviewBoardExportBounces: 0,

@@ -16,6 +16,7 @@
  */
 
 import {
+  instructionFramesCaseAnalysis,
   instructionFramesConsultQuestions,
   instructionFramesMemoDeliverable,
   instructionFramesPleading,
@@ -33,6 +34,7 @@ export type TurnProfileId =
 /** Coaches are ordered by the loop; a profile only declares membership. */ export type TurnCoachId =
   | "write_synthesis"
   | "pleading_sections"
+  | "case_conclusion"
   | "consult_questions"
   | "memo_sections"
   | "calculate_params"
@@ -117,6 +119,7 @@ export function resolveTurnProfile(input: ResolveTurnProfileInput): TurnProfile 
   const framesPleading = instructionFramesPleading(input.instruction);
   const framesMemo = instructionFramesMemoDeliverable(input.instruction);
   const framesConsult = instructionFramesConsultQuestions(input.instruction);
+  const framesCaseAnalysis = instructionFramesCaseAnalysis(input.instruction);
 
   let id: TurnProfileId = "general";
   const coaches = new Set<TurnCoachId>();
@@ -137,6 +140,9 @@ export function resolveTurnProfile(input: ResolveTurnProfileInput): TurnProfile 
     }
     if (framesConsult) {
       coaches.add("consult_questions");
+    }
+    if (framesCaseAnalysis) {
+      coaches.add("case_conclusion");
     }
     return {
       id,
@@ -160,6 +166,9 @@ export function resolveTurnProfile(input: ResolveTurnProfileInput): TurnProfile 
   }
   if (framesConsult) {
     coaches.add("consult_questions");
+  }
+  if (framesCaseAnalysis) {
+    coaches.add("case_conclusion");
   }
 
   if (input.mailContract) {

@@ -14,8 +14,21 @@ export const CONSULT_QUESTIONS_MARKER = "【追问清单】";
 
 export const MEMO_SECTION_MARKER = "【备忘录结构】";
 
+export const CASE_CONCLUSION_MARKER = "【结论口径】";
+
 /** Numbered lines below this count are not a follow-up list. */
 export const CONSULT_QUESTION_MIN = 8;
+
+/**
+ * 结论段里常见的「胜算/风险」措辞。这些不是结论，是风险评估。
+ * 结论段先写它们、不下规范结论，等于把律师的风险提示当成了答案。
+ */
+const CASE_WIN_RISK_CLAUSE =
+  /(?:难以|不宜|不排除|取决于|胜算|败诉风险|可能被驳回|可能不被支持|视[^，。；\n]{0,12}而定|存在两种|两可)[^，。；\n]*/g;
+
+/** 规范结论：构成/不构成、有权/无权、应/不应，择一写定。 */
+const CASE_NORMATIVE_VERDICT =
+  /不构成|构成|有权|无权|成立|不成立|无效|有效|应予|不予支持|应当|应认定|应判|应支持|应驳回|支持|驳回/;
 
 const QUESTION_LINE_RE = /^\s*(?:\d{1,2}[.、．)]|（\d{1,2}）)\s*\S+/;
 
@@ -28,6 +41,36 @@ export function taskFrame(instruction: string): string {
 
 function caseAnalysisFrame(frame: string): boolean {
   return frame.includes("【结论】") && frame.includes("【案情简述】");
+}
+
+/** Task sentence asks for the four-part case analysis. */
+export function instructionFramesCaseAnalysis(instruction: string): boolean {
+  return caseAnalysisFrame(taskFrame(instruction));
+}
+
+/**
+ * 【结论】第一段只写了胜算/风险、没给规范结论 → 结论口径要重写。
+ * 只看第一句：后面几段写风险与备位是正常的。
+ */
+export function caseConclusionLeadsWithOdds(text: string): boolean {
+  const start = text.indexOf("【结论】");
+  if (start < 0) {
+    return false;
+  }
+  const rest = text.slice(start + "【结论】".length);
+  const nextMarker = rest.search(/【[^】]+】/);
+  const section = (nextMarker >= 0 ? rest.slice(0, nextMarker) : rest).slice(0, 2000);
+  const firstLine =
+    section
+      .split(/\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? "";
+  const firstSentence = (firstLine.split(/[。！？]/)[0] ?? "").trim();
+  if (firstSentence.length < 4) {
+    return false;
+  }
+  const hedged = firstSentence.replace(CASE_WIN_RISK_CLAUSE, "");
+  return hedged !== firstSentence && !CASE_NORMATIVE_VERDICT.test(hedged);
 }
 
 export function instructionFramesPleading(instruction: string): boolean {
@@ -188,6 +231,17 @@ export function memoSectionGaps(workspaceDir: string, instruction: string): stri
   return missingMemoSections(body.text);
 }
 
+export function caseConclusionGap(workspaceDir: string, instruction: string): boolean {
+  if (!instructionFramesCaseAnalysis(instruction)) {
+    return false;
+  }
+  const body = readNamedDeliverable(workspaceDir, instruction);
+  if (!body.present) {
+    return false;
+  }
+  return caseConclusionLeadsWithOdds(body.text);
+}
+
 export function formatPleadingSectionNudge(missing: readonly string[]): string {
   return [
     PLEADING_SECTION_MARKER,
@@ -214,5 +268,16 @@ export function formatMemoSectionNudge(missing: readonly string[]): string {
     `稿里还缺节名：${missing.join("、")}。`,
     "用 write_document 重写同一交件，必须含一级标题原文：## 结论摘要、## 高风险、## 问题、## 下一步。",
     "咨询/澄清题在结论摘要写明暂不下实体结论；问题节用问号句。",
+  ].join("\n");
+}
+
+export function formatCaseConclusionNudge(paths: readonly string[]): string {
+  const list = paths.join("、");
+  return [
+    CASE_CONCLUSION_MARKER,
+    "【结论】第一段现在是胜算/风险评估，没有规范结论。",
+    "先写一条规范结论：依题设事实与现行法，「构成 / 不构成」「应 / 不应」「有权 / 无权」择一写定，并点明落在哪一方。",
+    "把胜诉把握、败诉风险、备位主张、对立通说移到【结论】之后单独一节「风险与备位」，不要放在第一段，也不要因此把结论句改成条件句。",
+    `用 write_document 重写 ${list}。`,
   ].join("\n");
 }
