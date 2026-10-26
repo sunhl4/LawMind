@@ -1,0 +1,2 @@
+# 随包下发的模型凭据由 scripts/write-bundled-defaults.mjs 生成，含明文密钥，不入库。
+# 保留本目录是为了让 electron-builder 的 extraResources 在全新克隆里也能解析。
