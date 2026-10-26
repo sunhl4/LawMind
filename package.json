@@ -61,6 +61,7 @@
     "lawmind:onboard": "node --import tsx scripts/lawmind/lawmind-onboard.ts",
     "lawmind:open-law:convert": "node --import tsx scripts/lawmind/open-law-corpus-convert.ts",
     "lawmind:ops": "node --import tsx scripts/lawmind/lawmind-ops.ts",
+    "lawmind:prompt-budget": "node --import tsx scripts/lawmind/lawmind-prompt-budget.ts",
     "lawmind:quarterly-demo": "node --import tsx scripts/lawmind/lawmind-quarterly-demo.ts",
     "lawmind:release-readiness": "node --import tsx scripts/lawmind/lawmind-release-readiness.ts",
     "lawmind:review": "node --import tsx scripts/lawmind/lawmind-review.ts",

@@ -13,6 +13,11 @@ import type { LawMindWorkspacePolicy } from "../../../src/lawmind/policy/workspa
 import { listTriageRuleIds } from "../../../src/lawmind/triage/index.js";
 import { fleetPlaybookCountForHealth } from "./lawmind-server-route-review-campaign.js";
 import { summarizeProductMetrics } from "../../../src/lawmind/metrics/product-metrics.js";
+import {
+  PROMPT_BUDGET_HEALTH_SCAN_LIMIT,
+  formatPromptBudgetHealthLine,
+  summarizePromptBudgetHealth,
+} from "../../../src/lawmind/agent/prompt-budget-health.js";
 import { runPrivateDeployChecklist } from "../../../src/lawmind/policy/private-deploy-checklist.js";
 import { buildWorkspaceSessionHealth } from "../../../src/lawmind/insights/session-health.js";
 import {
@@ -215,6 +220,14 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
     draftWithModelActive,
   } = buildRuntimeCapabilityFlags({ lawMindRoot, chatModel });
   const doctor = buildDoctorStats(workspaceDir);
+  // P1-b: prompt-budget health over recent turns. Shown in Doctor 体检 only when
+  // it warns (see LawmindSettingsWorkspaceCare); the line is formatted here so
+  // the renderer never imports the metrics layer (node:fs). The scan window is
+  // bounded because /api/health is polled: recent turns are all the alert needs.
+  const promptBudget = summarizePromptBudgetHealth(workspaceDir, {
+    limit: PROMPT_BUDGET_HEALTH_SCAN_LIMIT,
+  });
+  const promptBudgetLine = formatPromptBudgetHealthLine(promptBudget);
   const memoryTruthSources = buildMemoryTruthSourceFlags(workspaceDir);
   const lawmindPackageVersion = tryReadWorkspacePackageVersion(repoRootRaw);
   // 版本的取用口径不同，别混：
@@ -319,6 +332,8 @@ export async function handleHealthRoute({ ctx, pathname, req, res, c }: LawmindR
         nodeVersion: process.version,
         lawmindPackageVersion,
         memoryTruthSources,
+        promptBudget,
+        promptBudgetLine,
         workspaceStandard: buildWorkspaceStandardReport(workspaceDir),
         sessionHealth: buildWorkspaceSessionHealth(workspaceDir),
         usageSummary,

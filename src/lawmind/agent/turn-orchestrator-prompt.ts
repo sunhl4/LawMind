@@ -73,6 +73,11 @@ import {
 import { NO_TASK_TURN_PROMPT } from "./no-task-turn.js";
 import type { AgentPermissionMode } from "./permission-mode.js";
 import {
+  buildPromptBudgetReport,
+  recordPromptBudgetEvent,
+  type PromptBudgetReport,
+} from "./prompt-budget-report.js";
+import {
   capFragmentBody,
   createPromptFragment,
   FRAGMENT_SESSION_TAIL_BUDGET_TOKENS,
@@ -198,6 +203,8 @@ export async function prepareTurnPromptContext(opts: {
   presetForTools: ReturnType<typeof getAssistantPreset> | undefined;
   roleForTools: ReturnType<typeof getRoleById> | undefined;
   lawMindRoot: string;
+  /** Observation only: what the session-tail packer kept/dropped this turn. */
+  promptBudget: PromptBudgetReport;
 }> {
   const {
     config,
@@ -984,13 +991,22 @@ export async function prepareTurnPromptContext(opts: {
     /* optional */
   }
 
-  const packed = packPromptFragments(
-    fragments,
-    Math.max(
-      FRAGMENT_SESSION_TAIL_BUDGET_TOKENS,
-      Math.floor(FRAGMENT_SESSION_TAIL_BUDGET_TOKENS * envelope.promptWindowScale),
-    ),
+  const sessionTailBudget = Math.max(
+    FRAGMENT_SESSION_TAIL_BUDGET_TOKENS,
+    Math.floor(FRAGMENT_SESSION_TAIL_BUDGET_TOKENS * envelope.promptWindowScale),
   );
+  const packed = packPromptFragments(fragments, sessionTailBudget);
+  // Observation only — the report never influences packing or prompt bytes.
+  const promptBudget = buildPromptBudgetReport({
+    fragments,
+    packed,
+    budgetTokens: sessionTailBudget,
+    windowScale: envelope.promptWindowScale,
+  });
+  recordPromptBudgetEvent(config.workspaceDir, promptBudget, {
+    ...(session.matterId ? { matterId: session.matterId } : {}),
+    ...(linkedTaskIdForCtx ? { taskId: linkedTaskIdForCtx } : {}),
+  });
   const { worldState, sessionTail } = partitionPackedFragments(packed);
   const worldBlocks = renderPackedFragments(worldState);
   if (worldBlocks.length > 0) {
@@ -1069,5 +1085,6 @@ export async function prepareTurnPromptContext(opts: {
     presetForTools,
     roleForTools,
     lawMindRoot,
+    promptBudget,
   };
 }

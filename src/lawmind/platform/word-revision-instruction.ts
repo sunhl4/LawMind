@@ -58,6 +58,12 @@ export function instructionHasWordFile(instruction: string): boolean {
   );
 }
 
+/** True when a pinned/named path is a Word file (the only thing 改稿 can edit). */
+export function isWordFileRelPath(relPath: string): boolean {
+  const trimmed = relPath.trim();
+  return trimmed.length > 0 && WORD_FILE_RE.test(trimmed);
+}
+
 /**
  * Yesterday's `.docx` in the transcript does not make this turn a Word edit
  * when the lawyer pinned or named a non-Word file.

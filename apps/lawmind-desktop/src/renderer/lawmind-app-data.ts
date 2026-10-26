@@ -112,6 +112,26 @@ export type HealthPayload = {
     };
     usageSummary?: HealthPayload["usageSummary"];
     executionSurface?: HealthPayload["executionSurface"];
+    /**
+     * P1-b: prompt-budget health over recent turns (`kind=prompt_budget`).
+     * `status` is `empty` until a few turns exist; 体检 only surfaces `warn`.
+     */
+    promptBudget?: {
+      turns?: number;
+      degradedTurns?: number;
+      droppedTurns?: number;
+      droppedFragmentTotal?: number;
+      droppedKindTurns?: Record<string, number>;
+      skillTruncatedTurns?: number;
+      protocolTruncatedTurns?: number;
+      peakFillRatio?: number;
+      averageFillRatio?: number;
+      truncatedWindow?: boolean;
+      status?: "empty" | "ok" | "warn";
+      reasons?: string[];
+    };
+    /** Server-formatted 体检 sentence (the renderer must not import the metrics layer). */
+    promptBudgetLine?: string;
     integrations?: {
       connectors?: Array<{
         id: string;

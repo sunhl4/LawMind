@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ComposeContextPin } from "../platform/compose-context-pin.js";
 import { formatCapabilityCatalogIndex } from "./catalog.js";
 import { compileIntent, compiledIntentPlanItems, extractIntentSignals } from "./compile-intent.js";
 
@@ -101,6 +102,62 @@ describe("compileIntent", () => {
     });
     expect(compiled.capabilityId).toBe("litigation.draft");
     expect(compiled.source).toBe("word_revision");
+    expect(compiled.pipelineOverride).toBe("tracked_redline");
+    expect(compiled.skillIdsOverride).toEqual([
+      "complaint-elements-fill",
+      "evidence-argument-chain",
+    ]);
+  });
+
+  it("keeps the instruction's document when a Word revision has other material pinned (P1-e)", () => {
+    // 「修改这份起诉状」 + 开庭传票 used to fall through `dominantGenre` =
+    // court_notice and land on contract.review, so the tracked-redline turn
+    // loaded contract skills for a pleading.
+    const compiled = compileIntent({
+      instruction: "修改这份起诉状，导出带修订 Word",
+      pins: [
+        { pinKind: "file", root: "project", relPath: "民事起诉状.docx", kind: "file" },
+        { pinKind: "file", root: "workspace", relPath: "开庭传票.pdf", kind: "file" },
+      ],
+    });
+    expect(compiled.capabilityId).toBe("litigation.draft");
+    expect(compiled.source).toBe("word_revision");
+    expect(compiled.pipelineOverride).toBe("tracked_redline");
+    expect(compiled.deliverableType).toBe("document.general");
+
+    const letter = compileIntent({
+      instruction: "修改这份律师函，导出带修订 Word",
+      pins: [
+        { pinKind: "file", root: "project", relPath: "律师函.docx", kind: "file" },
+        { pinKind: "file", root: "workspace", relPath: "开庭传票.pdf", kind: "file" },
+      ],
+    });
+    expect(letter.capabilityId).toBe("letter.draft");
+    expect(letter.deliverableType).toBe("letter.counsel");
+
+    // Several named documents = ambiguous; the rule must not pick one of them.
+    // 律师函 stays the genre reading (letter is the sticky genre).
+    const ambiguous = compileIntent({
+      instruction: "修改这份律师函，合同条款也一并核对，导出带修订 Word",
+      pins: [
+        { pinKind: "file", root: "project", relPath: "律师函.docx", kind: "file" },
+        { pinKind: "file", root: "workspace", relPath: "采购合同.docx", kind: "file" },
+      ],
+    });
+    expect(ambiguous.capabilityId).toBe("letter.draft");
+  });
+
+  it("reads a vague Word redraft from the Word baseline, not the PDF pile (P2)", () => {
+    // Only the .docx can be the thing being edited; a pinned summons must not
+    // send the redraft to contract.review (dominantGenre = court_notice).
+    const compiled = compileIntent({
+      instruction: "帮我改一下",
+      pins: [
+        { pinKind: "file", root: "project", relPath: "民事起诉状.docx", kind: "file" },
+        { pinKind: "file", root: "workspace", relPath: "开庭传票.pdf", kind: "file" },
+      ],
+    });
+    expect(compiled.capabilityId).toBe("litigation.draft");
     expect(compiled.pipelineOverride).toBe("tracked_redline");
     expect(compiled.skillIdsOverride).toEqual([
       "complaint-elements-fill",
@@ -278,6 +335,233 @@ describe("compileIntent", () => {
     });
     expect(signals.dominantGenre).toBe("contract");
     expect(signals.hasMaterials).toBe(true);
+  });
+
+  it("keeps contract review joint/high when unrelated attachments are pinned (P1-a)", () => {
+    const pins: ComposeContextPin[] = [
+      { pinKind: "file", root: "project", relPath: "采购合同.docx", kind: "file" },
+      { pinKind: "file", root: "workspace", relPath: "设备采购合同.docx", kind: "file" },
+      ...Array.from({ length: 10 }, (_, index) => ({
+        pinKind: "file" as const,
+        root: "workspace" as const,
+        relPath: `materials/论文-${String(index + 1).padStart(2, "0")}.pdf`,
+        kind: "file" as const,
+      })),
+    ];
+    const signals = extractIntentSignals({
+      instruction: "请审查这份采购合同的违约责任与付款条款",
+      pins,
+    });
+    // Untyped attachments carry no genre evidence; two agreeing contracts do.
+    expect(signals.dominantGenre).toBe("contract");
+
+    const compiled = compileIntent({
+      instruction: "请审查这份采购合同的违约责任与付款条款",
+      pins,
+    });
+    expect(compiled.capabilityId).toBe("contract.review");
+    expect(compiled.source).toBe("joint");
+    expect(compiled.confidence).toBe("high");
+  });
+
+  it("keeps the file-genre bind when untyped scans outnumber a lone contract", () => {
+    // Same unanimity rule for a vague utterance: 「帮我看看」 must still read as
+    // contract review (medium), not fall to unbound just because ten scans
+    // could not be classified.
+    const compiled = compileIntent({
+      instruction: "帮我看看",
+      pins: [
+        { pinKind: "file", root: "project", relPath: "采购合同.docx", kind: "file" },
+        ...Array.from({ length: 10 }, (_, index) => ({
+          pinKind: "file" as const,
+          root: "workspace" as const,
+          relPath: `materials/扫描件-${String(index + 1).padStart(2, "0")}.pdf`,
+          kind: "file" as const,
+        })),
+      ],
+    });
+    expect(compiled.capabilityId).toBe("contract.review");
+    expect(compiled.source).toBe("joint");
+    expect(compiled.confidence).toBe("medium");
+  });
+
+  it("does not invent a genre when typed attachments disagree", () => {
+    // A contract plus a pleadings pile stays on the old mixed-paper path; the
+    // P1-a rule must not promote either side by counting.
+    const pins: ComposeContextPin[] = [
+      { pinKind: "file", root: "project", relPath: "采购合同.docx", kind: "file" },
+      { pinKind: "file", root: "workspace", relPath: "起诉状.docx", kind: "file" },
+      ...Array.from({ length: 10 }, (_, index) => ({
+        pinKind: "file" as const,
+        root: "workspace" as const,
+        relPath: `materials/扫描件-${String(index + 1).padStart(2, "0")}.pdf`,
+        kind: "file" as const,
+      })),
+    ];
+    const compiled = compileIntent({
+      instruction: "请审查这份采购合同的违约责任与付款条款",
+      pins,
+    });
+    // Fatal pair: the contract is preferred but only at medium confidence.
+    expect(compiled.capabilityId).toBe("contract.review");
+    expect(compiled.confidence).toBe("medium");
+  });
+
+  it("lets an explicit contract-review instruction beat typed attachment piles (P1-e)", () => {
+    const contractPin: ComposeContextPin = {
+      pinKind: "file",
+      root: "project",
+      relPath: "采购合同.docx",
+      kind: "file",
+    };
+    const piles: Array<{ label: string; pins: ComposeContextPin[] }> = [
+      {
+        label: "证据清单",
+        pins: Array.from({ length: 5 }, (_, index) => ({
+          pinKind: "file" as const,
+          root: "workspace" as const,
+          relPath: `materials/证据清单-${index + 1}.pdf`,
+          kind: "file" as const,
+        })),
+      },
+      {
+        label: "传票",
+        pins: Array.from({ length: 5 }, (_, index) => ({
+          pinKind: "file" as const,
+          root: "workspace" as const,
+          relPath: `materials/传票-${index + 1}.pdf`,
+          kind: "file" as const,
+        })),
+      },
+      {
+        label: "表格",
+        pins: Array.from({ length: 5 }, (_, index) => ({
+          pinKind: "file" as const,
+          root: "workspace" as const,
+          relPath: `materials/明细-${index + 1}.xlsx`,
+          kind: "file" as const,
+        })),
+      },
+      {
+        label: "发票",
+        pins: Array.from({ length: 5 }, (_, index) => ({
+          pinKind: "file" as const,
+          root: "workspace" as const,
+          relPath: `materials/进项发票-${index + 1}.pdf`,
+          kind: "file" as const,
+        })),
+      },
+    ];
+    for (const pile of piles) {
+      const compiled = compileIntent({
+        instruction: "请审查这份采购合同的违约责任与付款条款",
+        pins: [contractPin, ...pile.pins],
+      });
+      expect(compiled.capabilityId, pile.label).toBe("contract.review");
+      expect(compiled.source, pile.label).toBe("joint");
+      expect(compiled.confidence, pile.label).toBe("high");
+    }
+  });
+
+  it("lets an explicit pleading instruction beat a summons pile (P1-e)", () => {
+    const compiled = compileIntent({
+      instruction: "根据这些材料写一份答辩状",
+      pins: [
+        { pinKind: "file", root: "project", relPath: "民事起诉状.docx", kind: "file" },
+        ...Array.from({ length: 5 }, (_, index) => ({
+          pinKind: "file" as const,
+          root: "workspace" as const,
+          relPath: `materials/传票-${index + 1}.pdf`,
+          kind: "file" as const,
+        })),
+      ],
+    });
+    expect(compiled.capabilityId).toBe("litigation.draft");
+    expect(compiled.source).toBe("joint");
+    expect(compiled.confidence).toBe("high");
+  });
+
+  it("lets an explicit letter request beat an invoice pile (P1-e)", () => {
+    const compiled = compileIntent({
+      instruction: "写一份催款函",
+      pins: [{ pinKind: "file", root: "project", relPath: "进项发票.pdf", kind: "file" }],
+    });
+    expect(compiled.capabilityId).toBe("letter.draft");
+    expect(compiled.source).toBe("joint");
+    expect(compiled.deliverableType).toBe("letter.demand");
+  });
+
+  it("lets an explicit timeline request beat a typed material pile (P3)", () => {
+    const evidence = compileIntent({
+      instruction: "把这些证据做成时间线",
+      pins: [
+        { pinKind: "file", root: "project", relPath: "证据清单.pdf", kind: "file" },
+        { pinKind: "file", root: "workspace", relPath: "借条.jpg", kind: "file" },
+      ],
+    });
+    expect(evidence.capabilityId).toBe("chronology.timeline");
+    expect(evidence.source).toBe("joint");
+    expect(evidence.confidence).toBe("high");
+    expect(evidence.deliverableType).toBe("matter.timeline");
+
+    const judgment = compileIntent({
+      instruction: "把这份判决书整理成时间线",
+      pins: [{ pinKind: "file", root: "project", relPath: "民事判决书.pdf", kind: "file" }],
+    });
+    expect(judgment.capabilityId).toBe("chronology.timeline");
+    expect(judgment.deliverableType).toBe("matter.timeline");
+
+    // A named pleading is still the deliverable when a timeline is a side ask.
+    const complaint = compileIntent({
+      instruction: "写起诉状，附时间线",
+      pins: [{ pinKind: "file", root: "project", relPath: "民事起诉状.docx", kind: "file" }],
+    });
+    expect(complaint.capabilityId).toBe("litigation.draft");
+  });
+
+  it("keeps a named research memo when the pinned material is not research (P3)", () => {
+    const memo = compileIntent({
+      instruction: "就违约金条款写一份检索备忘录",
+      pins: [{ pinKind: "file", root: "project", relPath: "证据清单.pdf", kind: "file" }],
+    });
+    expect(memo.capabilityId).toBe("research.memo");
+    expect(memo.source).toBe("joint");
+    expect(memo.confidence).toBe("high");
+
+    // A bare 检索 without a named memo deliverable still reads the material.
+    const review = compileIntent({
+      instruction: "查一下这份合同有没有问题",
+      pins: [{ pinKind: "file", root: "project", relPath: "采购合同.docx", kind: "file" }],
+    });
+    expect(review.capabilityId).toBe("contract.review");
+  });
+
+  it("routes the prompt's own 收进案件 wording to intake instead of review (P3)", () => {
+    const compiled = compileIntent({
+      instruction: "把这些材料收进案件",
+      pins: [{ pinKind: "file", root: "project", relPath: "采购合同.docx", kind: "file" }],
+    });
+    expect(compiled.capabilityId).toBe("matter.intake");
+    expect(compiled.source).toBe("specialized");
+    expect(compiled.confidence).toBe("high");
+  });
+
+  it("keeps genre routing when the instruction names no object (P1-e scope)", () => {
+    // The rule requires an explicit 合同/起诉状 in the utterance. A vague
+    // 「帮我看看」 still binds off the material, so summons/invoice turns keep
+    // their operations route.
+    expect(
+      compileIntent({
+        instruction: "帮我看看",
+        pins: [{ pinKind: "file", root: "project", relPath: "开庭传票.pdf", kind: "file" }],
+      }).capabilityId,
+    ).toBe("ops.court_sms");
+    expect(
+      compileIntent({
+        instruction: "整理一下",
+        pins: [{ pinKind: "file", root: "project", relPath: "进项发票.pdf", kind: "file" }],
+      }).capabilityId,
+    ).toBe("ops.invoice");
   });
 
   it("keeps the Codex catalog under the character budget", () => {

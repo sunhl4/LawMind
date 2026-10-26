@@ -61,4 +61,38 @@ describe("formatOpsDoctorSnapshot", () => {
       snap.lines.some((line) => line.startsWith("技能：") && line.includes("不会在对话里报错")),
     ).toBe(true);
   });
+
+  it("prints the prompt-budget health line before the execution-surface inventory (P1-b)", () => {
+    const promptBudget = {
+      turns: 3,
+      degradedTurns: 0,
+      droppedTurns: 0,
+      droppedFragmentTotal: 0,
+      droppedKindTurns: {},
+      skillTruncatedTurns: 0,
+      protocolTruncatedTurns: 0,
+      peakFillRatio: 0.53,
+      peakFillKeptTokens: 6_310,
+      peakFillBudgetTokens: 12_000,
+      averageFillRatio: 0.4,
+      windowFrom: "2026-10-26T00:00:00.000Z",
+      windowTo: "2026-10-26T01:00:00.000Z",
+      truncatedWindow: false,
+      status: "ok" as const,
+      reasons: [],
+    };
+    const snap = formatOpsDoctorSnapshot({ ...quiet, promptBudget });
+    const budgetIndex = snap.lines.findIndex((line) => line.startsWith("提示词预算："));
+    const surfaceIndex = snap.lines.findIndex((line) => line.startsWith("执行面：持久"));
+    expect(budgetIndex).toBe(3);
+    expect(budgetIndex).toBeLessThan(surfaceIndex);
+    expect(snap.lines[budgetIndex]).toContain("峰值 53%");
+    expect(snap.promptBudget).toEqual(promptBudget);
+  });
+
+  it("omits the prompt-budget line when no scan was supplied", () => {
+    const snap = formatOpsDoctorSnapshot(quiet);
+    expect(snap.lines.some((line) => line.startsWith("提示词预算："))).toBe(false);
+    expect(snap.promptBudget).toBeUndefined();
+  });
 });

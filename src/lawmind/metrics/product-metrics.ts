@@ -47,7 +47,16 @@ export type ProductMetricKind =
    * 律师侧的「已整理上下文」提示与面板数字只说明系统自己做了什么，
    * 说明不了这件事有没有变少。**这需要数字，不是印象。**
    */
-  | "context_pressure";
+  | "context_pressure"
+  /**
+   * Prompt-budget observation: what the session-tail packer kept, dropped, or
+   * truncated. Names and token counts only — never fragment bodies.
+   *
+   * Why: "the protocol was dropped" and "the protocol was never queued" used
+   * to be indistinguishable from the outside. Without a per-turn row, the
+   * only way to answer「协议是不是长期被技能挤掉」was to re-read prompts by hand.
+   */
+  | "prompt_budget";
 
 export type ProductMetricEvent = {
   ts: string;

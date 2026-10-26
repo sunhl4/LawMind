@@ -30,7 +30,11 @@ export function pleadingScope(instruction: string): string {
 }
 
 export function litigationPrimary(instruction: string, deliverableType?: string): string[] {
-  if (/(离婚诉讼|抚养权|探望权|遗产继承|婚内财产分割|遗嘱继承)/.test(instruction)) {
+  if (
+    /(离婚诉讼|离婚起诉状|离婚答辩状|离婚纠纷|抚养权|探望权|遗产继承|婚内财产分割|遗嘱继承)/.test(
+      instruction,
+    )
+  ) {
     return ["family-matter-route", "legal-element-extraction"];
   }
   if (/(侦查阶段|审查起诉|取保候审|刑事辩护|死刑复核|会见申请|辩护词)/.test(instruction)) {
@@ -70,7 +74,11 @@ export function litigationRevisionSkillIds(
   );
   const target = verbAt >= 0 ? instruction.slice(verbAt) : instruction;
   if (TARGET_PLEADING_RE.test(target)) {
-    return litigationPrimary(instruction);
+    // Read the target sentence, not the whole instruction: in
+    // 「根据起诉状改答辩状」 the complaint is the *source*, and passing the full
+    // sentence let `pleadingScope` pick it and inject the complaint template
+    // into a defence redraft.
+    return litigationPrimary(target);
   }
   const names = relPaths
     .map((relPath) => relPath.split(/[/\\]/).pop() ?? relPath)

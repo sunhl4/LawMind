@@ -730,6 +730,34 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
+  it("litigation Word redraft injects litigation skills in order, not contract skills (P2)", async () => {
+    // Same family as P1-e: the instruction names a complaint and a summons is
+    // pinned beside it. The redraft must load complaint-elements-fill before
+    // evidence-argument-chain, and must not load the contract review skills.
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        h.enqueue(cassetteAssistant("已按起诉状母版改稿。"));
+        await h.runTurn("修改这份起诉状，导出带修订 Word", {
+          contextPins: [
+            { pinKind: "file", root: "project", relPath: "民事起诉状.docx", kind: "file" },
+            { pinKind: "file", root: "workspace", relPath: "开庭传票.pdf", kind: "file" },
+          ],
+        });
+        const body = h.request(0).allText();
+        expect(h.request(0).hasAdvertisedTool("apply_surgical_edits")).toBe(true);
+        expect(h.request(0).hasAdvertisedTool("render_tracked_draft")).toBe(true);
+        expect(body).toContain("能力 ID：`litigation.draft`");
+        expect(body).toContain("id: complaint-elements-fill");
+        expect(body).toContain("id: evidence-argument-chain");
+        expect(body).not.toContain("id: contract-review-layers");
+        expect(body.indexOf("id: complaint-elements-fill")).toBeLessThan(
+          body.indexOf("id: evidence-argument-chain"),
+        );
+      },
+    );
+  });
+
   it("word-revision + consult: the frame alone does not withhold search", async () => {
     // A frame is not an authorization boundary; no named missing list exists yet.
     const instruction = `只列出追问，不要给完整法律意见。\n${WORD_REVISION}`;
@@ -2019,9 +2047,9 @@ describe("turn-orchestrator cassettes (admission)", () => {
     );
   });
 
-  it("ships the review specs plus invariants whole, with no truncation pointer", async () => {
-    // 结构目标注入的准入断言：看**实际发出的请求体**，不看提示词文案。
-    // 旧实现固定 2 篇，两篇正文已超 `skill_index` 帽 → Playbook 被按字符腰斩并留指针。
+  it("ships the review specs whole, with no truncation pointer", async () => {
+    // 准入断言看实际发出的请求体。旧实现固定 2 篇，两篇正文已超 skill_index 帽，
+    // Playbook 被按字符腰斩并留指针。叙事要素表不进这一轮。
     await withTestLawMind(
       (b) => b,
       async (h) => {
@@ -2037,17 +2065,11 @@ describe("turn-orchestrator cassettes (admission)", () => {
           ],
         });
         const first = h.request(0);
-        for (const skillHeading of [
-          "合同分层审查",
-          "合同 Playbook 审查",
-          "引用锚定",
-          "规范现行有效",
-          "法律要素提取",
-        ]) {
+        for (const skillHeading of ["合同分层审查", "合同 Playbook 审查"]) {
           expect(first.contains(skillHeading), skillHeading).toBe(true);
         }
+        expect(first.contains("## 九类事实")).toBe(false);
         expect(first.contains("…[截断，完整内容请用 read_skill")).toBe(false);
-        // 索引里仍披露未注入的改稿手艺，模型可按需取。
         expect(first.contains("contract-redline-craft")).toBe(true);
       },
     );

@@ -4,31 +4,27 @@
  * ## 为什么不再是「固定挑 2 篇」
  *
  * 旧实现用 `PRIMARY_BY_CAPABILITY` 人工指定每类办件注入哪 2 篇正文，其余只留索引。
- * 两个实测问题：
- * 1. **漏掉跨交付物的质量不变量**：`contract.review` 的 8 篇里只注入「分层审查」和
- *    「Playbook」，`citation-grounding` / `norm-validity` / `legal-element-extraction`
- *    全部只留在索引里。这几篇管的是「引用要能指回来源」「先核现行有效」「先把生活叙事
- *    还原成要件事实」——对任何一份法律交付物都成立，不该靠模型自己去索引里捞。
- * 2. **2 这个数把正文顶过了帽，导致按字符腰斩**：实测 `contract.review` 两篇正文
- *    2,395 token（`estimateTextTokens` 对中文按 1 字符 ≈ 1 token），而 `skill_index`
- *    的帽是 2,000 —— `capFragmentBody` 于是把 Playbook 后半截切掉并留一个截断指针。
- *    这违反本仓「整块取舍」的既有做法（`material-blocks.ts`）。
+ * 实测问题是这个「2」把正文顶过了帽：`contract.review` 两篇正文 2,395 token
+ * （`estimateTextTokens` 对中文按 1 字符 ≈ 1 token），而 `skill_index` 的帽是 2,000，
+ * `capFragmentBody` 于是把 Playbook 后半截切掉。半篇规则比没有规则更糟。
  *
  * ## 现在的规则
  *
- * 注入目标**由数据决定，不由数字决定**：
+ * 注入目标是**本阶段技能**（阶段表 / 诉讼阶段路由），不是「能塞多少塞多少」，
+ * 也不是「每篇相关的都塞进去」。
  *
- *   structural target = 本阶段技能（阶段表 / 诉讼阶段路由）+ 质量不变量
- *
- * 其余整篇降级为一行索引（可 `read_skill` 按需取，或只取某一节）。目标是「哪几篇」，
- * 不是「能塞几篇」——后者会把 `litigation.draft` 里刑辩、家事、破产的阶段路由一起灌进
- * 一个民事起诉状回合，噪声比收益大。
+ * 曾试过把 `citation-grounding` / `norm-validity` / `legal-element-extraction`
+ * 当成跨能力不变量整篇注入。收回了：系统提示已经要求引用有据；检索协议已经指向
+ * 「规范现行有效」并说明钉选路径不要翻案卷；要素提取是叙事交办的工序，钉着合同
+ * 做条款审查时整篇灌进去，是在用检查表挤掉模型对这份合同的判断。需要时模型用
+ * `read_skill` 自己取，索引行里有一句话说明。
  *
  * 帽只作**不切半篇**的保证：本次 `capTokens = max(skill_index 基准帽, 实测量)`，
  * 编排侧把它传给 `queue`，`capFragmentBody` 就不再按字符腰斩。基准帽仍是
  * `prompt-fragments.ts` 那一项，本模块不新立数字。
  *
- * `STAGE_FIRST_BY_CAPABILITY` 保留，但只决定**注入顺序**，不再决定取舍范围。
+ * `STAGE_FIRST_BY_CAPABILITY` 就是注入目标。阶段表里已经点名的引用、效力、要素
+ * 仍然注入（那是这一阶段的工序）；没点名的留在索引里。
  */
 
 import { estimateTextTokens } from "../agent/context-budget.js";
@@ -41,22 +37,7 @@ import {
 } from "./lawyer-capabilities.js";
 import { litigationPrimary } from "./litigation-primary.js";
 
-/**
- * 跨交付物的质量不变量：只要该能力自己列了这几篇，就注入正文。
- *
- * 它们不是某个阶段的工序，而是「任何一份交付物都得守」的底线；顺序只决定注入先后
- * （越靠前越是「本阶段直接相关」的补充），不决定取舍——目标集合是全部注入。
- *
- * `delivery-language` **不在**此列：它讲的是「草稿不得写成已签发」，属全局交付纪律，
- * 已在系统提示词与 `craft` 片段里；再整篇注入等于同一件事说三遍。
- */
-export const INVARIANT_SKILL_IDS: readonly string[] = [
-  "citation-grounding",
-  "norm-validity",
-  "legal-element-extraction",
-];
-
-/** 排序用：哪一阶段的正文排在最前（只影响注入先后，不影响取舍）。 */
+/** 本阶段要注入正文的技能。没列在这里的，即使能力声明了，也只留索引。 */
 const STAGE_FIRST_BY_CAPABILITY: Record<string, readonly string[]> = {
   "contract.review": ["contract-review-layers", "contract-playbook-review"],
   "contract.draft": ["contract-drafting-route", "practice-defaults"],
@@ -114,17 +95,14 @@ function dedupeWithin(allowed: ReadonlySet<string>, ids: readonly string[]): str
 }
 
 /**
- * 要注入正文的技能（结构目标）：本阶段技能 + 质量不变量，按注入顺序去重。
- *
- * 阶段表与不变量表在多处重叠（`letter.draft`、`deal.ma`…），去重是必需的：
- * 重复 id 会让同一篇被算两次预算，也会让索引里出现重名行。
+ * 要注入正文的技能：本阶段技能，按阶段表顺序去重。
+ * 不在能力声明里的 id 丢掉（阶段表是提示，能力声明才是边界）。
  */
 export function structuralTargetIdsFor(
   bound: BoundLawyerCapability,
   instruction: string,
 ): string[] {
-  const allowed = new Set(bound.skillIds);
-  return dedupeWithin(allowed, [...stageHeadFor(bound, instruction), ...INVARIANT_SKILL_IDS]);
+  return dedupeWithin(new Set(bound.skillIds), stageHeadFor(bound, instruction));
 }
 
 /** 全部候选的优先顺序：结构目标在前，余下按能力声明顺序。 */

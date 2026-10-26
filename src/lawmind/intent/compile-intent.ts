@@ -15,7 +15,7 @@
  */
 
 import { isMailContractFastPathInstruction } from "../platform/mail-contract-short-path-instruction.js";
-import { isWordRevisionTurn } from "../platform/word-revision-instruction.js";
+import { isWordFileRelPath, isWordRevisionTurn } from "../platform/word-revision-instruction.js";
 import { isPublicWebFactLookup } from "../skills/capability-patterns.js";
 import {
   deskItemById,
@@ -363,6 +363,67 @@ function keywordFallback(
   return undefined;
 }
 
+/**
+ * P1-e (2026-10-26): an explicit object in the instruction outranks a pile of
+ * typed attachments.
+ *
+ * The joint route exists to read a *vague* verb off the material ("帮我看看" +
+ * 合同.docx). It must not override a sentence that already names its object:
+ * 「请审查这份采购合同的违约责任」 pinned with five 证据清单 used to bind
+ * `litigation.draft`, five 传票 bound `ops.court_sms`, five 表格 bound
+ * `materials.draft` — all `joint/high`. Those files are matter material, not the
+ * object of the turn. The same inversion hit pleadings: 「根据这些材料写一份
+ * 答辩状」 + 传票 bound `ops.court_sms`.
+ *
+ * Scope is deliberately narrow:
+ *  - a work verb (审查 / 起草 / 改稿) must be present;
+ *  - the named object must exist in the pinned material;
+ *  - the contract ↔ pleading fatal pair is decided earlier by `mixedPaper`
+ *    (contract picked at medium), so this rule never upgrades that guard.
+ */
+function explicitObjectRoute(
+  signals: IntentSignals,
+): { id: LawyerCapabilityId; deliverableType?: string } | undefined {
+  const { text } = signals;
+  const verbs = new Set(text.verbs);
+  const workVerb = verbs.has("review") || verbs.has("draft") || verbs.has("redline");
+  const hasGenre = (genre: DocumentGenre) => signals.documents.some((d) => d.genre === genre);
+
+  if (workVerb && text.wantsContract && !text.rejectsContractReview && hasGenre("contract")) {
+    // 起草-only stays drafting; review/redline wins when both are possible.
+    return verbs.has("draft") && !verbs.has("review") && !verbs.has("redline")
+      ? { id: "contract.draft" }
+      : { id: "contract.review" };
+  }
+  if (text.wantsPleading && (hasGenre("pleading") || hasGenre("evidence"))) {
+    // No work-verb gate: 「写起诉状」 extracts as `vague` + wantsPleading, and
+    // the named pleading is stronger than a timeline mentioned beside it.
+    return { id: "litigation.draft" };
+  }
+  // Letters are a named deliverable, not a material genre: 「写一封律师函」 with
+  // an invoice/summons pile still asks for a letter. Mirrors `keywordFallback`
+  // so the demand code does not diverge between the two routes.
+  if (text.wantsLetter || verbs.has("letter")) {
+    const demand = /催款|催告|demand/i.test(signals.instruction);
+    return { id: "letter.draft", deliverableType: demand ? "letter.demand" : undefined };
+  }
+  // A named research memo is a deliverable, not a material genre. The baseline
+  // recorded 「就违约金条款写一份检索备忘录」 + 证据清单 binding `litigation.draft`
+  // because the joint route ran before the research fallback. Only the named
+  // deliverable counts here — 「查一下这份合同的问题」 stays contract review.
+  if (/(检索备忘录|检索报告|研究备忘录|法律检索报告|调研报告)/.test(signals.instruction)) {
+    return { id: "research.memo" };
+  }
+  // A timeline is a named deliverable too. 「把这些证据做成时间线」 used to bind
+  // litigation.draft because the evidence genre won inside `jointRoute`, while
+  // the same ask without a typed pile returned chronology.timeline. Kept last so
+  // 「写起诉状，附时间线」 still binds the pleading.
+  if (/时间线|大事记|时间轴/.test(signals.instruction)) {
+    return { id: "chronology.timeline", deliverableType: "matter.timeline" };
+  }
+  return undefined;
+}
+
 function jointRoute(
   signals: IntentSignals,
 ): { id: LawyerCapabilityId; deliverableType?: string } | undefined {
@@ -370,6 +431,11 @@ function jointRoute(
   const verbs = new Set(text.verbs);
   if (!hasMaterials && dominantGenre === "unknown") {
     return undefined;
+  }
+
+  const explicit = explicitObjectRoute(signals);
+  if (explicit) {
+    return explicit;
   }
 
   if (dominantGenre === "invoice") {
@@ -451,11 +517,38 @@ function chainFor(id: LawyerCapabilityId, signals: IntentSignals): LawyerCapabil
 }
 
 function wordRevisionCapability(signals: IntentSignals): LawyerCapabilityId {
+  // P1-e: when the lawyer names exactly one document being revised, the
+  // material mix must not override it. 「修改这份起诉状」 with a summons pinned
+  // used to fall through `dominantGenre === court_notice` and land on
+  // `contract.review` — the tracked-redline pipeline then loaded contract
+  // skills for a pleading. When several objects are named (e.g. 修改律师函、
+  // 顺便看合同) the instruction is ambiguous, so the old genre reading stands.
+  const { text } = signals;
+  const namedObjects: LawyerCapabilityId[] = [];
+  if (text.wantsPleading) {
+    namedObjects.push("litigation.draft");
+  }
+  if (text.wantsContract && !text.rejectsContractReview) {
+    namedObjects.push("contract.review");
+  }
+  if (text.wantsLetter) {
+    namedObjects.push("letter.draft");
+  }
+  if (new Set(namedObjects).size === 1) {
+    return namedObjects[0];
+  }
   const g = signals.dominantGenre;
-  if (g === "pleading" || g === "evidence") {
+  // A Word redraft edits the Word baseline, not the PDF pile next to it. A
+  // vague 「帮我改一下」 pinned with 民事起诉状.docx + 开庭传票.pdf must follow
+  // the .docx genre; reading the PDFs' genre sent the turn to contract.review.
+  const wordGenres = signals.documents
+    .filter((doc) => isWordFileRelPath(doc.relPath))
+    .map((doc) => doc.genre);
+  const revisionGenre = wordGenres.length > 0 ? dominantDocumentGenre(wordGenres) : g;
+  if (revisionGenre === "pleading" || revisionGenre === "evidence") {
     return "litigation.draft";
   }
-  if (g === "letter") {
+  if (revisionGenre === "letter") {
     return "letter.draft";
   }
   return "contract.review";

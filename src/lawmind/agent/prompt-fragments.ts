@@ -161,6 +161,35 @@ export function createPromptFragment(input: {
   };
 }
 
+/**
+ * Only one session-tail `craft` fragment may enter a turn: several call sites
+ * queue independent craft blocks (intake advisory, Word revision, opinion,
+ * compact reinjection) and they are alternatives, not additive instructions.
+ *
+ * Exported so the budget report can name the dedupe as `duplicate_craft`
+ * instead of reporting it as a budget loss. Without that distinction every
+ * Word-revision turn with an opinion sidecar would look "degraded".
+ */
+export function collapseSessionCraftFragments(fragments: readonly PromptFragment[]): {
+  kept: PromptFragment[];
+  collapsed: PromptFragment[];
+} {
+  const kept: PromptFragment[] = [];
+  const collapsed: PromptFragment[] = [];
+  let sessionCraftKept = false;
+  for (const fragment of fragments) {
+    if (fragment.kind === "craft" && fragment.placement !== "world_state") {
+      if (sessionCraftKept) {
+        collapsed.push(fragment);
+        continue;
+      }
+      sessionCraftKept = true;
+    }
+    kept.push(fragment);
+  }
+  return { kept, collapsed };
+}
+
 export function packPromptFragments(
   fragments: PromptFragment[],
   budgetTokens: number = FRAGMENT_SESSION_TAIL_BUDGET_TOKENS,
@@ -169,18 +198,8 @@ export function packPromptFragments(
     Number.isFinite(budgetTokens) && budgetTokens > 0
       ? budgetTokens
       : FRAGMENT_SESSION_TAIL_BUDGET_TOKENS;
-  const collapsed: PromptFragment[] = [];
-  let sessionCraftKept = false;
-  for (const fragment of fragments) {
-    if (fragment.kind === "craft" && fragment.placement !== "world_state") {
-      if (sessionCraftKept) {
-        continue;
-      }
-      sessionCraftKept = true;
-    }
-    collapsed.push(fragment);
-  }
-  const ranked = collapsed.map((fragment, index) => ({ fragment, index }));
+  const candidates = collapseSessionCraftFragments(fragments).kept;
+  const ranked = candidates.map((fragment, index) => ({ fragment, index }));
   ranked.sort((a, b) => {
     if (b.fragment.priority !== a.fragment.priority) {
       return b.fragment.priority - a.fragment.priority;
@@ -197,7 +216,7 @@ export function packPromptFragments(
       used += cost;
     }
   }
-  return collapsed.filter((fragment) => kept.has(fragment));
+  return candidates.filter((fragment) => kept.has(fragment));
 }
 
 export function partitionPackedFragments(fragments: PromptFragment[]): {

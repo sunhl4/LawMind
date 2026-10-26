@@ -95,7 +95,7 @@ describe("turn-orchestrator-prompt", () => {
     expect(visiblePrompt(result, session)).not.toContain("Word 改稿 · 原文件审阅痕迹");
   });
 
-  it("injects review specs plus invariants and still leaves room for the protocol", async () => {
+  it("injects the review specs whole and still leaves room for the protocol", async () => {
     const session: AgentSession = {
       sessionId: "sess-skill-target",
       actorId: "system",
@@ -125,16 +125,11 @@ describe("turn-orchestrator-prompt", () => {
       ],
     });
     const prompt = visiblePrompt(result, session);
-    // 结构目标：本阶段技能 + 质量不变量（引用/效力/要素）必须进正文。
-    for (const needle of [
-      "合同分层审查",
-      "合同 Playbook 审查",
-      "引用锚定",
-      "规范现行有效",
-      "法律要素提取",
-    ]) {
+    for (const needle of ["合同分层审查", "合同 Playbook 审查"]) {
       expect(prompt, needle).toContain(needle);
     }
+    // 叙事要素表不进合同审查：检索协议和系统提示已经管引用与效力。
+    expect(prompt).not.toContain("## 九类事实");
     // 篇幅增长不得挤掉检索协议（会话尾预算仍有余额）。
     expect(prompt).toContain("## 检索协议");
     // 不得出现按字符腰斩的截断指针——旧实现固定 2 篇时这里确实会出现。

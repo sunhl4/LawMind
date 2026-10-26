@@ -144,13 +144,8 @@ describe("lawyer-capabilities", () => {
       "litigation-stage-route",
       "evidence-argument-chain",
     ]);
-    // 前两篇是本阶段技能；其后是质量不变量。不注入刑辩/家事/破产等其它阶段路由。
     const lean = planLeanSkillPrompt(bound!, "帮我改一下");
-    expect(lean.primaryIds.slice(0, 2)).toEqual([
-      "litigation-stage-route",
-      "evidence-argument-chain",
-    ]);
-    expect(lean.primaryIds).toContain("legal-element-extraction");
+    expect(lean.primaryIds).toEqual(["litigation-stage-route", "evidence-argument-chain"]);
     expect(lean.primaryIds).not.toContain("criminal-stage-route");
   });
 
@@ -269,18 +264,10 @@ describe("lawyer-capabilities", () => {
     expect(bodies.some((b) => b.includes("合同分层审查"))).toBe(true);
     const lean = planLeanSkillPrompt(bound!, "请审查合同条款");
     const leanBodies = readSkillPromptBodies(undefined, lean.primaryIds);
-    // 结构目标 = 本阶段技能（分层 + Playbook）+ 质量不变量（引用/效力/要素）。
-    // 旧实现只注入前两篇，把后三篇的纪律留在索引里靠模型自己去捞。
-    expect(lean.primaryIds).toEqual([
-      "contract-review-layers",
-      "contract-playbook-review",
-      "citation-grounding",
-      "norm-validity",
-      "legal-element-extraction",
-    ]);
+    expect(lean.primaryIds).toEqual(["contract-review-layers", "contract-playbook-review"]);
     expect(leanBodies.some((b) => b.includes("合同分层审查"))).toBe(true);
     expect(leanBodies.some((b) => b.includes("合同 Playbook 审查"))).toBe(true);
-    expect(leanBodies.some((b) => b.includes("## 九类事实"))).toBe(true);
+    expect(leanBodies.some((b) => b.includes("## 九类事实"))).toBe(false);
     // 改稿手艺与全局交付用语不进正文：前者只服务 tracked 改稿，后者系统提示词已有。
     expect(leanBodies.some((b) => b.includes("合同审阅改稿手艺"))).toBe(false);
     expect(lean.indexIds).toContain("contract-redline-craft");

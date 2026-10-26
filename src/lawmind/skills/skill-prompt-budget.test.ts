@@ -5,11 +5,9 @@ import {
   bindLawyerCapability,
   formatBoundCapabilityBlock,
   listLawyerCapabilities,
-  readBuiltinSkillMarkdown,
   readSkillPromptBodies,
 } from "./lawyer-capabilities.js";
 import {
-  INVARIANT_SKILL_IDS,
   orderedSkillIdsForBound,
   planLeanSkillPrompt,
   primarySkillIdsForBound,
@@ -17,17 +15,15 @@ import {
 } from "./skill-prompt-budget.js";
 
 describe("skill-prompt-budget", () => {
-  it("injects the review specs plus cross-cutting invariants, indexes the rest", () => {
+  it("injects the review specs and leaves the rest for the model to pull", () => {
     const bound = bindLawyerCapability({ instruction: "请审查合同条款" });
     expect(bound).toBeTruthy();
     const lean = planLeanSkillPrompt(bound!, "请审查合同条款");
-    expect(lean.primaryIds).toEqual([
-      "contract-review-layers",
-      "contract-playbook-review",
-      "citation-grounding",
-      "norm-validity",
-      "legal-element-extraction",
-    ]);
+    expect(lean.primaryIds).toEqual(["contract-review-layers", "contract-playbook-review"]);
+    // 引用、效力、要素提取留在索引：系统提示和检索协议已覆盖底线，整篇灌入会挤判断。
+    expect(lean.indexIds).toEqual(
+      expect.arrayContaining(["citation-grounding", "norm-validity", "legal-element-extraction"]),
+    );
     // 只服务 tracked 改稿的手艺、以及系统提示词已覆盖的全局交付用语，留在索引里。
     expect(lean.indexIds).toContain("contract-redline-craft");
     expect(lean.indexIds).toContain("delivery-language");
@@ -75,7 +71,7 @@ describe("skill-prompt-budget", () => {
     expect(target).not.toContain("family-matter-route");
   });
 
-  it("injects layers and invariants on mail and Word tracked paths", () => {
+  it("injects the stage head on mail and Word tracked paths", () => {
     const mail = bindLawyerCapability({
       instruction: "【邮件合同审阅改稿 · 短路径 · 原文件审阅痕迹】\nmatterId=`m1`",
     });
@@ -93,9 +89,7 @@ describe("skill-prompt-budget", () => {
     });
     expect(word?.pipeline).toBe("tracked_redline");
     const wordTarget = primarySkillIdsForBound(word!, "修改合同");
-    // 改稿回合必须先给分层审查与最短锚定手艺；其后才是引用/效力/要素不变量。
-    expect(wordTarget.slice(0, 2)).toEqual(["contract-review-layers", "contract-redline-craft"]);
-    expect(wordTarget).toContain("citation-grounding");
+    expect(wordTarget).toEqual(["contract-review-layers", "contract-redline-craft"]);
   });
 
   it("picks complaint fill for 起诉状 litigation", () => {
@@ -132,12 +126,7 @@ describe("skill-prompt-budget", () => {
   it("injects both timeline skills and the status scope skill", () => {
     const timeline = bindLawyerCapability({ instruction: "把这些材料做成时间轴" });
     const timelineTarget = primarySkillIdsForBound(timeline!, "把这些材料做成时间轴");
-    expect(timelineTarget.slice(0, 2)).toEqual([
-      "chronology-two-stage",
-      "chronology-from-materials",
-    ]);
-    // 两段式时间轴自己就要先做事实净化，要素不变量在这里也应注入。
-    expect(timelineTarget).toContain("legal-element-extraction");
+    expect(timelineTarget).toEqual(["chronology-two-stage", "chronology-from-materials"]);
 
     const status = bindLawyerCapability({ instruction: "写本案办案周报" });
     expect(primarySkillIdsForBound(status!, "写本案办案周报")).toEqual([
@@ -157,20 +146,13 @@ describe("skill-prompt-budget", () => {
     }
   });
 
-  it("only uses invariant ids that exist and are declared by their capability", () => {
-    for (const id of INVARIANT_SKILL_IDS) {
-      expect(readBuiltinSkillMarkdown(id), `${id} should ship`).toBeTruthy();
-    }
-    const used = new Set<string>();
-    for (const cap of listLawyerCapabilities()) {
-      for (const id of cap.skillIds) {
-        if (INVARIANT_SKILL_IDS.includes(id)) {
-          used.add(id);
-        }
-      }
-    }
-    // 死条目会让「不变量」看起来生效、实际没有任何能力引用它。
-    expect([...used].toSorted()).toEqual([...INVARIANT_SKILL_IDS].toSorted());
+  it("does not inject narrative fact-extraction into a contract review", () => {
+    const bound = bindLawyerCapability({ instruction: "请审查合同条款" });
+    const bodies = readSkillPromptBodies(
+      undefined,
+      planLeanSkillPrompt(bound!, "请审查合同条款").primaryIds,
+    );
+    expect(bodies.some((b) => b.includes("## 九类事实"))).toBe(false);
   });
 
   it("honours an explicit cap without changing the target", () => {

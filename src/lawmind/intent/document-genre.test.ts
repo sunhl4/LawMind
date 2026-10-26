@@ -4,6 +4,7 @@ import {
   dominantDocumentGenre,
   genresConflictContractVsPleading,
   wordRevisionShouldInjectFamilyChecklist,
+  type DocumentGenre,
 } from "./document-genre.js";
 
 describe("document-genre", () => {
@@ -47,6 +48,23 @@ describe("document-genre", () => {
   it("treats sticky pleading as dominant over unknown attachments", () => {
     expect(dominantDocumentGenre(["unknown", "pleading", "unknown"])).toBe("pleading");
     expect(genresConflictContractVsPleading(["contract", "pleading"])).toBe(true);
+  });
+
+  it("never lets untyped attachments outvote a unanimous typed genre (P1-a)", () => {
+    // 2 contracts + 10 unclassified scans is still a contract pile.
+    const pile: DocumentGenre[] = [
+      "contract",
+      "contract",
+      ...(Array.from({ length: 10 }, () => "unknown") as DocumentGenre[]),
+    ];
+    expect(dominantDocumentGenre(pile)).toBe("contract");
+    expect(dominantDocumentGenre(["unknown", "unknown"])).toBe("unknown");
+    expect(dominantDocumentGenre([])).toBe("unknown");
+    // Disagreement keeps the old count (unknown still wins here) so mixed
+    // material piles are not silently re-bound.
+    expect(dominantDocumentGenre(["contract", "spreadsheet", "unknown", "unknown"])).toBe(
+      "unknown",
+    );
   });
 
   it("skips contract-family Word checklists on pleadings and letters", () => {

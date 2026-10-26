@@ -3,6 +3,7 @@ import {
   COMPUTE_INTENT_RE,
   COMPUTE_TABLE_PACK_RE,
   FAMILY_MATTER_RE,
+  MATTER_INTAKE_RE,
   QUICK_TRIAGE_RE,
   isPublicWebFactLookup,
   publicWebFactToolRefusal,
@@ -31,6 +32,13 @@ describe("capability-patterns", () => {
     expect(publicWebFactToolRefusal("查一下2026年新说唱总冠军", false)).toContain("联网");
     expect(publicWebFactToolRefusal("查一下2026年新说唱总冠军", true)).toContain("web_search");
     expect(publicWebFactToolRefusal("查一下民法典违约责任", false)).toBeNull();
+  });
+
+  it("recognizes the prompt's own 收进案件 wording as intake", () => {
+    expect(MATTER_INTAKE_RE.test("把这些材料收进案件")).toBe(true);
+    expect(MATTER_INTAKE_RE.test("把这个文件夹收进本案")).toBe(true);
+    expect(MATTER_INTAKE_RE.test("审查这份采购合同")).toBe(false);
+    expect(bindLawyerCapability({ instruction: "把这些材料收进案件" })?.id).toBe("matter.intake");
   });
 
   it("keeps bind and the shared matcher on the same 快问 / 家事 cues", () => {

@@ -39,6 +39,12 @@ export function LawmindSettingsWorkspaceCare({ apiBase }: Props): ReactNode {
   const searchNeedsRebuild = searchIndex?.ready === false || searchIndex?.stale === true;
   const executionLines =
     health?.executionSurface?.lines ?? health?.doctor?.executionSurface?.lines ?? [];
+  // P1-b: only surface the prompt-budget health line when it warns. A healthy
+  // workspace stays quiet — this panel never grows a status dashboard.
+  const promptBudgetWarn =
+    health?.doctor?.promptBudget?.status === "warn"
+      ? (health.doctor.promptBudgetLine ?? null)
+      : null;
 
   async function rebuild(): Promise<void> {
     if (!apiBase) {
@@ -108,6 +114,17 @@ export function LawmindSettingsWorkspaceCare({ apiBase }: Props): ReactNode {
           <p className="lm-settings-caption">
             卷宗、会话、草稿和常设工作要备份；索引和后台状态可重建；密钥不在工作区文件夹里。
           </p>
+        </div>
+      ) : null}
+      {promptBudgetWarn ? (
+        <div
+          className="lm-settings-group lm-settings-surface"
+          data-testid="lm-workspace-prompt-budget"
+        >
+          <div className="lm-settings-row">
+            <span className="lm-settings-key">对话上下文</span>
+          </div>
+          <p className="lm-settings-caption">{promptBudgetWarn}</p>
         </div>
       ) : null}
       {searchNeedsRebuild ? (

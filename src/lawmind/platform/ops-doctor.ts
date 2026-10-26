@@ -1,3 +1,8 @@
+import {
+  formatPromptBudgetHealthLine,
+  summarizePromptBudgetHealth,
+  type PromptBudgetHealth,
+} from "../agent/prompt-budget-health.js";
 /**
  * 给 `pnpm lawmind:doctor` 和 `pnpm lawmind:ops doctor` 用的同一份巡检。
  * 会话工具配对、案件投影漂移、检索索引，外加本机执行面清单（持久 / 可重建 / 凭据）。
@@ -17,6 +22,8 @@ export type OpsDoctorSnapshot = {
   unsignedSkillCount: number;
   indexReady: boolean;
   staleReason?: string;
+  /** P1-b: prompt-budget rollup over recent turns (absent when not scanned). */
+  promptBudget?: PromptBudgetHealth;
 };
 
 export function formatOpsDoctorSnapshot(input: {
@@ -28,6 +35,7 @@ export function formatOpsDoctorSnapshot(input: {
   indexReady: boolean;
   stale: boolean;
   staleReason?: string;
+  promptBudget?: PromptBudgetHealth;
 }): OpsDoctorSnapshot {
   const lines: string[] = [];
   if (input.corruptSessionCount === 0) {
@@ -69,6 +77,7 @@ export function formatOpsDoctorSnapshot(input: {
   } else {
     lines.push("索引：就绪。");
   }
+  lines.push(...(input.promptBudget ? [formatPromptBudgetHealthLine(input.promptBudget)] : []));
   lines.push(...buildExecutionSurfaceReport().lines);
   return {
     lines,
@@ -78,6 +87,7 @@ export function formatOpsDoctorSnapshot(input: {
     unsignedSkillCount: input.unsignedSkillCount,
     indexReady: input.indexReady,
     staleReason: input.staleReason,
+    ...(input.promptBudget ? { promptBudget: input.promptBudget } : {}),
   };
 }
 
@@ -98,5 +108,6 @@ export async function gatherOpsDoctorSnapshot(workspaceDir: string): Promise<Ops
     indexReady: status.ready,
     stale: fresh.stale,
     staleReason: fresh.staleReason,
+    promptBudget: summarizePromptBudgetHealth(workspaceDir),
   });
 }

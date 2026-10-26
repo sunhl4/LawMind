@@ -149,6 +149,25 @@ export function dominantDocumentGenre(genres: readonly DocumentGenre[]): Documen
   if (sticky[0]) {
     return sticky[0];
   }
+  /**
+   * `unknown` is the *absence* of genre evidence (scanned PDFs, unclassifiable
+   * filenames), not a genre that can win a count. P1-a, 2026-10-26: a deal room
+   * of two contracts plus ten unclassified PDFs used to make `dominantGenre`
+   * itself `unknown`; the joint route then bailed out and「请审查这份采购合同」
+   * fell from `joint/high` to `keyword/medium` — the stage Skill body became a
+   * flat catalog index and the retrieval protocol was never queued.
+   * See `docs/LAWMIND-PROMPT-BUDGET-BASELINE.md`.
+   *
+   * Narrow rule: when every typed attachment agrees, untyped files cannot
+   * outvote them. When typed attachments disagree we keep the old count
+   * (including `unknown`) so the contract ↔ pleading fatal pair and mixed
+   * material piles behave exactly as before.
+   */
+  const typed = genres.filter((g) => g !== "unknown");
+  const typedGenres = new Set(typed);
+  if (typedGenres.size === 1) {
+    return typed[0];
+  }
   const counts = new Map<DocumentGenre, number>();
   for (const g of genres) {
     counts.set(g, (counts.get(g) ?? 0) + 1);
