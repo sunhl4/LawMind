@@ -10,7 +10,8 @@
   - macOS：`mac-arm64` 与 `mac`（Intel，electron-builder 对 x64 不加后缀）各一份 `dmg` + `zip`，`latest-mac.yml` **同时列出两个架构**
   - Linux：`AppImage`、`tar.gz`
 - [ ] 文件名含 **版本 + os + arch**（`artifactName` 已配置）。
-- [ ] 在干净虚拟机或新用户下 **安装包与 zip 解压版各测一条**：能打开向导、能连上本地服务、能发一条对话。
+- [ ] **内置模型凭据在场**：`pnpm --filter lawmind-desktop run defaults:check` 显示这次要带哪些 key；构建产物里必须有 `LawMind.app/Contents/Resources/defaults/provider-defaults.json`（Windows/Linux 为 `resources/defaults/`）。分发给外部用户时**这一条不满足就等于没做「开箱即用」**；如果这次本来就不带 key，也要在发布说明里写清「首次打开需自备 API Key」。
+- [ ] 在干净虚拟机或新用户下 **安装包与 zip 解压版各测一条**：能打开向导、能连上本地服务、能发一条对话。**没有配置过任何 Key 的新用户**要能直接发出去（验证内置凭据生效），并在设置页换成自己的 Key 后仍然可用（验证内置凭据不覆盖用户配置）。
 
 ## 质量证明
 

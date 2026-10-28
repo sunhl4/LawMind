@@ -337,6 +337,67 @@ git worktree add --detach <路径> HEAD
 
 两者都**不是**「量子启发因子态之前的旧 agent 内核」。需要对照用 `git stash show -p`，不要在共享工作区 `pop`。
 
+### 18.8.1 AI 原生工作流 P0：统一收件层
+
+统一收件层的实现位于 `src/lawmind/intake/`，桌面接口复用邮箱路由 `apps/lawmind-desktop/server/lawmind-server-route-mail.ts`。它的职责是把邮件、投递文件以及未来的企业微信/录音适配器统一成 `IntakeItem`，再按强键判定是否进入案件。
+
+落盘真相源如下：
+
+- `<workspace>/lawmind/intake/items/`：每条来件一份 JSON；正文过长时全文放在内容寻址 blob，列表只返回预览。
+- `<workspace>/lawmind/intake/blobs/`：附件和正文原件按 SHA-256 去重。
+- `<workspace>/lawmind/intake/events.jsonl`：入库、判案、归档、撤回、忽略和恢复事件。
+- `<workspace>/lawmind/intake/threads.json`：已归档邮件线程和已发送邮件的线程回认索引。
+- `<workspace>/收件投递/`：律师或外部适配器的本机投递口；处理后移到 `已入库/`。
+
+自动归案的必要条件是唯一强键：归档线程、案号、明确案件标识或唯一已核验联系人。名称相似度和未核验联系方式只用于候选排序；DMARC 失败的邮件不会自动归案。未归案原文默认是不可信数据，收件 tick 不具备对外发送权限。
+
+邮箱分两种：`intakeInbox: true` 的收案邮箱进入全局收件库，不得绑定单一案件；旧式按案邮箱只有明确 `matterId` 时才按案同步。配置收案邮箱后，自动办件不会把同一个收件箱重复拉入所有案件。
+
+同步水位与重试口径（`src/lawmind/intake/mail-intake.ts`、`mail/imap-client.ts`、`mail/graph-mail.ts`）：
+
+- 首次同步无论邮箱是否为空都写入 `initializedAt`；IMAP 空箱落 `lastUid: 0`，Graph 空箱落时间水位，第二轮起不再套用「最近 7 天」窗口。
+- `bootstrapSince` 只是首轮查询下界，成功写状态时清掉，不会成为长期水位。
+- 同步抛错时只写 `attemptedAt` 与 `error`，不推进 `uidValidity` / `lastUid` / `receivedSince`；下一轮从原水位重试。
+- Graph 用 `@odata.nextLink` 分页（落在 `graphNextLink`），只接受 `https://graph.microsoft.com/` 前缀。
+- 首轮 7 天窗口按 `>=` 比较；同一封信反复拉取只会有一条 `IntakeItem`。
+
+桌面上，待归案条目不新建一级页面：交办册「在办」主体已在 2026-09-30 并入工作台（`AgentFleetView` 没有挂载点），所以待归案落在**工作台今日提醒上方**的「待归案」区块，组件是 `apps/lawmind-desktop/src/renderer/LawmindIntakeInbox.tsx`。左侧列列表（主题、发件人、判案结论），右侧是详情面板 `LawmindIntakeDetail.tsx`：原文、附件、候选案件与强弱线索、DMARC 结论，主按钮「归入案件」、次按钮「忽略」。可归入案件取自 `/api/matters/overviews`（全工作区），不取按门类筛选过的工作台列表。勾选「记住发件人」时 `attach` 带 `rememberSender: true`，服务端把发件地址写成本案委托人名下的已核验邮箱；本案没有委托人就跳过。
+
+服务端仍把待归案映射成 `/api/agent-fleet` 的 `queue_item`（`intakeItemId`），但没有 UI 挂载交办册；不要把它当成现行入口。
+
+没有可靠候选的来件可记成**新案线索**（`src/lawmind/intake/lead.ts`）：阶段为 `new / needs_info / conflict_pending / declined / accepted`，`POST /api/intake/items/:id/lead` 推进。「进入收案」必须由律师填案件名称，只创建 `status: "intake"` 的案件并把这封来件物化进去；同名案件直接拒绝。
+
+`intake → active` 由**收案记录**控制（`src/lawmind/intake/admission.ts`）：`prospective → conflict_pending → lawyer_review → accepted | declined`。记录落在 `<workspace>/lawmind/intake/admissions/<matterId>.json`（在 agent 工作区黑名单内，因为冲突命中会带别案编号和当事人），包含候选当事人、来源来件、负责人、冲突扫描命中及来源、风险告知、AI 使用告知、律师决定和时间线。接受委托要求：扫描完成、负责人已指定、两项告知都确认；有命中必须给出书面 override 理由。`accept` 才把案件改成 `active` 并关闭「完成利益冲突检查」待办，`decline` 不改案件状态。
+
+冲突扫描由 `src/lawmind/intake/conflict-scan.ts` 服务化：对全部案件（含已结/前客户）做当事人身份与卷宗索引匹配，并扫工作区记忆；每个命中带 `matterId / partyName / reason / source`。没有候选当事人时拒绝扫描（`no_candidates`），空扫描不能当作无冲突。
+
+桌面入口是案件页「档案」上方的「收案」卡（`MatterProfileCard.tsx` 内的 `MatterAdmissionCard.tsx`）：开始收案、补登当事人、运行扫描、确认两项告知、指定负责人、接受或婉拒。旧「已完成利益冲突检查 / 已正式接受委托」两个勾选框已移除，避免只改 `matter.status` 绕过扫描。
+
+接受委托前可以从收案卡生成**委托包草案**（`src/lawmind/intake/engagement-package.ts`）：委托代理合同、授权委托书、风险告知书、AI 使用告知与同意、报价单，共五份 Markdown。每份顶部有「草案 · 须律师核对」横幅，未填字段写成 `【待填：…】`；落盘在 `matters/<id>/收案/`，`manifest.json` 记录哈希和 `esign: { status: "placeholder" }`。默认不覆盖已有文件，律师改过稿后要显式 `overwrite: true` 才重写。接口：`GET/POST /api/intake/admissions/:matterId/engagement`。需要 Word 版时用 `POST /api/intake/admissions/:matterId/engagement/docx`（`src/lawmind/intake/engagement-package-docx.ts`）：从当前 Markdown 重新渲染五份 `.docx`，正式文书版式不带备忘录抬头、结论摘要和免责声明；Markdown 仍是真相源，DOCX 默认不覆盖，导出记录写在 manifest 的 `docx` 字段。
+
+自动填入的案件字段带**出处**（`src/lawmind/intake/field-provenance.ts`）：记录在 `lawmind/intake/provenance/<matterId>.json`，每条含 `field / value / itemId / quote / confidence / capturedAt / status`。空字段写入并记 `applied`；同值记 `same`；不同值不覆盖，记 `conflict` 并开一条 `need_client_input` 待办。`extractIntakeMatterFields()` 目前只确定性抽取案号和带「被告 / 对方」标签的当事人，置信度是规则把握程度，不是模型概率。`POST /api/intake/items/:id/lead` 的 `accept` 会在收案后自动写入这些字段；`GET/POST /api/intake/admissions/:matterId/provenance` 可读写出处与 coverage。桌面收案卡有只读「字段出处」区块。
+
+传票/送达文书的日期走现有 `extractLegalEvents()`：`GET /api/intake/items/:id/legal-events` 只读抽取；`POST /api/intake/admissions/:matterId/legal-events` 经 `applyLegalEvents()` 写入期限链，开庭先写、其他期限挂到开庭之后，来源标 `document_extract`，并同步更新 `docket.hearingAt`。收案卡「期限」区块可抽取、勾选、写入。中文日期正则已修正为保留「09:30」的分钟，不再退化成 09:00。
+
+外发闸门 `checkAdmissionGate` 已接到 `send_email`、`prepare_outbound_mail` 和 `POST /api/automations/inbox/:id` 的 `approve_send`：只有 `accepted` 放行；未扫描、律师审核中、已婉拒都拒绝。admission 上线前已经在办（非 `intake`）的案件和只有 `cases/<id>/CASE.md` 的历史工作区按祖父条款放行。接口：`GET/POST /api/intake/admissions[/:matterId]`，动作 `assign / add_candidates / scan_start / scan / scan_run / acknowledge / accept / decline`。
+
+提交这层变更至少运行：
+
+```bash
+pnpm exec tsc --noEmit -p tsconfig.json
+pnpm exec tsc --noEmit -p tsconfig.desktop-node.json
+pnpm --filter lawmind-desktop typecheck
+pnpm exec vitest run src/lawmind/intake src/lawmind/mail apps/lawmind-desktop/server apps/lawmind-desktop/src/renderer/matter
+pnpm lawmind:sync:renderer-css && pnpm lawmind:check:renderer-css-sync
+pnpm --filter lawmind-desktop exec playwright test e2e/intake-filing.spec.ts --workers=1
+```
+
+**录音通道（P2.1）**：投递口里的音频文件（`.mp3 / .m4a / .wav / .aac / .amr / .flac / .opus / .wma / .webm / .ogg`）按 `channel: "recording"` 入库（内容哈希去重不变）；邮件附件里的音频仍按原规则跳过，录音要进系统就走投递口。不配置转写时不出站、条目只有音频；配置 `LAWMIND_ASR_ENDPOINT`（`LAWMIND_ASR_API_KEY` / `LAWMIND_ASR_MODEL` 可选）后，待归案详情里的「转写录音」按钮（`POST /api/intake/items/:id/transcribe`，`src/lawmind/intake/recording.ts` 才把音频发到端点，文字写回条目（全文进 `bodySha256` blob，音频原件保留为附件）。转写是律师主动触发的外发：`egressMode: "offline"` 时非本机端点直接拒绝；单文件上限 50MB，超限不出站。企业微信官方会话存档仍未接：需要企业资质、会话存档密钥和腾讯官方 SDK（C++），解锁前不会出现在界面上；解锁后也必须按同一 IntakeItem 契约实现。
+
+**企业微信存档导出（P2.2）**：`src/lawmind/intake/wecom-archive.ts` 读取官方 SDK/合规导出后的**已解密**消息 JSON/JSONL（放 `<workspace>/收件投递/企业微信/`），每条消息按 `channel: "wecom"` 记成 `IntakeItem`：`msgid` 去重、`roomid` 作为会话线程、`users` 映射把 userid 换成姓名、图片/语音/文件只登记元数据并标 `type_not_persisted`（没有二进制，不假装拿到原件）、撤回消息保留为 `[消息已撤回]`。导出文件处理后移到 `收件投递/已入库/<day>/企业微信/`；解析失败移到 `已入库/失败/...` 并上报错误，不每个 tick 重试坏文件。**实时同步仍未接**：官方会话存档的实时拉取需要企业资质、存档密钥和腾讯 C++ SDK（native bridge）；本模块只做文件落地后的统一收件适配，不逆向、不破解加密包。
+
+**个人微信不通过逆向读取接入**；需要人工转发或投递文件。企业微信和电话录音只能作为新的 `IntakeItem` 适配器接入，不能绕过统一收件契约或另建案件真相源。
+
 ## 18.9 文档站
 
 `apps/lawmind-docs/` 是 VitePress 站。构建前会跑 `sync-docs.mjs` 把根目录的文档同步进去。

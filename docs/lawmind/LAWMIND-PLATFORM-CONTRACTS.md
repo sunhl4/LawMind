@@ -76,11 +76,11 @@
 
 `doctor` 对象在桌面健康检查中扩展以下字段，供 Settings → Doctor 与 readiness strip 消费：
 
-| 字段                   | 含义                                                                                                        |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `matterConsistency`    | 案件投影与 `cases/` 目录一致性摘要（`ok`、`issueCount`、可选 `issues[]`）                                   |
-| `rateLimit`            | 本地 API 速率限制统计；未启用时为 `null`                                                                    |
-| `skipApiAuthWarn`      | 开发/打包环境是否跳过 loopback API 鉴权（`true` 时在 Doctor 显示 WARN）                                     |
-| `judgmentHardControls` | 判断类硬控清单：`intakeSoftAsk` / `updateDraftAmplitudeSoft` / `emptyRedlineHard` / `sendEmailApprovalHard` |
+| 字段                   | 含义                                                                                                               |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `matterConsistency`    | 案件投影与 `cases/` 目录一致性摘要（`ok`、`issueCount`、`repairableCount`、`partyConflictCount`、可选 `issues[]`） |
+| `rateLimit`            | 本地 API 速率限制统计；未启用时为 `null`                                                                           |
+| `skipApiAuthWarn`      | 开发/打包环境是否跳过 loopback API 鉴权（`true` 时在 Doctor 显示 WARN）                                            |
+| `judgmentHardControls` | 判断类硬控清单：`intakeSoftAsk` / `updateDraftAmplitudeSoft` / `emptyRedlineHard` / `sendEmailApprovalHard`        |
 
 实现：`apps/lawmind-desktop/server/lawmind-health-payload.ts`、`lawmind-server-route-health.ts`。

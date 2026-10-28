@@ -32,6 +32,10 @@ pnpm lawmind:doctor
 
 投影对不上，或有自定义技能因签名未通过而停用时，退出码是 1。签名失败不会在对话里报错，所以巡检必须说出来。会话损坏和索引缺失不因此失败：它们会在下一次对话或检索里自己好。
 
+巡检还会多打一行存储：案件数、审计/会话/草稿体积。超过会话 200 MB、审计 500 MB、草稿 1 GB 或案件 2000 个时给轮转建议；先跑 `pnpm lawmind:workspace:backup` 再清理，别先删文件。
+
+私有化部署可以在 `lawmind.policy.json` 里加 `storage.quotaGb`（GB）和可选的 `storage.warnRatio`（默认 0.9）。巡检会多打一行「工作区合计 …（配额 …，已用 …%）」，到告警比例给备份/归档建议，超过配额也只告警，不拦写入。没写 `storage` 就只报四个桶的体积。总量不跟符号链接，跳过 `.git`、`node_modules`、`dist`、`release`、`.cache`、`tmp`。
+
 `pnpm lawmind:ops doctor` 打的是同一份巡检。`--deep` 额外跑开发用的 smoke（`lawmind:smoke --fail-on-empty-claims`），**不是**每周巡检，也不检查 `MEMORY.md` 在不在、环境变量严不严。安装包把密钥放在密钥链里，终端里的环境检查经常是红的，应用却是通的。模型通不通看设置 → 模型与连接的「验证模型」。
 
 工作区不是仓库里的 `workspace/` 时，两条命令都认 `LAWMIND_WORKSPACE_DIR`（`lawmind:ops` 另认 `--workspace <目录>`）。
@@ -67,6 +71,17 @@ CASE.md 里的争点、风险、进展不写回 JSON。它们对不上不算漂�
 只有 `CASE.md`、没有 `matter.json` 时，同一条修复命令会按档案里的名称、阶段、客户补一份案件记录，再把结构化字段投影回去。争点、风险、进展保持原样。补完后这件会出现在工作台列表里。
 
 ## 31.4 备份与恢复
+
+首选新的 zip 工具（默认排除密钥、带清单、可安全恢复）：
+
+```bash
+pnpm lawmind:workspace:backup -- --workspace <工作区> --out <备份.zip>
+pnpm lawmind:workspace:restore -- --from <备份.zip> --to <新工作区>
+```
+
+目标目录非空时恢复会拒绝；确认只覆盖同名文件才加 `--force`。默认排除 `.env*`、`lawmind/license.json`、`lawmind/mail-secrets.json`、检索索引、`lawmind/lint/`、`lawmind/decision/`、`rounds/` 与构建产物；要带密钥须显式 `--include-secrets`，并在移动前加密。清单是 zip 根目录的 `BACKUP-MANIFEST.json`。详见 [`LAWMIND-WORKSPACE-BACKUP.md`](../LAWMIND-WORKSPACE-BACKUP.md)。
+
+旧的 tar 包仍可用：
 
 ```bash
 LAWMIND_WORKSPACE_DIR=<工作区> pnpm lawmind:backup -- /path/to/backup-$(date +%F).tar.gz

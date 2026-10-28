@@ -168,6 +168,8 @@ Cursor 和 Codex 的 Skill 是操作者安装的 `SKILL.md`，模型按 descript
 
 Harvey 的 Playbook 是审查数据（标准 / 可接受回退 / 绝不接受），改稿时还在，不把长文塞进每一轮。LawMind 分两条路：默认意见路径直接把 `contract-playbook-review` 升成第二份主阶段（三档正文进提示）；合同 Word 改稿时保留它在索引里，并在流程提示里点名去读。两条路都不把 Playbook 加成第三份主阶段。
 
+**本所剧本（三色分流）是另一层**：它落在 `<workspace>/lawmind/playbooks/<id>.json`，由律师在设置 → 工作区 → 剧本里维护，合同、意见书、诉讼文书草稿落盘时自动跑一次 GREEN/YELLOW/RED；没有剧本时明确 `basis=default`，不冒充本所立场。条件类型、回读安全线与接口见 [LAWMIND-FIRM-PLAYBOOKS.md](../LAWMIND-FIRM-PLAYBOOKS.md)。
+
 Harvey 的 Workflow 容易做成律师必须走完的步骤。LawMind 的 `pipeline` 和组合链都写成可调整的提示。工具表仍按第 3 章那条单链。硬拦截只留空修订不得导出、禁止重建原件、禁止误发。
 
 没有为「走对能力」再加一轮模型分类。分流是确定性的，只决定哪两份说明进上下文。分错了，律师用 `【办件】` 或 `$skill` 覆盖，不用先回答一张任务类型表（铁律 1）。

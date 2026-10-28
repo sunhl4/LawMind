@@ -109,10 +109,10 @@
 ## 5. 安全与运维
 
 - [x] **邮件密钥进 OS 钥匙串**（2026-09-17 核验）：`mail-secrets.json` schemaVersion 2 已是 AES-256-GCM；Electron main 经 keyVault（safeStorage）注入 `LAWMIND_MAIL_SECRETS_KEY`。Headless / CLI / 守护进程仍降级 `~/.lawmind/keys/mail-secrets.key`（0600）。不要再包一层 JSON 加密。残留：守护进程无 Electron 时走文件密钥，不是第二套产品。
-- [ ] 工作区备份 / 迁移工具（含 progress-archive、day-split audit）
+- [x] **工作区备份 / 迁移工具（2026-10-28）**：`pnpm lawmind:workspace:backup` / `restore` 默认排除密钥、检索索引与派生目录，带 `BACKUP-MANIFEST.json`，恢复拒绝非空目标与恶意路径。见 [LAWMIND-WORKSPACE-BACKUP.md](./lawmind/LAWMIND-WORKSPACE-BACKUP.md)。
 - [ ] 审计完整性链在「按天窗口读取」下的校验策略说明
-- [ ] Doctor：检测 CASE/audit/session 体积异常并建议轮转
-- [ ] 私有化部署下的磁盘配额告警
+- [x] **Doctor：检测 CASE/audit/session 体积异常并建议轮转（2026-10-28）**：`pnpm lawmind:doctor` 增案件/审计/会话/草稿体积行，超阈值给轮转建议并提示先备份。
+- [x] **私有化部署下的磁盘配额告警（2026-10-28）**：`lawmind.policy.json` 的 `storage.quotaGb` / `storage.warnRatio` 进 Doctor 工作区合计行；到比例或超额只告警、不拦写入。测试 `workspace-storage-health.test.ts` / `ops-doctor.test.ts`。
 - [x] **本机访问（找/读/收进本案/受控命令）**：多根、本机查找、`hit_id` 授权、一次/会话/始终、对立当事人隔离、受控命令。设置里没有档位开关，默认放开查找与命令。见 [LAWMIND-HOST-ACCESS.md](./lawmind/LAWMIND-HOST-ACCESS.md)。残留：MAS security-scoped bookmark 原生层；Windows Search 目前走已授权根遍历。
 - [x] **工作区相对读的 realpath 围栏**（2026-09-17）：`fenceAgentFilePath` 覆盖 `read_project_file` / `write_document` / 律师本机解析 / 邮件附件；打包态忽略 `LAWMIND_HOST_ACCESS_MODE`。
 - [x] **IPC 项目目录须经系统选择器**（2026-09-17）：`set-project-dir` / `add-host-folder` 只接受本进程 `showOpenDialog` 记过的路径；`null` 仍可清除。

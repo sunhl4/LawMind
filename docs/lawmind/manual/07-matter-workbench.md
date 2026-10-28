@@ -144,9 +144,11 @@ workspace/cases/<matterId>/
 
 ### 漂移检查与修复
 
-两套数据迟早会不一致。`matter-consistency.ts` 负责查，返回的问题码有 9 种：
+两套数据迟早会不一致。`matter-consistency.ts` 负责查，返回的问题码有 10 种：
 
-`missing_case_md`、`missing_matter_json`、`both_missing`、`title_drift`、`status_drift`、`sensitivity_drift`、`client_drift`、`cause_drift`、`counterparty_drift`。
+`missing_case_md`、`missing_matter_json`、`both_missing`、`title_drift`、`status_drift`、`sensitivity_drift`、`client_drift`、`cause_drift`、`counterparty_drift`、`duplicate_party_contact`。
+
+`duplicate_party_contact` 指同一邮箱、电话或企微身份（按 `kind + 账户 + externalId` 判定）登记在本案多个当事人名下。它和 `both_missing` 都不在 `repairMatterProjections` 的修复范围内：前者只能由律师改当事人数据，后者是索引残留。`isRepairableMatterConsistencyIssue()` 给出这条分界，`/api/health` 据此分别给 `repairableCount` 与 `partyConflictCount`。
 
 修复入口是 `repairMatterProjections`，它遍历全部案件索引做两件事：缺 `matter.json` 但 CASE.md 还在的，先按 CASE.md §1 的字段（展示名、当前阶段、密级、clientId、案由、对方、案号/法院/审级/诉讼地位/开庭日）**重建 JSON 真相源**；然后对每个案件重新投影一遍 CASE.md。返回值是修复的案件数。HTTP 上是：
 
@@ -441,7 +443,11 @@ GET /api/matters/:matterId/materials/search?q=...
 
 ## 7.12 当事人
 
-案件当事人（`MatterParty`）的字段：`partyId`、`name`、`role`、`standing?`（诉讼地位）、`serviceAddress?`（送达地址）、`serviceMethod?`（送达方式）。
+案件当事人（`MatterParty`）的字段：`partyId`、`name`、`role`、`standing?`（诉讼地位）、`serviceAddress?`（送达地址）、`serviceMethod?`（送达方式）、`contacts?`（联系方式）。
+
+联系方式（`MatterPartyContact`）不是律所通讯录，只登记本案要用的身份：`kind` 为 `email` / `phone` / `wecom`，另有 `account`（收案邮箱、企微企业/应用、电话线路）、`externalId`、`verified`（已核实）、`source`（`lawyer` / `intake_confirmed` / `document`）与录音、会话存档同意。身份键是 `kind + account + (externalId 优先于展示值)`：同一邮箱挂在不同收案账户下是两条身份；同一企微 externalId 在同一账户下才合并。
+
+卷宗的当事人编辑器可以直接增删改联系方式并把某条标成「已核实」，`POST /api/matters/profile` 会原样落进 `matter.json`。电话可填录音同意、企业微信可填会话存档同意（未记录 / 已同意 / 已拒绝）与企微 `externalId`；同意状态不是身份，改它不会清掉「已核实」，改地址、账户、类型或 externalId 才会。同一身份挂在两个当事人名下时编辑器当场提示，`matter-consistency` 也会报 `duplicate_party_contact`；保存时格式不合法的非空值会被存储层丢弃，编辑器会先提示，不静默吞掉。归档时勾选「记住发件人」也会先查同一个身份键：地址已挂在别的当事人名下就不再重复登记，收件箱会说明占用人。
 
 角色五种（`MATTER_PARTY_ROLE_ZH` 是中文）：`client`（委托人）、`counterparty`（对方）、`agent`（代收人）、`counsel`（对方代理）、`other`（其他）。
 

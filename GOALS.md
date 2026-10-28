@@ -67,6 +67,8 @@ LawMind **不把可审计当作产品价值、法律质量证明或用户信任�
 
 ## 三、当前期次与未完成项
 
+> 全仓未完成项的逐条台账（A 本轮排期 / B 等外部输入 / C 平级仓 / D 长期 backlog）见 [docs/lawmind/LAWMIND-REMAINING-WORK.md](docs/lawmind/LAWMIND-REMAINING-WORK.md)。本节保留期次叙事与验收命令；台账用于跨文档对齐，不替代期次勾选。
+
 ### 第十九期 · LawMind Bench（中国律师自建评测 · 独立仓库 · 2026-10-08）
 
 > 公开中国法 Agent 集可对齐研究，但不能验收「法宝真检索 + 交件」。自建 Bench 是公司资产，与本产品仓**平级独立开发**（本机常见路径 `../LawMind-Bench/`），不嵌在本仓库内。
@@ -105,7 +107,7 @@ LawMind **不把可审计当作产品价值、法律质量证明或用户信任�
 - [x] **缺口 P0-1 人类基准盲评**：`src/lawmind/evaluation/human-baseline.ts`（同题双稿、盲评量规、一条命令出分）+ CLI `pnpm lawmind:human-baseline` + Doctor 成绩单「人类基准」行。无夹具时诚实 `SKIP`/`INSUFFICIENT`，不假绿。**工程侧已落地；须律师把同题双稿放入基准集后才会 RUN。**
 - [x] **缺口 P0-2 规模抽取**：`review_table_update` 新增 `extract_batch`（按材料并行、逐格 `source`/置信、抽不动写「无法判断（证据不足）」、只读 OCR 兜底）；`reviewTableAcceptanceProblems` 把「有值但无出处」定为缺口、「显式弃答」不算缺口；材料序按路径升序，同批材料两次跑出同一张表。
 - [x] **缺口 P0-3 类案默认可用**：`src/lawmind/retrieval/case-law-readiness.ts` 探测本地类案索引（cncases/caseopen）现成状态、诚实降级指引（明说不会编造）；Doctor 增「类案」行；法宝等需凭据的源仍走显式开关。
-- [x] **缺口 P1-1 Word 插件（就地审查）**：`apps/lawmind-desktop/resources/word-addin/`（清单模板 + 任务窗格）+ `/word-addin/*` 静态面与 `/api/word-addin/*` 数据面；渲染完成后自动回填结果，插件在 Word 里落成原生修订轨。**只走回环、不引远程控制面；无插件时桌面路径零影响**（见 [docs/lawmind/LAWMIND-WORD-ADDIN.md](docs/lawmind/LAWMIND-WORD-ADDIN.md)）。**须真机 Word 侧载实测。**
+- [x] **缺口 P1-1 Word 插件（就地审查）**：`apps/lawmind-desktop/resources/word-addin/`（清单模板 + 任务窗格）+ `/word-addin/*` 静态面与 `/api/word-addin/*` 数据面；渲染完成后自动回填结果，插件在 Word 里落成原生修订轨。**只走回环、不引远程控制面；无插件时桌面路径零影响**（见 [docs/lawmind/LAWMIND-WORD-ADDIN.md](docs/lawmind/LAWMIND-WORD-ADDIN.md)）。**须真机 Word 侧载实测。**（2026-10-27 起加载项退出产品范围：不再做真机侧载验收，代码保留维护态。）
 - [x] **缺口 P1-2 表格审核状态**：审查表逐行 `reviewed`/`locked`/指派，本地持久、零协同依赖；导出保留审阅状态摘要；批量重抽不覆盖已锁行。
 - [x] **缺口 P1-3 跨文书一致改**：`apply_surgical_edits({ task_ids, edits })` ——**先全批预检再落笔**（任一份锚定过宽/多处命中未声明 `occurrences:"all"` 即整批停、零写入），命中 0 处的文书记入变更清单，逐份重新生成 Redline 提案并落 `drafts/<batchId>.cross-document.json` 变更清单。
 - [x] **缺口 P1-4 审查表 → 文书**：`review_table_update ... to_draft` 把已核验结论与 `source` 直接推进文书正文（缺出处的行不入正文；未取得项单列「诚实标注，未作推断」）。
@@ -160,6 +162,19 @@ pnpm test && pnpm --filter lawmind-desktop typecheck && pnpm lawmind:compiler-ga
 LAWMIND_REQUIRE_TRUE_MANUSCRIPT=1 pnpm lawmind:true-manuscript   # 放稿后必须 RUN 且全过
 pnpm lawmind:release-readiness && pnpm lawmind:docs:build && pnpm lawmind:desktop:e2e:pr
 ```
+
+### 第十九期 · 2026-10-28 收口补记（剧本观测 / 交付步骤 / 消化）
+
+- [x] **P3.7 剧本观测扩展与非条款适用范围**：检查类型扩成 `clause_present` / `section_present` / `phrase_present` / `phrase_absent` / `citation_present`；意见书/备忘/诉讼文书走正文级检查；禁止表述只在命中时 FAIL；设置页与手册同步。详见 `docs/LAWMIND-ENGINEERING-REVIEW.md` P3.7。
+- [x] **P3.8 MatterRun 真实交付步骤**：`delivery_wait_job` → `delivery_collect` → `delivery_render` → `delivery_outbound_prepare`；job 终态唤醒；外发只写待发信/待拍板；覆盖所有自动办件模板，`LAWMIND_DELIVERY_RUN=0` 可回滚。详见工程审查 P3.8。
+- [x] **本期消化 3 个外部能力**：`labor-termination-triage`（MIT）/ `role-audience-tiers`（Apache-2.0）/ `matter-intake-scope`（Apache-2.0），均方法吸收、独立重写，已进 builtin、种子、能力映射、契约测试与 `LAWMIND-CANONICAL-LEGAL-SKILLS.md` §8。
+- [x] **引擎侧外发术语收敛**：「批准发送 / 批准前 / 批准后」统一为「签批发送 / 签批前 / 签批后」；通用工具审批仍用「批准」。
+- [x] **发布外部输入 runbook**：新增 `docs/lawmind/RELEASE-EXTERNAL-INPUTS.md`；真稿、公证、真实基准、14.11、试点测量均写明提供物与通过标准。
+- [ ] **P0-1 / P2-A / 14.11 / 各期对照实测**：仍等律师脱敏真稿、证书与真实数据；不伪造，保持诚实 SKIP/红。
+- [x] **工作区备份 / 迁移工具**：`pnpm lawmind:workspace:backup` / `restore`；默认排除密钥与派生/运行时目录，清单 `BACKUP-MANIFEST.json`，恢复默认拒绝非空目标与恶意路径。见 [`docs/lawmind/LAWMIND-WORKSPACE-BACKUP.md`](docs/lawmind/LAWMIND-WORKSPACE-BACKUP.md)。
+- [x] **Doctor 存储巡检**：`pnpm lawmind:doctor` 增案件/审计/会话/草稿体积行；超阈值给轮转建议，先备份再清理。
+- [x] **私有化部署磁盘配额告警**：`lawmind.policy.json` 的 `storage.quotaGb` / `storage.warnRatio` 进 Doctor 工作区合计行；到比例或超额只告警、不拦写入；`--json` 的 `ops.storage.quota.usedRatio` 可接计划任务。
+- [x] **全量验证（分项）**：A1–A7 收口时测试 1176 文件 / 8614 测试通过（4 skipped）；三份 typecheck、覆盖率、CSS 同步、文案 lint、平台契约、HTTP smoke、release-readiness 均通过；e2e 55 通过 / 2 skipped。A8 存储巡检追加 4 条定向测试，A7/A8 定向合计 24 条通过。
 
 ### 第十九期 · Doctor 设置页拆除（2026-09-26 补记）
 

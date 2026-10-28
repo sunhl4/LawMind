@@ -1,6 +1,6 @@
 # 第 30 章 策略文件字段参考
 
-`lawmind.policy.json` 放在**工作区根**。它只给所务信息管理员下硬边界：出网、外发收件域、律所规则文件、交付是否一律全审、案件副本共享目录。不是调模型的地方，也不是存密钥的地方。
+`lawmind.policy.json` 放在**工作区根**。它只给所务信息管理员下硬边界：出网、外发收件域、律所规则文件、交付是否一律全审、案件副本共享目录、私有化磁盘配额。不是调模型的地方，也不是存密钥的地方。
 
 缺 `schemaVersion`（须 ≥ 1）或 JSON 坏了，整份不生效。写错的键**不会悄悄生效**：`GET /api/health` 的 `policy` 段列出 `applied`（启动时应用过的键）、`effective`（请求时重读盘的生效行）、`migrated`（旧键迁移提示）、`rejected`（未采纳的键，各附原因）。过滤逻辑在 `src/lawmind/policy/commercial-policy.ts`：未知键、密钥、引擎调参都拒绝并说明原因，不把整份扔掉。`pnpm lawmind:doctor` **不**打这份清单，它只巡检策略文件在不在。
 
@@ -20,7 +20,8 @@
   "delivery": "standard",
   "replica": { "sharedDir": "/Volumes/firm-share/lawmind-relay" },
   "wordAddinAutoRun": false,
-  "allowWebSearch": false
+  "allowWebSearch": false,
+  "storage": { "quotaGb": 20, "warnRatio": 0.9 }
 }
 ```
 
@@ -43,6 +44,7 @@
 | `enableCollaboration`       | 只能写 `false`，关掉协作                                                                                                                                                                                                                                               |
 | `conversationLength`        | 对话长度档：`"200k"` / `"500k"` / `"1m"`。这是本轮硬天花板 = min(模型窗口, 所选档)。历史整理仍按 200K 质量带，不随档位推迟。旧值 `daily` / `dossier` 读出时自动迁移成 200k / 1m（`src/lawmind/agent/context-preset.ts`）。律师日常在对话输入栏工具条里切，不必手写文件 |
 | `context`                   | 上下文 / 压缩 / 摘要 / 钉子的高级调参段（对象整体透传给引擎，逐项类型校验与夹取——非法值回落默认、越界夹到边界，绝不因写错一个数就炸。字段与默认值见 `src/lawmind/policy/workspace-policy.ts` 的 `LawMindContextPolicy`）                                               |
+| `storage`                   | 私有化磁盘配额告警：`{ "quotaGb": 20, "warnRatio": 0.9 }`。`pnpm lawmind:doctor` 统计工作区总量，到比例或超额只告警、不拦写入；不写就不统计总量                                                                                                                        |
 
 独立律师不必建这个文件。联网或离线在设置里切。
 

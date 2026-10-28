@@ -101,6 +101,14 @@
 | `LAWMIND_MAIL_SEED`                | `1` 时注入演示邮件（**仅开发**；非 `1` 一律 403）                                                                     |
 | `LAWMIND_GRAPH_CLIENT_ID`          | Graph 客户端 id（空 = 占位实现）                                                                                      |
 
+### 录音转写（收件 · P2）
+
+| 变量                   | 说明                                                                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `LAWMIND_ASR_ENDPOINT` | 录音转写端点（OpenAI 兼容 `POST /v1/audio/transcriptions` 风格的 multipart 接口；**未设置则录音不出站**，待归案里只存音频） |
+| `LAWMIND_ASR_API_KEY`  | 转写端点 Bearer 密钥（本地服务通常不填）                                                                                    |
+| `LAWMIND_ASR_MODEL`    | 转写模型名（OpenAI 兼容端点必填，如 `whisper-1`；FunASR 等本地服务可省）                                                    |
+
 ### 版本、策略与出口
 
 | 变量                                                   | 说明                                                                                                                                   | 默认                                            |
@@ -160,6 +168,8 @@
 | `LAWMIND_PACKAGED`                             | 打包态标记，由桌面壳给本机服务端子进程设 `1`                                                               | 无                                                                            |
 | `LAWMIND_ENABLE_COLLABORATION`                 | 多助手协作。**默认关**，必须显式设 `true` 才开；policy `enableCollaboration:false` 会镜像写入 `false`      | 关                                                                            |
 | `LAWMIND_REPO_ROOT`                            | 仓库根（开发/CLI；vendor 布局解析用）                                                                      | 探测                                                                          |
+| `LAWMIND_BUNDLED_DEFAULTS_FILE`                | 随包下发的 provider 凭据文件覆盖（正常位置是 `<Resources>/defaults/provider-defaults.json`）               | 打包资源目录 → 仓库 `resources/defaults/`                                     |
+| `LAWMIND_BUNDLED_DEFAULTS_DISABLED`            | `1` 忽略随包凭据，只用用户自己的 key（排障用）                                                             | 关                                                                            |
 
 ### 打包与签名
 
@@ -291,6 +301,12 @@
 | `LAWMIND_INTERACTIVE_REVIEW`                                                             | 冒烟交互审核模式                                                                             | 关                          |
 | `LAWMIND_UI_DPR`                                                                         | 界面截图倍率（生成 mockup 用）                                                               | `3`                         |
 | `LAWMIND_PLATFORM_CONTRACTS_V1`                                                          | 平台契约 v1 响应字段。设 `0` 关掉；不是律师设置                                              | `1`                         |
+
+### 引擎实验开关
+
+| 变量                    | 说明                                                                                                        | 默认 |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- | ---- |
+| `LAWMIND_FACTOR_REPAIR` | `1` 开启同回合金额译码修复：只重做账本已核定、但稿中写成别的数的金额槽，最多 2 次。默认关闭，等真实任务消融 | 关   |
 
 ### 动态构造的环境变量（keychain → 子进程）
 

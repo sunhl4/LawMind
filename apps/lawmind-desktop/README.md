@@ -104,6 +104,28 @@ LAWMIND_DESKTOP_NODE_VERSION=22.14.0 pnpm -w lawmind:vendor:desktop-node
 LAWMIND_OFFICECLI_VERSION=1.0.149 pnpm -w lawmind:vendor:officecli
 ```
 
+## 内置模型凭据（开箱即用）
+
+发给律师的安装包可以随包带一份 provider key，让「双击安装 → 直接对话」成立。
+
+```bash
+# 在本目录（apps/lawmind-desktop）生成，产物不入库
+pnpm run defaults:write -- --deepseek sk-xxxxxxxxxxxxxxxx
+
+# 只看这次打包会带上哪些（不打值）
+pnpm run defaults:check
+```
+
+- 产物是 `resources/defaults/provider-defaults.json`（`chmod 600`，已在 `.gitignore` 排除）。**不要提交**：安装包里的同一份文件任何下载者都能解出来，写进 git 等于直接公开。
+- electron-builder 通过 `extraResources` 把它复制到 **`Resources/defaults/provider-defaults.json`**。
+- 启动时 `electron/bundled-provider-defaults.mjs` 只 **填缺口**：系统环境变量、用户 `.env.lawmind`、钥匙串里设置页写入的 key 都优先。律师换成自己的 key 之后，内置那份自动失效。
+- 白名单只收 `LAWMIND_PROVIDER_DEEPSEEK_API_KEY` 这类 provider 级名字；`LAWMIND_AGENT_API_KEY` / `LAWMIND_QWEN_API_KEY` 故意不收——它们会改变「默认模型」的解析结果，内置凭据只负责「这个 provider 可用」。
+- 排障开关：`LAWMIND_BUNDLED_DEFAULTS_DISABLED=1` 忽略内置凭据；`LAWMIND_BUNDLED_DEFAULTS_FILE=/path/to.json` 指定别的文件。
+- `LAWMIND_E2E=1` 下自动忽略内置凭据：Playwright 的 mock provider 靠 `LAWMIND_AGENT_*` 指定，内置 key 在场会让默认模型解析绕过 mock 去打真实 API。
+- `dist:electron*` 每个脚本开头都会跑一次 `defaults:check`，构建日志里能直接看到这次是否带 key。
+
+轮换：用新的 key 重跑 `defaults:write`，重新打包；旧包无法远程失效，所以定期换 key 是唯一手段。
+
 ## First-run wizard
 
 Writes `userData/LawMind/.env.lawmind` and `desktop-config.json`, then restarts the local API subprocess.

@@ -14,7 +14,7 @@
 | `doctor.searchIndex`       | 索引是否陈旧（`staleReason`）                        |
 | `doctor.authorityCorpus`   | 法源是 sample-ready 还是 configured                  |
 | `doctor.rateLimit`         | 有没有被限流                                         |
-| `doctor.matterConsistency` | 案件投影有没有漂移                                   |
+| `doctor.matterConsistency` | 案件投影有没有漂移、当事人联系方式有没有冲突         |
 | `policy.applied`           | 策略文件里哪几项真的生效了                           |
 | `policy.rejected`          | 策略文件里哪些键被拒收（附原因）                     |
 | `lawmindRouterMode`        | 指令路由走模型还是关键词（`model` / `keyword`）      |
