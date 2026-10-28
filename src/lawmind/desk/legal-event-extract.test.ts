@@ -17,6 +17,11 @@ describe("extractLegalEvents", () => {
     expect(events[0]?.dueAt).toBeTruthy();
   });
 
+  it("keeps the minutes when the summons writes 09:30", () => {
+    const events = extractLegalEvents("传票：请于2026年11月20日 09:30 到第三法庭参加诉讼。");
+    expect(events.find((e) => e.eventKind === "hearing")?.dueAt).toBe("2026-11-20T01:30:00.000Z");
+  });
+
   it("returns empty for unrelated text", () => {
     expect(extractLegalEvents("今天天气不错")).toEqual([]);
   });

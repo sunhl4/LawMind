@@ -45,6 +45,9 @@ const BUILTIN_IDS = [
   "matter-status-scope-budget",
   "client-talk-intake",
   "legal-event-extract",
+  "labor-termination-triage",
+  "role-audience-tiers",
+  "matter-intake-scope",
 ] as const;
 
 function builtinDir(): string {

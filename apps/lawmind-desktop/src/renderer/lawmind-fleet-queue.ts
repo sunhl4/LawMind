@@ -20,6 +20,9 @@ export function resolveFleetSelectedId(
 }
 
 export function fleetRunNeedsLawyer(run: AgentRunSummary): boolean {
+  if (run.kind === "queue_item" && (run.intakeItemId || run.id.startsWith("intake:"))) {
+    return true;
+  }
   return isLawyerOutboundDecision({
     kind: run.kind,
     status: run.status,
@@ -93,10 +96,13 @@ export function fleetApprovalDockLabels(
   return { primary: "签批", secondary: "驳回" };
 }
 
-export function fleetStatusLabel(status: AgentRunSummary["status"]): string {
+export function fleetStatusLabel(
+  status: AgentRunSummary["status"],
+  run?: Pick<AgentRunSummary, "intakeItemId" | "id">,
+): string {
   switch (status) {
     case "awaiting_review":
-      return "待签批";
+      return run?.intakeItemId || run?.id.startsWith("intake:") ? "待归案" : "待签批";
     case "awaiting_clarification":
       return "待补充";
     case "awaiting_approval":

@@ -67,7 +67,9 @@ export {
 export {
   testImapConnection,
   fetchImapMessages,
+  fetchImapMessagesSince,
   shouldPersistMailAttachment,
+  threadFieldsFromParsedMail,
   writeFetchedAttachments,
 } from "./imap-client.js";
 export { sendSmtpMail } from "./smtp-client.js";

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildCorrectionRecord, summarizeCorrectionRecords } from "./correction-ledger.js";
+import {
+  buildCorrectionRecord,
+  correctionReadingSnapshot,
+  summarizeCorrectionRecords,
+} from "./correction-ledger.js";
+import { emptyFactorState, recordReading } from "./factor-state.js";
 
 describe("correction ledger (docs/量子启发.md §二(5), 可执行清单 #4)", () => {
   it("records an「不对」with anchors, cone anchors, and revert results", () => {
@@ -84,5 +89,53 @@ describe("correction ledger (docs/量子启发.md §二(5), 可执行清单 #4)"
     expect(digest.revertOk).toBe(2);
     expect(digest.revertFailed).toBe(1);
     expect(digest.unclassified).toBe(3);
+  });
+
+  it("counts a file revert even when no state proposal was open", () => {
+    const record = buildCorrectionRecord({
+      lawyerNote: "把改过的词改回去",
+      namedAnchors: ["party:承包人"],
+      fileEditsReverted: 2,
+    });
+    expect(record.outcome).toBe("reverted");
+    expect(record.fileEditsReverted).toBe(2);
+    const digest = summarizeCorrectionRecords([record]);
+    expect(digest.fileEditsReverted).toBe(2);
+    expect(digest.withReadings).toBe(0);
+  });
+
+  it("snapshots the reading before the correction, including evidence distance", () => {
+    const state = emptyFactorState();
+    recordReading(state, "amount:wage", "amount", "15000", true);
+    const factor = state.factors[0];
+    expect(factor).toBeDefined();
+    if (factor) {
+      factor.outcomes = [
+        {
+          id: "15000",
+          mass: 1,
+          grounded: true,
+          channels: [
+            { kind: "span", id: "material#p1" },
+            { kind: "span", id: "calculator#1" },
+          ],
+        },
+      ];
+    }
+    const snapshot = correctionReadingSnapshot(state, [
+      "amount:wage",
+      "amount:missing",
+      "amount:wage",
+    ]);
+    expect(snapshot).toHaveLength(1);
+    expect(snapshot[0]).toMatchObject({
+      anchor: "amount:wage",
+      reading: "15000",
+      purity: 1,
+      grounded: true,
+      distance: 2,
+      provenance: true,
+    });
+    expect(correctionReadingSnapshot(undefined, ["amount:wage"])).toEqual([]);
   });
 });

@@ -1,5 +1,10 @@
+import type { PlaybookTriage } from "../deliverables/playbook-triage.js";
 import type { LegalLintReport } from "../lint/types.js";
-import type { DeliveryRiskLevel, JudgmentCoverageSummary } from "./types.js";
+import type {
+  DecisionPlaybookSummary,
+  DeliveryRiskLevel,
+  JudgmentCoverageSummary,
+} from "./types.js";
 import { isDecisionHeader, type DecisionHeader, type SelfReviseSummary } from "./types.js";
 
 export type BuildDecisionHeaderInput = {
@@ -15,6 +20,8 @@ export type BuildDecisionHeaderInput = {
   judgmentCoverage?: JudgmentCoverageSummary;
   /** E7：未能核验信号；不传则不写第五段。 */
   unverified?: UnverifiedSignals | null;
+  /** 剧本三色分流结果；不传则不写 playbook 依据。 */
+  playbook?: PlaybookTriage | null;
 };
 
 /**
@@ -61,13 +68,23 @@ function whyLine(selfRevise?: SelfReviseSummary | null): string {
   return "按任务要求整理草稿，便于您审阅后交付。";
 }
 
-function riskLine(lint: BuildDecisionHeaderInput["lint"], riskLevel?: DeliveryRiskLevel): string {
+function riskLine(
+  lint: BuildDecisionHeaderInput["lint"],
+  riskLevel?: DeliveryRiskLevel,
+  playbook?: PlaybookTriage | null,
+): string {
   const honest = "通过核对 ≠ 法律正确。";
   if (lint.blockerCount > 0) {
     return `机械核对仍有 ${lint.blockerCount} 项须处理。${honest}`;
   }
+  if (playbook?.basis === "playbook" && playbook.verdict === "RED") {
+    return `剧本判定 RED，须全面审阅。${honest}`;
+  }
   if (riskLevel === "high") {
     return `高风险稿，须通篇复核。${honest}`;
+  }
+  if (playbook?.basis === "playbook" && playbook.verdict === "YELLOW") {
+    return `剧本有 ${playbook.counts.flag} 项待你确认，签批前逐项看过。${honest}`;
   }
   if (riskLevel === "medium") {
     return `中风险，签批前请通读。${honest}`;
@@ -76,6 +93,31 @@ function riskLine(lint: BuildDecisionHeaderInput["lint"], riskLevel?: DeliveryRi
     return `机械核对有 ${lint.warningCount} 项提示。${honest}`;
   }
   return `机械核对未见已知缺陷。${honest}`;
+}
+
+/**
+ * 把 triage 压成决策头里的依据块：保留结论、计数、非 PASS 项的位置与理由。
+ * 原文引用仍留在 triage 里，不整段塞进决策头。
+ */
+export function toDecisionPlaybookSummary(triage: PlaybookTriage): DecisionPlaybookSummary {
+  return {
+    verdict: triage.verdict,
+    basis: triage.basis,
+    ...(triage.playbookName ? { playbookName: triage.playbookName } : {}),
+    counts: { ...triage.counts },
+    items: triage.items
+      .filter((item) => item.result !== "PASS")
+      .map((item) => ({
+        title: item.title,
+        result: item.result,
+        ...(item.evidence?.locator ? { locator: item.evidence.locator } : {}),
+        reasonZh: item.reasonZh,
+      })),
+    ...(triage.override
+      ? { override: { by: triage.override.by, reason: triage.override.reason } }
+      : {}),
+    ...(triage.overrideRejected ? { overrideRejected: true } : {}),
+  };
 }
 
 function cleanParts(list: string[] | undefined): string[] {
@@ -181,21 +223,24 @@ export function buildDecisionHeader(input: BuildDecisionHeaderInput): DecisionHe
     input.selfRevise?.residualCount ??
     input.selfRevise?.residualSummaries?.filter((s) => s.trim()).length ??
     0;
+  const playbook = input.playbook ?? null;
   const needsDecision =
     input.lint.blockerCount > 0 ||
     residualCount > 0 ||
     input.riskLevel === "high" ||
-    input.riskLevel === "medium";
+    input.riskLevel === "medium" ||
+    (playbook != null && playbook.verdict !== "GREEN");
 
   const unverified = formatUnverifiedSection(input.unverified ?? undefined);
 
   return {
     changed: changedLine(input.title, input.selfRevise),
     why: whyLine(input.selfRevise),
-    risk: riskLine(input.lint, input.riskLevel),
+    risk: riskLine(input.lint, input.riskLevel, playbook),
     ready: needsDecision ? "needs_decision" : "usable",
     ...(input.judgmentCoverage ? { judgmentCoverage: input.judgmentCoverage } : {}),
     ...(unverified ? { unverified } : {}),
+    ...(playbook ? { playbook: toDecisionPlaybookSummary(playbook) } : {}),
   };
 }
 
@@ -240,6 +285,8 @@ export function resolveDecisionHeader(input: {
   riskLevel?: DeliveryRiskLevel;
   judgmentCoverage?: JudgmentCoverageSummary;
   unverified?: UnverifiedSignals | null;
+  /** 本次现算的剧本结论；给了就覆盖持久化里的旧依据，不给就保留旧依据。 */
+  playbook?: PlaybookTriage | null;
 }): DecisionHeader {
   const built = buildDecisionHeader(input);
   if (!isDecisionHeader(input.persisted)) {
@@ -254,6 +301,9 @@ export function resolveDecisionHeader(input: {
   }
   if (input.judgmentCoverage) {
     next.judgmentCoverage = input.judgmentCoverage;
+  }
+  if (input.playbook) {
+    next.playbook = built.playbook;
   }
   return next;
 }

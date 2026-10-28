@@ -34,6 +34,18 @@ import { resolvePreApprovalInjection } from "./approval-cache-key.js";
 import { conversationSessionRefsFromToolData } from "./conversation-search.js";
 import { attachDraftWorkerJoinIndex, draftWorkerDispatchErrors } from "./draft-worker-batch.js";
 import { consumeRedlineRepair, ingestToolResult } from "./factor-state.js";
+import {
+  relationEnvelopeFromState,
+  reviewEnvelopeFromToolData,
+  witnessEnvelopeFromToolData,
+} from "./observation-builders.js";
+import {
+  recordRelationObservation,
+  recordReviewObservation,
+  recordSyndromeObservation,
+  recordWitnessObservation,
+} from "./observation-bus.js";
+import { observeSyndrome } from "./syndrome-observer.js";
 import { presentLawyerToolResult } from "./tool-lawyer-card.js";
 import {
   stringifyToolResultForHistory,
@@ -461,6 +473,37 @@ export async function executeToolBatches(
       const result = await getRunToolPipeline()(callCtx);
       if (turn.factorState) {
         ingestToolResult(turn.factorState, toolName, result.data);
+        const syndrome = observeSyndrome(turn.factorState);
+        if (syndrome.bits.length > 0) {
+          recordSyndromeObservation(
+            ctx.workspaceDir,
+            {
+              sessionId: ctx.sessionId,
+              ...(ctx.matterId ? { matterId: ctx.matterId } : {}),
+            },
+            syndrome,
+            turn.turnId,
+          );
+        }
+        if (result.data && typeof result.data === "object" && !Array.isArray(result.data)) {
+          const data = result.data as Record<string, unknown>;
+          const scope = {
+            sessionId: ctx.sessionId,
+            ...(ctx.matterId ? { matterId: ctx.matterId } : {}),
+          };
+          const witness = witnessEnvelopeFromToolData(turn.factorState, data);
+          if (witness) {
+            recordWitnessObservation(ctx.workspaceDir, scope, witness.payload, turn.turnId);
+          }
+          const review = reviewEnvelopeFromToolData(data);
+          if (review) {
+            recordReviewObservation(ctx.workspaceDir, scope, review.payload, turn.turnId);
+          }
+          const relation = relationEnvelopeFromState(turn.factorState);
+          if (relation) {
+            recordRelationObservation(ctx.workspaceDir, scope, relation.payload, turn.turnId);
+          }
+        }
       }
       if (toolResultWroteTrackedArtifact(toolName, result)) {
         turn.trackedArtifactWritten = true;

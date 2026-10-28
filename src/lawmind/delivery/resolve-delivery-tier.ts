@@ -6,9 +6,14 @@ import type { DeliveryTier, ResolveDeliveryTierInput } from "./types.js";
  * auto_deliver only for low + unlocked + not outbound.
  */
 export function resolveDeliveryTier(input: ResolveDeliveryTierInput): DeliveryTier {
-  const { riskLevel, outbound, autonomyUnlocked, firmForceFullReview } = input;
+  const { riskLevel, outbound, autonomyUnlocked, firmForceFullReview, playbook } = input;
 
   if (firmForceFullReview === true) {
+    return "full_review";
+  }
+  // 只有加载了本所剧本的结论才改档位；`basis=default` 只影响依据展示。
+  const playbookVerdict = playbook?.basis === "playbook" ? playbook.verdict : undefined;
+  if (playbookVerdict === "RED") {
     return "full_review";
   }
   if (riskLevel === "high") {
@@ -16,6 +21,11 @@ export function resolveDeliveryTier(input: ResolveDeliveryTierInput): DeliveryTi
   }
 
   if (outbound) {
+    return "one_tap_signoff";
+  }
+  // 剧本跑过（GREEN 或 YELLOW）就封顶到一键签发：RED 已在上方拦下，
+  // GREEN 也不自动交付——「全部条件有据通过」仍要律师点一次。
+  if (playbookVerdict) {
     return "one_tap_signoff";
   }
   if (riskLevel === "medium") {

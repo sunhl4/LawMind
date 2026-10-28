@@ -166,6 +166,10 @@ export type HealthPayload = {
     matterConsistency?: {
       ok?: boolean;
       issueCount?: number;
+      /** `matter-repair-projection` 能修好的条数；旧服务端没有该字段时退回 `issueCount`。 */
+      repairableCount?: number;
+      /** 当事人联系方式冲突条数，只能由律师改数据。 */
+      partyConflictCount?: number;
       issues?: Array<{ matterId: string; code: string; message: string }>;
     };
     taskDraftConsistency?: {

@@ -504,6 +504,7 @@ export type AuditEventKind =
   | "matter.spec.invalid"
   | "matter.write_failed"
   | "matter.projection_failed" // JSON→CASE 投影失败（异步；Doctor 一致性可检出漂移）
+  | "matter.admission" // P1：收案记录的状态推进（扫描/告知/接受/婉拒），detail 带 action 与 status
   | "matter.deleted" // 删卷留痕：卷宗/列表/副本云/级联范围写入 detail
   | "contract_revision_accumulation_failed"
   | "memory.profile_updated" // 2.0：律师/助手偏好写回

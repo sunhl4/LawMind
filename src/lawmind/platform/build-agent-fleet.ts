@@ -16,6 +16,7 @@ import { listApprovalRequests, listWorkQueueItems } from "../application/service
 import { listDraftReviewHeads, readDraft } from "../drafts/index.js";
 import { readRedlineProposal } from "../drafts/redline-proposal.js";
 import { listOpenWordReviews, syncWordReviewTicketsFromDrafts } from "../drafts/word-review.js";
+import { listIntakeItems } from "../intake/store.js";
 import { listLawyerWorks } from "../work/store.js";
 import {
   isFleetSettledVisible,
@@ -26,6 +27,8 @@ import {
 } from "./agent-fleet.js";
 import { listOpenAutomationInbox } from "./lawyer-automations.js";
 import { isOutboundToolName } from "./lawyer-outbound-decision.js";
+import { listEscalatedMatterRunWaits } from "./matter-run-store.js";
+import { MATTER_RUN_WAIT_REASON_LABELS_ZH } from "./matter-run-wait.js";
 import { listPendingToolApprovals } from "./pending-tool-approvals.js";
 import { sanitizeLawyerFacingText, toolDisplayNameZh } from "./requires-action.js";
 import { extractApprovalDocumentPreview } from "./tool-approval-diff.js";
@@ -244,6 +247,24 @@ function chatPriority(status: AgentRunStatus): number {
   return 5;
 }
 
+/** 待归案行的一句话：先说来件到了哪一步，再说判案结论。 */
+function intakeQueueSubtitle(item: {
+  lead?: { stage: string };
+  resolution?: { decision: string };
+}): string {
+  switch (item.lead?.stage) {
+    case "needs_info":
+      return "新案线索 · 待补资料";
+    case "conflict_pending":
+      return "新案线索 · 待冲突检查";
+    case "new":
+      return "新案线索 · 待判断";
+    default:
+      break;
+  }
+  return item.resolution?.decision === "propose" ? "待确认归入哪个案件" : "待处理收件";
+}
+
 export async function buildAgentFleetSummary(
   opts: BuildAgentFleetOpts,
 ): Promise<AgentFleetSummary> {
@@ -394,13 +415,35 @@ export async function buildAgentFleetSummary(
     });
   }
 
-  const [queueItems, approvals] = await Promise.all([
+  const [queueItems, approvals, pendingIntake] = await Promise.all([
     listWorkQueueItems(workspaceDir, { matterId, status: "open" }),
     listApprovalRequests(workspaceDir, { matterId, status: "pending" }),
+    Promise.resolve(listIntakeItems(workspaceDir, { statuses: ["pending"], limit })),
   ]);
 
   /** 待拍板只拦外发；问客户算出局。内部审稿不进待拍板。 */
   const LAWYER_FACING_QUEUE_KINDS = new Set(["need_client_input"]);
+
+  for (const item of pendingIntake) {
+    const candidateMatterId = item.resolution?.candidates[0]?.matterId;
+    if (matterId && candidateMatterId !== matterId) {
+      continue;
+    }
+    const title = item.subject?.trim() || item.from?.display?.trim() || "待归案来件";
+    runs.push({
+      id: `intake:${item.id}`,
+      kind: "queue_item",
+      status: "awaiting_review",
+      title,
+      subtitle: intakeQueueSubtitle(item),
+      matterId: candidateMatterId,
+      intakeItemId: item.id,
+      updatedAt: item.recordedAt,
+      createdAt: item.recordedAt,
+      priority: item.lead ? 4 : item.resolution?.decision === "propose" ? 4 : 6,
+      note: item.from?.address || item.channel,
+    });
+  }
 
   for (const item of queueItems) {
     // 律师拍板类队列项映射为 awaiting_approval（进入待拍板队列）；
@@ -417,6 +460,47 @@ export async function buildAgentFleetSummary(
       updatedAt: item.updatedAt,
       createdAt: item.createdAt,
       priority: 4,
+    });
+  }
+
+  /**
+   * 等待外部事件超时的案件步骤。放在这里而不是只留在 run 文件里：
+   * 律师看到的位置是「待我拍板」，不是案件目录。
+   */
+  for (const { run, step } of listEscalatedMatterRunWaits(
+    workspaceDir,
+    matterId ? { matterId } : {},
+  )) {
+    const reason = step.wait?.reason ?? "external_event";
+    const escalatedAt = step.wait?.escalatedAt ?? run.updatedAt;
+    runs.push({
+      id: `matter-run-wait:${run.matterId}:${run.runId}:${step.stepId}`,
+      kind: "matter_run_wait",
+      status: "awaiting_approval",
+      title: step.title?.trim() || run.title?.trim() || "案件步骤等待超时",
+      subtitle: "案件运行",
+      matterId: run.matterId,
+      updatedAt: escalatedAt,
+      createdAt: run.createdAt,
+      priority: 2,
+      note: step.wait?.dueAt
+        ? `${MATTER_RUN_WAIT_REASON_LABELS_ZH[reason]} · 原定 ${step.wait.dueAt} 到期`
+        : MATTER_RUN_WAIT_REASON_LABELS_ZH[reason],
+      matterRunWait: {
+        runId: run.runId,
+        stepId: step.stepId,
+        reason,
+        ...(step.title?.trim() ? { stepTitle: step.title.trim() } : {}),
+        ...(step.wait?.dueAt ? { dueAt: step.wait.dueAt } : {}),
+        escalatedAt,
+        steps: run.steps.map((item) => ({
+          stepId: item.stepId,
+          ...(item.title?.trim() ? { title: item.title.trim() } : {}),
+          status: item.status,
+          attempts: item.attempts,
+          ...(item.error ? { error: item.error } : {}),
+        })),
+      },
     });
   }
 
@@ -559,6 +643,7 @@ export async function buildAgentFleetSummary(
     "matter_approval",
     "pending_review",
     "word_check",
+    "matter_run_wait",
   ] as const) {
     byKind[kind] = sliced.filter((r) => r.kind === kind).length;
   }

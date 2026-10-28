@@ -21,6 +21,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileVersionOf } from "../runtime/file-version.js";
 import { fenceAgentFilePath } from "../runtime/workspace-io-fence.js";
+import {
+  locatorNeedsRichParser,
+  locatorPlainTextLineRange,
+  parseEvidenceLocator,
+  type EvidenceLocator,
+} from "./evidence-locator.js";
+import { readRichLocatorText } from "./evidence-rich-locator.js";
 
 export { fileVersionOf };
 
@@ -104,8 +111,152 @@ export function quoteAppearsIn(normalizedHaystack: string, quote: string): boole
   return normalizedHaystack.includes(needle);
 }
 
+type SourceResolution =
+  | { ok: false; support: EvidenceSupport }
+  | {
+      ok: true;
+      rel: string;
+      abs: string;
+      actualVersion: string;
+      locatorRaw: string;
+    };
+
+function resolveSource(opts: {
+  rootDir: string;
+  relPath: string;
+  quote?: string;
+  expectedVersion?: string;
+}): SourceResolution {
+  const rel = (opts.relPath ?? "").split("#")[0]?.trim() ?? "";
+  if (!rel) {
+    return {
+      ok: false,
+      support: { status: "unverifiable", reasonZh: "没有记录来源文件，无法核对。" },
+    };
+  }
+  const root = path.resolve(opts.rootDir);
+  const fenced = fenceAgentFilePath({ rootDir: root, abs: path.resolve(root, rel) });
+  if (!fenced.ok) {
+    return { ok: false, support: { status: "unverifiable", reasonZh: fenced.error } };
+  }
+  const abs = fenced.abs;
+  const actualVersion = fileVersionOf(abs);
+  if (!actualVersion) {
+    return {
+      ok: false,
+      support: { status: "missing", reasonZh: `来源文件已不存在：${rel}` },
+    };
+  }
+  if (opts.expectedVersion && opts.expectedVersion !== actualVersion) {
+    return {
+      ok: false,
+      support: {
+        status: "stale",
+        reasonZh: "来源文件在引用之后被改过，原句可能已移动或失效，请重新核对。",
+        actualVersion,
+      },
+    };
+  }
+  if (!opts.quote?.trim()) {
+    return {
+      ok: false,
+      support: {
+        status: "unverifiable",
+        reasonZh: "这条依据没有记录原文，只能核对文件存在，不能核对内容。",
+        actualVersion,
+      },
+    };
+  }
+  return {
+    ok: true,
+    rel,
+    abs,
+    actualVersion,
+    locatorRaw: opts.relPath.split("#").slice(1).join("#").trim(),
+  };
+}
+
+/** 读完之后再核一次版本 + 原句匹配；同步与异步读取共用同一收尾。 */
+function finishQuoteCheck(
+  abs: string,
+  actualVersion: string,
+  raw: string,
+  quote: string,
+): EvidenceSupport {
+  const recheckedVersion = fileVersionOf(abs);
+  if (recheckedVersion !== actualVersion) {
+    return {
+      status: "stale",
+      reasonZh: "核对过程中来源文件发生变更，请重新读取。",
+      actualVersion: recheckedVersion,
+    };
+  }
+  if (!quoteAppearsIn(normalizeForQuoteMatch(raw), quote)) {
+    return {
+      status: "quote_mismatch",
+      reasonZh: "引用的原句在来源文件中找不到，可能已被改写。",
+      actualVersion,
+    };
+  }
+  return { status: "supported", reasonZh: "原句可在来源文件中找到。", actualVersion };
+}
+
+function isPlainTextRel(rel: string): boolean {
+  return /\.(md|txt|markdown|csv|json)$/i.test(rel);
+}
+
+function slicePlainTextByLocator(
+  raw: string,
+  locatorRaw: string,
+  actualVersion: string,
+): { ok: true; text: string } | { ok: false; support: EvidenceSupport } {
+  if (!locatorRaw) {
+    return { ok: true, text: raw };
+  }
+  const locator = parseEvidenceLocator(locatorRaw);
+  if (!locator) {
+    return {
+      ok: false,
+      support: { status: "unverifiable", reasonZh: "尚不支持该来源定位方式。", actualVersion },
+    };
+  }
+  if (locatorNeedsRichParser(locator)) {
+    return {
+      ok: false,
+      support: {
+        status: "unverifiable",
+        reasonZh: "页/单元格定位需要专用解析器，本次未核对。",
+        actualVersion,
+      },
+    };
+  }
+  const range = locatorPlainTextLineRange(locator);
+  if (!range) {
+    return {
+      ok: false,
+      support: { status: "unverifiable", reasonZh: "尚不支持该来源定位方式。", actualVersion },
+    };
+  }
+  const all = raw.split(/\r?\n/);
+  if (range.start < 1 || range.end < range.start || range.end > all.length) {
+    return {
+      ok: false,
+      support: {
+        status: "quote_mismatch",
+        reasonZh: "来源定位超出当前文件范围。",
+        actualVersion,
+      },
+    };
+  }
+  return { ok: true, text: all.slice(range.start - 1, range.end).join("\n") };
+}
+
 /**
- * 判定一条证据还能不能当依据。
+ * 判定一条证据还能不能当依据（同步版）。
+ *
+ * 纯文本行定位可核对；PDF 页/Excel 单元格需要异步读取器，
+ * 这里保持 `INCOMPLETE`，不得当作通过。需要核对富定位请用
+ * `checkEvidenceSupportAsync`。
  *
  * @param rootDir 工作区根；`relPath` 相对它解析（越界拒绝）
  * @param relPath 材料相对路径（可带 `#line=3` 之类的定位后缀，会被剥掉）
@@ -117,35 +268,12 @@ export function checkEvidenceSupport(opts: {
   /** 抽取/引用时记录的版本；缺省表示历史数据，版本未知。 */
   expectedVersion?: string;
 }): EvidenceSupport {
-  const rel = (opts.relPath ?? "").split("#")[0]?.trim() ?? "";
-  if (!rel) {
-    return { status: "unverifiable", reasonZh: "没有记录来源文件，无法核对。" };
+  const source = resolveSource(opts);
+  if (!source.ok) {
+    return source.support;
   }
-  const root = path.resolve(opts.rootDir);
-  const fenced = fenceAgentFilePath({ rootDir: root, abs: path.resolve(root, rel) });
-  if (!fenced.ok) {
-    return { status: "unverifiable", reasonZh: fenced.error };
-  }
-  const abs = fenced.abs;
-  const actualVersion = fileVersionOf(abs);
-  if (!actualVersion) {
-    return { status: "missing", reasonZh: `来源文件已不存在：${rel}` };
-  }
-  if (opts.expectedVersion && opts.expectedVersion !== actualVersion) {
-    return {
-      status: "stale",
-      reasonZh: "来源文件在引用之后被改过，原句可能已移动或失效，请重新核对。",
-      actualVersion,
-    };
-  }
-  if (!opts.quote?.trim()) {
-    return {
-      status: "unverifiable",
-      reasonZh: "这条依据没有记录原文，只能核对文件存在，不能核对内容。",
-      actualVersion,
-    };
-  }
-  if (!/\.(md|txt|markdown|csv|json)$/i.test(rel)) {
+  const { rel, abs, actualVersion, locatorRaw } = source;
+  if (!isPlainTextRel(rel)) {
     // docx/pdf 需要各自的抽取器；本函数不假装能读。
     return {
       status: "unverifiable",
@@ -155,8 +283,7 @@ export function checkEvidenceSupport(opts: {
   }
   let raw = "";
   try {
-    const bytes = fs.readFileSync(abs);
-    const decoded = decodePlainText(bytes);
+    const decoded = decodePlainText(fs.readFileSync(abs));
     if (!decoded.ok) {
       // 编码认不出就不判「原句不存在」：那是 false block，比「未核对」更糟。
       return {
@@ -173,39 +300,69 @@ export function checkEvidenceSupport(opts: {
       actualVersion,
     };
   }
-  // Locator is part of the evidence, not decoration. Only line locators are
-  // currently verifiable for plain text; unsupported locators remain unknown.
-  const locator = opts.relPath.split("#").slice(1).join("#").trim();
-  if (locator) {
-    const lines = /^(?:line=|L)(\d+)(?:[-:](?:L)?(\d+))?$/.exec(locator);
-    if (!lines) {
-      return { status: "unverifiable", reasonZh: "尚不支持该来源定位方式。", actualVersion };
-    }
-    const start = Number(lines[1]);
-    const end = Number(lines[2] ?? start);
-    const all = raw.split(/\r?\n/);
-    if (start < 1 || end < start || end > all.length) {
-      return { status: "quote_mismatch", reasonZh: "来源定位超出当前文件范围。", actualVersion };
-    }
-    raw = all.slice(start - 1, end).join("\n");
+  const sliced = slicePlainTextByLocator(raw, locatorRaw, actualVersion);
+  if (!sliced.ok) {
+    return sliced.support;
   }
-  // 读完之后再核一次版本：只算一次，别在「变更」分支里重算第二遍（大文件上是纯浪费）。
-  const recheckedVersion = fileVersionOf(abs);
-  if (recheckedVersion !== actualVersion) {
-    return {
-      status: "stale",
-      reasonZh: "核对过程中来源文件发生变更，请重新读取。",
-      actualVersion: recheckedVersion,
-    };
+  return finishQuoteCheck(abs, actualVersion, sliced.text, opts.quote!);
+}
+
+/**
+ * 异步版：额外支持 PDF 页码（`P{n}`）与 Excel 单元格/范围（`S{n}!A1`）。
+ * 读不出来一律 `unverifiable`，调用方不得当成通过。
+ */
+export async function checkEvidenceSupportAsync(opts: {
+  rootDir: string;
+  relPath: string;
+  quote?: string;
+  expectedVersion?: string;
+}): Promise<EvidenceSupport> {
+  const source = resolveSource(opts);
+  if (!source.ok) {
+    return source.support;
   }
-  if (!quoteAppearsIn(normalizeForQuoteMatch(raw), opts.quote)) {
+  const { rel, abs, actualVersion, locatorRaw } = source;
+  const locator: EvidenceLocator | null = locatorRaw ? parseEvidenceLocator(locatorRaw) : null;
+  if (locatorRaw && !locator) {
+    return { status: "unverifiable", reasonZh: "尚不支持该来源定位方式。", actualVersion };
+  }
+  if (locator && locatorNeedsRichParser(locator)) {
+    const rich = await readRichLocatorText(abs, rel, locator);
+    if (!rich.ok) {
+      return { status: "unverifiable", reasonZh: rich.reason, actualVersion };
+    }
+    return finishQuoteCheck(abs, actualVersion, rich.text, opts.quote!);
+  }
+  if (!isPlainTextRel(rel)) {
     return {
-      status: "quote_mismatch",
-      reasonZh: "引用的原句在来源文件中找不到，可能已被改写。",
+      status: "unverifiable",
+      reasonZh: "该格式需要专用解析器才能核对原句，本次未核对。",
       actualVersion,
     };
   }
-  return { status: "supported", reasonZh: "原句可在来源文件中找到。", actualVersion };
+  let raw = "";
+  try {
+    const decoded = decodePlainText(await fs.promises.readFile(abs));
+    if (!decoded.ok) {
+      return {
+        status: "unverifiable",
+        reasonZh: "来源文件编码无法识别（既不是 UTF-8 也不是 GBK），本次未核对原句。",
+        actualVersion,
+      };
+    }
+    raw = decoded.text;
+  } catch {
+    return {
+      status: "unverifiable",
+      reasonZh: "读取来源文件失败，未完成核对。",
+      actualVersion,
+    };
+  }
+  const sliced = slicePlainTextByLocator(raw, locatorRaw, actualVersion);
+  if (!sliced.ok) {
+    return sliced.support;
+  }
+  return finishQuoteCheck(abs, actualVersion, sliced.text, opts.quote!);
 }
 
 /** 汇总：任一条 stale / mismatch / missing 都不得当作「全部可核验」。 */

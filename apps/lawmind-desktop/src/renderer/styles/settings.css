@@ -2864,3 +2864,69 @@ label.lm-settings-row {
   color: var(--accent);
 }
 
+
+/* 本所剧本：列表行与条件编辑，全部沿用设置页的软底与 token。 */
+.lm-playbook-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-playbook-row:last-of-type {
+  border-bottom: 0;
+}
+
+.lm-playbook-row-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.lm-playbook-criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lm-playbook-criterion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+
+.lm-playbook-criterion-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lm-playbook-criterion-line .lm-input {
+  flex: 1 1 160px;
+  min-width: 140px;
+}
+
+.lm-playbook-criterion-id {
+  flex: 0 1 120px;
+}
+
+.lm-playbook-clause-types {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.lm-playbook-clause-types label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}

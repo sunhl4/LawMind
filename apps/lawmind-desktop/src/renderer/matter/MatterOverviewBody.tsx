@@ -14,6 +14,7 @@ import { MatterLocalDocIndex } from "./MatterLocalDocIndex";
 import { MatterOverviewExtras } from "./MatterOverviewExtras";
 import { MatterOverviewTodoCards } from "./MatterOverviewTodoCards";
 import { MatterProfileCard, type MatterProfilePayload } from "./MatterProfileCard";
+import { MatterAdmissionCard } from "./MatterAdmissionCard";
 import { MatterTeamRosterStrip } from "./MatterTeamRosterStrip";
 import { MatterReplicaPanel } from "./MatterReplicaPanel";
 import { InteractionConvergence, LawyerActionFeed } from "../insights";
@@ -67,6 +68,8 @@ export type MatterOverviewBodyProps = {
   summary: MatterSummary;
   profile: MatterProfilePayload | null;
   onProfileSaved?: (profile: MatterProfilePayload, statusLine?: string) => void;
+  /** 收案接受/婉拒后刷新卷宗与服务端状态。 */
+  onAdmissionDecided?: () => void;
   selectedOverview: MatterOverview | null;
   showWorkspaceAcceptanceDashboard: boolean;
   workspaceAcceptance: MatterWorkspaceAcceptance | null;
@@ -153,6 +156,7 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
     summary,
     profile,
     onProfileSaved,
+    onAdmissionDecided,
     selectedOverview,
     showWorkspaceAcceptanceDashboard,
     workspaceAcceptance,
@@ -371,6 +375,21 @@ export function MatterOverviewBody(props: MatterOverviewBodyProps) {
             <summary>邀请同事</summary>
             <MatterReplicaPanel apiBase={apiBase} matterId={matterId} embedded />
           </details>
+        ) : null}
+        {/*
+         * 收案是「要不要接这一案」的闸门，不能折叠进「更多」：接洽中的案件
+         * 一打开概览就要看到扫描/告知/接受。已决定后卡片自己收成一行摘要，
+         * 没有收案记录且已过接洽的案件直接不渲染。
+         */}
+        {matterId && apiBase && profile ? (
+          <MatterAdmissionCard
+            apiBase={apiBase}
+            matterId={matterId}
+            matterStatus={profile.status}
+            {...(onAdmissionDecided
+              ? { onAccepted: onAdmissionDecided, onDeclined: onAdmissionDecided }
+              : {})}
+          />
         ) : null}
         <MatterOverviewExtras
           expanded={extrasOpen}

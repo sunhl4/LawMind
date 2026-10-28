@@ -66,3 +66,23 @@ export {
   type DeliverableReadiness,
   type DeliverableReadinessBlocker,
 } from "./deliverable-readiness.js";
+export {
+  PLAYBOOK_ITEM_RESULTS,
+  PLAYBOOK_VERDICTS,
+  describePlaybookTriage,
+  isPlaybookOverrideValid,
+  observationsFromClauseDoc,
+  triageAgainstPlaybook,
+  type Playbook,
+  type PlaybookBasis,
+  type PlaybookCriterion,
+  type PlaybookDowngrade,
+  type PlaybookEvidence,
+  type PlaybookEvidenceVerification,
+  type PlaybookItemResult,
+  type PlaybookObservation,
+  type PlaybookOverride,
+  type PlaybookTriage,
+  type PlaybookTriageItem,
+  type PlaybookVerdict,
+} from "./playbook-triage.js";

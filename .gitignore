@@ -25,6 +25,9 @@ docs/generated/
 .env.lawmind.team.secrets
 **/.signing-secret
 
+# 随包下发的模型凭据（明文 key，由 scripts/write-bundled-defaults.mjs 生成）
+apps/lawmind-desktop/resources/defaults/*.json
+
 # LawMind workspace — lawyer matter data (runtime truth source, never commit)
 /matters/
 /workspace/matters/

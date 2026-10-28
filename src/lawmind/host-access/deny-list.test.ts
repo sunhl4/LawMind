@@ -71,6 +71,12 @@ describe("isDeniedHostPath", () => {
           workspaceDir: workspace,
         }),
       ).toBe(false);
+      for (const unfiled of [
+        path.join(workspace, "收件投递"),
+        path.join(workspace, "收件投递", "M-001", "起诉状.pdf"),
+      ]) {
+        expect(isDeniedHostPath(unfiled, { homeDir: home, workspaceDir: workspace })).toBe(true);
+      }
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }

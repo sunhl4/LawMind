@@ -24,6 +24,7 @@ import { emitCollaborationEvent } from "../../../src/lawmind/agent/collaboration
 import { emitPlatformGateSnapshot } from "../../../src/lawmind/platform/audit-gate.js";
 import type { GateDecision, TaskExecutionState } from "../../../src/lawmind/platform/contracts.js";
 import { withExclusiveFileLock } from "../../../src/lawmind/adapters/matter-storage/io.js";
+import { wakeMatterRunsForEvent } from "../../../src/lawmind/platform/matter-run-store.js";
 
 export type WorkflowJobStatus =
   | "scheduled"
@@ -733,6 +734,19 @@ export function continueWorkflowJobsHeldOnSession(
   return continued;
 }
 
+function wakeDeliveryRunsForJob(record: WorkflowJobRecord): void {
+  if (!isTerminalWorkflowJobStatus(record.status)) {
+    return;
+  }
+  try {
+    wakeMatterRunsForEvent(record.workspaceDir, `job:${record.jobId}`, {
+      at: new Date().toISOString(),
+    });
+  } catch {
+    // 唤醒失败不能影响 job 终态落盘；下一轮 tick 仍会恢复非终态 run。
+  }
+}
+
 function finalizeJobFromWorkflow(jobId: string, finished: CollaborationWorkflow): void {
   const r = jobs.get(jobId);
   if (!r) {
@@ -782,6 +796,7 @@ function finalizeJobFromWorkflow(jobId: string, finished: CollaborationWorkflow)
     r.workspaceDir,
     `workflow_job=${jobId} status=${r.status} workflowId=${finished.workflowId}`,
   );
+  wakeDeliveryRunsForJob(r);
   pumpWorkflowLaunches(r.workspaceDir);
 }
 
@@ -866,6 +881,7 @@ function launchWorkflowJob(jobId: string, pending: PendingWorkflowLaunch): void 
       persistWorkflowJob(r);
       auditWorkflowJobGateSnapshot(r);
       emitJobAudit(workspaceDir, `workflow_job=${jobId} status=failed error=${r.error}`);
+      wakeDeliveryRunsForJob(r);
       pumpWorkflowLaunches(workspaceDir);
     });
 }

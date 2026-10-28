@@ -460,7 +460,7 @@ export const AUTOMATION_PRESETS: AutomationPresetMeta[] = [
   {
     id: "client-weekly-update",
     title: "客户进展周报",
-    description: "每周起草给客户的进展备忘；默认只进拍板，批准后再发信。",
+    description: "每周起草给客户的进展备忘；默认只进拍板，签批后再发信。",
     templateId: "client-update-memo",
     needsMail: false,
     defaultSchedule: { kind: "weekly", weekday: 1, hour: 10, minute: 0 },
@@ -478,7 +478,7 @@ export const AUTOMATION_PRESETS: AutomationPresetMeta[] = [
     id: "mail-contract-review",
     title: "邮件合同审阅改稿",
     description:
-      "同步邮件附件后走短路径改稿（约 4–8 步：分析→最小改→审阅痕迹→待拍板），勿在对话里反复搜案卷。Word 原件直接痕迹；其它格式意见书。批准后方可外发。",
+      "同步邮件附件后走短路径改稿（约 4–8 步：分析→最小改→审阅痕迹→待拍板），勿在对话里反复搜案卷。Word 原件直接痕迹；其它格式意见书。签批后方可外发。",
     templateId: "mail-contract-redline",
     needsMail: true,
     defaultSchedule: { kind: "interval", everyMinutes: 30 },

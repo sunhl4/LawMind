@@ -3,7 +3,9 @@ import type { AgentRunSummary } from "./lawmind-agent-fleet-api";
 import {
   buildFleetDocket,
   docketInstruction,
+  docketRowStatusLabel,
   docketRowTitle,
+  docketSourceLabel,
   docketStopLine,
   docketWhenLabel,
   initialDocketOpen,
@@ -235,6 +237,37 @@ describe("docket copy", () => {
       "信已经写好，发出前要你看过。",
     );
     expect(docketWhenLabel("2026-09-26T09:30:00.000Z", now)).toBe("30 分钟前");
+  });
+
+  it("shows a timed-out matter-run wait with its reason, not as a fake instruction", () => {
+    const waitRow = run({
+      id: "matter-run-wait:m1:run_wait:s1",
+      kind: "matter_run_wait",
+      status: "awaiting_approval",
+      title: "等法院立案",
+      subtitle: "案件运行",
+      matterId: "m1",
+      matterRunWait: {
+        runId: "run_wait",
+        stepId: "s1",
+        reason: "court_filing",
+        escalatedAt: "2026-09-26T09:00:00.000Z",
+      },
+    });
+    expect(docketRowStatusLabel(waitRow)).toBe("等超时");
+    expect(docketSourceLabel(waitRow)).toBe("等法院文书");
+    expect(docketInstruction(waitRow)).toBe("");
+    expect(docketStopLine(waitRow)).toContain("等外部事件超时");
+
+    const docket = buildFleetDocket({
+      fleetRuns: [waitRow],
+      pendingReviewDrafts: [],
+      automationInbox: [],
+      snoozed: new Set(),
+      now,
+    });
+    expect(docket.needsYou.map((r) => r.id)).toEqual([waitRow.id]);
+    expect(docket.inFlight).toEqual([]);
   });
 
   it("opens in-flight when the list is short, and today's completions when nothing else is live", () => {

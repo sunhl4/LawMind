@@ -8,6 +8,10 @@ import {
   saveAutomationInboxItem,
 } from "../../../src/lawmind/platform/lawyer-automations.js";
 import { appendAutomationRun } from "../../../src/lawmind/platform/automation-run-history.js";
+import { buildOutboundBinding } from "../../../src/lawmind/platform/outbound-approval-binding.js";
+import { createDeliveryPacket } from "../../../src/lawmind/delivery/packet.js";
+import { resolveOutboundPacket } from "../../../src/lawmind/delivery/packet-outbound.js";
+import { saveDeliveryPacket } from "../../../src/lawmind/delivery/packet-store.js";
 import { handleAutomationsRoutes } from "./lawmind-server-route-automations.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
 
@@ -432,6 +436,137 @@ describe("lawmind-server-route-automations", () => {
     });
     expect(dismissRes.status).toBe(200);
     expect(getAutomationInboxItem(workspaceDir, inboxId2)?.status).toBe("dismissed");
+  });
+
+  it("POST approve_send accepts an unchanged delivery packet", async () => {
+    const matterId = "matter-packet-ok";
+    const rel = path.join("matters", matterId, "deliverables", "a.md");
+    await fs.mkdir(path.join(workspaceDir, "matters", matterId, "deliverables"), {
+      recursive: true,
+    });
+    await fs.writeFile(path.join(workspaceDir, rel), "意见", "utf8");
+    const packet = createDeliveryPacket({
+      matterId,
+      packetId: "pkt_route_ok",
+      title: "客户交付包",
+      audience: "client",
+      sections: [
+        {
+          sectionId: "s1",
+          kind: "opinion",
+          title: "意见",
+          documents: [{ docId: "a", path: rel, required: true }],
+        },
+      ],
+    });
+    saveDeliveryPacket(workspaceDir, packet);
+    const resolved = resolveOutboundPacket(workspaceDir, matterId, packet.packetId);
+    if (!resolved.ok) {
+      throw new Error(resolved.error);
+    }
+    const auto = createAutomation(workspaceDir, { matterId, presetId: "custom" });
+    const inboxId = `inbox-packet-ok-${Date.now()}`;
+    saveAutomationInboxItem(workspaceDir, {
+      id: inboxId,
+      automationId: auto.id,
+      matterId,
+      title: "待发交付包",
+      status: "open",
+      summary: "待发",
+      createdAt: new Date().toISOString(),
+      pendingSend: {
+        to: "client@x.com",
+        subject: "交付包",
+        body: "请查收。",
+        attachmentRelativePaths: resolved.attachmentRelativePaths,
+        binding: buildOutboundBinding(workspaceDir, {
+          to: "client@x.com",
+          subject: "交付包",
+          body: "请查收。",
+          attachmentRelativePaths: resolved.attachmentRelativePaths,
+          packet: resolved.binding,
+        }),
+      },
+    });
+
+    const res = mockRes();
+    await handleAutomationsRoutes({
+      ctx,
+      req: mockJsonReq({ action: "approve_send" }),
+      res,
+      url: new URL(`http://127.0.0.1/api/automations/inbox/${inboxId}/action`),
+      pathname: `/api/automations/inbox/${inboxId}/action`,
+      c: {},
+    });
+    expect(res.status).toBe(200);
+    expect(getAutomationInboxItem(workspaceDir, inboxId)?.status).toBe("approved_local_only");
+  });
+
+  it("POST approve_send refuses when the delivery packet changed after approval", async () => {
+    const matterId = "matter-packet";
+    const rel = path.join("matters", matterId, "deliverables", "a.md");
+    await fs.mkdir(path.join(workspaceDir, "matters", matterId, "deliverables"), { recursive: true });
+    await fs.writeFile(path.join(workspaceDir, rel), "意见", "utf8");
+    const packet = createDeliveryPacket({
+      matterId,
+      packetId: "pkt_route",
+      title: "客户交付包",
+      audience: "client",
+      sections: [
+        {
+          sectionId: "s1",
+          kind: "opinion",
+          title: "意见",
+          documents: [{ docId: "a", path: rel, required: true }],
+        },
+      ],
+    });
+    saveDeliveryPacket(workspaceDir, packet);
+    const resolved = resolveOutboundPacket(workspaceDir, matterId, packet.packetId);
+    if (!resolved.ok) {
+      throw new Error(resolved.error);
+    }
+    const binding = buildOutboundBinding(workspaceDir, {
+      to: "client@x.com",
+      subject: "交付包",
+      body: "请查收。",
+      attachmentRelativePaths: resolved.attachmentRelativePaths,
+      packet: resolved.binding,
+    });
+    const auto = createAutomation(workspaceDir, { matterId, presetId: "custom" });
+    const inboxId = `inbox-packet-${Date.now()}`;
+    saveAutomationInboxItem(workspaceDir, {
+      id: inboxId,
+      automationId: auto.id,
+      matterId,
+      title: "待发交付包",
+      status: "open",
+      summary: "待发",
+      createdAt: new Date().toISOString(),
+      pendingSend: {
+        to: "client@x.com",
+        subject: "交付包",
+        body: "请查收。",
+        attachmentRelativePaths: resolved.attachmentRelativePaths,
+        binding,
+      },
+    });
+
+    // 批准之后包内文件被改过：必须拒绝发送，并指出是交付包变化。
+    await fs.writeFile(path.join(workspaceDir, rel), "意见（改过）", "utf8");
+    const res = mockRes();
+    await handleAutomationsRoutes({
+      ctx,
+      req: mockJsonReq({ action: "approve_send" }),
+      res,
+      url: new URL(`http://127.0.0.1/api/automations/inbox/${inboxId}/action`),
+      pathname: `/api/automations/inbox/${inboxId}/action`,
+      c: {},
+    });
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ ok: false, error: "approved_mail_changed" });
+    expect(JSON.stringify(res.body)).toContain("交付包");
+    expect(getAutomationInboxItem(workspaceDir, inboxId)?.status).toBe("open");
   });
 
   it("POST approve_send without pendingSend returns 400", async () => {

@@ -32,6 +32,10 @@ export type LawmindAgentFleetDetailProps = {
   displayTitle: string;
   matterLabelById?: Record<string, string>;
   assistantDisplayById?: Record<string, string>;
+  /** 待归案来件的详情面板（由在办面板提供数据与操作）。 */
+  intakeDetail?: ReactNode;
+  /** 案件步骤「等待超时」的详情面板（由在办面板提供数据与操作）。 */
+  matterWaitDetail?: ReactNode;
   readingMode: boolean;
   approvalDoc: ApprovalDocumentPreview | null;
   isDraftReview: boolean;
@@ -110,6 +114,8 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
     displayTitle,
     matterLabelById = {},
     assistantDisplayById = {},
+    intakeDetail = null,
+    matterWaitDetail = null,
     readingMode,
     approvalDoc,
     isDraftReview,
@@ -170,8 +176,13 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
     saveAsAutomationHint,
   } = props;
 
+  const isIntakeRow = Boolean(
+    current && (current.intakeItemId || current.id.startsWith("intake:")),
+  );
+
   const followOnly =
     current != null &&
+    !isIntakeRow &&
     !isDraftReview &&
     !showForm &&
     current.status !== "awaiting_review" &&
@@ -246,7 +257,19 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                     : ""
                 }`}
               >
-                {current.kind === "word_check" ? (
+                {isIntakeRow ? (
+                  (intakeDetail ?? (
+                    <div className="lm-agents-wb-block" data-testid="lm-fleet-intake-hint">
+                      <p>这封来件已进入统一收件。先确认候选案件，再归入案件；不合适的来件可以忽略。</p>
+                    </div>
+                  ))
+                ) : current.kind === "matter_run_wait" ? (
+                  (matterWaitDetail ?? (
+                    <div className="lm-agents-wb-block" data-testid="lm-fleet-matter-wait-hint">
+                      <p>这一步在等外部事件，已经超时。要你决定：再等，还是先往下办。</p>
+                    </div>
+                  ))
+                ) : current.kind === "word_check" ? (
                   <div className="lm-agents-wb-block" data-testid="lm-fleet-word-check-hint">
                     <p>
                       打开原件，在修订窗口里核对。导出并覆盖审阅稿之后，这一条会从在办消失。
@@ -475,13 +498,15 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
               type="button"
               className="lm-btn lm-btn-accent"
               data-testid={
-                current.kind === "word_check"
-                  ? "lm-fleet-word-check"
-                  : isDraftReview
-                  ? "lm-fleet-draft-approve"
-                  : approvalAction?.kind === "continue_tools"
-                    ? "lm-continue-tools-approve"
-                    : "lm-ceremony-primary"
+                isIntakeRow
+                  ? "lm-fleet-intake-attach"
+                  : current.kind === "word_check"
+                    ? "lm-fleet-word-check"
+                    : isDraftReview
+                      ? "lm-fleet-draft-approve"
+                      : approvalAction?.kind === "continue_tools"
+                        ? "lm-continue-tools-approve"
+                        : "lm-ceremony-primary"
               }
               disabled={primaryDisabled}
               title={
@@ -564,6 +589,28 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
                     ) : null}
                   </div>
                 </details>
+              </>
+            ) : isIntakeRow ? (
+              <>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-secondary"
+                  data-testid="lm-fleet-intake-ignore"
+                  disabled={busy}
+                  onClick={() => onRejectApproval()}
+                  title="不归入案件；这条来件从待归案里拿掉，原件仍留在收件库。"
+                >
+                  忽略
+                </button>
+                <button
+                  type="button"
+                  className="lm-btn lm-btn-ghost"
+                  data-testid="lm-fleet-intake-snooze"
+                  disabled={busy}
+                  onClick={() => onSnooze()}
+                >
+                  稍后
+                </button>
               </>
             ) : isOutboundSend || (current.status === "awaiting_approval" && approvalAction) ? (
               <button

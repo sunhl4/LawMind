@@ -109,11 +109,18 @@ export async function testGraphMailConnection(
   }
 }
 
-export async function fetchGraphMessages(
+export async function fetchGraphMessagesPage(
   account: MailAccount,
   lawMindRoot: string,
-  opts: { limit?: number; includeBody?: boolean } = {},
-): Promise<FetchedMailMessage[]> {
+  opts: {
+    limit?: number;
+    includeBody?: boolean;
+    /** 收案邮箱增量：只取此刻之后（含）收到的信，从旧到新。 */
+    receivedSince?: string;
+    /** Graph 上一页返回的 continuation URL。只接受 Graph 官方 HTTPS 地址。 */
+    nextLink?: string;
+  } = {},
+): Promise<{ messages: FetchedMailMessage[]; nextLink?: string }> {
   const cfg = resolveGraphConfig(account, lawMindRoot);
   if (!cfg.ok) {
     throw new Error(cfg.error);
@@ -122,11 +129,20 @@ export async function fetchGraphMessages(
   const token = await fetchGraphToken(cfg);
   // 默认只取 bodyPreview（轻量）；includeBody 时取完整正文（对齐 IMAP 全文语义，供合同审阅摘要）。
   const select = opts.includeBody
-    ? "id,subject,from,toRecipients,receivedDateTime,body,hasAttachments"
-    : "id,subject,from,toRecipients,receivedDateTime,bodyPreview,hasAttachments";
-  const url =
+    ? "id,subject,from,toRecipients,receivedDateTime,body,hasAttachments,internetMessageId,conversationId"
+    : "id,subject,from,toRecipients,receivedDateTime,bodyPreview,hasAttachments,internetMessageId,conversationId";
+  const since = opts.receivedSince ? new Date(opts.receivedSince) : undefined;
+  const window =
+    since && !Number.isNaN(since.getTime())
+      ? `&$filter=${encodeURIComponent(`receivedDateTime ge ${since.toISOString()}`)}&$orderby=receivedDateTime%20asc`
+      : "&$orderby=receivedDateTime%20desc";
+  const initialUrl =
     `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(cfg.mailbox)}/mailFolders/inbox/messages` +
-    `?$top=${limit}&$orderby=receivedDateTime%20desc&$select=${select}`;
+    `?$top=${limit}${window}&$select=${select}`;
+  const url = opts.nextLink?.trim() || initialUrl;
+  if (opts.nextLink && !url.startsWith("https://graph.microsoft.com/")) {
+    throw new Error("graph_invalid_next_link");
+  }
   const res = await graphMailProxy.fetch(url, {
     headers: { authorization: `Bearer ${token}` },
   });
@@ -144,7 +160,10 @@ export async function fetchGraphMessages(
       bodyPreview?: string;
       body?: { contentType?: string; content?: string };
       hasAttachments?: boolean;
+      internetMessageId?: string;
+      conversationId?: string;
     }>;
+    "@odata.nextLink"?: string;
   };
   const out: FetchedMailMessage[] = [];
   for (const row of json.value ?? []) {
@@ -205,9 +224,25 @@ export async function fetchGraphMessages(
       receivedAt: row.receivedDateTime || new Date().toISOString(),
       bodyText: (row.body?.content?.trim() || row.bodyPreview || "").trim(),
       attachments,
+      ...(fromAddr?.address?.trim() ? { fromAddress: fromAddr.address.trim().toLowerCase() } : {}),
+      ...(row.internetMessageId?.trim() ? { messageId: row.internetMessageId.trim() } : {}),
+      ...(row.conversationId?.trim() ? { conversationId: row.conversationId.trim() } : {}),
     });
   }
-  return out;
+  return { messages: out, nextLink: json["@odata.nextLink"] };
+}
+
+export async function fetchGraphMessages(
+  account: MailAccount,
+  lawMindRoot: string,
+  opts: {
+    limit?: number;
+    includeBody?: boolean;
+    receivedSince?: string;
+  } = {},
+): Promise<FetchedMailMessage[]> {
+  const page = await fetchGraphMessagesPage(account, lawMindRoot, opts);
+  return page.messages;
 }
 
 export async function sendGraphMail(

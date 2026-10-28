@@ -28,6 +28,8 @@ import {
   type AgentRunSummary,
 } from "./lawmind-agent-fleet-api";
 import type { NeedsDecisionDeskTarget } from "./lawmind-agents-desk";
+import type { IntakeItem } from "../../../../src/lawmind/intake/types.ts";
+import { MATTER_RUN_WAIT_EXTEND_DEFAULT_DAYS } from "../../../../src/lawmind/platform/matter-run-wait.ts";
 import { isValidMatterId } from "../../../../src/lawmind/cases/matter-id.ts";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { confirmDialog } from "./lawmind-confirm-dialog";
@@ -120,6 +122,8 @@ async function fetchFleetDeskExtras(apiBase: string): Promise<{
 import { collectFleetActions, pickFleetActionForRun } from "./lawmind-fleet-actions";
 import { LawmindAgentFleetListAside } from "./LawmindAgentFleetListAside";
 import { LawmindAgentFleetDetail } from "./LawmindAgentFleetDetail";
+import { LawmindIntakeDetail, type LawmindIntakeLeadAction } from "./LawmindIntakeDetail";
+import { LawmindMatterRunWaitDetail } from "./LawmindMatterRunWaitDetail";
 import { LawmindAgentFleetEmpty } from "./LawmindAgentFleetEmpty";
 import { LawmindDaemonRecap } from "./LawmindDaemonRecap";
 import { createFleetCeremonyActions } from "./useLawmindFleetCeremonyActions";
@@ -217,6 +221,11 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
   const [trackedExportBusy, setTrackedExportBusy] = useState(false);
   const [saveAutomationBusy, setSaveAutomationBusy] = useState(false);
   const [saveAutomationHint, setSaveAutomationHint] = useState<string | null>(null);
+  const [intakeItem, setIntakeItem] = useState<(IntakeItem & { text: string }) | null>(null);
+  const [intakeLoading, setIntakeLoading] = useState(false);
+  const [intakeMatterId, setIntakeMatterId] = useState("");
+  const [intakeRememberSender, setIntakeRememberSender] = useState(false);
+  const [intakeLeadTitle, setIntakeLeadTitle] = useState("");
 
   // 重挂载复位瞬时视图态（对齐原 useState 初始语义）；持久化切片由 store 保留。
   useLayoutEffect(() => {
@@ -490,6 +499,52 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     setClarificationDraft({});
   }, [selectedId]);
 
+  /** 待归案行：读一条来件的原文、附件与判案线索。切走时清空，避免串到下一条。 */
+  useEffect(() => {
+    const itemId =
+      current?.intakeItemId?.trim() || current?.id.replace(/^intake:/, "").trim() || "";
+    if (!apiBase || !itemId || !(current?.intakeItemId || current?.id.startsWith("intake:"))) {
+      setIntakeItem(null);
+      setIntakeLoading(false);
+      setIntakeMatterId("");
+      setIntakeRememberSender(false);
+      setIntakeLeadTitle("");
+      return undefined;
+    }
+    let cancelled = false;
+    setIntakeLoading(true);
+    setIntakeItem(null);
+    setIntakeMatterId(current?.matterId?.trim() ?? "");
+    setIntakeRememberSender(false);
+    setIntakeLeadTitle("");
+    void apiGetJson<{ ok?: boolean; item?: IntakeItem & { text: string } }>(
+      apiBase,
+      `/api/intake/items/${encodeURIComponent(itemId)}`,
+    )
+      .then((payload) => {
+        if (cancelled) {
+          return;
+        }
+        const next = payload.item ?? null;
+        setIntakeItem(next);
+        const candidate = next?.resolution?.candidates?.[0]?.matterId?.trim();
+        setIntakeMatterId(candidate || current?.matterId?.trim() || "");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIntakeItem(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIntakeLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, current?.id, current?.intakeItemId, current?.matterId]);
+
   useEffect(() => {
     const taskId =
       current?.kind === "pending_review" && current.status === "awaiting_review"
@@ -628,6 +683,8 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
 
   const isWordCheck = current?.kind === "word_check";
   const isDraftReview = current?.kind === "pending_review" && current.status === "awaiting_review";
+  /** 案件运行「等待超时」：两个明确动作，不复用工具签批的票据与底栏文案。 */
+  const isMatterRunWait = current?.kind === "matter_run_wait";
 
   // 清单未加载时视为未完成（勿把 null view 当成 complete，否则一键勾选会被误禁用）
   const deskChecklistComplete = Boolean(
@@ -697,6 +754,8 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
         null)
       : null;
 
+  const isIntake = current?.intakeItemId != null || current?.id.startsWith("intake:");
+  const intakeItemId = current?.intakeItemId ?? current?.id.replace(/^intake:/, "");
   const isAutomationSend =
     current?.kind === "automation_send" || Boolean(current?.id.startsWith("automation-send:"));
   const isAutomationInbox = Boolean(current?.id.startsWith("automation-inbox:"));
@@ -704,16 +763,18 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
   // 待发出没有自己的工具票。不要回退到池里第一张案件审批，否则「驳回」会打到别的票上并 404。
   const approvalAction = isAutomationSend
     ? null
-    : current?.status === "awaiting_approval" || isInterruptedRun
-      ? (pickFleetActionForRun(allActions, current) ??
-        allActions.find(
-          (a) =>
-            a.kind === "tool_approval" ||
-            a.kind === "continue_tools" ||
-            a.kind === "workflow_blocked",
-        ) ??
-        null)
-      : null;
+    : isMatterRunWait
+      ? null
+      : current?.status === "awaiting_approval" || isInterruptedRun
+        ? (pickFleetActionForRun(allActions, current) ??
+          allActions.find(
+            (a) =>
+              a.kind === "tool_approval" ||
+              a.kind === "continue_tools" ||
+              a.kind === "workflow_blocked",
+          ) ??
+          null)
+        : null;
   const approvalDock = fleetApprovalDockLabels(approvalAction?.kind, approvalAction?.trigger);
   const pickedRuns = useMemo(() => {
     const byId = new Map(visibleRows.map((run) => [run.id, run]));
@@ -724,10 +785,14 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
   }, [multi.selectedIds, visibleRows]);
   const batchSends = fleetBatchOutboundSends(pickedRuns);
   const batchMixed = pickedRuns.length > 1 && !batchSends;
-  const singlePrimaryLabel = isWordCheck
+  const singlePrimaryLabel = isIntake
+    ? "归入案件"
+    : isWordCheck
     ? "去核对"
     : isDraftReview
     ? "签批"
+    : isMatterRunWait
+    ? `再等 ${MATTER_RUN_WAIT_EXTEND_DEFAULT_DAYS} 天`
     : current?.status === "awaiting_clarification"
       ? "提交补充并继续"
       : isAutomationSend
@@ -740,7 +805,11 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
             ? approvalDock.primary
             : "打开";
   const primaryLabel = batchSends ? `签批发送 ${batchSends.length}` : singlePrimaryLabel;
-  const rejectLabel = batchSends ? `驳回 ${batchSends.length}` : approvalDock.secondary;
+  const rejectLabel = batchSends
+    ? `驳回 ${batchSends.length}`
+    : isMatterRunWait
+      ? "不再等"
+      : approvalDock.secondary;
 
   const clarifyComplete =
     current?.status !== "awaiting_clarification" ||
@@ -748,12 +817,110 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     clarifyAction.kind !== "clarification" ||
     clarificationAnswersComplete(clarifyAction.clarificationQuestions ?? [], clarificationDraft);
 
-  const primaryDisabled = batchSends
+  const primaryDisabled = isIntake
+    ? busy || !intakeMatterId.trim()
+    : batchSends
     ? busy
     : busy ||
       batchMixed ||
       (current?.status === "awaiting_clarification" && !clarifyComplete) ||
       (isDraftReview && (!deskChecklistComplete || deskChecklistLoading));
+
+  const fileIntake = useCallback(
+    async (action: "attach" | "ignore") => {
+      if (!intakeItemId || !current || busy) {
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        if (action === "ignore") {
+          await apiSendJson(
+            apiBase,
+            `/api/intake/items/${encodeURIComponent(intakeItemId)}/ignore`,
+            "POST",
+            {},
+          );
+        } else {
+          const matter = intakeMatterId.trim();
+          if (!matter) {
+            setError("先选一个要归入的案件。");
+            return;
+          }
+          await apiSendJson(apiBase, "/api/intake/items/attach", "POST", {
+            itemId: intakeItemId,
+            matterId: matter,
+            rememberSender: intakeRememberSender && Boolean(intakeItem?.from?.address),
+          });
+        }
+        await refresh();
+        advanceAfter(current.id);
+      } catch (e) {
+        setError(errorMessage(e, action === "attach" ? "归入案件失败" : "忽略来件失败"));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      advanceAfter,
+      apiBase,
+      busy,
+      current,
+      intakeItem?.from?.address,
+      intakeMatterId,
+      intakeItemId,
+      intakeRememberSender,
+      refresh,
+    ],
+  );
+
+  const ignoreIntake = useCallback(() => {
+    void fileIntake("ignore");
+  }, [fileIntake]);
+
+  const attachIntake = useCallback(() => {
+    void fileIntake("attach");
+  }, [fileIntake]);
+
+  /** 新案线索：推进阶段，或进入收案（只建 intake 案件）。 */
+  const setIntakeLead = useCallback(
+    async (action: LawmindIntakeLeadAction) => {
+      if (!intakeItemId || busy) {
+        return;
+      }
+      const matterTitle = intakeLeadTitle.trim();
+      if (action === "accept" && !matterTitle) {
+        setError("先填新案名称，再进入收案。");
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        await apiSendJson(apiBase, `/api/intake/items/${encodeURIComponent(intakeItemId)}/lead`, "POST", {
+          action,
+          ...(action === "accept" ? { matterTitle } : {}),
+        });
+        await refresh();
+        if (action === "accept" || action === "declined") {
+          // 这两步会让来件离开待归案队列。
+          advanceAfter(current?.id);
+        }
+      } catch (e) {
+        setError(errorMessage(e, "更新新案线索失败"));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      advanceAfter,
+      apiBase,
+      busy,
+      current?.id,
+      intakeItemId,
+      intakeLeadTitle,
+      refresh,
+    ],
+  );
 
   const approveAutomationSend = useCallback(async () => {
     const run = current;
@@ -908,8 +1075,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     await postOutboundBatch(batchSends, "approve_send");
   }, [batchSends, busy, postOutboundBatch]);
 
-  const acknowledgeAutomationInbox = useCallback(async () => {
-    const run = current;
+  const acknowledgeAutomationInbox = useCallback(async () => {    const run = current;
     const inboxId = run?.queueItemId?.trim();
     if (!run || !inboxId || busy) {
       return;
@@ -933,8 +1099,71 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     }
   }, [apiBase, advanceAfter, busy, current, onRefreshSummary, refresh]);
 
+  /**
+   * 等待超时的两种处理。只动这一步：续等清掉升级标记并推后到期，
+   * 跳过让 run 回到可继续状态，后续步骤仍由 tick 推进。
+   */
+  const postMatterWait = useCallback(
+    async (action: "extend" | "skip") => {
+      const run = current;
+      const wait = run?.matterRunWait;
+      const matterId = run?.matterId?.trim();
+      if (!run || !wait || !matterId || busy) {
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        await apiSendJson(
+          apiBase,
+          `/api/matter-runs/${encodeURIComponent(matterId)}/${encodeURIComponent(
+            wait.runId,
+          )}/steps/${encodeURIComponent(wait.stepId)}/wait`,
+          "POST",
+          {
+            action,
+            ...(action === "extend" ? { days: MATTER_RUN_WAIT_EXTEND_DEFAULT_DAYS } : {}),
+          },
+        );
+        onRefreshSummary?.();
+        await refresh();
+        advanceAfter(run.id);
+      } catch (e) {
+        setError(errorMessage(e, action === "extend" ? "没能把等待往后延" : "没能结束这一步"));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [advanceAfter, apiBase, busy, current, onRefreshSummary, refresh],
+  );
+
+  const skipMatterWait = useCallback(async () => {
+    if (busy) {
+      return;
+    }
+    if (
+      !(await confirmDialog({
+        title: "不再等这一步？",
+        body: "会跳过这一步，案件运行按后续步骤继续。等待记录仍留在运行时间线里。",
+        confirmLabel: "不再等",
+        tone: "danger",
+      }))
+    ) {
+      return;
+    }
+    await postMatterWait("skip");
+  }, [busy, postMatterWait]);
+
   const runPrimary = () => {
     if (!current || busy) {
+      return;
+    }
+    if (isIntake) {
+      attachIntake();
+      return;
+    }
+    if (isMatterRunWait) {
+      void postMatterWait("extend");
       return;
     }
     if (batchSends) {
@@ -1001,8 +1230,10 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
 
   const showForm =
     current != null &&
+    !isIntake &&
     !isAutomationSend &&
     !isAutomationInbox &&
+    !isMatterRunWait &&
     (current.status === "awaiting_approval" ||
       current.status === "awaiting_clarification" ||
       current.status === "interrupted") &&
@@ -1045,10 +1276,47 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     [fleet?.growth],
   );
 
-  const showDocket = hasLoaded && scopedCount > 0;
-  const brief = current
+  /** 归案时可选的在办案件：目录里出现过的 + 概览里带名字的。 */
+  const intakeMatterChoices = useMemo(() => {
+    const ids = new Set<string>(matterChoices);
+    for (const id of Object.keys(matterLabelById)) {
+      ids.add(id);
+    }
+    return [...ids].filter(Boolean).toSorted((a, b) => a.localeCompare(b, "zh"));
+  }, [matterChoices, matterLabelById]);
+
+  const intakeDetailNode = isIntake ? (
+    <LawmindIntakeDetail
+      item={intakeItem}
+      loading={intakeLoading}
+      matterId={intakeMatterId}
+      onMatterIdChange={setIntakeMatterId}
+      matterChoices={intakeMatterChoices}
+      matterLabelById={matterLabelById}
+      rememberSender={intakeRememberSender}
+      onRememberSenderChange={setIntakeRememberSender}
+      leadTitle={intakeLeadTitle}
+      onLeadTitleChange={setIntakeLeadTitle}
+      onLeadAction={(action) => void setIntakeLead(action)}
+      truncated={(intakeItem?.text.length ?? 0) >= 2000}
+    />
+  ) : null;
+
+  const matterWaitDetailNode = isMatterRunWait ? (
+    <LawmindMatterRunWaitDetail
+      wait={current?.matterRunWait ?? null}
+      title={current?.title ?? ""}
+      busy={busy}
+      extendDays={MATTER_RUN_WAIT_EXTEND_DEFAULT_DAYS}
+      onExtend={() => void postMatterWait("extend")}
+      onSkip={() => void skipMatterWait()}
+    />
+  ) : null;
+
+  const showDocket = hasLoaded && scopedCount > 0;  const brief = current
     ? {
-        instruction: docketInstruction(current, instructionLine),
+        // 来件不是律师交办的话，不冒充「你交办的」；原文与线索在详情面板里。
+        instruction: isIntake ? "" : docketInstruction(current, instructionLine),
         stopLine: docketStopLine(current),
       }
     : null;
@@ -1174,6 +1442,8 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
             displayTitle={displayTitle}
             matterLabelById={matterLabelById}
             assistantDisplayById={assistantDisplayById}
+            intakeDetail={intakeDetailNode}
+            matterWaitDetail={matterWaitDetailNode}
             readingMode={readingMode}
             approvalDoc={approvalDoc}
             isDraftReview={isDraftReview}
@@ -1206,6 +1476,14 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
             onDraftReview={(status) => void submitDraftReview(status)}
             onDiscardPendingDraft={() => void discardPendingDraft()}
             onRejectApproval={() => {
+              if (isIntake) {
+                ignoreIntake();
+                return;
+              }
+              if (isMatterRunWait) {
+                void skipMatterWait();
+                return;
+              }
               if (batchSends) {
                 void rejectPickedSends();
                 return;

@@ -19,6 +19,10 @@ import { handleJobRoutes } from "./lawmind-server-route-jobs.js";
 import { handleFilesystemRoute } from "./lawmind-server-route-fs.js";
 import { handleHealthRoute } from "./lawmind-server-route-health.js";
 import { handleMatterRoutes } from "./lawmind-server-route-matters.js";
+import { handleMatterRunRoutes } from "./lawmind-server-route-matter-runs.js";
+import { handlePlaybookRoutes } from "./lawmind-server-route-playbooks.js";
+import { handleMatterArtifactRoutes } from "./lawmind-server-route-matter-artifacts.js";
+import { handleDeliveryPacketRoutes } from "./lawmind-server-route-delivery-packets.js";
 import { handleMatterReplicaRoutes } from "./lawmind-server-route-matter-replica.js";
 import { handleMatterCloudRoutes } from "./lawmind-server-route-matter-cloud.js";
 import { handleAcceptanceRoutes } from "./lawmind-server-route-acceptance.js";
@@ -103,6 +107,10 @@ export const LAWMIND_ROUTE_HANDLERS: LawmindRouteHandler[] = [
   (args) => handleMatterReplicaRoutes(args),
   (args) => handleMatterCloudRoutes(args),
   (args) => handleMatterRoutes(args),
+  (args) => handleMatterRunRoutes(args),
+  (args) => handlePlaybookRoutes(args),
+  (args) => handleMatterArtifactRoutes(args),
+  (args) => handleDeliveryPacketRoutes(args),
   (args) => handleOnboardingRoutes(args),
   (args) => handleDaemonRoutes(args),
   (args) => handleDeskSettingsRoutes(args),

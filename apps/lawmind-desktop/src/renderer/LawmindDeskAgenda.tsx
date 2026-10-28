@@ -22,6 +22,8 @@ import { LawmindDaemonRecap } from "./LawmindDaemonRecap";
 
 export type LawmindDeskAgendaProps = {
   apiBase: string;
+  /** 工作台顶部的待归案收件槽位（有空面板，由外层决定是否渲染）。 */
+  intakeSlot?: ReactNode;
   todayDate?: string;
   items: DeskAgendaItem[];
   progress: { done: number; total: number };
@@ -91,6 +93,7 @@ function filterAgendaItems(
 export function LawmindDeskAgenda(props: LawmindDeskAgendaProps): ReactNode {
   const {
     apiBase,
+    intakeSlot,
     todayDate,
     items,
     progress,
@@ -276,6 +279,7 @@ export function LawmindDeskAgenda(props: LawmindDeskAgendaProps): ReactNode {
     <div className="lm-desk-agenda" data-testid="lm-desk-agenda" aria-label="今日提醒">
       <LawmindDaemonRecap apiBase={apiBase} />
       {replicaNote}
+      {intakeSlot}
 
       <div className="lm-desk-agenda-hero" data-testid="lm-desk-agenda-hero">
         <div className="lm-desk-agenda-hero-copy">

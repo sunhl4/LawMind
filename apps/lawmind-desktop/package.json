@@ -1,6 +1,6 @@
 {
   "name": "lawmind-desktop",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "description": "LawMind desktop app (Electron) — chat, tasks, and delivery history",
@@ -11,11 +11,13 @@
     "bundle:server": "pnpm -w lawmind:bundle:desktop-server",
     "vendor:node": "pnpm -w lawmind:vendor:desktop-node",
     "vendor:officecli": "pnpm -w lawmind:vendor:officecli",
+    "defaults:write": "node scripts/write-bundled-defaults.mjs",
+    "defaults:check": "node scripts/write-bundled-defaults.mjs --print",
     "typecheck": "tsc --noEmit",
-    "dist:electron": "pnpm bundle:server && pnpm vendor:node && pnpm vendor:officecli && pnpm build:renderer && node scripts/assert-vendored-runtimes.mjs && electron-builder --publish never",
-    "dist:electron:arm64": "pnpm bundle:server && pnpm vendor:node --arch arm64 && pnpm vendor:officecli --arch arm64 && pnpm build:renderer && node scripts/assert-vendored-runtimes.mjs --arch arm64 && electron-builder --arm64 --publish never",
-    "dist:electron:x64": "pnpm bundle:server && pnpm vendor:node --arch x64 && pnpm vendor:officecli --arch x64 && pnpm build:renderer && node scripts/assert-vendored-runtimes.mjs --arch x64 && electron-builder --x64 --publish never",
-    "dist:electron:mac:both": "pnpm bundle:server && pnpm vendor:node --arch arm64 && pnpm vendor:node --arch x64 && pnpm vendor:officecli --arch arm64 && pnpm vendor:officecli --arch x64 && pnpm build:renderer && node scripts/assert-vendored-runtimes.mjs --arch arm64,x64 && electron-builder --arm64 --x64 --publish never",
+    "dist:electron": "node scripts/write-bundled-defaults.mjs --print && pnpm bundle:server && pnpm vendor:node && pnpm vendor:officecli && pnpm build:renderer && node scripts/assert-vendored-runtimes.mjs && electron-builder --publish never",
+    "dist:electron:arm64": "node scripts/write-bundled-defaults.mjs --print && pnpm bundle:server && pnpm vendor:node --arch arm64 && pnpm vendor:officecli --arch arm64 && pnpm build:renderer && node scripts/assert-vendored-runtimes.mjs --arch arm64 && electron-builder --arm64 --publish never",
+    "dist:electron:x64": "node scripts/write-bundled-defaults.mjs --print && pnpm bundle:server && pnpm vendor:node --arch x64 && pnpm vendor:officecli --arch x64 && pnpm build:renderer && node scripts/assert-vendored-runtimes.mjs --arch x64 && electron-builder --x64 --publish never",
+    "dist:electron:mac:both": "node scripts/write-bundled-defaults.mjs --print && pnpm bundle:server && pnpm vendor:node --arch arm64 && pnpm vendor:node --arch x64 && pnpm vendor:officecli --arch arm64 && pnpm vendor:officecli --arch x64 && pnpm build:renderer && node scripts/assert-vendored-runtimes.mjs --arch arm64,x64 && electron-builder --arm64 --x64 --publish never",
     "test:e2e": "playwright test",
     "test:e2e:electron": "playwright test --config playwright.electron.config.ts",
     "test:e2e:install": "playwright install chromium"
@@ -94,6 +96,13 @@
         "to": "word-addin",
         "filter": [
           "**/*"
+        ]
+      },
+      {
+        "from": "resources/defaults",
+        "to": "defaults",
+        "filter": [
+          "**/*.json"
         ]
       }
     ],

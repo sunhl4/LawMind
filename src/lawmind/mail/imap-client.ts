@@ -4,7 +4,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { ImapFlow } from "imapflow";
+import { ImapFlow, type FetchMessageObject } from "imapflow";
 import { simpleParser } from "mailparser";
 import type { MailAccount } from "./mail-accounts.js";
 import { getMailAccountSecret } from "./mail-secrets.js";
@@ -25,7 +25,66 @@ export type FetchedMailMessage = {
     /** 抓取端已知超限（如 Graph size 预检），只记元数据、不写盘。 */
     oversized?: boolean;
   }>;
+  /** From 头里的第一个纯地址（小写）。 */
+  fromAddress?: string;
+  /** RFC 5322 Message-ID，收件库凭它去重、认线程。 */
+  messageId?: string;
+  inReplyTo?: string[];
+  references?: string[];
+  /** Graph 会话 ID，只在同一邮箱内稳定。 */
+  conversationId?: string;
+  /** 收信服务商写在最上面一条 Authentication-Results 里的 dmarc 结论。 */
+  dmarc?: "pass" | "fail";
 };
+
+type ParsedThreadHeaders = {
+  messageId?: string;
+  inReplyTo?: string;
+  references?: string | string[];
+  from?: { value?: Array<{ address?: string }> };
+  headers?: Map<string, unknown>;
+};
+
+function messageIdTokens(raw: unknown): string[] {
+  const values = Array.isArray(raw) ? raw : [raw];
+  const out: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    out.push(...(value.match(/<[^<>\s]+>/g) ?? value.split(/[\s,]+/).filter(Boolean)));
+  }
+  return [...new Set(out)];
+}
+
+function headerText(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value && typeof value === "object" && "text" in value && typeof value.text === "string") {
+    return value.text;
+  }
+  return "";
+}
+
+/** mailparser 结果 → 线程与发件认证字段（纯函数，便于测）。 */
+export function threadFieldsFromParsedMail(
+  parsed: ParsedThreadHeaders,
+): Pick<FetchedMailMessage, "fromAddress" | "messageId" | "inReplyTo" | "references" | "dmarc"> {
+  const fromAddress = parsed.from?.value?.[0]?.address?.trim().toLowerCase();
+  const inReplyTo = messageIdTokens(parsed.inReplyTo);
+  const references = messageIdTokens(parsed.references);
+  const auth = parsed.headers?.get("authentication-results");
+  const topmost = headerText(Array.isArray(auth) ? auth[0] : auth);
+  const dmarc = /\bdmarc\s*=\s*(pass|fail)\b/i.exec(topmost)?.[1]?.toLowerCase();
+  return {
+    ...(fromAddress ? { fromAddress } : {}),
+    ...(parsed.messageId?.trim() ? { messageId: parsed.messageId.trim() } : {}),
+    ...(inReplyTo.length > 0 ? { inReplyTo } : {}),
+    ...(references.length > 0 ? { references } : {}),
+    ...(dmarc === "pass" || dmarc === "fail" ? { dmarc } : {}),
+  };
+}
 
 /** 单附件落盘上限（对齐 ingest 侧 ~20MB）。 */
 export const MAX_MAIL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
@@ -125,7 +184,7 @@ export async function testImapConnection(
         const status = client.mailbox;
         const messageCount =
           status && typeof status === "object" && "exists" in status
-            ? Number((status as { exists?: number }).exists ?? 0)
+            ? ((status as { exists?: number }).exists ?? 0)
             : undefined;
         return { ok: true as const, mailbox: "INBOX", messageCount };
       } finally {
@@ -171,7 +230,7 @@ export async function fetchImapMessages(
       const status = client.mailbox;
       const exists =
         status && typeof status === "object" && "exists" in status
-          ? Number((status as { exists?: number }).exists ?? 0)
+          ? ((status as { exists?: number }).exists ?? 0)
           : 0;
       if (exists <= 0) {
         return [];
@@ -184,38 +243,102 @@ export async function fetchImapMessages(
         source: true,
         internalDate: true,
       })) {
-        const uid = String(msg.uid);
-        const source = msg.source;
-        if (!source) {
-          continue;
+        const parsed = await parseImapMessage(account, msg);
+        if (parsed) {
+          out.push(parsed);
         }
-        const parsed = await simpleParser(source);
-        const attachments = (parsed.attachments ?? []).map((att) => ({
-          name: att.filename?.trim() || `attachment-${uid}`,
-          content: Buffer.isBuffer(att.content) ? att.content : Buffer.from(att.content),
-          contentType: att.contentType,
-        }));
-        const receivedAt =
-          (msg.internalDate instanceof Date
-            ? msg.internalDate.toISOString()
-            : parsed.date?.toISOString()) || new Date().toISOString();
-        out.push({
-          id: `imap-${account.id.slice(0, 8)}-${uid}`,
-          from: formatAddress(parsed.from as never) || account.email,
-          to: formatAddress(parsed.to as never),
-          subject: parsed.subject?.trim() || "(无主题)",
-          receivedAt,
-          bodyText: (
-            parsed.text ||
-            (typeof parsed.html === "string" ? parsed.html.replace(/<[^>]+>/g, " ") : "") ||
-            ""
-          )
-            .trim()
-            .slice(0, 20_000),
-          attachments,
-        });
       }
       return out.toSorted((a, b) => b.receivedAt.localeCompare(a.receivedAt));
+    } finally {
+      lock.release();
+    }
+  });
+}
+
+async function parseImapMessage(
+  account: MailAccount,
+  msg: FetchMessageObject,
+): Promise<FetchedMailMessage | undefined> {
+  const uid = String(msg.uid);
+  const source = msg.source;
+  if (!source) {
+    return undefined;
+  }
+  const parsed = await simpleParser(source);
+  const attachments = (parsed.attachments ?? []).map((att) => ({
+    name: att.filename?.trim() || `attachment-${uid}`,
+    content: Buffer.isBuffer(att.content) ? att.content : Buffer.from(att.content),
+    contentType: att.contentType,
+  }));
+  const receivedAt =
+    (msg.internalDate instanceof Date
+      ? msg.internalDate.toISOString()
+      : parsed.date?.toISOString()) || new Date().toISOString();
+  return {
+    id: `imap-${account.id.slice(0, 8)}-${uid}`,
+    from: formatAddress(parsed.from as never) || account.email,
+    to: formatAddress(parsed.to as never),
+    subject: parsed.subject?.trim() || "(无主题)",
+    receivedAt,
+    bodyText: (
+      parsed.text ||
+      (typeof parsed.html === "string" ? parsed.html.replace(/<[^>]+>/g, " ") : "") ||
+      ""
+    )
+      .trim()
+      .slice(0, 20_000),
+    attachments,
+    ...threadFieldsFromParsedMail(parsed),
+  };
+}
+
+export type ImapIncrementalFetch = {
+  messages: FetchedMailMessage[];
+  uidValidity: string;
+  /** 本批处理到的最大 UID；下次从它之后接着拉。 */
+  lastUid: number;
+};
+
+/**
+ * 收案邮箱增量拉取：只拉 UID 大于上次水位的信，从旧到新每批最多 limit 封。
+ * UIDVALIDITY 变了（服务器重建了信箱）就从最近 limit 封重新开始，靠收件库去重兜底。
+ */
+export async function fetchImapMessagesSince(
+  account: MailAccount,
+  lawMindRoot: string,
+  opts: { sinceUid?: number; uidValidity?: string; limit?: number } = {},
+): Promise<ImapIncrementalFetch> {
+  const limit = Math.min(50, Math.max(1, opts.limit ?? 25));
+  return withImapClient(account, lawMindRoot, async (client) => {
+    const lock = await client.getMailboxLock("INBOX");
+    try {
+      const status = client.mailbox;
+      const uidValidity =
+        status && typeof status === "object" && "uidValidity" in status
+          ? String(status.uidValidity)
+          : "";
+      const since = opts.sinceUid;
+      const resume = since !== undefined && opts.uidValidity === uidValidity;
+      const found = resume
+        ? await client.search({ uid: `${since + 1}:*` }, { uid: true })
+        : await client.search({ all: true }, { uid: true });
+      const all = (found || []).toSorted((a, b) => a - b);
+      const uids = resume ? all.filter((u) => u > (since ?? 0)).slice(0, limit) : all.slice(-limit);
+      if (uids.length === 0) {
+        return { messages: [], uidValidity, lastUid: resume ? (since ?? 0) : 0 };
+      }
+      const out: FetchedMailMessage[] = [];
+      for await (const msg of client.fetch(
+        uids.join(","),
+        { uid: true, envelope: true, source: true, internalDate: true },
+        { uid: true },
+      )) {
+        const parsed = await parseImapMessage(account, msg);
+        if (parsed) {
+          out.push(parsed);
+        }
+      }
+      return { messages: out, uidValidity, lastUid: Math.max(...uids) };
     } finally {
       lock.release();
     }

@@ -2,6 +2,7 @@
  * Sync remote mailbox → cases/<matterId>/mail/inbox JSON (+ attachments).
  */
 
+import { rememberIntakeThreadRef } from "../intake/store.js";
 import { writeMatterMailMessage, type LocalMailMessage } from "../platform/lawyer-automations.js";
 import { fetchGraphMessages, testGraphMailConnection } from "./graph-mail.js";
 import { sendGraphMail } from "./graph-mail.js";
@@ -33,7 +34,7 @@ export type SyncInboxResult =
     }
   | { ok: false; error: string; hint?: string; accountId?: string };
 
-async function fetchForAccount(
+export async function fetchMessagesForAccount(
   account: MailAccount,
   lawMindRoot: string,
   limit: number,
@@ -95,7 +96,7 @@ export async function syncMailAccountToMatter(
     return { ok: false, error: "account_disabled", hint: "请先启用该邮箱账号。", accountId };
   }
   try {
-    const messages = await fetchForAccount(account, lawMindRoot, opts.limit ?? 25, {
+    const messages = await fetchMessagesForAccount(account, lawMindRoot, opts.limit ?? 25, {
       includeBody: opts.includeBody,
     });
     const contacts = account.watchContacts ?? [];
@@ -131,18 +132,33 @@ export async function syncMailAccountToMatter(
   }
 }
 
-/** Sync preferred account for matter (used by automations tick). */
+/**
+ * Sync preferred account for matter (used by automations tick).
+ * 配了收案邮箱后只同步明确绑在本案的邮箱：收案邮箱的来信由判案归档进本地匣，
+ * 不能被某个案件的办件整箱拉走。
+ */
 export async function syncMatterMailbox(
   workspaceDir: string,
   lawMindRoot: string,
   matterId: string,
   opts: { limit?: number; includeBody?: boolean } = {},
-): Promise<SyncInboxResult | { ok: true; skipped: true; reason: string }> {
-  const account = resolveMailAccountForMatter(workspaceDir, matterId);
-  if (!account) {
+): Promise<
+  SyncInboxResult | { ok: true; skipped: true; reason: "no_mail_account" | "intake_inbox" }
+> {
+  const enabled = listMailAccounts(workspaceDir).filter((a) => a.enabled);
+  const hasIntake = enabled.some((a) => a.intakeInbox === true);
+  const account = enabled.find((a) => a.intakeInbox !== true && a.matterId === matterId);
+  if (account) {
+    return syncMailAccountToMatter(workspaceDir, lawMindRoot, account.id, matterId, opts);
+  }
+  if (hasIntake) {
+    return { ok: true, skipped: true, reason: "intake_inbox" };
+  }
+  const fallback = enabled.find((a) => a.intakeInbox !== true && !a.matterId);
+  if (!fallback) {
     return { ok: true, skipped: true, reason: "no_mail_account" };
   }
-  return syncMailAccountToMatter(workspaceDir, lawMindRoot, account.id, matterId, opts);
+  return syncMailAccountToMatter(workspaceDir, lawMindRoot, fallback.id, matterId, opts);
 }
 
 export async function sendMailViaAccount(
@@ -187,10 +203,19 @@ export async function sendMailViaAccount(
   if (!result.ok) {
     return result;
   }
+  const messageId = "messageId" in result ? result.messageId : undefined;
+  if (messageId) {
+    try {
+      // 对方回这封信时凭 In-Reply-To 认回本案。
+      rememberIntakeThreadRef(workspaceDir, messageId, matterId);
+    } catch {
+      /* 记线程失败不影响已发出的信 */
+    }
+  }
   return {
     ok: true,
     via: account.email,
-    messageId: "messageId" in result ? result.messageId : undefined,
+    messageId,
   };
 }
 

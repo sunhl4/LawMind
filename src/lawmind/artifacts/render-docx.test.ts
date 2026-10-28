@@ -405,6 +405,52 @@ describe("renderDocxWithOptions", () => {
     expect(documentXml).not.toContain("免责声明");
   });
 
+  it("renders a formal document without memo fields, summary or disclaimer", async () => {
+    const draft = makeDraft({
+      title: "委托代理合同（草案）",
+      summary: "不应出现的执行摘要",
+      deliverableType: "contract.general",
+      reviewNotes: ["内部审阅备注"],
+      sections: [
+        {
+          heading: "",
+          body: "草案 · 由 LawMind 生成，须律师核对后使用。\n委托人：张三\n受托人：示例律师事务所",
+          citations: [],
+        },
+        { heading: "一、委托事项", body: "办理货款纠纷。", citations: [] },
+      ],
+    });
+    const result = await renderDocxWithOptions(draft, outputDir, {
+      templateVariant: "formalDocument",
+    });
+    expect(result.ok).toBe(true);
+    const data = await fs.readFile(result.outputPath!);
+    const zip = await JSZip.loadAsync(data);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    expect(documentXml).toContain("委托代理合同（草案）");
+    expect(documentXml).toContain("草案 · 由 LawMind 生成");
+    expect(documentXml).toContain("委托人：张三");
+    expect(documentXml).toContain("一、委托事项");
+    expect(documentXml).not.toContain("不应出现的执行摘要");
+    expect(documentXml).not.toContain("成稿日期：");
+    expect(documentXml).not.toContain("合同类交付物");
+    expect(documentXml).not.toContain("审阅备注");
+    expect(documentXml).not.toContain("内部审阅备注");
+    expect(documentXml).not.toContain("免责声明");
+  });
+
+  it("can skip the memo disclaimer for signable documents", async () => {
+    const result = await renderDocxWithOptions(makeDraft(), outputDir, {
+      skipDisclaimer: true,
+    });
+    expect(result.ok).toBe(true);
+    const data = await fs.readFile(result.outputPath!);
+    const zip = await JSZip.loadAsync(data);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    expect(documentXml).not.toContain("免责声明");
+    expect(documentXml).not.toContain("不构成正式法律意见");
+  });
+
   it("renders see-also citations with urls as clickable hyperlinks", async () => {
     const draft = makeDraft({
       sections: [

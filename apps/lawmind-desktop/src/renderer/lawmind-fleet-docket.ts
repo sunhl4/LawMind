@@ -7,6 +7,7 @@ import type { ActionSummaryPayload } from "./lawmind-requires-action";
 import { isFleetSettledVisible } from "../../../../src/lawmind/platform/agent-fleet.ts";
 import { collapseFleetRunsByWork } from "./lawmind-fleet-queue";
 import { mergeFleetQueueRows } from "./lawmind-fleet-queue-merge";
+import { MATTER_RUN_WAIT_REASON_LABELS_ZH } from "../../../../src/lawmind/platform/matter-run-wait.ts";
 
 export type DocketBandId = "needsYou" | "inFlight" | "settled";
 
@@ -38,6 +39,8 @@ const FOLLOW_KINDS = new Set<AgentRunSummary["kind"]>([
 const PLACEHOLDER_TITLES = new Set(["New Chat", "新对话"]);
 
 const SOURCE_SUBTITLES = new Set([
+  "统一收件",
+  "案件运行",
   "对话 Agent",
   "委派子会话",
   "委派",
@@ -103,9 +106,15 @@ export function docketRowStatusLabel(run: AgentRunSummary): string {
   if (run.kind === "word_check") {
     return "待核对";
   }
+  if (run.kind === "matter_run_wait") {
+    return "等超时";
+  }
+  if (run.intakeItemId || run.id.startsWith("intake:")) {
+    return "待归案";
+  }
   switch (run.status) {
     case "awaiting_review":
-      return "待签批";
+      return run.intakeItemId || run.id.startsWith("intake:") ? "待归案" : "待签批";
     case "awaiting_clarification":
       return "待补充";
     case "awaiting_approval":
@@ -151,6 +160,13 @@ export function docketRowTone(
 }
 
 export function docketSourceLabel(run: AgentRunSummary): string | null {
+  if (run.intakeItemId != null || run.id.startsWith("intake:")) {
+    return "统一收件";
+  }
+  if (run.kind === "matter_run_wait") {
+    const reason = run.matterRunWait?.reason;
+    return reason ? MATTER_RUN_WAIT_REASON_LABELS_ZH[reason] : "案件运行";
+  }
   if (run.kind === "delegation") {
     return "交给另一位助手";
   }
@@ -193,13 +209,17 @@ export function docketStopLine(run: AgentRunSummary): string {
     case "awaiting_clarification":
       return "办不下去，要你补一句。";
     case "awaiting_review":
-      return "稿已经写出。要改修订，打开中间栏。";
+      return run.intakeItemId || run.id.startsWith("intake:")
+        ? "收件已入库，等你归案。"
+        : "稿已经写出。要改修订，打开中间栏。";
     case "interrupted":
       return "办到一半停住了。已完成的步骤还在。";
     case "awaiting_approval":
       return run.kind === "automation_send"
         ? "信已经写好，发出前要你看过。"
-        : "这一步要你决定后才能继续。";
+        : run.kind === "matter_run_wait"
+          ? "等外部事件超时了。这一步停在这里，要你决定。"
+          : "这一步要你决定后才能继续。";
     case "running":
       return step ? `正在办。${step}` : "正在办。";
     case "queued":

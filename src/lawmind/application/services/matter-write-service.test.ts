@@ -32,7 +32,9 @@ import {
   transitionDeliverable,
 } from "./deliverable-service.js";
 import {
+  addMatterPartyContact,
   createMatterIfMissing,
+  removeMatterPartyContact,
   setMatterStrategy,
   updateMatterProfile,
   updateMatterStatus,
@@ -114,6 +116,73 @@ describe("Matter write services (W3)", () => {
       /matter_parties_cap:32/,
     );
     expect(loadMatter(workspaceDir, "m-cap")?.parties ?? []).toHaveLength(0);
+  });
+
+  it("keeps remembered contacts when the party editor saves parties without them", async () => {
+    createMatterIfMissing(workspaceDir, { matterId: "m-contacts", title: "联系人案" });
+    await updateMatterProfile(workspaceDir, {
+      matterId: "m-contacts",
+      parties: [
+        { partyId: "p-client", name: "甲公司", role: "client" },
+        { partyId: "p-counterparty", name: "乙公司", role: "counterparty" },
+      ],
+    });
+    const added = addMatterPartyContact(workspaceDir, {
+      matterId: "m-contacts",
+      partyId: "p-client",
+      contact: { kind: "email", value: " Legal@Jia.CN ", verified: true, source: "lawyer" },
+    });
+    expect(added?.parties?.[0]?.contacts).toEqual([
+      { kind: "email", value: "legal@jia.cn", verified: true, source: "lawyer" },
+    ]);
+    expect(
+      addMatterPartyContact(workspaceDir, {
+        matterId: "m-contacts",
+        partyId: "p-missing",
+        contact: { kind: "email", value: "x@y.cn" },
+      }),
+    ).toBeUndefined();
+
+    const resaved = await updateMatterProfile(workspaceDir, {
+      matterId: "m-contacts",
+      parties: [
+        { partyId: "p-client", name: "甲有限公司", role: "client", standing: "原告" },
+        { partyId: "p-counterparty", name: "乙公司", role: "counterparty" },
+      ],
+    });
+    expect(resaved?.parties?.[0]?.contacts?.[0]?.value).toBe("legal@jia.cn");
+
+    const cleared = await updateMatterProfile(workspaceDir, {
+      matterId: "m-contacts",
+      parties: [{ partyId: "p-client", name: "甲有限公司", role: "client", contacts: [] }],
+    });
+    expect(cleared?.parties?.[0]?.contacts).toBeUndefined();
+  });
+
+  it("removeMatterPartyContact drops the contact from every party when no partyId is given", async () => {
+    createMatterIfMissing(workspaceDir, { matterId: "m-forget", title: "忘记发件人" });
+    await updateMatterProfile(workspaceDir, {
+      matterId: "m-forget",
+      parties: [
+        {
+          partyId: "p-client",
+          name: "甲公司",
+          role: "client",
+          contacts: [
+            { kind: "email", value: "a@jia.cn", verified: true },
+            { kind: "phone", value: "+86 138-0000-0000", verified: true },
+          ],
+        },
+      ],
+    });
+    const saved = removeMatterPartyContact(workspaceDir, {
+      matterId: "m-forget",
+      kind: "email",
+      value: "A@jia.cn",
+    });
+    expect(saved?.parties?.[0]?.contacts).toEqual([
+      { kind: "phone", value: "13800000000", verified: true },
+    ]);
   });
 
   it("updateMatterStatus and setMatterStrategy mutate the truth source", () => {

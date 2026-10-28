@@ -85,6 +85,13 @@ export type Matter = {
     standing?: string;
     serviceAddress?: string;
     serviceMethod?: "mail" | "electronic" | "in_person" | "unknown";
+    contacts?: Array<{
+      kind: "email" | "phone" | "wecom";
+      value: string;
+      verified?: boolean;
+      source?: "lawyer" | "intake_confirmed" | "document";
+      addedAt?: string;
+    }>;
   }>;
   docket?: MatterDocket;
   createdAt?: string;

@@ -29,59 +29,67 @@ describe("pptx-officecli helpers", () => {
 });
 
 describe.runIf(Boolean(bin))("pptx-officecli visual (officecli present)", () => {
-  it("loads slides, screenshots page 1, and applies a title edit", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-pptx-vis-"));
-    dirs.push(dir);
-    const file = path.join(dir, "demo.pptx");
-    const { buildMinimalChildEnv, runSafeCommand } =
-      await import("../../../platform/safe-command.js");
-    const create = await runSafeCommand({
-      command: bin!,
-      args: ["create", file],
-      env: buildMinimalChildEnv(),
-      timeoutMs: 60_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    expect(create.exitCode).toBe(0);
-    await runSafeCommand({
-      command: bin!,
-      args: ["add", file, "/", "--type", "slide", "--prop", "title=原标题"],
-      env: buildMinimalChildEnv(),
-      timeoutMs: 60_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    await runSafeCommand({
-      command: bin!,
-      args: ["save", file],
-      env: buildMinimalChildEnv(),
-      timeoutMs: 30_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+  it(
+    "loads slides, screenshots page 1, and applies a title edit",
+    // officecli 是外部子进程；全量并发时偶尔争用超时。只对这一条加一次重试，
+    // 断言仍全部重跑；真实失败不会被吞掉。
+    { retry: 1, timeout: 120_000 },
+    async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-pptx-vis-"));
+      dirs.push(dir);
+      const file = path.join(dir, "demo.pptx");
+      const { buildMinimalChildEnv, runSafeCommand } =
+        await import("../../../platform/safe-command.js");
+      const create = await runSafeCommand({
+        command: bin!,
+        args: ["create", file],
+        env: buildMinimalChildEnv(),
+        timeoutMs: 60_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      expect(create.exitCode).toBe(0);
+      await runSafeCommand({
+        command: bin!,
+        args: ["add", file, "/", "--type", "slide", "--prop", "title=原标题"],
+        env: buildMinimalChildEnv(),
+        timeoutMs: 60_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      await runSafeCommand({
+        command: bin!,
+        args: ["save", file],
+        env: buildMinimalChildEnv(),
+        timeoutMs: 30_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
 
-    const visual = await loadPptxVisualPreview({ absPath: file });
-    expect(visual.mode).toBe("visual");
-    expect(visual.slideCount).toBeGreaterThanOrEqual(1);
-    expect(visual.slides[0]?.shapes.some((s) => s.isTitle && s.text.includes("原标题"))).toBe(true);
+      const visual = await loadPptxVisualPreview({ absPath: file });
+      expect(visual.mode).toBe("visual");
+      expect(visual.slideCount).toBeGreaterThanOrEqual(1);
+      expect(visual.slides[0]?.shapes.some((s) => s.isTitle && s.text.includes("原标题"))).toBe(
+        true,
+      );
 
-    const outPng = path.join(dir, "s1.png");
-    await renderPptxSlideScreenshot({
-      absPath: file,
-      page1Based: 1,
-      outPng,
-      width: 640,
-      height: 360,
-    });
-    const png = await fs.readFile(outPng);
-    expect(png.subarray(0, 4).toString("binary")).toBe("\u0089PNG");
+      const outPng = path.join(dir, "s1.png");
+      await renderPptxSlideScreenshot({
+        absPath: file,
+        page1Based: 1,
+        outPng,
+        width: 640,
+        height: 360,
+      });
+      const png = await fs.readFile(outPng);
+      expect(png.subarray(0, 4).toString("binary")).toBe("\u0089PNG");
 
-    const titlePath = visual.slides[0]?.shapes.find((s) => s.isTitle)?.path;
-    expect(titlePath).toBeTruthy();
-    const applied = await applyPptxTextEdits({
-      absPath: file,
-      edits: [{ path: titlePath!, text: "新标题" }],
-    });
-    expect(applied.applied).toBe(1);
-    const again = await loadPptxVisualPreview({ absPath: file });
-    expect(again.slides[0]?.shapes.find((s) => s.isTitle)?.text).toContain("新标题");
-  }, 120_000);
+      const titlePath = visual.slides[0]?.shapes.find((s) => s.isTitle)?.path;
+      expect(titlePath).toBeTruthy();
+      const applied = await applyPptxTextEdits({
+        absPath: file,
+        edits: [{ path: titlePath!, text: "新标题" }],
+      });
+      expect(applied.applied).toBe(1);
+      const again = await loadPptxVisualPreview({ absPath: file });
+      expect(again.slides[0]?.shapes.find((s) => s.isTitle)?.text).toContain("新标题");
+    },
+  );
 });

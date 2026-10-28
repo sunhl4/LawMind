@@ -13744,6 +13744,137 @@ button.lm-side-chat-session-forked-btn {
   justify-content: flex-end;
 }
 
+.lm-matter-admission-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lm-matter-admission-owner {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.lm-matter-admission-owner .lm-field {
+  flex: 1;
+}
+
+.lm-matter-admission-list,
+.lm-matter-admission-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.lm-matter-admission-list li,
+.lm-matter-admission-hits li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--surface-2);
+}
+
+.lm-matter-admission-hits li {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  background: color-mix(in srgb, var(--danger) 6%, var(--surface-2));
+}
+
+.lm-matter-admission-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lm-matter-admission-add .lm-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.lm-matter-admission-scan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.lm-matter-admission-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.lm-matter-admission-decline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.lm-matter-admission-decline .lm-btn {
+  align-self: flex-end;
+}
+
+.lm-matter-admission-timeline {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-matter-admission-timeline > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lm-matter-admission-timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lm-matter-admission-timeline-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.lm-matter-admission-timeline-list time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.lm-matter-engagement-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lm-matter-engagement-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .lm-matter-engagement-form {
+    grid-template-columns: 1fr;
+  }
+}
+
 .lm-matter-cockpit-card {
   padding: 14px 15px;
   border: 1px solid var(--border);
@@ -15953,6 +16084,240 @@ button.lm-side-chat-session-forked-btn {
 .lm-review-table-grid td .lm-input {
   width: 100%;
   min-width: 96px;
+}
+
+/* ── 案件成果物：时间线 / 大事记 / 思维导图 ───────────────────────
+   只复用既有基元（lm-lawyer-pane / lm-timeline* / lm-meta）；新增规则
+   一律走 token，不引入第二套边框或滚动条。 */
+.lm-matter-artifact-panel .lm-matter-artifact-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-matter-artifact-panel .lm-matter-artifact-section:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.lm-matter-artifact-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  cursor: pointer;
+  list-style: none;
+}
+
+.lm-matter-artifact-summary::-webkit-details-marker {
+  display: none;
+}
+
+.lm-matter-artifact-year-label {
+  margin: 6px 0 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lm-matter-artifact-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.lm-matter-artifact-evidence-chip {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--accent-dim) 55%, transparent);
+  align-self: flex-start;
+  word-break: break-all;
+}
+
+.lm-matter-artifact-issues,
+.lm-matter-artifact-outline-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.lm-matter-artifact-outline {
+  margin-top: 6px;
+}
+
+.lm-matter-mindmap-scroll {
+  overflow: auto;
+  max-height: min(360px, 46vh);
+  margin-top: 6px;
+}
+
+.lm-matter-mindmap {
+  display: block;
+  max-width: none;
+}
+
+.lm-matter-mindmap-edge {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.25;
+}
+
+.lm-matter-mindmap-node rect {
+  fill: var(--surface-2);
+  stroke: var(--border-md);
+  stroke-width: 1;
+}
+
+.lm-matter-mindmap-node.is-issue rect {
+  fill: var(--accent-dim);
+  stroke: var(--accent-border);
+}
+
+.lm-matter-mindmap-node.is-party rect {
+  fill: var(--accent-cool-dim);
+  stroke: var(--accent-cool-border);
+}
+
+.lm-matter-mindmap-node.is-evidence rect {
+  fill: color-mix(in srgb, var(--surface-3) 80%, transparent);
+  stroke: var(--border-strong);
+}
+
+.lm-matter-mindmap-node text {
+  fill: var(--text);
+  font-size: 12px;
+  dominant-baseline: middle;
+}
+
+.lm-matter-artifact-evidence-chip.is-link {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.lm-matter-artifact-evidence-chip.is-link:hover {
+  background: color-mix(in srgb, var(--accent-dim) 85%, transparent);
+  color: var(--text);
+}
+
+.lm-matter-artifact-evidence-chip.is-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ── 案件交付包：分节清单 / 受众预览 / 整包导出 ─────────────────
+   只复用既有基元与 token；不新增滚动条或输入框外观。 */
+.lm-delivery-packet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lm-delivery-packet-audience {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lm-delivery-packet-audience .lm-input {
+  width: auto;
+  min-width: 96px;
+}
+
+.lm-delivery-packet-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
+
+.lm-delivery-packet-issues {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.lm-delivery-packet-issues.is-blocker {
+  color: var(--danger-text);
+}
+
+.lm-delivery-packet-issues.is-warning {
+  color: var(--warn);
+}
+
+.lm-delivery-packet-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.lm-delivery-packet-section {
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-delivery-packet-section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.lm-delivery-packet-section-title {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.lm-delivery-packet-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--r-sm);
+}
+
+.lm-delivery-packet-row:hover {
+  background: color-mix(in srgb, var(--accent-dim) 40%, transparent);
+}
+
+.lm-delivery-packet-row input[type="checkbox"] {
+  margin-top: 3px;
+}
+
+.lm-delivery-packet-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.lm-delivery-packet-copy .lm-meta {
+  word-break: break-all;
+}
+
+.lm-delivery-packet-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.lm-delivery-packet-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 /* 会议室 — 全局左栏（与对话同构）+ 页内场次栏 + 右栏讨论办理 */
 
@@ -21627,6 +21992,73 @@ label.lm-settings-row {
   color: var(--accent);
 }
 
+
+/* 本所剧本：列表行与条件编辑，全部沿用设置页的软底与 token。 */
+.lm-playbook-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-playbook-row:last-of-type {
+  border-bottom: 0;
+}
+
+.lm-playbook-row-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.lm-playbook-criteria {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lm-playbook-criterion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+
+.lm-playbook-criterion-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lm-playbook-criterion-line .lm-input {
+  flex: 1 1 160px;
+  min-width: 140px;
+}
+
+.lm-playbook-criterion-id {
+  flex: 0 1 120px;
+}
+
+.lm-playbook-clause-types {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.lm-playbook-clause-types label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* ── end imported: settings ── */
 
 /* ── imported: agent-fleet ── */
@@ -23308,6 +23740,93 @@ button.lm-agents-wb-pill:hover {
   box-shadow: var(--shadow-xs);
 }
 
+/* 案件步骤「等待超时」：只列事实与两个决定，不另起一套卡片样式。 */
+.lm-matter-wait-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+.lm-matter-wait-kicker {
+  margin: 0;
+  font-size: var(--fs-xs, 12px);
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+}
+
+.lm-matter-wait-title {
+  margin: 0;
+  font-size: var(--fs-lg, 15px);
+  font-weight: var(--fw-semibold, 600);
+  line-height: var(--lh-snug);
+  color: var(--text-1);
+}
+
+.lm-matter-wait-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1, 4px) var(--space-3, 12px);
+  margin: var(--space-3, 12px) 0 0;
+  font-size: var(--fs-sm, 13px);
+}
+
+.lm-matter-wait-facts dt {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.lm-matter-wait-facts dd {
+  margin: 0;
+  color: var(--text-1);
+}
+
+.lm-matter-wait-steps {
+  margin: var(--space-3, 12px) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+
+.lm-matter-wait-step {
+  display: grid;
+  grid-template-columns: 1fr max-content max-content;
+  gap: var(--space-2, 8px);
+  align-items: baseline;
+  padding: 3px 0;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-sm, 13px);
+  color: var(--muted);
+}
+
+.lm-matter-wait-step:first-child {
+  border-top: 0;
+}
+
+.lm-matter-wait-step-title {
+  color: var(--text-1);
+}
+
+.lm-matter-wait-step[data-status="failed"] .lm-matter-wait-step-status {
+  color: var(--danger-text);
+}
+
+.lm-matter-wait-step[data-status="done"] .lm-matter-wait-step-status {
+  color: var(--ok);
+}
+
+.lm-matter-wait-why,
+.lm-matter-wait-note {
+  margin: var(--space-3, 12px) 0 0;
+}
+
+.lm-matter-wait-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  margin-top: var(--space-3, 12px);
+}
+
 /* 补充表：紧凑办理区，去掉套娃小卡片与巨型 textarea */
 .lm-agents-wb-block--form {
   display: flex;
@@ -23792,6 +24311,517 @@ html.lm-theme-dark .lm-tool-args-edit-textarea {
 
 .lm-agents-wb-loading {
   padding: 16px 20px;
+}
+
+/* 待归案来件：原文与判案线索。列表行仍是低饱和面，不加白底硬框卡片。 */
+.lm-intake {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lm-intake-facts {
+  display: grid;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.lm-intake-facts > div {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.lm-intake-facts dt {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.lm-intake-facts dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.lm-intake-facts dd[data-tone="warn"] {
+  color: var(--warn);
+}
+
+.lm-intake-heading {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: var(--fw-semibold);
+  color: var(--text-2);
+  letter-spacing: 0.02em;
+}
+
+.lm-intake-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lm-intake-candidate {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.lm-intake-candidate[aria-pressed="true"] {
+  border-color: var(--accent-border);
+  background: var(--accent-dim);
+}
+
+.lm-intake-candidate:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-accent);
+}
+
+.lm-intake-candidate-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lm-intake-candidate-title {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.lm-intake-candidate-compare {
+  margin: 8px 0 12px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.lm-intake-candidate-compare table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: var(--lh-snug);
+}
+
+.lm-intake-candidate-compare th,
+.lm-intake-candidate-compare td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.lm-intake-candidate-compare tr:last-child th,
+.lm-intake-candidate-compare tr:last-child td {
+  border-bottom: none;
+}
+
+.lm-intake-candidate-compare thead th {
+  color: var(--muted);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+
+.lm-intake-candidate-compare tbody th {
+  color: var(--muted);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
+.lm-intake-candidate-compare tbody td {
+  color: var(--text);
+}
+
+.lm-intake-candidate-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--border-md);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.lm-intake-candidate-badge[data-strong="true"] {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.lm-intake-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lm-intake-key {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.lm-intake-key[data-strong="true"] {
+  color: var(--text);
+}
+
+.lm-intake-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.lm-intake-remember {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  line-height: var(--lh-body);
+}
+
+.lm-intake-remember input {
+  margin-top: 2px;
+}
+
+.lm-intake-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lm-intake-attachments li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.lm-intake-attachments li:last-child {
+  border-bottom: none;
+}
+
+.lm-intake-attachment-name {
+  font-size: 13px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.lm-intake-body {
+  max-height: 18rem;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: var(--lh-body);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.lm-intake-attachment-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.lm-intake-attachment-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lm-intake-attachment-preview-image {
+  max-width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+.lm-intake-attachment-preview-frame {
+  width: 100%;
+  height: 460px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+.lm-intake-attachment-preview-text {
+  max-height: 360px;
+  margin: 0;
+  padding: 10px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: var(--lh-body);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.lm-intake-audio {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.lm-intake-speakers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.lm-intake-speaker-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lm-intake-speaker-field .lm-input {
+  width: 10rem;
+}
+
+.lm-intake-segments {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lm-intake-segment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  line-height: var(--lh-body);
+}
+
+.lm-intake-segment:last-child {
+  border-bottom: none;
+}
+
+.lm-intake-seek {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.lm-intake-seek:hover {
+  color: var(--text);
+}
+
+.lm-intake-seek:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.lm-intake-speaker {
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.lm-intake-edited {
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.lm-intake-segment-text {
+  flex: 1 1 16rem;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.lm-intake-segment-edit {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.lm-intake-segment-edit textarea {
+  flex: 1 1 16rem;
+  min-height: 3.5rem;
+  resize: vertical;
+}
+
+.lm-intake-lead-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+
+.lm-intake-lead-accept {
+  align-self: flex-start;
+  margin-top: 10px;
+}
+
+/* 工作台 · 待归案：列表 + 详情两栏，窄屏叠成一列。 */
+.lm-intake-inbox {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.lm-intake-inbox-head h2 {
+  margin: 2px 0 4px;
+  font-size: 1.05rem;
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.lm-intake-inbox-body {
+  display: grid;
+  grid-template-columns: minmax(15rem, 20rem) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 980px) {
+  .lm-intake-inbox-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.lm-intake-inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lm-intake-inbox-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.lm-intake-inbox-row:hover {
+  background: var(--surface-3);
+}
+
+.lm-intake-inbox-row[aria-pressed="true"] {
+  border-color: var(--accent-border);
+  background: var(--accent-dim);
+}
+
+.lm-intake-inbox-row:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-accent);
+}
+
+.lm-intake-inbox-row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.lm-intake-inbox-kind {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  background: var(--warn-dim);
+  color: var(--warn);
+  font-size: var(--fs-xs);
+}
+
+.lm-intake-inbox-title {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.lm-intake-inbox-meta {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.lm-intake-inbox-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  max-height: 32rem;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.lm-intake-inbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
 }
 
 /* ── end imported: agent-fleet ── */

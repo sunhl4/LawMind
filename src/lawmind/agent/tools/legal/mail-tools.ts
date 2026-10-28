@@ -7,6 +7,11 @@ import { randomUUID } from "node:crypto";
 import { resolveLawMindRoot } from "../../../assistants/store.js";
 import { isValidMatterId } from "../../../cases/matter-id.js";
 import {
+  resolveOutboundPacket,
+  type OutboundPacketBinding,
+} from "../../../delivery/packet-outbound.js";
+import { admissionGateMessage, checkAdmissionGate } from "../../../intake/admission.js";
+import {
   applyMailSendFormat,
   resolveMailAccountForMatter,
   resolveOutboundAttachmentPaths,
@@ -167,7 +172,7 @@ export const sendEmail: AgentTool = {
   definition: {
     name: "send_email",
     description:
-      "拟好邮件并写入本案「待发信」（不真正发出）。调用后回合照常完成，不要等待批准；律师在案件页/待发列表核对后点「批准发送」才会发出。已配置邮箱时批准后走 SMTP/Graph，并归档到本案 mail/sent。可选 attachment_paths（工作区相对路径）。",
+      "拟好邮件并写入本案「待发信」（不真正发出）。调用后回合照常完成，不要等待签批；律师在案件页/待发列表核对后点「签批发送」才会发出。已配置邮箱时签批后走 SMTP/Graph，并归档到本案 mail/sent。可选 attachment_paths（工作区相对路径）。",
     category: "system",
     parameters: {
       matter_id: { type: "string", description: "案件 ID", required: true },
@@ -178,6 +183,11 @@ export const sendEmail: AgentTool = {
         type: "array",
         description: "工作区相对路径附件列表（如 artifacts/xxx.tracked.docx）",
       },
+      packet_id: {
+        type: "string",
+        description:
+          "交付包 ID（可选）。提供后附件按整包顺序生成，签批绑定 packetId + packetHash；包外附件会被拒绝。",
+      },
     },
     riskLevel: "high",
   },
@@ -186,12 +196,40 @@ export const sendEmail: AgentTool = {
     const to = typeof params.to === "string" ? params.to.trim() : "";
     const subject = typeof params.subject === "string" ? params.subject.trim() : "";
     const body = typeof params.body === "string" ? params.body.trim() : "";
-    const attachmentRelativePaths = asStringArray(params.attachment_paths);
+    let attachmentRelativePaths = asStringArray(params.attachment_paths);
+    const packetId = typeof params.packet_id === "string" ? params.packet_id.trim() : "";
     if (!isValidMatterId(matterId)) {
       return { ok: false, error: "matter_id 无效。" };
     }
     if (!to || !subject) {
       return { ok: false, error: "to 与 subject 必填。" };
+    }
+    // P1 收案闸门：未接受委托的案件不能进入外发路径（含待发队列）。
+    const admissionGate = checkAdmissionGate(ctx.workspaceDir, matterId);
+    if (!admissionGate.allowed) {
+      return {
+        ok: false,
+        error: admissionGateMessage(admissionGate.reason),
+        data: { admissionGate: admissionGate.reason ?? null },
+      };
+    }
+    let packetBinding: OutboundPacketBinding | undefined;
+    if (packetId) {
+      const packet = resolveOutboundPacket(
+        ctx.workspaceDir,
+        matterId,
+        packetId,
+        attachmentRelativePaths,
+      );
+      if (!packet.ok) {
+        return {
+          ok: false,
+          error: packet.error,
+          ...(packet.blockers ? { data: { blockers: packet.blockers } } : {}),
+        };
+      }
+      attachmentRelativePaths = packet.attachmentRelativePaths;
+      packetBinding = packet.binding;
     }
     if (attachmentRelativePaths.length > 0) {
       const resolved = resolveOutboundAttachmentPaths(ctx.workspaceDir, attachmentRelativePaths);
@@ -199,7 +237,7 @@ export const sendEmail: AgentTool = {
         return { ok: false, error: resolved.error };
       }
     }
-    // 批准旗标只认服务端注入的布尔 true（模型自填副本已在 turn 边界剥除）。
+    // 签批旗标只认服务端注入的布尔 true（模型自填副本已在 turn 边界剥除）。
     // 仅服务旧会话遗留的「待我拍板」恢复路径；新回合一律走下方待发清单。
     const approved = params.__approved === true;
     const wall = ethicsWallBlocksOutbound(ctx.workspaceDir, matterId);
@@ -225,7 +263,7 @@ export const sendEmail: AgentTool = {
       attachmentRelativePaths,
     };
     if (!approved) {
-      // 端到端口径：外发不打断回合。写入交办待发（律师点「批准发送」才发出），
+      // 端到端口径：外发不打断回合。写入交办待发（律师点「签批发送」才发出），
       // 回合照常完成。真正发送走 /api/automations/inbox/:id/action approve_send。
       const formattedBody = payload.body;
       const stamp = classifyOutboundPrivilege({
@@ -250,9 +288,15 @@ export const sendEmail: AgentTool = {
           attachmentRelativePaths.length
             ? `附件：${attachmentRelativePaths.join("、")}`
             : "附件：（无）",
+          ...(packetBinding
+            ? [
+                `交付包：${packetBinding.packetId}（指纹 ${packetBinding.packetHash.slice(0, 8)}）`,
+                "签批绑定整个交付包；包内文件、顺序、封面或受众变化都必须重新签批。",
+              ]
+            : []),
           ...privilegeNotes.map((n) => `提示：${n}`),
           "",
-          "律师批准前不会发送。核对后在待发列表点击「批准发送」。",
+          "律师签批前不会发送。核对后在待发列表点击「签批发送」。",
         ]
           .filter(Boolean)
           .join("\n"),
@@ -269,6 +313,7 @@ export const sendEmail: AgentTool = {
             subject,
             body: formattedBody,
             attachmentRelativePaths,
+            ...(packetBinding ? { packet: packetBinding } : {}),
           }),
         },
       };
@@ -285,9 +330,12 @@ export const sendEmail: AgentTool = {
           subject,
           attachmentRelativePaths,
           audience: stamp.audience.kind,
+          ...(packetBinding
+            ? { packetId: packetBinding.packetId, packetHash: packetBinding.packetHash }
+            : {}),
           ...(privilegeNotes.length ? { privilegeNotes } : {}),
           message:
-            "已写入本案「待发信」，律师核对后点「批准发送」才会发出。请直接完成本轮回复，不要等待批准。",
+            "已写入本案「待发信」，律师核对后点「签批发送」才会发出。请直接完成本轮回复，不要等待签批。",
         },
       };
     }
@@ -316,7 +364,7 @@ export const prepareOutboundMail: AgentTool = {
   definition: {
     name: "prepare_outbound_mail",
     description:
-      "将待发邮件（可含审阅稿附件）写入交办「待拍板」，供律师批准发送。不会真正发信。用于邮件合同审阅改稿 handoff。",
+      "将待发邮件（可含审阅稿附件）写入交办「待拍板」，供律师签批发送。不会真正发信。用于邮件合同审阅改稿 handoff。",
     category: "system",
     parameters: {
       matter_id: { type: "string", description: "案件 ID", required: true },
@@ -329,6 +377,11 @@ export const prepareOutboundMail: AgentTool = {
       },
       draft_task_id: { type: "string", description: "关联正文草稿 taskId（可选）" },
       title: { type: "string", description: "待拍板标题（可选）" },
+      packet_id: {
+        type: "string",
+        description:
+          "交付包 ID（可选）。提供后附件按整包顺序生成，签批绑定 packetId + packetHash；包外附件会被拒绝。",
+      },
       ethics_wall_acknowledged: {
         type: "boolean",
         description: "若伦理墙拦截外发，律师确认不构成冲突或已完成披露时为 true。",
@@ -341,18 +394,28 @@ export const prepareOutboundMail: AgentTool = {
     const to = typeof params.to === "string" ? params.to.trim() : "";
     const subject = typeof params.subject === "string" ? params.subject.trim() : "";
     const body = typeof params.body === "string" ? params.body.trim() : "";
-    const attachmentRelativePaths = asStringArray(params.attachment_paths);
+    let attachmentRelativePaths = asStringArray(params.attachment_paths);
+    const packetId = typeof params.packet_id === "string" ? params.packet_id.trim() : "";
     const draftTaskId =
       typeof params.draft_task_id === "string" ? params.draft_task_id.trim() : undefined;
     const title =
       typeof params.title === "string" && params.title.trim()
         ? params.title.trim()
-        : "邮件合同审阅稿 · 待批准外发";
+        : "邮件合同审阅稿 · 待签批外发";
     if (!isValidMatterId(matterId)) {
       return { ok: false, error: "matter_id 无效。" };
     }
     if (!to || !subject) {
       return { ok: false, error: "to 与 subject 必填。" };
+    }
+    // P1 收案闸门：未接受委托的案件不能写待发清单。
+    const admissionGate = checkAdmissionGate(ctx.workspaceDir, matterId);
+    if (!admissionGate.allowed) {
+      return {
+        ok: false,
+        error: admissionGateMessage(admissionGate.reason),
+        data: { admissionGate: admissionGate.reason ?? null },
+      };
     }
     const lawyerAck = params.__approved === true;
     if (lawyerAck) {
@@ -376,6 +439,24 @@ export const prepareOutboundMail: AgentTool = {
           flags: wall.state?.flags ?? [],
         },
       };
+    }
+    let packetBinding: OutboundPacketBinding | undefined;
+    if (packetId) {
+      const packet = resolveOutboundPacket(
+        ctx.workspaceDir,
+        matterId,
+        packetId,
+        attachmentRelativePaths,
+      );
+      if (!packet.ok) {
+        return {
+          ok: false,
+          error: packet.error,
+          ...(packet.blockers ? { data: { blockers: packet.blockers } } : {}),
+        };
+      }
+      attachmentRelativePaths = packet.attachmentRelativePaths;
+      packetBinding = packet.binding;
     }
     if (attachmentRelativePaths.length > 0) {
       const resolved = resolveOutboundAttachmentPaths(ctx.workspaceDir, attachmentRelativePaths);
@@ -407,9 +488,15 @@ export const prepareOutboundMail: AgentTool = {
         attachmentRelativePaths.length
           ? `附件：${attachmentRelativePaths.join("、")}`
           : "附件：（无）",
+        ...(packetBinding
+          ? [
+              `交付包：${packetBinding.packetId}（指纹 ${packetBinding.packetHash.slice(0, 8)}）`,
+              "签批绑定整个交付包；包内文件、顺序、封面或受众变化都必须重新签批。",
+            ]
+          : []),
         ...privilegeNotes.map((n) => `提示：${n}`),
         "",
-        "律师批准前不会发送。可在文书台核对审阅痕迹后，于交办待拍板点击「批准发送」。",
+        "律师签批前不会发送。可在文书台核对审阅痕迹后，于交办待拍板点击「签批发送」。",
       ]
         .filter(Boolean)
         .join("\n"),
@@ -422,12 +509,13 @@ export const prepareOutboundMail: AgentTool = {
         body: formattedBody,
         attachmentRelativePaths:
           attachmentRelativePaths.length > 0 ? attachmentRelativePaths : undefined,
-        // 批准绑定这一版：批准后附件重新导出/正文改过都必须重新批准。
+        // 签批绑定这一版：签批后附件重新导出/正文改过都必须重新签批。
         binding: buildOutboundBinding(ctx.workspaceDir, {
           to,
           subject,
           body: formattedBody,
           attachmentRelativePaths,
+          ...(packetBinding ? { packet: packetBinding } : {}),
         }),
       },
     };
@@ -447,6 +535,9 @@ export const prepareOutboundMail: AgentTool = {
         subject,
         attachmentRelativePaths,
         audience: audience.kind,
+        ...(packetBinding
+          ? { packetId: packetBinding.packetId, packetHash: packetBinding.packetHash }
+          : {}),
         ...(audience.warning ? { audienceWarning: audience.warning } : {}),
         ...(stamp.privilege
           ? { privilegeCode: stamp.privilege.code, privilegeWarning: stamp.privilege.message }
@@ -455,8 +546,8 @@ export const prepareOutboundMail: AgentTool = {
           ? { attachmentPrivilegeFlags: stamp.attachmentFlags }
           : {}),
         message: privilegeNotes.length
-          ? `已写入待拍板，等待律师批准发送。${privilegeNotes.join(" ")}`
-          : "已写入待拍板，等待律师批准发送。",
+          ? `已写入待拍板，等待律师签批发送。${privilegeNotes.join(" ")}`
+          : "已写入待拍板，等待律师签批发送。",
       },
     };
   },

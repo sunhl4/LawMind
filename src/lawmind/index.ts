@@ -48,6 +48,19 @@ export {
 } from "./cases/index.js";
 export type { CreateMatterResult } from "./cases/index.js";
 export {
+  attachIntakeItem,
+  detachIntakeItem,
+  ensureIntakeDropzone,
+  getIntakeItem,
+  ignoreIntakeItem,
+  listIntakeItems,
+  readIntakeEvents,
+  restoreIntakeItem,
+  runIntakeTick,
+  type IntakeItem,
+  type IntakeResolution,
+} from "./intake/index.js";
+export {
   appendLawyerProfileLearning,
   buildLawyerProfileReviewLearningLine,
   clientProfileFilePath,

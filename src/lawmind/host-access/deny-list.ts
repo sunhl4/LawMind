@@ -22,7 +22,8 @@ const DENY_EXTENSIONS = new Set([".pem", ".p12", ".pfx", ".key"]);
 
 const DENY_DIR_NAMES = new Set([".ssh", ".gnupg", "Keychains", "Cookies"]);
 
-const WORKSPACE_DENY_PREFIXES = ["audit/", "sessions/", "lawmind/"];
+/** 收件投递/ 是未归档来件的投递口（src/lawmind/intake/dropzone.ts）：归档前不许任何案件的对话读到。 */
+const WORKSPACE_DENY_PREFIXES = ["audit/", "sessions/", "lawmind/", "收件投递/"];
 
 export function defaultSensitiveHomeDirs(homeDir = os.homedir()): string[] {
   const home = path.resolve(homeDir);
@@ -198,6 +199,7 @@ function hitsWorkspaceDenyPrefix(posixLower: string): boolean {
   return (
     posixLower.endsWith("/audit") ||
     posixLower.endsWith("/sessions") ||
+    posixLower.endsWith("/收件投递") ||
     (posixLower.endsWith("/lawmind") && !posixLower.endsWith("/docs/lawmind"))
   );
 }

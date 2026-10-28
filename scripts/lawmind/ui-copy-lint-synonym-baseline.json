@@ -1,10 +1,10 @@
 {
   "note": "近义词棘轮地板（docs/LAWMIND-TERMINOLOGY.md「一动作一词」的存量冻结）。counts 是每个 syn.* 模式在 renderer 里允许的存量命中数；只许下降。收敛后跑 `pnpm lawmind:ui-copy-lint -- --update` 收紧。已排除术语表明令保留的合法用法（已批准/已修订/合同修订稿/修订记录）。2026-10-21：syn.xiuding 收窄为「我们自己动手改稿」的动词框，Word 痕迹名词（看修订/接受此修订/修订栏·线·卡·提案·署名）不再计入。",
   "counts": {
-    "syn.daiban": 13,
+    "syn.daiban": 12,
     "syn.shenpi": 27,
     "syn.pizhun": 6,
     "syn.xiuding": 13
   },
-  "generatedAt": "2026-10-21T08:20:00.194Z"
+  "generatedAt": "2026-10-28T04:14:01.526Z"
 }

@@ -3,6 +3,8 @@
  * Aggregates chat sessions, delegations, workflow jobs, queue items, and approvals.
  */
 
+import type { MatterRunStepStatus, MatterRunWaitReason } from "./matter-run.js";
+
 export type AgentRunKind =
   | "chat"
   | "delegation"
@@ -14,7 +16,12 @@ export type AgentRunKind =
   /** 已有 Word 的修订写出审阅稿后，等律师打开同一修订窗口核对。不是签批。 */
   | "word_check"
   /** Automation inbox item awaiting lawyer approve_send (may include tracked docx). */
-  | "automation_send";
+  | "automation_send"
+  /**
+   * 案件运行里「等待外部事件」的步骤超时了：等客户补件 / 等对方回函 /
+   * 等法院文书 / 等律师决定。律师要么再等一段，要么不再等这一步。
+   */
+  | "matter_run_wait";
 
 export type AgentRunStatus =
   | "queued"
@@ -76,6 +83,31 @@ export type AgentRunProgress = {
   running?: string[];
 };
 
+/** 案件运行里的一个步骤；律师看得到走到哪、试过几次。 */
+export type AgentMatterRunStepView = {
+  stepId: string;
+  title?: string;
+  status: MatterRunStepStatus;
+  attempts: number;
+  /** 最近一次失败原因；成功后保留，便于回看。 */
+  error?: string;
+};
+
+/** 等待超时的案件步骤：律师在「待我拍板」里看到的字段。 */
+export type AgentMatterRunWaitView = {
+  runId: string;
+  stepId: string;
+  reason: MatterRunWaitReason;
+  /** 步骤自己的名字；没有时详情退回运行标题。 */
+  stepTitle?: string;
+  /** 等待的到期时间；到这个点还没等到才升级。 */
+  dueAt?: string;
+  /** 升级时间：律师看到这一行时，它已经过了到期时间。 */
+  escalatedAt: string;
+  /** 这次运行的步骤列表；用于让律师看到前后步骤，而不是只看当前一步。 */
+  steps?: AgentMatterRunStepView[];
+};
+
 export type AgentRunSummary = {
   id: string;
   kind: AgentRunKind;
@@ -90,6 +122,10 @@ export type AgentRunSummary = {
   jobId?: string;
   approvalId?: string;
   queueItemId?: string;
+  /** 待归案收件条目；使用 queue_item seam 进入现有在办队列。 */
+  intakeItemId?: string;
+  /** 等待超时的案件步骤；使用 matter_run_wait 进入待拍板。 */
+  matterRunWait?: AgentMatterRunWaitView;
   taskId?: string;
   workId?: string;
   actionId?: string;

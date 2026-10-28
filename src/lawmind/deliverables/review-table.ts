@@ -178,15 +178,120 @@ export function reviewTableToMarkdown(table: ReviewTable): string {
   return [header, sep, ...lines].join("\n");
 }
 
-/** xlsx 导出行（首行表头）。 */
-export function reviewTableToXlsxRows(table: ReviewTable): unknown[][] {
-  const header = table.columns.map((c) => c.label);
-  const rows = table.rows.map((row) => table.columns.map((c) => row.cells[c.key] ?? ""));
-  return [header, ...rows];
-}
-
 /** 弃答标记值：抽不动时写这个，不猜。 */
 export const REVIEW_TABLE_ABSTAIN_TEXT = "无法判断（证据不足）";
+
+/**
+ * 把 cellMeta.source / locator 收成 MeWork 形 lineRef（L3 / P2 / S1!A1）。
+ * 兼容历史 `#line=3`、`#page=2`。
+ */
+export function lineRefFromReviewSource(source: string): string | null {
+  const raw = source.trim();
+  if (!raw) {
+    return null;
+  }
+  const hash = raw.indexOf("#");
+  const loc = hash >= 0 ? raw.slice(hash + 1).trim() : raw;
+  if (!loc) {
+    return null;
+  }
+  const lineEq = /^(?:line=|L)([1-9]\d*)(?:[-:](?:L)?([1-9]\d*))?$/i.exec(loc);
+  if (lineEq) {
+    const start = lineEq[1];
+    const end = lineEq[2];
+    return end && end !== start ? `L${start}-L${end}` : `L${start}`;
+  }
+  const pageEq = /^(?:page=|P)([1-9]\d*)$/i.exec(loc);
+  if (pageEq) {
+    return `P${pageEq[1]}`;
+  }
+  const excel = /^S[1-9]\d*![A-Z]+[1-9]\d*(?::[A-Z]+[1-9]\d*)?$/i.exec(loc);
+  if (excel) {
+    return loc.toUpperCase();
+  }
+  const heading = /^h=(.+)$/i.exec(loc);
+  if (heading) {
+    return heading[1]?.trim() || null;
+  }
+  return null;
+}
+
+/**
+ * 单格依据列文案：`{{lineRef}}：{{summary}}`（多候选换行）。
+ * 对照 MeWork 分析表 xlsx 的 `{{name}}_依据` / `_sources` 列。
+ */
+export function formatReviewCellEvidenceLine(row: ReviewTableRow, columnKey: string): string {
+  const meta = row.cellMeta?.[columnKey];
+  const value = (row.cells[columnKey] ?? "").trim();
+  if (meta?.abstained || value === REVIEW_TABLE_ABSTAIN_TEXT) {
+    return "";
+  }
+  const lines: string[] = [];
+  for (const candidate of meta?.candidates ?? []) {
+    const ref =
+      lineRefFromReviewSource(candidate.locator) ??
+      lineRefFromReviewSource(`#${candidate.locator}`) ??
+      candidate.locator.trim();
+    const summary = (candidate.lineText || candidate.value || value).trim().slice(0, 200);
+    if (!summary) {
+      continue;
+    }
+    lines.push(ref ? `${ref}：${summary}` : summary);
+  }
+  if (lines.length === 0) {
+    const source = (meta?.source ?? "").trim();
+    if (!source) {
+      return "";
+    }
+    const ref = lineRefFromReviewSource(source);
+    const summary = (meta?.note || value).trim().slice(0, 200);
+    if (!summary) {
+      return ref ?? source;
+    }
+    return ref ? `${ref}：${summary}` : `${source}：${summary}`;
+  }
+  return [...new Set(lines)].join("\n");
+}
+
+export type ReviewTableXlsxOptions = {
+  /**
+   * 在每个分析列后插入 `{{列名}}_依据`（MeWork 分析表导出同构）。
+   * 文件名列与「来源」列不插。默认 true。
+   */
+  includeEvidenceColumns?: boolean;
+  /** 依据列表头后缀；默认 `_依据`（英文面可传 `_sources`）。 */
+  evidenceHeaderSuffix?: string;
+};
+
+/** xlsx 导出行（首行表头）；默认带依据列。 */
+export function reviewTableToXlsxRows(
+  table: ReviewTable,
+  opts?: ReviewTableXlsxOptions,
+): unknown[][] {
+  const includeEvidence = opts?.includeEvidenceColumns !== false;
+  const suffix = opts?.evidenceHeaderSuffix ?? "_依据";
+  const nameKeys = new Set(detectNameColumnKeys(table));
+
+  type OutCol =
+    | { kind: "value"; key: string; label: string }
+    | { kind: "evidence"; key: string; label: string };
+  const outCols: OutCol[] = [];
+  for (const col of table.columns) {
+    outCols.push({ kind: "value", key: col.key, label: col.label });
+    const isMeta = col.key === "source" || nameKeys.has(col.key);
+    if (includeEvidence && !isMeta) {
+      outCols.push({ kind: "evidence", key: col.key, label: `${col.label}${suffix}` });
+    }
+  }
+
+  const header = outCols.map((c) => c.label);
+  const rows = table.rows.map((row) =>
+    outCols.map((c) =>
+      c.kind === "value" ? (row.cells[c.key] ?? "") : formatReviewCellEvidenceLine(row, c.key),
+    ),
+  );
+  return [header, ...rows];
+}
 
 /**
  * 识别「文件名列」：批量抽取时每行填材料名，且**不作为抽取目标**

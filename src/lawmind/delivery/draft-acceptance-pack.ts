@@ -17,7 +17,7 @@
 import path from "node:path";
 import { readAllAuditLogs } from "../audit/index.js";
 import { validateDraftAgainstSpec } from "../deliverables/index.js";
-import { resolveDraftCitationIntegrity } from "../drafts/index.js";
+import { resolveDraftCitationIntegrityAsync } from "../drafts/index.js";
 import { readResearchSnapshot } from "../drafts/research-snapshot.js";
 import { LAWMIND_ATTORNEY_DISCLAIMER_EXPORT_FOOTER } from "../legal/attorney-disclaimer.js";
 import { DEMO_CORPUS_RISK_FLAG, isDemoCorpusResult } from "../retrieval/authority-gap.js";
@@ -64,7 +64,7 @@ export async function buildDraftAcceptancePackMarkdown(
 ): Promise<string> {
   const generatedAt = opts.generatedAt ?? new Date().toISOString();
   const acceptance = validateDraftAgainstSpec(draft);
-  const citation = resolveDraftCitationIntegrity(workspaceDir, draft);
+  const citation = await resolveDraftCitationIntegrityAsync(workspaceDir, draft);
   const research = readResearchSnapshot(workspaceDir, draft.taskId);
   const demoCorpus = research ? isDemoCorpusResult(research) : false;
 

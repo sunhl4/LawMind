@@ -32,9 +32,18 @@ export function LawmindSettingsWorkspaceCare({ apiBase }: Props): ReactNode {
     void refresh();
   }, [refresh]);
 
-  const issueCount = health?.doctor?.matterConsistency?.ok === false
-    ? (health.doctor.matterConsistency.issueCount ?? 0)
+  const consistency = health?.doctor?.matterConsistency;
+  const repairableCount = consistency?.ok === false
+    ? (consistency.repairableCount ?? consistency.issueCount ?? 0)
     : 0;
+  const partyConflicts =
+    consistency?.ok === false
+      ? (consistency.issues ?? []).filter((i) => i.code === "duplicate_party_contact")
+      : [];
+  const partyConflictCount =
+    consistency?.ok === false
+      ? (consistency.partyConflictCount ?? partyConflicts.length)
+      : 0;
   const searchIndex = health?.doctor?.searchIndex;
   const searchNeedsRebuild = searchIndex?.ready === false || searchIndex?.stale === true;
   const executionLines =
@@ -149,7 +158,7 @@ export function LawmindSettingsWorkspaceCare({ apiBase }: Props): ReactNode {
           ) : null}
         </div>
       ) : null}
-      {issueCount > 0 ? (
+      {repairableCount > 0 ? (
         <div className="lm-settings-group lm-settings-surface" data-testid="lm-workspace-matter-repair">
           <div className="lm-settings-row">
             <span className="lm-settings-key">案件档案</span>
@@ -162,11 +171,30 @@ export function LawmindSettingsWorkspaceCare({ apiBase }: Props): ReactNode {
               {repairBusy ? "整理中…" : "重新整理"}
             </button>
           </div>
-          <p className="lm-settings-caption">有 {issueCount} 个案件的档案和记录不一致。</p>
+          <p className="lm-settings-caption">有 {repairableCount} 个案件的档案和记录不一致。</p>
           {repairMsg ? (
             <p className="lm-settings-caption" role="status">
               {repairMsg}
             </p>
+          ) : null}
+        </div>
+      ) : null}
+      {partyConflictCount > 0 ? (
+        <div className="lm-settings-group lm-settings-surface" data-testid="lm-workspace-party-conflicts">
+          <div className="lm-settings-row">
+            <span className="lm-settings-key">当事人联系方式</span>
+          </div>
+          <p className="lm-settings-caption">
+            有 {partyConflictCount} 处同一邮箱、电话或企微登记在多个当事人名下。请到卷宗里合并或改正；整理档案投影不会改它。
+          </p>
+          {partyConflicts.length > 0 ? (
+            <ul className="lm-callout-body" data-testid="lm-workspace-party-conflict-lines">
+              {partyConflicts.slice(0, 5).map((issue) => (
+                <li key={`${issue.matterId}:${issue.message}`}>
+                  {issue.matterId}：{issue.message}
+                </li>
+              ))}
+            </ul>
           ) : null}
         </div>
       ) : null}

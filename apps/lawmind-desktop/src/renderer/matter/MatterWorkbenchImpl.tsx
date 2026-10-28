@@ -602,6 +602,12 @@ export const MatterWorkbench = forwardRef<MatterWorkbenchHandle, Props>(function
         void loadDetail(next.matterId);
       }
     },
+    onAdmissionDecided: () => {
+      // 接受/婉拒会改 matter.status 与队列；整页重读，别让旧状态留在卷宗里。
+      if (mainPanelShell.matterId) {
+        void loadDetail(mainPanelShell.matterId);
+      }
+    },
     assistantId,
     projectDir,
     panelTab,

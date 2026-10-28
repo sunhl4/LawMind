@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   cellProvenance,
   detectNameColumnKeys,
+  formatReviewCellEvidenceLine,
+  lineRefFromReviewSource,
   mergeLawyerReviewRows,
   newReviewTable,
   reviewTableAcceptanceProblems,
@@ -36,6 +38,30 @@ describe("review-table deliverable model", () => {
     expect(table.title).toBe("证据审查表");
   });
 
+  it("normalizes legacy #line= / #page= locators for evidence export", () => {
+    expect(lineRefFromReviewSource("a.pdf#line=3")).toBe("L3");
+    expect(lineRefFromReviewSource("a.pdf#page=2")).toBe("P2");
+    expect(lineRefFromReviewSource("a.txt#L4-L5")).toBe("L4-L5");
+    const row: ReviewTable["rows"][number] = {
+      id: "r1",
+      cells: { finding: "100万" },
+      cellMeta: {
+        finding: {
+          source: "a.pdf#line=7",
+          candidates: [
+            {
+              value: "100万",
+              locator: "line=7",
+              lineText: "注册资本人民币100万元",
+              patternLabel: "amount",
+            },
+          ],
+        },
+      },
+    };
+    expect(formatReviewCellEvidenceLine(row, "finding")).toBe("L7：注册资本人民币100万元");
+  });
+
   it("renders markdown preview and xlsx rows from the same table", () => {
     const table: ReviewTable = {
       ...newReviewTable("t-1", "evidence"),
@@ -48,6 +74,13 @@ describe("review-table deliverable model", () => {
             source: "cases/m/materials/合同.pdf",
           },
           source: "cases/m/materials/合同.pdf",
+          cellMeta: {
+            purpose: {
+              source: "cases/m/materials/合同.pdf#line=3",
+              note: "证明双方存在劳动关系",
+              confidence: "high",
+            },
+          },
         },
       ],
     };
@@ -56,8 +89,20 @@ describe("review-table deliverable model", () => {
     expect(md).toContain("劳动合同");
     expect(md).toContain("cases/m/materials/合同.pdf");
     const rows = reviewTableToXlsxRows(table);
-    expect(rows[0]).toEqual(["证据名称", "证明目的", "关联争点", "证明力", "来源"]);
+    expect(rows[0]).toEqual([
+      "证据名称",
+      "证明目的",
+      "证明目的_依据",
+      "关联争点",
+      "关联争点_依据",
+      "证明力",
+      "证明力_依据",
+      "来源",
+    ]);
     expect(rows[1]?.[0]).toBe("劳动合同");
+    expect(rows[1]?.[2]).toBe("L3：证明双方存在劳动关系");
+    const plain = reviewTableToXlsxRows(table, { includeEvidenceColumns: false });
+    expect(plain[0]).toEqual(["证据名称", "证明目的", "关联争点", "证明力", "来源"]);
   });
 
   it("escapes pipes so a cell cannot break the markdown table", () => {

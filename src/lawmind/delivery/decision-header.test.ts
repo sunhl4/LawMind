@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { triageAgainstPlaybook, type Playbook } from "../deliverables/playbook-triage.js";
 import {
   buildDecisionHeader,
   collectUnverifiedSignals,
   formatUnverifiedSection,
   resolveDecisionHeader,
+  toDecisionPlaybookSummary,
 } from "./decision-header.js";
 
 const cleanLint = {
@@ -147,5 +149,123 @@ describe("formatUnverifiedSection / collectUnverifiedSignals", () => {
     expect(signals?.skipped?.some((s) => s.includes("论证结构"))).toBe(true);
     expect(signals?.skipped?.some((s) => s.includes("独立审稿"))).toBe(true);
     expect(signals?.pending).toContain("引用未核（无检索快照）");
+  });
+});
+
+const triagePlaybook: Playbook = {
+  id: "prc.contract.general",
+  name: "中国法合同审查（通用）",
+  jurisdiction: "PRC",
+  version: "1.0.0",
+  stance: "偏委托方",
+  acceptableRange: "责任上限不低于合同金额。",
+  escalationTriggers: ["行政处罚"],
+  criteria: [
+    { id: "dispute_clause", kind: "green", title: "有争议解决条款" },
+    { id: "unlimited_liability", kind: "red", title: "不得约定无限责任" },
+  ],
+};
+
+const evidence = (quote: string, locator: string) => ({ quote, locator });
+
+describe("decision header playbook block", () => {
+  it("surfaces a RED verdict with the non-pass items and their locators", () => {
+    const triage = triageAgainstPlaybook({
+      playbook: triagePlaybook,
+      observations: [
+        { criterionId: "dispute_clause", result: "PASS", evidence: evidence("提交仲裁。", "L8") },
+        {
+          criterionId: "unlimited_liability",
+          result: "FAIL",
+          evidence: evidence("乙方承担无限责任。", "L12"),
+          reasonZh: "出现无限责任表述。",
+        },
+      ],
+    });
+    const header = buildDecisionHeader({
+      title: "服务合同",
+      lint: cleanLint,
+      riskLevel: "low",
+      playbook: triage,
+    });
+    expect(header.ready).toBe("needs_decision");
+    expect(header.risk).toContain("剧本判定 RED");
+    expect(header.playbook).toMatchObject({
+      verdict: "RED",
+      basis: "playbook",
+      playbookName: "中国法合同审查（通用）",
+      counts: { pass: 1, flag: 0, fail: 1 },
+    });
+    expect(header.playbook?.items).toEqual([
+      expect.objectContaining({ title: "不得约定无限责任", result: "FAIL", locator: "L12" }),
+    ]);
+  });
+
+  it("keeps a GREEN verdict out of the risk line and marks the draft usable", () => {
+    const triage = triageAgainstPlaybook({
+      playbook: triagePlaybook,
+      observations: [
+        { criterionId: "dispute_clause", result: "PASS", evidence: evidence("提交仲裁。", "L8") },
+        {
+          criterionId: "unlimited_liability",
+          result: "PASS",
+          evidence: evidence("赔偿不超过合同金额。", "L5"),
+        },
+      ],
+    });
+    const header = buildDecisionHeader({
+      title: "服务合同",
+      lint: cleanLint,
+      riskLevel: "low",
+      playbook: triage,
+    });
+    expect(header.ready).toBe("usable");
+    expect(header.risk).not.toContain("剧本判定 RED");
+    expect(header.playbook?.verdict).toBe("GREEN");
+    expect(header.playbook?.items).toEqual([]);
+  });
+
+  it("states basis=default when no playbook was loaded", () => {
+    const triage = triageAgainstPlaybook({ playbook: null });
+    const summary = toDecisionPlaybookSummary(triage);
+    expect(summary.basis).toBe("default");
+    expect(summary.verdict).toBe("YELLOW");
+    expect(summary.items).toEqual([]);
+  });
+
+  it("replaces a persisted playbook block only when a live triage is supplied", () => {
+    const persisted = {
+      changed: "起草了「服务合同」",
+      why: "按任务要求整理草稿。",
+      risk: "机械核对未见已知缺陷。通过核对 ≠ 法律正确。",
+      ready: "usable" as const,
+      playbook: {
+        verdict: "YELLOW" as const,
+        basis: "playbook" as const,
+        counts: { pass: 0, flag: 1, fail: 0 },
+        items: [{ title: "有争议解决条款", result: "FLAG" as const, reasonZh: "未核对" }],
+      },
+    };
+    const kept = resolveDecisionHeader({ persisted, title: "服务合同", lint: cleanLint });
+    expect(kept.playbook).toEqual(persisted.playbook);
+
+    const live = triageAgainstPlaybook({
+      playbook: triagePlaybook,
+      observations: [
+        { criterionId: "dispute_clause", result: "PASS", evidence: evidence("提交仲裁。", "L8") },
+        {
+          criterionId: "unlimited_liability",
+          result: "PASS",
+          evidence: evidence("赔偿不超过合同金额。", "L5"),
+        },
+      ],
+    });
+    const replaced = resolveDecisionHeader({
+      persisted,
+      title: "服务合同",
+      lint: cleanLint,
+      playbook: live,
+    });
+    expect(replaced.playbook?.verdict).toBe("GREEN");
   });
 });

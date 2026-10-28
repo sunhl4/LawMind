@@ -40,6 +40,26 @@ export const MatterPartyServiceMethodSchema = z.enum([
   "unknown",
 ]);
 
+export const MatterPartyConsentSchema = z.object({
+  state: z.enum(["granted", "denied", "unknown"]),
+  at: z.string().optional(),
+  source: z.enum(["lawyer", "intake_confirmed", "document"]).optional(),
+});
+
+export const MatterPartyContactSchema = z.object({
+  kind: z.enum(["email", "phone", "wecom"]),
+  value: z.string().trim().min(1).max(254),
+  /** 渠道账户：收案邮箱地址、企微企业/应用、电话线路。 */
+  account: z.string().trim().max(80).optional(),
+  /** 渠道侧 id（企微 external userid 等）。 */
+  externalId: z.string().trim().max(128).optional(),
+  verified: z.boolean().optional(),
+  source: z.enum(["lawyer", "intake_confirmed", "document"]).optional(),
+  addedAt: z.string().optional(),
+  recordingConsent: MatterPartyConsentSchema.optional(),
+  archiveConsent: MatterPartyConsentSchema.optional(),
+});
+
 export const MatterPartySchema = z.object({
   partyId: z.string().trim().min(1).max(64),
   name: z.string().trim().min(1).max(120),
@@ -47,6 +67,7 @@ export const MatterPartySchema = z.object({
   standing: z.string().trim().max(40).optional(),
   serviceAddress: z.string().trim().max(200).optional(),
   serviceMethod: MatterPartyServiceMethodSchema.optional(),
+  contacts: z.array(MatterPartyContactSchema).max(8).optional(),
 });
 export type MatterParty = z.infer<typeof MatterPartySchema>;
 

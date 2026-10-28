@@ -109,6 +109,20 @@ describe("parseDraftWorkerModelText", () => {
     expect(parsed?.gaps).toEqual(["违约金上限未约定"]);
   });
 
+  it("preserves structured review observations for the parent observation bus", () => {
+    const parsed = parseDraftWorkerModelText(
+      JSON.stringify({
+        draft: DRAFT,
+        citations: [],
+        gaps: [],
+        reviewObservations: [{ anchor: "clause:解除", span: "甲方可解除", label: "主体待核" }],
+      }),
+    );
+    expect(parsed?.reviewObservations).toEqual([
+      { anchor: "clause:解除", span: "甲方可解除", label: "主体待核" },
+    ]);
+  });
+
   it("reads delimited 正文 / 出处 / 缺口", () => {
     const parsed = parseDraftWorkerModelText(
       ["【正文】", DRAFT, "【出处】", "- 买卖合同违约金", "【缺口】", "- 上限未约定"].join("\n"),

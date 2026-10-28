@@ -47,6 +47,14 @@ import {
   type LawyerAutomation,
   type AutomationInboxItem,
 } from "./lawyer-automations.js";
+import {
+  createMatterRunOnDisk,
+  loadMatterRun,
+  listMatterRuns,
+  resumeMatterRuns,
+  type MatterRunStepExecutor,
+} from "./matter-run-store.js";
+import type { MatterRun } from "./matter-run.js";
 
 /**
  * 一次运行的结论。`status` 与运行历史里的 `AutomationRunStatus` 对齐
@@ -65,6 +73,8 @@ export type AutomationRunHooks = {
     matterId: string;
     instruction?: string;
     automationId: string;
+    /** 代码从来信头里取出的回信对象。办件无人值守，模型只能拟发给它。 */
+    replyTo?: string;
   }) => string | null | Promise<string | null>;
   /** LawMind root for mail secrets (defaults to parent of workspace). */
   lawMindRoot?: string;
@@ -157,7 +167,9 @@ async function runOneAutomation(
         // 拉完整正文（Graph 默认仅 bodyPreview），对齐 IMAP 全文语义供合同审阅/摘要。
         includeBody: true,
       });
-      if ("skipped" in sync && sync.skipped) {
+      if ("skipped" in sync && sync.skipped && sync.reason === "intake_inbox") {
+        syncNote = "（来信由收案邮箱统一收取，归档到本案后在本地匣里。）\n\n";
+      } else if ("skipped" in sync && sync.skipped) {
         mailUnavailable = "未配置远程邮箱";
         syncNote = "（未配置远程邮箱：请到「设置 → 自动办件」接上邮箱后再同步。）\n\n";
       } else if (sync.ok && "written" in sync) {
@@ -283,6 +295,7 @@ async function runOneAutomation(
           matterId: automation.matterId,
           instruction,
           automationId: automation.id,
+          ...(built.replyToEmail ? { replyTo: built.replyToEmail } : {}),
         });
         jobId = enqueued ?? undefined;
         const modeHint =
@@ -410,7 +423,7 @@ async function runOneAutomation(
           to,
           subject: `【${automation.matterId}】本案进展说明`,
           body: applyMailSendFormat(
-            `${summary}\n\n（批准后将写入本案 mail/sent，并尝试通过已配置的邮箱账号发送。）`,
+            `${summary}\n\n（签批后将写入本案 mail/sent，并尝试通过已配置的邮箱账号发送。）`,
             account?.sendFormat,
           ),
         };
@@ -452,12 +465,182 @@ async function runOneAutomation(
   return buildOutcome();
 }
 
+/** MatterRun 里代表「跑一次自动办件」的步骤类型。 */
+export const AUTOMATION_RUN_STEP_KIND = "automation_run";
+
+const AUTOMATION_REF_PREFIX = "automation:";
+
+/**
+ * 每次派单一个 run。runId 必须每次唯一：同一秒内连续跑两次（例如测试或律师手动触发）
+ * 不能复用上一条已完成的 run，否则第二次办件会被误当成「已经办过」。
+ * 崩溃留下的孤儿 run 由 `resumeOrphanAutomationRuns` 扫描接管，不依赖固定 id。
+ */
+function automationMatterRunId(automation: LawyerAutomation, now: Date): string {
+  const stamp = now
+    .toISOString()
+    .replace(/[-:.TZ]/g, "")
+    .slice(0, 14);
+  const nonce = randomUUID().replace(/-/g, "").slice(0, 8);
+  return `run_auto_${automation.id}_${stamp}_${nonce}`;
+}
+
+function automationIdFromMatterRun(run: MatterRun): string | undefined {
+  for (const step of run.steps) {
+    for (const ref of step.inputRefs ?? []) {
+      if (ref.startsWith(AUTOMATION_REF_PREFIX)) {
+        return ref.slice(AUTOMATION_REF_PREFIX.length) || undefined;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 自动办件执行器：读回 automationId → 跑一次 → 把结论放进步骤 cursor。
+ *
+ * 失败映射成 `retryable: false`：沿用既有语义「这次失败，下一小时再按计划跑」，
+ * 不在同一个 run 里立刻重试；进程崩溃则由 MatterRun 的恢复路径重放一次。
+ */
+export function createAutomationRunStepExecutor(hooks: AutomationRunHooks): MatterRunStepExecutor {
+  return async ({ workspaceDir, step }) => {
+    const automationId = (step.inputRefs ?? [])
+      .find((ref) => ref.startsWith(AUTOMATION_REF_PREFIX))
+      ?.slice(AUTOMATION_REF_PREFIX.length);
+    const automation = automationId ? getAutomation(workspaceDir, automationId) : undefined;
+    if (!automation) {
+      return { status: "skipped", reason: "automation_missing" };
+    }
+    const startedAt = step.startedAt ? new Date(step.startedAt) : new Date();
+    try {
+      const outcome = await runOneAutomation(workspaceDir, automation, hooks, startedAt);
+      return { status: "done", cursor: { outcome } };
+    } catch (err) {
+      return {
+        status: "failed",
+        error: err instanceof Error ? err.message : String(err),
+        retryable: false,
+      };
+    }
+  };
+}
+
+function automationOutcomeFromRun(run: MatterRun | undefined): AutomationRunOutcome | undefined {
+  const cursor = run?.steps[0]?.cursor;
+  if (!cursor || typeof cursor !== "object" || !("outcome" in cursor)) {
+    return undefined;
+  }
+  return (cursor as { outcome: AutomationRunOutcome }).outcome;
+}
+
+/**
+ * 自动办件走一次 MatterRun：创建/复用 → 领取 → 执行 → 读回结论。
+ * 进程中途被杀，run 留在 `running`，下一轮 tick 由 `resumeOrphanAutomationRuns` 接手。
+ */
+async function runAutomationAsMatterRun(
+  workspaceDir: string,
+  automation: LawyerAutomation,
+  hooks: AutomationRunHooks,
+  now: Date,
+): Promise<AutomationRunOutcome> {
+  const at = now.toISOString();
+  const runId = automationMatterRunId(automation, now);
+  if (!loadMatterRun(workspaceDir, automation.matterId, runId, { tolerateCorrupt: true })) {
+    createMatterRunOnDisk(workspaceDir, {
+      matterId: automation.matterId,
+      runId,
+      title: automation.title,
+      steps: [
+        {
+          kind: AUTOMATION_RUN_STEP_KIND,
+          title: automation.title,
+          // 崩溃恢复允许重放一次；执行器自身失败不重试，交给下一次计划运行。
+          maxAttempts: 2,
+          inputRefs: [`${AUTOMATION_REF_PREFIX}${automation.id}`],
+        },
+      ],
+      at,
+    });
+  }
+  await resumeMatterRuns(workspaceDir, {
+    executors: { [AUTOMATION_RUN_STEP_KIND]: createAutomationRunStepExecutor(hooks) },
+    matterId: automation.matterId,
+    runId,
+    at,
+  });
+  const run = loadMatterRun(workspaceDir, automation.matterId, runId, { tolerateCorrupt: true });
+  const outcome = automationOutcomeFromRun(run);
+  if (run?.status === "done" && outcome) {
+    return outcome;
+  }
+  throw new Error(run?.steps[0]?.error ?? "automation_run_not_completed");
+}
+
+/**
+ * 接管上次进程崩溃留下的自动办件 run（claim 已经推进了 nextRunAt，
+ * 不主动恢复就会永远停在 pending）。恢复后补写运行历史，避免静默完成。
+ */
+async function resumeOrphanAutomationRuns(
+  workspaceDir: string,
+  hooks: AutomationRunHooks,
+  now: Date,
+): Promise<number> {
+  const pending = listMatterRuns(workspaceDir, { statuses: ["pending", "running"] }).filter((run) =>
+    run.steps.some((step) => step.kind === AUTOMATION_RUN_STEP_KIND),
+  );
+  let resumed = 0;
+  for (const run of pending) {
+    const automationId = automationIdFromMatterRun(run);
+    const automation = automationId ? getAutomation(workspaceDir, automationId) : undefined;
+    if (!automation) {
+      continue;
+    }
+    try {
+      const result = await resumeMatterRuns(workspaceDir, {
+        executors: { [AUTOMATION_RUN_STEP_KIND]: createAutomationRunStepExecutor(hooks) },
+        matterId: run.matterId,
+        runId: run.runId,
+        at: now.toISOString(),
+      });
+      if (result.stepsRun === 0) {
+        continue;
+      }
+      resumed += 1;
+      const after = loadMatterRun(workspaceDir, run.matterId, run.runId, { tolerateCorrupt: true });
+      const outcome = automationOutcomeFromRun(after);
+      const saved = getAutomation(workspaceDir, automation.id);
+      if (after?.status === "done" && outcome) {
+        recordScheduledRun(workspaceDir, automation, {
+          status: outcome.status,
+          startedAt: run.createdAt,
+          summary: saved?.lastResultSummary,
+          jobId: saved?.lastJobId,
+          missingData: outcome.missingData,
+          notified: outcome.inboxPushed > 0,
+        });
+      } else if (after?.status === "failed") {
+        const message = after.steps[0]?.error ?? "automation_run_failed";
+        recordScheduledRun(workspaceDir, automation, {
+          status: "failed",
+          startedAt: run.createdAt,
+          errorCode: classifyAutomationRunError(new Error(message)),
+          errorMessage: message.slice(0, 500),
+          notified: false,
+        });
+      }
+    } catch {
+      // 恢复失败留给下一轮；不能挡住其它到期办件。
+    }
+  }
+  return resumed;
+}
+
 /** Process enabled automations whose nextRunAt <= now. Returns count fired. */
 export async function processDueLawyerAutomations(
   workspaceDir: string,
   hooks: AutomationRunHooks = {},
   now: Date = new Date(),
 ): Promise<number> {
+  await resumeOrphanAutomationRuns(workspaceDir, hooks, now);
   const due = listAutomations(workspaceDir).filter(
     (a) => a.enabled && Date.parse(a.nextRunAt) <= now.getTime(),
   );
@@ -469,7 +652,7 @@ export async function processDueLawyerAutomations(
     }
     const startedAt = new Date().toISOString();
     try {
-      const outcome = await runOneAutomation(workspaceDir, automation, hooks, now);
+      const outcome = await runAutomationAsMatterRun(workspaceDir, automation, hooks, now);
       n += 1;
       const saved = getAutomation(workspaceDir, automation.id);
       recordScheduledRun(workspaceDir, automation, {
@@ -547,7 +730,7 @@ export async function processDueLawyerAutomations(
     }
     const startedAt = new Date().toISOString();
     try {
-      const outcome = await runOneAutomation(workspaceDir, automation, hooks, now);
+      const outcome = await runAutomationAsMatterRun(workspaceDir, automation, hooks, now);
       n += 1;
       const saved = getAutomation(workspaceDir, automation.id);
       recordScheduledRun(

@@ -120,7 +120,7 @@ export const BUILTIN_WORKFLOW_TEMPLATES: WorkspaceWorkflowTemplateFile[] = [
         stepId: "draft",
         assignee: "contract_review",
         assigneeRoleId: "contract_review",
-        task: "审查 NDA 并输出 GREEN/YELLOW/RED 分级与条款摘要（matterId={{matterId}}）",
+        task: "审查 NDA：有本所剧本时先用 triage_against_playbook 出 GREEN/YELLOW/RED（每条结论带 quote / locator / file_path，回读核不上会降级）；没有剧本时按通用标准写明 basis=default。再附条款摘要（matterId={{matterId}}）",
         dependsOn: [],
         autoApprove: false,
       },

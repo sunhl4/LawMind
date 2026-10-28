@@ -1,7 +1,7 @@
 /**
  * 待拍板口径：外发不再打断回合。
  * 内部起草 / 审查 / 改稿 / 外发拟稿都直接出结果——外发写入本案「待发信」，
- * 律师在待发列表核对后点「批准发送」才真正发出；回合一律照常完成。
+ * 律师在待发列表核对后点「签批发送」才真正发出；回合一律照常完成。
  */
 
 import { irreversibleDisposition, irreversibleImpactLabelZh } from "../agent/tool-name-sets.js";
@@ -53,7 +53,7 @@ export function isOutboundAutomationContext(input: {
     return true;
   }
   const blob = input.instruction?.trim() ?? "";
-  return /发[给送信]|外发|批准后发|send_email|prepare_outbound_mail/.test(blob);
+  return /发[给送信]|外发|签批后发|send_email|prepare_outbound_mail/.test(blob);
 }
 
 /** 办案流程是否会离开律师这边（外发邮件 / 客户备忘）。 */
@@ -95,6 +95,10 @@ export function isLawyerOutboundDecision(input: LawyerDecisionTicketInput): bool
   const status = input.status?.trim() || "";
 
   if (kind === "automation_send") {
+    return true;
+  }
+  // 等待超时的案件步骤：不处理就会一直停在这里，算律师的待拍板。
+  if (kind === "matter_run_wait") {
     return true;
   }
   if (actionKind === "continue_tools") {

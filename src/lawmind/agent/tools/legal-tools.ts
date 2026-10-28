@@ -45,8 +45,10 @@ import {
   listMailInbox,
   listMailAttachments,
 } from "./legal/mail-tools.js";
+import { matterArtifactUpdate } from "./legal/matter-artifact-tool.js";
 import { getMatterSummary, listMatters, readCaseFile, addCaseNote } from "./legal/matter-tools.js";
 import { executeOrganizePlan, proposeOrganizePlan } from "./legal/organize-materials-tool.js";
+import { triageAgainstPlaybookTool } from "./legal/playbook-triage-tool.js";
 import { searchPrecedents } from "./legal/precedent-search-tool.js";
 import { readFolderDocumentsTool } from "./legal/read-folder-documents-tool.js";
 import { readSkillTool } from "./legal/read-skill-tool.js";
@@ -107,6 +109,8 @@ export function createLegalToolRegistry(opts?: {
     relocateMatterMaterials,
     applyFileOps,
     reviewTableUpdate,
+    matterArtifactUpdate,
+    triageAgainstPlaybookTool,
     // 文件操作
     analyzeDocument,
     compareDocuments,

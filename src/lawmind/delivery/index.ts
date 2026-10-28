@@ -3,7 +3,9 @@ export {
   isDecisionHeader,
   type AutonomySeriesInput,
   type DecisionHeader,
+  type DecisionPlaybookSummary,
   type DeliveryEdition,
+  type DeliveryPlaybookInput,
   type DeliveryPolicy,
   type DeliveryReady,
   type DeliveryRiskLevel,
@@ -31,5 +33,72 @@ export {
   type JudgementPromotionVerdict,
 } from "./judgement-ratchet.js";
 export { buildDecisionHeader, resolveDecisionHeader } from "./decision-header.js";
-export type { BuildDecisionHeaderInput } from "./decision-header.js";
+export { toDecisionPlaybookSummary } from "./decision-header.js";
+export type { BuildDecisionHeaderInput, UnverifiedSignals } from "./decision-header.js";
 export { ITEM_JUDGMENT_LABELS, judgmentLabel } from "./judgment-labels.js";
+export {
+  PACKET_AUDIENCES,
+  PACKET_OUTPUT_FORMATS,
+  PACKET_SCHEMA_VERSION,
+  PACKET_SECTION_KINDS,
+  DeliveryPacketDocumentSchema,
+  DeliveryPacketSchema,
+  PacketAudienceSchema,
+  PacketConditionSchema,
+  PacketOutputSchema,
+  PacketSectionKindSchema,
+  PacketSectionSchema,
+  buildPacketManifest,
+  computePacketHash,
+  createDeliveryPacket,
+  describePacketReadiness,
+  findPacketManifestEntry,
+  packetCanSend,
+  type CreateDeliveryPacketInput,
+  type DeliveryPacket,
+  type DeliveryPacketDocument,
+  type PacketAudience,
+  type PacketCondition,
+  type PacketDocumentExclusionReason,
+  type PacketManifest,
+  type PacketManifestEntry,
+  type PacketManifestFile,
+  type PacketManifestSection,
+  type PacketOutput,
+  type PacketOutputFormat,
+  type PacketRenderContext,
+  type PacketSection,
+  type PacketSectionKind,
+} from "./packet.js";
+export {
+  deleteDeliveryPacket,
+  listDeliveryPackets,
+  loadDeliveryPacket,
+  packetJsonPath,
+  packetsDir,
+  saveDeliveryPacket,
+  withDeliveryPacketLock,
+} from "./packet-store.js";
+export {
+  buildMergedPacketPdf,
+  buildPacketZip,
+  exportDeliveryPacket,
+  packetArchiveName,
+  packetBatesLabel,
+  packetDownloadFileName,
+  packetIsAllPdf,
+  packetManifestJson,
+  type PacketExportFormat,
+  type PacketExportResult,
+} from "./packet-export.js";
+export {
+  packetApprovalProblems,
+  resolveOutboundPacket,
+  type OutboundPacketBinding,
+  type OutboundPacketResolution,
+} from "./packet-outbound.js";
+export {
+  seedDeliveryPacketFromDeliverables,
+  type PacketSeedResult,
+  type PacketSeedSkip,
+} from "./packet-seed.js";

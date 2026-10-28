@@ -34,7 +34,10 @@ import {
   listMatterMaterialFiles,
   type MatterMaterialListing,
 } from "../../../desk/matter-materials.js";
-import { checkEvidenceSupport } from "../../../drafts/evidence-support.js";
+import {
+  checkEvidenceSupport,
+  checkEvidenceSupportAsync,
+} from "../../../drafts/evidence-support.js";
 import { readDraft, persistDraft } from "../../../drafts/index.js";
 import type { AgentTool } from "../../types.js";
 
@@ -190,10 +193,10 @@ function applyReviewState(
  * 只推「有出处」的行；弃答与待补另列一节，不混进结论。
  * 不要求律师先确认——这就是交付前少介入的那一步。
  */
-function pushTableToDraft(
+async function pushTableToDraft(
   workspaceDir: string,
   table: ReviewTable,
-): { ok: true; pushed: number; abstained: number } | { ok: false; error: string } {
+): Promise<{ ok: true; pushed: number; abstained: number } | { ok: false; error: string }> {
   const draft = readDraft(workspaceDir, table.taskId);
   if (!draft) {
     return { ok: false, error: `找不到草稿 ${table.taskId}。` };
@@ -203,25 +206,31 @@ function pushTableToDraft(
   const abstainedRows: string[] = [];
 
   for (const row of table.rows) {
-    const sourced = valueColumns.filter((c) => {
+    const sourced: Array<(typeof valueColumns)[number]> = [];
+    for (const c of valueColumns) {
       const provenance = cellProvenance(row, c.key);
       if (provenance.state !== "sourced" || provenance.basis === "pattern_only") {
-        return false;
+        continue;
       }
       const meta = row.cellMeta?.[c.key];
       if (!meta?.sourceVersion) {
-        return provenance.basis === undefined;
+        if (provenance.basis === undefined) {
+          sourced.push(c);
+        }
+        continue;
       }
       const candidate = meta.candidates?.find((value) => value.value === row.cells[c.key]);
-      return (
-        checkEvidenceSupport({
-          rootDir: workspaceDir,
-          relPath: meta.source ?? "",
-          quote: candidate?.lineText,
-          expectedVersion: meta.sourceVersion,
-        }).status === "supported"
-      );
-    });
+      // 异步核对：PDF 页码 / Excel 单元格锚会被真正读取；读不出来仍算未核实。
+      const support = await checkEvidenceSupportAsync({
+        rootDir: workspaceDir,
+        relPath: meta.source ?? "",
+        quote: candidate?.lineText,
+        expectedVersion: meta.sourceVersion,
+      });
+      if (support.status === "supported") {
+        sourced.push(c);
+      }
+    }
     const abstained = valueColumns.filter(
       (c) => !sourced.includes(c) && Boolean(row.cells[c.key]?.trim()),
     );
@@ -649,7 +658,7 @@ export const reviewTableUpdate: AgentTool = {
         (assignee ? `；指派：${assignee}` : "") +
         "。";
     } else if (action === "to_draft") {
-      const pushed = pushTableToDraft(ctx.workspaceDir, table);
+      const pushed = await pushTableToDraft(ctx.workspaceDir, table);
       if (!pushed.ok) {
         return { ok: false, error: pushed.error };
       }

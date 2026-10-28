@@ -61,6 +61,8 @@ export type MatterWorkbenchMainPanelsProps = {
     profile: import("./MatterProfileCard").MatterProfilePayload,
     statusLine?: string,
   ) => void;
+  /** 收案接受/婉拒后刷新卷宗与服务端状态。 */
+  onAdmissionDecided?: () => void;
   selectedOverview: MatterOverview | null;
   showWorkspaceAcceptanceDashboard: boolean;
   workspaceAcceptance: MatterWorkspaceAcceptance | null;
@@ -188,6 +190,7 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
     summary,
     profile,
     onProfileSaved,
+    onAdmissionDecided,
     selectedOverview,
     showWorkspaceAcceptanceDashboard,
     workspaceAcceptance,
@@ -379,6 +382,7 @@ export function MatterWorkbenchMainPanels(props: MatterWorkbenchMainPanelsProps)
           summary={summary}
           profile={profile}
           onProfileSaved={onProfileSaved}
+          onAdmissionDecided={onAdmissionDecided}
           selectedOverview={selectedOverview}
           showWorkspaceAcceptanceDashboard={showWorkspaceAcceptanceDashboard}
           workspaceAcceptance={workspaceAcceptance}

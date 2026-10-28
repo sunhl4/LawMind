@@ -53,6 +53,10 @@ import {
 import { computeSearchIndexFreshness } from "../../../src/lawmind/indexing/fts-search.js";
 import { readWorkspacePolicyFile } from "../../../src/lawmind/policy/workspace-policy.js";
 import { processDueLawyerAutomations } from "../../../src/lawmind/platform/lawyer-automations-runner.js";
+import { createDeliveryRunOnDisk, shouldCreateDeliveryRun } from "../../../src/lawmind/platform/matter-delivery-run.js";
+import { tickMatterRuns } from "../../../src/lawmind/platform/matter-run-store.js";
+import { createDeliveryRunExecutors } from "./lawmind-server-matter-delivery.js";
+import { runIntakeTick } from "../../../src/lawmind/intake/tick.js";
 import { processDueDeadlineReminders } from "../../../src/lawmind/desk/deadline-remind.js";
 import {
   DAEMON_TICK_INTERVAL_MS,
@@ -403,17 +407,56 @@ async function main() {
               ? { instruction: instruction.trim(), automationId }
               : { automationId },
           });
-          return enqueueWorkflowRun(config, workflow, {
+          const jobId = enqueueWorkflowRun(config, workflow, {
             templateId,
             workflowVars: instruction?.trim()
               ? { instruction: instruction.trim(), automationId }
               : { automationId },
             idempotencyKey: `automation:${automationId}:${new Date().toISOString().slice(0, 13)}`,
           });
+          if (jobId && shouldCreateDeliveryRun(templateId)) {
+            try {
+              createDeliveryRunOnDisk(workspaceDir, {
+                matterId,
+                jobId,
+                automationId,
+                title: template.name?.trim() || templateId,
+              });
+            } catch (err) {
+              // 交付运行只是观测/恢复层；建不起来不能挡住已经入队的 job。
+              console.error(
+                "[lawmind-local-server] delivery run create failed:",
+                err instanceof Error ? err.message : err,
+              );
+            }
+          }
+          return jobId;
         },
       }).catch((err) => {
         console.error(
           "[lawmind-local-server] automations tick failed:",
+          err instanceof Error ? err.message : err,
+        );
+      });
+    } catch {
+      /* best-effort */
+    }
+    try {
+      void runIntakeTick(workspaceDir, resolveLawMindRoot(workspaceDir, envFile)).catch((err) => {
+        console.error(
+          "[lawmind-local-server] intake tick failed:",
+          err instanceof Error ? err.message : err,
+        );
+      });
+    } catch {
+      /* best-effort */
+    }
+    try {
+      // 恢复进程中断留下的 run、把超时等待升级为律师待办；
+      // 交付步骤执行器只处理 delivery_*，automation_run 仍由自动办件 runner 恢复。
+      void tickMatterRuns(workspaceDir, { executors: createDeliveryRunExecutors() }).catch((err) => {
+        console.error(
+          "[lawmind-local-server] matter run tick failed:",
           err instanceof Error ? err.message : err,
         );
       });

@@ -32,6 +32,7 @@ import {
 } from "../../../../src/lawmind/desk/matter-parties.ts";
 import { LawmindDaemonRecap } from "./LawmindDaemonRecap";
 import { LawmindDeskAgenda } from "./LawmindDeskAgenda";
+import { LawmindIntakeInbox } from "./LawmindIntakeInbox";
 import type { DeskAgendaItem } from "./lawmind-desk-agenda";
 import { setPendingAgendaMatterLink } from "./lawmind-desk-nav";
 import { openDeliverableInWps } from "./canvas/host-actions";
@@ -53,6 +54,8 @@ import {
   type DeskMatterFocus,
   type DeskMatterFocusPane,
 } from "./app/desk-matter-focus";
+import { LawmindMatterArtifactPanel } from "./LawmindMatterArtifactPanel";
+import { LawmindDeliveryPacketPanel } from "./LawmindDeliveryPacketPanel";
 import { LawmindMatterBrief } from "./LawmindMatterBrief";
 import { useMatterHotlineReasons } from "./useMatterHotlineReasons";
 import { useMatterDocumentMeta } from "./useMatterDocumentMeta";
@@ -1503,6 +1506,18 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
             onAddPlan={addPlanItem}
             onShowCases={showCases}
             onGoToChat={(opts) => onGoToChat({ prompt: opts?.prompt })}
+            intakeSlot={
+              <LawmindIntakeInbox
+                apiBase={apiBase}
+                matterChoices={matters.map((row) => row.matterId)}
+                matterLabelById={matterTitleById}
+                onOpenMatter={openMatter}
+                onChanged={() => {
+                  void reloadMatters();
+                  void reloadToday();
+                }}
+              />
+            }
             replicaNote={
               replicaFeed.length > 0 ? (
                 <div className="lm-desk-replica-note" data-testid="lm-desk-replica-feed">
@@ -2201,6 +2216,24 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                   </div>
                 )}
               </section>
+
+              <LawmindMatterArtifactPanel
+                apiBase={apiBase}
+                matterId={selected.matterId}
+                onOpenEvidence={(filePath, lineRef) => {
+                  const line = /^L([1-9]\d*)/.exec((lineRef ?? "").trim());
+                  previewVolumeFile({
+                    path: filePath,
+                    ...(line ? { line: Number(line[1]) } : {}),
+                  });
+                }}
+              />
+
+              <LawmindDeliveryPacketPanel
+                key={selected.matterId}
+                apiBase={apiBase}
+                matterId={selected.matterId}
+              />
 
               {similar.length > 0 || (precedents?.hits.length ?? 0) > 0 || standards.length > 0 ? (
                 <section className="lm-lawyer-pane" aria-label="旧案与先例">

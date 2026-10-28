@@ -62,6 +62,8 @@ export type ActionSummaryPayload = {
   requiresDecisionTotal?: number;
   pendingReviewCount?: number;
   pendingAutomationCount?: number;
+  /** 等待外部事件超时的案件步骤；已计入 `requiresDecisionTotal`。 */
+  pendingMatterRunWaits?: number;
   chatRequiresActionCount?: number;
   pendingToolApprovals?: number;
   /** 近 48h 互审/委派完成（信息角标；不计入 requiresDecisionTotal） */

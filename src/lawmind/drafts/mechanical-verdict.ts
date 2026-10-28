@@ -5,6 +5,7 @@
  */
 
 import type { DraftCitationIntegrityView } from "./citation-integrity.js";
+import { fileReferencesBlockExport, type ValidateFileReferencesResult } from "./evidence-anchor.js";
 
 export type MechanicalBlock =
   | "citation"
@@ -13,7 +14,12 @@ export type MechanicalBlock =
   /** 引用的来源在引用之后被改过（`evidence-support` 判定 stale）。 */
   | "citation_stale"
   /** 引用了来源，但记录的原文在文件里找不到。 */
-  | "citation_quote_mismatch";
+  | "citation_quote_mismatch"
+  /**
+   * 证据锚闸门未 PASSED（对照 MeWork ValidateFileReferences：
+   * FAILED / INCOMPLETE 均不得出终稿）。
+   */
+  | "file_references";
 
 export type MechanicalSignals = {
   /** null = citation gate not in force for this call. */
@@ -25,6 +31,11 @@ export type MechanicalSignals = {
    * 0 = empty redline, which blocks export.
    */
   redlinePending: number | null;
+  /**
+   * null = file-reference evidence gate not in force for this call.
+   * Non-null: only `PASSED` keeps the block list clear of `file_references`.
+   */
+  fileReferences?: ValidateFileReferencesResult | null;
 };
 
 export type MechanicalVerdict = {
@@ -41,7 +52,8 @@ export function citationViewBlocksExport(view: DraftCitationIntegrityView): bool
     !view.ok ||
     view.unanchoredSections.length > 0 ||
     (view.staleSources?.length ?? 0) > 0 ||
-    (view.quoteMismatches?.length ?? 0) > 0
+    (view.quoteMismatches?.length ?? 0) > 0 ||
+    fileReferencesBlockExport(view.fileReferences)
   );
 }
 
@@ -60,6 +72,9 @@ export function evaluateMechanicalVerdict(signals: MechanicalSignals): Mechanica
     if ((view.quoteMismatches?.length ?? 0) > 0) {
       blocks.push("citation_quote_mismatch");
     }
+    if (fileReferencesBlockExport(view.fileReferences)) {
+      blocks.push("file_references");
+    }
   }
   if (signals.acceptanceReady != null) {
     applied = true;
@@ -71,6 +86,12 @@ export function evaluateMechanicalVerdict(signals: MechanicalSignals): Mechanica
     applied = true;
     if (signals.redlinePending === 0) {
       blocks.push("empty_redline");
+    }
+  }
+  if (signals.fileReferences != null) {
+    applied = true;
+    if (fileReferencesBlockExport(signals.fileReferences)) {
+      blocks.push("file_references");
     }
   }
   return { green: applied && blocks.length === 0, blocks };

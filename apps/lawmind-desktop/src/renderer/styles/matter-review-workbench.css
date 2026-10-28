@@ -1015,6 +1015,137 @@
   justify-content: flex-end;
 }
 
+.lm-matter-admission-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lm-matter-admission-owner {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.lm-matter-admission-owner .lm-field {
+  flex: 1;
+}
+
+.lm-matter-admission-list,
+.lm-matter-admission-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.lm-matter-admission-list li,
+.lm-matter-admission-hits li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--surface-2);
+}
+
+.lm-matter-admission-hits li {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  background: color-mix(in srgb, var(--danger) 6%, var(--surface-2));
+}
+
+.lm-matter-admission-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lm-matter-admission-add .lm-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.lm-matter-admission-scan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.lm-matter-admission-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.lm-matter-admission-decline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.lm-matter-admission-decline .lm-btn {
+  align-self: flex-end;
+}
+
+.lm-matter-admission-timeline {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-matter-admission-timeline > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lm-matter-admission-timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lm-matter-admission-timeline-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.lm-matter-admission-timeline-list time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.lm-matter-engagement-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lm-matter-engagement-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .lm-matter-engagement-form {
+    grid-template-columns: 1fr;
+  }
+}
+
 .lm-matter-cockpit-card {
   padding: 14px 15px;
   border: 1px solid var(--border);
@@ -3224,4 +3355,238 @@
 .lm-review-table-grid td .lm-input {
   width: 100%;
   min-width: 96px;
+}
+
+/* ── 案件成果物：时间线 / 大事记 / 思维导图 ───────────────────────
+   只复用既有基元（lm-lawyer-pane / lm-timeline* / lm-meta）；新增规则
+   一律走 token，不引入第二套边框或滚动条。 */
+.lm-matter-artifact-panel .lm-matter-artifact-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-matter-artifact-panel .lm-matter-artifact-section:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.lm-matter-artifact-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  cursor: pointer;
+  list-style: none;
+}
+
+.lm-matter-artifact-summary::-webkit-details-marker {
+  display: none;
+}
+
+.lm-matter-artifact-year-label {
+  margin: 6px 0 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lm-matter-artifact-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.lm-matter-artifact-evidence-chip {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--accent-dim) 55%, transparent);
+  align-self: flex-start;
+  word-break: break-all;
+}
+
+.lm-matter-artifact-issues,
+.lm-matter-artifact-outline-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.lm-matter-artifact-outline {
+  margin-top: 6px;
+}
+
+.lm-matter-mindmap-scroll {
+  overflow: auto;
+  max-height: min(360px, 46vh);
+  margin-top: 6px;
+}
+
+.lm-matter-mindmap {
+  display: block;
+  max-width: none;
+}
+
+.lm-matter-mindmap-edge {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.25;
+}
+
+.lm-matter-mindmap-node rect {
+  fill: var(--surface-2);
+  stroke: var(--border-md);
+  stroke-width: 1;
+}
+
+.lm-matter-mindmap-node.is-issue rect {
+  fill: var(--accent-dim);
+  stroke: var(--accent-border);
+}
+
+.lm-matter-mindmap-node.is-party rect {
+  fill: var(--accent-cool-dim);
+  stroke: var(--accent-cool-border);
+}
+
+.lm-matter-mindmap-node.is-evidence rect {
+  fill: color-mix(in srgb, var(--surface-3) 80%, transparent);
+  stroke: var(--border-strong);
+}
+
+.lm-matter-mindmap-node text {
+  fill: var(--text);
+  font-size: 12px;
+  dominant-baseline: middle;
+}
+
+.lm-matter-artifact-evidence-chip.is-link {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.lm-matter-artifact-evidence-chip.is-link:hover {
+  background: color-mix(in srgb, var(--accent-dim) 85%, transparent);
+  color: var(--text);
+}
+
+.lm-matter-artifact-evidence-chip.is-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ── 案件交付包：分节清单 / 受众预览 / 整包导出 ─────────────────
+   只复用既有基元与 token；不新增滚动条或输入框外观。 */
+.lm-delivery-packet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lm-delivery-packet-audience {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lm-delivery-packet-audience .lm-input {
+  width: auto;
+  min-width: 96px;
+}
+
+.lm-delivery-packet-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
+
+.lm-delivery-packet-issues {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.lm-delivery-packet-issues.is-blocker {
+  color: var(--danger-text);
+}
+
+.lm-delivery-packet-issues.is-warning {
+  color: var(--warn);
+}
+
+.lm-delivery-packet-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.lm-delivery-packet-section {
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.lm-delivery-packet-section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.lm-delivery-packet-section-title {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.lm-delivery-packet-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: var(--r-sm);
+}
+
+.lm-delivery-packet-row:hover {
+  background: color-mix(in srgb, var(--accent-dim) 40%, transparent);
+}
+
+.lm-delivery-packet-row input[type="checkbox"] {
+  margin-top: 3px;
+}
+
+.lm-delivery-packet-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.lm-delivery-packet-copy .lm-meta {
+  word-break: break-all;
+}
+
+.lm-delivery-packet-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.lm-delivery-packet-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }

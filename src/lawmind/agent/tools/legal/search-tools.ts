@@ -4,9 +4,10 @@ import path from "node:path";
 import { loadMatter } from "../../../adapters/matter-storage/index.js";
 import { searchAssistantRoster } from "../../../assistants/roster-search.js";
 import { buildMatterIndex, listMatterIds, searchMatterIndex } from "../../../cases/index.js";
-import { matterPartyIdentityNames, samePartyName } from "../../../desk/matter-parties.js";
+import { samePartyName } from "../../../desk/matter-parties.js";
 import { indexExists } from "../../../indexing/fts-ingest.js";
 import { searchPersonalKnowledge } from "../../../indexing/knowledge-search.js";
+import { scanConflictOfInterest } from "../../../intake/conflict-scan.js";
 import { siblingDocxRelative } from "../../../mail/convert-to-docx.js";
 import { isBinaryWordDocPath, readBinaryWordDocText } from "../../../mail/read-word-binary.js";
 import { loadMemoryContext } from "../../../memory/index.js";
@@ -949,38 +950,16 @@ export const checkConflictOfInterest: AgentTool = {
       return { ok: false, error: "请提供至少 2 个字符以上的当事人名称。" };
     }
 
-    const ids = await listMatterIds(ctx.workspaceDir);
+    // 与收案记录共用同一个扫描服务：当事人身份 + 卷宗索引 + 工作区记忆。
+    // 工具这里不排除当前案件：本案卷宗里出现这个名字，本身也是律师要看的线索。
+    const scan = await scanConflictOfInterest(ctx.workspaceDir, parties);
     const partyToMatters = new Map<string, string[]>();
-
-    for (const party of parties) {
-      const hits: string[] = [];
-      const pl = party.toLowerCase();
-      for (const matterId of ids) {
-        const index = await buildMatterIndex(ctx.workspaceDir, matterId);
-        const rec = loadMatter(ctx.workspaceDir, matterId);
-        const identityNames = rec ? matterPartyIdentityNames(rec) : [];
-        const blob = [
-          identityNames.join("\n"),
-          index.caseMemory,
-          ...index.coreIssues,
-          ...index.taskGoals,
-          ...index.riskNotes,
-          ...index.progressEntries,
-        ]
-          .join("\n")
-          .toLowerCase();
-        if (blob.includes(pl) || identityNames.some((name) => samePartyName(name, party))) {
-          hits.push(matterId);
-        }
+    for (const hit of scan.hits) {
+      const matters = partyToMatters.get(hit.partyName) ?? [];
+      if (!matters.includes(hit.matterId)) {
+        matters.push(hit.matterId);
       }
-      const memory = await loadMemoryContext(ctx.workspaceDir, {});
-      const memBlob = [memory.general, memory.profile].join("\n").toLowerCase();
-      if (memBlob.includes(pl)) {
-        hits.push("(workspace-memory)");
-      }
-      if (hits.length > 0) {
-        partyToMatters.set(party, [...new Set(hits)]);
-      }
+      partyToMatters.set(hit.partyName, matters);
     }
 
     const flags: string[] = [];
@@ -1058,7 +1037,7 @@ export const checkConflictOfInterest: AgentTool = {
         parties,
         matches: Object.fromEntries(partyToMatters),
         conflictFlags: flags,
-        matterScanned: ids.length,
+        matterScanned: scan.scannedMatters,
         note,
         ...(wall
           ? {

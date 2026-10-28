@@ -232,6 +232,82 @@ describe("lawmind-server-route-matters", () => {
     }
   });
 
+  it("POST /api/matters/profile persists party contacts", async () => {
+    const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matter-contacts-"));
+    try {
+      const { createMatterIfAbsent } = await import("../../../src/lawmind/cases/matter-create.js");
+      const { loadMatter } = await import(
+        "../../../src/lawmind/adapters/matter-storage/index.js"
+      );
+      await createMatterIfAbsent(ws, "contacts-matter", {
+        displayName: "联系人案件",
+        status: "intake",
+      });
+      const ctx: LawmindDispatchContext = {
+        workspaceDir: ws,
+        envFile: undefined,
+        userEnvPath: path.join(os.tmpdir(), "x.env"),
+        policy: { loaded: false },
+      };
+      const capture = createResponseCapture();
+      const handled = await handleMatterRoutes({
+        ctx,
+        req: createJsonRequest("POST", {
+          matterId: "contacts-matter",
+          parties: [
+            {
+              partyId: "p-client",
+              name: "甲公司",
+              role: "client",
+              contacts: [
+                {
+                  kind: "email",
+                  value: "a@jia.cn",
+                  account: "mail-a@firm.cn",
+                  verified: true,
+                  source: "lawyer",
+                },
+              ],
+            },
+            {
+              partyId: "p-counterparty",
+              name: "乙公司",
+              role: "counterparty",
+              contacts: [
+                {
+                  kind: "phone",
+                  value: "13800000000",
+                  recordingConsent: { state: "granted", source: "lawyer" },
+                },
+              ],
+            },
+          ],
+        }),
+        res: capture.res,
+        url: new URL("http://127.0.0.1/api/matters/profile"),
+        pathname: "/api/matters/profile",
+        c: {},
+      });
+      expect(handled).toBe(true);
+      expect(capture.status).toBe(200);
+      const record = loadMatter(ws, "contacts-matter");
+      expect(record?.parties?.[0]?.contacts?.[0]).toMatchObject({
+        kind: "email",
+        value: "a@jia.cn",
+        account: "mail-a@firm.cn",
+        verified: true,
+        source: "lawyer",
+      });
+      expect(record?.parties?.[1]?.contacts?.[0]).toMatchObject({
+        kind: "phone",
+        value: "13800000000",
+        recordingConsent: { state: "granted", source: "lawyer" },
+      });
+    } finally {
+      await fs.rm(ws, { recursive: true, force: true });
+    }
+  });
+
   it("POST /api/matters/display-name creates CASE.md when only cases/<id>/ exists", async () => {
     const ws = await fs.mkdtemp(path.join(os.tmpdir(), "lm-matter-display-name-empty-"));
     try {

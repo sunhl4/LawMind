@@ -131,7 +131,7 @@ export function formatDeliverableWorkflowReply(data: {
     lines.push(
       "1. 让我调用 `render_document` 或 `render_tracked_draft` 写出本机 .docx（疑问标【待核实】/修订）；",
     );
-    lines.push("2. 您在 Word 里改即可；外发仍走待发信，须您批准后才真正发出。");
+    lines.push("2. 您在 Word 里改即可；外发仍走待发信，须您签批后才真正发出。");
   }
   if (data.steps && data.steps.length > 0) {
     lines.push("");

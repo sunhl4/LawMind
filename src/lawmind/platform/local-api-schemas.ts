@@ -3,6 +3,7 @@
  * Imported by desktop server routes and renderer typed clients.
  */
 import { z } from "zod";
+import { MatterPartyContactSchema } from "../adapters/matter-storage/schema.js";
 import { WORD_REVISION_AUTHOR_MAX_CHARS } from "../policy/word-revision-author.js";
 import { contextPinsRequestSchema } from "./compose-context-pin.js";
 
@@ -188,6 +189,11 @@ export const matterProfilePostSchema = z.object({
         standing: z.string().trim().max(40).optional(),
         serviceAddress: z.string().trim().max(200).optional(),
         serviceMethod: z.enum(["mail", "electronic", "in_person", "unknown"]).optional(),
+        /**
+         * 当事人在渠道侧的身份。卷宗编辑器直接改这一层；不接受时会被 zod 静默
+         * 丢掉，导致「界面上改了联系方式、保存后没变」。上限与存储层一致。
+         */
+        contacts: z.array(MatterPartyContactSchema).max(8).optional(),
       }),
     )
     .max(32)

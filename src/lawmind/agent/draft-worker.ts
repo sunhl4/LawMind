@@ -107,6 +107,7 @@ export type DraftWorkerModelPayload = {
   gaps: string[];
   conclusion?: string;
   patches?: Array<{ find: string; replace: string; span?: string; anchor?: string }>;
+  reviewObservations?: unknown;
 };
 
 export type DraftWorkerContext = Partial<
@@ -175,6 +176,7 @@ export type DraftWorkerOutput =
         toolsUsed: string[];
         steps: Array<{ tool: string; ok: boolean }>;
         patches?: Array<{ find: string; replace: string; span?: string; anchor?: string }>;
+        reviewObservations?: unknown;
       };
     }
   | {
@@ -299,6 +301,7 @@ export function parseDraftWorkerModelText(raw: string): DraftWorkerModelPayload 
         gaps: stringList(rec.gaps),
         conclusion: oneLine(rec.conclusion),
         patches: parsePatches(rec.patches),
+        reviewObservations: rec.reviewObservations,
       };
     }
     return null;
@@ -562,7 +565,7 @@ function buildDraftUserPrompt(
   return [
     skeleton.header ?? "",
     ask,
-    `JSON schema: { "draft": "string", "conclusion": "一句结论", "citations": ["材料出处"], "gaps": ["待补缺口"], "patches": [{ "find": "原句", "replace": "改后句", "span": "材料原句", "anchor": "clause:…" }] }`,
+    `JSON schema: { "draft": "string", "conclusion": "一句结论", "citations": ["材料出处"], "gaps": ["待补缺口"], "patches": [{ "find": "原句", "replace": "改后句", "span": "材料原句", "anchor": "clause:…" }], "reviewObservations": [{ "anchor": "clause:…", "span": "材料原文片段", "label": "问题说明", "sourceId": "材料 id", "version": "版本" }] }`,
     "",
     brief,
     `章节：${section}`,
@@ -1013,6 +1016,12 @@ function successResult(
       toolsUsed,
       steps,
       ...(parsed.patches && parsed.patches.length > 0 ? { patches: parsed.patches } : {}),
+      ...(parsed.reviewObservations !== undefined
+        ? { reviewObservations: parsed.reviewObservations }
+        : {}),
+      ...(parsed.reviewObservations !== undefined
+        ? { reviewObservations: parsed.reviewObservations }
+        : {}),
     },
   };
 }

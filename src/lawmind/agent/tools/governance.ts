@@ -70,6 +70,10 @@ export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }>
     hint: "工作区内搬移/改名/复制文件或文件夹（不改内容、不删除，可撤销）",
   },
   { name: "review_table_update", hint: "编辑审查表：建模板/加行/批量改格/分组/从材料导入" },
+  {
+    name: "matter_artifact_update",
+    hint: "写案件成果物：事实时间线 / 大事记 / 思维导图（存案件根目录 JSON，逐条带出处）",
+  },
   { name: "create_matter", hint: "无关联案件时新建卷宗；同名已有则并入，不另造 -2" },
   {
     name: "delete_matter",
@@ -100,6 +104,10 @@ export const DISCLOSED_TOOL_HINTS: ReadonlyArray<{ name: string; hint: string }>
   { name: "run_analysis", hint: "预置分析脚本（默认可用；离线时关闭）" },
   { name: "read_skill", hint: "按需读取索引里的技能正文" },
   { name: "search_company_registry", hint: "查企业登记；未接工商源时诚实标【待核实】" },
+  {
+    name: "triage_against_playbook",
+    hint: "按本所剧本三色分级；引用先回读核对，RED 只能律师降档",
+  },
 ];
 
 export function resolveModelToolNames(opts: {

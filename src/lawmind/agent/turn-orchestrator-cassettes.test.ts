@@ -27,6 +27,7 @@ import {
   MEMO_SECTION_MARKER,
   PLEADING_SECTION_MARKER,
 } from "./deliverable-shape.js";
+import { applyProseSyndrome, emptyFactorState, ingestToolResult } from "./factor-state.js";
 import { ISSUE_LEDGER_MARKER } from "./issue-ledger.js";
 import { MAIL_CONTRACT_FAST_PATH_DENIED_HINT } from "./mail-contract-fast-path.js";
 import { REVIEW_BOARD_EXPORT_BOUNCE_MARKER } from "./review-board-export-deferral.js";
@@ -5230,6 +5231,104 @@ describe("turn-orchestrator cassettes (admission)", () => {
         if (after.length > before.length) {
           expect(events).toContain("tool_delta");
         }
+      },
+    );
+  });
+
+  it("writes correction and summary observations to the factor ledger without changing the request", async () => {
+    await withTestLawMind(
+      (b) => b,
+      async (h) => {
+        const session = h.seedHistory([{ role: "user", content: "上一轮", timestamp: ts() }]);
+        session.factorState = emptyFactorState();
+        ingestToolResult(session.factorState, "calculate", {
+          op: "economic_compensation",
+          value: 88000,
+        });
+        applyProseSyndrome(session.factorState, "经济补偿为 99999 元。");
+        saveSession(h.workspaceDir, session);
+        h.enqueue(cassetteAssistant("好的，按 88000 元核。"));
+        const result = await h.runTurn("不对");
+        expect(result.turn.status).toBe("completed");
+        const sessionId = h.session()?.sessionId ?? "";
+        const ledgerFile = path.join(
+          h.workspaceDir,
+          "sessions",
+          `${sessionId}.factor-ledger.jsonl`,
+        );
+        expect(fs.existsSync(ledgerFile)).toBe(true);
+        const rows = fs
+          .readFileSync(ledgerFile, "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as { kind: string; payload: Record<string, unknown> });
+        const correction = rows.find((row) => row.kind === "correction");
+        expect(correction).toBeDefined();
+        expect(correction?.payload.reverts).toEqual([
+          { anchor: "amount:economic_compensation", ok: true },
+        ]);
+        expect(rows.some((row) => row.kind === "summary")).toBe(true);
+        expect(
+          h
+            .request(0)
+            .messages()
+            .some((message) => (message.content ?? "").includes("factor-ledger")),
+        ).toBe(false);
+      },
+    );
+  });
+
+  it("bounces once on a wrong amount and delivers the ledger number", async () => {
+    vi.stubEnv("LAWMIND_FACTOR_REPAIR", "1");
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("calculate", async () => ({
+          ok: true,
+          data: { op: "economic_compensation", value: 88000, formula: "n*wage", inputs: {} },
+        })),
+      async (h) => {
+        h.enqueue(
+          cassetteToolCall("calculate", {
+            op: "economic_compensation",
+            inputs: { years: 2 },
+          }),
+          cassetteAssistant("建议主张继续履行。经济补偿为 99999 元。"),
+          cassetteAssistant("建议主张违法解除。经济补偿为 88000 元。"),
+        );
+        const result = await h.runTurn("计算经济补偿并写意见。");
+        expect(result.turn.status).toBe("completed");
+        expect(result.reply).toContain("88000");
+        expect(result.reply).not.toContain("99999");
+        expect(h.requests.length).toBeGreaterThanOrEqual(3);
+        const nudge = h
+          .request(2)
+          .messages()
+          .find((message) => (message.content ?? "").includes("【因子修复】"));
+        expect(nudge?.content).toContain("amount:economic_compensation");
+        const factor = h
+          .session()
+          ?.factorState?.factors.find((row) => row.anchor === "amount:economic_compensation");
+        expect(factor?.repairs).toBe(1);
+        expect(factor?.flag).toBe("ok");
+        const kept = h.session()?.factorState?.keptJudgments ?? [];
+        expect(kept).toContain("建议主张违法解除。");
+        expect(kept).not.toContain("建议主张继续履行。");
+        const ledgerFile = path.join(
+          h.workspaceDir,
+          "sessions",
+          `${h.session()?.sessionId ?? ""}.factor-ledger.jsonl`,
+        );
+        expect(fs.existsSync(ledgerFile)).toBe(true);
+        const rows = fs
+          .readFileSync(ledgerFile, "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as { kind: string; payload: Record<string, unknown> });
+        const repair = rows.find((row) => row.kind === "repair");
+        expect(repair?.payload).toMatchObject({
+          action: "bounce",
+          anchors: ["amount:economic_compensation"],
+        });
       },
     );
   });

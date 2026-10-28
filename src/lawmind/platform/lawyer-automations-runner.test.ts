@@ -21,7 +21,9 @@ const {
   saveAutomation,
 } = await import("./lawyer-automations.js");
 const { listAutomationRuns } = await import("./automation-run-history.js");
-const { processDueLawyerAutomations } = await import("./lawyer-automations-runner.js");
+const { AUTOMATION_RUN_STEP_KIND, processDueLawyerAutomations } =
+  await import("./lawyer-automations-runner.js");
+const { createMatterRunOnDisk, listMatterRuns } = await import("./matter-run-store.js");
 
 const dirs: string[] = [];
 
@@ -315,5 +317,88 @@ describe("续签与周报的卷宗缺口", () => {
     });
     expect(jobs).toEqual(["client-update-memo"]);
     expect(listAutomationRuns(ws, created.id)[0]?.missingData?.[0]).toContain("还没有卷宗");
+  });
+});
+
+describe("自动办件跑在 MatterRun 上", () => {
+  it("每次运行留下一条可回放的 run，步骤里带办件 id 和结论", async () => {
+    const ws = tmpWs();
+    const id = dueMailAutomation(ws);
+
+    await processDueLawyerAutomations(ws, {});
+
+    const runs = listMatterRuns(ws, { matterId: "m1" });
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.status).toBe("done");
+    expect(runs[0]?.steps[0]?.kind).toBe(AUTOMATION_RUN_STEP_KIND);
+    expect(runs[0]?.steps[0]?.inputRefs).toEqual([`automation:${id}`]);
+    const cursor = runs[0]?.steps[0]?.cursor as { outcome?: { status?: string } } | undefined;
+    expect(cursor?.outcome?.status).toBe("ok");
+    expect(listAutomationRuns(ws, id)).toHaveLength(1);
+  });
+
+  it("接管上次崩溃留下的 run，并补写一次运行历史", async () => {
+    const ws = tmpWs();
+    // 未到期的办件：本轮不会派新单，只应该恢复孤儿 run。
+    const created = createAutomation(ws, {
+      presetId: "mail-inbox-digest",
+      matterId: "m1",
+      title: "邮箱整理",
+    });
+    saveAutomation(ws, {
+      ...created,
+      nextRunAt: "2099-01-01T00:00:00.000Z",
+    });
+    createMatterRunOnDisk(ws, {
+      matterId: "m1",
+      runId: "run_auto_orphan_1",
+      title: "邮箱整理",
+      steps: [
+        {
+          kind: AUTOMATION_RUN_STEP_KIND,
+          title: "邮箱整理",
+          maxAttempts: 2,
+          inputRefs: [`automation:${created.id}`],
+        },
+      ],
+      at: "2026-10-27T04:00:00.000Z",
+    });
+
+    await processDueLawyerAutomations(ws, {});
+
+    const runs = listMatterRuns(ws, { matterId: "m1" });
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.status).toBe("done");
+    const history = listAutomationRuns(ws, created.id);
+    expect(history).toHaveLength(1);
+    expect(history[0]?.status).toBe("ok");
+    expect(listOpenAutomationInbox(ws).some((i) => i.title.includes("运行结果"))).toBe(true);
+  });
+
+  it("执行器失败时 run 终止，不在同一轮里重试", async () => {
+    const ws = tmpWs();
+    const created = createAutomation(ws, {
+      presetId: "client-weekly-update",
+      matterId: "missing-matter",
+      title: "客户周报",
+    });
+    saveAutomation(ws, { ...created, nextRunAt: new Date(0).toISOString() });
+
+    await processDueLawyerAutomations(ws, {
+      enqueueTemplate: () => {
+        throw new Error("workflow template exploded");
+      },
+    });
+
+    const run = listMatterRuns(ws, { matterId: "missing-matter" })[0];
+    expect(run?.status).toBe("failed");
+    expect(run?.steps[0]?.error).toContain("workflow template exploded");
+    expect(run?.steps[0]?.attempts).toBe(1);
+    expect(listAutomationRuns(ws, created.id)[0]?.status).toBe("failed");
+
+    // 下一轮：既不应恢复这条已失败的 run，也不应立刻重跑（nextRunAt 已推进）。
+    await processDueLawyerAutomations(ws, {});
+    expect(listMatterRuns(ws, { matterId: "missing-matter" })).toHaveLength(1);
+    expect(listAutomationRuns(ws, created.id)).toHaveLength(1);
   });
 });

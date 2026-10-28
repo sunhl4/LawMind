@@ -189,7 +189,14 @@ describe("skill deliverable contract (synthetic)", () => {
         },
       ],
     };
-    expect(reviewTableToXlsxRows(table)[0]?.length).toBe(table.columns.length);
+    // 分析列后带 `_依据`；文件名列/来源列不带（MeWork 分析表同构）。
+    const header = reviewTableToXlsxRows(table)[0] as string[];
+    expect(header).toContain("我方文本_依据");
+    expect(header).toContain("来源");
+    expect(header.filter((h) => h.endsWith("_依据")).length).toBeGreaterThan(0);
+    expect(reviewTableToXlsxRows(table, { includeEvidenceColumns: false })[0]?.length).toBe(
+      table.columns.length,
+    );
     expect(reviewTableToXlsxRows(table)[1]?.[0]).toBe("第12条 责任上限");
     const md = reviewTableToMarkdown(table);
     expect(md).toContain("第12条 责任上限");
@@ -221,6 +228,48 @@ describe("skill deliverable contract (synthetic)", () => {
     expect(status?.skillIds).toContain("matter-status-scope-budget");
     expect(status?.pipelineHint).toContain("范围变更");
     expect(status?.pipelineHint).toContain("预算");
+  });
+
+  it("labor.calc binds termination triage and N+1 adds exactly one month", () => {
+    const bound = bindLawyerCapability({
+      instruction: "工作 3 年月薪 10000，公司提前通知解除，计算经济补偿",
+    });
+    expect(bound?.id).toBe("labor.calc");
+    expect(bound?.skillIds).toContain("labor-termination-triage");
+    const n = calculateLegal("economic_compensation", {
+      yearsOfService: 3,
+      monthlyWageYuan: 10_000,
+      kind: "N+1",
+    });
+    expect(n.ok && n.result.value).toBe(40_000);
+  });
+
+  it("letter drafting binds audience tiers", () => {
+    const letter = bindLawyerCapability({ instruction: "写一封催款律师函" });
+    expect(letter?.id).toBe("letter.draft");
+    expect(letter?.skillIds).toContain("role-audience-tiers");
+  });
+
+  it("matter intake binds the scope baseline skill", () => {
+    const intake = bindLawyerCapability({ instruction: "整理这个案件材料并建立目录" });
+    expect(intake?.id).toBe("matter.intake");
+    expect(intake?.skillIds).toContain("matter-intake-scope");
+  });
+
+  it("本期三个消化 skill 的正文与出处都在 builtin 目录里", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const dir = path.join(import.meta.dirname, "../skills/builtin");
+    const expected = [
+      ["labor-termination-triage", "MIT"],
+      ["role-audience-tiers", "Apache-2.0"],
+      ["matter-intake-scope", "Apache-2.0"],
+    ] as const;
+    for (const [id, license] of expected) {
+      const body = await fs.readFile(path.join(dir, `${id}.md`), "utf8");
+      expect(body).toContain(license);
+      expect(body.length).toBeGreaterThan(800);
+    }
   });
 
   it("三个内化 skill 的正文都在 builtin 目录里（不是索引指针）", async () => {

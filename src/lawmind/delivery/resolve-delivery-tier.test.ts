@@ -168,4 +168,49 @@ describe("resolveDeliveryTier", () => {
       expect(resolveDeliveryTier(input), JSON.stringify(input)).toBe(expected);
     }
   });
+
+  it("lets a loaded playbook cap delivery below auto-deliver", () => {
+    // RED 必须全面审阅，哪怕风险档是 low 且自动档已解锁。
+    expect(
+      tier({
+        riskLevel: "low",
+        autonomyUnlocked: true,
+        playbook: { verdict: "RED", basis: "playbook" },
+      }),
+    ).toBe("full_review");
+    // GREEN / YELLOW 都封顶到一键签发：GREEN 也不自动发。
+    expect(
+      tier({
+        riskLevel: "low",
+        autonomyUnlocked: true,
+        playbook: { verdict: "GREEN", basis: "playbook" },
+      }),
+    ).toBe("one_tap_signoff");
+    expect(
+      tier({
+        riskLevel: "low",
+        autonomyUnlocked: true,
+        playbook: { verdict: "YELLOW", basis: "playbook" },
+      }),
+    ).toBe("one_tap_signoff");
+    // 没有本所剧本（basis=default）不改档位，只影响依据展示。
+    expect(
+      tier({
+        riskLevel: "low",
+        autonomyUnlocked: true,
+        playbook: { verdict: "YELLOW", basis: "default" },
+      }),
+    ).toBe("auto_deliver");
+    // GREEN 不能把高风险降下来；firm 的门槛仍然最高。
+    expect(tier({ riskLevel: "high", playbook: { verdict: "GREEN", basis: "playbook" } })).toBe(
+      "full_review",
+    );
+    expect(
+      tier({
+        riskLevel: "low",
+        firmForceFullReview: true,
+        playbook: { verdict: "GREEN", basis: "playbook" },
+      }),
+    ).toBe("full_review");
+  });
 });

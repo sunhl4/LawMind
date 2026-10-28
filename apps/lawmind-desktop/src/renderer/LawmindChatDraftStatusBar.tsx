@@ -8,7 +8,11 @@ import { apiGetJson } from "./api-client";
 import { shouldShowDraftStatusHint } from "./lawmind-draft-status-hint";
 import { buildGateStatusSummary, listBlockingGateDecisions } from "./lawmind-gate-display";
 import { openDeliverableInWps } from "./canvas/host-actions";
-import { toWorkspaceRelativePath } from "./lawmind-workspace-relpath";
+import {
+  toWorkspaceRelativePath,
+  resolveRelForAbs,
+} from "./lawmind-workspace-relpath";
+import { requestOpenWorkspaceFile } from "./lawmind-workspace-file-open";
 
 type Props = {
   apiBase: string | undefined;
@@ -16,6 +20,7 @@ type Props = {
   assistantText: string;
   gateDecisions?: GateDecision[];
   workspaceDir?: string;
+  projectDir?: string;
   /** 保留兼容：不再跳到审稿页。 */
   onOpenReview?: (target?: { taskId?: string; matterId?: string }) => void;
   onOpenNeedsDecisionDesk?: (target?: {
@@ -32,6 +37,7 @@ export function LawmindChatDraftStatusBar(props: Props): ReactNode {
     assistantText,
     gateDecisions,
     workspaceDir,
+    projectDir,
   } = props;
   const [reviewStatus, setReviewStatus] = useState<ArtifactDraft["reviewStatus"] | null>(null);
   const [fetchedGates, setFetchedGates] = useState<GateDecision[] | null>(null);
@@ -82,7 +88,25 @@ export function LawmindChatDraftStatusBar(props: Props): ReactNode {
   const effectiveGates = gateDecisions?.length ? gateDecisions : (fetchedGates ?? undefined);
   const gateSummary = buildGateStatusSummary(effectiveGates);
   const blockingCount = listBlockingGateDecisions(effectiveGates).length;
-  const openArtifact = () => {
+  const resolveArtifact = (): { rel: string; root: "workspace" | "project" } | null => {
+    if (!outputPath) {
+      return null;
+    }
+    const resolved = resolveRelForAbs(workspaceDir, projectDir, outputPath);
+    if (resolved?.rel) {
+      return { rel: resolved.rel, root: resolved.root };
+    }
+    const rel = workspaceDir ? toWorkspaceRelativePath(workspaceDir, outputPath) : null;
+    return rel ? { rel: rel.replace(/\\/g, "/"), root: "workspace" } : null;
+  };
+  const artifact = resolveArtifact();
+  const openArtifactInApp = () => {
+    if (!artifact) {
+      return;
+    }
+    requestOpenWorkspaceFile(artifact.rel, artifact.root);
+  };
+  const openArtifactInWps = () => {
     if (!outputPath) {
       return;
     }
@@ -97,11 +121,21 @@ export function LawmindChatDraftStatusBar(props: Props): ReactNode {
 
   const actions = outputPath ? (
     <div className="lm-draft-status-actions">
+      {artifact ? (
+        <button
+          type="button"
+          className="lm-btn lm-btn-sm"
+          data-testid="lm-draft-status-open-in-app"
+          onClick={openArtifactInApp}
+        >
+          在中栏打开
+        </button>
+      ) : null}
       <button
         type="button"
-        className="lm-btn lm-btn-sm"
+        className="lm-btn lm-btn-ghost lm-btn-sm"
         data-testid="lm-draft-status-open-artifact"
-        onClick={openArtifact}
+        onClick={openArtifactInWps}
       >
         用 WPS 打开
       </button>

@@ -8,6 +8,7 @@ import {
   memoryAdoptionSuggestSchema,
   matterCaseNoteRequestSchema,
   matterCreatePostSchema,
+  matterProfilePostSchema,
   sessionCreatePostSchema,
   sourceAnnotationPostSchema,
   templateEnabledPostSchema,
@@ -120,5 +121,36 @@ describe("local-api-schemas", () => {
         createLearning: true,
       }).success,
     ).toBe(true);
+  });
+
+  it("keeps party contacts in the matter profile body", () => {
+    const parsed = matterProfilePostSchema.safeParse({
+      matterId: "m1",
+      parties: [
+        {
+          partyId: "p-client",
+          name: "甲公司",
+          role: "client",
+          contacts: [
+            {
+              kind: "email",
+              value: "a@jia.cn",
+              account: "mail-a@firm.cn",
+              verified: true,
+              source: "lawyer",
+            },
+          ],
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.parties?.[0]?.contacts?.[0]).toMatchObject({
+        kind: "email",
+        value: "a@jia.cn",
+        account: "mail-a@firm.cn",
+        verified: true,
+      });
+    }
   });
 });

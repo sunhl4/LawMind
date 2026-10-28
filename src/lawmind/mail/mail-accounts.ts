@@ -39,6 +39,11 @@ export type MailAccount = {
   allowInsecure?: boolean;
   /** When set, automations for this matter prefer this account. */
   matterId?: string;
+  /**
+   * 收案邮箱：整个邮箱同步进统一收件库，由判案归到各案件；
+   * 不再被某个案件的办件整箱拉进自己的本地匣。
+   */
+  intakeInbox?: boolean;
   tenantId?: string;
   clientId?: string;
   /** Graph mailbox UPN (defaults to email). */
@@ -132,6 +137,7 @@ function normalizeAccount(row: unknown): MailAccount | null {
     smtpSecure: o.smtpSecure,
     allowInsecure: o.allowInsecure === true ? true : undefined,
     matterId: o.matterId,
+    intakeInbox: o.intakeInbox === true ? true : undefined,
     tenantId: o.tenantId,
     clientId: o.clientId,
     graphMailbox: o.graphMailbox,
@@ -188,6 +194,7 @@ export type UpsertMailAccountInput = {
   /** 显式允许非 TLS 标准端口（非 993/465/587）；缺省拒绝。 */
   allowInsecure?: boolean;
   matterId?: string | null;
+  intakeInbox?: boolean;
   tenantId?: string;
   clientId?: string;
   graphMailbox?: string;
@@ -233,6 +240,7 @@ export function upsertMailAccount(
       input.matterId === null
         ? undefined
         : input.matterId?.trim() || existing?.matterId || undefined,
+    intakeInbox: (input.intakeInbox ?? existing?.intakeInbox) === true ? true : undefined,
     tenantId: input.tenantId?.trim() || existing?.tenantId || undefined,
     clientId: input.clientId?.trim() || existing?.clientId || undefined,
     graphMailbox: input.graphMailbox?.trim() || existing?.graphMailbox || undefined,

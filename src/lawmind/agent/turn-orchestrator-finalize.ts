@@ -25,10 +25,13 @@ import { persistAgentInstructionTask } from "../tasks/index.js";
 import type { ClarificationQuestion } from "../types.js";
 import { markWorkNeedsLawyer } from "../work/store.js";
 import { appendDeliverableFileLinks } from "./deliverable-chat-links.js";
+import { decisionDistance } from "./evidence-provenance.js";
+import { projectReading } from "./factor-state.js";
 import { scrubLawyerFacingAssistantText } from "./lawyer-chat-projection.js";
 import { collectRetrievedAnchors } from "./lawyer-close-anchors.js";
 import { constrainLawyerVisibleReply, lawyerVisibleGaps } from "./lawyer-close.js";
 import { attachPersistedLiveTraceToLastAssistant } from "./live-turn-progress.js";
+import { recordFactorObservation } from "./observation-bus.js";
 import { inspectPersistedSessionHistoryAlignment } from "./session-history-alignment.js";
 import {
   appendTurn,
@@ -193,6 +196,37 @@ export function finishShortCircuitTurn(
   return { turn, reply: shortReply, sessionId: session.sessionId, memoryContext: memory };
 }
 
+function recordFactorTurnSummary(
+  workspaceDir: string,
+  session: AgentSession,
+  turn: AgentTurn,
+): void {
+  const state = session.factorState;
+  if (!state || state.factors.length === 0) {
+    return;
+  }
+  const readings = state.factors.map((factor) => projectReading(factor.outcomes));
+  const distances = state.factors.map((factor) => decisionDistance(factor.outcomes).distance);
+  recordFactorObservation(
+    workspaceDir,
+    {
+      sessionId: session.sessionId,
+      ...(session.matterId ? { matterId: session.matterId } : {}),
+    },
+    {
+      kind: "summary",
+      turnId: turn.turnId,
+      payload: {
+        factors: state.factors.length,
+        definite: readings.filter((row) => row.kind === "definite").length,
+        mixed: readings.filter((row) => row.kind === "mixed").length,
+        redLights: state.factors.filter((factor) => factor.flag !== "ok").length,
+        distances,
+      },
+    },
+  );
+}
+
 export function finalizeAgentTurn(opts: {
   shared: TurnFinalizeShared;
   finalReply: string;
@@ -305,6 +339,7 @@ export function finalizeAgentTurn(opts: {
     replaceLastLawyerAssistant(session.conversationHistory, finalReply);
     replaceLastLawyerAssistant(turn.messages, finalReply);
   }
+  recordFactorTurnSummary(workspaceDir, session, turn);
   emitEvent({
     type: "final",
     status: turn.status,

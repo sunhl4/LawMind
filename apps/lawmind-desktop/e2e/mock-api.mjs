@@ -50,6 +50,8 @@ const contextBudgetMockByScope = new Map();
 const forkMockByScope = new Map();
 /** 核对纸 mock：缺省关闭，避免每段对话都弹出中栏。 */
 const acceptanceSheetByScope = new Map();
+/** 待归案来件 mock（按作用域隔离；缺省空，避免既有 spec 多出一条待办）。 */
+const intakeMockByScope = new Map();
 /** 续接产生的新会话 id → 律师侧「续接来源」卡的数据。 */
 const carriedOverFromBySession = new Map();
 let forkSeq = 1;
@@ -86,6 +88,53 @@ function contextBudgetMockFor(req) {
     contextBudgetMockByScope.set(scope, current);
   }
   return current;
+}
+
+/**
+ * 待归案来件 mock。
+ *
+ * 缺省空：既有 spec 的「停在你这里」首行不能被一条来件抢走。
+ * 需要它的 spec 先 `POST /__e2e__/intake { seed: true }`，再进应用。
+ */
+function freshIntakeMock() {
+  return { items: [], attached: [] };
+}
+
+function intakeMockFor(req) {
+  const scope = scopeOf(req);
+  let current = intakeMockByScope.get(scope);
+  if (!current) {
+    current = freshIntakeMock();
+    intakeMockByScope.set(scope, current);
+  }
+  return current;
+}
+
+/** 一条没有案件候选的来件：证据只有弱线索，必须律师自己决定怎么处置。 */
+function seededIntakeItem() {
+  return {
+    schemaVersion: 1,
+    id: "it-e2e00001",
+    channel: "email",
+    externalKey: "email:e2e-intake:1",
+    trust: "untrusted",
+    receivedAt: now,
+    recordedAt: now,
+    from: { display: "王五 <wang@newclient.test>", address: "wang@newclient.test" },
+    to: "intake@firm.test",
+    subject: "买卖合同纠纷咨询",
+    text: "我们有一批货被对方拒收，想委托律师起诉，随信附上送货单。",
+    dmarc: "pass",
+    attachments: [
+      { name: "送货单.pdf", size: 2048, contentType: "application/pdf", sha256: "a".repeat(64) },
+    ],
+    status: "pending",
+    resolution: { decision: "unmatched", candidates: [], resolvedAt: now },
+  };
+}
+
+function findIntakeItem(req, id) {
+  return intakeMockFor(req).items.find((item) => item.id === id) ?? null;
 }
 
 /** 续接（fork）的 mock 开关：`ok` 默认；`blocked` 模拟有待批准授权（真实路由应 409）。 */
@@ -1217,6 +1266,32 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // E2E-only: 待归案来件开关（缺省空，避免既有 spec 多出一条待办抢首行）。
+  if (path === "/__e2e__/intake" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const current = intakeMockFor(req);
+    current.attached.length = 0;
+    current.items = body?.seed === false ? [] : [seededIntakeItem()];
+    json(res, 200, { ok: true, pending: current.items.length });
+    return;
+  }
+
+  // E2E-only: 读回 mock 收到的归案 / 线索载荷，验证界面真的带了 matterId 与记住发件人。
+  if (path === "/__e2e__/intake" && req.method === "GET") {
+    const current = intakeMockFor(req);
+    json(res, 200, {
+      ok: true,
+      items: current.items,
+      attached: current.attached.map((row) => ({
+        id: row.id,
+        matterId: row.filing?.matterId,
+        rememberSender: row.rememberSender === true,
+        leadStage: row.lead?.stage ?? null,
+      })),
+    });
+    return;
+  }
+
   // E2E-only: 上下文用量开关（缺省 ok/12k/100k/compactCount 0 → 不出建议卡）。
   if (path === "/__e2e__/context-budget" && req.method === "POST") {
     const body = await readJsonBody(req);
@@ -2138,8 +2213,23 @@ const server = http.createServer(async (req, res) => {
       createdAt: now,
       priority: 1,
     };
+    const intakeRuns = intakeMockFor(req)
+      .items.filter((item) => item.status === "pending")
+      .map((item) => ({
+        id: `intake:${item.id}`,
+        kind: "queue_item",
+        status: "awaiting_review",
+        title: item.subject ?? "待归案来件",
+        subtitle: item.lead?.stage === "needs_info" ? "新案线索 · 待补资料" : "待处理收件",
+        intakeItemId: item.id,
+        updatedAt: item.recordedAt,
+        createdAt: item.recordedAt,
+        priority: 4,
+        note: item.from?.address ?? item.channel,
+      }));
     const runs = [
       seedSend,
+      ...intakeRuns,
       ...handoffFleetRuns,
       seedPending,
       {
@@ -2204,13 +2294,102 @@ const server = http.createServer(async (req, res) => {
           chat: 1,
           delegation: 0,
           workflow_job: 0,
-          queue_item: 0,
+          queue_item: intakeRuns.length,
           tool_approval: 0,
           matter_approval: 0,
           pending_review: pendingReviewCount,
         },
       },
     });
+    return;
+  }
+
+  if (path === "/api/intake/items" && req.method === "GET") {
+    const current = intakeMockFor(req);
+    json(res, 200, {
+      ok: true,
+      items: current.items.filter((item) => item.status === "pending"),
+    });
+    return;
+  }
+
+  const intakeItemMatch = path.match(/^\/api\/intake\/items\/([^/]+)$/);  if (intakeItemMatch && req.method === "GET") {
+    const item = findIntakeItem(req, decodeURIComponent(intakeItemMatch[1]));
+    if (!item) {
+      json(res, 404, { ok: false, error: "not_found" });
+      return;
+    }
+    json(res, 200, { ok: true, item });
+    return;
+  }
+
+  if (path === "/api/intake/items/attach" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const current = intakeMockFor(req);
+    const item = current.items.find((row) => row.id === body?.itemId);
+    if (!item) {
+      json(res, 400, { ok: false, error: "not_found" });
+      return;
+    }
+    item.status = "attached";
+    item.filing = { matterId: body?.matterId, by: "lawyer", at: now, keys: [], materialized: [] };
+    current.attached.push({ ...item, rememberSender: body?.rememberSender === true });
+    json(res, 200, {
+      ok: true,
+      item,
+      ...(body?.rememberSender === true ? { rememberedSender: true } : {}),
+    });
+    return;
+  }
+
+  const intakeLeadMatch = path.match(/^\/api\/intake\/items\/([^/]+)\/lead$/);
+  if (intakeLeadMatch && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const item = findIntakeItem(req, decodeURIComponent(intakeLeadMatch[1]));
+    if (!item) {
+      json(res, 400, { ok: false, error: "not_found" });
+      return;
+    }
+    const action = String(body?.action ?? "");
+    if (action === "accept") {
+      const title = String(body?.matterTitle ?? "").trim();
+      if (!title) {
+        json(res, 400, { ok: false, error: "invalid_matter_title" });
+        return;
+      }
+      item.status = "attached";
+      item.filing = { matterId: title, by: "lawyer", at: now, keys: [], materialized: [] };
+      item.lead = { stage: "accepted", at: now, by: "lawyer", matterId: title };
+      intakeMockFor(req).attached.push({ ...item, rememberSender: false });
+      json(res, 200, { ok: true, item });
+      return;
+    }
+    item.lead = { stage: action, at: now, by: "lawyer" };
+    if (action === "declined") {
+      item.status = "ignored";
+    }
+    json(res, 200, { ok: true, item });
+    return;
+  }
+
+  const intakeActionMatch = path.match(/^\/api\/intake\/items\/([^/]+)\/(ignore|restore|detach)$/);
+  if (intakeActionMatch && req.method === "POST") {
+    const item = findIntakeItem(req, decodeURIComponent(intakeActionMatch[1]));
+    if (!item) {
+      json(res, 400, { ok: false, error: "not_found" });
+      return;
+    }
+    const action = intakeActionMatch[2];
+    if (action === "ignore") {
+      item.status = "ignored";
+    } else if (action === "restore") {
+      item.status = "pending";
+      item.ignoredAt = undefined;
+    } else {
+      item.status = "pending";
+      item.filing = undefined;
+    }
+    json(res, 200, { ok: true, item });
     return;
   }
 

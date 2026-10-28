@@ -10,6 +10,14 @@
  */
 
 import { CONTRACT_ROLE_WORDS, extractDefinedTermsFromText } from "../drafts/terminology-adapt.js";
+import {
+  canFuseByProvenance,
+  fuseProvenancedOutcomes,
+  materialChannel,
+  spanChannel,
+  toolChannel,
+  type EvidenceChannel,
+} from "./evidence-provenance.js";
 import { CONFORMAL_ALPHA, conformalProject, conformalQuantile } from "./factor-conformal.js";
 import { builtinTemplateHeadings, parseOoxmlHeadingForest } from "./ooxml-skeleton.js";
 import {
@@ -56,6 +64,8 @@ export type FactorOutcome = {
   grounded?: boolean;
   /** Material quote that grounds this reading. Survives compaction. */
   span?: string;
+  /** Provenance roots behind this reading; shared roots never count twice. */
+  channels?: readonly EvidenceChannel[];
 };
 
 export type Factor = {
@@ -125,6 +135,11 @@ export type FactorState = {
   demoSpanIds?: string[];
   /** Worker patches that passed span checks. Surgical apply uses these on matching finds. */
   pendingPatches?: WorkerPatch[];
+  /** Last decoder proposal carried into the next lawyer correction for calibration. */
+  pendingRepairCalibration?: {
+    faultKinds: string[];
+    anchors: string[];
+  };
 };
 
 export type InverseEdit = {
@@ -182,6 +197,7 @@ export function emptyFactorState(): FactorState {
     definitionCycles: [],
     demoSpanIds: [],
     pendingPatches: [],
+    pendingRepairCalibration: undefined,
   };
 }
 
@@ -220,6 +236,7 @@ export function normalizeOutcomes(outcomes: readonly FactorOutcome[]): FactorOut
     mass: outcome.mass / total,
     grounded: outcome.grounded === true,
     ...(outcome.span?.trim() ? { span: outcome.span.trim() } : {}),
+    ...(outcome.channels?.length ? { channels: outcome.channels } : {}),
   }));
 }
 
@@ -300,6 +317,10 @@ export function productMerge(
   left: readonly FactorOutcome[],
   right: readonly FactorOutcome[],
 ): { outcomes: FactorOutcome[]; conflict: boolean } {
+  if (canFuseByProvenance(left, right)) {
+    const fused = fuseProvenancedOutcomes(left, right);
+    return { outcomes: fused.outcomes, conflict: fused.conflict };
+  }
   const ids = new Set<string>([
     ...left.map((outcome) => outcome.id),
     ...right.map((outcome) => outcome.id),
@@ -957,6 +978,35 @@ export function renderSkeletonStart(headings: readonly string[]): string {
   ].join("\n");
 }
 
+/** Same wrong figure reused across amount slots: one root cause, one edit pass. */
+function sharedAmountProposalLines(state: FactorState): string[] {
+  const groups = new Map<string, string[]>();
+  for (const factor of state.factors) {
+    if (
+      factor.kind !== "amount" ||
+      (factor.flag !== "conflict" && factor.flag !== "uncorrectable")
+    ) {
+      continue;
+    }
+    const proposal = factor.proposalId?.trim();
+    if (!proposal) {
+      continue;
+    }
+    const anchors = groups.get(proposal) ?? [];
+    if (!anchors.includes(factor.anchor)) {
+      anchors.push(factor.anchor);
+    }
+    groups.set(proposal, anchors);
+  }
+  return [...groups.entries()]
+    .filter(([, anchors]) => anchors.length > 1)
+    .toSorted(([left], [right]) => left.localeCompare(right))
+    .map(
+      ([proposal, anchors]) =>
+        `- 【同一处错数】${proposal} 同时出现在 ${anchors.length} 个金额槽（${anchors.join("、")}）；改一处时另一处也要一起核对。`,
+    );
+}
+
 /** Lawyer-visible note for mixed or conflicting mechanical items. The prose stays. */
 export function appendMechanicalNote(prose: string, state: FactorState | undefined): string {
   if (!state || prose.includes("【机械核定】")) {
@@ -978,6 +1028,7 @@ export function appendMechanicalNote(prose: string, state: FactorState | undefin
     }
     lines.push(`- ${factor.anchor}：${renderFactorBody(factor, conformalQhatFor(state))}`);
   }
+  lines.push(...sharedAmountProposalLines(state));
   if (lines.length === 0) {
     return prose;
   }
@@ -1108,6 +1159,7 @@ export function recordReading(
   outcomeId: string,
   grounded: boolean,
   span?: string,
+  channels?: readonly EvidenceChannel[],
 ): void {
   const factor = ensureFactor(state, anchor, kind);
   factor.kind = kind;
@@ -1119,6 +1171,7 @@ export function recordReading(
       mass: 1,
       grounded: ok,
       ...(quote ? { span: quote } : {}),
+      ...(channels?.length ? { channels } : {}),
     },
   ]);
   factor.flag = ok ? "ok" : "mixed";
@@ -1350,6 +1403,7 @@ export function ingestMaterialAmounts(state: FactorState, text: string): void {
       amount.raw,
       true,
       amount.span,
+      [materialChannel(amount.span || amount.raw)],
     );
   }
 }
@@ -1379,7 +1433,7 @@ export function ingestToolResult(state: FactorState, toolName: string, data: unk
       } else {
         state.calculatedSlots.push({ anchor, value: text });
       }
-      upsertOutcome(state, anchor, "amount", text, true);
+      upsertOutcome(state, anchor, "amount", text, true, undefined, [toolChannel("calculate", op)]);
       bindListedAnchors(state, anchor, record);
     }
   }
@@ -1397,7 +1451,9 @@ export function ingestToolResult(state: FactorState, toolName: string, data: unk
       }
       const quote = spanTextForSource(state, id, record);
       const covered = Boolean(quote);
-      upsertOutcome(state, `citation:${id}`, "citation", demo ? "demo" : "live", covered, quote);
+      upsertOutcome(state, `citation:${id}`, "citation", demo ? "demo" : "live", covered, quote, [
+        toolChannel(toolName, id),
+      ]);
       bindListedAnchors(state, `citation:${id}`, record);
     }
     bindCitationsToSoleClause(state, stringList(record.sourceIds));
@@ -1405,7 +1461,9 @@ export function ingestToolResult(state: FactorState, toolName: string, data: unk
   const code = typeof record.code === "string" ? record.code : "";
   if (XML_QA_CODES.has(code)) {
     pushUnique(state.redlineFailures, code);
-    upsertOutcome(state, `redline:${code}`, "redline", code, true);
+    upsertOutcome(state, `redline:${code}`, "redline", code, true, undefined, [
+      toolChannel("xml_qa", code),
+    ]);
   }
   linkDefinedTermsToSlots(state);
   const templateId =
@@ -1427,12 +1485,15 @@ export function ingestToolResult(state: FactorState, toolName: string, data: unk
 export function applyProseSyndrome(
   state: FactorState | undefined,
   prose: string,
+  options: { rememberJudgments?: boolean } = {},
 ): ProseSyndromeDecision {
   if (!state || !prose.trim()) {
     return { action: "none" };
   }
   absorbProseProposals(state, prose);
-  rememberJudgments(state, prose);
+  if (options.rememberJudgments !== false) {
+    rememberJudgments(state, prose);
+  }
   return { action: "none" };
 }
 
@@ -1551,15 +1612,36 @@ export function fuseSharedAnchorLines(
       continue;
     }
     const labels = items.map((item) => item.label);
+    const channelsFor = (item: Item): EvidenceChannel[] =>
+      item.spans
+        .filter((span) => spanAttestsOutcome(span, item.id))
+        .map((span) => spanChannel("worker", span));
+    const first = items[0];
+    const firstChannels = first ? channelsFor(first) : [];
     const merged = items.slice(1).reduce<{ outcomes: FactorOutcome[]; conflict: boolean }>(
       (acc, item) => {
         if (acc.conflict) {
           return acc;
         }
-        return productMerge(acc.outcomes, [{ id: item.id, mass: 1, grounded: item.spanned }]);
+        const channels = channelsFor(item);
+        return productMerge(acc.outcomes, [
+          {
+            id: item.id,
+            mass: 1,
+            grounded: item.spanned,
+            ...(channels.length > 0 ? { channels } : {}),
+          },
+        ]);
       },
       {
-        outcomes: [{ id: items[0]?.id ?? "", mass: 1, grounded: items[0]?.spanned }],
+        outcomes: [
+          {
+            id: first?.id ?? "",
+            mass: 1,
+            grounded: first?.spanned,
+            ...(firstChannels.length > 0 ? { channels: firstChannels } : {}),
+          },
+        ],
         conflict: false,
       },
     );
@@ -2072,6 +2154,15 @@ function advanceHit(state: FactorState, hit: SyndromeHit): ProseSyndromeDecision
   };
 }
 
+/** Repair planner entry; same cap as the legacy prose syndrome. */
+export function advanceRepair(
+  state: FactorState,
+  anchor: string,
+  stabilizer: StabilizerId,
+): ProseSyndromeDecision {
+  return advanceHit(state, { stabilizer, anchor });
+}
+
 const ROLE_SURFACE: Record<string, readonly string[]> = {
   发包人: ["发包方"],
   承包人: ["承包方"],
@@ -2348,8 +2439,9 @@ function upsertOutcome(
   outcomeId: string,
   grounded: boolean,
   span?: string,
+  channels?: readonly EvidenceChannel[],
 ): void {
-  recordReading(state, anchor, kind, outcomeId, grounded, span);
+  recordReading(state, anchor, kind, outcomeId, grounded, span, channels);
 }
 
 /** Independent evidence: the quote must attest the node id, not merely be non-empty. */
@@ -2466,7 +2558,9 @@ function ingestWorkerRecord(state: FactorState, record: Record<string, unknown>)
   const span = typeof record.span === "string" ? record.span.trim() : "";
   const grounded = outcomeId.length > 0 && spanAttestsOutcome(span, outcomeId);
   if (anchor && outcomeId) {
-    recordReading(state, anchor, "clause", outcomeId, grounded, span);
+    recordReading(state, anchor, "clause", outcomeId, grounded, span, [
+      spanChannel("worker", span || outcomeId),
+    ]);
     bindListedAnchors(state, anchor, record);
   }
   const patches = Array.isArray(record.patches) ? record.patches : [];
@@ -2491,7 +2585,9 @@ function ingestWorkerRecord(state: FactorState, record: Record<string, unknown>)
       ...(patchSpan ? { span: patchSpan } : {}),
     });
     if (patchAnchor && patchOutcome) {
-      recordReading(state, patchAnchor, "clause", patchOutcome, true, patchSpan);
+      recordReading(state, patchAnchor, "clause", patchOutcome, true, patchSpan, [
+        spanChannel("worker", patchSpan || patchOutcome),
+      ]);
     }
   }
 }

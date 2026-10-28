@@ -3,10 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createSession, saveSession } from "../../../src/lawmind/agent/session.js";
+import { loadMatter, saveMatter } from "../../../src/lawmind/adapters/matter-storage/index.js";
+import { ensureMatterWithProjection } from "../../../src/lawmind/application/matter-dual-write.js";
+import { updateMatterProfile } from "../../../src/lawmind/application/services/matter-write-service.js";
 import { ensureTaskRecord } from "../../../src/lawmind/tasks/index.js";
 import type { TaskIntent } from "../../../src/lawmind/types.js";
 import {
   buildDoctorStats,
+  buildMatterConsistencySummary,
   buildMemoryTruthSourceFlags,
   buildP2DoctorReport,
   buildReasoningGraphCoverage,
@@ -239,5 +243,42 @@ describe("lawmind-health-payload", () => {
         process.env.LAWMIND_COMPANY_REGISTRY_URL = prev;
       }
     }
+  });
+
+  it("splits repairable projection drift from party contact conflicts", async () => {
+    const ws = tmpWs();
+    await ensureMatterWithProjection(ws, { matterId: "m-dup", title: "重复联系人" });
+    await updateMatterProfile(ws, {
+      matterId: "m-dup",
+      parties: [
+        {
+          partyId: "p-client",
+          name: "甲公司",
+          role: "client",
+          contacts: [{ kind: "email", value: "same@example.com", account: "mail-a@firm.cn" }],
+        },
+        {
+          partyId: "p-counterparty",
+          name: "乙公司",
+          role: "counterparty",
+          contacts: [{ kind: "email", value: "same@example.com", account: "mail-a@firm.cn" }],
+        },
+      ],
+    });
+    const dup = await buildMatterConsistencySummary(ws);
+    expect(dup.ok).toBe(false);
+    expect(dup.partyConflictCount).toBe(1);
+    expect(dup.issues.some((i) => i.code === "duplicate_party_contact")).toBe(true);
+    // 「重新整理」修不了联系方式冲突，计数不能把它算进去。
+    expect(dup.repairableCount).toBe(dup.issueCount - 1);
+
+    const driftWs = tmpWs();
+    await ensureMatterWithProjection(driftWs, { matterId: "m-drift", title: "原标题" });
+    const record = loadMatter(driftWs, "m-drift");
+    saveMatter(driftWs, { ...record!, title: "改过的标题" });
+    const drift = await buildMatterConsistencySummary(driftWs);
+    expect(drift.partyConflictCount).toBe(0);
+    expect(drift.repairableCount).toBe(drift.issueCount);
+    expect(drift.issues.some((i) => i.code === "title_drift")).toBe(true);
   });
 });

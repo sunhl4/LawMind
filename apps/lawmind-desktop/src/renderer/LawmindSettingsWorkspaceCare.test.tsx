@@ -38,6 +38,8 @@ describe("LawmindSettingsWorkspaceCare", () => {
                 matterConsistency: {
                   ok: false,
                   issueCount: 2,
+                  repairableCount: 2,
+                  partyConflictCount: 0,
                   issues: [{ matterId: "m1", code: "title_drift", message: "标题不一致" }],
                 },
               },
@@ -84,6 +86,45 @@ describe("LawmindSettingsWorkspaceCare", () => {
     });
     expect(host.textContent).not.toContain("重建查找");
     expect(host.textContent).not.toContain("重新整理");
+  });
+
+  it("names party contact conflicts without offering a projection repair", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            doctor: {
+              searchIndex: { ready: true, stale: false },
+              matterConsistency: {
+                ok: false,
+                issueCount: 1,
+                repairableCount: 0,
+                partyConflictCount: 1,
+                issues: [
+                  {
+                    matterId: "m-dup",
+                    code: "duplicate_party_contact",
+                    message: "同一联系方式登记在多个当事人名下：甲公司 / 乙公司",
+                  },
+                ],
+              },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+    await act(async () => {
+      root.render(<LawmindSettingsWorkspaceCare apiBase="http://127.0.0.1:8765" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(host.querySelector("[data-testid='lm-workspace-matter-repair']")).toBeNull();
+    expect(host.querySelector("[data-testid='lm-workspace-party-conflicts']")).toBeTruthy();
+    expect(host.textContent).toContain("甲公司 / 乙公司");
+    expect(host.textContent).toContain("整理档案投影不会改它");
   });
 
   it("shows execution-surface inventory when health returns lines", async () => {

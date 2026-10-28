@@ -9,9 +9,11 @@ import { hiddenPolicyToolNames } from "../policy/analysis-scripts.js";
 import { accumulateFactPin } from "./compact-fact-pin.js";
 import { applyCompactReinjectionToSession, selectTaskPinText } from "./compact-reinjection.js";
 import { autoCompactSessionHistory } from "./compact.js";
+import { applyLedgerCalibration } from "./conformal-calibration.js";
 import { estimateTokenBudget } from "./context-budget.js";
 import { isolationKey, resetIsolationBudget } from "./context-isolation-budget.js";
 import { resolveContextTuning } from "./context-tuning.js";
+import { buildCorrectionRecord, correctionReadingSnapshot } from "./correction-ledger.js";
 import { resolveToolSandboxEnabled } from "./dangerous-tool-policy.js";
 import {
   type FactorState,
@@ -35,6 +37,7 @@ import {
 } from "./live-turn-progress.js";
 import { tryBuildModelConnectivityCheckReply } from "./model-connectivity-check.js";
 import { tryBuildModelIdentityReply } from "./model-identity-reply.js";
+import { recordCorrectionObservation } from "./observation-bus.js";
 import { type AgentPermissionMode } from "./permission-mode.js";
 import { appendSessionEvent } from "./session-event-log.js";
 import { isSessionPersistError } from "./session-persist.js";
@@ -116,9 +119,9 @@ async function revertWrittenEdits(
   workspaceDir: string,
   state: FactorState | undefined,
   cone: readonly string[] = [],
-): Promise<void> {
+): Promise<{ applied: number }> {
   if (!state) {
-    return;
+    return { applied: 0 };
   }
   const scoped = selectInverseEditsForCone(state, cone);
   const taskId = draftTaskIdFromSurgical(state);
@@ -128,12 +131,12 @@ async function revertWrittenEdits(
     Boolean(taskId) &&
     (state.bodySnapshots ?? []).some((shot) => shot.taskId === taskId);
   if (!taskId || (scoped.apply.length === 0 && !hasSnapshot)) {
-    return;
+    return { applied: 0 };
   }
   const { persistDraft, readDraft } = await import("../drafts/index.js");
   const draft = readDraft(workspaceDir, taskId);
   if (!draft) {
-    return;
+    return { applied: 0 };
   }
   if (hasSnapshot) {
     const snapshot = takeBodySnapshot(state, taskId);
@@ -147,11 +150,11 @@ async function revertWrittenEdits(
       persistDraft(workspaceDir, { ...draft, sections });
       state.inverseEdits = [];
       await refreshExportedWord(workspaceDir, taskId);
-      return;
+      return { applied: snapshot.length };
     }
   }
   if (scoped.apply.length === 0) {
-    return;
+    return { applied: 0 };
   }
   let applied = 0;
   const sections = draft.sections.map((section) => {
@@ -160,11 +163,12 @@ async function revertWrittenEdits(
     return { ...section, body: inverted.text };
   });
   if (applied === 0) {
-    return;
+    return { applied: 0 };
   }
   persistDraft(workspaceDir, { ...draft, sections });
   state.inverseEdits = scoped.keep;
   await refreshExportedWord(workspaceDir, taskId);
+  return { applied };
 }
 
 async function refreshExportedWord(workspaceDir: string, taskId: string): Promise<void> {
@@ -557,6 +561,8 @@ export async function runTurn(opts: {
       : 0;
   session.factorState = beginTurnFactors(session.factorState ?? emptyFactorState());
   ingestMaterialAmounts(session.factorState, instruction);
+  // 保形门只吃修正史；没有足够且有区分度的记录就不启用。观察失败不阻塞回合。
+  applyLedgerCalibration(config.workspaceDir, session);
   const turn: AgentTurn = {
     turnId,
     sessionId: session.sessionId,
@@ -571,13 +577,39 @@ export async function runTurn(opts: {
   ctx.factorState = session.factorState;
   if (isCorrectionUtterance(instruction)) {
     const named = anchorsNamedInText(instruction, session.factorState);
+    const readings = correctionReadingSnapshot(session.factorState, named).map((reading) => ({
+      ...reading,
+      faultKinds: session.factorState?.pendingRepairCalibration?.anchors.includes(reading.anchor)
+        ? session.factorState.pendingRepairCalibration.faultKinds
+        : [],
+    }));
     const reverted = revertProposals(session.factorState, named);
     const cone = [...new Set([...reverted, ...correctionCone(session.factorState, named)])];
     session.factorState.correctionLightCone = cone;
     if (cone.length > 0) {
       ctx.correctionLightCone = cone;
     }
-    await revertWrittenEdits(config.workspaceDir, session.factorState, cone);
+    const fileRevert = await revertWrittenEdits(config.workspaceDir, session.factorState, cone);
+    recordCorrectionObservation(
+      config.workspaceDir,
+      {
+        sessionId: session.sessionId,
+        ...(session.matterId ? { matterId: session.matterId } : {}),
+      },
+      buildCorrectionRecord({
+        sessionId: session.sessionId,
+        turnId,
+        lawyerNote: instruction,
+        namedAnchors: named,
+        coneAnchors: cone,
+        reverts: reverted.map((anchor) => ({ anchor, ok: true })),
+        readings,
+        faultKinds: session.factorState.pendingRepairCalibration?.faultKinds ?? [],
+        fileEditsReverted: fileRevert.applied,
+      }),
+      turnId,
+    );
+    session.factorState.pendingRepairCalibration = undefined;
   } else if ((session.factorState.correctionLightCone ?? []).length > 0) {
     ctx.correctionLightCone = session.factorState.correctionLightCone;
   }

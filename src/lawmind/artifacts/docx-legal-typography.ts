@@ -246,7 +246,7 @@ export function classifyChineseHeadingLevel(text: string): ChineseHeadingLevel |
 }
 
 export function docxFaceForVariant(variant: string | undefined): DocxFace {
-  if (variant === "contractReview" || variant === "demandLetter") {
+  if (variant === "contractReview" || variant === "demandLetter" || variant === "formalDocument") {
     return FORMAL_FACE;
   }
   if (variant === "researchReport") {

@@ -11,6 +11,11 @@ import { persistDraft } from "../drafts/index.js";
 import { writeRedlineProposal } from "../drafts/redline-proposal.js";
 import { openWordReviewTicket, wordReviewPath } from "../drafts/word-review.js";
 import { buildAgentFleetSummary } from "./build-agent-fleet.js";
+import {
+  createMatterRunOnDisk,
+  escalateDueMatterRunWaits,
+  resumeMatterRuns,
+} from "./matter-run-store.js";
 
 describe("buildAgentFleetSummary", () => {
   let workspaceDir = "";
@@ -237,6 +242,31 @@ describe("buildAgentFleetSummary", () => {
     expect(byTitle.has("助手待起草")).toBe(false);
   });
 
+  it("maps pending intake items into the existing needs-you queue seam", async () => {
+    workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-fleet-intake-"));
+    const { recordIntakeItem } = await import("../intake/store.js");
+    recordIntakeItem(workspaceDir, {
+      channel: "email",
+      externalKey: "email:acc-1:message-1",
+      receivedAt: "2026-10-26T08:00:00.000Z",
+      from: { display: "Client <client@example.com>", address: "client@example.com" },
+      subject: "补充诉讼材料",
+      text: "请查收附件。",
+      attachments: [],
+    });
+
+    const fleet = await buildAgentFleetSummary({ workspaceDir });
+    const intake = fleet.runs.find((run) => run.intakeItemId);
+
+    expect(intake).toMatchObject({
+      id: expect.stringMatching(/^intake:it-/),
+      kind: "queue_item",
+      status: "awaiting_review",
+      title: "补充诉讼材料",
+      subtitle: "待处理收件",
+    });
+    expect(fleet.counts.byKind.queue_item).toBe(1);
+  });
   it("keeps today's settled jobs and skips idle chats and older completions", async () => {
     workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-fleet-idle-"));
     createSession({
@@ -429,5 +459,50 @@ describe("buildAgentFleetSummary", () => {
       false,
     );
     expect(fleet.counts.byKind.word_check).toBe(1);
+  });
+
+  it("lists escalated matter-run waits as lawyer decisions, scoped by matter", async () => {
+    workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-fleet-"));
+    const at0 = "2026-10-27T04:00:00.000Z";
+    createMatterRunOnDisk(workspaceDir, {
+      matterId: "matter-1",
+      runId: "run_wait",
+      steps: [{ kind: "wait_court", title: "等法院立案" }],
+      at: at0,
+    });
+    await resumeMatterRuns(workspaceDir, {
+      executors: {
+        wait_court: () => ({
+          status: "waiting" as const,
+          wait: {
+            reason: "court_filing" as const,
+            eventKeys: ["matter:matter-1"],
+            dueAt: "2026-10-28T00:00:00.000Z",
+          },
+        }),
+      },
+      at: "2026-10-27T04:01:00.000Z",
+    });
+    escalateDueMatterRunWaits(workspaceDir, { at: "2026-10-29T00:00:00.000Z" });
+
+    const fleet = await buildAgentFleetSummary({ workspaceDir });
+    const row = fleet.runs.find((run) => run.kind === "matter_run_wait");
+    expect(row).toMatchObject({
+      matterId: "matter-1",
+      status: "awaiting_approval",
+      title: "等法院立案",
+      subtitle: "案件运行",
+    });
+    expect(row?.matterRunWait).toMatchObject({
+      runId: "run_wait",
+      stepId: "s1",
+      reason: "court_filing",
+      dueAt: "2026-10-28T00:00:00.000Z",
+      escalatedAt: "2026-10-29T00:00:00.000Z",
+    });
+    expect(fleet.counts.byKind.matter_run_wait).toBe(1);
+
+    const otherMatter = await buildAgentFleetSummary({ workspaceDir, matterId: "matter-2" });
+    expect(otherMatter.runs.some((run) => run.kind === "matter_run_wait")).toBe(false);
   });
 });

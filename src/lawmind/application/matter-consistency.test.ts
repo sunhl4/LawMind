@@ -3,9 +3,14 @@ import path from "node:path";
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { loadMatter, saveMatter } from "../adapters/matter-storage/index.js";
 import { ensureCaseWorkspace } from "../memory/index.js";
-import { checkMatterConsistency } from "./matter-consistency.js";
+import {
+  checkMatterConsistency,
+  formatMatterConsistencyReport,
+  isRepairableMatterConsistencyIssue,
+} from "./matter-consistency.js";
 import { ensureMatterWithProjection } from "./matter-dual-write.js";
 import { createPlannedDeliverable, transitionDeliverable } from "./services/deliverable-service.js";
+import { updateMatterProfile } from "./services/matter-write-service.js";
 
 describe("application/matter-consistency", () => {
   let workspaceDir: string;
@@ -187,6 +192,67 @@ describe("application/matter-consistency", () => {
     expect(issues.some((i) => i.matterId === "matter-cause" && i.code === "cause_drift")).toBe(
       true,
     );
+  });
+
+  it("flags one contact identity registered under two parties", async () => {
+    await ensureMatterWithProjection(workspaceDir, {
+      matterId: "matter-dup-contact",
+      title: "重复联系人案件",
+    });
+    await updateMatterProfile(workspaceDir, {
+      matterId: "matter-dup-contact",
+      parties: [
+        {
+          partyId: "p-client",
+          name: "甲公司",
+          role: "client",
+          contacts: [{ kind: "wecom", value: "wmABC", account: "corp-1", externalId: "zhangsan" }],
+        },
+        {
+          partyId: "p-counterparty",
+          name: "乙公司",
+          role: "counterparty",
+          contacts: [{ kind: "wecom", value: "wmXYZ", account: "corp-1", externalId: "zhangsan" }],
+        },
+      ],
+    });
+    const issues = await checkMatterConsistency(workspaceDir);
+    const dup = issues.find(
+      (i) => i.matterId === "matter-dup-contact" && i.code === "duplicate_party_contact",
+    );
+    expect(dup?.message).toContain("甲公司");
+    expect(dup?.message).toContain("乙公司");
+    // 投影重写修不了这条：面板不能把它算进「重新整理」的计数。
+    expect(isRepairableMatterConsistencyIssue("duplicate_party_contact")).toBe(false);
+    expect(isRepairableMatterConsistencyIssue("title_drift")).toBe(true);
+    const report = await formatMatterConsistencyReport(workspaceDir);
+    expect(report).toContain("matter-repair-projection 不会改动");
+    expect(report).toContain("duplicate_party_contact");
+
+    // 同一邮箱挂在不同账户下是两条身份，不算重复。
+    await updateMatterProfile(workspaceDir, {
+      matterId: "matter-dup-contact",
+      parties: [
+        {
+          partyId: "p-client",
+          name: "甲公司",
+          role: "client",
+          contacts: [{ kind: "email", value: "client@example.com", account: "mailbox-a@firm.cn" }],
+        },
+        {
+          partyId: "p-counterparty",
+          name: "乙公司",
+          role: "counterparty",
+          contacts: [{ kind: "email", value: "client@example.com", account: "mailbox-b@firm.cn" }],
+        },
+      ],
+    });
+    const after = await checkMatterConsistency(workspaceDir);
+    expect(
+      after.some(
+        (i) => i.matterId === "matter-dup-contact" && i.code === "duplicate_party_contact",
+      ),
+    ).toBe(false);
   });
 
   it("repairMatterProjections clears title_drift", async () => {

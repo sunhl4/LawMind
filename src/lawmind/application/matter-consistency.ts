@@ -11,6 +11,7 @@ import { matterJsonPath } from "../adapters/matter-storage/paths.js";
 import { listMatterIds } from "../cases/index.js";
 import { parseMatterDisplayNameFromCase, substantiveCaseField } from "../cases/matter-label.js";
 import { parseMatterCaseProfileFields } from "../cases/matter-profile.js";
+import { duplicateContactIdentities, hydrateMatterParties } from "../desk/matter-parties.js";
 import { caseFilePath } from "../memory/index.js";
 import {
   matterSensitivityFromLabel,
@@ -29,13 +30,33 @@ export type MatterConsistencyIssueCode =
   | "sensitivity_drift"
   | "client_drift"
   | "cause_drift"
-  | "counterparty_drift";
+  | "counterparty_drift"
+  | "duplicate_party_contact";
 
 export type MatterConsistencyIssue = {
   matterId: string;
   code: MatterConsistencyIssueCode;
   message: string;
 };
+
+/**
+ * `repairMatterProjections` 只会按 JSON 重写 CASE.md 投影，所以只对投影类问题有效。
+ * 当事人联系方式冲突只能由律师改数据；`both_missing` 是索引里的残留，重写也不会多出文件。
+ */
+const REPAIRABLE_MATTER_CONSISTENCY_CODES: ReadonlySet<MatterConsistencyIssueCode> = new Set([
+  "missing_case_md",
+  "missing_matter_json",
+  "title_drift",
+  "status_drift",
+  "sensitivity_drift",
+  "client_drift",
+  "cause_drift",
+  "counterparty_drift",
+]);
+
+export function isRepairableMatterConsistencyIssue(code: MatterConsistencyIssueCode): boolean {
+  return REPAIRABLE_MATTER_CONSISTENCY_CODES.has(code);
+}
 
 function parseLabeledField(caseRaw: string, label: RegExp): string | undefined {
   const m = label.exec(caseRaw);
@@ -107,6 +128,17 @@ export async function checkMatterConsistency(
     } else {
       const record = loadMatter(workspaceDir, matterId);
       if (record) {
+        const parties = hydrateMatterParties(record);
+        for (const duplicate of duplicateContactIdentities(parties)) {
+          const names = duplicate.partyIds.map(
+            (partyId) => parties.find((party) => party.partyId === partyId)?.name ?? partyId,
+          );
+          issues.push({
+            matterId,
+            code: "duplicate_party_contact",
+            message: `同一联系方式登记在多个当事人名下：${names.join(" / ")}`,
+          });
+        }
         const caseRaw = await fs.readFile(caseMd, "utf8").catch(() => "");
         const projectedTitle = parseMatterDisplayNameFromCase(caseRaw);
         if (projectedTitle && projectedTitle !== record.title.trim()) {
@@ -234,5 +266,14 @@ export async function formatMatterConsistencyReport(workspaceDir: string): Promi
     return "Matter consistency: OK (all indexed matters have CASE.md + matter.json)";
   }
   const lines = issues.map((i) => `  - ${i.matterId}: [${i.code}] ${i.message}`);
-  return ["Matter consistency issues:", ...lines].join("\n");
+  const manual = issues.filter((i) => !isRepairableMatterConsistencyIssue(i.code));
+  const footer =
+    manual.length === 0
+      ? []
+      : [
+          `需律师自行处理（matter-repair-projection 不会改动）：${[
+            ...new Set(manual.map((i) => i.code)),
+          ].join(", ")}`,
+        ];
+  return ["Matter consistency issues:", ...lines, ...footer].join("\n");
 }

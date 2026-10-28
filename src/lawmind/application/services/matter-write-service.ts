@@ -23,13 +23,18 @@ import {
   resolveMatterKind,
 } from "../../desk/matter-kind.js";
 import {
+  carryPartyContacts,
   deriveMatterIdentity,
   MATTER_PARTIES_CAP,
   MatterPartiesCapError,
   namedPartyCount,
   normalizeMatterParties,
+  removePartyContact,
   syncLegacyIdentityIntoParties,
+  upsertPartyContact,
   type MatterParty,
+  type MatterPartyContact,
+  type MatterPartyContactKind,
 } from "../../desk/matter-parties.js";
 import { projectMatterToCaseMd, upsertMatterCaseProfileBullets } from "../matter-projection.js";
 
@@ -217,7 +222,7 @@ export async function updateMatterProfile(
     }
     const parties =
       input.parties !== undefined
-        ? normalizeMatterParties(input.parties)
+        ? normalizeMatterParties(carryPartyContacts(input.parties, existing.parties))
         : (syncLegacyIdentityIntoParties(existing.parties, clientIdInput, counterpartyInput) ?? []);
     const derived =
       input.parties !== undefined
@@ -266,6 +271,57 @@ export async function updateMatterProfile(
     matterKind: saved.matterKind,
   });
   return saved;
+}
+
+/**
+ * 把一条联系方式记到当事人名下（收件确认归档时「记住发件人」走这里）。
+ * 当事人不存在返回 undefined；联系方式不合格时原样返回案件。
+ */
+export function addMatterPartyContact(
+  workspaceDir: string,
+  input: { matterId: string; partyId: string; contact: MatterPartyContact },
+): MatterRecord | undefined {
+  return withMatterLock(workspaceDir, input.matterId, () => {
+    const existing = loadMatter(workspaceDir, input.matterId);
+    const parties = existing
+      ? upsertPartyContact(existing.parties ?? [], input.partyId, input.contact)
+      : undefined;
+    if (!existing || !parties) {
+      return undefined;
+    }
+    return saveMatter(workspaceDir, { ...existing, parties, updatedAt: newTimestamp() });
+  });
+}
+
+/** 删掉一条联系方式；不给 partyId 时从全部当事人名下删。 */
+export function removeMatterPartyContact(
+  workspaceDir: string,
+  input: {
+    matterId: string;
+    kind: MatterPartyContactKind;
+    value: string;
+    partyId?: string;
+    account?: string;
+  },
+): MatterRecord | undefined {
+  return withMatterLock(workspaceDir, input.matterId, () => {
+    const existing = loadMatter(workspaceDir, input.matterId);
+    if (!existing) {
+      return undefined;
+    }
+    const parties = removePartyContact(
+      existing.parties ?? [],
+      input.kind,
+      input.value,
+      input.partyId,
+      input.account,
+    );
+    return saveMatter(workspaceDir, {
+      ...existing,
+      parties: parties.length > 0 ? parties : undefined,
+      updatedAt: newTimestamp(),
+    });
+  });
 }
 
 export function updateMatterStatus(

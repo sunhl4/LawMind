@@ -23,7 +23,9 @@ import {
   writeMatterMailMessage,
 } from "../../../src/lawmind/platform/lawyer-automations.js";
 import { isValidMatterId } from "../../../src/lawmind/cases/matter-id.js";
+import { admissionGateMessage, checkAdmissionGate } from "../../../src/lawmind/intake/admission.js";
 import { outboundBindingProblems } from "../../../src/lawmind/platform/outbound-approval-binding.js";
+import { packetApprovalProblems } from "../../../src/lawmind/delivery/packet-outbound.js";
 import { resolveLawMindRoot } from "../../../src/lawmind/assistants/store.js";
 import { sendMailViaAccount } from "../../../src/lawmind/mail/index.js";
 import { validateAutomationConfirmations } from "../../../src/lawmind/platform/lawyer-automations.js";
@@ -442,10 +444,37 @@ export async function handleAutomationsRoutes({
         sendJsonError(res, 400, "no_pending_send", "该项没有待发送邮件。", c);
         return true;
       }
+      // P1 收案闸门：已在队列里的信也不能绕过收案记录；拒绝后律师可先完成收案。
+      const admissionGate = checkAdmissionGate(workspaceDir, item.matterId);
+      if (!admissionGate.allowed) {
+        sendJson(
+          res,
+          409,
+          {
+            ok: false,
+            error: "admission_gate_blocked",
+            message: admissionGateMessage(admissionGate.reason),
+            admissionGate: admissionGate.reason ?? null,
+          },
+          c,
+        );
+        return true;
+      }
       // 批准绑定的是这一版：收件人/主题/正文/附件内容任一变化都必须重新批准。
-      const problems = item.pendingSend.binding
-        ? outboundBindingProblems(workspaceDir, item.pendingSend.binding, item.pendingSend)
+      const packetProblems = item.pendingSend.binding?.packet
+        ? packetApprovalProblems(workspaceDir, item.matterId, item.pendingSend.binding.packet)
         : [];
+      const problems = [
+        ...packetProblems,
+        ...(item.pendingSend.binding
+          ? outboundBindingProblems(workspaceDir, item.pendingSend.binding, {
+              ...item.pendingSend,
+              ...(item.pendingSend.binding.packet
+                ? { packet: item.pendingSend.binding.packet }
+                : {}),
+            })
+          : []),
+      ];
       if (problems.length > 0) {
         sendJson(res, 409, {
           ok: false,

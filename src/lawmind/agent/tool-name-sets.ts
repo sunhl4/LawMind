@@ -13,13 +13,13 @@
  * 的工具：外发一律写入待发清单（inbox_signoff），回合不中断。
  */
 
-/** 不可逆动作处置：pause 打断回合（当前无工具使用）；inbox_signoff 另需批准发送；deny_at_source 场景/工具内硬拒。 */
+/** 不可逆动作处置：pause 打断回合（当前无工具使用）；inbox_signoff 另需签批发送；deny_at_source 场景/工具内硬拒。 */
 export type IrreversibleDisposition = "pause" | "inbox_signoff" | "deny_at_source";
 
 /**
  * 不可逆动作默认集（借鉴评审 D10）。
  * 2026-10-01 起**没有 pause 工具**：外发（send_email）与 prepare_outbound_mail 一样
- * 只写入本案「待发信」，回合不中断；律师在待发列表点「批准发送」才真正发出
+ * 只写入本案「待发信」，回合不中断；律师在待发列表点「签批发送」才真正发出
  * （approve_send 路由直接发送，不恢复回合）。`toolRequiresLawyerPause` 因此恒为
  * false，保留它只为让审批中间件与风险上限的调用点不必按名特判。
  */
@@ -42,10 +42,10 @@ export function irreversibleImpactLabelZh(toolName?: string | null): string {
   const n = toolName?.trim() ?? "";
   const disposition = irreversibleDisposition(n);
   if (disposition === "pause") {
-    return "不可逆外发：批准后会真正发出邮件";
+    return "不可逆外发：签批后会真正发出邮件";
   }
   if (disposition === "inbox_signoff" || n === "send_email" || n === "prepare_outbound_mail") {
-    return "写入待发信：批准发送前不会发出";
+    return "写入待发信：签批发送前不会发出";
   }
   if (n === "delete_matter") {
     return "不可逆删除：会删掉本案卷宗数据";
@@ -132,6 +132,7 @@ export const IDEMPOTENT_READ_TOOLS = new Set<string>([
   "search_statute_web",
   "url_dossier",
   "extract_legal_events",
+  "triage_against_playbook",
 ]);
 
 /**
@@ -192,6 +193,7 @@ export const WRITE_TOOLS = new Set<string>([
   "relocate_matter_materials",
   "apply_file_ops",
   "review_table_update",
+  "matter_artifact_update",
   "create_matter",
   "delete_matter",
 ]);

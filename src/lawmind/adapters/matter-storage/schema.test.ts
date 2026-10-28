@@ -40,6 +40,41 @@ describe("matter-storage schema", () => {
     expect(parsed.parties?.[0]?.name).toBe("甲公司");
   });
 
+  it("persists channel identity and consent on party contacts", () => {
+    const parsed = MatterRecordSchema.parse({
+      matterId: "m1",
+      title: "NDA 审查",
+      status: "active",
+      sensitivity: "normal",
+      strategyStatus: "draft",
+      parties: [
+        {
+          partyId: "p-client",
+          name: "甲公司",
+          role: "client",
+          contacts: [
+            {
+              kind: "wecom",
+              value: "张三",
+              account: "corp-1",
+              externalId: "zhangsan",
+              verified: true,
+              recordingConsent: { state: "granted", at: "2026-10-01", source: "lawyer" },
+              archiveConsent: { state: "denied", at: "2026-10-02" },
+            },
+          ],
+        },
+      ],
+    });
+    expect(parsed.parties?.[0]?.contacts?.[0]).toMatchObject({
+      kind: "wecom",
+      account: "corp-1",
+      externalId: "zhangsan",
+      recordingConsent: { state: "granted", source: "lawyer" },
+      archiveConsent: { state: "denied" },
+    });
+  });
+
   it("rejects empty matterId / title", () => {
     expect(() =>
       MatterRecordSchema.parse({

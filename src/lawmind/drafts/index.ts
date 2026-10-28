@@ -48,6 +48,51 @@ export type {
   MechanicalSignals,
   MechanicalVerdict,
 } from "./mechanical-verdict.js";
+export {
+  contentSha256FromFileVersion,
+  fileReferencesBlockExport,
+  validateFileReferences,
+  validateFileReferencesAsync,
+} from "./evidence-anchor.js";
+export type {
+  FileReference,
+  FileReferenceIssue,
+  FileReferenceSource,
+  ValidateFileReferencesResult,
+  ValidateFileReferencesStatus,
+} from "./evidence-anchor.js";
+export {
+  checkEvidenceSupport,
+  checkEvidenceSupportAsync,
+  decodePlainText,
+  normalizeForQuoteMatch,
+  quoteAppearsIn,
+  summarizeEvidenceSupport,
+  type EvidenceSupport,
+  type EvidenceSupportStatus,
+} from "./evidence-support.js";
+export {
+  readExcelRangeText,
+  readPdfPageText,
+  readRichLocatorText,
+  type RichLocatorText,
+} from "./evidence-rich-locator.js";
+export {
+  formatEvidenceLocator,
+  parseEvidenceLocator,
+  splitPathAndLocator,
+} from "./evidence-locator.js";
+export type { EvidenceLocator } from "./evidence-locator.js";
+export {
+  formatMatterArtifactBatchPrompt,
+  formatMatterArtifactExtensionPrompt,
+  formatMatterArtifactRegeneratePrompt,
+  MATTER_ARTIFACT_EXTENSIONS,
+} from "./matter-artifact-regen.js";
+export type {
+  MatterArtifactExtension,
+  MatterArtifactExtensionId,
+} from "./matter-artifact-regen.js";
 
 export function readDraft(workspaceDir: string, taskId: string): ArtifactDraft | undefined {
   try {
@@ -228,9 +273,17 @@ export function listDrafts(workspaceDir: string): ArtifactDraft[] {
 
 export {
   validateDraftCitationsAgainstBundle,
+  verifyDraftCitationEvidence,
+  verifyDraftCitationEvidenceAsync,
   type CitationIntegrityResult,
   type DraftCitationIntegrityView,
 } from "./citation-integrity.js";
+export {
+  collectFileReferencesFromDraftBundle,
+  lineRefFromPinAndUrl,
+  validateDraftFileReferences,
+  validateDraftFileReferencesAsync,
+} from "./citation-file-refs.js";
 export {
   persistResearchSnapshot,
   readResearchSnapshot,
@@ -242,7 +295,10 @@ export {
   readReasoningSnapshot,
   reasoningSnapshotPath,
 } from "./reasoning-snapshot.js";
-export { resolveDraftCitationIntegrity } from "./citation-resolve.js";
+export {
+  resolveDraftCitationIntegrity,
+  resolveDraftCitationIntegrityAsync,
+} from "./citation-resolve.js";
 export {
   generateRedlineAfterWrite,
   generateRedlineProposal,

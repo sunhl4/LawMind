@@ -3,6 +3,12 @@
  * Policy keys are optional; omitted values stay conservative (outbound never auto-delivers).
  */
 
+import type {
+  PlaybookBasis,
+  PlaybookItemResult,
+  PlaybookVerdict,
+} from "../deliverables/playbook-triage.js";
+
 export type DeliveryTier = "auto_deliver" | "one_tap_signoff" | "full_review";
 
 export type DeliveryRiskLevel = "low" | "medium" | "high";
@@ -35,6 +41,32 @@ export type DecisionHeader = {
    * 「读不到」与「没有」必须用不同文案（见 `formatUnverifiedSection`）。
    */
   unverified?: string;
+  /**
+   * 剧本三色分流的依据展示：结论 + basis + 逐项引用位置。
+   * 缺省 `undefined` = 本次没有跑 playbook 分流（不写「未加载」，那由调用方决定是否展示）。
+   */
+  playbook?: DecisionPlaybookSummary;
+};
+
+/** 交付依据里的剧本结论（律师面）。 */
+export type DecisionPlaybookSummary = {
+  verdict: PlaybookVerdict;
+  basis: PlaybookBasis;
+  playbookName?: string;
+  counts: { pass: number; flag: number; fail: number };
+  /**
+   * 只列非 PASS 的条件：标题、结论、位置与理由。
+   * 原文引用仍留在 triage 里，不整段塞进决策头。
+   */
+  items: Array<{
+    title: string;
+    result: PlaybookItemResult;
+    locator?: string;
+    reasonZh: string;
+  }>;
+  /** RED 被律师降档时的留痕。 */
+  override?: { by: string; reason: string };
+  overrideRejected?: true;
 };
 
 /** G3：判定主体覆盖摘要。三个计数都是「本次实际发生的判定数」。 */
@@ -82,6 +114,17 @@ export type ResolveDeliveryTierInput = {
   edition?: DeliveryEdition;
   autonomyUnlocked: boolean;
   firmForceFullReview?: boolean;
+  /**
+   * 剧本三色结论。只有 `basis=playbook`（加载了本所剧本）才影响档位：
+   * RED → full_review；GREEN/YELLOW → 最多 one_tap_signoff，永不自动交付。
+   * `basis=default` 只是如实说明「没有本所剧本」，不改变档位。
+   */
+  playbook?: DeliveryPlaybookInput;
+};
+
+export type DeliveryPlaybookInput = {
+  verdict: PlaybookVerdict;
+  basis: PlaybookBasis;
 };
 
 export type AutonomySeriesInput = {

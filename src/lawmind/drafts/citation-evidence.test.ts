@@ -11,6 +11,7 @@ import type { ArtifactDraft, ResearchBundle } from "../types.js";
 import {
   validateDraftCitationsAgainstBundle,
   verifyDraftCitationEvidence,
+  verifyDraftCitationEvidenceAsync,
 } from "./citation-integrity.js";
 import { resolveDraftCitationIntegrity } from "./citation-resolve.js";
 import { fileVersionOf } from "./evidence-support.js";
@@ -87,6 +88,75 @@ function seedContract(ws: string, text: string): string {
 }
 
 describe("verifyDraftCitationEvidence", () => {
+  function makeTextPdf(text: string): Buffer {
+    const safe = text.replace(/([()\\])/g, "\\$1");
+    const objects = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+      `<< /Length ${Buffer.byteLength(`BT /F1 24 Tf 72 720 Td (${safe}) Tj ET`)} >>\nstream\nBT /F1 24 Tf 72 720 Td (${safe}) Tj ET\nendstream`,
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ];
+    let body = "%PDF-1.4\n";
+    const offsets: number[] = [];
+    objects.forEach((obj, index) => {
+      offsets.push(Buffer.byteLength(body));
+      body += `${index + 1} 0 obj\n${obj}\nendobj\n`;
+    });
+    const xrefStart = Buffer.byteLength(body);
+    body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (const offset of offsets) {
+      body += `${String(offset).padStart(10, "0")} 00000 n \n`;
+    }
+    body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
+    return Buffer.from(body, "latin1");
+  }
+
+  it("async evidence verification reads a PDF page while sync stays conservative", async () => {
+    const ws = tmpWorkspace();
+    const rel = "cases/m/material.pdf";
+    fs.mkdirSync(path.dirname(path.join(ws, rel)), { recursive: true });
+    fs.writeFileSync(path.join(ws, rel), makeTextPdf("Hello LawMind"));
+    const version = fileVersionOf(path.join(ws, rel))!;
+    const bundle = {
+      taskId: "t-1",
+      query: "page anchor",
+      sources: [
+        {
+          id: "s1",
+          title: "PDF 材料",
+          kind: "workspace",
+          url: `${rel}#P1`,
+          excerpt: "Hello LawMind",
+          sourceVersion: version,
+        },
+      ],
+      claims: [
+        {
+          text: "Hello LawMind",
+          sourceIds: ["s1"],
+          confidence: 0.9,
+          model: "legal",
+          pin: { quote: "Hello LawMind" },
+        },
+      ],
+      riskFlags: [],
+      missingItems: [],
+    } as ResearchBundle;
+
+    const sync = verifyDraftCitationEvidence({ draft: makeDraft(), bundle, rootDir: ws });
+    expect((sync.unverifiableSources ?? []).length).toBeGreaterThan(0);
+
+    const asyncResult = await verifyDraftCitationEvidenceAsync({
+      draft: makeDraft(),
+      bundle,
+      rootDir: ws,
+    });
+    expect(asyncResult.ok).toBe(true);
+    expect(asyncResult.unverifiableSources ?? []).toEqual([]);
+    expect(asyncResult.fileReferences?.status ?? "PASSED").toBe("PASSED");
+  });
+
   it("passes when the source is unchanged and the quote is still there", () => {
     const ws = tmpWorkspace();
     const version = seedContract(ws, "本合同总价款为人民币300万元。\n");

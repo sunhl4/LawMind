@@ -433,6 +433,10 @@ export function tryReadWorkspacePackageVersion(repoRoot: string | undefined): st
 export type MatterConsistencySummary = {
   ok: boolean;
   issueCount: number;
+  /** `matter-repair-projection` 能修好的条数。 */
+  repairableCount: number;
+  /** 同一联系方式登记在多个当事人名下：只能由律师改数据。 */
+  partyConflictCount: number;
   issues: Array<{ matterId: string; code: string; message: string }>;
 };
 
@@ -461,13 +465,15 @@ const MATTER_CONSISTENCY_HEALTH_LIMIT = 12;
 export async function buildMatterConsistencySummary(
   workspaceDir: string,
 ): Promise<MatterConsistencySummary> {
-  const { checkMatterConsistency } = await import(
+  const { checkMatterConsistency, isRepairableMatterConsistencyIssue } = await import(
     "../../../src/lawmind/application/matter-consistency.js"
   );
   const all = await checkMatterConsistency(workspaceDir);
   return {
     ok: all.length === 0,
     issueCount: all.length,
+    repairableCount: all.filter((i) => isRepairableMatterConsistencyIssue(i.code)).length,
+    partyConflictCount: all.filter((i) => i.code === "duplicate_party_contact").length,
     issues: all.slice(0, MATTER_CONSISTENCY_HEALTH_LIMIT).map((i) => ({
       matterId: i.matterId,
       code: i.code,

@@ -13,7 +13,7 @@ import {
   resolveProgressiveAutonomyThresholds,
 } from "./progressive-autonomy.js";
 import { resolveDeliveryTier, resolveFirmForceFullReview } from "./resolve-delivery-tier.js";
-import type { DeliveryRiskLevel } from "./types.js";
+import type { DeliveryPlaybookInput, DeliveryRiskLevel } from "./types.js";
 
 const OUTBOUND_AUDIENCE = /客户|对方|法院|仲裁|外发|client|court/i;
 const OUTBOUND_TYPE = /^(letter\.|email\.|mail\.)/;
@@ -31,6 +31,8 @@ export function evaluateAutoDeliver(input: {
   workspaceDir: string;
   draft: ArtifactDraft;
   riskLevel?: DeliveryRiskLevel;
+  /** 剧本三色结论；`basis=default` 不改变档位，只由决策头如实展示。 */
+  playbook?: DeliveryPlaybookInput;
 }): { tier: ReturnType<typeof resolveDeliveryTier>; shouldAutoDeliver: boolean } {
   const policy = readWorkspacePolicyFile(input.workspaceDir);
   const north = buildNorthStarSnapshot(input.workspaceDir);
@@ -53,6 +55,7 @@ export function evaluateAutoDeliver(input: {
     edition: policy?.edition,
     autonomyUnlocked: unlocked,
     firmForceFullReview: resolveFirmForceFullReview(policy),
+    ...(input.playbook ? { playbook: input.playbook } : {}),
   });
   if (tier !== "auto_deliver" || outbound) {
     return { tier, shouldAutoDeliver: false };

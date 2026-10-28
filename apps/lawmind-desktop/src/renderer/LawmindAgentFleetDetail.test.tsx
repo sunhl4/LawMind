@@ -253,4 +253,56 @@ describe("LawmindAgentFleetDetail outbound send dock", () => {
     expect(onPrimary).not.toHaveBeenCalled();
     expect(onDraftReview).not.toHaveBeenCalled();
   });
+
+  it("files or ignores an intake row from the dock instead of signing anything", () => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    const onPrimary = vi.fn();
+    const onRejectApproval = vi.fn();
+    const onSnooze = vi.fn();
+    renderDetail(root, {
+      current: {
+        id: "intake:it-abc12345",
+        kind: "queue_item",
+        status: "awaiting_review",
+        title: "补充证据材料",
+        subtitle: "待处理收件",
+        intakeItemId: "it-abc12345",
+        updatedAt: "2026-10-26T01:00:05.000Z",
+        createdAt: "2026-10-26T01:00:05.000Z",
+        priority: 6,
+      },
+      displayTitle: "补充证据材料",
+      primaryLabel: "归入案件",
+      intakeDetail: <div data-testid="lm-fleet-intake-detail">来件详情</div>,
+      onPrimary,
+      onRejectApproval,
+      onSnooze,
+    });
+
+    expect(host.querySelector('[data-testid="lm-fleet-intake-detail"]')).toBeTruthy();
+    const dock = host.querySelector(".lm-agents-wb-dock");
+    expect(dock?.textContent).toContain("归入案件");
+    expect(dock?.textContent).toContain("忽略");
+    expect(dock?.textContent).toContain("稍后");
+    // 收件条目没有工具票，不能出现签批/批准。
+    expect(dock?.textContent).not.toContain("签批");
+    expect(host.querySelector('[data-testid="lm-ceremony-primary"]')).toBeNull();
+
+    act(() => {
+      host.querySelector<HTMLButtonElement>('[data-testid="lm-fleet-intake-attach"]')?.click();
+    });
+    expect(onPrimary).toHaveBeenCalledOnce();
+
+    act(() => {
+      host.querySelector<HTMLButtonElement>('[data-testid="lm-fleet-intake-ignore"]')?.click();
+    });
+    expect(onRejectApproval).toHaveBeenCalledOnce();
+
+    act(() => {
+      host.querySelector<HTMLButtonElement>('[data-testid="lm-fleet-intake-snooze"]')?.click();
+    });
+    expect(onSnooze).toHaveBeenCalledOnce();
+  });
 });

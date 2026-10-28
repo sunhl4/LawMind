@@ -105,4 +105,50 @@ describe("outbound approval binding", () => {
     expect(summary).toContain("artifacts/a.docx");
     expect(summary).toContain("需要重新批准");
   });
+
+  it("blocks sending when the approved delivery packet changed", () => {
+    const ws = tmpWorkspace();
+    fs.mkdirSync(path.join(ws, "artifacts"), { recursive: true });
+    fs.writeFileSync(path.join(ws, "artifacts", "a.docx"), "a", "utf8");
+    const mail = {
+      to: "a@example.com",
+      subject: "s",
+      body: "b",
+      attachmentRelativePaths: ["artifacts/a.docx"],
+      packet: { packetId: "pkt_1", packetHash: "hash-old" },
+    };
+    const binding = buildOutboundBinding(ws, mail);
+    expect(outboundBindingProblems(ws, binding, mail)).toEqual([]);
+
+    const changed = outboundBindingProblems(ws, binding, {
+      ...mail,
+      packet: { packetId: "pkt_1", packetHash: "hash-new" },
+    });
+    expect(changed.join("\n")).toContain("交付包的文件、顺序、封面或受众");
+
+    const swapped = outboundBindingProblems(ws, binding, {
+      ...mail,
+      packet: { packetId: "pkt_2", packetHash: "hash-old" },
+    });
+    expect(swapped.join("\n")).toContain("交付包已从");
+
+    const missing = outboundBindingProblems(ws, binding, {
+      to: mail.to,
+      subject: mail.subject,
+      body: mail.body,
+      attachmentRelativePaths: mail.attachmentRelativePaths,
+    });
+    expect(missing.join("\n")).toContain("没有提供包信息");
+
+    const addedLater = outboundBindingProblems(
+      ws,
+      buildOutboundBinding(ws, {
+        to: mail.to,
+        subject: mail.subject,
+        body: mail.body,
+      }),
+      mail,
+    );
+    expect(addedLater.join("\n")).toContain("批准时只核对了邮件字段");
+  });
 });

@@ -27,6 +27,7 @@ type Account = {
   providerLabel: string;
   email: string;
   authKind: string;
+  intakeInbox?: boolean;
   matterId?: string;
   enabled: boolean;
   hasSecret: boolean;
@@ -81,6 +82,7 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
   const [password, setPassword] = useState("");
   const [label, setLabel] = useState("");
   const [bindMatter, setBindMatter] = useState(matterId?.trim() || "");
+  const [intakeInbox, setIntakeInbox] = useState(false);
   const [authKind, setAuthKind] = useState("app_password");
   const [tenantId, setTenantId] = useState("");
   const [clientId, setClientId] = useState("");
@@ -138,8 +140,8 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
     setEditingId(null);
     setPassword("");
     setClientSecret("");
-    setEmail("");
-    setLabel("");
+    setBindMatter("");
+    setIntakeInbox(false);
     setWatchContacts([]);
     setSendFormat({});
     setDraftEmail("");
@@ -158,6 +160,7 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
     setLabel(a.label || "");
     setAuthKind(a.authKind);
     setBindMatter(a.matterId || matterId?.trim() || "");
+    setIntakeInbox(a.intakeInbox === true);
     setTenantId(a.tenantId || "");
     setClientId(a.clientId || "");
     setImapHost(a.imapHost || "");
@@ -224,7 +227,8 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
         email: email.trim(),
         label: label.trim() || undefined,
         authKind,
-        matterId: bindMatter.trim() || null,
+        matterId: intakeInbox ? null : bindMatter.trim() || null,
+        intakeInbox,
         password: password.trim() || undefined,
         tenantId: tenantId.trim() || undefined,
         clientId: clientId.trim() || undefined,
@@ -268,6 +272,29 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
   };
 
   const syncAccount = async (id: string) => {
+    if (intakeInbox) {
+      setBusy(true);
+      try {
+        const res = await apiSendJson<{ ok: boolean; result?: unknown; error?: string }, Record<string, never>>(
+          apiBase,
+          "/api/intake/sync",
+          "POST",
+          {},
+        );
+        if (!res.ok) {
+          setError(res.error || "收案邮箱同步失败");
+          return;
+        }
+        setError(null);
+        setInfo("已同步收案邮箱，待归案来件已更新。");
+        await refresh();
+      } catch (e) {
+        setError(errorMessage(e, "收案邮箱同步失败"));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const matter = bindMatter.trim() || matterId?.trim();
     if (!matter) {
       setError("请先选择要同步到的案件。");
@@ -480,9 +507,27 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
           <span className="lm-settings-key">显示名称</span>
           <input className="lm-input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="如：工作邮箱" />
         </label>
+        {matterId ? null : (
+          <label className="lm-settings-check">
+            <input
+              type="checkbox"
+              checked={intakeInbox}
+              onChange={(e) => {
+                setIntakeInbox(e.target.checked);
+                if (e.target.checked) {
+                  setBindMatter("");
+                }
+              }}
+              disabled={busy}
+            />
+            <span>作为收案邮箱，统一收件后由 LawMind 自动判归案件</span>
+          </label>
+        )}
         <label className="lm-settings-field">
           <span className="lm-settings-key">默认案件</span>
-          {matterOptions.length > 0 ? (
+          {intakeInbox ? (
+            <span className="lm-settings-caption">收案邮箱不绑定单一案件</span>
+          ) : matterOptions.length > 0 ? (
             <select
               className="lm-input"
               value={bindMatter}

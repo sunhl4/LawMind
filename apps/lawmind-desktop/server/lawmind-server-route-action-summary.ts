@@ -15,6 +15,7 @@ import {
 } from "../../../src/lawmind/agent/turn-interrupt.js";
 import { readCollaborationEventsSince } from "../../../src/lawmind/agent/collaboration/index.js";
 import { listPendingToolApprovals } from "../../../src/lawmind/platform/pending-tool-approvals.js";
+import { listEscalatedMatterRunWaits } from "../../../src/lawmind/platform/matter-run-store.js";
 import type { LawMindRequiresAction } from "../../../src/lawmind/platform/requires-action.js";
 import { resolveApproval } from "../../../src/lawmind/application/services/approval-service.js";
 import { listApprovalRequests, listWorkQueueItems } from "../../../src/lawmind/application/services/queue-service.js";
@@ -178,6 +179,11 @@ export async function handleActionSummaryRoutes({
       LAWYER_FACING_QUEUE_KINDS.has(item.kind),
     );
     const outboundInbox = automationInbox.filter((item) => Boolean(item.pendingSend?.to));
+    // 等待外部事件超时的案件步骤：在办已把它们列进待拍板，徽章要跟队列同源。
+    const escalatedWaits = listEscalatedMatterRunWaits(
+      workspaceDir,
+      matterFilter ? { matterId: matterFilter } : {},
+    );
     const chatDecisionCount = chatRequiresActions.reduce((n, row) => {
       return (
         n +
@@ -191,7 +197,7 @@ export async function handleActionSummaryRoutes({
       );
     }, 0);
     const requiresDecisionTotal =
-      lawyerQueueItems.length + chatDecisionCount + outboundInbox.length;
+      lawyerQueueItems.length + chatDecisionCount + outboundInbox.length + escalatedWaits.length;
     const total =
       requiresDecisionTotal +
       jobs.length;
@@ -222,6 +228,8 @@ export async function handleActionSummaryRoutes({
         chatRequiresActionCount,
         pendingToolApprovals: toolApprovals.length,
         pendingAutomationCount: automationInbox.length,
+        /** 等待外部事件超时的案件步骤（与在办队列同源）。 */
+        pendingMatterRunWaits: escalatedWaits.length,
         /** 近 48h 协作完成（信息角标，不计入待我拍板） */
         recentReviewCompleted,
         recentDelegationCompleted,

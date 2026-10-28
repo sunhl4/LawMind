@@ -36,6 +36,10 @@ import {
   resolveRuntimeAppIconPath,
 } from "./brand.mjs";
 import { ignoreBrokenPipe } from "./child-log-forward.mjs";
+import {
+  applyBundledProviderDefaults,
+  describeBundledProviderDefaults,
+} from "./bundled-provider-defaults.mjs";
 
 ignoreBrokenPipe(process.stdout);
 ignoreBrokenPipe(process.stderr);
@@ -44,6 +48,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appIconPath = resolveRuntimeAppIconPath(__dirname);
 applyProductName(app);
 pinDevUserData(app);
+
+/**
+ * 开箱即用：把随包下发的 provider 凭据补进 `process.env` 的缺口。
+ *
+ * 放在 `whenReady` 之前、`ensureBackend` 之前：本机 API 服务与工作区 daemon 都是
+ * spawn 出来的子进程，继承的是这里的 `process.env`；用户自己的 `.env.lawmind`
+ * 会在服务进程里以 `override` 加载，所以设置页配过的 key 依然优先。
+ */
+const bundledProviderDefaults = applyBundledProviderDefaults();
+{
+  const line = describeBundledProviderDefaults(bundledProviderDefaults);
+  if (line) {
+    console.log(line);
+  }
+}
 
 /** @type {import("electron").BrowserWindow | null} */
 let mainWindowRef = null;

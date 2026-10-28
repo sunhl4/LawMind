@@ -17,6 +17,7 @@ import { validateReasoningGraphAtDraft } from "../deliverables/reasoning-validat
 import { specRequiresReasoningGraphAtDraft } from "../deliverables/reasoning-validator.js";
 import { getDeliverableSpec } from "../deliverables/registry.js";
 import type { WorkspaceSpecWarning } from "../deliverables/workspace-loader.js";
+import { triageDraftAgainstPlaybook } from "../delivery/draft-playbook-triage.js";
 import {
   buildDecisionHeader,
   evaluateAutoDeliver,
@@ -203,8 +204,18 @@ export function persistDraftPipeline(
     selfRevise.residual.push(...stanceHits);
     selfRevise.summaryZh = `已做格式规范化 ${selfRevise.applied.length} 处；${selfRevise.residual.length} 处需你定夺`;
   }
-  const lint = runLegalLint(draftTextFromUnknown(draft), undefined, undefined, undefined, {
+  const draftText = draftTextFromUnknown(draft);
+  const lint = runLegalLint(draftText, undefined, undefined, undefined, {
     deliverableType: draft.deliverableType,
+  });
+  /**
+   * 合同类草稿按工作区剧本跑一次三色分流（恰好一份剧本时才跑）。
+   * 结果同时进决策头与交付档位：RED 必须全面审阅，GREEN/YELLOW 最多一键签发。
+   */
+  const playbookTriage = triageDraftAgainstPlaybook({
+    workspaceDir,
+    deliverableType: draft.deliverableType,
+    text: draftText,
   });
   recordLintRunEvent(workspaceDir, {
     taskId: draft.taskId,
@@ -225,9 +236,17 @@ export function persistDraftPipeline(
         residualCount: selfRevise.residual.length,
       },
       riskLevel,
+      ...(playbookTriage ? { playbook: playbookTriage } : {}),
     });
   }
-  const auto = evaluateAutoDeliver({ workspaceDir, draft, riskLevel });
+  const auto = evaluateAutoDeliver({
+    workspaceDir,
+    draft,
+    riskLevel,
+    ...(playbookTriage
+      ? { playbook: { verdict: playbookTriage.verdict, basis: playbookTriage.basis } }
+      : {}),
+  });
   const shouldAutoDeliver = auto.shouldAutoDeliver && draft.decisionHeader?.ready === "usable";
   if (shouldAutoDeliver) {
     draft.reviewStatus = "approved";

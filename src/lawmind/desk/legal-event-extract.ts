@@ -32,7 +32,7 @@ export type ExtractedLegalEvent = {
 };
 
 const CN_DATE =
-  /(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日(?:\s*(\d{1,2})\s*[时点:：](?:\s*(\d{1,2})\s*分)?)?/;
+  /(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日(?:\s*(\d{1,2})\s*[时点:：]\s*(?:(\d{1,2})\s*分?)?)?/;
 const ISO_DATE = /(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}):(\d{2}))?/;
 
 function isRealCalendarDate(y: number, m: number, d: number, h: number, min: number): boolean {

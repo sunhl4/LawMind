@@ -39,12 +39,14 @@ import {
   memoSectionGaps,
   pleadingSectionGaps,
 } from "./deliverable-shape.js";
-import { applyProseSyndrome, appendMechanicalNote } from "./factor-state.js";
+import { applyProseSyndrome, appendMechanicalNote, rememberJudgments } from "./factor-state.js";
 import {
   formatMissingDeliverableNudge,
   missingNamedDeliverables,
   namedWorkspaceDeliverables,
 } from "./named-deliverable.js";
+import { recordRepairObservation } from "./observation-bus.js";
+import { planProseRepair } from "./prose-repair.js";
 import {
   formatReviewBoardExportBounce,
   isReviewBoardExportDeferralReply,
@@ -644,10 +646,51 @@ export type CompletionFacts = {
 };
 
 function proseSyndromePolicy(facts: CompletionFacts): PolicyAction | null {
-  const syndrome = applyProseSyndrome(facts.turn.factorState, facts.assistantText);
-  if (syndrome.action !== "bounce" && syndrome.action !== "deliver") {
+  // Absorption must run even when the opt-in repair branch is off: it records
+  // prose proposals/judgments and drives the sampling projection. Judgments are
+  // remembered only for the reply that is actually delivered.
+  applyProseSyndrome(facts.turn.factorState, facts.assistantText, {
+    rememberJudgments: false,
+  });
+  const remember = (): void => {
+    if (facts.turn.factorState) {
+      rememberJudgments(facts.turn.factorState, facts.assistantText);
+    }
+  };
+  if (
+    process.env.LAWMIND_FACTOR_REPAIR !== "1" ||
+    facts.turn.status !== "running" ||
+    facts.pendingClarificationQuestions.length > 0 ||
+    facts.wordRevision
+  ) {
+    remember();
     return null;
   }
+  const plan = planProseRepair(facts.turn.factorState, facts.assistantText);
+  if (plan.action === "none") {
+    remember();
+    return null;
+  }
+  const scope = {
+    sessionId: facts.session.sessionId,
+    ...(facts.session.matterId ? { matterId: facts.session.matterId } : {}),
+  };
+  if (plan.action === "bounce") {
+    recordRepairObservation(
+      facts.workspaceDir,
+      scope,
+      { action: "bounce", anchors: plan.anchors, note: plan.note },
+      facts.turn.turnId,
+    );
+    return { kind: "resample", message: plan.note };
+  }
+  remember();
+  recordRepairObservation(
+    facts.workspaceDir,
+    scope,
+    { action: "deliver", anchors: plan.anchors, note: plan.pending },
+    facts.turn.turnId,
+  );
   const voiced = appendMechanicalNote(facts.assistantText, facts.turn.factorState);
   return {
     kind: "stop",

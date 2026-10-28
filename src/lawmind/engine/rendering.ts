@@ -152,20 +152,35 @@ export async function renderDraft(
         ? citationIntegrity.missingSourceIds.length
         : 0;
     const unanchored = citationIntegrity.checked ? citationIntegrity.unanchoredSections.length : 0;
+    const fileRefStatus =
+      citationIntegrity.checked && citationIntegrity.fileReferences
+        ? citationIntegrity.fileReferences.status
+        : "n/a";
     await emit(auditDir, {
       taskId: draft.taskId,
       kind: "artifact.render_blocked",
       actor: "system",
-      detail: `citationMode=${citationMode ?? "edition_strict"}: missingSourceIds=${missing}; unanchoredSections=${unanchored}`,
+      detail: `citationMode=${citationMode ?? "edition_strict"}: missingSourceIds=${missing}; unanchoredSections=${unanchored}; fileReferences=${fileRefStatus}`,
     });
+    const fileRefHint =
+      citationIntegrity.checked &&
+      citationIntegrity.fileReferences &&
+      citationIntegrity.fileReferences.status !== "PASSED"
+        ? `证据锚闸门 ${citationIntegrity.fileReferences.status}（需 path+sha256+lineRef+原文均核对通过才可出稿）。`
+        : "";
     return {
       ok: false,
       error: [
         citationMode === "grounded"
           ? "严格援引模式：无检索快照、缺失来源或长段未锚定时不可导出 Word。对话中仍可继续展示/修改草稿正文；请补齐引用锚定，或将 citationMode 改为 assisted 后再 render_document。"
-          : "引用完整性门禁仅拦截正式 Word 导出（缺失来源 ID 或长段未锚定）。对话中的草稿正文仍可继续完善；请在文书台核对 Citation Banner 后补锚再导出。",
-        formatCitationGateCoach(`missingSourceIds=${missing}; unanchoredSections=${unanchored}`),
-      ].join("\n"),
+          : "引用完整性门禁仅拦截正式 Word 导出（缺失来源 ID、长段未锚定或证据锚未通过）。对话中的草稿正文仍可继续完善；请在文书台核对 Citation Banner 后补锚再导出。",
+        fileRefHint,
+        formatCitationGateCoach(
+          `missingSourceIds=${missing}; unanchoredSections=${unanchored}; fileReferences=${fileRefStatus}`,
+        ),
+      ]
+        .filter(Boolean)
+        .join("\n"),
       citationIntegrity,
       // 显式标记引用完整性门禁拦截，供工具层把 renderFailureCategory 归为
       // citation_gate 而非 render_engine（铁律 5 后验收缺口降级为警告，这是

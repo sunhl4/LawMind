@@ -84,6 +84,11 @@ export type RenderDocxOptions = {
    * 只拷贝原件打修订，不应扫全文，也不该改合同用语。
    */
   applyDeliverableDeai?: boolean;
+  /**
+   * 不自动追加「免责声明」。委托合同、授权委托书这类要签署的文书
+   * 不该被塞一段「本备忘录…不构成正式法律意见」；默认仍追加。
+   */
+  skipDisclaimer?: boolean;
 };
 
 function resolveDocxFilename(
@@ -114,8 +119,9 @@ function buildWordSection(
 ): FileChild[] {
   const paragraphs: FileChild[] = [];
   const level = classifyChineseHeadingLevel(section.heading) ?? 1;
+  const hasHeading = section.heading.trim().length > 0;
 
-  if (includeProvenance && section.provenance?.events.length) {
+  if (hasHeading && includeProvenance && section.provenance?.events.length) {
     const commentText = renderProvenanceAsFootnote(section.provenance);
     const { paragraph, comment } = paragraphHeading2WithComment(
       section.heading,
@@ -126,7 +132,7 @@ function buildWordSection(
     commentState.nextId += 1;
     commentState.comments.push(comment);
     paragraphs.push(paragraph);
-  } else {
+  } else if (hasHeading) {
     paragraphs.push(paragraphHeadingAtLevel(section.heading, face, level));
   }
   if (face.id === "researchReport" && figureState) {
@@ -248,6 +254,7 @@ function pushReportTocHeading(
 function collectReportTocEntries(
   draft: ArtifactDraft,
   summaryHeading: string,
+  opts?: { skipDisclaimer?: boolean },
 ): Array<{ title: string; level: number }> {
   const entries: Array<{ title: string; level: number }> = [];
   if (draft.title.trim()) {
@@ -265,7 +272,7 @@ function collectReportTocEntries(
       }
     }
   }
-  if (!draftAlreadyHasDisclaimer(draft)) {
+  if (!opts?.skipDisclaimer && !draftAlreadyHasDisclaimer(draft)) {
     pushReportTocHeading(entries, DISCLAIMER_HEADING);
   }
   return entries;
@@ -318,6 +325,10 @@ export async function renderDocxWithOptions(
   const summaryHeading = resolveSummaryHeading(variant);
   const researchMemo = face.id === "researchMemo";
   const researchReport = face.id === "researchReport";
+  // 需签署/提交的正式文书（委托合同、授权委托书等）：只有标题和正文，
+  // 不写备忘录抬头、不写「一、结论」摘要，也不追加备忘录免责声明。
+  const formalDocument = variant === "formalDocument";
+  const skipDisclaimer = options.skipDisclaimer === true;
 
   const commentState = { nextId: 1, comments: [] as ICommentOptions[] };
   const figureState: ThesisFigureCounters = { figure: 0, table: 0 };
@@ -354,7 +365,7 @@ export async function renderDocxWithOptions(
           headingStyleRange: "1-3",
           hyperlink: true,
           useAppliedParagraphOutlineLevel: true,
-          cachedEntries: collectReportTocEntries(draft, summaryHeading),
+          cachedEntries: collectReportTocEntries(draft, summaryHeading, { skipDisclaimer }),
         }),
         new Paragraph({ children: [new PageBreak()] }),
       );
@@ -367,7 +378,7 @@ export async function renderDocxWithOptions(
     for (const section of draft.sections) {
       appendSection(section);
     }
-    if (!draftAlreadyHasDisclaimer(draft)) {
+    if (!skipDisclaimer && !draftAlreadyHasDisclaimer(draft)) {
       allParagraphs.push(paragraphHeading1(DISCLAIMER_HEADING, face));
       allParagraphs.push(
         ...bodyLinesToParagraphs(disclaimerBodyForDraft(draft, researchReport), face),
@@ -375,6 +386,11 @@ export async function renderDocxWithOptions(
     }
     if (researchMemo) {
       allParagraphs.push(paragraphMemoClosing(chineseMemoDate(draft.createdAt), face));
+    }
+  } else if (formalDocument) {
+    allParagraphs.push(paragraphDocumentTitle(draft.title, face));
+    for (const section of draft.sections) {
+      appendSection(section);
     }
   } else {
     allParagraphs.push(
@@ -389,8 +405,8 @@ export async function renderDocxWithOptions(
     }
   }
 
-  // 审阅备注是产品内部痕迹，不写入对外备忘录或报告。
-  if (!researchMemo && !researchReport && draft.reviewNotes.length > 0) {
+  // 审阅备注是产品内部痕迹，不写入对外备忘录、报告或可签署文书。
+  if (!researchMemo && !researchReport && !formalDocument && draft.reviewNotes.length > 0) {
     allParagraphs.push(paragraphHeading1("审阅备注", face));
     for (const note of draft.reviewNotes) {
       allParagraphs.push(paragraphReviewNoteItem(note, face));

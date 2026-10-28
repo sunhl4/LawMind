@@ -61,6 +61,7 @@ describe("MatterOverviewBody daily surface", () => {
       root.unmount();
     });
     host.remove();
+    vi.unstubAllGlobals();
   });
 
   it("shows 下一步 + 待办, hides duplicate 下一步 card and folded insights", async () => {
@@ -191,5 +192,64 @@ describe("MatterOverviewBody daily surface", () => {
     });
     expect(host.querySelector("[data-testid='lm-matter-quality-cockpit']")).not.toBeNull();
     expect(host.textContent).toContain("质量驾驶舱");
+  });
+
+  it("mounts the 收案 gate above the profile card for intake matters", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: false, error: "not_found" }), {
+            status: 404,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+    await act(async () => {
+      root.render(
+        <MatterOverviewBody
+          apiBase="http://127.0.0.1:9"
+          matterId="xinghui-sale-876"
+          summary={summary}
+          profile={{
+            matterId: "xinghui-sale-876",
+            title: "星辉精密诉环宇科技",
+            sensitivity: "normal",
+            status: "intake",
+            needsEnrichment: false,
+          }}
+          onAdmissionDecided={() => {}}
+          selectedOverview={null}
+          showWorkspaceAcceptanceDashboard={false}
+          workspaceAcceptance={null}
+          workspaceAcceptanceErr={null}
+          reviewSummaryCards={[]}
+          openReviewFromMatter={() => {}}
+          blockingExplanations={[]}
+          handleBlockingAction={() => {}}
+          queueItems={[]}
+          approvalRequests={[]}
+          matterInteractionSummary={emptyInteraction()}
+          showCrossMatterRoadmap={false}
+          convergenceSuggestions={[]}
+          handleConvergenceSuggestion={() => {}}
+          recentMatterInteractions={[]}
+          filteredQueueItems={[]}
+          filteredApprovalRequests={[]}
+          filteredDrafts={[]}
+          draftCitationByTask={{}}
+          acceptanceByTask={{}}
+        />,
+      );
+      // 收案卡会先拉一次收案记录；这里等网络请求失败落到「开始收案」。
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+    const card = host.querySelector('[aria-label="收案"]');
+    expect(card).toBeTruthy();
+    expect(card?.textContent).toContain("开始收案");
+    // 收案闸门不折叠进「更多」：接洽中的案件打开概览就要能决定。
+    const more = host.querySelector('[data-testid="lm-matter-overview-more"]');
+    expect(more).toBeTruthy();
+    expect(card!.compareDocumentPosition(more!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

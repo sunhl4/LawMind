@@ -6,6 +6,7 @@ import {
   parseMatterKind,
   type MatterKind,
 } from "../../../../../src/lawmind/desk/matter-kind.ts";
+import { MatterAdmissionCard } from "./MatterAdmissionCard";
 
 export type MatterProfilePayload = {
   matterId: string;
@@ -44,8 +45,6 @@ export function MatterProfileCard(props: Props): ReactNode {
   const [standing, setStanding] = useState(profile.standing ?? "");
   const [hearingAt, setHearingAt] = useState(profile.hearingAt ?? "");
   const [sensitivity, setSensitivity] = useState(profile.sensitivity);
-  const [conflictCheckConfirmed, setConflictCheckConfirmed] = useState(profile.status !== "intake");
-  const [engagementAccepted, setEngagementAccepted] = useState(profile.status !== "intake");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
@@ -62,8 +61,6 @@ export function MatterProfileCard(props: Props): ReactNode {
     setStanding(profile.standing ?? "");
     setHearingAt(profile.hearingAt ?? "");
     setSensitivity(profile.sensitivity);
-    setConflictCheckConfirmed(profile.status !== "intake");
-    setEngagementAccepted(profile.status !== "intake");
     if (profile.needsEnrichment) {
       setOpen(true);
     }
@@ -89,8 +86,6 @@ export function MatterProfileCard(props: Props): ReactNode {
           hearingAt: hearingAt.trim(),
         },
         sensitivity,
-        conflictCheckConfirmed,
-        engagementAccepted,
       });
       if (!j.ok) {
         throw new Error(messageFromOkFalseBody(j, "保存案件档案失败"));
@@ -108,12 +103,24 @@ export function MatterProfileCard(props: Props): ReactNode {
   };
 
   return (
-    <section className="lm-matter-cockpit-card lm-matter-profile-card" aria-label="案件档案">
+    <>
+      <MatterAdmissionCard
+        apiBase={apiBase}
+        matterId={profile.matterId}
+        matterStatus={profile.status}
+        onAccepted={() =>
+          onSaved?.(
+            { ...profile, status: "active", needsEnrichment: false },
+            "已接受委托，案件进入办理中",
+          )
+        }
+      />
+      <section className="lm-matter-cockpit-card lm-matter-profile-card" aria-label="案件档案">
       <div className="lm-matter-profile-card-head">
         <div>
           <h3>案件档案</h3>
           <p className="lm-meta">
-            建案只需文件夹；客户、案由、密级与接案确认可在此按需补全，利于记忆与助手偏置。
+            建案只需文件夹；客户、案由与密级可在此按需补全，利于记忆与助手偏置。接案在「收案」卡里完成。
           </p>
         </div>
         <button
@@ -294,25 +301,10 @@ export function MatterProfileCard(props: Props): ReactNode {
             </select>
           </label>
           <fieldset className="lm-matter-profile-checks" disabled={busy}>
-            <legend>接案确认</legend>
-            <label className="lm-check-row">
-              <input
-                type="checkbox"
-                checked={conflictCheckConfirmed}
-                onChange={(e) => setConflictCheckConfirmed(e.target.checked)}
-              />
-              <span>已完成利益冲突检查</span>
-            </label>
-            <label className="lm-check-row">
-              <input
-                type="checkbox"
-                checked={engagementAccepted}
-                onChange={(e) => setEngagementAccepted(e.target.checked)}
-              />
-              <span>已正式接受委托（接案）</span>
-            </label>
+            <legend>接案</legend>
             <p className="lm-meta">
-              两项均勾选后，案件阶段将变为「办理中」，并关闭冲突检查待办。
+              接案在「收案」卡里完成：先跑冲突扫描、确认风险与 AI 使用告知，再由律师接受委托。
+              两个勾选框不再直接改案件状态，避免绕过扫描。
             </p>
           </fieldset>
           {err ? (
@@ -332,6 +324,7 @@ export function MatterProfileCard(props: Props): ReactNode {
           </div>
         </div>
       )}
-    </section>
+      </section>
+    </>
   );
 }

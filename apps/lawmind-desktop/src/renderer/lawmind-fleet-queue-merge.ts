@@ -17,6 +17,8 @@ export function mergeFleetQueueRows(opts: {
   const runs = (fleetRuns ?? []).filter(
     (run) =>
       needsLawyer(run) ||
+      run.intakeItemId != null ||
+      run.id.startsWith("intake:") ||
       run.kind === "word_check" ||
       (includePendingReview && run.kind === "pending_review"),
   );

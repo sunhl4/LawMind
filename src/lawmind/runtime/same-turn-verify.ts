@@ -6,7 +6,7 @@
  * until validators are green or the bounce cap pauses.
  */
 
-import { resolveDraftCitationIntegrity } from "../drafts/citation-resolve.js";
+import { resolveDraftCitationIntegrityAsync } from "../drafts/citation-resolve.js";
 import { parseCraftCheckInput } from "../drafts/contract-redline-craft.js";
 import { readDraft } from "../drafts/index.js";
 import { readRedlinePlan } from "../drafts/redline-plan.js";
@@ -862,11 +862,11 @@ function mechanicalLintBlockers(text: string, deliverableType?: string): string[
 }
 
 /** Pre-execute gate for prepare_outbound_mail when a draft is linked. */
-export function precheckOutboundSameTurnVerify(input: {
+export async function precheckOutboundSameTurnVerify(input: {
   toolName: string;
   args: Record<string, unknown>;
   workspaceDir?: string;
-}): ToolResultLike | undefined {
+}): Promise<ToolResultLike | undefined> {
   if (input.toolName !== "prepare_outbound_mail") {
     return undefined;
   }
@@ -886,7 +886,7 @@ export function precheckOutboundSameTurnVerify(input: {
     return undefined;
   }
   const issues: SameTurnVerifyIssue[] = [];
-  const citation = resolveDraftCitationIntegrity(workspaceDir, draft);
+  const citation = await resolveDraftCitationIntegrityAsync(workspaceDir, draft);
   if (citation.checked && !citation.ok) {
     issues.push(issueCitation(citation.missingSourceIds));
   }

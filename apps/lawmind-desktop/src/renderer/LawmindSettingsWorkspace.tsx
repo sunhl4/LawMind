@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "./api-client";
 import { LawmindSettingsPracticePlaybook } from "./LawmindSettingsPracticePlaybook";
+import { LawmindSettingsPlaybooks } from "./LawmindSettingsPlaybooks";
 import { LawmindSettingsWorkspaceCare } from "./LawmindSettingsWorkspaceCare";
 import { LawmindSettingsUserStandards } from "./LawmindSettingsUserStandards";
 import { workspaceLocationCautionMessage } from "./lawmind-workspace-location";
@@ -307,6 +308,7 @@ export function LawmindSettingsWorkspace(props: Props): ReactNode {
       ) : null}
 
       {apiBase ? <LawmindSettingsPracticePlaybook apiBase={apiBase} /> : null}
+      {apiBase ? <LawmindSettingsPlaybooks apiBase={apiBase} /> : null}
       {apiBase ? <LawmindSettingsUserStandards apiBase={apiBase} /> : null}
       {apiBase ? <LawmindSettingsWorkspaceCare apiBase={apiBase} /> : null}
     </div>

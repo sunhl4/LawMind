@@ -431,7 +431,7 @@ export const legalVerifyMiddleware: ToolMiddleware = async (call, next) => {
   if (blocked) {
     return blocked;
   }
-  const exportBlocked = precheckOutboundSameTurnVerify({
+  const exportBlocked = await precheckOutboundSameTurnVerify({
     toolName: call.toolName,
     args: call.args,
     workspaceDir: call.ctx.workspaceDir,

@@ -520,6 +520,7 @@ export function LawmindChatMessageRow(props: LawmindChatMessageRowProps): ReactN
               assistantText={displayText}
               gateDecisions={msg.gateDecisions}
               workspaceDir={workspaceDir}
+              projectDir={projectDir}
               onOpenReview={onOpenReview}
               onOpenNeedsDecisionDesk={onOpenNeedsDecisionDesk}
             />

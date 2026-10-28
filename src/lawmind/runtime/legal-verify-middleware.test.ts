@@ -428,7 +428,7 @@ describe("legal-verify-middleware", () => {
     expect(data.sourceTier).toBe("sample");
   });
 
-  it("blocks prepare_outbound_mail when the linked contract draft has empty redline", () => {
+  it("blocks prepare_outbound_mail when the linked contract draft has empty redline", async () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), "lm-verify-ob-"));
     dirs.push(ws);
     persistDraft(ws, {
@@ -444,7 +444,7 @@ describe("legal-verify-middleware", () => {
       createdAt: new Date().toISOString(),
       contractEdit: { baselineRelativePath: "a.docx", mode: "surgical" },
     });
-    const blocked = precheckOutboundSameTurnVerify({
+    const blocked = await precheckOutboundSameTurnVerify({
       toolName: "prepare_outbound_mail",
       args: { draft_task_id: "t-empty", to: "a@b.cn", subject: "稿", body: "请查收" },
       workspaceDir: ws,
