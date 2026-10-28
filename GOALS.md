@@ -67,6 +67,22 @@ LawMind **不把可审计当作产品价值、法律质量证明或用户信任�
 
 ## 三、当前期次与未完成项
 
+### 第二十期 — 全自动化执行层（规则级编排 · 2026-10-22）
+
+依据：[docs/LAWMIND-AUTOMATION-COMPETITOR-RESEARCH-2026-10.md](docs/LAWMIND-AUTOMATION-COMPETITOR-RESEARCH-2026-10.md)。分支 `feat/automation-parity`（worktree）。**默认助手路径行为不得变坏**；新能力挂显式入口与 `LAWMIND_RULE_BRANCH_WRITE`（默认关）。
+
+- [x] **A0 隔离**：`git worktree add ../LawMind-automation -b feat/automation-parity`
+- [x] **A1 调研文档**：[docs/LAWMIND-AUTOMATION-COMPETITOR-RESEARCH-2026-10.md](docs/LAWMIND-AUTOMATION-COMPETITOR-RESEARCH-2026-10.md)
+- [x] **A2 规则对象**：`src/lawmind/review/` — `ReviewRule` / `planRuleReview` / 覆盖检查 / 12 条 v0（来自 `contract-playbook-review` 底线项 × 纸别）
+- [x] **A3 编辑分支合并**：`drafts/branch.ts`（`EditOp` / `mergeBranches` / conflict never auto-resolved）+ `drafts/span-id.ts`；11 条合并测试
+- [x] **A4 worker 分支写（编排层）**：`review/execute.ts`；`LAWMIND_RULE_BRANCH_WRITE=1` 默认关；关时返回 `enabled:false`、无 merge、不因覆盖不全抛错；worker 写工具白名单硬拒
+- [x] **A4b worker JSON 分类契约 + 桥接**：`WorkerPatch.ruleId` / `WorkerRuleClassification`（五态，非法即丢）；`createDraftWorkerTool({ ruleLevel })` 条件广告 `rule_id`；`review/bridge.ts` 收集与校验；`finalize_rule_review` 做覆盖裁决 + **同句冲突并列上报**（`ruleConflicts`，不替你择一），不写盘；flag 关时工具表与今日逐字节一致（cassette 双向 + 收口 5 条断言）
+- [x] **A5 all-pass**：`evaluation/all-pass.ts` + `BaselineCriterion.mustPass`（缺省 false，旧 rubric 不变）
+- [x] **A6 guardrails**：`review/runner.ts` — 并发上限 / 单规则超时 / 只重试受影响规则 / 流式 `rule_finished` / abort
+- [x] **A7 合 main 门槛（工程侧）**：`pnpm test` 8041 passed、双端 typecheck、`lawmind:compiler-gate` 全绿；清单见 [docs/lawmind/LAWMIND-AUTOMATION-BRANCH-REGRESSION.md](docs/lawmind/LAWMIND-AUTOMATION-BRANCH-REGRESSION.md) §7。**仍待人机项**：真机 Word 侧载 + 日常助手 5 分钟手工回归
+- [x] **A8 规则级 all-pass 夹具与 CLI**：`fixtures/lawmind-allpass/`（20 份合成夹具 + README）、`evaluation/rule-allpass.ts`（逐规则评分、夹具覆盖校验）、`pnpm lawmind:allpass`（`--validate` / 默认诚实 SKIP / `--arm oracle` 自检 20/20 / `--arm deepseek` 真实模型臂，走生产 `draft_worker` review 路径）。**合成夹具上的模型分数只说明接线，不得作为真实合同准确性证据。**
+- [x] **A9 CI 存量红定位与 sandbox 构建步**：`main` 本身 6 文件 / 12 用例红；本分支新增失败 0。已补 `sandbox-runtime.js` 构建步（`lawmind-ci.yml`、`lawmind-deliverable-gate.yml`、`lawmind-desktop-e2e.yml`）。officecli/WPS 依赖类与 file-size 棘轮属存量，未在本轮处理；e2e-electron 失败为 GitHub artifact 配额。
+
 ### 第十九期 · LawMind Bench（中国律师自建评测 · 独立仓库 · 2026-10-08）
 
 > 公开中国法 Agent 集可对齐研究，但不能验收「法宝真检索 + 交件」。自建 Bench 是公司资产，与本产品仓**平级独立开发**（本机常见路径 `../LawMind-Bench/`），不嵌在本仓库内。

@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "playbookId": "cn-sales-v0",
+  "kind": "holdout",
+  "note": "留出集：与 cases.json 措辞不同、缺陷位置也不同，用于检验规则是否泛化。定稿于 2026-10-23，跑分之前写定，跑完不修改。改本文件等于把留出集变成训练集。",
+  "cases": [
+    {
+      "caseId": "h01",
+      "paper": "counterparty",
+      "title": "设备采购·全项无缺陷（另一种写法）",
+      "clauses": [
+        "设备采购合同（买方模板）",
+        "供方：常州恒力精密机械有限公司",
+        "需方：苏州华腾电子科技有限公司",
+        "第一条 标的。供方向需方供应贴片机两台，含安装调试与操作培训，合同总价人民币二百四十万元整。",
+        "第二条 交付与验收。供方于合同生效后六十日内交付至需方厂区；验收由双方指派代表共同进行，以双方签署的验收确认单为验收完成的唯一凭据，验收合格后二十个工作日内付款。",
+        "第三条 责任限制。除故意或重大过失外，任何一方对另一方承担的赔偿责任总额不超过本合同总价的百分之百；双方适用同一上限，且排除范围一致，均不免除故意与重大过失责任。",
+        "第四条 争议解决。因本合同引起的争议，双方应先行协商；协商不成的，提交需方住所地有管辖权的人民法院诉讼解决。",
+        "第五条 合同解除。一方严重违约且经书面催告后十五日内仍未纠正的，另一方可书面通知解除本合同；解除不影响守约方就已发生损失索赔的权利。",
+        "第六条 知识产权与数据。双方各自保留其在本合同签订前已拥有的知识产权；本合同不导致任何知识产权权属转移；供方因履约接触的需方生产数据仅可用于本合同项下的设备调试与培训，不得用于其他目的。",
+        "第七条 保密。双方对履约过程中知悉的对方商业秘密承担保密义务，保密期限为合同终止后三年。本合同不设竞业限制。",
+        "第八条 本合同自双方签章之日起生效。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "h02",
+      "paper": "counterparty",
+      "title": "设备采购·单方无限责任",
+      "clauses": [
+        "设备采购合同（买方模板）",
+        "供方：无锡精工自动化有限公司",
+        "需方：杭州临江新材料有限公司",
+        "第一条 标的。供方向需方供应挤出生产线一条，合同总价人民币五百八十万元整。",
+        "第二条 交付与验收。供方于合同生效后九十日内完成安装调试；验收由双方指派代表共同进行，以双方签署的验收确认单为准，验收合格后二十个工作日内付款。",
+        "第三条 责任限制。供方因本合同产生的一切赔偿责任不受金额限制；需方的赔偿责任以本合同总价为限；本条不适用于供方的故意或重大过失。",
+        "第四条 争议解决。因本合同引起的争议，提交需方住所地有管辖权的人民法院诉讼解决。",
+        "第五条 合同解除。一方严重违约且经书面催告后十五日内仍未纠正的，另一方可解除本合同。",
+        "第六条 知识产权与数据。双方各自保留其已有知识产权；本合同不导致任何知识产权权属转移。",
+        "第七条 保密。双方对履约中知悉的商业秘密承担保密义务，保密期限为合同终止后三年。本合同不设竞业限制。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "unacceptable",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "h03",
+      "paper": "counterparty",
+      "title": "技术服务·委托方任意解除且只补直接成本",
+      "clauses": [
+        "技术服务合同（委托方模板）",
+        "委托方：北京中科智测技术有限公司",
+        "受托方：天津恒信检测服务有限公司",
+        "第一条 服务内容。受托方为委托方提供材料性能检测与报告出具服务，服务费总额人民币六十八万元。",
+        "第二条 付款与验收。受托方按批次提交检测报告，委托方与受托方共同确认报告符合约定标准后二十个工作日内支付该批次服务费。",
+        "第三条 责任限制。除故意或重大过失外，任何一方的赔偿责任总额不超过本合同服务费总额；双方适用同一上限。",
+        "第四条 争议解决。因本合同引起的争议，提交受托方住所地有管辖权的人民法院诉讼解决。",
+        "第五条 合同解除。委托方可随时书面通知解除本合同，无需说明理由，亦无需取得受托方同意；解除时委托方仅补偿受托方已实际支出的直接成本，不包含合理利润。受托方不享有对等的任意解除权。",
+        "第六条 知识产权与数据。双方各自保留其已有知识产权；本合同不导致任何知识产权权属转移；受托方因履约取得的委托方样品与检测数据仅用于履行本合同目的。",
+        "第七条 保密。双方对履约中知悉的商业秘密承担保密义务，保密期限为合同终止后三年。本合同不设竞业限制。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "unacceptable",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "h04",
+      "paper": "counterparty",
+      "title": "双向保密协议·全项无缺陷",
+      "clauses": [
+        "双向保密协议（双方模板）",
+        "甲方：上海远景智能科技有限公司",
+        "乙方：南京云栖数据服务有限公司",
+        "第一条 目的。双方为评估潜在的技术合作交换保密信息，本协议仅适用于该评估目的。",
+        "第二条 评估费用。各方自行承担与评估有关的费用，互不向对方收取；双方共同确认评估结论后各自留存，不产生付款义务。",
+        "第三条 责任限制。除故意或重大过失外，任一方因本协议承担的赔偿责任总额不超过人民币五十万元，双方适用同一上限且排除范围一致。",
+        "第四条 争议解决。因本协议引起的争议，提交甲方住所地有管辖权的人民法院诉讼解决。",
+        "第五条 协议终止。一方严重违反本协议且经书面催告后十日内未纠正的，另一方有权书面终止本协议。",
+        "第六条 知识产权与数据。双方各自保留其已拥有的知识产权；本协议不导致任何知识产权权属转移或许可授予；保密信息仅可用于本协议约定的评估目的。",
+        "第七条 保密。双方对保密信息承担保密义务，保密范围限于未公开的技术与商业信息，不含已公开信息；保密期限为协议终止后三年。本协议不设竞业限制。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "h05",
+      "paper": "counterparty",
+      "title": "长期供货·验收由采购方单方决定",
+      "clauses": [
+        "长期供货框架合同（采购方模板）",
+        "供应商：宁波华翔塑料制品有限公司",
+        "采购方：合肥江淮家电制造有限公司",
+        "第一条 供货范围。供应商按采购方月度订单供应塑料外壳件，年度预计采购金额人民币三百万元。",
+        "第二条 验收与付款。每批货到后由采购方自行检验并单方决定是否验收合格，供应商对采购方的验收结论不享有异议权，也无第三方复检机制；验收合格后九十日内付款。",
+        "第三条 责任限制。除故意或重大过失外，任何一方的赔偿责任总额不超过该批订单金额；双方适用同一上限。",
+        "第四条 争议解决。因本合同引起的争议，提交采购方住所地有管辖权的人民法院诉讼解决。",
+        "第五条 合同解除。一方严重违约且经书面催告后十五日内仍未纠正的，另一方可解除本合同。",
+        "第六条 知识产权与数据。双方各自保留其已有知识产权；本合同不导致任何知识产权权属转移；供应商因履约取得的采购方图纸仅用于生产本合同货物。",
+        "第七条 保密。双方对履约中知悉的商业秘密承担保密义务，保密期限为合同终止后三年。本合同不设竞业限制。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "compliant",
+        "ip.data.counterparty": "compliant",
+        "payment.acceptance.counterparty": "unacceptable",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    },
+    {
+      "caseId": "h06",
+      "paper": "counterparty",
+      "title": "备件买卖·解除与知识产权均未约定",
+      "clauses": [
+        "备件买卖合同（卖方模板）",
+        "卖方：青岛海卓机械配件有限公司",
+        "买方：烟台东方重工有限公司",
+        "第一条 标的。卖方向买方供应液压备件一批，合同总价人民币四十六万元整。",
+        "第二条 交付与验收。卖方于合同生效后三十日内交付；验收由双方指派代表共同进行，以双方签署的验收确认单为准，验收合格后十五个工作日内付款。",
+        "第三条 责任限制。除故意或重大过失外，任何一方的赔偿责任总额不超过本合同总价；双方适用同一上限且排除范围一致。",
+        "第四条 争议解决。因本合同引起的争议，提交卖方住所地有管辖权的人民法院诉讼解决。",
+        "第七条 保密。双方对履约中知悉的商业秘密承担保密义务，保密期限为合同终止后三年。本合同不设竞业限制。",
+        "第八条 本合同自双方签章之日起生效。双方确认：本合同未就合同解除作出任何约定，亦未就知识产权与数据使用作出任何约定。"
+      ],
+      "expected": {
+        "liability.cap.counterparty": "compliant",
+        "dispute.forum.counterparty": "compliant",
+        "termination.symmetry.counterparty": "absent",
+        "ip.data.counterparty": "absent",
+        "payment.acceptance.counterparty": "compliant",
+        "confidentiality.noncompete.counterparty": "compliant"
+      }
+    }
+  ]
+}

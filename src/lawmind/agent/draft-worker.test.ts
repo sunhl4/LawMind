@@ -412,6 +412,41 @@ describe("draft-worker", () => {
     expect(cfg.maxRetries).toBe(0);
   });
 
+  it("preserves ruleId on patches so rule-level coverage can be traced", async () => {
+    vi.mocked(callModelWithRetry).mockResolvedValue(
+      successResponse(
+        JSON.stringify({
+          draft:
+            "本合同约定迟延付款按日万分之五计付违约金，但未约定违约金上限，也未约定管辖法院，建议补充责任上限与争议解决条款后再签署。",
+          conclusion: "违约金无上限",
+          citations: ["买卖合同"],
+          gaps: [],
+          patches: [
+            {
+              find: "按日万分之五计付违约金",
+              replace: "按日万分之三计付违约金且总额不超过合同金额的百分之二十",
+              span: "每日按应付金额万分之五计付违约金",
+              ruleId: "liability.cap.counterparty",
+            },
+          ],
+        }),
+      ),
+    );
+    const result = await runDraftWorker(completeBrief, {
+      chatModel: model,
+      sidecarRole: "review",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.data.patches).toHaveLength(1);
+    expect(result.data.patches?.[0]?.ruleId).toBe("liability.cap.counterparty");
+    expect(result.data.patches?.[0]?.replace).toBe(
+      "按日万分之三计付违约金且总额不超过合同金额的百分之二十",
+    );
+  });
+
   it("parent role explore returns one result and does not draft a clause", async () => {
     expect(resolveSidecarTaskRole("explore", "review")).toBe("explore");
     expect(resolveSidecarTaskRole(undefined, "review")).toBe("review");

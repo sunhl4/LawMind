@@ -99,14 +99,116 @@ export type DraftWorkerInput = {
   followUp?: string;
   /** Codex agent type. Parent sets this the way Cursor sets subagent_type. */
   role?: "review" | "draft" | "explore";
+  /** Playbook rule this worker owns (rule-level review only). */
+  ruleId?: string;
 };
+
+/**
+ * A review worker answers its rule's atomic criteria. It never picks a tier —
+ * `review/verdict.ts` maps answers deterministically. Asking the model for a
+ * tier directly was measured unstable (12% of rules flipped between runs).
+ */
+export type WorkerCriterionMet = boolean | "unknown" | "not_applicable";
+
+export type WorkerVerdictAnswers = {
+  clausePresent: boolean;
+  answers: Array<{
+    criterionId: string;
+    met: WorkerCriterionMet;
+    evidence?: string;
+  }>;
+};
+
+const WORKER_MET_VALUES: ReadonlySet<string> = new Set([
+  "true",
+  "false",
+  "unknown",
+  "not_applicable",
+]);
+
+function parseMetValue(raw: unknown): WorkerCriterionMet | undefined {
+  if (typeof raw === "boolean") {
+    return raw;
+  }
+  if (typeof raw === "string") {
+    const v = raw.trim();
+    if (v === "true") {
+      return true;
+    }
+    if (v === "false") {
+      return false;
+    }
+    if (WORKER_MET_VALUES.has(v)) {
+      return v as WorkerCriterionMet;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Parse `verdictAnswers`. Returns undefined when the shape is unusable, so the
+ * caller reports "no answers" instead of inventing a verdict. Individual
+ * unparsable answers are dropped, not defaulted to false.
+ */
+export function parseVerdictAnswers(raw: unknown): WorkerVerdictAnswers | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const o = raw as Record<string, unknown>;
+  let clausePresent: boolean | undefined;
+  if (typeof o.clausePresent === "boolean") {
+    clausePresent = o.clausePresent;
+  } else if (typeof o.clausePresent === "string") {
+    const v = o.clausePresent.trim();
+    if (v === "true") {
+      clausePresent = true;
+    } else if (v === "false") {
+      clausePresent = false;
+    }
+  }
+  if (clausePresent === undefined) {
+    return undefined;
+  }
+  const rawAnswers = Array.isArray(o.answers) ? o.answers : [];
+  const answers: WorkerVerdictAnswers["answers"] = [];
+  for (const item of rawAnswers) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const row = item as Record<string, unknown>;
+    const criterionId =
+      typeof row.criterionId === "string"
+        ? row.criterionId.trim()
+        : typeof row.id === "string"
+          ? row.id.trim()
+          : "";
+    if (!criterionId) {
+      continue;
+    }
+    const met = parseMetValue(row.met);
+    if (met === undefined) {
+      continue;
+    }
+    const evidence = typeof row.evidence === "string" ? row.evidence.trim() : "";
+    answers.push({ criterionId, met, ...(evidence ? { evidence } : {}) });
+  }
+  return { clausePresent, answers };
+}
 
 export type DraftWorkerModelPayload = {
   draft: string;
   citations: string[];
   gaps: string[];
   conclusion?: string;
-  patches?: Array<{ find: string; replace: string; span?: string; anchor?: string }>;
+  verdictAnswers?: WorkerVerdictAnswers;
+  patches?: Array<{
+    find: string;
+    replace: string;
+    span?: string;
+    anchor?: string;
+    /** Playbook rule that produced this patch (rule-level review only). */
+    ruleId?: string;
+  }>;
 };
 
 export type DraftWorkerContext = Partial<
@@ -174,7 +276,16 @@ export type DraftWorkerOutput =
         sources: string[];
         toolsUsed: string[];
         steps: Array<{ tool: string; ok: boolean }>;
-        patches?: Array<{ find: string; replace: string; span?: string; anchor?: string }>;
+        patches?: Array<{
+          find: string;
+          replace: string;
+          span?: string;
+          anchor?: string;
+          ruleId?: string;
+        }>;
+        /** Present only for rule-level review workers. */
+        ruleId?: string;
+        verdictAnswers?: WorkerVerdictAnswers;
       };
     }
   | {
@@ -293,11 +404,13 @@ export function parseDraftWorkerModelText(raw: string): DraftWorkerModelPayload 
   if (rec) {
     const draft = typeof rec.draft === "string" ? rec.draft.trim() : "";
     if (draft.length >= MIN_DRAFT_CHARS) {
+      const verdictAnswers = parseVerdictAnswers(rec.verdictAnswers);
       return {
         draft,
         citations: stringList(rec.citations),
         gaps: stringList(rec.gaps),
         conclusion: oneLine(rec.conclusion),
+        ...(verdictAnswers ? { verdictAnswers } : {}),
         patches: parsePatches(rec.patches),
       };
     }
@@ -359,12 +472,14 @@ function parsePatches(raw: unknown): DraftWorkerModelPayload["patches"] {
     }
     const span = typeof row.span === "string" ? row.span.trim() : "";
     const anchor = typeof row.anchor === "string" ? row.anchor.trim() : "";
+    const ruleId = typeof row.ruleId === "string" ? row.ruleId.trim() : "";
     return [
       {
         find,
         replace,
         ...(span ? { span } : {}),
         ...(anchor ? { anchor } : {}),
+        ...(ruleId ? { ruleId } : {}),
       },
     ];
   });
@@ -559,10 +674,17 @@ function buildDraftUserPrompt(
   const skeleton = selectSkeleton({
     revisingDocument: Boolean(input.path?.trim() || input.materials?.trim()),
   });
+  const ruleId = (input.ruleId ?? "").trim();
+  const verdictSchema = ruleId
+    ? `, "verdictAnswers": { "clausePresent": true, "answers": [{ "criterionId": "题目 id", "met": "true | false | unknown | not_applicable", "evidence": "材料原句" }] }`
+    : "";
   return [
     skeleton.header ?? "",
     ask,
-    `JSON schema: { "draft": "string", "conclusion": "一句结论", "citations": ["材料出处"], "gaps": ["待补缺口"], "patches": [{ "find": "原句", "replace": "改后句", "span": "材料原句", "anchor": "clause:…" }] }`,
+    ruleId
+      ? `本次只审这一条规则：${ruleId}。逐题作答 verdictAnswers，不要给档位结论，档位由引擎判定。`
+      : "",
+    `JSON schema: { "draft": "string", "conclusion": "一句结论", "citations": ["材料出处"], "gaps": ["待补缺口"]${verdictSchema}, "patches": [{ "find": "原句", "replace": "改后句", "span": "材料原句", "anchor": "clause:…", "ruleId": "可选：这条补丁对应的规则 id" }] }`,
     "",
     brief,
     `章节：${section}`,
@@ -842,6 +964,7 @@ export async function runDraftWorker(
       ),
       isolationKey(ctx?.workspaceDir ?? "", ctx?.sessionId || "draft-worker"),
       review ? "review" : "draft",
+      input.ruleId?.trim() || undefined,
     );
   }
 
@@ -980,6 +1103,7 @@ function successResult(
   workerId?: string,
   sessionKey?: string,
   taskRole: "review" | "draft" = "draft",
+  ruleId?: string,
 ): DraftWorkerOutput {
   const grounded = groundDraftCitations(parsed.citations, `${loaded.text}\n${extraGrounding}`);
   const gaps = [...parsed.gaps];
@@ -1013,6 +1137,8 @@ function successResult(
       toolsUsed,
       steps,
       ...(parsed.patches && parsed.patches.length > 0 ? { patches: parsed.patches } : {}),
+      ...(ruleId ? { ruleId } : {}),
+      ...(parsed.verdictAnswers ? { verdictAnswers: parsed.verdictAnswers } : {}),
     },
   };
 }
@@ -1190,6 +1316,7 @@ async function resumeDraftWorker(
     saved?.id ?? prior.id,
     isolationKey(workspaceDir, sessionId),
     review ? "review" : "draft",
+    input.ruleId?.trim() || undefined,
   );
 }
 

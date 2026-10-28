@@ -27,6 +27,7 @@ import {
   recordInverseEdits,
   recordSurgicalAnchors,
   reconcileSurgicalEditsWithPatches,
+  readPatchConflicts,
 } from "../../factor-state.js";
 import type { AgentContext, ToolCallResult } from "../../types.js";
 
@@ -309,6 +310,9 @@ export async function executeCrossDocumentEdits(args: {
             warning:
               "整批 redlinePending=0：正文相对各自基线无实质变化，请核对 find 是否为原文锚点。",
           }
+        : {}),
+      ...(readPatchConflicts(ctx.factorState).length > 0
+        ? { patchConflicts: readPatchConflicts(ctx.factorState) }
         : {}),
     },
   };
