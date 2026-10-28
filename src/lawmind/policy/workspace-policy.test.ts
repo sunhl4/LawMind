@@ -7,11 +7,13 @@ import {
   DEFAULT_AGENT_MAX_TOOL_CALLS_PER_TURN,
   readWorkspacePolicyFile,
   inspectWorkspacePolicyFile,
+  readStorageQuota,
   resolveAgentMandatoryRulesForPrompt,
   resolveAgentMaxHistoryMessages,
   resolveAgentMaxToolCallsPerTurn,
   resolveAgentPromptVerbosity,
   resolveMatterMandatoryRulesForPrompt,
+  resolveStorageQuota,
   workspacePolicyPath,
 } from "./workspace-policy.js";
 
@@ -267,5 +269,54 @@ describe("resolveAgentPromptVerbosity", () => {
         { LAWMIND_PROMPT_VERBOSITY: "full" },
       ),
     ).toBe("full");
+  });
+});
+
+describe("storage quota policy", () => {
+  it("reads quotaGb and warnRatio from lawmind.policy.json", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-quota-"));
+    try {
+      fs.writeFileSync(
+        path.join(dir, "lawmind.policy.json"),
+        JSON.stringify({ schemaVersion: 1, storage: { quotaGb: 2, warnRatio: 0.8 } }),
+        "utf8",
+      );
+      expect(readStorageQuota(dir)).toEqual({
+        quotaBytes: 2 * 1024 * 1024 * 1024,
+        warnRatio: 0.8,
+      });
+      const inspected = inspectWorkspacePolicyFile(dir);
+      expect(inspected.policy?.storage).toEqual({ quotaGb: 2, warnRatio: 0.8 });
+      expect(inspected.rejected).toEqual([]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("defaults warnRatio to 0.9 and rejects an out-of-range value", () => {
+    expect(resolveStorageQuota({ storage: { quotaGb: 5 } })).toEqual({
+      quotaBytes: 5 * 1024 * 1024 * 1024,
+      warnRatio: 0.9,
+    });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-quota-"));
+    try {
+      fs.writeFileSync(
+        path.join(dir, "lawmind.policy.json"),
+        JSON.stringify({ schemaVersion: 1, storage: { quotaGb: 5, warnRatio: 1.5 } }),
+        "utf8",
+      );
+      const inspected = inspectWorkspacePolicyFile(dir);
+      expect(inspected.policy?.storage).toEqual({ quotaGb: 5 });
+      expect(inspected.rejected.some((row) => row.key === "storage.warnRatio")).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("treats a missing or non-positive quota as unset", () => {
+    expect(resolveStorageQuota(null)).toBeUndefined();
+    expect(resolveStorageQuota({})).toBeUndefined();
+    expect(resolveStorageQuota({ storage: { quotaGb: 0 } })).toBeUndefined();
+    expect(resolveStorageQuota({ storage: { quotaGb: Number.NaN } })).toBeUndefined();
   });
 });

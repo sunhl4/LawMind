@@ -5,6 +5,7 @@ Executable entrypoints for `pnpm lawmind:*` live here. **Hooks** and shared help
 - `.ts` files are run with `node --import tsx …` (see root `package.json`).
 - `.mjs` files are plain Node ESM.
 - `lawmind-backup.sh` — optional workspace tarball; set `LAWMIND_WORKSPACE_DIR`.
+- `lawmind-workspace-backup.ts` / `lawmind-workspace-restore.ts` — verifiable zip backup and safe restore (`pnpm lawmind:workspace:backup` / `pnpm lawmind:workspace:restore`); excludes secrets and derived runtime state by default.
 - `lawmind-daemon.ts` — local automations daemon (`pnpm lawmind:daemon -- status|start|stop`).
 - `lawmind-decision-samples.ts` — 决策语料导出（第二十期 P0/P2/P3）：把逃逸/指标/事件/质量/拍板信号归一成可编译语料 + 数据体检报告；同时打印**三路径分歧 shadow 摘要**（P2.3）、**改稿范例库**（素材通道，含将注入 prompt 的块）与 **firm-specific 校准器状态**（P3，含冷启动拒绝理由）。`--dry-run` 只看报告不写盘；`--json` 出机器可读报告。
 - `lawmind-round.ts` — **影子演练：跑一轮真实办件**（第二十期 P0–P5 的燃料生成器）。跑真实引擎链路（plan → confirm → research → draft → review），三种交办产齐 `lint_findings` / `lawyer_edit` / 零写入三种结果，并现场探测规则盲区与误报。产物落 `workspace/rounds/<日期>-<slug>/`（已 gitignore），随后用 `lawmind:decision-samples --workspace <该目录>` 读取。**产物是演练数据，不能用来估规则覆盖率**——工作区根写入的 `.lawmind-drill.json` 会自证这一点，`decision-samples` 据此标 `drill: true` 并出 warning。

@@ -10,8 +10,13 @@ import {
 import { checkMatterConsistency } from "../application/matter-consistency.js";
 import { computeSearchIndexFreshness, getSearchIndexStatus } from "../indexing/fts-search.js";
 import { scanSessionHistoryIntegrity } from "../insights/session-history-integrity.js";
+import { readStorageQuota } from "../policy/workspace-policy.js";
 import { listLocalSkills } from "../skills/skill-runtime.js";
 import { buildExecutionSurfaceReport } from "./execution-surface.js";
+import {
+  summarizeWorkspaceStorageHealth,
+  type WorkspaceStorageHealth,
+} from "./workspace-storage-health.js";
 
 export type OpsDoctorSnapshot = {
   lines: string[];
@@ -24,6 +29,8 @@ export type OpsDoctorSnapshot = {
   staleReason?: string;
   /** P1-b: prompt-budget rollup over recent turns (absent when not scanned). */
   promptBudget?: PromptBudgetHealth;
+  /** 案件/审计/会话/草稿的体积与轮转建议。 */
+  storage?: WorkspaceStorageHealth;
 };
 
 export function formatOpsDoctorSnapshot(input: {
@@ -99,7 +106,7 @@ export async function gatherOpsDoctorSnapshot(workspaceDir: string): Promise<Ops
   const unsignedSkillCount = listLocalSkills(workspaceDir).filter(
     (skill) => !skill.signatureOk,
   ).length;
-  return formatOpsDoctorSnapshot({
+  const snapshot = formatOpsDoctorSnapshot({
     scannedSessions: integrity.scannedSessions,
     corruptSessionCount: integrity.corruptSessionCount,
     repairableDriftCount: issues.filter((issue) => issue.code !== "missing_matter_json").length,
@@ -110,4 +117,12 @@ export async function gatherOpsDoctorSnapshot(workspaceDir: string): Promise<Ops
     staleReason: fresh.staleReason,
     promptBudget: summarizePromptBudgetHealth(workspaceDir),
   });
+  const quota = readStorageQuota(workspaceDir);
+  const storage = summarizeWorkspaceStorageHealth(
+    workspaceDir,
+    {},
+    quota ? { quotaBytes: quota.quotaBytes, warnRatio: quota.warnRatio } : {},
+  );
+  snapshot.lines.push(...storage.lines);
+  return { ...snapshot, storage };
 }

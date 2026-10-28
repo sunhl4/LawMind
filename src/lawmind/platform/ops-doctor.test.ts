@@ -1,5 +1,8 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { formatOpsDoctorSnapshot } from "./ops-doctor.js";
+import { formatOpsDoctorSnapshot, gatherOpsDoctorSnapshot } from "./ops-doctor.js";
 
 const quiet = {
   scannedSessions: 4,
@@ -94,5 +97,27 @@ describe("formatOpsDoctorSnapshot", () => {
     const snap = formatOpsDoctorSnapshot(quiet);
     expect(snap.lines.some((line) => line.startsWith("提示词预算："))).toBe(false);
     expect(snap.promptBudget).toBeUndefined();
+  });
+});
+
+describe("gatherOpsDoctorSnapshot storage quota", () => {
+  it("reads storage.quotaGb from lawmind.policy.json and warns", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-doctor-quota-"));
+    try {
+      fs.mkdirSync(path.join(dir, "cases", "m1"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "cases", "m1", "matter.json"), "{}");
+      fs.writeFileSync(
+        path.join(dir, "lawmind.policy.json"),
+        JSON.stringify({ schemaVersion: 1, storage: { quotaGb: 0.00000001 } }),
+        "utf8",
+      );
+      const snapshot = await gatherOpsDoctorSnapshot(dir);
+      expect(snapshot.storage?.quota?.limitBytes).toBe(10);
+      expect(snapshot.storage?.quota?.exceeded).toBe(true);
+      expect(snapshot.storage?.warnings.join("\n")).toContain("storage.quotaGb");
+      expect(snapshot.lines.join("\n")).toContain("工作区合计");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

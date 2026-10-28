@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildWorkspaceStandardReport } from "../../apps/lawmind-desktop/server/lawmind-health-payload.js";
 import { repairSessionHistoryIntegrity } from "../../src/lawmind/insights/session-history-integrity.js";
+import { evaluateWorkspaceMatching } from "../../src/lawmind/intake/matching-labels.js";
 import { scanMemoryManifest } from "../../src/lawmind/memory/relevant-recall.js";
 import { gatherOpsDoctorSnapshot } from "../../src/lawmind/platform/ops-doctor.js";
 
@@ -23,6 +24,10 @@ function resolveWorkspace(): string {
   return path.join(repoRoot, "workspace");
 }
 
+function percent(value: number | null): string {
+  return value === null ? "—" : `${Math.round(value * 100)}%`;
+}
+
 async function main(): Promise<void> {
   const json = process.argv.includes("--json");
   const fix = process.argv.includes("--fix");
@@ -31,12 +36,14 @@ async function main(): Promise<void> {
   const snapshot = await gatherOpsDoctorSnapshot(workspaceDir);
   const report = buildWorkspaceStandardReport(workspaceDir);
   const memoryEntries = scanMemoryManifest(workspaceDir);
+  const matching = evaluateWorkspaceMatching(workspaceDir);
   const payload = {
     ok: !snapshot.projectionDrift && snapshot.unsignedSkillCount === 0,
     workspaceDir,
     ops: snapshot,
     report,
     memoryIndexCount: memoryEntries.length,
+    matchingEval: matching,
     ...(repair ? { repair } : {}),
     timestamp: new Date().toISOString(),
   };
@@ -58,6 +65,13 @@ async function main(): Promise<void> {
     }
   }
   console.log(`记忆索引条目：${memoryEntries.length}`);
+  if (matching.source.labeled > 0) {
+    console.log(
+      `判案评测：律师归案 ${matching.source.labeled} 条 · 误归 ${matching.falseAttach} · 第一名命中 ${percent(matching.recallAt1)} · 候选召回 ${percent(matching.proposalRecall)}${matching.source.scanMayBeTruncated ? "（只看最近 500 条）" : ""}`,
+    );
+  } else {
+    console.log("判案评测：还没有律师归案的标注（系统自动归案不算标签）。");
+  }
   if (repair) {
     console.log(
       `会话历史修复：扫描 ${repair.scannedSessions} 个会话，修复 ${repair.repairedSessionIds.length} 个 session.json、${repair.repairedTranscriptIds.length} 个 transcript.jsonl。`,

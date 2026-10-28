@@ -284,6 +284,38 @@ export function inspectCommercialPolicy(raw: unknown): CommercialPolicyInspectio
     out.context = src.context;
   }
 
+  const storage = asRecord(src.storage);
+  if (storage) {
+    const normalized: { quotaGb?: number; warnRatio?: number } = {};
+    const quotaGb = storage.quotaGb;
+    if (typeof quotaGb === "number" && Number.isFinite(quotaGb) && quotaGb > 0) {
+      normalized.quotaGb = quotaGb;
+    } else if (quotaGb !== undefined) {
+      rejected.push(note("storage.quotaGb", "磁盘配额必须是大于 0 的数字（GB）"));
+    }
+    const warnRatio = storage.warnRatio;
+    if (
+      typeof warnRatio === "number" &&
+      Number.isFinite(warnRatio) &&
+      warnRatio > 0 &&
+      warnRatio <= 1
+    ) {
+      normalized.warnRatio = warnRatio;
+    } else if (warnRatio !== undefined) {
+      rejected.push(note("storage.warnRatio", "告警比例必须在 (0, 1] 之间"));
+    }
+    for (const key of Object.keys(storage)) {
+      if (key !== "quotaGb" && key !== "warnRatio") {
+        rejected.push(note(`storage.${key}`, "不是存储配额键，已忽略"));
+      }
+    }
+    if (normalized.quotaGb !== undefined || normalized.warnRatio !== undefined) {
+      out.storage = normalized;
+    }
+  } else if (src.storage !== undefined) {
+    rejected.push(note("storage", "必须是对象，形如 { quotaGb, warnRatio }"));
+  }
+
   if (src.enableCollaboration === false) {
     out.enableCollaboration = false;
   } else if (src.enableCollaboration === true) {
@@ -319,6 +351,7 @@ export function inspectCommercialPolicy(raw: unknown): CommercialPolicyInspectio
     "conversationLength",
     "wordRevisionAuthor",
     "context",
+    "storage",
   ]);
 
   for (const key of Object.keys(src)) {
@@ -387,6 +420,16 @@ export function effectivePolicyRows(policy: LawMindWorkspacePolicy | null): Poli
   }
   if (policy.enableCollaboration === false) {
     rows.push(note("enableCollaboration", "false"));
+  }
+  if (policy.storage?.quotaGb !== undefined) {
+    rows.push(
+      note(
+        "storage.quotaGb",
+        policy.storage.warnRatio !== undefined
+          ? `${policy.storage.quotaGb} GB（${Math.round(policy.storage.warnRatio * 100)}% 告警）`
+          : `${policy.storage.quotaGb} GB`,
+      ),
+    );
   }
   return rows;
 }

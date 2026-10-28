@@ -368,6 +368,19 @@ export type LawMindWorkspacePolicy = {
    */
   searchIndexAutoRebuild?: boolean;
   /**
+   * 私有化部署的工作区磁盘配额（**只告警，不拦写入**）。
+   *
+   * - `quotaGb`：工作区总量软上限（GB）。省略或非正数时不检查。
+   * - `warnRatio`：触发告警的比例，默认 0.9，夹到 (0, 1]。
+   *
+   * 巡检入口：`pnpm lawmind:doctor`；统计口径见
+   * `src/lawmind/platform/workspace-storage-health.ts`（不跟符号链接，跳过构建/缓存目录）。
+   */
+  storage?: {
+    quotaGb?: number;
+    warnRatio?: number;
+  };
+  /**
    * Whether the model must emit「本轮已应用」footer for executable preferences.
    * - first（默认）：仅会话首轮要求
    * - always：每轮要求
@@ -631,6 +644,39 @@ export function readWorkspacePolicyFile(workspaceDir: string): LawMindWorkspaceP
 
 export function workspacePolicyPath(workspaceDir: string): string {
   return path.join(path.resolve(workspaceDir), POLICY_FILENAME);
+}
+
+/** 私有化部署的工作区软配额（已换算成字节）。 */
+export type ResolvedStorageQuota = {
+  quotaBytes: number;
+  warnRatio: number;
+};
+
+const DEFAULT_STORAGE_WARN_RATIO = 0.9;
+const BYTES_PER_GB = 1024 * 1024 * 1024;
+
+/**
+ * 从策略里解析 `storage.quotaGb` / `storage.warnRatio`。
+ * 缺省、NaN、非正数一律视为「没配配额」；告警比例越界回落 0.9，不抛错。
+ */
+export function resolveStorageQuota(
+  policy: Pick<LawMindWorkspacePolicy, "storage"> | null | undefined,
+): ResolvedStorageQuota | undefined {
+  const quotaGb = policy?.storage?.quotaGb;
+  if (typeof quotaGb !== "number" || !Number.isFinite(quotaGb) || quotaGb <= 0) {
+    return undefined;
+  }
+  const rawRatio = policy?.storage?.warnRatio;
+  const warnRatio =
+    typeof rawRatio === "number" && Number.isFinite(rawRatio) && rawRatio > 0 && rawRatio <= 1
+      ? rawRatio
+      : DEFAULT_STORAGE_WARN_RATIO;
+  return { quotaBytes: Math.floor(quotaGb * BYTES_PER_GB), warnRatio };
+}
+
+/** 读取工作区策略文件并解析磁盘配额；没配或文件坏了都返回 undefined。 */
+export function readStorageQuota(workspaceDir: string): ResolvedStorageQuota | undefined {
+  return resolveStorageQuota(readWorkspacePolicyFile(workspaceDir));
 }
 
 /**
