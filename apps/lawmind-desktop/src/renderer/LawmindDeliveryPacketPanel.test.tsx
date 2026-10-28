@@ -187,7 +187,7 @@ describe("LawmindDeliveryPacketPanel", () => {
   it("downloads the ZIP when the packet is ready", async () => {
     vi.mocked(apiGetJson).mockResolvedValue({ ok: true, packets: [view()] });
     vi.mocked(fetchApi).mockResolvedValue(
-      new Response(new Blob(["PK"]), {
+      new Response("PK", {
         status: 200,
         headers: {
           "content-type": "application/zip",
@@ -255,7 +255,7 @@ describe("LawmindDeliveryPacketPanel", () => {
       ],
     });
     vi.mocked(fetchApi).mockResolvedValue(
-      new Response(new Blob(["%PDF-1.7"]), {
+      new Response("%PDF-1.7", {
         status: 200,
         headers: {
           "content-type": "application/pdf",
