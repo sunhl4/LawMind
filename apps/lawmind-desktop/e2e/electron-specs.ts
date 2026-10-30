@@ -24,6 +24,7 @@ export const ELECTRON_SPEC_FILES = [
   "electron-golden-path.spec.ts",
   "electron-file-deeplink.spec.ts",
   "electron-chat-deliverable-link.spec.ts",
+  "pane-window.spec.ts",
   "first-matter-journey.spec.ts",
   "judgment-escalation-electron.spec.ts",
   "server-crash-recovery.spec.ts",

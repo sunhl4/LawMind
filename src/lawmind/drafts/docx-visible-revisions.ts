@@ -8,6 +8,7 @@ import fs from "node:fs/promises";
 import JSZip from "jszip";
 import { computeMinimalEditSpans } from "./minimal-edit-script.js";
 import type { RedlineHunk } from "./redline-proposal.js";
+import { formatRevisionTimestamp, planRevisionTimestamps } from "./revision-timestamps.js";
 import {
   decodeXmlEntities,
   normalizeWordControls,
@@ -19,6 +20,12 @@ export async function writeVisibleTrackedEdits(params: {
   destAbs: string;
   hunks: readonly Pick<RedlineHunk, "before" | "after">[];
   author?: string;
+  /** 真实导出时刻；测试可注入。 */
+  now?: Date;
+  /** 修订时间排布的稳定种子；默认按改动内容生成。 */
+  timestampSeed?: string;
+  /** 最早可用的显示时间；默认取原文件 mtime。 */
+  notBefore?: Date;
 }): Promise<{ applied: number; attempted: number }> {
   const attempted = params.hunks.filter(
     (hunk) => hunk.before !== hunk.after && hunk.before.trim(),
@@ -34,11 +41,28 @@ export async function writeVisibleTrackedEdits(params: {
   let applied = 0;
   let id = 1;
   const author = (params.author ?? "律师").replace(/[<>&"]/g, "").slice(0, 40) || "律师";
-  const date = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  for (const hunk of params.hunks) {
+  let notBefore = params.notBefore;
+  if (!notBefore) {
+    try {
+      notBefore = new Date((await fs.stat(params.sourceAbs)).mtimeMs);
+    } catch {
+      /* stat 失败就只按导出时刻倒推 */
+    }
+  }
+  // 同一批修订按一次审阅的节奏展开时间；逐处写同一个时间会一眼看出是批量生成。
+  const dates = planRevisionTimestamps({
+    count: params.hunks.length,
+    seed:
+      params.timestampSeed ??
+      params.hunks.map((hunk) => `${hunk.before}\u0000${hunk.after}`).join("\u0001"),
+    ...(params.now ? { now: params.now } : {}),
+    ...(notBefore ? { notBefore } : {}),
+  });
+  for (const [index, hunk] of params.hunks.entries()) {
     if (!hunk.before.trim() || hunk.before === hunk.after) {
       continue;
     }
+    const date = dates[index] ?? formatRevisionTimestamp(params.now ?? new Date());
     const rewritten = rewriteUniqueTextRun(next, hunk.before, hunk.after, author, date, id);
     if (!rewritten) {
       continue;

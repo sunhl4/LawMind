@@ -17,6 +17,7 @@ import {
   saveMailAccount,
   type MailAccount,
 } from "../mail/mail-accounts.js";
+import { applyIntakeFieldsFromItem } from "./field-provenance.js";
 import { buildIntakeMatterIndex } from "./matter-index.js";
 import type { IntakeMatterIndex } from "./resolve.js";
 import {
@@ -65,6 +66,11 @@ export const defaultIntakeMailFetch: IntakeMailFetch = async (account, lawMindRo
     sinceUid: cursor.lastUid,
     uidValidity: cursor.uidValidity,
     limit: BATCH_LIMIT,
+    // 首次同步（以及 UIDVALIDITY 变化后）只回溯最近 7 天；
+    // 计数器从窗口内最旧的一批开始，分多轮向前补齐，避免只取最新 25 封。
+    since: cursor.bootstrapSince
+      ? new Date(cursor.bootstrapSince)
+      : new Date(Date.now() - FIRST_SYNC_WINDOW_MS),
   });
   return { messages: res.messages, cursor: { uidValidity: res.uidValidity, lastUid: res.lastUid } };
 };
@@ -111,8 +117,13 @@ function intakeAttachments(
   });
 }
 
-export function intakeEmailExternalKey(accountId: string, providerMessageId: string): string {
-  return `email:${accountId}:${providerMessageId}`;
+export function intakeEmailExternalKey(
+  accountId: string,
+  providerMessageId: string,
+  uidValidity?: string,
+): string {
+  const generation = uidValidity?.trim();
+  return `email:${accountId}:${providerMessageId}${generation ? `:${generation}` : ""}`;
 }
 
 export function fetchedMessageToIntake(
@@ -123,7 +134,7 @@ export function fetchedMessageToIntake(
   const address = msg.fromAddress ?? bareAddress(msg.from);
   return {
     channel: "email",
-    externalKey: intakeEmailExternalKey(account.id, msg.id),
+    externalKey: intakeEmailExternalKey(account.id, msg.id, msg.uidValidity),
     receivedAt: msg.receivedAt,
     from: { display: msg.from, ...(address ? { address } : {}) },
     to: msg.to,
@@ -185,7 +196,7 @@ export async function syncIntakeMailbox(
       if ((msg.fromAddress ?? bareAddress(msg.from)) === own) {
         continue;
       }
-      const externalKey = intakeEmailExternalKey(account.id, msg.id);
+      const externalKey = intakeEmailExternalKey(account.id, msg.id, msg.uidValidity);
       if (findIntakeItemId(workspaceDir, { externalKey, messageId: msg.messageId })) {
         continue;
       }
@@ -198,8 +209,19 @@ export async function syncIntakeMailbox(
         continue;
       }
       recorded += 1;
-      if (triageIntakeItem(workspaceDir, item, index, { now }).status === "attached") {
+      const triaged = triageIntakeItem(workspaceDir, item, index, { now });
+      if (triaged.status === "attached") {
         autoAttached += 1;
+        // 自动归案后按与 lead.accept 相同的出处规则补字段：空字段才写，
+        // 已有不同值只记冲突并开待办，不覆盖律师填过的内容。
+        const matterId = triaged.filing?.matterId;
+        if (matterId) {
+          try {
+            await applyIntakeFieldsFromItem(workspaceDir, matterId, triaged.id);
+          } catch {
+            /* 抽取是附加动作：失败不影响来信已归档 */
+          }
+        }
       }
     }
     const nextCursor: IntakeMailCursor = {
@@ -232,6 +254,9 @@ export async function syncIntakeMailbox(
         ...state.mail,
         [accountId]: {
           ...cursor,
+          // 分页 URL（skiptoken）可能过期；失败后清掉，下一轮从 receivedSince 重新翻页。
+          // 重复页由 externalKey / Message-ID 去重兜底，不会丢信。
+          graphNextLink: undefined,
           initializedAt: cursor.initializedAt,
           attemptedAt: at,
           error: message,

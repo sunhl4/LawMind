@@ -21,6 +21,16 @@ export const LAWMIND_OPEN_DRAFT_DESK_EVENT = "lawmind:open-draft-desk";
 export type OpenDraftDeskDetail = { taskId: string };
 
 let pendingDraftDeskId: string | null = null;
+/** 当前已经挂在中栏的草稿台 taskId（不是 pending）。拖出中栏时用它带上上下文。 */
+let activeDraftDeskId: string | null = null;
+
+export function currentDraftDeskTaskId(): string | null {
+  return activeDraftDeskId;
+}
+
+export function setCurrentDraftDeskTaskId(taskId: string | null): void {
+  activeDraftDeskId = taskId?.trim() || null;
+}
 
 export function prepareWorkspaceForFileOpen(): void {
   if (typeof window === "undefined") {
@@ -35,6 +45,7 @@ export function requestOpenDraftDesk(taskId: string): boolean {
     return false;
   }
   pendingDraftDeskId = id;
+  activeDraftDeskId = id;
   prepareWorkspaceForFileOpen();
   window.dispatchEvent(
     new CustomEvent<OpenDraftDeskDetail>(LAWMIND_OPEN_DRAFT_DESK_EVENT, { detail: { taskId: id } }),
@@ -49,6 +60,7 @@ export function peekPendingDraftDesk(): string | null {
 
 export function clearPendingDraftDesk(): void {
   pendingDraftDeskId = null;
+  activeDraftDeskId = null;
 }
 
 function openMiddleColumnFile(

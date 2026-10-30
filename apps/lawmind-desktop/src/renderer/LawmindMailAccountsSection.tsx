@@ -67,6 +67,23 @@ type SyncAccountResponse = {
   watchMode?: "all" | "contacts";
 };
 
+type IntakeSyncRow = {
+  ok: boolean;
+  accountId: string;
+  fetched?: number;
+  recorded?: number;
+  autoAttached?: number;
+  error?: string;
+  hint?: string;
+};
+
+type IntakeSyncResponse = {
+  ok: boolean;
+  result?: { mail?: IntakeSyncRow[] };
+  error?: string;
+  hint?: string;
+};
+
 export function LawmindMailAccountsSection(props: Props): ReactNode {
   const { apiBase, matterId, matterOptions = [] } = props;
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -272,30 +289,43 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
   };
 
   const syncAccount = async (id: string) => {
-    if (intakeInbox) {
+    // 同步按钮属于某一行账号，必须按这一行自己的 intakeInbox / matterId 决定走哪条路；
+    // 不能用表单里正在编辑的另一个账号的勾选状态。
+    const account = accounts.find((row) => row.id === id);
+    if (account?.intakeInbox === true) {
       setBusy(true);
       try {
-        const res = await apiSendJson<{ ok: boolean; result?: unknown; error?: string }, Record<string, never>>(
+        const res = await apiSendJson<IntakeSyncResponse, { accountId: string }>(
           apiBase,
           "/api/intake/sync",
           "POST",
-          {},
+          { accountId: id },
         );
-        if (!res.ok) {
-          setError(res.error || "收案邮箱同步失败");
+        const row = res.result?.mail?.find((entry) => entry.accountId === id);
+        if (!res.ok || row?.ok === false) {
+          const message = row?.hint || row?.error || res.hint || res.error || "收案邮箱同步失败";
+          setInfo(null);
+          // refresh 成功时会清掉 error，所以先刷新再写错误。
+          await refresh();
+          setError(message);
           return;
         }
         setError(null);
-        setInfo("已同步收案邮箱，待归案来件已更新。");
+        setInfo(
+          row
+            ? `已同步收案邮箱：新收 ${row.recorded ?? 0} 封，自动归案 ${row.autoAttached ?? 0} 封。`
+            : "收案邮箱同步已在进行中；待归案列表稍后刷新。",
+        );
         await refresh();
       } catch (e) {
         setError(errorMessage(e, "收案邮箱同步失败"));
+        setInfo(null);
       } finally {
         setBusy(false);
       }
       return;
     }
-    const matter = bindMatter.trim() || matterId?.trim();
+    const matter = account?.matterId?.trim() || bindMatter.trim() || matterId?.trim();
     if (!matter) {
       setError("请先选择要同步到的案件。");
       return;
@@ -309,9 +339,10 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
         { matterId: matter },
       );
       if (!res.ok) {
-        setError(res.hint || res.error || "同步失败");
+        const message = res.hint || res.error || "同步失败";
         setInfo(null);
         await refresh();
+        setError(message);
         return;
       }
       setError(null);
@@ -550,6 +581,11 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
           )}
         </label>
 
+        {intakeInbox ? (
+          <p className="lm-settings-caption">
+            收案邮箱按整箱收取，由判案决定归哪个案件；这里不使用「只看这些人」名单。
+          </p>
+        ) : (
         <div className="lm-mail-watch-block">
           <p className="lm-settings-caption">不填则读取全部来信。填写后只看这些人。</p>
           {watchContacts.length === 0 ? null : (
@@ -600,6 +636,7 @@ export function LawmindMailAccountsSection(props: Props): ReactNode {
             </button>
           </div>
         </div>
+        )}
 
         <LawmindMailSendFormatFields value={sendFormat} onChange={setSendFormat} disabled={busy} />
           </div>

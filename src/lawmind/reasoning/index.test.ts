@@ -52,6 +52,36 @@ describe("LawMind Reasoning buildDraft", () => {
     expect(draft.sections.some((s) => s.heading === "微观条款")).toBe(true);
   });
 
+  it("uses a working-draft template for unnamed general documents and still writes Word", () => {
+    const draft = buildDraft({
+      intent: minimalIntent({
+        kind: "draft.word",
+        deliverableType: "document.general",
+        output: "markdown",
+        instruction: "写上诉状",
+        summary: "上诉状",
+      }),
+      bundle: minimalBundle(),
+    });
+    expect(draft.templateId).toBe("word/working-draft-default");
+    expect(draft.output).toBe("docx");
+  });
+
+  it("keeps research memos on the legal-memo template", () => {
+    const draft = buildDraft({
+      intent: minimalIntent({
+        kind: "research.legal",
+        deliverableType: "memo.research",
+        output: "markdown",
+        instruction: "检索备忘",
+        summary: "检索备忘",
+      }),
+      bundle: minimalBundle(),
+    });
+    expect(draft.templateId).toBe("word/legal-memo-default");
+    expect(draft.output).toBe("docx");
+  });
+
   it("uses custom title and templateId when provided", () => {
     const intent = minimalIntent();
     const bundle = minimalBundle();

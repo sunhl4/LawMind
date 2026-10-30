@@ -45,7 +45,13 @@ import {
   recordSyndromeObservation,
   recordWitnessObservation,
 } from "./observation-bus.js";
-import { observeSyndrome } from "./syndrome-observer.js";
+import { persistentSyndrome, syndromeKey } from "./syndrome-decoder.js";
+import {
+  observeSyndromeBits,
+  syndromeFromState,
+  transientSyndromeBits,
+  upsertSyndromeRound,
+} from "./syndrome-observer.js";
 import { presentLawyerToolResult } from "./tool-lawyer-card.js";
 import {
   stringifyToolResultForHistory,
@@ -65,6 +71,7 @@ import {
 } from "./turn-plan.js";
 import { toolResultWroteTrackedArtifact } from "./turn-profile.js";
 import type { AgentContext, AgentMessage, AgentTurn, ToolCallResult } from "./types.js";
+import { applyWitnessScores } from "./witness-measurement.js";
 
 /** Lazy: avoids TDZ when tool-pipeline ↔ legal-tools ↔ turn-orchestrator cycle loads. */
 let runToolPipeline: ReturnType<typeof composeToolPipeline> | undefined;
@@ -473,17 +480,33 @@ export async function executeToolBatches(
       const result = await getRunToolPipeline()(callCtx);
       if (turn.factorState) {
         ingestToolResult(turn.factorState, toolName, result.data);
-        const syndrome = observeSyndrome(turn.factorState);
-        if (syndrome.bits.length > 0) {
+        const currentBits = syndromeFromState(turn.factorState);
+        turn.syndromeHistory = upsertSyndromeRound(turn.syndromeHistory, roundIndex, currentBits);
+        const persistentBits = persistentSyndrome(turn.syndromeHistory, {
+          window: 3,
+          minRounds: 2,
+        });
+        const persistentKeys = persistentBits.map(syndromeKey).toSorted();
+        const recordedKeys = turn.recordedSyndromeKeys ?? [];
+        const changed =
+          persistentKeys.length !== recordedKeys.length ||
+          persistentKeys.some((key, index) => key !== recordedKeys[index]);
+        if (persistentKeys.length === 0) {
+          turn.recordedSyndromeKeys = [];
+        } else if (changed) {
+          const observation = observeSyndromeBits(persistentBits);
+          observation.transient = transientSyndromeBits(currentBits, persistentBits);
+          observation.round = roundIndex;
           recordSyndromeObservation(
             ctx.workspaceDir,
             {
               sessionId: ctx.sessionId,
               ...(ctx.matterId ? { matterId: ctx.matterId } : {}),
             },
-            syndrome,
+            observation,
             turn.turnId,
           );
+          turn.recordedSyndromeKeys = persistentKeys;
         }
         if (result.data && typeof result.data === "object" && !Array.isArray(result.data)) {
           const data = result.data as Record<string, unknown>;
@@ -493,7 +516,23 @@ export async function executeToolBatches(
           };
           const witness = witnessEnvelopeFromToolData(turn.factorState, data);
           if (witness) {
-            recordWitnessObservation(ctx.workspaceDir, scope, witness.payload, turn.turnId);
+            // 被动抽查也进弱滤波：同一通道重复答对不增加独立证据。
+            const witnessFilter = witness.scores
+              ? applyWitnessScores(
+                  turn.factorState,
+                  witness.scores,
+                  turn.factorState.turnEpoch ?? 0,
+                )
+              : [];
+            recordWitnessObservation(
+              ctx.workspaceDir,
+              scope,
+              {
+                ...witness.payload,
+                ...(witnessFilter.length > 0 ? { filter: witnessFilter } : {}),
+              },
+              turn.turnId,
+            );
           }
           const review = reviewEnvelopeFromToolData(data);
           if (review) {

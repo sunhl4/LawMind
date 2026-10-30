@@ -2,6 +2,7 @@
  * Sync remote mailbox → cases/<matterId>/mail/inbox JSON (+ attachments).
  */
 
+import { loadMatter } from "../adapters/matter-storage/index.js";
 import { rememberIntakeThreadRef } from "../intake/store.js";
 import { writeMatterMailMessage, type LocalMailMessage } from "../platform/lawyer-automations.js";
 import { fetchGraphMessages, testGraphMailConnection } from "./graph-mail.js";
@@ -94,6 +95,24 @@ export async function syncMailAccountToMatter(
   }
   if (!account.enabled) {
     return { ok: false, error: "account_disabled", hint: "请先启用该邮箱账号。", accountId };
+  }
+  // 收案邮箱是全局统一收件库：整箱同步会绕过判案，把别的案子的来信也拉进本案。
+  // 误点「同步」或调用旧接口时在这里兜底；收案邮箱只走 syncIntakeMailbox。
+  if (account.intakeInbox === true) {
+    return {
+      ok: false,
+      error: "intake_inbox",
+      hint: "这是收案邮箱：来信会先进「待归案」，不能整箱同步到某一个案件。",
+      accountId,
+    };
+  }
+  if (!loadMatter(workspaceDir, matterId)) {
+    return {
+      ok: false,
+      error: "matter_not_found",
+      hint: "案件不存在或已删除，不能把邮箱同步进去。",
+      accountId,
+    };
   }
   try {
     const messages = await fetchMessagesForAccount(account, lawMindRoot, opts.limit ?? 25, {

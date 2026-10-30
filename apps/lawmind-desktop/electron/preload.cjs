@@ -15,6 +15,19 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
     };
   },
   checkForUpdates: () => ipcRenderer.invoke("lawmind:check-updates"),
+  /** 左下角「更新」药丸：初始拉取状态 + 实时推送 + 点击。 */
+  getAppUpdateState: () => ipcRenderer.invoke("lawmind:get-app-update-state"),
+  onAppUpdateState: (handler) => {
+    const channel = "lawmind:app-update";
+    const listener = (_evt, payload) => {
+      handler(payload);
+    };
+    ipcRenderer.on(channel, listener);
+    return () => {
+      ipcRenderer.removeListener(channel, listener);
+    };
+  },
+  runAppUpdateAction: () => ipcRenderer.invoke("lawmind:app-update-action"),
   showNotification: (payload) => ipcRenderer.invoke("lawmind:show-notification", payload ?? {}),
   onNotificationClick: (handler) => {
     const channel = "lawmind:notification-click";
@@ -60,6 +73,7 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
   releaseFileAccess: (rootKey) => ipcRenderer.invoke("lawmind:release-file-access", rootKey),
   fsList: (payload) => ipcRenderer.invoke("lawmind:fs:list", payload),
   fsRead: (payload) => ipcRenderer.invoke("lawmind:fs:read", payload),
+  fsStat: (payload) => ipcRenderer.invoke("lawmind:fs:stat", payload),
   fsWrite: (payload) => ipcRenderer.invoke("lawmind:fs:write", payload),
   fsMkdir: (payload) => ipcRenderer.invoke("lawmind:fs:mkdir", payload),
   fsRename: (payload) => ipcRenderer.invoke("lawmind:fs:rename", payload),
@@ -94,4 +108,18 @@ contextBridge.exposeInMainWorld("lawmindDesktop", {
     };
   },
   openAuxWindow: (payload) => ipcRenderer.invoke("lawmind:open-aux-window", payload ?? {}),
+  /** Close this window from the renderer; `window.close()` is not reliable in Electron. */
+  closeWindow: () => ipcRenderer.invoke("lawmind:close-window"),
+  /** Keys of aux windows still open — the main window uses this to reconcile panes. */
+  listAuxWindows: () => ipcRenderer.invoke("lawmind:list-aux-windows"),
+  onAuxWindowClosed: (handler) => {
+    const channel = "lawmind:aux-window-closed";
+    const listener = (_evt, payload) => {
+      handler(payload ?? {});
+    };
+    ipcRenderer.on(channel, listener);
+    return () => {
+      ipcRenderer.removeListener(channel, listener);
+    };
+  },
 });

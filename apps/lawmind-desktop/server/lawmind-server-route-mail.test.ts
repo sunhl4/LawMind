@@ -10,6 +10,7 @@ import { hydrateMatterParties } from "../../../src/lawmind/desk/matter-parties.j
 import { loadMatter } from "../../../src/lawmind/adapters/matter-storage/index.js";
 import { recordIntakeItem, getIntakeItem, putIntakeBlob, updateIntakeItem } from "../../../src/lawmind/intake/store.js";
 import { attachIntakeItem } from "../../../src/lawmind/intake/filing.js";
+import { upsertMailAccount } from "../../../src/lawmind/mail/mail-accounts.js";
 
 describe("lawmind-server-route-mail intake routes", () => {
   const dirs: string[] = [];
@@ -129,6 +130,36 @@ describe("lawmind-server-route-mail intake routes", () => {
     });
     expect(attached.status).toBe(200);
     expect(getIntakeItem(workspaceDir, item.id)?.status).toBe("attached");
+  });
+
+  it("fills empty matter fields from the attached email under provenance rules", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-intake-route-"));
+    dirs.push(workspaceDir);
+    createMatterIfMissing(workspaceDir, { matterId: "matter-a", title: "甲案" });
+    const item = recordIntakeItem(workspaceDir, {
+      channel: "email",
+      externalKey: "email:route:fields",
+      receivedAt: "2026-10-26T00:00:00.000Z",
+      from: { display: "张三", address: "zhang@client.test" },
+      text: "案号（2026）沪01民初1001号。被告：王五。",
+      attachments: [],
+    }).item;
+
+    const attached = response();
+    await handleMailRoutes({
+      ctx: context(workspaceDir),
+      req: request("POST", { itemId: item.id, matterId: "matter-a" }),
+      res: attached.res,
+      url: new URL("http://127.0.0.1/api/intake/items/attach"),
+      pathname: "/api/intake/items/attach",
+      c: {},
+    });
+
+    expect(attached.status).toBe(200);
+    expect(attached.json().provenance).toMatchObject({ ok: true });
+    const matter = loadMatter(workspaceDir, "matter-a");
+    expect(matter?.docket?.caseNo).toBe("（2026）沪01民初1001号");
+    expect(matter?.counterparty).toBe("王五");
   });
 
   it("remembers the sender through the attach route when the lawyer ticks it", async () => {
@@ -522,5 +553,64 @@ describe("lawmind-server-route-mail intake routes", () => {
     expect(report.source.labeled).toBe(1);
     expect(report.falseAttach).toBe(0);
     expect(report.recallAt1).toBe(1);
+  });
+
+  it("refuses the per-matter sync route for an intake inbox account", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-intake-sync-route-"));
+    dirs.push(workspaceDir);
+    createMatterIfMissing(workspaceDir, { matterId: "matter-a", title: "甲案" });
+    const account = upsertMailAccount(workspaceDir, path.join(workspaceDir, ".."), {
+      provider: "imap",
+      email: "intake@firm.test",
+      imapHost: "imap.firm.test",
+      intakeInbox: true,
+    });
+
+    const out = response();
+    await handleMailRoutes({
+      ctx: context(workspaceDir),
+      req: request("POST", { matterId: "matter-a" }),
+      res: out.res,
+      url: new URL(`http://127.0.0.1/api/mail/accounts/${account.id}/sync`),
+      pathname: `/api/mail/accounts/${account.id}/sync`,
+      c: {},
+    });
+
+    expect(out.status).toBe(200);
+    expect(out.json()).toMatchObject({ ok: false, error: "intake_inbox" });
+    expect(fs.existsSync(path.join(workspaceDir, "cases", "matter-a", "mail", "inbox"))).toBe(
+      false,
+    );
+  });
+
+  it("surfaces an intake sync failure in the top-level response", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-intake-sync-fail-"));
+    dirs.push(workspaceDir);
+    const account = upsertMailAccount(workspaceDir, path.join(workspaceDir, ".."), {
+      provider: "imap",
+      email: "intake@firm.test",
+      imapHost: "imap.firm.test",
+      intakeInbox: true,
+    });
+
+    const out = response();
+    await handleMailRoutes({
+      ctx: context(workspaceDir),
+      req: request("POST", { accountId: account.id }),
+      res: out.res,
+      url: new URL("http://127.0.0.1/api/intake/sync"),
+      pathname: "/api/intake/sync",
+      c: {},
+    });
+
+    expect(out.status).toBe(200);
+    expect(out.json()).toMatchObject({
+      ok: false,
+      error: "sync_failed",
+      accountId: account.id,
+    });
+    expect(String(out.json().hint)).toContain("missing_password");
+    const mail = (out.json().result as { mail?: Array<{ ok?: boolean }> }).mail;
+    expect(mail?.[0]?.ok).toBe(false);
   });
 });

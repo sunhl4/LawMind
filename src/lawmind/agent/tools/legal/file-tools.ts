@@ -2,7 +2,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { buildHostAccessRuntime } from "../../../host-access/access-broker.js";
-import { siblingDocxRelative } from "../../../mail/convert-to-docx.js";
 import { isBinaryWordDocPath, readBinaryWordDocText } from "../../../mail/read-word-binary.js";
 import type { IngestSourceType, IngestStage } from "../../../platform/contracts.js";
 import {
@@ -213,8 +212,7 @@ export const analyzeDocument: AgentTool = {
             ),
           );
         }
-        const docxRel = siblingDocxRelative(canonicalRel);
-        const hint = `已直接读取 \`${canonicalRel}\`（内部解析，未另存）。审查和修订仍按 \`${docxRel}\` 的基线路径继续。`;
+        const hint = `已直接读取 \`${canonicalRel}\`（进程内 OLE，未另存）。基线仍是这份 .doc；导出时再转成 .docx。`;
         return toAnalyzeSuccess("docx", content, st.size, "office_extract", {
           filePath: canonicalRel,
           hint,
@@ -227,7 +225,7 @@ export const analyzeDocument: AgentTool = {
           ingestFailure(
             "INGEST_PARSE_FAILED",
             "office_extract",
-            `未能把 .doc 另存为 .docx：${err instanceof Error ? err.message : String(err)}`,
+            `读取 .doc 正文失败：${err instanceof Error ? err.message : String(err)}`,
           ),
         );
       }

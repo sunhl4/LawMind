@@ -221,3 +221,22 @@ export function observeStrong(
 ): EvidenceFilterState {
   return observe(state, { ...observation, llr: strength });
 }
+
+/** 只推进时钟、不加读数：旧证据按轮衰减。 */
+export function decayFilter(
+  state: EvidenceFilterState,
+  round: number,
+  config: EvidenceFilterConfig = {},
+): EvidenceFilterState {
+  const steps = Math.max(0, round - state.lastRound);
+  const factor = decayFor(steps, config);
+  const logOdds: Record<string, number> = {};
+  for (const [id, value] of Object.entries(state.logOdds)) {
+    logOdds[id] = clamp(value * factor);
+  }
+  return {
+    ...state,
+    logOdds,
+    lastRound: Number.isFinite(round) ? Math.max(state.lastRound, round) : state.lastRound,
+  };
+}

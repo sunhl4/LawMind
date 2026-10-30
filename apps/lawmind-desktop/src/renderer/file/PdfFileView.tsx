@@ -14,6 +14,8 @@ import { errorMessage, fetchApi, fetchWithLoopbackAuthRetry } from "../api-clien
 import type { OpenFileTab } from "./file-workbench-types";
 import { fitViewerScale, PDF_TO_CSS_UNITS } from "./pdf-preview-scale";
 import { expandMountedPages, installPdfTextDragSelect } from "./pdf-text-drag-select";
+import { parseEvidenceLocator } from "../../../../../src/lawmind/drafts/evidence-locator.ts";
+import { useFileMtimeWatcher } from "./use-file-external-refresh";
 import { PreviewCommonActions, type PreviewHeaderActions } from "./preview-registry";
 
 /** Re-export for callers that historically imported from this module. */
@@ -23,6 +25,9 @@ export type PdfFileViewProps = {
   apiBase: string;
   tab: OpenFileTab;
   actions: PreviewHeaderActions;
+  locator?: string | null;
+  /** 只有当前标签需要轮询磁盘；后台保留的标签不查。 */
+  active?: boolean;
 };
 
 const MAX_PREVIEW_PAGES = 80;
@@ -138,7 +143,7 @@ function PdfPage(props: {
 }
 
 export function PdfFileView(props: PdfFileViewProps): ReactNode {
-  const { apiBase, tab, actions } = props;
+  const { apiBase, tab, actions, locator, active = true } = props;
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [pageCount, setPageCount] = useState(0);
   const [pageWidth, setPageWidth] = useState(0);
@@ -150,10 +155,21 @@ export function PdfFileView(props: PdfFileViewProps): ReactNode {
   const [mountedPages, setMountedPages] = useState<Set<number>>(() => new Set([1, 2, 3]));
   const scrollerRef = useRef<HTMLDivElement>(null);
   const eventBusRef = useRef<EventBus>(new EventBus());
+  /** 外部改盘重载时把滚动位置带回来，不让律师从第 1 页重新找。 */
+  const pendingScrollTopRef = useRef<number | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const requestKey = useMemo(
-    () => `${apiBase}|${tab.root}|${tab.path}|${tab.mtimeMs}`,
-    [apiBase, tab.root, tab.path, tab.mtimeMs],
+    () => `${apiBase}|${tab.root}|${tab.path}|${tab.mtimeMs}|${reloadToken}`,
+    [apiBase, tab.root, tab.path, tab.mtimeMs, reloadToken],
   );
+
+  useFileMtimeWatcher({
+    enabled: active && Boolean(apiBase.trim()),
+    root: tab.root,
+    path: tab.path,
+    mtimeMs: tab.mtimeMs,
+    onChanged: () => setReloadToken((n) => n + 1),
+  });
 
   const shown = Math.min(pageCount, MAX_PREVIEW_PAGES);
   const baseScale = fitViewerScale(containerWidth, pageWidth);
@@ -163,6 +179,18 @@ export function PdfFileView(props: PdfFileViewProps): ReactNode {
     pageHeight || 792,
     viewerScale,
   );
+
+  useEffect(() => {
+    const parsed = locator ? parseEvidenceLocator(locator) : null;
+    if (!parsed || parsed.kind !== "pdf_page") {
+      return;
+    }
+    requestAnimationFrame(() => {
+      scrollerRef.current
+        ?.querySelector<HTMLElement>(`[data-pdf-page="${parsed.pageNumber}"]`)
+        ?.scrollIntoView({ block: "center" });
+    });
+  }, [locator, pageCount]);
 
   useEffect(() => {
     const node = scrollerRef.current;
@@ -282,6 +310,9 @@ export function PdfFileView(props: PdfFileViewProps): ReactNode {
   useEffect(() => {
     let cancelled = false;
     let loaded: PDFDocumentProxy | null = null;
+    if (scrollerRef.current) {
+      pendingScrollTopRef.current = scrollerRef.current.scrollTop;
+    }
     setBusy(true);
     setLoadError(null);
     setPdf(null);
@@ -340,6 +371,21 @@ export function PdfFileView(props: PdfFileViewProps): ReactNode {
       void loaded?.destroy();
     };
   }, [requestKey, apiBase, tab.root, tab.path]);
+
+  useEffect(() => {
+    if (!pdf) {
+      return undefined;
+    }
+    const top = pendingScrollTopRef.current;
+    if (top == null) {
+      return undefined;
+    }
+    pendingScrollTopRef.current = null;
+    const raf = requestAnimationFrame(() => {
+      scrollerRef.current?.scrollTo({ top });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [pdf, pageCount]);
 
   return (
     <div className="lm-editor-pane lm-pdf-preview-pane" data-testid="lm-preview-pdf">

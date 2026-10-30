@@ -16,8 +16,11 @@ import {
   setupApplicationMenu,
   loadRendererIntoWindow,
   resolveLawmindDevServerUrl,
-  runAutoUpdateCheckWithNotify,
 } from "./app-menu.mjs";
+import {
+  getAppUpdateController,
+  scheduleStartupAppUpdateCheck,
+} from "./app-updates.mjs";
 import { registerIpcHandlers } from "./ipc-handlers.mjs";
 import {
   isAllowedMainWindowNavigationUrl,
@@ -246,10 +249,20 @@ void app.whenReady().then(async () => {
     setupApplicationMenu();
     installAppRendererProcessGoneHandler(() => createWindow());
     await createWindow();
-    if (process.env.LAWMIND_E2E !== "1" && process.env.LAWMIND_SKIP_AUTO_UPDATE !== "1") {
-      setTimeout(() => {
-        void runAutoUpdateCheckWithNotify();
-      }, 12_000);
+    if (
+      app.isPackaged &&
+      process.env.LAWMIND_E2E !== "1" &&
+      process.env.LAWMIND_SKIP_AUTO_UPDATE !== "1"
+    ) {
+      // Cursor 式：启动 12s 后静默检查（发现即自动下载），此后每 4 小时复查一次。
+      scheduleStartupAppUpdateCheck();
+      const updateController = getAppUpdateController();
+      setInterval(
+        () => {
+          void updateController.checkSilently();
+        },
+        4 * 60 * 60 * 1000,
+      );
     }
   } catch (err) {
     console.error("[LawMind] startup failed:", err);

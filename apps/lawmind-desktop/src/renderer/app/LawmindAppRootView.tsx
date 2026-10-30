@@ -5,6 +5,7 @@ import type { LawmindMainBodyContentProps } from "./LawmindMainBodyContent";
 import type { LawmindFileWorkbenchHostProps } from "./LawmindFileWorkbenchHost";
 import type { LawmindAppRootDialogsProps } from "./LawmindAppRootDialogs";
 import type { LawmindAppSettingsPanelProps } from "./LawmindAppSettingsPanel";
+import { useState } from "react";
 import { LawmindAppSidebar } from "./LawmindAppSidebar";
 import { LawmindAppHeader } from "./LawmindAppHeader";
 import { LawmindMainBodyContent } from "./LawmindMainBodyContent";
@@ -23,6 +24,10 @@ export type LawmindAppRootViewProps = {
   mainBodyProps: LawmindMainBodyContentProps;
   fileWorkbenchHostProps: LawmindFileWorkbenchHostProps | null;
   dialogProps: LawmindAppRootDialogsProps;
+  /** Set only in an aux pane window: a slim title bar replaces the full header. */
+  paneWindow?: { title: string } | null;
+  /** `false` = 这次收回没成功（主进程/窗口拒绝关闭），View 据此提示。 */
+  onClosePaneWindow?: () => void | boolean | Promise<void | boolean>;
 };
 
 export function LawmindAppRootView({
@@ -34,8 +39,12 @@ export function LawmindAppRootView({
   mainBodyProps,
   fileWorkbenchHostProps,
   dialogProps,
+  paneWindow = null,
+  onClosePaneWindow,
 }: LawmindAppRootViewProps) {
   const showSettings = settingsPanelProps.open;
+  const paneWindowMode = Boolean(paneWindow);
+  const [paneCloseFailed, setPaneCloseFailed] = useState(false);
   const providers = {
     navigation: {
       mainView,
@@ -50,7 +59,9 @@ export function LawmindAppRootView({
 
   return (
     <LawmindShellProviders navigation={providers.navigation} chatSession={providers.chatSession}>
-      <div className={`lm-shell${mainView === "review" ? " lm-shell-review" : ""}`}>
+      <div
+        className={`lm-shell${mainView === "review" ? " lm-shell-review" : ""}${paneWindowMode ? " lm-shell-pane-window" : ""}`}
+      >
         <a href="#main-content" className="lm-skip-nav">
           跳到主内容
         </a>
@@ -58,9 +69,55 @@ export function LawmindAppRootView({
         {showSettings ? null : <LawmindAppSidebar {...sidebarProps} />}
         <main
           id="main-content"
-          className={`lm-main${mainView === "review" ? " lm-main-review" : ""}${showSettings ? " lm-main-settings" : ""}`}
+          className={`lm-main${mainView === "review" ? " lm-main-review" : ""}${showSettings ? " lm-main-settings" : ""}${paneWindowMode ? " lm-main-pane-window" : ""}`}
         >
-          <LawmindAppHeader {...headerProps} />
+          {paneWindow ? (
+            <div className="lm-pane-window-bar" data-testid="lm-pane-window-bar">
+              <span className="lm-pane-window-title">{paneWindow.title}</span>
+              <span className="lm-pane-window-hint">独立窗口</span>
+              <span className="lm-header-spacer" aria-hidden />
+              {paneCloseFailed ? (
+                <span className="lm-pane-window-close-error" role="status">
+                  没收回去，请直接关闭这个窗口
+                </span>
+              ) : null}
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-sm"
+                title="关闭独立窗口，回到主窗口"
+                onClick={() => {
+                  setPaneCloseFailed(false);
+                  const finish = (closed: void | boolean) => {
+                    if (closed === false) {
+                      setPaneCloseFailed(true);
+                    }
+                  };
+                  if (!onClosePaneWindow) {
+                    window.close();
+                    return;
+                  }
+                  let result: void | boolean | Promise<void | boolean>;
+                  try {
+                    result = onClosePaneWindow();
+                  } catch {
+                    setPaneCloseFailed(true);
+                    return;
+                  }
+                  if (result && typeof (result as Promise<void | boolean>).then === "function") {
+                    (result as Promise<void | boolean>).then(finish).catch(() => {
+                      setPaneCloseFailed(true);
+                    });
+                    return;
+                  }
+                  finish(result as void | boolean);
+                }}
+              >
+                收回主窗口
+              </button>
+            </div>
+          ) : (
+            <LawmindAppHeader {...headerProps} />
+          )}
           <div className="lm-main-body">
             {showSettings ? (
               <LawmindAppSettingsPanel {...settingsPanelProps} />

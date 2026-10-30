@@ -13,7 +13,12 @@
  * 返回动作只给 turn-loop 策略消费；本模块不写历史、不调用模型。
  */
 
-import { advanceRepair, projectReading, type FactorState } from "./factor-state.js";
+import {
+  advanceRepair,
+  proposalSupported,
+  projectReading,
+  type FactorState,
+} from "./factor-state.js";
 import {
   buildFaultCandidates,
   decodeSyndrome,
@@ -37,6 +42,9 @@ function collectAmountConflicts(state: FactorState, prose: string): AmountConfli
   const proposals = new Map<string, string[]>();
   for (const factor of state.factors) {
     if (factor.kind !== "amount" || factor.flag !== "conflict") {
+      continue;
+    }
+    if (factor.proposalId && !proposalSupported(factor, state.turnEpoch)) {
       continue;
     }
     const proposal = factor.proposalId?.trim();

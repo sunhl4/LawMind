@@ -93,6 +93,8 @@ describe("formatDeliveryConstraintPromptBlock", () => {
     );
     expect(block).toContain(DELIVERY_MARKER_OPINION_MEMO);
     expect(block).toContain("render_document");
+    expect(block).toContain("Word 工作稿");
+    expect(block).not.toContain("凡是意见都得另存");
     // 律师说了「放到桌面」，但落点一律在工作区：提示必须交代清楚，
     // 否则模型会去试桌面 output_path，被引擎拒掉白跑一轮。
     expect(block).toContain("会话工作区");

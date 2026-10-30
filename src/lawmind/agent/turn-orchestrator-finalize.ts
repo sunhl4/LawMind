@@ -9,7 +9,10 @@ import { maybeAutoAppendSessionSummary } from "../memory/session-summary.js";
 import { recordModelUsage, type ModelUsageSnapshot } from "../models/model-usage.js";
 import { describeApprovalTargetState } from "../platform/approval-target-state.js";
 import { emitPlatformGateSnapshot } from "../platform/audit-gate.js";
-import { syncDispatchLedgerForTurn } from "../platform/automation-dispatch-ledger.js";
+import {
+  dispatchSucceededForTurnStatus,
+  syncDispatchLedgerForTurn,
+} from "../platform/automation-dispatch-ledger.js";
 import { executionStateFromTurn } from "../platform/execution-state.js";
 import { detectGateStop } from "../platform/gate-stop.js";
 import { buildJudgmentEscalationForTask } from "../platform/judgment-escalation.js";
@@ -26,7 +29,7 @@ import type { ClarificationQuestion } from "../types.js";
 import { markWorkNeedsLawyer } from "../work/store.js";
 import { appendDeliverableFileLinks } from "./deliverable-chat-links.js";
 import { decisionDistance } from "./evidence-provenance.js";
-import { projectReading } from "./factor-state.js";
+import { projectReading, staleProposalAnchors } from "./factor-state.js";
 import { scrubLawyerFacingAssistantText } from "./lawyer-chat-projection.js";
 import { collectRetrievedAnchors } from "./lawyer-close-anchors.js";
 import { constrainLawyerVisibleReply, lawyerVisibleGaps } from "./lawyer-close.js";
@@ -205,6 +208,7 @@ function recordFactorTurnSummary(
   if (!state || state.factors.length === 0) {
     return;
   }
+  const stale = new Set(staleProposalAnchors(state));
   const readings = state.factors.map((factor) => projectReading(factor.outcomes));
   const distances = state.factors.map((factor) => decisionDistance(factor.outcomes).distance);
   recordFactorObservation(
@@ -220,7 +224,10 @@ function recordFactorTurnSummary(
         factors: state.factors.length,
         definite: readings.filter((row) => row.kind === "definite").length,
         mixed: readings.filter((row) => row.kind === "mixed").length,
-        redLights: state.factors.filter((factor) => factor.flag !== "ok").length,
+        redLights: state.factors.filter(
+          (factor) => factor.flag !== "ok" && !stale.has(factor.anchor),
+        ).length,
+        staleProposals: stale.size,
         distances,
       },
     },
@@ -434,6 +441,7 @@ export function finalizeAgentTurn(opts: {
     matterId: session.matterId,
     instruction: turn.instruction,
     gateStop: gateStop.stopped,
+    succeeded: dispatchSucceededForTurnStatus(turn.status),
     ...(gateStop.reason ? { reason: gateStop.reason } : {}),
   });
 

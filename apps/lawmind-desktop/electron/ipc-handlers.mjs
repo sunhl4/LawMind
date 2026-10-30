@@ -23,7 +23,20 @@ import {
   safeOpenWithWps,
   safeShowItemInFolder,
 } from "./safe-shell-command.mjs";
-import { checkUpdatesWithUi, loadRendererIntoWindow, resolveLawmindDownloadPageUrl } from "./app-menu.mjs";
+import {
+  checkUpdatesWithUi,
+  loadRendererIntoWindow,
+  resolveLawmindDevServerUrl,
+  resolveLawmindDownloadPageUrl,
+} from "./app-menu.mjs";
+import {
+  runAppUpdateActionFromClick,
+  getAppUpdateUiState,
+} from "./app-updates.mjs";
+import {
+  isAllowedMainWindowNavigationUrl,
+  resolveAuxWindowRequest,
+} from "./app-windows.mjs";
 import {
   KEYCHAIN_ACCOUNTS,
   keyVault,
@@ -136,6 +149,22 @@ export function registerIpcHandlers(deps) {
   ipcMain.handle("lawmind:check-updates", async () => {
     await checkUpdatesWithUi();
     return { ok: true };
+  });
+
+  /** 渲染层初始拉取更新状态（左下角「更新」药丸）。 */
+  ipcMain.handle("lawmind:get-app-update-state", () => getAppUpdateUiState());
+
+  /** 药丸点击：按状态决定 检查/下载/进度提示/重启安装。 */
+  ipcMain.handle("lawmind:app-update-action", async () => {
+    try {
+      return await runAppUpdateActionFromClick();
+    } catch (e) {
+      console.warn(
+        "[LawMind] app update action:",
+        e instanceof Error ? e.message : e,
+      );
+      return { ok: false, action: "none", error: e instanceof Error ? e.message : String(e) };
+    }
   });
 
   ipcMain.handle("lawmind:show-notification", (_evt, payload) => {
@@ -1049,6 +1078,31 @@ export function registerIpcHandlers(deps) {
     }
   });
 
+  /**
+   * 只要 mtime / size 的轻量读：中栏标签靠它判断「磁盘上被对话改过没有」，
+   * 不必每轮都把正文整份搬过 IPC。
+   */
+  ipcMain.handle("lawmind:fs:stat", (_evt, payload) => {
+    try {
+      const root = payload?.root;
+      const relPath = payload?.path ?? "";
+      const { absPath } = resolveFsPath(root, relPath, {
+        access: "read",
+        mustExist: true,
+        allowRoot: false,
+      });
+      const stat = fs.statSync(absPath);
+      return {
+        ok: true,
+        kind: stat.isDirectory() ? "directory" : "file",
+        mtimeMs: stat.mtimeMs,
+        size: stat.size,
+      };
+    } catch (e) {
+      return fsErrorResult(e);
+    }
+  });
+
   ipcMain.handle("lawmind:fs:write", (_evt, payload) => {
     try {
       const root = payload?.root;
@@ -1404,30 +1458,74 @@ export function registerIpcHandlers(deps) {
     }
   });
 
-  /** Cursor-like aux window (e.g. review delivery preview undocked). */
+  /**
+   * Close the aux window from its own renderer (`window.close()` is not reliable in Electron).
+   *
+   * 收回主窗口 = 关掉独立窗并把焦点交回主窗口。只 `close()` 的话，独立窗消失后
+   * 前台可能停在别的应用/桌面上，看起来就像按钮没反应。
+   */
+  ipcMain.handle("lawmind:close-window", (evt) => {
+    const win = BrowserWindow.fromWebContents(evt.sender);
+    if (!win || win.isDestroyed()) {
+      return { ok: false, error: "no_window" };
+    }
+    const main = getMainWindowRef();
+    win.close();
+    if (main && main !== win && !main.isDestroyed()) {
+      if (main.isMinimized()) {
+        main.restore();
+      }
+      main.show();
+      main.focus();
+    }
+    return { ok: true };
+  });
+
+  /**
+   * 当前还开着的辅助窗 key。
+   *
+   * 主窗口用它校准「已拆出」：渲染层热更新/重载后本地状态会丢，若只信
+   * `lawmind:aux-window-closed` 事件，主窗口就会永远少一块面板。
+   */
+  ipcMain.handle("lawmind:list-aux-windows", () => {
+    const keys = [];
+    for (const [key, win] of auxWindows) {
+      if (win && !win.isDestroyed()) {
+        keys.push(key);
+      }
+    }
+    return { ok: true, keys };
+  });
+
+  /** Cursor-like aux window: docked pane (chat / middle) or delivery preview undocked. */
   ipcMain.handle("lawmind:open-aux-window", async (_evt, payload) => {
     try {
-      const kind = typeof payload?.kind === "string" ? payload.kind.trim() : "";
-      const taskId = typeof payload?.taskId === "string" ? payload.taskId.trim() : "";
-      const title =
-        typeof payload?.title === "string" && payload.title.trim()
-          ? payload.title.trim()
-          : "交付预览";
-      if (kind !== "review-preview" || !taskId) {
-        return { ok: false, error: "invalid_aux_window" };
+      const spec = resolveAuxWindowRequest(payload);
+      if (!spec.ok) {
+        return spec;
       }
       await ensureBackend();
-      const key = `${kind}:${taskId}`;
-      const existing = auxWindows.get(key);
+      const existing = auxWindows.get(spec.key);
       if (existing && !existing.isDestroyed()) {
+        // 再次点「拆出」时要能找回被最小化 / 藏到别的 Space 的窗口。
+        if (existing.isMinimized()) {
+          existing.restore();
+        }
+        existing.show();
         existing.focus();
-        return { ok: true, focused: true };
+        return { ok: true, focused: true, key: spec.key };
       }
 
       const point = screen.getCursorScreenPoint();
       const display = screen.getDisplayNearestPoint(point);
-      const width = 720;
-      const height = Math.min(900, Math.max(560, display.workAreaSize.height - 80));
+      const width = Math.min(
+        spec.width,
+        Math.max(spec.minWidth, display.workAreaSize.width - 40),
+      );
+      const height = Math.min(
+        spec.height,
+        Math.max(spec.minHeight, display.workAreaSize.height - 80),
+      );
       const x = Math.min(
         Math.max(display.workArea.x, point.x - 48),
         display.workArea.x + display.workArea.width - width,
@@ -1442,7 +1540,9 @@ export function registerIpcHandlers(deps) {
         height,
         x,
         y,
-        title: `${title} — ${LAWMIND_PRODUCT_NAME}`,
+        minWidth: spec.minWidth,
+        minHeight: spec.minHeight,
+        title: `${spec.title} — ${LAWMIND_PRODUCT_NAME}`,
         icon: appIconPath,
         autoHideMenuBar: true,
         webPreferences: {
@@ -1452,10 +1552,29 @@ export function registerIpcHandlers(deps) {
           sandbox: app.isPackaged,
         },
       });
-      auxWindows.set(key, win);
+      auxWindows.set(spec.key, win);
       win.on("closed", () => {
-        if (auxWindows.get(key) === win) {
-          auxWindows.delete(key);
+        if (auxWindows.get(spec.key) === win) {
+          auxWindows.delete(spec.key);
+        }
+        const main = getMainWindowRef();
+        if (main && !main.isDestroyed()) {
+          main.webContents.send("lawmind:aux-window-closed", {
+            key: spec.key,
+            kind: spec.kind,
+            pane: spec.pane,
+          });
+        }
+      });
+      win.webContents.on("will-navigate", (event, url) => {
+        // Aux window 也带 preload（回环 token + fs 桥）；只允许同一个渲染源。
+        if (
+          !isAllowedMainWindowNavigationUrl(url, {
+            devServerUrl: resolveLawmindDevServerUrl(),
+            distIndexPath: path.join(electronDir, "..", "dist", "index.html"),
+          })
+        ) {
+          event.preventDefault();
         }
       });
       win.webContents.setWindowOpenHandler(({ url }) => {
@@ -1470,9 +1589,8 @@ export function registerIpcHandlers(deps) {
         return { action: "deny" };
       });
 
-      const hash = `lm-popout=review-preview&taskId=${encodeURIComponent(taskId)}`;
-      await loadRendererIntoWindow(win, hash);
-      return { ok: true };
+      await loadRendererIntoWindow(win, spec.hash);
+      return { ok: true, key: spec.key };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }

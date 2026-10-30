@@ -907,10 +907,14 @@ describe("turn-orchestrator cassettes (admission)", () => {
       async (h) => {
         // 端到端口径：高风险空跑（律师函无档案无材料）不暂停、不追问——
         // 第一轮请求体必须带「按合理假设起草 + 文中标【待核实】」的 Soft Ask 块。
-        h.enqueue(cassetteAssistant("已按假设起草律师函，文中标了两处【待核实】。"));
+        h.enqueue(
+          cassetteAssistant("已按假设起草律师函，文中标了两处【待核实】。"),
+          cassetteAssistant("律师函已写入 Word。"),
+        );
         const first = await h.runTurn("请写一份律师函催款");
         expect(first.turn.status).toBe("completed");
-        expect(h.requests).toHaveLength(1);
+        expect(h.requests).toHaveLength(2);
+        expect(h.request(1).contains("【交件】")).toBe(true);
         expect(first.turn.gateDecisions?.some((g) => g.gate === "intake_gate")).toBe(false);
         expect(h.request(0).contains("待核实")).toBe(true);
         expect(h.request(0).contains("不要停下等律师回答")).toBe(true);
@@ -935,6 +939,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
         h.enqueue(
           cassetteToolCall("draft_document", { title: "备忘" }),
           cassetteAssistant("已起草，当事人标【待核实】。"),
+          cassetteAssistant("备忘已写入 Word。"),
         );
         const result = await h.runTurn("继续不澄清。请起草备忘。", {
           sessionId: seeded.sessionId,
@@ -1190,6 +1195,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
           cassetteToolCall("search_statute", { q: "竞业限制" }),
           cassetteAssistant(DEFERRAL_REPLY),
           cassetteAssistant("已按检索结果写完解除条款与三方义务分配，交付见在办。"),
+          cassetteAssistant("已按检索结果写完，并写入 Word。"),
         );
         const bounces: Array<{ bounceCount: number; roundIndex: number }> = [];
         const result = await h.runTurn("起草竞业限制解除条款与三方义务分配。", {
@@ -1205,8 +1211,8 @@ describe("turn-orchestrator cassettes (admission)", () => {
         expect(result.reply).toContain("已按检索结果写完");
         expect(result.reply).not.toContain("另开一轮");
         expect(bounces).toEqual([{ bounceCount: 1, roundIndex: 2 }]);
-        // 反弹消息进下一轮采样（模型看得见），律师气泡看不见。
-        expect(h.requests.length).toBe(3);
+        // 反弹消息进下一轮采样（模型看得见），律师气泡看不见。交件补救再要一次落盘。
+        expect(h.requests.length).toBe(4);
         expect(h.request(2).contains(CONTEXT_DEFERRAL_BOUNCE_MARKER)).toBe(true);
         const visible = (h.session()?.conversationHistory ?? []).filter(
           (m) => m.hiddenFromLawyer !== true && m.role !== "system",
@@ -3078,6 +3084,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
           }),
           cassetteToolCall("draft_document", { title: "审查备忘" }),
           cassetteAssistant("已对照文件夹材料起草审查备忘。"),
+          cassetteAssistant("审查备忘已写入 Word。"),
         );
         const result = await h.runTurn(instruction);
         expect(result.turn.status).toBe("completed");
@@ -3122,12 +3129,13 @@ describe("turn-orchestrator cassettes (admission)", () => {
           cassetteToolCall("search_statute", { query: "违约" }),
           cassetteToolCall("search_statute", { query: "付款" }),
           cassetteAssistant("审查意见：注意付款与违约条款。"),
+          cassetteAssistant("审查意见已写入 Word。"),
         );
         const result = await h.runTurn(CONTRACT_DISPATCH);
         expect(result.turn.status).toBe("completed");
         expect(result.reply).toContain("审查意见");
         expect(result.turn.requiresAction ?? []).toEqual([]);
-        expect(h.requests.length).toBe(3);
+        expect(h.requests.length).toBe(4);
       },
     );
   });
@@ -4429,7 +4437,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
     await withTestLawMind(
       (b) => b,
       async (h) => {
-        h.enqueue(cassetteAssistant("起诉状如下。"));
+        h.enqueue(cassetteAssistant("起诉状如下。"), cassetteAssistant("起诉状已写入 Word。"));
         const result = await h.runTurn("请写一份起诉状");
         expect(result.turn.status).toBe("completed");
         expect(h.request(0).contains("未从已验证骨架变形")).toBe(true);
@@ -5244,6 +5252,7 @@ describe("turn-orchestrator cassettes (admission)", () => {
         ingestToolResult(session.factorState, "calculate", {
           op: "economic_compensation",
           value: 88000,
+          formula: "n*wage",
         });
         applyProseSyndrome(session.factorState, "经济补偿为 99999 元。");
         saveSession(h.workspaceDir, session);
@@ -5274,6 +5283,212 @@ describe("turn-orchestrator cassettes (admission)", () => {
             .messages()
             .some((message) => (message.content ?? "").includes("factor-ledger")),
         ).toBe(false);
+      },
+    );
+  });
+
+  it("records only persistent syndromes and keeps transient bits in the payload", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("list_dir", async () => ({
+          ok: true,
+          data: { entries: [] },
+        })),
+      async (h) => {
+        const session = h.seedHistory([{ role: "user", content: "上一轮", timestamp: ts() }]);
+        session.factorState = emptyFactorState();
+        ingestToolResult(session.factorState, "calculate", {
+          op: "economic_compensation",
+          value: 88000,
+        });
+        const seededAmount = session.factorState.factors.find(
+          (factor) => factor.anchor === "amount:economic_compensation",
+        );
+        if (seededAmount) {
+          seededAmount.flag = "conflict";
+        }
+        saveSession(h.workspaceDir, session);
+        h.enqueue(
+          cassetteToolCall("list_dir", { path: "." }),
+          cassetteToolCall("list_dir", { path: "." }),
+          cassetteAssistant("已查看材料，按账本 88000 元核。"),
+        );
+        const result = await h.runTurn("核对经济补偿并说明依据。");
+        expect(result.turn.status).toBe("completed");
+        const sessionId = h.session()?.sessionId ?? "";
+        const ledgerFile = path.join(
+          h.workspaceDir,
+          "sessions",
+          `${sessionId}.factor-ledger.jsonl`,
+        );
+        const rows = fs
+          .readFileSync(ledgerFile, "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as { kind: string; payload: Record<string, unknown> });
+        const syndromes = rows.filter((row) => row.kind === "syndrome");
+        expect(syndromes).toHaveLength(1);
+        expect(syndromes[0]?.payload.bits).toEqual([
+          expect.objectContaining({
+            stabilizer: "S2",
+            anchor: "amount:economic_compensation",
+          }),
+        ]);
+        expect(Array.isArray(syndromes[0]?.payload.transient)).toBe(true);
+        expect(typeof syndromes[0]?.payload.round).toBe("number");
+      },
+    );
+  });
+
+  it("runs one active witness probe after a clean reply without changing it", async () => {
+    const previous = process.env.LAWMIND_FACTOR_WITNESS;
+    process.env.LAWMIND_FACTOR_WITNESS = "1";
+    try {
+      await withTestLawMind(
+        (b) => b,
+        async (h) => {
+          const session = h.seedHistory([{ role: "user", content: "上一轮", timestamp: ts() }]);
+          session.factorState = emptyFactorState();
+          ingestToolResult(session.factorState, "calculate", {
+            op: "economic_compensation",
+            value: 88000,
+          });
+          saveSession(h.workspaceDir, session);
+          h.enqueue(cassetteAssistant("经济补偿按账本核定。"), cassetteAssistant("88,000 元"));
+          const result = await h.runTurn("说明经济补偿的核定口径。");
+          expect(result.turn.status).toBe("completed");
+          expect(result.reply).toContain("经济补偿按账本核定。");
+          // 主回合一次 + 主动抽查一次；抽查不带工具。
+          expect(h.requests).toHaveLength(2);
+          const probe = h.request(1);
+          expect(
+            probe.messages().some((message) => (message.content ?? "").includes("【抽查】")),
+          ).toBe(true);
+          expect(
+            probe.messages().some((message) => (message.content ?? "").includes("【引擎核定】")),
+          ).toBe(true);
+          expect(probe.advertisedToolNames()).toEqual([]);
+
+          const sessionId = h.session()?.sessionId ?? "";
+          const ledgerFile = path.join(
+            h.workspaceDir,
+            "sessions",
+            `${sessionId}.factor-ledger.jsonl`,
+          );
+          const rows = fs
+            .readFileSync(ledgerFile, "utf8")
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => JSON.parse(line) as { kind: string; payload: Record<string, unknown> });
+          const witness = rows.find((row) => row.kind === "witness");
+          expect(witness?.payload).toEqual(
+            expect.objectContaining({
+              source: "active",
+              probes: 1,
+              verdict: "pass",
+              channel: "witness:value",
+            }),
+          );
+          const amount = result.turn.factorState?.factors.find(
+            (factor) => factor.anchor === "amount:economic_compensation",
+          );
+          expect(Object.values(amount?.witnessFilter?.channels ?? {}).flat()).toEqual([
+            "witness:value",
+          ]);
+        },
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.LAWMIND_FACTOR_WITNESS;
+      } else {
+        process.env.LAWMIND_FACTOR_WITNESS = previous;
+      }
+    }
+  });
+
+  it("does not write a one-round syndrome blip to the ledger", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("list_dir", async () => ({
+          ok: true,
+          data: { entries: [] },
+        })),
+      async (h) => {
+        const session = h.seedHistory([{ role: "user", content: "上一轮", timestamp: ts() }]);
+        session.factorState = emptyFactorState();
+        ingestToolResult(session.factorState, "calculate", {
+          op: "economic_compensation",
+          value: 88000,
+        });
+        const seededAmount = session.factorState.factors.find(
+          (factor) => factor.anchor === "amount:economic_compensation",
+        );
+        if (seededAmount) {
+          seededAmount.flag = "conflict";
+        }
+        saveSession(h.workspaceDir, session);
+        h.enqueue(cassetteToolCall("list_dir", { path: "." }), cassetteAssistant("已查看材料。"));
+        const result = await h.runTurn("核对经济补偿并说明依据。");
+        expect(result.turn.status).toBe("completed");
+        const sessionId = h.session()?.sessionId ?? "";
+        const ledgerFile = path.join(
+          h.workspaceDir,
+          "sessions",
+          `${sessionId}.factor-ledger.jsonl`,
+        );
+        const rows = fs
+          .readFileSync(ledgerFile, "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as { kind: string; payload: Record<string, unknown> });
+        expect(rows.some((row) => row.kind === "syndrome")).toBe(false);
+        const summary = rows.find((row) => row.kind === "summary");
+        expect(summary).toBeDefined();
+        expect(Number(summary?.payload.redLights ?? 0)).toBeGreaterThan(0);
+      },
+    );
+  });
+
+  it("stops a one-channel model proposal from leaking into the next turn's readings", async () => {
+    await withTestLawMind(
+      (b) =>
+        b.withToolExecute("calculate", async () => ({
+          ok: true,
+          data: { op: "economic_compensation", value: 88000, formula: "n*wage", inputs: {} },
+        })),
+      async (h) => {
+        const session = h.seedHistory([{ role: "user", content: "上一轮", timestamp: ts() }]);
+        session.factorState = emptyFactorState();
+        saveSession(h.workspaceDir, session);
+        h.enqueue(
+          cassetteToolCall("calculate", { op: "economic_compensation", inputs: { years: 2 } }),
+          cassetteAssistant("经济补偿为 99999 元。"),
+        );
+        const first = await h.runTurn("请写经济补偿的意见，按计算器核。");
+        expect(first.turn.status).toBe("completed");
+        h.enqueue(cassetteAssistant("继续处理。"));
+        const second = await h.runTurn("继续。");
+        expect(second.turn.status).toBe("completed");
+        const last = h.request(h.requests.length - 1);
+        const engine = last
+          .messages()
+          .find((message) => (message.content ?? "").includes("【引擎核定】"));
+        expect(engine?.content ?? "").not.toContain("99999");
+        expect(engine?.content ?? "").not.toContain("稿里写成了");
+        expect(engine?.content ?? "").not.toContain("【待核实】");
+        const sessionId = h.session()?.sessionId ?? "";
+        const ledgerFile = path.join(
+          h.workspaceDir,
+          "sessions",
+          `${sessionId}.factor-ledger.jsonl`,
+        );
+        const rows = fs
+          .readFileSync(ledgerFile, "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as { kind: string; payload: Record<string, unknown> });
+        const summaries = rows.filter((row) => row.kind === "summary");
+        expect(Number(summaries.at(-1)?.payload.staleProposals ?? 0)).toBe(1);
       },
     );
   });

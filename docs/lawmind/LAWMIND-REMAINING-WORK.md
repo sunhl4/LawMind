@@ -220,7 +220,7 @@
 ### D5. 专题评审里的未排期建议
 
 - [ ] 更细粒度模板体系（含模板版本与历史产物一致性）。
-- [ ] 量子控制面：witness 弱读数进证据滤波；误报密度、hedging 率、同源重复率指标。
+- [ ] 量子控制面指标：误报密度、hedging 率、同源重复率（witness 弱读数进证据滤波已完成：被动 `witnessAnswers` + 主动抽查 `LAWMIND_FACTOR_WITNESS=1`，默认关闭）。
 - [ ] MeWork 补证：PDF/Excel 专用核对器、精确页/单元格定位、思维导图节点编辑。
 - [ ] Grok F6：失败/长时间阻塞/需人工接管/daemon 掉线四类通知。
 - [ ] 决策层：`item_outcome` 合并进 `decision-samples.jsonl`。

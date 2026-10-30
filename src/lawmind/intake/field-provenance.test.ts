@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadMatter } from "../adapters/matter-storage/index.js";
+import { listDeadlinesForMatter } from "../application/services/deadline-service.js";
 import {
   createMatterIfMissing,
   updateMatterProfile,
@@ -63,25 +64,33 @@ describe("field provenance", () => {
       "上海市浦东新区人民法院\n（2026）沪01民初1001号\n被告：李四\n请依法处理。",
     );
     const extracted = extractIntakeMatterFields(item);
-    expect(extracted.map((row) => row.field)).toEqual(["docket.caseNo", "counterparty"]);
+    expect(extracted.map((row) => row.field)).toEqual([
+      "docket.caseNo",
+      "docket.court",
+      "counterparty",
+    ]);
     expect(extracted[0]).toMatchObject({
       value: "（2026）沪01民初1001号",
       confidence: 0.9,
     });
-    expect(extracted[1]).toMatchObject({ value: "李四", confidence: 0.5 });
+    expect(extracted.find((row) => row.field === "counterparty")).toMatchObject({
+      value: "李四",
+      confidence: 0.5,
+    });
 
     const result = await applyIntakeFieldsFromItem(dir, "matter-a", item.id);
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
-    expect(result.applied).toEqual(["docket.caseNo", "counterparty"]);
+    expect(result.applied).toEqual(["docket.caseNo", "docket.court", "counterparty"]);
     expect(result.conflicts).toEqual([]);
     expect(loadMatter(dir, "matter-a")?.docket?.caseNo).toBe("（2026）沪01民初1001号");
+    expect(loadMatter(dir, "matter-a")?.docket?.court).toBe("上海市浦东新区人民法院");
     expect(loadMatter(dir, "matter-a")?.counterparty).toBe("李四");
 
     const file = loadFieldProvenance(dir, "matter-a");
-    expect(file?.entries).toHaveLength(2);
+    expect(file?.entries).toHaveLength(3);
     for (const entry of file?.entries ?? []) {
       expect(entry.itemId).toBe(item.id);
       expect(entry.quote.length).toBeGreaterThan(0);
@@ -190,5 +199,50 @@ describe("field provenance", () => {
       conflicts: [],
       coverage: { missing: [], tracked: 0 },
     });
+  });
+
+  it("writes court, cause, and a dated hearing, and leaves review cards", async () => {
+    const dir = workspace();
+    seedMatter(dir);
+    const item = seedItem(
+      dir,
+      "summons",
+      "北京市朝阳区人民法院传票：请于2026年9月15日9时到第三法庭开庭。案由：买卖合同纠纷。",
+    );
+    const result = await applyIntakeFieldsFromItem(dir, "matter-a", item.id);
+    expect(result.ok).toBe(true);
+    const matter = loadMatter(dir, "matter-a");
+    expect(matter?.docket?.court).toBe("北京市朝阳区人民法院");
+    expect(matter?.causeOfAction).toBe("买卖合同纠纷");
+    expect(matter?.docket?.hearingAt).toBeTruthy();
+    const deadlines = listDeadlinesForMatter(dir, "matter-a");
+    expect(deadlines.map((row) => row.title)).toEqual(["开庭"]);
+    expect(deadlines[0]?.source).toBe("document_extract");
+
+    await applyIntakeFieldsFromItem(dir, "matter-a", item.id);
+    expect(listDeadlinesForMatter(dir, "matter-a")).toHaveLength(1);
+
+    const titles = listQueueItemsForMatter(dir, "matter-a", { status: "open" }).map(
+      (row) => row.title,
+    );
+    expect(titles).toEqual(expect.arrayContaining(["核对法院", "核对案由", "核对已登记的期限"]));
+  });
+
+  it("reads a case number that only appears in an attachment name", () => {
+    const dir = workspace();
+    const item = recordIntakeItem(dir, {
+      channel: "email",
+      externalKey: "email:provenance:filename",
+      receivedAt: "2026-10-27T01:00:00.000Z",
+      subject: "请查收",
+      text: "见附件。",
+      attachments: [{ name: "（2026）沪01民初1001号.pdf", size: 12 }],
+    }).item;
+    expect(extractIntakeMatterFields(item)).toEqual([
+      expect.objectContaining({
+        field: "docket.caseNo",
+        value: "（2026）沪01民初1001号",
+      }),
+    ]);
   });
 });

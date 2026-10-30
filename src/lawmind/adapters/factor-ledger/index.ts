@@ -19,8 +19,8 @@ export type FactorLedgerRetentionOptions = {
   maxBytes?: number;
   /** Remove valid records older than this age; default disabled. */
   maxAgeMs?: number;
-  /** Lock acquisition timeout; primarily for tests/operations. */
-  lockTimeoutMs?: number;
+  /** Append lock timeout; defaults to the storage lock default. */
+  appendLockTimeoutMs?: number;
   /** Test clock / operational replay clock. */
   nowMs?: number;
 };
@@ -67,8 +67,11 @@ export function appendFactorLedgerRecord(
     v: FACTOR_LEDGER_VERSION,
   });
   const filePath = factorLedgerPath(workspaceDir, parsed);
-  // Append remains atomic at the line level. Cleanup takes the same lock.
-  appendJsonl(filePath, FactorLedgerRecordSchema, parsed);
+  // Append and cleanup share the same exclusive lock so cleanup never drops a
+  // line that was appended concurrently.
+  withExclusiveFileLock(factorLedgerLockPath(filePath), () => {
+    appendJsonl(filePath, FactorLedgerRecordSchema, parsed);
+  });
   return parsed;
 }
 
@@ -131,7 +134,7 @@ export function cleanupFactorLedger(
         reason,
       };
     },
-    { timeoutMs: options.lockTimeoutMs },
+    { timeoutMs: options.appendLockTimeoutMs },
   );
 }
 

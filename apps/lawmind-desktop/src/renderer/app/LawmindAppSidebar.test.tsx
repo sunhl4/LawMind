@@ -3,8 +3,9 @@
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LawmindAppSidebar, type LawmindAppSidebarProps } from "./LawmindAppSidebar";
+import type { LawmindAppUpdateState } from "../lawmind-app-update";
 
 function baseProps(overrides: Partial<LawmindAppSidebarProps> = {}): LawmindAppSidebarProps {
   return {
@@ -289,5 +290,99 @@ describe("LawmindAppSidebar", () => {
     expect(host.querySelector('[data-testid="lm-side-chat-sessions"]')).not.toBeNull();
     expect(host.textContent).toContain("对话");
     expect(host.textContent).toContain("合同审查");
+  });
+});
+
+describe("LawmindAppSidebar 底部账号行（Cursor 式更新入口）", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
+  });
+
+  function downloadedState(): LawmindAppUpdateState {
+    return {
+      status: "downloaded",
+      version: "0.4.3",
+      percent: null,
+      error: null,
+      updatedAt: 42,
+    };
+  }
+
+  it("账号行渲染：头像 + LawMind + 齿轮在底行；顶部品牌行不再有齿轮", async () => {
+    await act(async () => {
+      root.render(<LawmindAppSidebar {...baseProps()} />);
+    });
+    expect(host.querySelector(".lm-side-account-footer")).not.toBeNull();
+    expect(host.querySelector(".lm-side-account-name")?.textContent).toBe("LawMind");
+    expect(host.querySelector(".lm-side-account-footer .lm-gear-btn")).not.toBeNull();
+    expect(host.querySelector(".lm-brand .lm-gear-btn")).toBeNull();
+  });
+
+  it("静默态（idle）不显示「更新」药丸", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppSidebar
+          {...baseProps({ updateStateTest: { status: "idle", version: null, percent: null, error: null, updatedAt: 1 } })}
+        />,
+      );
+    });
+    expect(host.querySelector('[data-testid="lm-side-update-pill"]')).toBeNull();
+  });
+
+  it("就绪态：金色「更新」药丸可点击并触发主进程动作", async () => {
+    const action = vi.fn(async () => ({ ok: true, action: "install" }));
+    const prev = window.lawmindDesktop;
+    // {...undefined} 与 {...{}} 等价，直接展开即可。
+    window.lawmindDesktop = { ...prev, runAppUpdateAction: action } as typeof window.lawmindDesktop;
+    try {
+      await act(async () => {
+        root.render(
+          <LawmindAppSidebar {...baseProps({ updateStateTest: downloadedState() })} />,
+        );
+      });
+      const pill = host.querySelector('[data-testid="lm-side-update-pill"]') as HTMLButtonElement;
+      expect(pill).not.toBeNull();
+      expect(pill.classList.contains("lm-side-update-pill-ready")).toBe(true);
+      expect(pill.textContent).toBe("更新");
+      await act(async () => {
+        pill.click();
+      });
+      expect(action).toHaveBeenCalledTimes(1);
+    } finally {
+      window.lawmindDesktop = prev;
+    }
+  });
+
+  it("下载中：药丸带百分比文案", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppSidebar
+          {...baseProps({
+            updateStateTest: {
+              status: "downloading",
+              version: "0.4.3",
+              percent: 64,
+              error: null,
+              updatedAt: 7,
+            },
+          })}
+        />,
+      );
+    });
+    const pill = host.querySelector('[data-testid="lm-side-update-pill"]');
+    expect(pill?.textContent).toBe("更新 64%");
+    expect(pill?.classList.contains("lm-side-update-pill-ready")).toBe(false);
   });
 });

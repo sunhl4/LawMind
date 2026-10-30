@@ -86,16 +86,25 @@ describe("engagement package docx export", () => {
     }
   });
 
-  it("renders the quote table as readable lines and keeps signature fields", async () => {
+  it("renders the quote table as a native Word table and keeps signature fields", async () => {
     const dir = workspace();
     await seedPackage(dir);
     const result = await exportEngagementPackageDocx(dir, "matter-a", { overwrite: true });
     expect(result.ok).toBe(true);
     const quote = path.join(engagementPackageDir(dir, "matter-a"), "报价单.docx");
     const quoteXml = await documentXml(quote);
-    expect(quoteXml).toContain("律师费：按标的额 5% 收取");
-    expect(quoteXml).toContain("差旅/鉴定/公证等：按实际发生；另行结算");
-    expect(quoteXml).not.toContain("| 项目 |");
+    expect(quoteXml).toContain("<w:tbl>");
+    expect(quoteXml).toContain("项目");
+    expect(quoteXml).toContain("说明");
+    expect(quoteXml).toContain("金额/计费方式");
+    expect(quoteXml).toContain("律师费");
+    expect(quoteXml).toContain("按标的额 5% 收取");
+    expect(quoteXml).toContain("差旅/鉴定/公证等");
+    expect(quoteXml).toContain("按实际发生");
+    expect(quoteXml).toContain("另行结算");
+    // 1 行表头 + 3 行数据；竖线分隔符不再作为正文出现。
+    expect((quoteXml.match(/<w:tr>/g) ?? []).length).toBe(4);
+    expect(quoteXml).not.toContain("| --- |");
 
     const contract = path.join(engagementPackageDir(dir, "matter-a"), "委托代理合同.docx");
     const contractXml = await documentXml(contract);

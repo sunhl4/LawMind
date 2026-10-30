@@ -8,7 +8,14 @@ import { runMailAutomationNow } from "./lawmind-mail-automation-run";
 import { requestOpenAutomationsSettings } from "./lawmind-automations-nav-bus";
 import { buildMailContractShortPathInstruction } from "../../../../src/lawmind/platform/mail-contract-short-path-instruction.ts";
 
-type MailAccount = { id: string; label?: string; email?: string; enabled?: boolean };
+type MailAccount = {
+  id: string;
+  label?: string;
+  email?: string;
+  enabled?: boolean;
+  /** 收案邮箱是全局统一收件库，不能按案整箱同步。 */
+  intakeInbox?: boolean;
+};
 
 type MailAttachmentRow = {
   messageId: string;
@@ -43,7 +50,9 @@ export function LawmindMailContractFastLaneCard(props: Props): ReactNode {
         apiBase,
         "/api/mail/accounts",
       );
-      const list = Array.isArray(r.accounts) ? r.accounts.filter((a) => a.enabled !== false) : [];
+      const list = Array.isArray(r.accounts)
+        ? r.accounts.filter((a) => a.enabled !== false && a.intakeInbox !== true)
+        : [];
       setAccounts(list);
       if (!accountId && list[0]?.id) {
         setAccountId(list[0].id);
@@ -95,9 +104,16 @@ export function LawmindMailContractFastLaneCard(props: Props): ReactNode {
     setBusy(true);
     setError(null);
     try {
-      await apiSendJson(apiBase, `/api/mail/accounts/${encodeURIComponent(accountId)}/sync`, "POST", {
-        matterId: mid,
-      });
+      const res = await apiSendJson<{ ok?: boolean; error?: string; hint?: string }>(
+        apiBase,
+        `/api/mail/accounts/${encodeURIComponent(accountId)}/sync`,
+        "POST",
+        { matterId: mid },
+      );
+      if (res?.ok === false) {
+        setError(res.hint || res.error || "同步失败");
+        return;
+      }
       await loadAttachments();
       setSuccess("已同步邮件匣。");
     } catch (e) {

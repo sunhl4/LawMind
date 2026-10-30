@@ -25,9 +25,20 @@ export function useLawmindCollaborationWatch(input: {
   sessionByAssistant: Record<string, string | undefined>;
   assistants: AssistantRow[];
   setMessagesByAssistant: Dispatch<SetStateAction<Record<string, ChatMsg[]>>>;
+  /** 独立 pane 窗只渲染、不重复发通知；主窗口保持 true。 */
+  enabled?: boolean;
+  /** 桌面通知开关（多窗口时只让主窗口弹）。 */
+  notify?: boolean;
 }): void {
-  const { apiBase, selectedAssistantId, sessionByAssistant, assistants, setMessagesByAssistant } =
-    input;
+  const {
+    apiBase,
+    selectedAssistantId,
+    sessionByAssistant,
+    assistants,
+    setMessagesByAssistant,
+    enabled = true,
+    notify = true,
+  } = input;
   const delegationFollowUpSeenRef = useRef(new Set<string>());
   const delegationFollowUpSessionKeyRef = useRef<string>("");
   const delegationTraceSnapshotRef = useRef<Map<string, ChatLiveTrace>>(new Map());
@@ -162,7 +173,7 @@ export function useLawmindCollaborationWatch(input: {
           const ok = it.status === "completed";
           const who = assistantDisplayById[it.toAssistant.trim()]?.trim() || it.toAssistant;
           const shortBody = ok ? `助手 ${who} 已完成委派任务` : `助手 ${who} 委派未成功`;
-          if (desk?.showNotification) {
+          if (notify && desk?.showNotification) {
             void desk.showNotification({
               title: ok ? "LawMind · 委派已完成" : "LawMind · 委派未成功",
               body: shortBody,
@@ -175,17 +186,17 @@ export function useLawmindCollaborationWatch(input: {
       } catch {
         /* ignore */
       }
-  }, [apiBase, sessionId, assistantId, assistants, setMessagesByAssistant]);
+  }, [apiBase, sessionId, assistantId, assistants, setMessagesByAssistant, notify]);
 
   useAppPolling({
-    enabled: Boolean(apiBase && sessionId),
+    enabled: enabled && Boolean(apiBase && sessionId),
     intervalMs: 3500,
     onTick: () => void tick(),
   });
 
   useEffect(() => {
-    if (apiBase && sessionId) {
+    if (enabled && apiBase && sessionId) {
       void tick();
     }
-  }, [apiBase, sessionId, tick]);
+  }, [enabled, apiBase, sessionId, tick]);
 }

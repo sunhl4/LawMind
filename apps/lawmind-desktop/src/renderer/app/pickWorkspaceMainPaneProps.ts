@@ -95,5 +95,6 @@ export function pickWorkspaceMainPaneProps(
     },
     showEmptyMatterGuide: props.showEmptyMatterGuide,
     chatSessionsInSidebar: props.chatSessionsInSidebar,
+    paneDetach: props.paneDetach ?? null,
   };
 }

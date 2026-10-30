@@ -5,7 +5,14 @@ import {
   ingestDefinedTerms,
   ingestToolResult,
 } from "./factor-state.js";
-import { observeSyndrome, syndromeFromState } from "./syndrome-observer.js";
+import { persistentSyndrome, syndromeKey } from "./syndrome-decoder.js";
+import {
+  observeSyndrome,
+  observeSyndromeBits,
+  syndromeFromState,
+  transientSyndromeBits,
+  upsertSyndromeRound,
+} from "./syndrome-observer.js";
 
 describe("syndrome observer", () => {
   it("reads a conflicting amount as one S2 red light and decodes it", () => {
@@ -47,5 +54,30 @@ describe("syndrome observer", () => {
     const observation = observeSyndrome(state);
     expect(observation.decoded.kind).toBe("uncorrectable");
     expect(observation.note).toContain("【译码无解】");
+  });
+
+  it("keeps one round per model round and filters one-round blips", () => {
+    const amountBit = { stabilizer: "S2", anchor: "amount:wage", detail: "conflict" };
+    const partyBit = { stabilizer: "S4", anchor: "party:买方", detail: "mixed" };
+    const roundOne = upsertSyndromeRound(undefined, 1, [amountBit]);
+    expect(roundOne).toHaveLength(1);
+    const merged = upsertSyndromeRound(roundOne, 1, [amountBit, partyBit]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.bits).toHaveLength(2);
+    const roundTwo = upsertSyndromeRound(merged, 2, [amountBit]);
+    const persistent = persistentSyndrome(roundTwo, { window: 3, minRounds: 2 });
+    expect(persistent.map(syndromeKey)).toEqual([syndromeKey(amountBit)]);
+    expect(transientSyndromeBits(merged[0]?.bits ?? [], persistent).map(syndromeKey)).toEqual([
+      syndromeKey(partyBit),
+    ]);
+    expect(upsertSyndromeRound(roundTwo, 3, [amountBit], 2)).toHaveLength(2);
+  });
+
+  it("decodes an explicit persistent bit set", () => {
+    const observation = observeSyndromeBits([
+      { stabilizer: "S2", anchor: "amount:wage", detail: "conflict" },
+    ]);
+    expect(observation.bits).toHaveLength(1);
+    expect(observation.note).toContain("【译码");
   });
 });

@@ -147,14 +147,14 @@ describe("wecom archive parsing", () => {
 });
 
 describe("wecom archive scanning", () => {
-  it("imports each message once and moves the export out of the hot folder", () => {
+  it("imports each message once and moves the export out of the hot folder", async () => {
     const dir = workspace();
     ensureIntakeDropzone(dir);
     const archiveDir = ensureWecomArchiveDir(dir);
     fs.writeFileSync(path.join(archiveDir, "export.json"), JSON.stringify(EXPORT), "utf8");
 
     const now = new Date("2026-10-27T02:00:00.000Z");
-    const first = scanWecomArchive(dir, { now });
+    const first = await scanWecomArchive(dir, { now });
     expect(first).toMatchObject({ scanned: 1, recorded: 3, duplicates: 0, errors: [] });
     expect(listIntakeItems(dir, { statuses: ["pending"], limit: 10 })).toHaveLength(3);
     expect(
@@ -166,19 +166,19 @@ describe("wecom archive scanning", () => {
 
     // 同一个导出再进来一次：msgid 去重，不重复入库。
     fs.writeFileSync(path.join(archiveDir, "export.json"), JSON.stringify(EXPORT), "utf8");
-    const second = scanWecomArchive(dir, { now });
+    const second = await scanWecomArchive(dir, { now });
     expect(second).toMatchObject({ scanned: 1, recorded: 0, duplicates: 3 });
     expect(listIntakeItems(dir, { statuses: ["pending"], limit: 10 })).toHaveLength(3);
   });
 
-  it("leaves a bad export in a failed folder with an error instead of retrying forever", () => {
+  it("leaves a bad export in a failed folder with an error instead of retrying forever", async () => {
     const dir = workspace();
     ensureIntakeDropzone(dir);
     const archiveDir = ensureWecomArchiveDir(dir);
     fs.writeFileSync(path.join(archiveDir, "broken.json"), "{not json", "utf8");
 
     const now = new Date("2026-10-27T02:00:00.000Z");
-    const result = scanWecomArchive(dir, { now });
+    const result = await scanWecomArchive(dir, { now });
     expect(result.recorded).toBe(0);
     expect(result.errors).toHaveLength(1);
     expect(
@@ -196,7 +196,7 @@ describe("wecom archive scanning", () => {
     expect(fs.existsSync(path.join(archiveDir, "broken.json"))).toBe(false);
   });
 
-  it("does not treat the wecom export folder as a generic dropzone item", () => {
+  it("does not treat the wecom export folder as a generic dropzone item", async () => {
     const dir = workspace();
     ensureIntakeDropzone(dir);
     const archiveDir = ensureWecomArchiveDir(dir);
@@ -205,16 +205,16 @@ describe("wecom archive scanning", () => {
     const old = new Date(Date.now() - 10_000);
     fs.utimesSync(file, old, old);
 
-    expect(scanIntakeDropzone(dir).recorded).toBe(0);
-    expect(scanWecomArchive(dir).recorded).toBe(3);
+    expect((await scanIntakeDropzone(dir)).recorded).toBe(0);
+    expect((await scanWecomArchive(dir)).recorded).toBe(3);
   });
 
-  it("records a transcribed-event-free item: wecom imports carry no send/agent capability", () => {
+  it("records a transcribed-event-free item: wecom imports carry no send/agent capability", async () => {
     const dir = workspace();
     ensureIntakeDropzone(dir);
     const archiveDir = ensureWecomArchiveDir(dir);
     fs.writeFileSync(path.join(archiveDir, "export.json"), JSON.stringify(EXPORT), "utf8");
-    scanWecomArchive(dir);
+    await scanWecomArchive(dir);
     const events = readIntakeEvents(dir, { limit: 50 });
     expect(events.every((row) => row.kind === "recorded" || row.kind === "resolved")).toBe(true);
   });

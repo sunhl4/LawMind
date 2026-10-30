@@ -3,9 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  imapUidWatermark,
   MAX_MAIL_ATTACHMENTS_TOTAL_BYTES,
   MAX_MAIL_ATTACHMENT_BYTES,
   sanitizeMailMessageIdForPath,
+  selectImapBatchUids,
   shouldPersistMailAttachment,
   writeFetchedAttachments,
 } from "./imap-client.js";
@@ -128,5 +130,30 @@ describe("imap-client safety", () => {
     if (!result.ok) {
       expect(result.error).toBe("missing_password");
     }
+  });
+});
+
+describe("imap incremental batch selection", () => {
+  const uids = Array.from({ length: 100 }, (_, i) => i + 1);
+
+  it("backfills from the oldest UID inside the first-sync window", () => {
+    expect(selectImapBatchUids(uids, { resume: false, backfill: true, limit: 25 })).toEqual(
+      Array.from({ length: 25 }, (_, i) => i + 1),
+    );
+    expect(
+      selectImapBatchUids(uids, { resume: true, sinceUid: 25, backfill: false, limit: 25 }),
+    ).toEqual(Array.from({ length: 25 }, (_, i) => i + 26));
+  });
+
+  it("keeps the legacy newest-first batch when no window floor is known", () => {
+    expect(selectImapBatchUids(uids, { resume: false, backfill: false, limit: 25 })).toEqual(
+      Array.from({ length: 25 }, (_, i) => i + 76),
+    );
+  });
+
+  it("parks an empty first sync just below uidNext instead of at 0", () => {
+    expect(imapUidWatermark({ resume: false, uids: [], uidNext: 201 })).toBe(200);
+    expect(imapUidWatermark({ resume: true, sinceUid: 50, uids: [] })).toBe(50);
+    expect(imapUidWatermark({ resume: false, uids: [7, 9] })).toBe(9);
   });
 });

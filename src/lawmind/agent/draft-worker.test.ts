@@ -18,6 +18,7 @@ import {
   parseDraftWorkerModelText,
   runDraftWorker,
 } from "./draft-worker.js";
+import { emptyFactorState, linkNeighbors, recordReading } from "./factor-state.js";
 import { loadSidecarResume } from "./sidecar-resume.js";
 import { searchStatute } from "./tools/legal/search-tools.js";
 import type { AgentModelConfig } from "./types.js";
@@ -277,6 +278,14 @@ describe("draft-worker", () => {
               outcomes: [{ id: "88000", mass: 1 }],
               repairs: 0,
               flag: "ok",
+              neighbors: ["citation:labor-47"],
+            },
+            {
+              anchor: "citation:labor-47",
+              kind: "citation",
+              outcomes: [{ id: "现行有效·第47条", mass: 1 }],
+              repairs: 0,
+              flag: "ok",
               neighbors: [],
             },
             {
@@ -307,7 +316,18 @@ describe("draft-worker", () => {
     expect(system).toContain("【约化因子】");
     expect(system).toContain("clause:解除");
     expect(system).toContain("amount:wage");
+    expect(system).toContain("【约化边界】");
+    expect(system).toContain("长程机械项：citation:labor-47");
+    expect(system).toContain("read_marginal_anchor");
+    expect(result.data.marginal).toEqual({
+      seen: 2,
+      mechanical: 1,
+      longRange: 0,
+      isolated: 1,
+    });
+    expect(system).not.toContain("现行有效");
     expect(system).not.toContain("clause:管辖");
+    expect(system).not.toContain("与本任务无证据连边");
     expect(blob).not.toContain("PARENT_SECRET_HISTORY");
     expect(blob).not.toContain("是否互相矛盾由你判断");
   });
@@ -383,7 +403,14 @@ describe("draft-worker", () => {
     expect(system).toContain("amount:wage");
     expect(system).toContain("88000");
     expect(system).toContain("clause:解除");
+    expect(system).not.toContain("【约化边界】");
     expect(system).not.toContain("clause:管辖");
+    expect(result.data.marginal).toEqual({
+      seen: 2,
+      mechanical: 0,
+      longRange: 0,
+      isolated: 1,
+    });
     expect(blob).not.toContain("PARENT_SECRET");
   });
 
@@ -510,7 +537,12 @@ describe("draft-worker", () => {
       function?: { name?: string };
     }>;
     expect(advertised.map((row) => row.function?.name)).toEqual(
-      expect.arrayContaining(["analyze_document", "search_statute", "list_dir"]),
+      expect.arrayContaining([
+        "analyze_document",
+        "read_marginal_anchor",
+        "search_statute",
+        "list_dir",
+      ]),
     );
     const user = vi.mocked(callModelWithRetry).mock.calls[0]?.[1] as Array<{ content?: string }>;
     expect(user?.[1]?.content).toContain("万分之五");
@@ -600,6 +632,90 @@ describe("draft-worker", () => {
     expect(result.data.citations).toEqual(
       expect.arrayContaining(["买卖合同", "民法典第五百八十五条"]),
     );
+  });
+
+  it("expands a named boundary anchor on demand and keeps its reading out of the prompt", async () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lm-draft-anchor-"));
+    const state = emptyFactorState();
+    recordReading(state, "clause:解除", "clause", "乙方有权解除", true);
+    recordReading(state, "amount:wage", "amount", "88000", true);
+    recordReading(state, "citation:labor-47", "citation", "现行有效·第47条", true);
+    linkNeighbors(state, "clause:解除", "amount:wage");
+    linkNeighbors(state, "amount:wage", "citation:labor-47");
+    vi.mocked(callModelWithRetry)
+      .mockResolvedValueOnce(
+        toolCallResponse("read_marginal_anchor", { anchor: "citation:labor-47" }),
+      )
+      .mockResolvedValueOnce(
+        successResponse(JSON.stringify({ draft: DRAFT, citations: ["买卖合同"], gaps: [] })),
+      );
+    const result = await runDraftWorker(
+      {
+        goal: "审查解除条款",
+        notGoal: "不要改原件",
+        materials: "买卖合同.docx",
+        excerpt: SOURCE,
+        section: "解除",
+        role: "review",
+        anchor: "clause:解除",
+      },
+      { chatModel: model, workspaceDir: tmp, sessionId: "s", factorState: state },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.data.toolsUsed).toContain("read_marginal_anchor");
+    const firstMessages = vi.mocked(callModelWithRetry).mock.calls[0]?.[1] as Array<{
+      role?: string;
+      content?: string;
+    }>;
+    const system = firstMessages?.find((row) => row.role === "system")?.content ?? "";
+    expect(system).toContain("citation:labor-47");
+    expect(system).not.toContain("现行有效·第47条");
+    const afterTool = vi.mocked(callModelWithRetry).mock.calls[1]?.[1] as Array<{
+      role?: string;
+      content?: string;
+    }>;
+    const toolRow = afterTool?.find((row) => row.role === "tool");
+    expect(String(toolRow?.content)).toContain("citation:labor-47");
+    expect(String(toolRow?.content)).toContain("现行有效·第47条");
+  });
+
+  it("refuses to expand an anchor outside the worker boundary", async () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lm-draft-anchor-deny-"));
+    const state = emptyFactorState();
+    recordReading(state, "clause:解除", "clause", "乙方有权解除", true);
+    recordReading(state, "clause:管辖", "clause", "仲裁", true);
+    vi.mocked(callModelWithRetry)
+      .mockResolvedValueOnce(toolCallResponse("read_marginal_anchor", { anchor: "clause:管辖" }))
+      .mockResolvedValueOnce(
+        successResponse(JSON.stringify({ draft: DRAFT, citations: ["买卖合同"], gaps: [] })),
+      );
+    const result = await runDraftWorker(
+      {
+        goal: "审查解除条款",
+        notGoal: "不要改原件",
+        materials: "买卖合同.docx",
+        excerpt: SOURCE,
+        section: "解除",
+        role: "review",
+        anchor: "clause:解除",
+      },
+      { chatModel: model, workspaceDir: tmp, sessionId: "s", factorState: state },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.data.toolsUsed).not.toContain("read_marginal_anchor");
+    const afterTool = vi.mocked(callModelWithRetry).mock.calls[1]?.[1] as Array<{
+      role?: string;
+      content?: string;
+    }>;
+    const toolRow = afterTool?.find((row) => row.role === "tool");
+    expect(String(toolRow?.content)).toContain("clause:管辖");
+    expect(String(toolRow?.content)).not.toContain("仲裁");
   });
 
   it("refuses write tools inside the worker loop and still drafts", async () => {
@@ -722,6 +838,12 @@ describe("draft-worker", () => {
     expect(first.data.draftClipped).toBe(true);
     expect(first.data.draft.length).toBeLessThan(long.length);
     expect(first.data.workerId).toMatch(/^w[a-f0-9]{16}$/);
+    expect(first.data.marginal).toEqual({
+      seen: 0,
+      mechanical: 0,
+      longRange: 0,
+      isolated: 0,
+    });
     const second = await runDraftWorker(
       {
         goal: "不要写解除",
@@ -737,6 +859,7 @@ describe("draft-worker", () => {
     }
     expect(second.data.workerId).toBe(first.data.workerId);
     expect(second.data.conclusion).toBe("不写解除");
+    expect(second.data.marginal).toEqual(first.data.marginal);
     const resumed = vi.mocked(callModelWithRetry).mock.calls[1]?.[1] as Array<{
       content?: string;
     }>;

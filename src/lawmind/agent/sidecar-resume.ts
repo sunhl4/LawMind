@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { writeJsonAtomic } from "../adapters/matter-storage/io.js";
+import type { MarginalScopeReport } from "./factor-state.js";
 import type { WorkerLoopMessage } from "./readonly-worker-loop.js";
 
 const MAX_SAVED_MESSAGES = 16;
@@ -19,6 +20,10 @@ export type SidecarResumeRecord = {
   section: string;
   role: SidecarResumeRole;
   messages: WorkerLoopMessage[];
+  /** Anchors this worker could pull on demand; frozen at first save. */
+  readableAnchors?: string[];
+  /** Marginal scope counts shown to the parent; frozen at first save. */
+  marginal?: MarginalScopeReport;
   updatedAt: string;
 };
 

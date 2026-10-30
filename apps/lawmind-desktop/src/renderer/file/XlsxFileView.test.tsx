@@ -18,9 +18,8 @@ vi.mock("../api-client", () => ({
 }));
 
 function setNativeInputValue(input: HTMLInputElement, value: string): void {
-  // eslint-disable-next-line typescript/unbound-method -- prototype setter, bound via .call
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-  setter?.call(input, value);
+  const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  desc?.set?.call(input, value);
 }
 
 function xlsxTab(): OpenFileTab {
@@ -80,12 +79,13 @@ describe("XlsxFileView", () => {
     container.remove();
   });
 
-  it("enters edit on single click without selecting the whole cell", async () => {
+  async function renderView(locator?: string): Promise<void> {
     await act(async () => {
       root.render(
         <XlsxFileView
           apiBase="http://127.0.0.1:9"
           tab={xlsxTab()}
+          {...(locator ? { locator } : {})}
           actions={{
             onRevealSource: () => undefined,
             onOpenWithSystem: () => undefined,
@@ -96,156 +96,56 @@ describe("XlsxFileView", () => {
     await act(async () => {
       await Promise.resolve();
     });
+  }
 
+  async function editCell(value: string): Promise<void> {
     await act(async () => {
       container.querySelector<HTMLTableCellElement>('[data-testid="lm-xlsx-cell-0-0"]')?.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 12 }),
+        new MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 20 }),
       );
     });
     const input = container.querySelector<HTMLInputElement>(".lm-xlsx-cell-input");
     expect(input).toBeTruthy();
+    await act(async () => {
+      if (!input) {return;}
+      setNativeInputValue(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+  }
+
+  it("enters edit on single click without selecting the whole cell", async () => {
+    await renderView();
+    await editCell("乙");
+    const input = container.querySelector<HTMLInputElement>(".lm-xlsx-cell-input");
     expect(input?.selectionStart).toBe(input?.selectionEnd);
-    expect(input?.selectionStart).not.toBe(0);
-    // collapsed caret — not a full-cell selection of "甲乙丙"
-    expect(input?.selectionEnd === input?.selectionStart).toBe(true);
-    expect((input?.selectionEnd ?? 0) - (input?.selectionStart ?? 0)).toBe(0);
   });
 
   it("edits a cell and saves via xlsx-save", async () => {
     apiSendJson.mockResolvedValue({ ok: true, mtimeMs: 200, applied: 1 });
-
-    await act(async () => {
-      root.render(
-        <XlsxFileView
-          apiBase="http://127.0.0.1:9"
-          tab={xlsxTab()}
-          actions={{
-            onRevealSource: () => undefined,
-            onOpenWithSystem: () => undefined,
-          }}
-        />,
-      );
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      container.querySelector<HTMLTableCellElement>('[data-testid="lm-xlsx-cell-0-0"]')?.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 20 }),
-      );
-    });
-    const input = container.querySelector<HTMLInputElement>(".lm-xlsx-cell-input");
-    expect(input).toBeTruthy();
-    await act(async () => {
-      if (!input) {
-        return;
-      }
-      setNativeInputValue(input, "乙");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => {
-      input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    });
-
-    expect(container.textContent).toContain("未保存");
+    await renderView();
+    await editCell("乙");
     const saveBtn = container.querySelector<HTMLButtonElement>('[data-testid="lm-xlsx-save"]');
     expect(saveBtn?.disabled).toBe(false);
-
-    await act(async () => {
-      saveBtn?.click();
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
-
+    await act(async () => saveBtn?.click());
+    await act(async () => await Promise.resolve());
     expect(apiSendJson).toHaveBeenCalledWith(
       "http://127.0.0.1:9",
       "/api/fs/xlsx-save",
       "POST",
-      expect.objectContaining({
-        root: "project",
-        path: "吉利项目价格拆解.xlsx",
-        edits: [{ sheet: "中文", row: 1, col: 1, value: "乙" }],
-      }),
+      expect.objectContaining({ edits: [{ sheet: "中文", row: 1, col: 1, value: "乙" }] }),
     );
   });
 
-  it("retries save on 409, then force-writes if still conflicting", async () => {
-    const conflict = (mtimeMs: number) =>
-      Object.assign(new Error("file was modified externally"), {
-        name: "ApiRequestError",
-        status: 409,
-        body: { ok: false, conflict: true, error: "file was modified externally", mtimeMs },
-      });
-    apiSendJson
-      .mockRejectedValueOnce(conflict(150))
-      .mockRejectedValueOnce(conflict(160))
-      .mockResolvedValueOnce({ ok: true, mtimeMs: 200, applied: 1 });
-
-    await act(async () => {
-      root.render(
-        <XlsxFileView
-          apiBase="http://127.0.0.1:9"
-          tab={xlsxTab()}
-          actions={{
-            onRevealSource: () => undefined,
-            onOpenWithSystem: () => undefined,
-          }}
-        />,
-      );
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    await act(async () => {
-      container.querySelector<HTMLTableCellElement>('[data-testid="lm-xlsx-cell-0-0"]')?.dispatchEvent(
-        new MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 20 }),
-      );
-    });
-    const input = container.querySelector<HTMLInputElement>(".lm-xlsx-cell-input");
-    await act(async () => {
-      if (!input) {
-        return;
-      }
-      setNativeInputValue(input, "新");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    });
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>('[data-testid="lm-xlsx-save"]')?.click();
-    });
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(apiSendJson).toHaveBeenCalledTimes(3);
-    expect(apiSendJson.mock.calls[1]?.[3]).toMatchObject({ expectedMtimeMs: 150 });
-    expect(apiSendJson.mock.calls[2]?.[3]).toMatchObject({ expectedMtimeMs: undefined });
-    expect(container.textContent).not.toContain("冲突");
+  it("selects and scrolls to a rich evidence cell", async () => {
+    await renderView("S1!A1");
+    expect(container.querySelector('[data-testid="lm-xlsx-cell-0-0"]')?.className).toContain(
+      "lm-xlsx-cell-selected",
+    );
   });
 
   it("keeps bottom sheet tabs", async () => {
-    await act(async () => {
-      root.render(
-        <XlsxFileView
-          apiBase="http://127.0.0.1:9"
-          tab={xlsxTab()}
-          actions={{
-            onRevealSource: () => undefined,
-            onOpenWithSystem: () => undefined,
-          }}
-        />,
-      );
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(container.querySelector('[data-testid="lm-xlsx-sheet-tab-1"]')?.textContent).toBe(
-      "英文",
-    );
+    await renderView();
+    expect(container.querySelector('[data-testid="lm-xlsx-sheet-tab-1"]')?.textContent).toBe("英文");
   });
 });

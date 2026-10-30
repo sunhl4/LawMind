@@ -48,6 +48,7 @@ describe("factor ledger metrics", () => {
           { stabilizer: "S1", anchor: "citation:x" },
           { stabilizer: "S2", anchor: "amount:wage" },
         ],
+        transient: [{ stabilizer: "S4", anchor: "party:买方" }],
         decoded: { kind: "ambiguous" },
       }),
       record("syndrome", {
@@ -84,6 +85,7 @@ describe("factor ledger metrics", () => {
       decodedUnique: 1,
       ambiguous: 1,
       uncorrectable: 1,
+      transientBits: 1,
     });
     expect(digest.repairs).toEqual({
       total: 1,
@@ -101,6 +103,44 @@ describe("factor ledger metrics", () => {
       zeroDistance: 1,
     });
     expect(digest.summaries.meanDistance).toBe(1);
+  });
+
+  it("counts witness probes by base and persistent filters", () => {
+    const digest = summarizeFactorLedger([
+      record("witness", {
+        probes: 2,
+        verdict: "drift",
+        source: "active",
+        scores: [
+          { anchor: "amount:wage", kind: "amount", verdict: "drift" },
+          { anchor: "amount:wage", kind: "counterfactual", verdict: "pass" },
+        ],
+        filter: [
+          {
+            anchor: "amount:wage",
+            channel: "witness:value",
+            decision: { kind: "definite", id: "invented", logOdds: 2 },
+          },
+          {
+            anchor: "amount:wage",
+            channel: "witness:counterfactual",
+            decision: { kind: "mixed", ids: [], reason: "单次读数太弱" },
+          },
+        ],
+      }),
+    ]);
+    expect(digest.witness).toEqual({
+      events: 1,
+      probes: 2,
+      pass: 1,
+      drift: 1,
+      activeProbes: 2,
+      counterfactualProbes: 1,
+      persistentObeyed: 0,
+      persistentInvented: 1,
+      channels: 2,
+    });
+    expect(renderFactorLedgerDigest(digest)).toContain("抽查 1 次 / 2 问");
   });
 
   it("returns an empty digest for no records", () => {

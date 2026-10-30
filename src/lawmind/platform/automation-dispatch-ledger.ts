@@ -18,7 +18,7 @@ import { withExclusiveFileLock, writeJsonAtomic } from "../adapters/matter-stora
 const LEDGER_REL = path.join("lawmind", "automation-dispatch-ledger.json");
 const MAX_ENTRIES = 200;
 
-export type DispatchLedgerState = "dispatched" | "blocked";
+export type DispatchLedgerState = "dispatched" | "completed" | "blocked";
 
 export type DispatchLedgerEntry = {
   /** `<matterId>|<relativePath>|<fingerprint>` */
@@ -108,6 +108,55 @@ export function findBlockedDispatch(
 ): DispatchLedgerEntry | undefined {
   const key = dispatchKey(input.matterId, input.relativePath, input.fingerprint);
   return readLedger(workspaceDir).find((e) => e.key === key && e.state === "blocked");
+}
+
+/**
+ * 回合还停在律师手上（问清楚、等签批、暂停）时，不要把同一份材料再派一轮。
+ * 出错或被中断则返回 false，下一档日程会重派。
+ */
+export function dispatchSucceededForTurnStatus(status: string): boolean {
+  return (
+    status === "completed" ||
+    status === "awaiting_approval" ||
+    status === "awaiting_clarification" ||
+    status === "paused"
+  );
+}
+
+/** 已成功审阅完、且附件内容未变的派单：定时任务不应把同一份材料再跑一遍。 */
+export function findDispatchedDispatch(
+  workspaceDir: string,
+  input: { matterId: string; relativePath: string; fingerprint: string },
+): DispatchLedgerEntry | undefined {
+  const key = dispatchKey(input.matterId, input.relativePath, input.fingerprint);
+  return readLedger(workspaceDir).find((e) => e.key === key && e.state === "completed");
+}
+
+/**
+ * 轮次正常收口：把该路径上最近一次「已派单」标成「已审阅完成」。
+ * 只标 dispatched，不碰 blocked；失败/中断的任务不会走到这里，下一轮仍会重派。
+ */
+export function markDispatchedCompleted(
+  workspaceDir: string,
+  input: { matterId: string; relativePath: string; at?: string },
+): boolean {
+  const matterId = input.matterId.trim();
+  const rel = input.relativePath.trim().replace(/\\/g, "/");
+  if (!matterId || !rel) {
+    return false;
+  }
+  const entry = readLedger(workspaceDir)
+    .filter((e) => e.matterId === matterId && e.relativePath === rel && e.state === "dispatched")
+    .at(-1);
+  if (!entry) {
+    return false;
+  }
+  upsertDispatchEntry(workspaceDir, {
+    ...entry,
+    state: "completed",
+    at: input.at ?? new Date().toISOString(),
+  });
+  return true;
 }
 
 /** 门禁停下时记账（幂等）。 */
@@ -210,6 +259,8 @@ export function syncDispatchLedgerForTurn(params: {
   instruction?: string;
   gateStop: boolean;
   reason?: string;
+  /** 回合是否正常办完（completed / awaiting_approval）。未传时按正常收口处理。 */
+  succeeded?: boolean;
   at?: string;
 }): void {
   const matterId = params.matterId?.trim();
@@ -228,6 +279,14 @@ export function syncDispatchLedgerForTurn(params: {
       return;
     }
     clearBlockedDispatch(params.workspaceDir, { matterId, relativePath });
+    // 只有回合正常办完才算「这份材料已审阅」；错误/中断的回合仍让定时任务下一轮重派。
+    if (params.succeeded !== false) {
+      markDispatchedCompleted(params.workspaceDir, {
+        matterId,
+        relativePath,
+        ...(params.at ? { at: params.at } : {}),
+      });
+    }
   } catch {
     /* 台账是防重派的尽力而为，不影响对话结果 */
   }

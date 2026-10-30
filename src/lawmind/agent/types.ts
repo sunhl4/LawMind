@@ -165,6 +165,12 @@ export type AgentContext = {
   /** Engine-owned diagonal factor state for this turn. The model only samples. */
   factorState?: FactorState;
   /**
+   * Anchors a read-only sub-worker may expand on demand: its 1-hop marginal
+   * plus the boundary anchors named in its prompt. Unset means the on-demand
+   * reader is unavailable. Never includes zero-evidence anchors.
+   */
+  readableFactorAnchors?: string[];
+  /**
    * Held correction 1-hop from 「不对」 (copied from factorState.correctionLightCone).
    * Surgical edits that map outside this set are not written.
    * Empty or unset means the current batch is unconstrained.
@@ -389,6 +395,13 @@ export type AgentTurn = {
   sameTurnVerify?: import("../runtime/same-turn-verify.js").SameTurnVerifyTurnState;
   /** Same object as `session.factorState` for this turn. */
   factorState?: FactorState;
+  /**
+   * Per-round syndrome bits this turn. `persistentSyndrome` filters one-round
+   * blips before anything reaches the ledger.
+   */
+  syndromeHistory?: import("./syndrome-decoder.js").SyndromeRound[];
+  /** Persistent syndrome keys already written to the ledger this turn. */
+  recordedSyndromeKeys?: string[];
   /**
    * 上下文退让反弹次数（`context-deferral.ts`）：模型以上下文预算为由把活儿退回
    * 律师时，同一回合内反弹回去继续办；超过上限后如实收下其回复。

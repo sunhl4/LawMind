@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createFilter,
+  decayFilter,
   decide,
   observe,
   observeStrong,
@@ -80,5 +81,15 @@ describe("sequential evidence filter", () => {
     state = observeStrong(state, { outcomeId: "88000", llr: 0, round: 1, channel: "calculate:1" });
     const decision = decide(state);
     expect(decision.kind).toBe("definite");
+  });
+
+  it("decays on the clock without adding a channel", () => {
+    let state = createFilter("amount:wage");
+    state = observe(state, { outcomeId: "88000", llr: 2, round: 1, channel: "c1" });
+    const decayed = decayFilter(state, 3, { decay: 0.5 });
+    expect(decayed.logOdds["88000"]).toBeCloseTo(0.5, 10);
+    expect(decayed.channels["88000"]).toEqual(["c1"]);
+    expect(decayed.observations).toBe(state.observations);
+    expect(decayed.lastRound).toBe(3);
   });
 });

@@ -118,6 +118,9 @@ export function docketRowStatusLabel(run: AgentRunSummary): string {
     case "awaiting_clarification":
       return "待补充";
     case "awaiting_approval":
+      if (run.kind === "queue_item") {
+        return "待核对";
+      }
       return run.kind === "automation_send" ? "待发出" : "待你看过";
     case "interrupted":
       return "已中断";
@@ -215,6 +218,11 @@ export function docketStopLine(run: AgentRunSummary): string {
     case "interrupted":
       return "办到一半停住了。已完成的步骤还在。";
     case "awaiting_approval":
+      if (run.kind === "queue_item") {
+        return (
+          run.note?.trim() || "已写入卷宗或提醒。看完可以改，然后点「知道了」。"
+        );
+      }
       return run.kind === "automation_send"
         ? "信已经写好，发出前要你看过。"
         : run.kind === "matter_run_wait"

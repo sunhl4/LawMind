@@ -405,6 +405,7 @@ export async function handleAutomationsRoutes({
           body.allowSendEmailAfterApproval ?? existing.allowSendEmailAfterApproval,
         notifyEmail,
         nextRunAt,
+        ...(body.runNow ? { runNowRequestedAt: new Date().toISOString() } : {}),
         updatedAt: new Date().toISOString(),
       };
       saveAutomation(workspaceDir, updated);

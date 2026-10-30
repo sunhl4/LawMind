@@ -164,6 +164,7 @@ export async function exportTrackedSiblingForTask(params: {
           sourceAbs: baseline.abs,
           destAbs: dest,
           hunks: proposals,
+          timestampSeed: params.taskId,
         });
       } catch (err) {
         const locked = reviewFileLockMessage(err);

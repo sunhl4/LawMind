@@ -100,7 +100,7 @@ function isOcrImagePath(filePath: string): boolean {
 /** 在走 UTF-8 直读或误进二进制前给出明确说明（.docx/.xlsx/.pdf/图片/.doc 仍走专用分支）。 */
 function unsupportedOfficeIngestReason(filePath: string): string | null {
   const ext = path.extname(filePath).toLowerCase();
-  // .doc：先由 WPS 加载项另存为 .docx，再读那份 .docx。
+  // .doc 由调用方走 read-word-binary，不进这里。
   if (ext === ".xls" || ext === ".ppt") {
     return "暂不支持从旧式 Office 二进制（.xls/.ppt）提取文本；请另存为 .xlsx/.pptx 后再读取。";
   }

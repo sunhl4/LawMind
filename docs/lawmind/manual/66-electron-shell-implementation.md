@@ -337,21 +337,35 @@ useDistInE2e = LAWMIND_E2E === "1" && dist/index.html 存在
 
 **E2E 走 dist 而不是 dev server**——注释说明了理由：**dev server 的输出不可预测，e2e 需要稳定的构建产物。**
 
-### 自动更新的五个对话框
+### 应用内更新：状态机 + 左下角药丸
 
-更新的每条路径都有对应文案：
+更新逻辑集中在 `electron/app-updates.mjs`，`electron-updater` 只负责下载与安装；界面状态由主进程推送，不在渲染层猜。
 
-| 情况       | 文案                                                                        |
-| ---------- | --------------------------------------------------------------------------- |
-| 开发构建   | `这是开发版本，没有应用内更新。`                                            |
-| 更新被关掉 | `应用内更新已关闭。请向管理员索取安装包。`                                  |
-| 有新版本   | `发现新版本 <版本>。将自动下载；下载完成后会通知您，退出应用时可完成安装。` |
-| 已是最新   | `当前已是最新版本。`                                                        |
-| 检查失败   | `这次没能检查更新。请稍后再试，或从下载页获取安装包。`（原因只打日志）      |
+```text
+启动 12s 后静默检查 → 每 4 小时复查
+  checking → available → downloading(NN%) → downloaded
+                 ↘ error（药丸隐藏，原因进日志/菜单对话框）
+```
 
-**`loadAutoUpdater()` 在两种情况下返回 `null`**：非打包，或设了 `LAWMIND_SKIP_AUTO_UPDATE=1`。
+- **`autoDownload = true` + `autoInstallOnAppQuit = true`**：发现新版即后台下载；用户不点也会在退出时装。
+- 状态经 `lawmind:app-update` 推给所有窗口；渲染层 `lawmind-app-update.ts` 用 `useSyncExternalStore` 合并（`updatedAt` 单调，迟到的初始拉取不会回退状态）。窗口重开时用 `lawmind:get-app-update-state` 拉全量。
+- 左下角账号行（侧栏底部）在 `available / downloading / downloaded` 时点亮金色「更新」药丸：下载中显示 `更新 NN%`，就绪后点击 → 确认「立即重启安装」→ `quitAndInstall()`。
+- 药丸点击走 `lawmind:app-update-action`，主进程按状态分派：`downloaded` → 确认后安装；`downloading` → 进度说明框；`available` → 补触发下载（只启动，不等待整段下载）；其余 → 静默复查一次。
+- **下载中不做周期复查**：那会把药丸从百分比打回 `available`。
+- `loadAppUpdater()` 在开发版、`LAWMIND_SKIP_AUTO_UPDATE=1`、`LAWMIND_E2E=1` 下返回 `null`，状态为 `unsupported`，药丸不出现。
 
-而 `autoDownload = true` + `autoInstallOnAppQuit = true`——**所以是「静默下载，退出时装」**。文案里也这么说了。
+菜单「帮助 → 检查更新…」的对话框：
+
+| 情况         | 行为                                                                   |
+| ------------ | ---------------------------------------------------------------------- |
+| 开发构建     | `这是开发版本，没有应用内更新。`                                       |
+| 更新被关掉   | `应用内更新已关闭。请向管理员索取安装包。`                             |
+| 更新已就绪   | 直接给「立即重启安装 / 稍后」，不再重新检查                            |
+| 下载中       | 进度说明框（百分比 + 「下载完成后点左下角『更新』」）                  |
+| 有新版本     | `发现新版本 <版本>，已开始后台下载。`                                  |
+| 已是最新     | `当前已是最新版本。`                                                   |
+| 检查失败     | `这次没能检查更新。请稍后再试，或从下载页获取安装包。`（原因只打日志） |
+| 更新器不可用 | `应用内更新当前不可用。请从下载页获取安装包。`                         |
 
 ### 下载页 URL 的默认值
 
@@ -635,11 +649,13 @@ syncWordAddinManifest({ downloadsFallback: false })
 - **`inspect-workspace-volume`** 只查询不判断：返回 `fstype`（macOS `stat -f %T` / Linux `/proc/mounts`）、`driveType`（Windows PowerShell）与 `freeBytes`（`statfs`），文案判断留在渲染层。
 - **权威库两条通道**：`read-authority-settings` 返回 provider（`pkulaw` / `yuandian` / `open`）、各库端点、是否有令牌；`save-authority` 写 `.env.lawmind` 并重启服务。令牌默认进各自钥匙串（`authority.pkulaw.apiKey` / `authority.yuandian.apiKey`）并从 env 抹掉明文；**钥匙串不可用是唯一的明文例外**——`placeAuthorityApiKey` 会把令牌写进 `.env.lawmind` 并 `chmod 0600`，否则设置页只能报「无法安全保存」而接不上法源。这条例外是刻意的（fresh clone / 无桌面会话的场景）。
 - **本机文件夹上限 16 个**（`add-host-folder`），超出返回「本机文件夹已达上限」；删除一个挂载后 `projectDir` 回落到剩下的第一个。
-- **`open-aux-window` 只认 `kind: "review-preview"` + `taskId`**：同 key 已存在则聚焦，否则按鼠标所在屏幕在 720px 宽、560–900px 高之间开窗；渲染页用 hash `lm-popout=review-preview&taskId=...`，`listAppWindows()` 靠 `lm-popout=` 把它从「主窗候选」里排除。
+- **`open-aux-window` 支持两类**：`review-preview` + `taskId`（交付预览，720 宽）；`workspace-pane` + `pane: "chat" | "middle"`（对话/中栏拖出，对话 560 宽、中栏 960 宽），可带 `sessionId` / `assistantId` / `matterId` / `draftTaskId` / `middleView` / `relPath` / `root`。同 key 已存在则聚焦；窗口按鼠标所在屏幕定位。渲染页用 hash `lm-popout=...`，`listAppWindows()` 靠 `lm-popout=` 把它从「主窗候选」里排除；辅助窗关闭时主窗口收 `lawmind:aux-window-closed` 的事件，用来把 pane 收回。
+- **`close-window` 是「收回主窗口」的唯一通道**：渲染层 `window.close()` 在 Electron 里不保证真关窗，所以 preload 暴露 `closeWindow()` → 主进程按 `evt.sender` 找到那个 `BrowserWindow` 再 `close()`；渲染端在桥缺失时才退回 `window.close()`。
+- **独立窗与主窗靠服务端对齐**：对话窗空闲时按消息指纹重拉（约 2.5s），有回合在跑就跟 `live-turn`；文本标签用 `fs:stat` 比对 mtime，变了才读正文，有未保存修改时不覆盖。
 - **`show-item-in-folder` 有独立的根守卫**：只允许展示 workspace / project / 挂载根内的路径，否则 `outside_allowed_roots`；它不经过 `resolveFsPath`，所以单独补了这一道。
 - **`fs:copy` 的源可以是只读根**（从挂载点复制进工作区是正当用法），目标必须是可写根，且**不覆盖已存在目标**（`destination already exists`）。
 - **`fs:rename` 的 `from` 与 `fs:delete` 都按 `destructive: true` 判**：除保护路径本身，还要扫目标目录里有没有任意深度的保护文件（见 66.7）。
-- **`fs:write` 对新文件会先 `mkdir -p` 父目录**；`fs:read` 对图片返回 `kind: "image"` + `mimeType` + base64 + `mtimeMs`，对二进制文本直接拒绝（`binary file is not editable in this view`）。
+- **`fs:write` 对新文件会先 `mkdir -p` 父目录**；`fs:read` 对图片返回 `kind: "image"` + `mimeType` + base64 + `mtimeMs`，对二进制文本直接拒绝（`binary file is not editable in this view`）。`fs:stat` 只回 `kind` / `mtimeMs` / `size`（同一套 `resolveFsPath` 读守卫），让中栏标签不用每轮搬整份正文就能知道磁盘被改过。
 
 ## 66.7 文件桥：十一步围栏
 

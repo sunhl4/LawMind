@@ -9,7 +9,13 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { listDrafts, readDraft } from "../../../src/lawmind/drafts/index.js";
+import { readDraft, listDrafts } from "../../../src/lawmind/drafts/index.js";
+import {
+  buildPacketManifest,
+  createDeliveryPacket,
+  type DeliveryPacket,
+} from "../../../src/lawmind/delivery/packet.js";
+import { listDeliveryPackets, saveDeliveryPacket } from "../../../src/lawmind/delivery/packet-store.js";
 import {
   DELIVERY_RUN_STEP_KINDS,
   deliveryRunRefs,
@@ -20,6 +26,7 @@ import type {
   MatterRunStepExecutor,
 } from "../../../src/lawmind/platform/matter-run-store.js";
 import type { ArtifactDraft } from "../../../src/lawmind/types.js";
+import { buildOutboundBinding } from "../../../src/lawmind/platform/outbound-approval-binding.js";
 import {
   extractNotifyEmail,
   getAutomation,
@@ -220,6 +227,57 @@ async function render(ctx: Parameters<MatterRunStepExecutor>[0]) {
   };
 }
 
+function deliveryPacketForDraft(
+  workspaceDir: string,
+  matterId: string,
+  draft: ArtifactDraft,
+): { packet: DeliveryPacket; packetHash: string; attachmentRelativePaths: string[] } | undefined {
+  const outputPath = draft.outputPath?.trim();
+  if (!outputPath || !fileExists(workspaceDir, outputPath)) {
+    return undefined;
+  }
+  const existing = listDeliveryPackets(workspaceDir, matterId).find((packet) =>
+    packet.sections.some((section) => section.documents.some((document) => document.path === outputPath)),
+  );
+  const packet =
+    existing ??
+    createDeliveryPacket({
+      matterId,
+      packetId: `pkt_automation_${draft.taskId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 96)}`,
+      title: `${draft.title} · 客户包`,
+      audience: "client",
+      sections: [
+        {
+          sectionId: "automation-delivery",
+          kind: "opinion",
+          title: draft.title,
+          documents: [
+            {
+              docId: draft.taskId,
+              path: outputPath,
+              title: draft.title,
+              required: true,
+              audiences: ["client"],
+            },
+          ],
+        },
+      ],
+      at: draft.createdAt,
+    });
+  if (!existing) {
+    saveDeliveryPacket(workspaceDir, packet);
+  }
+  const manifest = buildPacketManifest(workspaceDir, packet, { audience: "client" });
+  if (manifest.blockers.length > 0 || manifest.files.length === 0) {
+    return undefined;
+  }
+  return {
+    packet,
+    packetHash: manifest.packetHash,
+    attachmentRelativePaths: manifest.files.map((file) => file.path),
+  };
+}
+
 function pendingSendForAutomation(
   workspaceDir: string,
   automation: ReturnType<typeof getAutomation>,
@@ -229,14 +287,16 @@ function pendingSendForAutomation(
     return undefined;
   }
   const to = sanitizeNotifyEmail(automation.notifyEmail) || extractNotifyEmail(automation.instruction);
-  if (!to) {
+  if (!to || !draft) {
     return undefined;
   }
+  const packet = deliveryPacketForDraft(workspaceDir, automation.matterId, draft);
+  const attachmentRelativePaths = packet?.attachmentRelativePaths ?? (draft.outputPath ? [draft.outputPath] : []);
   return {
     to,
     subject: `【${automation.matterId}】本案进展说明`,
-    body: `后台工作流已完成。请在「待发信」核对正文与附件后再签批发送。\n\n${preview(draft?.summary, 500)}`,
-    ...(draft?.outputPath ? { attachmentRelativePaths: [draft.outputPath] } : {}),
+    body: `后台工作流已完成。请在「待发信」核对正文与附件后再签批发送。\n\n${preview(draft.summary, 500)}`,
+    ...(attachmentRelativePaths.length > 0 ? { attachmentRelativePaths } : {}),
   };
 }
 
@@ -264,6 +324,20 @@ async function prepareOutbound(ctx: Parameters<MatterRunStepExecutor>[0]) {
   const rendered = fileExists(ctx.workspaceDir, draft.outputPath);
   const summary = `后台工作流已完成。草稿「${draft.title}」${rendered ? "已导出，可在文书台核对" : "还没导出（需审核通过后导出）"}；外发仍要你签批。`;
   const pendingSend = pendingSendForAutomation(ctx.workspaceDir, automation, draft);
+  const packet = draft
+    ? deliveryPacketForDraft(ctx.workspaceDir, automation.matterId, draft)
+    : undefined;
+  const boundPendingSend = pendingSend
+    ? {
+        ...pendingSend,
+        binding: buildOutboundBinding(ctx.workspaceDir, {
+          ...pendingSend,
+          ...(packet
+            ? { packet: { packetId: packet.packet.packetId, packetHash: packet.packetHash } }
+            : {}),
+        }),
+      }
+    : undefined;
   const existing = listOpenAutomationInbox(ctx.workspaceDir, ctx.run.matterId).find(
     (item) => item.jobId === jobId && item.automationId === automationId,
   );
@@ -274,8 +348,8 @@ async function prepareOutbound(ctx: Parameters<MatterRunStepExecutor>[0]) {
     if (draft?.taskId) {
       existing.draftTaskId = draft.taskId;
     }
-    if (!existing.pendingSend && pendingSend) {
-      existing.pendingSend = pendingSend;
+    if (!existing.pendingSend && boundPendingSend) {
+      existing.pendingSend = boundPendingSend;
     }
     saveAutomationInboxItem(ctx.workspaceDir, existing);
     return { status: "done" as const, outputRefs: [`inbox:${existing.id}`] };
@@ -291,7 +365,7 @@ async function prepareOutbound(ctx: Parameters<MatterRunStepExecutor>[0]) {
     createdAt: ctx.at,
     jobId,
     ...(draft?.taskId ? { draftTaskId: draft.taskId } : {}),
-    ...(pendingSend ? { pendingSend } : {}),
+    ...(boundPendingSend ? { pendingSend: boundPendingSend } : {}),
   };
   saveAutomationInboxItem(ctx.workspaceDir, item);
   return { status: "done" as const, outputRefs: [`inbox:${item.id}`] };

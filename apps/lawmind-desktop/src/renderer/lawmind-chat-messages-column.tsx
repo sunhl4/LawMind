@@ -4,8 +4,8 @@
  */
 
 import type { ReactNode, RefObject } from "react";
-import { useCallback, useLayoutEffect, useMemo, useState } from "react";
-import { pinChatMessagesToLatest } from "./lawmind-chat-scroll";
+import { useCallback, useMemo, useState } from "react";
+import { useChatSessionScrollMemory } from "./useChatSessionScrollMemory";
 import type { LawMindRequiresAction, LawMindRequiresActionDecision } from "./lawmind-requires-action";
 import { LawmindChatHistorySearch } from "./LawmindChatHistorySearch";
 import { LawmindChatMessageRow } from "./LawmindChatMessageRow";
@@ -129,16 +129,11 @@ export function LawmindChatMessagesColumn({
   const [clarificationDraft, setClarificationDraft] = useState<Record<string, string>>({});
   const [searchHighlight, setSearchHighlight] = useState<Set<number> | null>(null);
 
-  // The chat pane (and this column) is unmounted while another main view
-  // (在办 / 文书台 / 会议室), the settings panel, or the editor-only layout is
-  // shown. On remount the transcript would open at scrollTop 0 — i.e. the first
-  // message — and the lawyer had to scroll down to the newest output by hand.
-  // Land on the latest turn instead, on every jump back to 对话. Message-growth
-  // during a live turn keeps its own smooth follow (lawmind-app-root), so this
-  // only runs for the mount itself.
-  useLayoutEffect(() => {
-    return pinChatMessagesToLatest();
-  }, []);
+  // 切回一场对话时停在离开时的位置（Cursor-like）；恢复/跟随全部瞬时，无平滑滑动。
+  // 消息是异步换入的，用「条数 + 末条长度 + 活动块数 + loading」当指纹触发纠正。
+  const lastMessage = currentMessages[currentMessages.length - 1];
+  const transcriptKey = `${currentMessages.length}:${lastMessage?.text?.length ?? 0}:${lastMessage?.activity?.length ?? 0}:${loading ? 1 : 0}`;
+  useChatSessionScrollMemory({ sessionId: chatSessionId, transcriptKey });
 
   const pendingClarify = getPendingClarificationState(currentMessages);
   const lastAssistantIndex = useMemo(() => {

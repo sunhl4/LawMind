@@ -231,7 +231,13 @@ describe("delivery run executors", () => {
     expect(inbox[0]?.pendingSend).toMatchObject({
       to: "client@example.org",
       attachmentRelativePaths: ["artifacts/task-1.docx"],
+      binding: {
+        packet: {
+          packetId: "pkt_automation_task-1",
+        },
+      },
     });
+    expect(inbox[0]?.pendingSend?.binding?.packet?.packetHash).toMatch(/^[a-f0-9]{32}$/);
   });
 
   it("fails the run when the job failed, without writing a ready item", async () => {

@@ -8,7 +8,6 @@ import { samePartyName } from "../../../desk/matter-parties.js";
 import { indexExists } from "../../../indexing/fts-ingest.js";
 import { searchPersonalKnowledge } from "../../../indexing/knowledge-search.js";
 import { scanConflictOfInterest } from "../../../intake/conflict-scan.js";
-import { siblingDocxRelative } from "../../../mail/convert-to-docx.js";
 import { isBinaryWordDocPath, readBinaryWordDocText } from "../../../mail/read-word-binary.js";
 import { loadMemoryContext } from "../../../memory/index.js";
 import type { IngestSourceType, IngestStage } from "../../../platform/contracts.js";
@@ -33,7 +32,7 @@ import { resolveWorkspaceRelativePath } from "../../../runtime/workspace-path.js
 import { searchLawyerWorks } from "../../../work/search.js";
 import { readConversation, searchConversations } from "../../conversation-search.js";
 import { resolveDocumentPageChars } from "../../document-read-budget.js";
-import type { FactorState } from "../../factor-state.js";
+import { proposalSupported, type FactorState } from "../../factor-state.js";
 import type { AgentTool } from "../../types.js";
 import { matterRequiredResult } from "../matter-required.js";
 import {
@@ -396,7 +395,7 @@ export const readProjectFile: AgentTool = {
   definition: {
     name: "read_project_file",
     description:
-      "读取律师在桌面端关联的「项目目录」下的文本文件、PDF、.docx、.xlsx（表格转 TSV 纯文本，有界）、常见图片（OCR，可选视觉兜底）（相对路径）。若路径是目录则递归列举子目录与文件。二进制 .doc 会先用本机 WPS 或 Word 另存为同名 .docx 再读，不直接读 .doc；不支持 .xls/.ppt 与 .pptx。用于合同、证据清单、说明等本地材料；未关联项目时不可用。大文件请用 offset/limit（字符）分页；hasMore=true 时用 nextOffset 续读。",
+      "读取律师在桌面端关联的「项目目录」下的文本文件、PDF、.docx、.xlsx（表格转 TSV 纯文本，有界）、常见图片（OCR，可选视觉兜底）（相对路径）。若路径是目录则递归列举子目录与文件。二进制 .doc 用进程内 OLE 读正文，不另存；不支持 .xls/.ppt 与 .pptx。用于合同、证据清单、说明等本地材料；未关联项目时不可用。大文件请用 offset/limit（字符）分页；hasMore=true 时用 nextOffset 续读。",
     category: "search",
     parameters: {
       relative_path: {
@@ -518,10 +517,9 @@ export const readProjectFile: AgentTool = {
           ingestFailure("INGEST_EMPTY_CONTENT", "office_extract", ".doc 无可提取文本"),
         );
       }
-      const docxRel = siblingDocxRelative(rel);
       return toProjectSuccess("docx", text, st.size, "office_extract", {
         path: rel,
-        hint: `已直接读取 \`${rel}\`（内部解析，未另存）。基线按 \`${docxRel}\` 继续。`,
+        hint: `已直接读取 \`${rel}\`（进程内 OLE，未另存）。基线仍是这份 .doc；导出时再转成 .docx。`,
       });
     }
     const projectOfficeBlock = unsupportedOfficeIngestReason(full);
@@ -683,7 +681,11 @@ function amountSignals(state: FactorState | undefined): {
         groundedAmounts.push(outcome.id.trim());
       }
     }
-    if (factor.flag === "conflict" && factor.proposalId?.trim()) {
+    if (
+      factor.flag === "conflict" &&
+      factor.proposalId?.trim() &&
+      proposalSupported(factor, state.turnEpoch)
+    ) {
       rejectedAmounts.push(factor.proposalId.trim());
     }
   }

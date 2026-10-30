@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
 import type { ArtifactDraft } from "../../../../src/lawmind/types.ts";
 import { createAssistantDraft, type AssistantEditorDraft } from "./lawmind-assistant-editor";
 import type { LawmindMainView } from "./lawmind-main-view";
@@ -55,7 +55,13 @@ export { formatFileChatContextPill } from "./lawmind-file-chat-context";
 export type { LawmindHealthState } from "./useLawmindAppBootstrapEffects";
 export { mapHealthState } from "./useLawmindAppBootstrapEffects";
 
-export function useLawmindAppShell() {
+export function useLawmindAppShell(opts?: {
+  paneWindow?: boolean;
+  /** 中栏独立窗：把案件上下文钉在拖出时那一案，避免聊天水合把它改掉。 */
+  paneContextMatterId?: string | null;
+}) {
+  const paneWindow = opts?.paneWindow === true;
+  const pinnedContextMatterId = opts?.paneContextMatterId?.trim() || null;
   const [mainView, setMainView] = useState<LawmindMainView>("workspace");
   const [reviewFocusTaskId, setReviewFocusTaskId] = useState<string | null>(null);
   const [reviewFocusMatterId, setReviewFocusMatterId] = useState<string | null>(null);
@@ -134,7 +140,19 @@ export function useLawmindAppShell() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contextTaskId, setContextTaskId] = useState<string | null>(null);
-  const [contextMatterId, setContextMatterId] = useState<string | null>(null);
+  const [contextMatterId, setContextMatterIdState] = useState<string | null>(
+    pinnedContextMatterId,
+  );
+  const setContextMatterId = useCallback(
+    (value: SetStateAction<string | null>) => {
+      if (pinnedContextMatterId) {
+        setContextMatterIdState(pinnedContextMatterId);
+        return;
+      }
+      setContextMatterIdState(value);
+    },
+    [pinnedContextMatterId],
+  );
   const {
     fileChatContextItems,
     addFileToChatContext,
@@ -279,6 +297,13 @@ export function useLawmindAppShell() {
     });
 
   const currentMessages = messagesByAssistant[selectedAssistantId] ?? [];
+  const reloadActiveChatSession = useCallback(async () => {
+    const sessionId = sessionByAssistant[selectedAssistantId]?.trim();
+    if (!sessionId) {
+      return;
+    }
+    await loadSessionMessagesIntoState(selectedAssistantId, sessionId);
+  }, [loadSessionMessagesIntoState, selectedAssistantId, sessionByAssistant]);
   const canUseFilesystemBridge = Boolean(
     config &&
       !config.workspaceDir.trim().startsWith("(") &&
@@ -487,6 +512,8 @@ export function useLawmindAppShell() {
     sessionByAssistant,
     assistants,
     setMessagesByAssistant,
+    // 独立窗照常收委派回传；只把桌面通知留给主窗口，避免同一结果弹两次。
+    notify: !paneWindow,
   });
 
   /**
@@ -736,6 +763,7 @@ export function useLawmindAppShell() {
       removeComposeTruthPin,
       clearComposeTruthPins,
       selectChatSession,
+      reloadActiveChatSession,
       openChatListScope,
       focusAssistantInCurrentScope,
       setKnownChatMatterIds,
@@ -745,6 +773,7 @@ export function useLawmindAppShell() {
       renameChatSession,
       deleteChatSession,
       watchBackgroundRevisionSession,
+      watchBackgroundSessionProgress,
       setMessagesByAssistant,
       setSessionByAssistant,
     },

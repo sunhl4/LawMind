@@ -38,7 +38,7 @@ import {
 import {
   applyInverseEdits,
   applyProseSyndrome,
-  composeWorkerSystem,
+  composeSubagentPrompt,
   emptyFactorState,
   formatMarginalBlock,
   fuseSharedAnchorLines,
@@ -265,13 +265,15 @@ describe("§9.6 step 8: 1-hop long-range drop on the labor fixture", () => {
     expect(block).toContain("15000");
     expect(block).not.toContain("clause:管辖");
     expect(block).not.toContain("labor-47");
-    expect(
-      composeWorkerSystem({
-        instructions: "只写解除。",
-        marginal: block,
-        parentTranscript: "PARENT_SECRET",
-      }),
-    ).not.toContain("PARENT_SECRET");
+    const system = composeSubagentPrompt({
+      instructions: "只写解除。",
+      state,
+      seeds: ["clause:解除"],
+    });
+    expect(system).not.toContain("PARENT_SECRET");
+    expect(system).toContain("【约化边界】");
+    expect(system).toContain("长程机械项：citation:labor-47");
+    expect(system).not.toContain(LABOR_47_SNIPPET);
   });
 });
 

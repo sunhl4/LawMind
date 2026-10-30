@@ -18,6 +18,7 @@ import type { FileChatContextItem } from "../lawmind-file-chat-context";
 import type { TruthSourceContextPin } from "../../../../../src/lawmind/platform/compose-context-pin.ts";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
+import type { LawmindPaneDetachBridge } from "../lawmind-pane-window";
 import { LawmindWorkspaceMainPane } from "./LawmindWorkspaceMainPane";
 import { LawmindWorkspaceBootstrapGate } from "./LawmindWorkspaceBootstrapGate";
 import { pickWorkspaceMainPaneProps } from "./pickWorkspaceMainPaneProps";
@@ -187,6 +188,8 @@ export type LawmindMainBodyContentProps = {
   onChatResumeComplete?: () => void | Promise<void>;
   /** Bump to open 工作台本案卷宗 (same matter can re-open). */
   deskMatterFocus?: import("./desk-matter-focus").DeskMatterFocus;
+  /** 主窗口的面板拆出状态；独立窗为 null。 */
+  paneDetach?: LawmindPaneDetachBridge | null;
 };
 
 export function LawmindMainBodyContent(props: LawmindMainBodyContentProps) {

@@ -154,7 +154,7 @@ export function buildChatDeepLinkHandlers(deps: ChatDeepLinkDeps) {
       setMainView("workspace");
       void Promise.resolve(selectChatSession(sessionId, assistantId)).finally(() => {
         // Session load is async; land on latest execution, not the turn start.
-        scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
+        scheduleScrollChatMessagesToLatest({ behavior: "auto" });
       });
     },
     onGoToChat: ({

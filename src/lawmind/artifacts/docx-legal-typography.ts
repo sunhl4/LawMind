@@ -68,7 +68,7 @@ const PT = 20;
 export type ChineseHeadingLevel = 1 | 2 | 3;
 
 export type DocxFace = {
-  id: "researchMemo" | "formal" | "researchReport";
+  id: "researchMemo" | "formal" | "researchReport" | "workingDraft";
   bodyEastAsia: string;
   bodyLatin: string;
   headingEastAsia: string;
@@ -219,6 +219,12 @@ export const REPORT_FACE: DocxFace = {
   showPageNumber: true,
 };
 
+/** 未点名文书种类时的中性工作稿：宋体正文，不套备忘录「致 / 自 / 日期 / 事由」。 */
+export const WORKING_DRAFT_FACE: DocxFace = {
+  ...RESEARCH_MEMO_FACE,
+  id: "workingDraft",
+};
+
 /**
  * 按律所备忘录中文编号识别标题层级。
  * 一级：一、  二级：（一）  三级：1、
@@ -251,6 +257,9 @@ export function docxFaceForVariant(variant: string | undefined): DocxFace {
   }
   if (variant === "researchReport") {
     return REPORT_FACE;
+  }
+  if (variant === "workingDraft") {
+    return WORKING_DRAFT_FACE;
   }
   return RESEARCH_MEMO_FACE;
 }

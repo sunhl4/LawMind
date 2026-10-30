@@ -463,7 +463,7 @@ Electron 主进程 (main.mjs)
 
 ### 设置面板架构
 
-设置由顶栏齿轮（`lm-gear-btn`）触发，在主工作栏以 **全页** `LawmindSettingsPage`（`lm-settings-page`）展示，左侧导航 + 右侧内容区（非模态叠层）。侧栏是**一条 8 项平铺目录**（Cursor 风格，不分组、没有「更多设置」折叠桶），见 `lawmind-settings-nav.ts`：
+设置由侧栏底部账号行的齿轮（`lm-gear-btn`；侧栏收起或整理资料时挂到顶栏）触发，在主工作栏以 **全页** `LawmindSettingsPage`（`lm-settings-page`）展示，左侧导航 + 右侧内容区（非模态叠层）。侧栏是**一条 8 项平铺目录**（Cursor 风格，不分组、没有「更多设置」折叠桶），见 `lawmind-settings-nav.ts`：
 
 账号、模型与连接、工作区、外观、协作、自动办件、记忆库、免责声明。
 

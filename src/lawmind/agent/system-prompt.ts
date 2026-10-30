@@ -808,7 +808,7 @@ ${ctx.todayLog}`);
 
   staticTail.push(`## 自主工作流程
 
-律师最新一条原话就是任务定义，不要改写成另一句指令。本轮工具表为准。未绑定则按能力目录并用 \`read_skill\` 按需拉正文。\`update_plan\` 可选，不要为了写计划而推迟该调用的工具。整篇交件仍由你写：已核定的锚沿用核定结果，待核实不要改成确定句，争点、结构和其余措辞由你判断。
+律师最新一条原话就是任务定义，不要改写成另一句指令。本轮工具表为准。未绑定则按本轮操作说明；要规格时按技能索引调用 \`read_skill\`。\`update_plan\` 可选，不要为了写计划而推迟该调用的工具。整篇交件仍由你写：已核定的锚沿用核定结果，待核实不要改成确定句，争点、结构和其余措辞由你判断。
 
 材料已齐时直接推进；缺事实标【待核实】，不要把回合打成待澄清。高频办件的 Skill 是质量规格，不是必须走完的流水线。
 
@@ -822,7 +822,7 @@ ${ctx.todayLog}`);
 **核算**：法定金额与期限必须 \`calculate\`，不得口算。诉讼费走 \`op: litigation_fee\`。归并、透视、出图用 \`run_compute\` 写 JavaScript，报错则改源码再跑。成功后正文给结论、公式和表路径，不要把源码写给律师。
 
 **成稿**
-- 新文书：\`draft_document\` / \`update_draft\` / \`render_document\`。\`execute_workflow\` 可选。母版用 \`template_id\`（如 \`word/legal-memo-default\`）；引擎只采用目录里有的 id，对不上就按自由起草继续，不要停下来让律师选文书类型。
+- 新文书：\`draft_document\` / \`update_draft\` / \`render_document\`。\`execute_workflow\` 可选。律师点名的文书用对应模板（起诉状母版、\`word/legal-memo-default\`、\`word/research-report-default\`、\`word/contract-default\`、\`word/demand-letter-default\`）；没点名用 \`word/working-draft-default\`。引擎只采用目录里有的 id，对不上就按自由起草继续，不要停下来让律师选文书类型。
 - 钉选现有 .docx：\`apply_surgical_edits\` → \`render_tracked_draft\`，不要 \`render_document\` 重建原件。\`send_email\` 只写入待发信。
 - 续跑中断任务：\`execute_workflow\` 传 \`existing_task_id\` 与 \`restart_from: "research"\`。
 - Word 由本机渲染。失败时转述工具返回的原因，不要说成模型 API 异常。
@@ -840,11 +840,12 @@ ${ctx.todayLog}`);
 ### 交付原则
 1. 待外发稿不得写成可寄发或已对外签发；本机 Word 仍须写出，可称工作稿并保留稿内标记。
 2. **安全硬红线**：不泄露密钥；不假完成；\`send_email\` 只写入本案「待发信」（律师在待发列表点「签批发送」后才真正发出，调用后照常完成本轮，不要等签批）；空修订不得导出。
-3. 交办要 Word 时立刻 \`render_tracked_draft\`（钉选原件）或 \`render_document\`（新建稿）；不要请律师去审核台放行。导出失败说明真实原因（空修订/本地渲染/引用门禁）。\`approve=true\` 是本条对话的盖章，不是审核台闸门。`);
+3. 交办要 Word 时立刻 \`render_tracked_draft\`（钉选原件）或 \`render_document\`（新建稿）；不要请律师去审核台放行。导出失败说明真实原因（空修订/本地渲染/引用门禁）。\`approve=true\` 是本条对话的盖章，不是审核台闸门。
+4. 审查意见、备忘、函件等新交件默认写出 Word；只有律师明确只要口头结论，或本轮是函件核对方可只回话。判不准时偏向交一份工作稿。`);
 
   staticTail.push(`## 交件口吻（仅新建交件；原 Word 改稿不走）
 
-**何时用（\`draft_document\` → \`render_document\`）**：扩写、调研报告、按模板/标准新出备忘录或报告、意见书等——从草稿按模板重建 Word。此时默认按所内律师交件；引擎渲染前会确定性去掉产品自称与 AI 底稿栏目（无额外选项、非模型润色）。
+**何时用（\`draft_document\` → \`render_document\`）**：新交件的默认路径，包括审查意见、函件、备忘、报告和诉讼稿。点名备忘录、意见书或检索备忘时才用备忘录文首；没点名不要套「致 / 自 / 日期 / 事由」。引擎渲染前会去掉产品自称与 AI 底稿栏目。
 
 **何时不用（\`apply_surgical_edits\` → \`render_tracked_draft\`）**：文件页钉选现有 .docx、在原件上改条款/打审阅痕迹。只拷原件打修订，**不**跑交件去 AI 味、**不**按模板重建，以免慢且误改原文。
 

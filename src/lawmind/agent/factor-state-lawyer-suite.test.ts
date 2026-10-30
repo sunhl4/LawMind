@@ -21,15 +21,13 @@ import {
   appendMechanicalNote,
   applyInverseEdits,
   applyProseSyndrome,
-  composeWorkerSystem,
+  composeSubagentPrompt,
   consumeRedlineRepair,
   editContradictsGroundedAmount,
   emptyFactorState,
-  formatMarginalBlock,
   fuseSharedAnchorLines,
   ingestDefinedTerms,
   ingestToolResult,
-  marginalFactors,
   projectAssistantProseForSampling,
   projectReading,
   recordInverseEdits,
@@ -593,16 +591,16 @@ function buildCases(): Case[] {
           clauseAnchor: "clause:解除",
         });
         recordReading(state, "clause:管辖", "clause", "上海仲裁", true);
-        const block = formatMarginalBlock(marginalFactors(state, ["clause:解除"]));
-        const system = composeWorkerSystem({
+        const system = composeSubagentPrompt({
           instructions: "只写这一段。",
-          marginal: block,
-          parentTranscript: "PARENT_SECRET 上一案赔偿上限",
+          state,
+          seeds: ["clause:解除"],
         });
         return (
-          block.includes("clause:解除") &&
+          system.includes("clause:解除") &&
           !system.includes("PARENT_SECRET") &&
-          !block.includes("上海仲裁")
+          !system.includes("上海仲裁") &&
+          !system.includes("clause:管辖")
         );
       },
     });

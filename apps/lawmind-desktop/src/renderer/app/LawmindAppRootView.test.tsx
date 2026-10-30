@@ -318,6 +318,63 @@ describe("LawmindAppRootView", () => {
     expect(host.querySelector(".lm-shell-review")).toBeTruthy();
   });
 
+  it("replaces the full header with a slim bar in an aux pane window", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppRootView
+          {...minimalProps({
+            paneWindow: { title: "对话" },
+            onClosePaneWindow: () => {},
+          })}
+        />,
+      );
+    });
+    expect(host.querySelector(".lm-shell-pane-window")).toBeTruthy();
+    expect(host.querySelector(".lm-pane-window-bar")?.textContent).toContain("对话");
+    expect(host.querySelector(".lm-pane-window-bar")?.textContent).toContain("独立窗口");
+    expect(host.querySelector(".lm-main-header")).toBeNull();
+  });
+
+  it("wires 收回主窗口 to the close callback", async () => {
+    const onClosePaneWindow = vi.fn();
+    await act(async () => {
+      root.render(
+        <LawmindAppRootView
+          {...minimalProps({ paneWindow: { title: "中栏" }, onClosePaneWindow })}
+        />,
+      );
+    });
+    const button = [...host.querySelectorAll("button")].find((el) =>
+      el.textContent?.includes("收回主窗口"),
+    );
+    expect(button).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onClosePaneWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells the lawyer when 收回主窗口 could not close the window", async () => {
+    await act(async () => {
+      root.render(
+        <LawmindAppRootView
+          {...minimalProps({
+            paneWindow: { title: "对话" },
+            onClosePaneWindow: async () => false,
+          })}
+        />,
+      );
+    });
+    const button = [...host.querySelectorAll("button")].find((el) =>
+      el.textContent?.includes("收回主窗口"),
+    );
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(host.textContent).toContain("没收回去");
+  });
+
   it("keeps the chat shell when mainView is desk", async () => {
     await act(async () => {
       root.render(<LawmindAppRootView {...minimalProps({ mainView: "desk" })} />);

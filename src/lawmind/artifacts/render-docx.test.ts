@@ -194,6 +194,36 @@ describe("renderDocxWithOptions", () => {
     expect(documentXml).not.toContain("SimHei");
   });
 
+  it("renders a working draft without memo letterhead", async () => {
+    const result = await renderDocxWithOptions(
+      makeDraft({
+        title: "民事上诉状",
+        templateId: "word/working-draft-default",
+        deliverableType: "document.general",
+        audience: "甲公司",
+        createdAt: "2026-04-24T00:00:00.000Z",
+        summary: "应写进正文，不是文首套话。",
+        sections: [{ heading: "一、上诉请求", body: "请求撤销原判。", citations: [] }],
+        reviewNotes: ["内部备注不应出现"],
+      }),
+      outputDir,
+      { templateVariant: "workingDraft" },
+    );
+    expect(result.ok).toBe(true);
+    const data = await fs.readFile(result.outputPath!);
+    const zip = await JSZip.loadAsync(data);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    expect(documentXml).toContain("民事上诉状");
+    expect(documentXml).toContain("一、上诉请求");
+    expect(documentXml).toContain("SimSun");
+    expect(documentXml).not.toContain("致：");
+    expect(documentXml).not.toContain("自：");
+    expect(documentXml).not.toContain("事由：");
+    expect(documentXml).not.toContain("保密：");
+    expect(documentXml).not.toContain("审阅备注");
+    expect(documentXml).not.toContain("内部备注不应出现");
+  });
+
   it("does not double the 关于 prefix when the title is already a subject", async () => {
     const result = await renderDocxWithOptions(
       makeDraft({

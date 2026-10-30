@@ -121,6 +121,8 @@ export type LoopFlags = {
   documentRereadContinued: boolean;
   /** Word revision export coach fired. */
   wordRevisionExportNudged: boolean;
+  /** New-document export coach fired once. */
+  fileDeliverableNudged: boolean;
   /** Review-board export deferral bounces used this turn. */
   reviewBoardExportBounces: number;
   /** Forbidden shell coach fired. */
@@ -150,6 +152,7 @@ export function createLoopFlags(): LoopFlags {
     caseConclusionNudged: false,
     documentRereadContinued: false,
     wordRevisionExportNudged: false,
+    fileDeliverableNudged: false,
     reviewBoardExportBounces: 0,
     forbiddenShellNudged: false,
     identicalToolStreak: null,

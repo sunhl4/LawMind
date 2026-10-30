@@ -12,6 +12,7 @@ import { syncMatterMailbox } from "../mail/sync-inbox.js";
 import {
   dispatchFingerprint,
   findBlockedDispatch,
+  findDispatchedDispatch,
   formatBlockedDispatchNote,
   upsertDispatchEntry,
 } from "./automation-dispatch-ledger.js";
@@ -33,7 +34,9 @@ import {
   getAutomation,
   listAutomations,
   listMatterMailMessages,
+  filedContractMaterialRefs,
   materializeMailContractReviewBaselines,
+  withExtraContractRefs,
   sanitizeNotifyEmail,
   saveAutomation,
   saveAutomationInboxItem,
@@ -205,6 +208,7 @@ async function runOneAutomation(
         lastResultSummary: summary.slice(0, 500),
         lastErrorCode: undefined,
         lastErrorMessage: undefined,
+        runNowRequestedAt: undefined,
         nextRunAt:
           automation.schedule.kind === "once"
             ? automation.schedule.runAt
@@ -243,7 +247,12 @@ async function runOneAutomation(
         });
       }
     } else {
-      const drafted = buildMailContractReviewSummary(messages, automation.matterId);
+      const drafted = withExtraContractRefs(
+        automation.matterId,
+        messages,
+        buildMailContractReviewSummary(messages, automation.matterId),
+        filedContractMaterialRefs(workspaceDir, automation.matterId),
+      );
       const built = await materializeMailContractReviewBaselines(
         workspaceDir,
         messages,
@@ -262,17 +271,45 @@ async function runOneAutomation(
           built.attachmentRefs.length > 0,
         ) && Boolean(hooks.enqueueTemplate);
       const baselinePath = (built.preferredBaselinePath ?? built.preferredSourcePath ?? "").trim();
+      const baselineFingerprint = baselinePath
+        ? dispatchFingerprint(workspaceDir, baselinePath)
+        : "";
+      const runNowAt = automation.runNowRequestedAt?.trim();
+      const manualRun =
+        runNowAt !== undefined &&
+        runNowAt !== "" &&
+        (!automation.lastRunAt || Date.parse(runNowAt) > Date.parse(automation.lastRunAt));
+      // 定时轮询：同一份材料成功派过且内容指纹未变 → 不再重复跑。
+      // 律师点「立即运行」时跳过这条去重，保证手动重跑仍然有效。
+      const dispatchedSame =
+        baselinePath && !manualRun
+          ? findDispatchedDispatch(workspaceDir, {
+              matterId: automation.matterId,
+              relativePath: baselinePath,
+              fingerprint: baselineFingerprint,
+            })
+          : undefined;
       // 防重复派单：同一份材料上次已被门禁停下 → 不再重派（Codex 对齐「不重跑注定失败的事」）。
       const blocked = baselinePath
         ? findBlockedDispatch(workspaceDir, {
             matterId: automation.matterId,
             relativePath: baselinePath,
-            fingerprint: dispatchFingerprint(workspaceDir, baselinePath),
+            fingerprint: baselineFingerprint,
           })
         : undefined;
       const continuity = buildAutomationRunContinuityNote(automation);
       const blockedQuietKey = blocked ? `blocked:${blocked.fingerprint}` : undefined;
-      if (blocked && automation.lastQuietKey === blockedQuietKey) {
+      const dispatchedQuietKey = dispatchedSame
+        ? `dispatched:${dispatchedSame.fingerprint}`
+        : undefined;
+      if (dispatchedSame && automation.lastQuietKey === dispatchedQuietKey) {
+        summary = `${summary}\n\n同一份材料（内容未变）已经审阅过，这次不重复派单。`;
+        status = "skipped";
+      } else if (dispatchedSame) {
+        summary = `${summary}\n\n同一份材料（内容未变）已经审阅过，这次不重复派单。材料更新或手动「立即运行」后会重新派单。`;
+        nextQuietKey = dispatchedQuietKey;
+        status = "skipped";
+      } else if (blocked && automation.lastQuietKey === blockedQuietKey) {
         summary = `${summary}\n\n同一份材料上次已经停下，这次不再重复提醒。`;
         status = "skipped";
       } else if (blocked) {
@@ -309,10 +346,11 @@ async function runOneAutomation(
         summary = `${summary}\n\n（本地未挂载工作流入队钩子，仅生成附件路径清单。）`;
       }
       const repeatBlocked = Boolean(blocked) && automation.lastQuietKey === blockedQuietKey;
-      if (repeatBlocked) {
-        // 同一份材料已经告诉过律师，不再每隔一个周期推一条「未重复派单」。
+      if (repeatBlocked || dispatchedSame) {
+        // 同一份材料已经告诉过律师 / 已经审阅过，不再每隔一个周期推一条。
       } else if (!blocked) {
-        nextQuietKey = undefined;
+        // 成功派单后，下一轮同指纹保持安静；材料更新会生成新指纹，自动恢复。
+        nextQuietKey = jobId && baselinePath ? `dispatched:${baselineFingerprint}` : undefined;
         // 有待批准发信时才需要律师拍板（下面 push 的 kind 决定）；否则只是通报。
         push({
           title: `${automation.title} · 运行结果`,
@@ -336,7 +374,7 @@ async function runOneAutomation(
         upsertDispatchEntry(workspaceDir, {
           matterId: automation.matterId,
           relativePath: baselinePath,
-          fingerprint: dispatchFingerprint(workspaceDir, baselinePath),
+          fingerprint: baselineFingerprint,
           state: "dispatched",
           automationId: automation.id,
           at: now.toISOString(),
@@ -369,6 +407,7 @@ async function runOneAutomation(
           lastResultSummary: summary.slice(0, 500),
           lastErrorCode: undefined,
           lastErrorMessage: undefined,
+          runNowRequestedAt: undefined,
           nextRunAt:
             automation.schedule.kind === "once"
               ? automation.schedule.runAt
@@ -453,6 +492,7 @@ async function runOneAutomation(
     lastResultSummary: summary.slice(0, 500),
     lastErrorCode: undefined,
     lastErrorMessage: undefined,
+    runNowRequestedAt: undefined,
     lastQuietKey: nextQuietKey,
     nextRunAt:
       automation.schedule.kind === "once"
@@ -676,6 +716,7 @@ export async function processDueLawyerAutomations(
           lastResultSummary: `运行失败（${code}）：${message.slice(0, 200)}`,
           lastErrorCode: code,
           lastErrorMessage: message.slice(0, 500),
+          runNowRequestedAt: undefined,
           nextRunAt: computeNextRunAt(failed.schedule, new Date(now.getTime() + 3_600_000)),
           updatedAt: now.toISOString(),
         });

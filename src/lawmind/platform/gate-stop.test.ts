@@ -11,10 +11,14 @@ import {
   clearBlockedDispatch,
   dispatchFingerprint,
   findBlockedDispatch,
+  dispatchSucceededForTurnStatus,
+  findDispatchedDispatch,
   formatBlockedDispatchNote,
   listDispatchLedger,
+  markDispatchedCompleted,
   markDispatchBlocked,
   syncDispatchLedgerForTurn,
+  upsertDispatchEntry,
 } from "./automation-dispatch-ledger.js";
 import { detectGateStop, formatGateStopSummary } from "./gate-stop.js";
 
@@ -172,5 +176,68 @@ describe("automation dispatch ledger", () => {
       gateStop: true,
     });
     expect(listDispatchLedger(ws)).toHaveLength(0);
+  });
+
+  it("停在律师手上的回合不再重派，出错和中断仍会重派", () => {
+    expect(dispatchSucceededForTurnStatus("completed")).toBe(true);
+    expect(dispatchSucceededForTurnStatus("awaiting_approval")).toBe(true);
+    expect(dispatchSucceededForTurnStatus("awaiting_clarification")).toBe(true);
+    expect(dispatchSucceededForTurnStatus("paused")).toBe(true);
+    expect(dispatchSucceededForTurnStatus("error")).toBe(false);
+    expect(dispatchSucceededForTurnStatus("interrupted")).toBe(false);
+  });
+
+  it("只有正常收口后 completed 才参与去重；只派单未完成不算审阅过", () => {
+    const ws = tmpWs();
+    const rel = "cases/m/协议.docx";
+    fs.mkdirSync(path.dirname(path.join(ws, rel)), { recursive: true });
+    fs.writeFileSync(path.join(ws, rel), "x");
+    const fp = dispatchFingerprint(ws, rel);
+    upsertDispatchEntry(ws, {
+      matterId: "m",
+      relativePath: rel,
+      fingerprint: fp,
+      state: "dispatched",
+      automationId: "a-1",
+      at: "2026-10-30T00:00:00.000Z",
+    });
+
+    expect(
+      findDispatchedDispatch(ws, { matterId: "m", relativePath: rel, fingerprint: fp }),
+    ).toBeUndefined();
+
+    expect(markDispatchedCompleted(ws, { matterId: "m", relativePath: rel })).toBe(true);
+    expect(
+      findDispatchedDispatch(ws, { matterId: "m", relativePath: rel, fingerprint: fp }),
+    ).toBeTruthy();
+    // 幂等：已完成的再标一次不重复写。
+    expect(markDispatchedCompleted(ws, { matterId: "m", relativePath: rel })).toBe(false);
+
+    // 回合失败/中断：不能把「已派单」误标成已审阅，否则定时任务不再重试。
+    const failedRel = "cases/m/未完成协议.docx";
+    fs.writeFileSync(path.join(ws, failedRel), "y");
+    const failedFp = dispatchFingerprint(ws, failedRel);
+    upsertDispatchEntry(ws, {
+      matterId: "m",
+      relativePath: failedRel,
+      fingerprint: failedFp,
+      state: "dispatched",
+      automationId: "a-2",
+      at: "2026-10-30T00:00:00.000Z",
+    });
+    syncDispatchLedgerForTurn({
+      workspaceDir: ws,
+      matterId: "m",
+      instruction: `默认 contract_edit_baseline_path=\`${failedRel}\``,
+      gateStop: false,
+      succeeded: false,
+    });
+    expect(
+      findDispatchedDispatch(ws, {
+        matterId: "m",
+        relativePath: failedRel,
+        fingerprint: failedFp,
+      }),
+    ).toBeUndefined();
   });
 });

@@ -62,6 +62,21 @@ describe("extractLegalEvents", () => {
     expect(events.find((e) => e.eventKind === "hearing")?.dueAt).toBeUndefined();
   });
 
+  it("does not treat an invoice date as contract expiry when 合同 is in another sentence", () => {
+    const events = extractLegalEvents("合同已寄出。发票到期日为2026年3月1日。");
+    expect(events.find((event) => event.title === "合同到期")).toBeUndefined();
+  });
+
+  it("reads contract expiry only when 合同 and the date share a sentence", () => {
+    const events = extractLegalEvents("租赁合同于2026年3月1日到期。");
+    expect(events.find((event) => event.title === "合同到期")?.dueAt).toMatch(/^2026-03-01/);
+  });
+
+  it("does not record a seizure mention that has no deadline language", () => {
+    const events = extractLegalEvents("已于2026年1月1日查封账户。");
+    expect(events.find((event) => event.eventKind === "preservation")?.dueAt).toBeUndefined();
+  });
+
   it("labels 续封 separately from the original 保全", () => {
     const events = extractLegalEvents("关于续冻银行存款的申请：2026年12月1日前提交。");
     expect(events.some((e) => e.eventKind === "preservation" && e.title.includes("续封"))).toBe(

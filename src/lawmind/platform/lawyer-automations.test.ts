@@ -390,6 +390,27 @@ describe("lawyer-automations", () => {
     ).toBe(false);
   });
 
+  it("includes a contract filed into materials when the mail inbox has no attachment", async () => {
+    const { buildMailContractReviewSummary, filedContractMaterialRefs, withExtraContractRefs } =
+      await import("./lawyer-automations.js");
+    const ws = tmpWs();
+    const matterId = "m_drop";
+    const abs = path.join(ws, "cases", matterId, "materials", "租赁合同.docx");
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, "not a real docx");
+    fs.writeFileSync(path.join(path.dirname(abs), "证据.pdf"), "scan");
+
+    const extra = filedContractMaterialRefs(ws, matterId);
+    expect(extra.map((row) => row.name)).toEqual(["租赁合同.docx"]);
+    const built = withExtraContractRefs(
+      matterId,
+      [],
+      buildMailContractReviewSummary([], matterId),
+      extra,
+    );
+    expect(built.preferredSourcePath).toBe(`cases/${matterId}/materials/租赁合同.docx`);
+  });
+
   it("falls back to opinion review when a .doc body cannot be read", async () => {
     const { buildMailContractReviewSummary, materializeMailContractReviewBaselines } =
       await import("./lawyer-automations.js");

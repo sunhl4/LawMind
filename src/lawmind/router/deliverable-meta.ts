@@ -555,18 +555,6 @@ function clarificationQuestionsFor(
         },
       ];
     }
-    case "document.general": {
-      if (/(用途|读者|对象)/.test(instruction) && /(要点|必须|包含)/.test(instruction)) {
-        return undefined;
-      }
-      return [
-        {
-          key: "doc_purpose",
-          question: "请补充文书用途、读者对象，以及必须包含的要点。",
-          reason: "用途不清时容易写成无法验收的半成品。",
-        },
-      ];
-    }
     default:
       return undefined;
   }

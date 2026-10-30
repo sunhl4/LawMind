@@ -6,6 +6,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveWordRevisionAuthor } from "../policy/word-revision-author.js";
+import { planRevisionTimestamps } from "./revision-timestamps.js";
 import { makeAuthorClock, maxTrackId } from "./word-revision/compose.js";
 import {
   copyDocx,
@@ -200,6 +201,18 @@ export async function writeDocxCompareCopy(params: {
     startId = Math.max(startId, maxTrackId(runs) + 1);
   }
   const author = makeAuthorClock(resolveWordRevisionAuthor(params.author ?? "比较"), startId);
+  let baseMtime: Date | undefined;
+  try {
+    baseMtime = new Date((await fs.stat(params.baseAbs)).mtimeMs);
+  } catch {
+    /* stat 失败就只按导出时刻倒推 */
+  }
+  // 比较稿里每条差异也是一处修订；按阅读顺序给它们排不同的时间。
+  const revisionDates = planRevisionTimestamps({
+    count: layoutParas.length,
+    seed: params.baseAbs,
+    ...(baseMtime ? { notBefore: baseMtime } : {}),
+  });
   let changed = 0;
   const nextParas = revisionParas.map((runs, index) => {
     const plan = byBase.get(index);
@@ -212,7 +225,8 @@ export async function writeDocxCompareCopy(params: {
       return runs;
     }
     changed += 1;
-    return materializeHunks(runs, [{ before, after }], author);
+    const date = revisionDates[index];
+    return materializeHunks(runs, [{ before, after }], author, date ? [date] : undefined);
   });
 
   const saved = await saveParagraphRuns({ absPath: outAbs, paragraphs: nextParas });

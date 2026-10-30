@@ -40,6 +40,7 @@ export type FactorLedgerDigest = {
     decodedUnique: number;
     ambiguous: number;
     uncorrectable: number;
+    transientBits: number;
   };
   repairs: {
     total: number;
@@ -47,12 +48,24 @@ export type FactorLedgerDigest = {
     capped: number;
     anchors: number;
   };
+  witness: {
+    events: number;
+    probes: number;
+    pass: number;
+    drift: number;
+    activeProbes: number;
+    counterfactualProbes: number;
+    persistentObeyed: number;
+    persistentInvented: number;
+    channels: number;
+  };
   summaries: {
     turns: number;
     factors: number;
     definite: number;
     mixed: number;
     redLights: number;
+    staleProposals: number;
     meanDistance: number;
     maxDistance: number;
     zeroDistance: number;
@@ -101,6 +114,7 @@ export function emptyFactorLedgerDigest(): FactorLedgerDigest {
       decodedUnique: 0,
       ambiguous: 0,
       uncorrectable: 0,
+      transientBits: 0,
     },
     repairs: {
       total: 0,
@@ -108,12 +122,24 @@ export function emptyFactorLedgerDigest(): FactorLedgerDigest {
       capped: 0,
       anchors: 0,
     },
+    witness: {
+      events: 0,
+      probes: 0,
+      pass: 0,
+      drift: 0,
+      activeProbes: 0,
+      counterfactualProbes: 0,
+      persistentObeyed: 0,
+      persistentInvented: 0,
+      channels: 0,
+    },
     summaries: {
       turns: 0,
       factors: 0,
       definite: 0,
       mixed: 0,
       redLights: 0,
+      staleProposals: 0,
       meanDistance: 0,
       maxDistance: 0,
       zeroDistance: 0,
@@ -125,6 +151,7 @@ export function summarizeFactorLedger(records: readonly FactorLedgerRecord[]): F
   const digest = emptyFactorLedgerDigest();
   digest.total = records.length;
   const syndromeAnchors = new Set<string>();
+  const witnessChannels = new Set<string>();
   let distanceSum = 0;
   let distanceCount = 0;
   for (const record of records) {
@@ -152,6 +179,9 @@ export function summarizeFactorLedger(records: readonly FactorLedgerRecord[]): F
         continue;
       }
       digest.syndromes.events += 1;
+      if (Array.isArray(payload?.transient)) {
+        digest.syndromes.transientBits += payload.transient.length;
+      }
       for (const bit of bits) {
         const row = asRecord(bit);
         const anchor = typeof row?.anchor === "string" ? row.anchor.trim() : "";
@@ -183,12 +213,52 @@ export function summarizeFactorLedger(records: readonly FactorLedgerRecord[]): F
       digest.repairs.anchors += anchors.length;
       continue;
     }
+    if (record.kind === "witness") {
+      const probes = numberAt(payload, "probes");
+      const scores = Array.isArray(payload?.scores) ? payload.scores : [];
+      digest.witness.events += 1;
+      digest.witness.probes += probes;
+      if (payload?.source === "active") {
+        digest.witness.activeProbes += probes;
+      }
+      for (const score of scores) {
+        const row = asRecord(score);
+        const verdict = row?.verdict;
+        if (verdict === "pass") {
+          digest.witness.pass += 1;
+        } else if (verdict === "drift") {
+          digest.witness.drift += 1;
+        }
+        if (row?.kind === "counterfactual") {
+          digest.witness.counterfactualProbes += 1;
+        }
+      }
+      const filter = Array.isArray(payload?.filter) ? payload.filter : [];
+      for (const reading of filter) {
+        const row = asRecord(reading);
+        const channel = typeof row?.channel === "string" ? row.channel.trim() : "";
+        if (channel) {
+          witnessChannels.add(channel);
+        }
+        const decision = asRecord(row?.decision);
+        if (decision?.kind !== "definite") {
+          continue;
+        }
+        if (decision.id === "obeyed") {
+          digest.witness.persistentObeyed += 1;
+        } else if (decision.id === "invented") {
+          digest.witness.persistentInvented += 1;
+        }
+      }
+      continue;
+    }
     if (record.kind === "summary") {
       digest.summaries.turns += 1;
       digest.summaries.factors += numberAt(payload, "factors");
       digest.summaries.definite += numberAt(payload, "definite");
       digest.summaries.mixed += numberAt(payload, "mixed");
       digest.summaries.redLights += numberAt(payload, "redLights");
+      digest.summaries.staleProposals += numberAt(payload, "staleProposals");
       const distances = numbersAt(payload, "distances");
       for (const distance of distances) {
         distanceSum += distance;
@@ -201,6 +271,7 @@ export function summarizeFactorLedger(records: readonly FactorLedgerRecord[]): F
     }
   }
   digest.syndromes.uniqueAnchors = syndromeAnchors.size;
+  digest.witness.channels = witnessChannels.size;
   digest.summaries.meanDistance = distanceCount > 0 ? distanceSum / distanceCount : 0;
   return digest;
 }
@@ -209,8 +280,9 @@ export function renderFactorLedgerDigest(digest: FactorLedgerDigest): string {
   return [
     `【因子账本】${digest.total} 条记录`,
     `修正 ${digest.corrections.total}：reverted ${digest.corrections.reverted} / partial ${digest.corrections.partial} / kept ${digest.corrections.kept}；带读数 ${digest.corrections.withReadings}；逆补丁 ${digest.corrections.fileEditsReverted}；零距离读数 ${digest.corrections.zeroDistance}`,
-    `综合征 ${digest.syndromes.events}：锚 ${digest.syndromes.uniqueAnchors}；唯一解 ${digest.syndromes.decodedUnique} / 同价 ${digest.syndromes.ambiguous} / 无解 ${digest.syndromes.uncorrectable}`,
+    `综合征 ${digest.syndromes.events}：锚 ${digest.syndromes.uniqueAnchors}；瞬态位 ${digest.syndromes.transientBits}；唯一解 ${digest.syndromes.decodedUnique} / 同价 ${digest.syndromes.ambiguous} / 无解 ${digest.syndromes.uncorrectable}`,
     `修复 ${digest.repairs.total}：反弹 ${digest.repairs.bounced} / 封顶 ${digest.repairs.capped}；涉及锚 ${digest.repairs.anchors}`,
-    `回合 ${digest.summaries.turns}：因子 ${digest.summaries.factors}；确定 ${digest.summaries.definite} / 混合 ${digest.summaries.mixed}；红灯 ${digest.summaries.redLights}；平均距离 ${digest.summaries.meanDistance.toFixed(2)}；最大 ${digest.summaries.maxDistance}；零距离 ${digest.summaries.zeroDistance}`,
+    `抽查 ${digest.witness.events} 次 / ${digest.witness.probes} 问：通过 ${digest.witness.pass} / 偏离 ${digest.witness.drift}；主动 ${digest.witness.activeProbes}；反事实 ${digest.witness.counterfactualProbes}；稳定遵守 ${digest.witness.persistentObeyed} / 稳定编造 ${digest.witness.persistentInvented}；通道 ${digest.witness.channels}`,
+    `回合 ${digest.summaries.turns}：因子 ${digest.summaries.factors}；确定 ${digest.summaries.definite} / 混合 ${digest.summaries.mixed}；红灯 ${digest.summaries.redLights}；陈旧提案 ${digest.summaries.staleProposals}；平均距离 ${digest.summaries.meanDistance.toFixed(2)}；最大 ${digest.summaries.maxDistance}；零距离 ${digest.summaries.zeroDistance}`,
   ].join("\n");
 }

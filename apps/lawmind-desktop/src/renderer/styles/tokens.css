@@ -27,6 +27,8 @@
   --accent-hover:   #8f6a45;
   --accent-dim:     rgba(166, 124, 82, 0.12);
   --accent-border:  rgba(166, 124, 82, 0.38);
+  /* 金色「更新」药丸上的墨色文字：两种主题下底色都是浅铜金，固定深色才满足 4.5:1。 */
+  --update-pill-ink: #1f170f;
 
   /* Cool accent — used sparingly for non-primary highlights (deep teal) */
   --accent-cool:        #2f8f8a;

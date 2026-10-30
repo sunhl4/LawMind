@@ -20,6 +20,8 @@ import {
 import { isValidMatterId } from "../cases/matter-id.js";
 import { scanPartyCandidates } from "../desk/intake-promote.js";
 import type { MatterDocket } from "../desk/matter-kind.js";
+import { recordIntakeDeadlines } from "./auto-schedule.js";
+import { intakeItemCorpus } from "./readable-text.js";
 import { getIntakeItem, intakeRoot } from "./store.js";
 import type { IntakeItem } from "./types.js";
 
@@ -200,6 +202,35 @@ export function listMissingProvenance(workspaceDir: string, matterId: string): P
   return { missing, tracked };
 }
 
+const REVIEW_ON_WRITE = new Set<MatterProvenanceField>(["docket.court", "causeOfAction"]);
+
+function ensureWrittenReview(input: {
+  workspaceDir: string;
+  matterId: string;
+  field: MatterProvenanceField;
+  value: string;
+  quote: string;
+}): void {
+  if (!REVIEW_ON_WRITE.has(input.field)) {
+    return;
+  }
+  const title = `核对${FIELD_LABELS[input.field]}`;
+  const open = listQueueItemsForMatter(input.workspaceDir, input.matterId, {
+    kind: "need_client_input",
+    status: "open",
+  });
+  if (open.some((item) => item.title === title)) {
+    return;
+  }
+  openQueueItem(input.workspaceDir, {
+    matterId: input.matterId,
+    kind: "need_client_input",
+    title,
+    priority: "normal",
+    detail: `已写入「${input.value}」。原文：${input.quote}。可在卷宗里改。`.slice(0, 500),
+  });
+}
+
 function ensureConflictQueueItem(input: {
   workspaceDir: string;
   matterId: string;
@@ -300,6 +331,13 @@ export async function applyIntakeFieldProvenance(
     if (!current) {
       entries.push({ ...base, status: "applied" });
       applied.push(field);
+      ensureWrittenReview({
+        workspaceDir,
+        matterId: id,
+        field,
+        value,
+        quote,
+      });
       if (isDocketField(field)) {
         switch (field) {
           case "docket.caseNo":
@@ -382,9 +420,13 @@ export async function applyIntakeFieldProvenance(
 
 const CASE_NO_RE =
   /[（(]\s*\d{4}\s*[）)]\s*[\u4e00-\u9fa5]{1,10}\d{0,10}[\u4e00-\u9fa5]{1,10}\d{1,10}\s*号/;
+const COURT_RE =
+  /(最高人民法院|[\u4e00-\u9fa5]{2,7}市[\u4e00-\u9fa5]{1,8}(?:区|县)?[\u4e00-\u9fa5]{0,8}(?:人民法院|海事法院|知识产权法院|互联网法院)|[\u4e00-\u9fa5]{2,16}仲裁委员会)/;
+const CAUSE_RE = /案由\s*[：:为是]\s*([^\n。；;]{2,40})/;
 
 function haystack(item: IntakeItem): string {
-  return `${item.subject ?? ""}\n${item.text}`;
+  // 案号经常只出现在附件文件名里，主题和正文都没有。
+  return [item.subject ?? "", item.text, ...item.attachments.map((row) => row.name)].join("\n");
 }
 
 function quoteFor(text: string, needle: string): string {
@@ -430,6 +472,26 @@ export function extractIntakeMatterFields(item: IntakeItem): Array<{
     });
   }
 
+  const court = text.match(COURT_RE)?.[1]?.trim();
+  if (court) {
+    push({
+      field: "docket.court",
+      value: court,
+      quote: quoteFor(text, court),
+      confidence: 0.7,
+    });
+  }
+
+  const cause = text.match(CAUSE_RE)?.[1]?.trim();
+  if (cause) {
+    push({
+      field: "causeOfAction",
+      value: cause,
+      quote: quoteFor(text, cause),
+      confidence: 0.7,
+    });
+  }
+
   const counterparty = scanPartyCandidates(item.text).kept.find((row) =>
     /被告|被申请人|被上诉人|对方|相对方/.test(row.label),
   );
@@ -455,15 +517,25 @@ export async function applyIntakeFieldsFromItem(
   if (!item) {
     return { ok: false, error: "item_not_found" };
   }
-  const fields = extractIntakeMatterFields(item);
-  if (fields.length === 0) {
-    return {
-      ok: true,
-      applied: [],
-      same: [],
-      conflicts: [],
-      coverage: listMissingProvenance(workspaceDir, matterId),
-    };
+  const corpus = await intakeItemCorpus(workspaceDir, item).catch(() => item.text);
+  const view: IntakeItem = corpus === item.text ? item : { ...item, text: corpus };
+  const fields = extractIntakeMatterFields(view);
+  const result =
+    fields.length === 0
+      ? {
+          ok: true as const,
+          applied: [],
+          same: [],
+          conflicts: [],
+          coverage: listMissingProvenance(workspaceDir, matterId),
+        }
+      : await applyIntakeFieldProvenance(workspaceDir, matterId, { itemId, fields });
+  if (result.ok) {
+    try {
+      await recordIntakeDeadlines(workspaceDir, matterId, item, corpus || item.text);
+    } catch {
+      /* 期限是附加动作：失败不影响已经写入的字段 */
+    }
   }
-  return applyIntakeFieldProvenance(workspaceDir, matterId, { itemId, fields });
+  return result;
 }

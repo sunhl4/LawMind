@@ -261,6 +261,76 @@ samp {
   mix-blend-mode: screen;
 }
 
+/* ── 侧栏底部账号行（Cursor 式）：头像 + 产品名 + 金色「更新」药丸 + 齿轮 ── */
+.lm-side-account-footer {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 10px;
+}
+
+.lm-side-account-avatar {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lm-side-account-name {
+  min-width: 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lm-side-account-spacer {
+  flex: 1 1 auto;
+  min-width: 4px;
+}
+
+.lm-side-update-pill {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 999px;
+  padding: 3px 12px 4px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  line-height: 1.45;
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  /* 深墨压浅金：白字在 #a67c52 上只有约 3.7:1，达不到 AA。 */
+  color: var(--update-pill-ink);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 78%, #fff),
+    var(--accent)
+  );
+  box-shadow: var(--shadow-brass);
+  cursor: pointer;
+  transition: filter var(--t) var(--ease);
+}
+
+.lm-side-update-pill:hover {
+  filter: brightness(1.07);
+}
+
+.lm-side-update-pill:focus-visible {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 1px;
+}
+
+/* 已下载就绪：实色 + 一圈浅金（Cursor 的 "Update" 就绪态）。 */
+.lm-side-update-pill-ready {
+  background: var(--accent);
+  box-shadow: var(--shadow-brass), 0 0 0 2px var(--accent-dim);
+}
+
 .lm-side-scroll {
   flex: 1;
   min-height: 0;
@@ -8985,6 +9055,105 @@ html.lm-theme-dark .lm-btn-secondary:hover:not(:disabled) {
   min-width: 0;
 }
 
+/* ── Detached pane window (Cursor-like drag-out) ───────────── */
+.lm-pane-window-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+}
+
+.lm-pane-window-title {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.lm-pane-window-hint {
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+}
+
+.lm-pane-window-close-error {
+  color: var(--danger-text);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+}
+
+/* Left-edge grip: doesn't cover tabs/toolbars, and stays out of the resize handle. */
+.lm-pane-detach-grip {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-left: 0;
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+  color: var(--muted);
+  cursor: grab;
+  opacity: 0.45;
+  transform: translateY(-50%);
+  touch-action: none;
+  user-select: none;
+  transition:
+    opacity 120ms ease,
+    width 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.lm-pane-detach-grip:hover,
+.lm-pane-detach-grip:focus-visible {
+  width: 17px;
+  border-color: var(--control-border);
+  background: var(--control-bg-hover);
+  color: var(--text);
+  opacity: 1;
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.lm-pane-detach-grip:active {
+  cursor: grabbing;
+}
+
+.lm-pane-detach-grip:disabled {
+  cursor: default;
+  opacity: 0.2;
+}
+
+.lm-pane-all-detached {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-5);
+  color: var(--muted);
+  text-align: center;
+}
+
+.lm-pane-all-detached-title {
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
 .lm-desk-page .lm-desk-page-scroll {
   flex: 1;
   min-height: 0;
@@ -10660,9 +10829,19 @@ button.lm-side-chat-session-forked-btn {
   line-height: 1;
   letter-spacing: -0.01em;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: grab;
+  -webkit-user-drag: none;
   user-select: none;
   transition: background 120ms var(--ease), color 120ms var(--ease);
+}
+
+.lm-files-editor .lm-file-tab.is-dragging {
+  cursor: grabbing;
+  opacity: 0.62;
+}
+
+.lm-files-editor .lm-file-tab * {
+  -webkit-user-drag: none;
 }
 
 .lm-files-editor .lm-file-tab::after {
@@ -11922,18 +12101,11 @@ button.lm-side-chat-session-forked-btn {
   min-width: 0;
 }
 
-.lm-word-surface-title {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-
-.lm-word-surface-count {
-  flex-shrink: 0;
-  font-size: 12px;
-  color: var(--text-2);
-}
+/* REMOVED(2026-10-30) word-surface-revision-status
+   中栏「核对 · N 处待定」状态小字已去掉，原来的
+   .lm-word-surface-title / .lm-word-surface-count 两条规则随之移除。
+   如需捞回，按 docs/lawmind/LAWMIND-MIDDLE-COLUMN-PLAN.md §8.1 加回并重跑
+   pnpm lawmind:sync:renderer-css。 */
 
 .lm-word-surface-actions {
   display: flex;

@@ -19,8 +19,10 @@ const {
   listOpenAutomationInbox,
   listAutomations,
   saveAutomation,
+  writeMatterMailMessage,
 } = await import("./lawyer-automations.js");
 const { listAutomationRuns } = await import("./automation-run-history.js");
+const { syncDispatchLedgerForTurn } = await import("./automation-dispatch-ledger.js");
 const { AUTOMATION_RUN_STEP_KIND, processDueLawyerAutomations } =
   await import("./lawyer-automations-runner.js");
 const { createMatterRunOnDisk, listMatterRuns } = await import("./matter-run-store.js");
@@ -400,5 +402,74 @@ describe("自动办件跑在 MatterRun 上", () => {
     await processDueLawyerAutomations(ws, {});
     expect(listMatterRuns(ws, { matterId: "missing-matter" })).toHaveLength(1);
     expect(listAutomationRuns(ws, created.id)).toHaveLength(1);
+  });
+
+  it("邮件合同审阅：同一份合同指纹不变时定时轮询不重复派单，手动立即运行仍可重跑", async () => {
+    const ws = tmpWs();
+    const attachmentDir = path.join(ws, "cases", "m1", "mail", "attachments", "msg-1");
+    fs.mkdirSync(attachmentDir, { recursive: true });
+    fs.writeFileSync(path.join(attachmentDir, "合同.docx"), "PK-fake-docx");
+    writeMatterMailMessage(ws, "m1", {
+      id: "msg-1",
+      from: "对方 <opp@firm.com>",
+      to: "我 <me@firm.com>",
+      subject: "合同修订稿",
+      receivedAt: "2026-10-30T00:00:00.000Z",
+      bodyText: "请审阅附件合同。",
+      attachments: [{ name: "合同.docx", relativePath: "mail/attachments/msg-1/合同.docx" }],
+    });
+    const created = createAutomation(ws, {
+      presetId: "mail-contract-review",
+      matterId: "m1",
+      title: "邮件合同审阅改稿",
+    });
+    const scheduled = getAutomation(ws, created.id);
+    if (!scheduled) {
+      throw new Error("automation missing");
+    }
+    saveAutomation(ws, { ...scheduled, nextRunAt: new Date(0).toISOString() });
+
+    const jobs: string[] = [];
+    const hooks = {
+      enqueueTemplate: ({ templateId }: { templateId: string }) => {
+        jobs.push(templateId);
+        return `job-${jobs.length}`;
+      },
+    };
+
+    await processDueLawyerAutomations(ws, hooks);
+    expect(jobs).toEqual(["mail-contract-redline"]);
+
+    // 模拟工作流正常收口：派单台账从 dispatched 变成 completed。
+    syncDispatchLedgerForTurn({
+      workspaceDir: ws,
+      matterId: "m1",
+      instruction: "默认 contract_edit_baseline_path=`cases/m1/mail/attachments/msg-1/合同.docx`",
+      gateStop: false,
+    });
+
+    const afterFirst = getAutomation(ws, created.id);
+    if (!afterFirst) {
+      throw new Error("automation missing after first run");
+    }
+    saveAutomation(ws, { ...afterFirst, nextRunAt: new Date(0).toISOString() });
+    await processDueLawyerAutomations(ws, hooks);
+    // 指纹未变：第二次定时轮询不再派单。
+    expect(jobs).toHaveLength(1);
+    expect(listAutomationRuns(ws, created.id).some((run) => run.status === "skipped")).toBe(true);
+
+    const afterSecond = getAutomation(ws, created.id);
+    if (!afterSecond) {
+      throw new Error("automation missing after second run");
+    }
+    saveAutomation(ws, {
+      ...afterSecond,
+      nextRunAt: new Date(0).toISOString(),
+      // 未来的立即运行意图：即使指纹未变也必须重跑。
+      runNowRequestedAt: new Date(Date.now() + 1_000).toISOString(),
+    });
+    await processDueLawyerAutomations(ws, hooks);
+    expect(jobs).toHaveLength(2);
+    expect(getAutomation(ws, created.id)?.runNowRequestedAt).toBeUndefined();
   });
 });

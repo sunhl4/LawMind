@@ -10,7 +10,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchGraphMessages, sendGraphMail, testGraphMailConnection } from "./graph-mail.js";
+import {
+  dmarcFromGraphHeaders,
+  fetchGraphMessages,
+  sendGraphMail,
+  testGraphMailConnection,
+} from "./graph-mail.js";
 import type { MailAccount } from "./mail-accounts.js";
 
 const { proxyFetchMock } = vi.hoisted(() => ({ proxyFetchMock: vi.fn() }));
@@ -112,6 +117,12 @@ describe("mail/graph-mail", () => {
               receivedDateTime: "2026-07-18T08:00:00Z",
               bodyPreview: "正文",
               hasAttachments: false,
+              internetMessageHeaders: [
+                {
+                  name: "Authentication-Results",
+                  value: "mx.firm.com; spf=pass; dkim=pass; dmarc=fail header.from=firm.com",
+                },
+              ],
             },
           ],
         });
@@ -121,7 +132,26 @@ describe("mail/graph-mail", () => {
     const msgs = await fetchGraphMessages(baseAccount, root, { limit: 5 });
     expect(msgs).toHaveLength(1);
     expect(msgs[0]?.subject).toBe("合同");
+    expect(msgs[0]?.dmarc).toBe("fail");
     expect(msgs[0]?.attachments.length).toBeGreaterThanOrEqual(0);
+    // 需要 $select 才会返回 internetMessageHeaders；否则 Graph 不解析 DMARC。
+    const listCall = proxyFetchMock.mock.calls.find((c) =>
+      fetchCallUrl(c[0]).includes("/messages"),
+    );
+    expect(fetchCallUrl(listCall?.[0])).toContain("internetMessageHeaders");
+  });
+
+  it("takes the conservative DMARC verdict when headers disagree", () => {
+    expect(
+      dmarcFromGraphHeaders([
+        { name: "Authentication-Results", value: "mx.a; dmarc=pass" },
+        { name: "Authentication-Results", value: "mx.b; dmarc=fail" },
+      ]),
+    ).toBe("fail");
+    expect(
+      dmarcFromGraphHeaders([{ name: "Authentication-Results", value: "mx.a; dmarc=pass" }]),
+    ).toBe("pass");
+    expect(dmarcFromGraphHeaders([])).toBeUndefined();
   });
 
   it("sendGraphMail posts sendMail when configured", async () => {

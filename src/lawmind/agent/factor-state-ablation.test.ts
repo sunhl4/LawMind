@@ -18,6 +18,7 @@ import {
   applyInverseEdits,
   applyProseSyndrome,
   bodiesForNextRender,
+  composeSubagentPrompt,
   consumeRedlineRepair,
   editContradictsGroundedAmount,
   emptyFactorState,
@@ -233,7 +234,11 @@ describe("factor ablation", () => {
     if (plainWorker.includes("clause:管辖")) {
       plain.context_cloned += 1;
     }
-    const reduced = formatMarginalBlock(marginalFactors(wide, ["clause:解除"]));
+    const reduced = composeSubagentPrompt({
+      instructions: "只写解除段。",
+      state: wide,
+      seeds: ["clause:解除"],
+    });
     if (reduced.includes("上海仲裁") || reduced.includes("clause:管辖")) {
       stringHook.context_cloned += 1;
       treatment.context_cloned += 1;

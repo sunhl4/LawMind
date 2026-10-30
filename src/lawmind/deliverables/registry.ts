@@ -389,7 +389,7 @@ const REPORT_LEARNING_SPEC: DeliverableSpec = {
   type: "report.learning",
   displayName: "学习型调研简报",
   description: "国内外制度/趋势学习简报：背景、概念、制度要点（效力分级）、比较与实务启示。",
-  defaultTemplateId: "word/legal-memo-default",
+  defaultTemplateId: "word/research-report-default",
   defaultOutput: "docx",
   defaultRiskLevel: "low",
   requiredSections: [

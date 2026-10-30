@@ -17,12 +17,10 @@ import {
 import {
   appendMechanicalNote,
   applyProseSyndrome,
-  composeWorkerSystem,
+  composeSubagentPrompt,
   emptyFactorState,
-  formatMarginalBlock,
   fuseSharedAnchorLines,
   ingestToolResult,
-  marginalFactors,
   projectAssistantProseForSampling,
   projectReading,
   rememberBuiltinTemplateSkeleton,
@@ -33,8 +31,6 @@ import { calculateLegal } from "./tools/legal/calculate-lib.js";
 
 const JUDGMENT =
   "综合现有材料，我方主张就该条款保留谈判空间。若对方拒绝修改，则两种路径都写入意见。";
-
-const SECRET = "PARENT_SECRET 上一案赔偿上限壹佰万";
 
 function wanSpell(expected: number): string {
   const wan = expected / 10_000;
@@ -117,18 +113,16 @@ describe("LegalBench / CUAD express track", () => {
     (label, row) => {
       const state = ingestClause(row.anchor, row.outcome, row.excerpt);
       applyProseSyndrome(state, JUDGMENT);
-      const block = formatMarginalBlock(marginalFactors(state, [row.anchor]));
-      const system = composeWorkerSystem({
+      const system = composeSubagentPrompt({
         instructions: `只写这一段。${JUDGMENT}`,
-        marginal: block,
-        parentTranscript: SECRET,
+        state,
+        seeds: [row.anchor],
       });
       expect(system, label).toContain("主张就该条款保留谈判空间");
       expect(system, label).toContain("两种路径");
       expect(system, label).toContain(row.outcome);
       expect(system, label).not.toContain("PARENT_SECRET");
       expect(system, label).not.toContain("壹佰万");
-      expect(block, label).not.toContain("PARENT_SECRET");
     },
   );
 

@@ -56,6 +56,7 @@ import {
   paragraphTocTitle,
   type DocxFace,
 } from "./docx-legal-typography.js";
+import { markdownTableToDocxTable, splitMarkdownTableBlocks } from "./docx-tables.js";
 import { reportBodyChildren, type ThesisFigureCounters } from "./docx-thesis-figures.js";
 import { patchReportThesisDocx, reportDocumentStyles } from "./docx-thesis-styles.js";
 import { buildDeliverableFilename } from "./matter-word-delivery.js";
@@ -116,6 +117,7 @@ function buildWordSection(
   commentState: { nextId: number; comments: ICommentOptions[] },
   face: DocxFace,
   figureState: ThesisFigureCounters | undefined,
+  renderTables: boolean,
 ): FileChild[] {
   const paragraphs: FileChild[] = [];
   const level = classifyChineseHeadingLevel(section.heading) ?? 1;
@@ -137,6 +139,14 @@ function buildWordSection(
   }
   if (face.id === "researchReport" && figureState) {
     paragraphs.push(...reportBodyChildren(section.body, figureState));
+  } else if (renderTables) {
+    for (const block of splitMarkdownTableBlocks(section.body)) {
+      if (block.kind === "table") {
+        paragraphs.push(markdownTableToDocxTable(block.header, block.rows, face));
+      } else {
+        paragraphs.push(...bodyLinesToParagraphs(block.text, face));
+      }
+    }
   } else {
     paragraphs.push(...bodyLinesToParagraphs(section.body, face));
   }
@@ -328,6 +338,7 @@ export async function renderDocxWithOptions(
   // 需签署/提交的正式文书（委托合同、授权委托书等）：只有标题和正文，
   // 不写备忘录抬头、不写「一、结论」摘要，也不追加备忘录免责声明。
   const formalDocument = variant === "formalDocument";
+  const workingDraft = variant === "workingDraft" || face.id === "workingDraft";
   const skipDisclaimer = options.skipDisclaimer === true;
 
   const commentState = { nextId: 1, comments: [] as ICommentOptions[] };
@@ -342,6 +353,7 @@ export async function renderDocxWithOptions(
         commentState,
         face,
         researchReport ? figureState : undefined,
+        formalDocument,
       ),
     );
   };
@@ -387,7 +399,7 @@ export async function renderDocxWithOptions(
     if (researchMemo) {
       allParagraphs.push(paragraphMemoClosing(chineseMemoDate(draft.createdAt), face));
     }
-  } else if (formalDocument) {
+  } else if (formalDocument || workingDraft) {
     allParagraphs.push(paragraphDocumentTitle(draft.title, face));
     for (const section of draft.sections) {
       appendSection(section);
@@ -406,7 +418,13 @@ export async function renderDocxWithOptions(
   }
 
   // 审阅备注是产品内部痕迹，不写入对外备忘录、报告或可签署文书。
-  if (!researchMemo && !researchReport && !formalDocument && draft.reviewNotes.length > 0) {
+  if (
+    !researchMemo &&
+    !researchReport &&
+    !formalDocument &&
+    !workingDraft &&
+    draft.reviewNotes.length > 0
+  ) {
     allParagraphs.push(paragraphHeading1("审阅备注", face));
     for (const note of draft.reviewNotes) {
       allParagraphs.push(paragraphReviewNoteItem(note, face));

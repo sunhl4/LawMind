@@ -32,6 +32,12 @@ createRoot(el).render(
       <QueryClientProvider client={lawmindQueryClient}>
         {popout?.kind === "review-preview" ? (
           <LawmindReviewPreviewPopout taskId={popout.taskId} />
+        ) : popout?.kind === "workspace-pane" ? (
+          hasLawmindDesktopBridge() ? (
+            <App paneWindow={popout} />
+          ) : (
+            <LawmindDesktopRequiredPage />
+          )
         ) : hasLawmindDesktopBridge() ? (
           <App />
         ) : (

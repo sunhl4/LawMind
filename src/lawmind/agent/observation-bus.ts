@@ -100,6 +100,8 @@ export function recordSyndromeObservation(
       bits: observation.bits,
       decoded: observation.decoded,
       note: observation.note,
+      ...(observation.transient ? { transient: observation.transient } : {}),
+      ...(observation.round !== undefined ? { round: observation.round } : {}),
     },
   });
 }

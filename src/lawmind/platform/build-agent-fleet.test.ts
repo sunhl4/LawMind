@@ -97,6 +97,35 @@ describe("buildAgentFleetSummary", () => {
     markDelegationCompleted(workspaceDir, delegation.delegationId, "done");
   });
 
+  it("uses persisted delivery run progress when the job has no live progress", async () => {
+    workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-fleet-delivery-"));
+    createMatterRunOnDisk(workspaceDir, {
+      matterId: "matter-1",
+      runId: "run_delivery_job-1",
+      steps: [
+        { stepId: "wait_job", kind: "delivery_wait_job", inputRefs: ["job:job-1"] },
+        { stepId: "collect", kind: "delivery_collect", inputRefs: ["job:job-1"] },
+        { stepId: "render", kind: "delivery_render", inputRefs: ["job:job-1"] },
+      ],
+      at: "2026-10-28T00:00:00.000Z",
+    });
+
+    const fleet = await buildAgentFleetSummary({
+      workspaceDir,
+      jobs: [
+        {
+          jobId: "job-1",
+          status: "running",
+          matterId: "matter-1",
+          templateId: "client-update-memo",
+          createdAt: "2026-10-28T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const run = fleet.runs.find((item) => item.kind === "workflow_job");
+    expect(run?.progress).toEqual({ total: 3, completed: 0, running: [] });
+  });
   it("filters runs by matterId and applies assistantLabels", async () => {
     workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lawmind-fleet-matter-"));
     const keep = createSession({

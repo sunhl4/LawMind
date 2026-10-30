@@ -425,6 +425,9 @@ export async function handleLawyerDeskRoutes({
     }
     try {
       const body = await parseJsonBodyZod(req, deadlinePatchSchema);
+      const before = listDeadlinesForMatter(workspaceDir, matterId).find(
+        (row) => row.deadlineId === deadlineId,
+      );
       let updated =
         body.status === "completed"
           ? completeDeadline(workspaceDir, matterId, deadlineId)
@@ -437,6 +440,26 @@ export async function handleLawyerDeskRoutes({
       }
       if (body.status === "completed") {
         await markDailyPlanSourceDone(workspaceDir, "deadline", deadlineId);
+      }
+      const nextDue = body.dueAt?.trim();
+      if (
+        nextDue &&
+        before?.eventKind === "hearing" &&
+        before.dueAt !== updated.dueAt &&
+        Date.parse(before.dueAt) !== Date.parse(updated.dueAt)
+      ) {
+        const matter = loadMatter(workspaceDir, matterId);
+        const hearingAt = matter?.docket?.hearingAt;
+        if (
+          matter &&
+          hearingAt &&
+          Date.parse(hearingAt) === Date.parse(before.dueAt)
+        ) {
+          await updateMatterProfile(workspaceDir, {
+            matterId,
+            docket: { ...matter.docket, hearingAt: updated.dueAt },
+          });
+        }
       }
       sendJson(res, 200, { ok: true, deadline: updated }, c);
     } catch (err) {

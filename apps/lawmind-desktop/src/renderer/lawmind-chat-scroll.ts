@@ -32,12 +32,16 @@ export function chatMessagesScrollContainers(): HTMLElement[] {
  * `.lm-messages` sets `scroll-behavior: smooth`, which would otherwise animate
  * (and delay) a programmatic scroll; on remount the transcript must already be
  * at the latest turn on the first painted frame.
+ *
+ * `fromBottom` 用于恢复「上次离开时距底部多远」：0 = 最新一条，非 0 = 律师当时
+ * 正在上翻阅读。用距底部的距离而不是绝对 scrollTop，虚拟列表重新量高时位置仍对。
  */
-function scrollElementToBottomInstant(el: HTMLElement): void {
+function scrollElementToBottomInstant(el: HTMLElement, fromBottom = 0): void {
   const previousBehavior = el.style.scrollBehavior;
   el.style.scrollBehavior = "auto";
   try {
-    el.scrollTop = el.scrollHeight;
+    const target = el.scrollHeight - el.clientHeight - Math.max(0, fromBottom);
+    el.scrollTop = Math.max(0, target);
   } finally {
     el.style.scrollBehavior = previousBehavior;
   }
@@ -47,14 +51,18 @@ function scrollElementToBottomInstant(el: HTMLElement): void {
  * Scroll the workspace chat transcript to the latest execution position.
  * Prefer setting scrollTop on the real overflow containers — scrollIntoView
  * often lands on the top of a long turn when jumping in from elsewhere.
+ *
+ * 默认瞬时：切会话/深链都不希望出现长距离平滑滑动。需要动画的调用方显式传
+ * `behavior: "smooth"`。
  */
 export function scrollChatMessagesToLatest(opts?: { behavior?: ScrollBehavior }): void {
-  const behavior = opts?.behavior ?? "smooth";
+  const behavior = opts?.behavior ?? "auto";
   for (const el of chatMessagesScrollContainers()) {
     if (behavior === "smooth" && typeof el.scrollTo === "function") {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     } else {
-      el.scrollTop = el.scrollHeight;
+      // 不能用裸 scrollTop：`.lm-messages` 的 CSS smooth 会把赋值也做成动画。
+      scrollElementToBottomInstant(el);
     }
   }
 }
@@ -72,10 +80,13 @@ export function scrollChatMessagesToLatest(opts?: { behavior?: ScrollBehavior })
  * @returns cancel function (also called automatically once settled).
  */
 export function pinChatMessagesToLatest(opts?: {
+  /** 距底部的偏移；0 = 最新一条。恢复会话位置时用保存的「距底部」值。 */
+  fromBottom?: number;
   maxFrames?: number;
   minFrames?: number;
 }): () => void {
   const maxFrames = opts?.maxFrames ?? 30;
+  const fromBottom = Math.max(0, opts?.fromBottom ?? 0);
   // Never settle during the first frames: the virtualizer delivers its measured
   // row heights a couple of frames after the jump, and bailing out before then
   // would leave the viewport short of the newest output.
@@ -149,7 +160,7 @@ export function pinChatMessagesToLatest(opts?: {
     }
     watchUserIntent(containers);
     for (const el of containers) {
-      scrollElementToBottomInstant(el);
+      scrollElementToBottomInstant(el, fromBottom);
     }
     const metrics = containers.map((el) => `${el.scrollTop}:${el.scrollHeight}`).join("|");
     stableFrames = metrics === lastMetrics ? stableFrames + 1 : 0;

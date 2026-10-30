@@ -6,8 +6,9 @@ import { ReviewWorkbench } from "./ReviewWorkbench";
 import {
   clearPendingDraftDesk,
   LAWMIND_OPEN_DRAFT_DESK_EVENT,
-  type OpenDraftDeskDetail,
+  setCurrentDraftDeskTaskId,
   peekPendingDraftDesk,
+  type OpenDraftDeskDetail,
 } from "./lawmind-open-contract-revision";
 import { LAWMIND_OPEN_WORKSPACE_FILE_EVENT } from "./lawmind-workspace-file-open";
 
@@ -33,6 +34,11 @@ export function LawmindMiddleDraftDesk(props: Props): ReactNode {
     projectDir,
   } = props;
   const [taskId, setTaskId] = useState<string | null>(() => peekPendingDraftDesk());
+
+  useEffect(() => {
+    setCurrentDraftDeskTaskId(taskId);
+    return () => setCurrentDraftDeskTaskId(null);
+  }, [taskId]);
 
   useEffect(() => {
     const open = (event: Event) => {

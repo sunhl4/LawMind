@@ -1,9 +1,18 @@
 /**
- * Codex-style capability catalog: name + description for implicit match,
- * plus when/notWhen boundaries. Injected on unbound turns and on soft
- * keyword/matter/genre hypotheses. Hard binds still dump lean Skill bodies.
+ * Capability catalog for `read_skill` / internal bind. Unbound turns inject
+ * `formatCapabilityCatalogIndex` (operating rules), not the 23-id list.
+ * Hard binds still dump lean Skill bodies.
+ *
+ * Skill names come from `skills/builtin/*.md` frontmatter (`id` + `description`).
+ * That is Anthropic Agent Skills level 1: metadata stays in the prompt, the body
+ * loads only when `read_skill` runs.
+ * https://github.com/anthropics/skills
+ * https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview
  */
 
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   deskItemById,
   LAWYER_CAPABILITY_IDS,
@@ -62,19 +71,62 @@ export function listCapabilityCatalog(): CapabilityCatalogEntry[] {
   return LAWYER_CAPABILITY_IDS.map(capabilityCatalogEntry);
 }
 
-/** Codex-style session catalog (name + description), capped. */
-export function formatCapabilityCatalogIndex(): string {
-  const lines = [
-    "## 可用能力（隐式选用；律师不必点选）",
-    "先按律师本轮原话判断要做什么。需要某条能力的质量规范时调用 `read_skill`。多条适用时取最小充分集。邮件合同短路径仅在指令已带短路径标记时使用。",
-  ];
-  for (const entry of listCapabilityCatalog()) {
-    if (!entry.allowImplicit) {
+const BUILTIN_SKILL_DIR = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../skills/builtin",
+);
+
+let skillNameIndexCache: readonly (readonly [string, string])[] | undefined;
+
+/** Level-1 skill metadata. Cached; the Markdown body is not loaded here. */
+export function builtinSkillNameIndex(): readonly (readonly [string, string])[] {
+  if (skillNameIndexCache) {
+    return skillNameIndexCache;
+  }
+  const rows: (readonly [string, string])[] = [];
+  let names: string[] = [];
+  try {
+    names = fs.readdirSync(BUILTIN_SKILL_DIR).filter((name) => name.endsWith(".md"));
+  } catch {
+    names = [];
+  }
+  for (const name of names) {
+    let raw = "";
+    try {
+      raw = fs.readFileSync(path.join(BUILTIN_SKILL_DIR, name), "utf8");
+    } catch {
       continue;
     }
-    lines.push(`- ${entry.id}（${entry.label}）：${entry.description}`);
+    const id = /^id:\s*(\S+)\s*$/m.exec(raw)?.[1];
+    const description = /^description:\s*(.+)\s*$/m.exec(raw)?.[1]?.trim();
+    if (!id || !description) {
+      continue;
+    }
+    // Index lines must not reuse the ledger token the factor state also emits.
+    rows.push([id, description.replaceAll("【待核实】", "待核实")]);
   }
-  let out = lines.join("\n");
+  rows.sort((a, b) => a[0].localeCompare(b[0]));
+  skillNameIndexCache = rows;
+  return rows;
+}
+
+export function formatSkillNameIndex(): string {
+  return [
+    "## 技能索引",
+    "需要某类写法时调用 `read_skill`，参数 `skill_id` 用下面的 id。这不是办件菜单，不要先选一条再开工。",
+    ...builtinSkillNameIndex().map(([id, line]) => `- \`${id}\`：${line}`),
+  ].join("\n");
+}
+
+export function formatCapabilityCatalogIndex(): string {
+  const out = [
+    "## 本轮怎么做",
+    "- 以律师本轮原话和已读材料为准，不要先对号入座再办事。",
+    "- 要交的稿写出 Word：新稿 `draft_document` → `render_document`；已有 Word 要改则 `apply_surgical_edits` → `render_tracked_draft`，不要重建原件。点名的文书用对应模板；没点名用 `word/working-draft-default`。",
+    "- 只要口头核对、是非、看一眼：不要另起 Word。判不准时偏向交一份工作稿。",
+    "- 条号、金额、期限用工具，不要编。缺口写进稿里后仍交稿，不要为凑栏目停下来问。",
+    formatSkillNameIndex(),
+  ].join("\n");
   if (out.length <= CAPABILITY_CATALOG_MAX_CHARS) {
     return out;
   }

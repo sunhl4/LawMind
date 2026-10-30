@@ -83,6 +83,16 @@ describe("pinChatMessagesToLatest", () => {
     expect(raf.pending()).toBe(1);
   });
 
+  it("restores a remembered from-bottom offset without animation", () => {
+    installManualRaf();
+    const panel = makePanel(1000);
+    Object.defineProperty(panel, "clientHeight", { value: 400, configurable: true });
+
+    pinChatMessagesToLatest({ fromBottom: 250 });
+    // 1000 - 400 - 250 = 350
+    expect(panel.scrollTop).toBe(350);
+  });
+
   it("keeps following the bottom while the virtual list re-measures rows", () => {
     const raf = installManualRaf();
     const panel = makePanel(1000);

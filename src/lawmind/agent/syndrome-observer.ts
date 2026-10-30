@@ -5,7 +5,7 @@
  * 先对着真实账本跑出可比较的报告，等第三批消融通过后再接修复回路。
  */
 
-import type { FactorKind, FactorState } from "./factor-state.js";
+import { proposalSupported, type FactorKind, type FactorState } from "./factor-state.js";
 import {
   buildFaultCandidates,
   decodeSyndrome,
@@ -14,12 +14,17 @@ import {
   type DecodeResult,
   type FaultWeightTable,
   type SyndromeBit,
+  type SyndromeRound,
 } from "./syndrome-decoder.js";
 
 export type SyndromeObservation = {
   bits: SyndromeBit[];
   decoded: DecodeResult;
   note: string;
+  /** Bits seen this round but not persistent yet. Diagnostics only. */
+  transient?: SyndromeBit[];
+  /** Round index that produced the persistent bits. */
+  round?: number;
 };
 
 const STABILIZER_BY_KIND: Record<FactorKind, string> = {
@@ -48,6 +53,9 @@ export function syndromeFromState(state: FactorState): SyndromeBit[] {
     if (factor.flag === "ok") {
       continue;
     }
+    if (factor.proposalId && !proposalSupported(factor, state.turnEpoch)) {
+      continue;
+    }
     push({
       stabilizer: STABILIZER_BY_KIND[factor.kind] ?? "S4",
       anchor: factor.anchor,
@@ -60,13 +68,41 @@ export function syndromeFromState(state: FactorState): SyndromeBit[] {
   return bits;
 }
 
+/** Keep at most one entry per model round; replace the round when a later tool call adds bits. */
+export function upsertSyndromeRound(
+  history: readonly SyndromeRound[] | undefined,
+  round: number,
+  bits: readonly SyndromeBit[],
+  keepRounds = 8,
+): SyndromeRound[] {
+  const next = (history ?? []).filter((row) => row.round !== round);
+  next.push({ round, bits: [...bits] });
+  return next.toSorted((left, right) => left.round - right.round).slice(-Math.max(1, keepRounds));
+}
+
+/** Bits present this round but not yet persistent; kept in the ledger for diagnostics. */
+export function transientSyndromeBits(
+  current: readonly SyndromeBit[],
+  persistent: readonly SyndromeBit[],
+): SyndromeBit[] {
+  const keys = new Set(persistent.map(syndromeKey));
+  return current.filter((bit) => !keys.has(syndromeKey(bit)));
+}
+
+export function observeSyndromeBits(
+  bits: readonly SyndromeBit[],
+  options: { weights?: FaultWeightTable; maxFaults?: number } = {},
+): SyndromeObservation {
+  const rows = [...bits];
+  const decoded = decodeSyndrome(rows, buildFaultCandidates(rows, { weights: options.weights }), {
+    maxFaults: options.maxFaults,
+  });
+  return { bits: rows, decoded, note: describeDecode(decoded) };
+}
+
 export function observeSyndrome(
   state: FactorState,
   options: { weights?: FaultWeightTable; maxFaults?: number } = {},
 ): SyndromeObservation {
-  const bits = syndromeFromState(state);
-  const decoded = decodeSyndrome(bits, buildFaultCandidates(bits, { weights: options.weights }), {
-    maxFaults: options.maxFaults,
-  });
-  return { bits, decoded, note: describeDecode(decoded) };
+  return observeSyndromeBits(syndromeFromState(state), options);
 }

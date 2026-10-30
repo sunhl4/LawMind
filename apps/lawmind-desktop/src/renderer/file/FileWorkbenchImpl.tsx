@@ -35,6 +35,7 @@ import {
 import { LM_PANE_MAX_WIDTH_PX, LM_PANE_MIN_WIDTH_PX } from "../lawmind-panel-layout";
 import { usePaneResizePx } from "../use-pane-resize";
 import { FileWorkbenchView } from "./FileWorkbenchView";
+import { useFileExternalRefresh } from "./use-file-external-refresh";
 import { describeFsWriteFailure } from "./fs-write-error";
 import {
   consumePendingOpenWorkspaceFile,
@@ -43,10 +44,12 @@ import {
   LAWMIND_SHOW_WORD_SURFACE_EVENT,
   grantedFileRootDir,
   resolveExistingRootForRelPath,
+  requestRevealFileLocator,
   type OpenWorkspaceFileDetail,
   type WorkspaceFileRoot,
 } from "../lawmind-workspace-file-open";
 import { setActiveWorkbenchWordFile } from "../lawmind-active-word-file";
+import { setCurrentMiddleFile } from "../lawmind-middle-surface";
 import { rememberFileContextPath } from "../lawmind-compose-context";
 
 export function FileWorkbench(props: FileWorkbenchProps) {
@@ -123,6 +126,23 @@ export function FileWorkbench(props: FileWorkbenchProps) {
   const activeDirty =
     activeTab?.kind === "text" ? activeTab.content !== activeTab.savedContent : false;
 
+  // 对话里的工具 / 另一个窗口写盘后，干净标签跟着磁盘刷新（Word 预览自己轮询）。
+  useFileExternalRefresh({
+    enabled: activeTab?.kind === "text",
+    root: activeTab?.root ?? "workspace",
+    path: activeTab?.path ?? "",
+    mtimeMs: activeTab?.mtimeMs ?? 0,
+    content: activeTab?.content ?? "",
+    dirty: activeDirty,
+    onReload: ({ content, mtimeMs }) => {
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === activeTabId ? { ...t, content, savedContent: content, mtimeMs } : t,
+        ),
+      );
+    },
+  });
+
   useEffect(() => {
     const fromTab =
       activeTab?.kind === "word"
@@ -134,11 +154,19 @@ export function FileWorkbench(props: FileWorkbenchProps) {
         : null;
     const next = fromTab ?? fromSelected;
     setActiveWorkbenchWordFile(next);
+    setCurrentMiddleFile(
+      activeTab
+        ? { root: activeTab.root, relPath: activeTab.path }
+        : fromSelected
+          ? { root: fromSelected.root, relPath: fromSelected.relPath }
+          : null,
+    );
     if (next && (next.root === "workspace" || next.root === "project")) {
       rememberFileContextPath({ kind: "file", root: next.root, relPath: next.relPath });
     }
     return () => {
       setActiveWorkbenchWordFile(null);
+      setCurrentMiddleFile(null);
     };
   }, [activeTab, selected]);
 
@@ -600,6 +628,13 @@ export function FileWorkbench(props: FileWorkbenchProps) {
       }
       consumePendingOpenWorkspaceFile();
       // 根必须原样传下去：`file:<id>` 归一成 workspace 就会去工作区找同名文件（404）。
+      if (detail?.locator?.trim()) {
+        requestRevealFileLocator({
+          root: detail.root ?? "workspace",
+          relPath,
+          locator: detail.locator,
+        });
+      }
       enqueueWorkspaceFileOpen(relPath, detail?.root ?? "workspace");
     };
     window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onOpen);

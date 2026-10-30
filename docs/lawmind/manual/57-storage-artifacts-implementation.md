@@ -473,8 +473,8 @@ outputFileName 给了 → 用它
 
 ```text
 Prefers an uploaded contract baseline `.docx` when `draft.contractEdit` is set.
-Binary `.doc` is not read. Word or WPS saves a sibling `.docx` first; that file is the baseline.
-If neither can save, stop and ask the lawyer. The original `.doc` is left untouched.
+Binary `.doc` is converted first (Microsoft Word Save As, then LibreOffice). That `.docx` is the baseline.
+If neither can convert, stop and ask the lawyer. The original `.doc` is left untouched.
 ```
 
 ### 细节一：officecli 的调用形式
@@ -561,15 +561,15 @@ conversionTool?, conversionFidelity? ("high" | "lossy"), warning?
 
 ### 五种失败码
 
-| 码                      | 什么时候                                         |
-| ----------------------- | ------------------------------------------------ |
-| `doc_needs_docx`        | `.doc` 容器读不出正文（加密 / Word 6/95 / 损坏） |
-| `baseline_missing`      | 要求原件但没有                                   |
-| `plain_render_failed`   | 退化渲染也失败                                   |
-| `tracked_apply_failed`  | 落改失败                                         |
-| `tracked_render_failed` | 渲染失败                                         |
+| 码                      | 什么时候                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| `doc_needs_docx`        | `.doc` 转 `.docx` 失败（本机没有 Word 且没有 LibreOffice，或 Word 另存没做成） |
+| `baseline_missing`      | 要求原件但没有                                                                 |
+| `plain_render_failed`   | 退化渲染也失败                                                                 |
+| `tracked_apply_failed`  | 落改失败                                                                       |
+| `tracked_render_failed` | 渲染失败                                                                       |
 
-### `.doc` 须律师另存
+### `.doc` 先转成 .docx 再修订
 
 修订只认 `.docx`。`.doc` 出稿由 `mail/convert-with-word.ts` 让本机 Microsoft Word 另存为保真 `.docx`（暂存到 Word 自己的沙盒容器，避免 macOS 弹「授予文件访问权限」），页眉页脚、表格、图片、编号和已有修订一起过来；LibreOffice headless 兜底。两个引擎都没有时硬失败，不出正文替身。读正文（预览/分析/索引）另有进程内 OLE 解析，见 `mail/read-word-binary.ts`。
 
@@ -588,11 +588,13 @@ conversionTool?, conversionFidelity? ("high" | "lossy"), warning?
 .<taskId>.redline-manifest.json
 ```
 
-内容含 `applyResult`（`applied` / `attempted` / `ambiguous` / `lastError`）、`applyStatus`、以及：
+内容含 `exportedAt`（真实导出时刻）、`applyResult`（`applied` / `attempted` / `ambiguous` / `revisionDates` / `lastError`）、`applyStatus`、以及：
 
 ```text
 openWord: false
 ```
+
+`revisionDates` 是实际落下的每处 hunk 写进 Word 的显示时间（未落下的 hunk 不记）。Word 里的修订时间按一次真人审阅的节奏展开（见第 8 章「时间与作者」），`exportedAt` 才是真实导出时刻。
 
 **引擎永远不会帮你打开 Word**——这条是写死的。
 

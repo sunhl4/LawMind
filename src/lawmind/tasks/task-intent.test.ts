@@ -40,6 +40,6 @@ describe("taskIntentFromRecordOnly", () => {
       updatedAt: "2026-01-01T00:00:00.000Z",
     };
     const intent = taskIntentFromRecordOnly(record);
-    expect(intent.templateId).toBe("word/legal-memo-default");
+    expect(intent.templateId).toBe("word/working-draft-default");
   });
 });

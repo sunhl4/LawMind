@@ -7,6 +7,24 @@ interface ImportMetaEnv {
   readonly VITE_LAWMIND_INTERNAL_EXPERIMENT_UI?: string;
 }
 
+/** 与 `electron/app-updates.mjs` 的 `APP_UPDATE_STATUS` 对齐的线上状态。 */
+type LawmindAppUpdateWireStatus =
+  | "unsupported"
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+type LawmindAppUpdateWireState = {
+  status: LawmindAppUpdateWireStatus;
+  version: string | null;
+  percent: number | null;
+  error: string | null;
+  updatedAt: number;
+};
+
 /** 可读写根：工作区/项目夹 + 按次授权的 `file:<id>`。 */
 type RootKeyLoose = "workspace" | "project" | `file:${string}`;
 
@@ -50,6 +68,14 @@ declare global {
         handler: (payload: { apiBase?: string; apiAuthToken?: string }) => void,
       ) => () => void;
       checkForUpdates: () => Promise<{ ok: boolean }>;
+      /** 左下角「更新」药丸：初始拉取（主进程会打 `lawmind:app-update` 推送）。 */
+      getAppUpdateState?: () => Promise<LawmindAppUpdateWireState>;
+      /** 订阅主进程推送的更新状态变化。返回取消函数。 */
+      onAppUpdateState?: (
+        handler: (payload: LawmindAppUpdateWireState) => void,
+      ) => () => void;
+      /** 点击「更新」药丸：主进程按状态执行 检查/下载/进度提示/重启安装。 */
+      runAppUpdateAction?: () => Promise<{ ok: boolean; action: string; error?: string }>;
       showNotification: (payload: {
         title?: string;
         body?: string;
@@ -268,6 +294,17 @@ declare global {
         size?: number;
         error?: string;
       }>;
+      /** mtime/size only — used to notice chat-side rewrites without re-reading the body. */
+      fsStat: (payload: {
+        root: RootKeyLoose;
+        path: string;
+      }) => Promise<{
+        ok: boolean;
+        kind?: "file" | "directory";
+        mtimeMs?: number;
+        size?: number;
+        error?: string;
+      }>;
       fsWrite: (payload: {
         root: RootKeyLoose;
         path: string;
@@ -349,12 +386,32 @@ declare global {
         error?: string;
       }>;
       onFileMenu: (handler: (payload: { action?: string }) => void) => () => void;
-      /** Open a lightweight aux BrowserWindow (e.g. review delivery preview). */
-      openAuxWindow?: (payload: {
-        kind: "review-preview";
-        taskId: string;
-        title?: string;
-      }) => Promise<{ ok: boolean; focused?: boolean; error?: string }>;
+      /** Open a lightweight aux BrowserWindow (review preview or a docked workspace pane). */
+      openAuxWindow?: (
+        payload:
+          | {
+              kind: "review-preview";
+              taskId: string;
+              title?: string;
+            }
+          | {
+              kind: "workspace-pane";
+              pane: "chat" | "middle";
+              title?: string;
+              sessionId?: string;
+              assistantId?: string;
+              matterId?: string;
+              draftTaskId?: string;
+            },
+      ) => Promise<{ ok: boolean; focused?: boolean; key?: string; error?: string }>;
+      /** Close the window hosting this renderer (aux pane / popout); no-ops in a browser tab. */
+      closeWindow?: () => Promise<{ ok: boolean; error?: string }>;
+      /** Keys of aux windows still open — used by the main window to reconcile detached panes. */
+      listAuxWindows?: () => Promise<{ ok: boolean; keys?: string[]; error?: string }>;
+      /** Fired in the main renderer when an aux window closes (so the pane can be restored). */
+      onAuxWindowClosed?: (
+        handler: (payload: { key?: string; kind?: string; pane?: string }) => void,
+      ) => () => void;
     };
   }
 }

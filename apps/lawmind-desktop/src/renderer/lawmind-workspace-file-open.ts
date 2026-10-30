@@ -277,7 +277,37 @@ export type OpenWorkspaceFileDetail = {
   /** 1-based line to show in the text editor. Office files ignore this. */
   line?: number;
   column?: number;
+  /** Rich evidence locator such as `P2` or `S1!B4`. */
+  locator?: string;
 };
+
+export type RevealFileLocatorDetail = {
+  root: WorkspaceFileRoot;
+  relPath: string;
+  locator: string;
+};
+
+export const LAWMIND_REVEAL_FILE_LOCATOR_EVENT = "lawmind:reveal-file-locator";
+
+let pendingLocator: RevealFileLocatorDetail | null = null;
+
+export function requestRevealFileLocator(detail: RevealFileLocatorDetail): void {
+  if (typeof window === "undefined" || !detail.locator.trim()) {
+    return;
+  }
+  pendingLocator = { ...detail, locator: detail.locator.trim() };
+  window.dispatchEvent(
+    new CustomEvent<RevealFileLocatorDetail>(LAWMIND_REVEAL_FILE_LOCATOR_EVENT, {
+      detail: pendingLocator,
+    }),
+  );
+}
+
+export function consumePendingRevealFileLocator(): RevealFileLocatorDetail | null {
+  const pending = pendingLocator;
+  pendingLocator = null;
+  return pending;
+}
 
 export type RevealFileLineDetail = {
   root: WorkspaceFileRoot;
@@ -355,7 +385,7 @@ let pendingOpen: { relPath: string; root: WorkspaceFileRoot } | null = null;
 export function requestOpenWorkspaceFile(
   relPath: string,
   root: WorkspaceFileRoot = "workspace",
-  at?: { line?: number; column?: number },
+  at?: { line?: number; column?: number; locator?: string },
 ): void {
   const path = relPath.trim().replace(/^[/\\]+/, "");
   if (!path || typeof window === "undefined") {
@@ -370,9 +400,13 @@ export function requestOpenWorkspaceFile(
         relPath: path,
         root,
         ...(line ? { line, column: column ?? 1 } : {}),
+        ...(at?.locator?.trim() ? { locator: at.locator.trim() } : {}),
       },
     }),
   );
+  if (at?.locator?.trim()) {
+    requestRevealFileLocator({ root, relPath: path, locator: at.locator });
+  }
   if (line) {
     requestRevealFileLine({ root, relPath: path, line, column: column ?? 1 });
   }

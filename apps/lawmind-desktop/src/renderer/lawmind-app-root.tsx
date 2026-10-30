@@ -6,13 +6,6 @@ import { useEdition } from "./use-edition";
 import type { AgentsDeskTab } from "./lawmind-agents-desk";
 import { useActionSummaryQuery } from "./lawmind-query-hooks";
 import { useLawmindRecordsDeskMatters, RECORDS_DESK_UNLINKED } from "./lawmind-records-desk-state";
-import {
-  LM_PANE_MAX_WIDTH_PX,
-  LM_PANE_MIN_WIDTH_PX,
-  readStoredBool,
-  writeStoredBool,
-} from "./lawmind-panel-layout";
-import { usePaneResizePx } from "./use-pane-resize";
 import { apiGetJson } from "./api-client";
 import { useLawyerReviewDesktopNotify } from "./lawmind-lawyer-review-notify";
 import { useDaemonIncidentNotify } from "./lawmind-daemon-incident-notify";
@@ -34,6 +27,8 @@ import { resolveMatterIdFromViewIntent } from "./lawmind-desk-agenda";
 import type { DeskMatterFocus, DeskMatterFocusPane } from "./app/desk-matter-focus";
 import type { CommandPaletteAction } from "./LawmindCommandPalette";
 import type { LawmindMainView } from "./lawmind-main-view";
+import type { LawmindWorkspacePaneRoute } from "./lawmind-popout-route";
+import { closeWorkspacePaneWindow } from "./lawmind-pane-window";
 import { LAWMIND_PREPARE_WORKSPACE_FILE_EVENT, openContractRevisionForTask } from "./lawmind-open-contract-revision";
 import {
   LAWMIND_OPEN_CONTRACT_REVISION_EVENT,
@@ -46,6 +41,12 @@ import {
 } from "./lawmind-workspace-file-open";
 import { useLawmindAppRootHandlers } from "./app/useLawmindAppRootHandlers";
 import { useLawmindAppRootLayout } from "./app/useLawmindAppRootLayout";
+import { useLawmindPaneWindowController } from "./app/useLawmindPaneWindowController";
+import { useLawmindPaneWindowChatMirror } from "./app/useLawmindPaneWindowChatMirror";
+import {
+  paneInitialDeskMatterFocus,
+  paneInitialMatterCockpitOpen,
+} from "./app/pane-window-state";
 import { LawmindAppRootView } from "./app/LawmindAppRootView";
 import {
   subscribeOpenAutomationsSettings,
@@ -58,7 +59,14 @@ import {
 } from "./lawmind-review-prefs";
 import { applyAllUiPrefs } from "./lawmind-ui-prefs";
 
-export function LawmindAppRoot() {
+export type LawmindAppRootProps = {
+  /** Present only in an aux pane window opened from the main workspace. */
+  paneWindow?: LawmindWorkspacePaneRoute;
+};
+
+export function LawmindAppRoot({ paneWindow }: LawmindAppRootProps = {}) {
+  const paneMode = paneWindow?.pane ?? null;
+  const isPaneWindow = paneMode !== null;
   const [_uiPrefsVersion, setUiPrefsVersion] = useState(0);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
 
@@ -70,7 +78,10 @@ export function LawmindAppRoot() {
     state,
     derived,
     actions,
-  } = useLawmindAppShell();
+  } = useLawmindAppShell({
+    paneWindow: isPaneWindow,
+    paneContextMatterId: paneMode === "middle" ? paneWindow?.matterId : undefined,
+  });
 
   const {
     mainView,
@@ -84,6 +95,7 @@ export function LawmindAppRoot() {
     selectedAssistantId,
     setLoading,
     setError,
+    loading,
     contextTaskId,
     contextMatterId,
     collabSummarySettings,
@@ -148,7 +160,9 @@ export function LawmindAppRoot() {
     recordsDeskMatters.sidebarRowsAll,
   ]);
   const [matterImportBusy, setMatterImportBusy] = useState(false);
-  const [matterCockpitOpen, setMatterCockpitOpen] = useState(false);
+  const [matterCockpitOpen, setMatterCockpitOpen] = useState(() =>
+    paneInitialMatterCockpitOpen(paneWindow),
+  );
   /**
    * 「工作台」不是另一页：留在对话，中栏换成案卷。
    * 赋值在 ws 面板 state 之后；点击时才读 ref，所以可以先传给更早的 handler。
@@ -159,7 +173,9 @@ export function LawmindAppRoot() {
   const setMainView = useCallback((view: SetStateAction<LawmindMainView>) => {
     routeMainViewRef.current(view);
   }, []);
-  const [deskMatterFocus, setDeskMatterFocus] = useState<DeskMatterFocus>(null);
+  const [deskMatterFocus, setDeskMatterFocus] = useState<DeskMatterFocus>(() =>
+    paneInitialDeskMatterFocus(paneWindow),
+  );
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [createMatterOpen, setCreateMatterOpen] = useState(false);
   const [matterDeleteOpen, setMatterDeleteOpen] = useState<{ matterId: string; label: string } | null>(null);
@@ -169,7 +185,7 @@ export function LawmindAppRoot() {
   const actionSummaryQuery = useActionSummaryQuery(
     config?.apiBase ?? null,
     null,
-    Boolean(config?.apiBase),
+    Boolean(config?.apiBase) && !isPaneWindow,
   );
   const requireSignoffReview = useRequireSignoffReview();
   const actionSummaryTotal = lawyerFacingDecisionTotal({
@@ -285,7 +301,73 @@ export function LawmindAppRoot() {
     sendChatMessage,
     setSessionByAssistant,
     selectChatSession,
+    reloadActiveChatSession,
+    watchBackgroundSessionProgress,
   } = actions;
+
+  /**
+   * 收回对话窗：回合可能还在跑。主窗口接上 `resumeOnly` 的 live trace，
+   * 不重置视图/历史，但最终答案会自己流进来。
+   */
+  const resumeLiveChat = useCallback(() => {
+    const sessionId = activeChatSessionId?.trim();
+    const assistantId = selectedAssistantId?.trim();
+    if (!sessionId || !assistantId) {
+      return;
+    }
+    void watchBackgroundSessionProgress({
+      sessionId,
+      assistantId,
+      kind: "generic",
+      resumeOnly: true,
+    });
+  }, [activeChatSessionId, selectedAssistantId, watchBackgroundSessionProgress]);
+
+  const {
+    windowTitle: paneWindowTitle,
+    sidebarCollapsed,
+    setSidebarCollapsed,
+    sidebarWidth,
+    onSidebarResizePointerDown,
+    wsShowEditor,
+    wsShowChat,
+    wsChatColWidth,
+    onWsChatSplitResize,
+    setWsShowEditor,
+    setWsShowChat,
+    setWsShowEditorRespectingDetach,
+    setWsShowChatRespectingDetach,
+    paneDetach,
+  } = useLawmindPaneWindowController({
+    paneWindow,
+    configApiBase: config?.apiBase,
+    mainView,
+    matterCockpitOpen,
+    canUseFilesystemBridge,
+    loading,
+    setContextMatterId,
+    setSelectedMatterKey: recordsDeskMatters.setSelectedKey,
+    setMatterCockpitOpen,
+    selectChatSession,
+    reloadActiveChatSession,
+    resumeLiveChat,
+  });
+
+  useLawmindPaneWindowChatMirror({
+    enabled: isPaneWindow && paneMode === "chat",
+    apiBase: config?.apiBase,
+    assistantId: selectedAssistantId,
+    sessionId: activeChatSessionId ?? undefined,
+    loading,
+    reloadActiveChatSession,
+    watchSessionLive: ({ sessionId: liveSessionId, assistantId: liveAssistantId }) =>
+      watchBackgroundSessionProgress({
+        sessionId: liveSessionId,
+        assistantId: liveAssistantId,
+        kind: "generic",
+        resumeOnly: true,
+      }),
+  });
 
   const {
     handleResumeRequiresAction,
@@ -493,7 +575,7 @@ export function LawmindAppRoot() {
       setMatterCockpitOpen(false);
       setMainView("workspace");
       void Promise.resolve(selectChatSession(ref.sessionId, ref.assistantId)).finally(() => {
-        scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
+        scheduleScrollChatMessagesToLatest({ behavior: "auto" });
       });
     });
   }, [selectChatSession, setContextMatterId, setMainView]);
@@ -514,7 +596,7 @@ export function LawmindAppRoot() {
         if (sid) {
           void selectChatSession(sid, aid || undefined);
         } else {
-          scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
+          scheduleScrollChatMessagesToLatest({ behavior: "auto" });
         }
         return;
       }
@@ -541,32 +623,19 @@ export function LawmindAppRoot() {
   useLawyerReviewDesktopNotify({
     tasks,
     history,
-    enabled: typeof window !== "undefined" && Boolean(window.lawmindDesktop?.showNotification),
+    enabled:
+      !isPaneWindow &&
+      typeof window !== "undefined" &&
+      Boolean(window.lawmindDesktop?.showNotification),
   });
 
   useDaemonIncidentNotify({
     apiBase: config?.apiBase ?? "",
-    enabled: typeof window !== "undefined" && Boolean(window.lawmindDesktop?.showNotification),
+    enabled:
+      !isPaneWindow &&
+      typeof window !== "undefined" &&
+      Boolean(window.lawmindDesktop?.showNotification),
   });
-
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
-    readStoredBool("lawmind.ui.sidebarCollapsed", false),
-  );
-
-  useEffect(() => {
-    writeStoredBool("lawmind.ui.sidebarCollapsed", sidebarCollapsed);
-  }, [sidebarCollapsed]);
-
-  const { width: sidebarWidth, onResizePointerDown: onSidebarResizePointerDown } = usePaneResizePx({
-    storageKey: "lawmind.ui.sidebarWidth",
-    defaultWidth: 348,
-    min: LM_PANE_MIN_WIDTH_PX,
-    max: LM_PANE_MAX_WIDTH_PX,
-    widthRole: "shellSidebar",
-  });
-
-  const [wsShowEditor, setWsShowEditor] = useState(() => readStoredBool("lawmind.ui.wsPaneEditor", false));
-  const [wsShowChat, setWsShowChat] = useState(() => readStoredBool("lawmind.ui.wsPaneChat", true));
 
   routeMainViewRef.current = (view) => {
     if (view === "desk") {
@@ -579,29 +648,10 @@ export function LawmindAppRoot() {
   };
 
   useEffect(() => {
-    writeStoredBool("lawmind.ui.wsPaneEditor", wsShowEditor);
-  }, [wsShowEditor]);
-  useEffect(() => {
-    writeStoredBool("lawmind.ui.wsPaneChat", wsShowChat);
-  }, [wsShowChat]);
-
-  useEffect(() => {
     if (mainView === "review") {
       setMainView("workspace");
     }
-  }, [mainView, setMainView]);
-
-  useEffect(() => {
-    if (mainView !== "workspace" || matterCockpitOpen) {
-      return;
-    }
-    const editorVisible = canUseFilesystemBridge && wsShowEditor;
-    if (!wsShowChat && !editorVisible) {
-      setWsShowChat(true);
-    }
-  }, [mainView, matterCockpitOpen, canUseFilesystemBridge, wsShowEditor, wsShowChat, setWsShowChat]);
-
-  useEffect(() => {
+  }, [mainView, setMainView]);  useEffect(() => {
     // 编辑区默认收起（display:none）。深链已经把文件写进标签，但父级仍是 none 时标签不可见。
     const revealEditor = () => {
       setMatterCockpitOpen(false);
@@ -646,20 +696,6 @@ export function LawmindAppRoot() {
       window.removeEventListener(LAWMIND_OPEN_CONTRACT_REVISION_EVENT, openRevision);
     };
   }, [config?.apiBase, config?.projectDir, config?.workspaceDir, setContextMatterId, setError, setMainView, setWsShowChat]);
-
-  const { width: wsChatColWidth, onResizePointerDown: onWsChatSplitResize } = usePaneResizePx({
-    storageKey: "lawmind.ui.wsChatColumnWidth",
-    defaultWidth: 380,
-    min: LM_PANE_MIN_WIDTH_PX,
-    max: LM_PANE_MAX_WIDTH_PX,
-    // 对话列在分隔条右侧。往右拖必须让这一列变窄，分隔条才跟着鼠标走。
-    edge: "trailing",
-  });
-
-  useEffect(() => {
-    // Jumping in from 在办 / 待我拍板 / notifications must land on latest turn, not task start.
-    return scheduleScrollChatMessagesToLatest({ behavior: "smooth" });
-  }, [currentMessages, activeChatSessionId]);
 
   /**
    * 文书台 / 在办：不展示全局侧栏（页内自有目录）。
@@ -731,9 +767,9 @@ export function LawmindAppRoot() {
     sidebarWidth,
     onSidebarResizePointerDown,
     wsShowEditor,
-    setWsShowEditor,
+    setWsShowEditor: setWsShowEditorRespectingDetach,
     wsShowChat,
-    setWsShowChat,
+    setWsShowChat: setWsShowChatRespectingDetach,
     onWsChatSplitResize,
     wsChatColWidth,
     fileExplorerHost,
@@ -748,6 +784,8 @@ export function LawmindAppRoot() {
     messagesEndRef,
     showAppSidebar,
     showSidebarWorkbenchFiles,
+    paneDetach,
+    paneWindow: isPaneWindow,
     chatMatterHeadline,
     fileWorkbenchMattersPickList,
     workspaceCasesMenu,
@@ -776,6 +814,11 @@ export function LawmindAppRoot() {
   });
 
   return (
-    <LawmindAppRootView mainView={mainView} {...layout} />
+    <LawmindAppRootView
+      mainView={mainView}
+      {...layout}
+      paneWindow={paneMode ? { title: paneWindowTitle } : null}
+      onClosePaneWindow={() => closeWorkspacePaneWindow()}
+    />
   );
 }

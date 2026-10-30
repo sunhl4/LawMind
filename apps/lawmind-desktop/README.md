@@ -20,6 +20,7 @@ If you received a **zip** (macOS `.app`) or **portable / installer** (Windows):
 ## 终端用户：更新与下载页
 
 - 菜单 **帮助 → 检查更新 / 下载安装包**；**设置** 底部 **应用更新** 亦提供入口。
+- 左下角账号行（侧栏底部 **LawMind** 行）在有更新时点亮金色 **「更新」** 药丸（Cursor 同款）：发现新版后台自动下载时显示 `更新 NN%`，下载就绪后点击 → 确认 **「立即重启安装」**；不点也没关系，退出应用时会自动装上新版本。
 - 打包版默认通过 **GitHub Release** 做应用内更新（`electron-updater`），须与 `package.json` 里 `build.publish` 的仓库一致；企业可用 **`LAWMIND_SKIP_AUTO_UPDATE=1`** 关闭自动检查，**`LAWMIND_DOWNLOAD_PAGE_URL`** 自定义下载落地页。
 
 ## Prerequisites (developers)

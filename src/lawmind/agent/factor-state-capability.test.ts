@@ -17,14 +17,12 @@ import {
   appendMechanicalNote,
   applyInverseEdits,
   applyProseSyndrome,
-  composeWorkerSystem,
+  composeSubagentPrompt,
   emptyFactorState,
-  formatMarginalBlock,
   fuseSharedAnchorLines,
   ingestDefinedTerms,
   ingestDraftBody,
   ingestToolResult,
-  marginalFactors,
   projectAssistantProseForSampling,
   recordInverseEdits,
   recordReading,
@@ -169,17 +167,17 @@ function scoreD4(arm: Arm): Scores {
     clauseAnchor: "clause:解除",
   });
   recordReading(state, "clause:管辖", "clause", "上海仲裁", true);
-  const block = formatMarginalBlock(marginalFactors(state, ["clause:解除"]));
-  const system = composeWorkerSystem({
+  const system = composeSubagentPrompt({
     instructions: "只写解除段。",
-    marginal: block,
-    parentTranscript: secret,
+    state,
+    seeds: ["clause:解除"],
   });
   if (
     !system.includes("PARENT_SECRET") &&
     !system.includes("壹佰万") &&
-    !block.includes("上海仲裁") &&
-    (block.includes("clause:解除") || system.includes("clause:解除") || block.includes("15000"))
+    !system.includes("上海仲裁") &&
+    !system.includes("clause:管辖") &&
+    (system.includes("clause:解除") || system.includes("15000"))
   ) {
     scores.structure += 1;
   }

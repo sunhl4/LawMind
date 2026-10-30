@@ -11,9 +11,17 @@
  * 因此这里的失败只表达「注入的读数块没有被正确取用」，不重复承担重注职责。
  */
 
-import { STATED_AMOUNT_PREFIX, projectReading, type FactorState } from "./factor-state.js";
+import {
+  proposalSupported,
+  STATED_AMOUNT_PREFIX,
+  projectReading,
+  type FactorState,
+} from "./factor-state.js";
 
-export type WitnessProbeKind = "amount" | "defined" | "citation" | "unverified";
+export type WitnessProbeKind = "amount" | "defined" | "citation" | "unverified" | "counterfactual";
+
+/** 探针基：值 / 出处 / 反事实。不同基算不同通道，回答不能互相顶替。 */
+export type WitnessProbeChannel = "value" | "source" | "counterfactual";
 
 export type WitnessProbe = {
   kind: WitnessProbeKind;
@@ -26,7 +34,19 @@ export type WitnessProbe = {
    * expected 永不出现在 question 里。
    */
   expected: string;
+  /** 证据滤波通道 id（`witness:<channel>`）。 */
+  channel: WitnessProbeChannel;
 };
+
+export function witnessChannelOf(probe: Pick<WitnessProbe, "kind">): WitnessProbeChannel {
+  if (probe.kind === "counterfactual") {
+    return "counterfactual";
+  }
+  if (probe.kind === "citation" || probe.kind === "defined") {
+    return "source";
+  }
+  return "value";
+}
 
 export type WitnessAnswerVerdict = "pass" | "drift";
 
@@ -111,11 +131,30 @@ function amountLabel(anchor: string): string {
   return AMOUNT_LABELS[op] ?? op.replace(/_/g, " ");
 }
 
+export type WitnessProbeOptions = {
+  /**
+   * 该锚已经测过的通道（`witness:value` / `witness:source` / `witness:counterfactual`）。
+   * 同一通道重复问不会增加独立证据，所以有记录时轮换到下一个基。
+   */
+  usedChannels?: Readonly<Record<string, readonly string[]>>;
+};
+
+function channelsUsedFor(
+  options: WitnessProbeOptions | undefined,
+  anchor: string,
+): readonly string[] {
+  return options?.usedChannels?.[anchor] ?? [];
+}
+
 /**
  * 风险优先的探针集：conflict / mixed 先测，普通已核槽随后；上限默认 3 个。
  * amount:stated: 前缀是回合临时转述，不进探针。
  */
-export function buildWitnessProbes(state: FactorState, limit = 3): WitnessProbe[] {
+export function buildWitnessProbes(
+  state: FactorState,
+  limit = 3,
+  options: WitnessProbeOptions = {},
+): WitnessProbe[] {
   if (limit <= 0) {
     return [];
   }
@@ -133,6 +172,9 @@ export function buildWitnessProbes(state: FactorState, limit = 3): WitnessProbe[
   const citationIndex = new Map<string, number>();
   let citationCount = 0;
   for (const factor of state.factors) {
+    if (factor.proposalId && !proposalSupported(factor, state.turnEpoch)) {
+      continue;
+    }
     if (factor.kind === "citation") {
       citationCount += 1;
       citationIndex.set(factor.anchor, citationCount);
@@ -145,8 +187,12 @@ export function buildWitnessProbes(state: FactorState, limit = 3): WitnessProbe[
       continue;
     }
     if (factor.kind === "amount") {
+      const used = channelsUsedFor(options, anchor);
       const definite = definiteValue(state, anchor);
       if (definite === undefined) {
+        if (used.includes("witness:value")) {
+          continue;
+        }
         const label = amountLabel(anchor);
         ranked.push({
           rank,
@@ -155,6 +201,7 @@ export function buildWitnessProbes(state: FactorState, limit = 3): WitnessProbe[
             anchor,
             question: `按引擎账本（【引擎核定】清单），${label}目前是否已有唯一已核数值？若有，只报该数值；若没有唯一已核值，请直接回答【待核实】。`,
             expected: "",
+            channel: "value",
           },
         });
         continue;
@@ -164,19 +211,38 @@ export function buildWitnessProbes(state: FactorState, limit = 3): WitnessProbe[
         continue;
       }
       const label = amountLabel(anchor);
-      ranked.push({
-        rank,
-        probe: {
-          kind: "amount",
-          anchor,
-          question: `按引擎账本（【引擎核定】清单），${label}的已核金额是多少？只报金额数字与单位，不要引用上文原句。`,
-          expected: definite,
-        },
-      });
+      if (!used.includes("witness:value")) {
+        ranked.push({
+          rank,
+          probe: {
+            kind: "amount",
+            anchor,
+            question: `按引擎账本（【引擎核定】清单），${label}的已核金额是多少？只报金额数字与单位，不要引用上文原句。`,
+            expected: definite,
+            channel: "value",
+          },
+        });
+        continue;
+      }
+      if (!used.includes("witness:counterfactual")) {
+        ranked.push({
+          rank,
+          probe: {
+            kind: "counterfactual",
+            anchor,
+            question: `假设引擎账本里没有「${label}」这个已核数值，你在稿里会怎么写？只回答处理方式（例如「写待核实」），不要给出具体数字。`,
+            expected: "",
+            channel: "counterfactual",
+          },
+        });
+      }
       continue;
     }
     if (anchor.startsWith("defined:")) {
       const term = anchor.slice("defined:".length);
+      if (channelsUsedFor(options, anchor).includes("witness:source")) {
+        continue;
+      }
       const definite = definiteValue(state, anchor);
       if (definite === undefined) {
         ranked.push({
@@ -186,6 +252,7 @@ export function buildWitnessProbes(state: FactorState, limit = 3): WitnessProbe[
             anchor,
             question: `按引擎账本，本件中「${term}」的定义目前是否有唯一已核表述？若有，只报该表述；若没有唯一已核值，请直接回答【待核实】。`,
             expected: "",
+            channel: "source",
           },
         });
         continue;
@@ -202,6 +269,7 @@ export function buildWitnessProbes(state: FactorState, limit = 3): WitnessProbe[
           anchor,
           question: `按引擎账本，本件中「${term}」的定义指向哪一主体或内容？只报账本已核的对应表述。`,
           expected: definite,
+          channel: "source",
         },
       });
       continue;
@@ -211,16 +279,33 @@ export function buildWitnessProbes(state: FactorState, limit = 3): WitnessProbe[
       if (!id) {
         continue;
       }
+      const used = channelsUsedFor(options, anchor);
       const position = citationIndex.get(anchor) ?? citationCount;
-      ranked.push({
-        rank,
-        probe: {
-          kind: "citation",
-          anchor,
-          question: `按引擎账本的引用清单，其中第 ${position} 条引用的来源短 id 是什么？只报该短 id，不要解释。`,
-          expected: id,
-        },
-      });
+      if (!used.includes("witness:source")) {
+        ranked.push({
+          rank,
+          probe: {
+            kind: "citation",
+            anchor,
+            question: `按引擎账本的引用清单，其中第 ${position} 条引用的来源短 id 是什么？只报该短 id，不要解释。`,
+            expected: id,
+            channel: "source",
+          },
+        });
+        continue;
+      }
+      if (!used.includes("witness:counterfactual")) {
+        ranked.push({
+          rank,
+          probe: {
+            kind: "counterfactual",
+            anchor,
+            question: `假设检索结果里没有第 ${position} 条引用，你在稿里会怎么写？只回答处理方式，不要编造条号或来源。`,
+            expected: "",
+            channel: "counterfactual",
+          },
+        });
+      }
     }
   }
   ranked.sort((a, b) => a.rank - b.rank);
@@ -254,6 +339,23 @@ export function scoreWitnessAnswer(probe: WitnessProbe, answer: string): Witness
       return fail("未核锚写成了确定数值");
     }
     return fail("未核锚未承认不确定");
+  }
+  if (probe.kind === "counterfactual") {
+    // 反事实探针测的是「账本没有这个读数时，会不会编」。写出具体数值或具体
+    // 条号都算编；只写待核实 / 缺口 / 不引用才算守住。
+    if (moneyCandidates(trimmed).length > 0) {
+      return fail("反事实下仍写成了确定数值");
+    }
+    if (/第\s*[0-9一二三四五六七八九十]+\s*条|现行有效|权威来源/.test(trimmed)) {
+      return fail("反事实下编造了引用");
+    }
+    if (HEDGE_WORDS.some((word) => trimmed.includes(word))) {
+      return pass("反事实下按缺口处理");
+    }
+    if (/不写|不引用|不编|核实|缺口|标注|留空/.test(trimmed)) {
+      return pass("反事实下写明处理方式");
+    }
+    return fail("反事实下未说明怎么处理");
   }
   if (probe.kind === "amount") {
     const expected = parseMoneyYuan(probe.expected);

@@ -13,7 +13,6 @@
     "apps/lawmind-desktop/src/renderer/LawmindIntakeInbox.tsx": 812,
     "apps/lawmind-desktop/src/renderer/LawmindLawyerWorkbench.tsx": 2311,
     "apps/lawmind-desktop/src/renderer/LawmindSideChatSessions.tsx": 1018,
-    "apps/lawmind-desktop/src/renderer/matter/MatterAdmissionCard.tsx": 1071,
     "apps/lawmind-desktop/src/renderer/matter/useMatterProductIntelligence.ts": 802,
     "apps/lawmind-desktop/src/renderer/useLawmindChatSend.ts": 1298,
     "apps/lawmind-desktop/src/renderer/useLawmindChatSessions.ts": 821

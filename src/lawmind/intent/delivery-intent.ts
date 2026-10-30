@@ -46,7 +46,7 @@ export const DELIVERY_MARKER_OPINION_MEMO = "<!--lm-delivery:opinion_memo-->";
 export const DELIVERY_MARKER_CHAT_QA = "<!--lm-delivery:chat_qa-->";
 
 export const OPINION_MEMO_PIPELINE_HINT =
-  "律师指定了意见类交件，原文件只读。意见写进会话；若原话还要一份文件或点名了位置，再用 `draft_document` → `render_document`。不要覆盖原稿，也不要把完成条件理解成必须出红线或必须另存 Word。改稿工具仍可用。";
+  "律师指定了意见类交件，原文件只读。会话里写出完整意见，同时 `draft_document` → `render_document` 写出 Word 工作稿。不要覆盖原稿，也不要把完成条件理解成必须出红线。律师明确说只要对话、不要文件时才省略 Word。改稿工具仍可用。";
 
 /** The output *is* comments / an opinion memo, not a marked-up copy of the source. */
 const OPINION_OBJECT_RE =
@@ -183,12 +183,10 @@ export function formatDeliveryConstraintPromptBlock(
     lines.push(DELIVERY_MARKER_OPINION_MEMO);
     lines.push("## 本轮交件形态（律师已指定）");
     lines.push("- 律师指定了意见类交件。正文是审查意见与修改建议，不要拷贝原合同再改。");
-    lines.push(
-      "- 原文件只读。不要把完成条件理解成必须出审阅痕迹，也不要理解成凡是意见都得另存一份 Word。",
-    );
+    lines.push("- 原文件只读。不要把完成条件理解成必须出审阅痕迹。");
     lines.push("- 会话里写出完整意见（结论、风险、建议），不能只给文件路径。");
     lines.push(
-      "- 原话要文件或点名了位置时，再用 `draft_document` → `render_document`。工具表不收窄；若律师随后要红线，仍可改稿。",
+      "- 同时 `draft_document` → `render_document` 写出 Word 工作稿。律师明确说只要对话、不要文件时才省略。工具表不收窄；若律师随后要红线，仍可改稿。",
     );
   } else {
     lines.push("## 本轮交件形态（律师已指定）");

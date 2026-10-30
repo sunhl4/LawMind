@@ -4,12 +4,19 @@ import {
   type RelationEdge,
 } from "./definition-relations.js";
 import type { FactorState } from "./factor-state.js";
-import { buildWitnessProbes, scoreWitnessAnswer, witnessReport } from "./factor-witness.js";
+import {
+  buildWitnessProbes,
+  scoreWitnessAnswer,
+  witnessReport,
+  type WitnessScore,
+} from "./factor-witness.js";
 import { normalizeReviewObservations } from "./review-observations.js";
 
 export type ObservationEnvelope = {
   kind: "witness" | "relation" | "review";
   payload: Record<string, unknown>;
+  /** Only witness envelopes carry typed scores; used to feed the weak filter. */
+  scores?: WitnessScore[];
 };
 
 /**
@@ -47,6 +54,7 @@ export function witnessEnvelopeFromToolData(
       driftAnchors: report.driftAnchors,
       scores: report.scores,
     },
+    scores,
   };
 }
 

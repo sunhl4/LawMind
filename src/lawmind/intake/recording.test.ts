@@ -74,7 +74,7 @@ describe("audio classification", () => {
     expect(isIntakeAudioFile("noext")).toBe(false);
   });
 
-  it("records dropped audio as the recording channel with the audio blob attached", () => {
+  it("records dropped audio as the recording channel with the audio blob attached", async () => {
     const dir = workspace();
     const root = ensureIntakeDropzone(dir);
     const old = new Date(Date.now() - 10_000);
@@ -87,7 +87,7 @@ describe("audio classification", () => {
       fs.utimesSync(drop, old, old);
     }
 
-    const result = scanIntakeDropzone(dir, { now: new Date() });
+    const result = await scanIntakeDropzone(dir, { now: new Date() });
     expect(result.recorded).toBe(2);
 
     // 逐条核对渠道：音频是 recording，其它仍是 dropzone。

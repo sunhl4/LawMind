@@ -124,7 +124,7 @@ export {
   type ProvenanceApplyResult,
   type ProvenanceCoverage,
 } from "./field-provenance.js";
-export { triageIntakeItem } from "./triage.js";
+export { retriageUnfiledIntake, triageIntakeItem } from "./triage.js";
 export {
   listIntakeMailAccounts,
   syncIntakeMailbox,

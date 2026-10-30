@@ -84,7 +84,7 @@ export function mergeTaskBoardRows(input: {
     const depends =
       q.dependsOn && q.dependsOn.length > 0 ? `依赖 ${q.dependsOn.length} 项` : "";
     const phase = q.phase ? QUEUE_PHASE_ZH[q.phase] ?? q.phase : "";
-    const kindLabel = queueKindLabel(q.kind);
+    const kindLabel = q.title.startsWith("核对") ? "待核对" : queueKindLabel(q.kind);
     const subtitleParts = [phase || kindLabel, depends, blocked].filter(Boolean);
     rows.push({
       id: `queue:${q.queueItemId}`,

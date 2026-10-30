@@ -33,6 +33,8 @@ export type FetchedMailMessage = {
   references?: string[];
   /** Graph 会话 ID，只在同一邮箱内稳定。 */
   conversationId?: string;
+  /** IMAP UIDVALIDITY；UID 在信箱重建后可能复用，去重键必须带上它。 */
+  uidValidity?: string;
   /** 收信服务商写在最上面一条 Authentication-Results 里的 dmarc 结论。 */
   dmarc?: "pass" | "fail";
 };
@@ -300,13 +302,53 @@ export type ImapIncrementalFetch = {
 };
 
 /**
+ * 本批 UID 选择。
+ *
+ * - 续拉：从水位之后取最旧的一批（保持原有顺序）。
+ * - 首次/重建水位且知道 7 天下界：只取窗口内最旧的一批，分多轮向前补齐；
+ *   以前取最新一批会把窗口内更早的信永久跳过。
+ * - 没有下界的旧调用：维持「取最新一批」兼容行为。
+ */
+export function selectImapBatchUids(
+  found: readonly number[],
+  opts: { sinceUid?: number; resume: boolean; backfill: boolean; limit: number },
+): number[] {
+  const sorted = [...found].toSorted((a, b) => a - b);
+  if (opts.resume && opts.sinceUid !== undefined) {
+    return sorted.filter((uid) => uid > opts.sinceUid!).slice(0, opts.limit);
+  }
+  return (opts.backfill ? sorted : sorted.slice(-opts.limit)).slice(0, opts.limit);
+}
+
+/**
+ * 本批没有可处理的 UID 时，水位不能回到 0：
+ * 首次同步没有 7 天内来信时，应停在整个信箱的 uidNext-1，避免下一轮把旧信倒进来。
+ */
+export function imapUidWatermark(opts: {
+  resume: boolean;
+  sinceUid?: number;
+  uids: readonly number[];
+  uidNext?: number;
+}): number {
+  if (opts.uids.length > 0) {
+    return Math.max(...opts.uids);
+  }
+  if (opts.resume) {
+    return opts.sinceUid ?? 0;
+  }
+  const uidNext = opts.uidNext ?? 0;
+  return uidNext > 0 ? uidNext - 1 : 0;
+}
+
+/**
  * 收案邮箱增量拉取：只拉 UID 大于上次水位的信，从旧到新每批最多 limit 封。
- * UIDVALIDITY 变了（服务器重建了信箱）就从最近 limit 封重新开始，靠收件库去重兜底。
+ * 首次同步带 `since` 时只回溯最近窗口内的信，并且从最旧开始分批补齐；
+ * UIDVALIDITY 变了（服务器重建了信箱）也按同一窗口重新开始，靠收件库去重兜底。
  */
 export async function fetchImapMessagesSince(
   account: MailAccount,
   lawMindRoot: string,
-  opts: { sinceUid?: number; uidValidity?: string; limit?: number } = {},
+  opts: { sinceUid?: number; uidValidity?: string; limit?: number; since?: Date } = {},
 ): Promise<ImapIncrementalFetch> {
   const limit = Math.min(50, Math.max(1, opts.limit ?? 25));
   return withImapClient(account, lawMindRoot, async (client) => {
@@ -317,15 +359,35 @@ export async function fetchImapMessagesSince(
         status && typeof status === "object" && "uidValidity" in status
           ? String(status.uidValidity)
           : "";
+      const uidNext =
+        status && typeof status === "object" && "uidNext" in status
+          ? Number((status as { uidNext?: number }).uidNext)
+          : undefined;
       const since = opts.sinceUid;
       const resume = since !== undefined && opts.uidValidity === uidValidity;
+      const backfill = !resume && opts.since !== undefined && !Number.isNaN(opts.since.getTime());
       const found = resume
         ? await client.search({ uid: `${since + 1}:*` }, { uid: true })
-        : await client.search({ all: true }, { uid: true });
-      const all = (found || []).toSorted((a, b) => a - b);
-      const uids = resume ? all.filter((u) => u > (since ?? 0)).slice(0, limit) : all.slice(-limit);
+        : backfill
+          ? await client.search({ since: opts.since }, { uid: true })
+          : await client.search({ all: true }, { uid: true });
+      const uids = selectImapBatchUids(found || [], {
+        ...(since !== undefined ? { sinceUid: since } : {}),
+        resume,
+        backfill,
+        limit,
+      });
       if (uids.length === 0) {
-        return { messages: [], uidValidity, lastUid: resume ? (since ?? 0) : 0 };
+        return {
+          messages: [],
+          uidValidity,
+          lastUid: imapUidWatermark({
+            resume,
+            ...(since !== undefined ? { sinceUid: since } : {}),
+            uids,
+            ...(uidNext !== undefined ? { uidNext } : {}),
+          }),
+        };
       }
       const out: FetchedMailMessage[] = [];
       for await (const msg of client.fetch(
@@ -338,7 +400,16 @@ export async function fetchImapMessagesSince(
           out.push(parsed);
         }
       }
-      return { messages: out, uidValidity, lastUid: Math.max(...uids) };
+      return {
+        messages: out.map((message) => ({ ...message, uidValidity })),
+        uidValidity,
+        lastUid: imapUidWatermark({
+          resume,
+          ...(since !== undefined ? { sinceUid: since } : {}),
+          uids,
+          ...(uidNext !== undefined ? { uidNext } : {}),
+        }),
+      };
     } finally {
       lock.release();
     }

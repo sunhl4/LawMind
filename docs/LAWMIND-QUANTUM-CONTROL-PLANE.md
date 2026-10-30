@@ -175,7 +175,8 @@
 
 ### 4.4 第四层：组合与上下文
 
-- **部分迹**：子工只拿任务锚的边际；`hopTruncation` 报告被丢掉的长程边和被丢掉的机械槽。丢弃质量不是零成本，要如实报告。
+- **部分迹**：子工只拿任务锚的边际；`hopTruncation` 报告被丢掉的长程边和被丢掉的机械槽。丢弃质量不是零成本，要如实报告。子工结果带 `marginal` 计数（`seen` / `mechanical` / `longRange` / `isolated`），父会话据此区分「子工没看到」和「材料没有」；`isolated` 不点名。
+- **边际边界**：`composeSubagentPrompt` 单点组装边际与边界，测试与生产读同一份提示。边界按证据强度分级：机械长程项优先、最近优先，名字预算 24；连通的语义长程项随后；零证据锚不点名、不计数；种子未落到因子态时不输出边界块。边界只给名字不给读数；任务需要时先核实再用，核实不到写缺口，不能把「未提供」写成「不存在」。子工可用只读工具 `read_marginal_anchor` 按名取回边际或已命名边界锚的读数，范围外与零证据锚拒绝，读数不进入初始提示。
 - **不可克隆**：同一模型回合、同一份检索结果、同一段原文，只能算一个来源根；跨子工共享根不做独立证据。
 - **压缩通道**：压缩只能丢信息，不能造证据，也不能消解冲突。用保真度指标（锚保留、冲突保留、判断保留）量它，而不是信任摘要。
 - **干涉合并**：同一锚上独立支持相乘；支撑不相交写冲突；父模型不兼任冲突裁判。
@@ -226,29 +227,32 @@
 
 ### 6.1 新模块
 
-| 文件                                         | 作用                                                                        | 状态                                            |
-| -------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------- |
-| `src/lawmind/agent/evidence-provenance.ts`   | 来源根、共享根、独立性融合、决策距离                                        | 已接入 `productMerge`；双方都带 channels 时生效 |
-| `src/lawmind/agent/syndrome-decoder.ts`      | 故障候选、最小权重译码、跨轮持续综合征                                      | 纯函数 + 单测；未接修复回路                     |
-| `src/lawmind/agent/evidence-filter.ts`       | 序贯对数几率、衰减、通道去重、确定/混合/冲突判定                            | 纯函数 + 单测；未接实时判定                     |
-| `src/lawmind/agent/syndrome-observer.ts`     | 从现有因子账本读红灯并译码                                                  | 只读观察器，不改状态                            |
-| `src/lawmind/agent/factor-state.ts`          | `FactorOutcome.channels`、`recordReading` 可选来源、`productMerge` 溯源分支 | 向后兼容；无 channels 时走旧路径                |
-| `src/lawmind/adapters/factor-ledger/`        | 会话/案件级 JSONL 账本，schema 校验，坏行跳过                               | 已落地；有 matterId 写案件账本                  |
-| `src/lawmind/agent/observation-bus.ts`       | 统一观察落盘，失败吞掉                                                      | 已接 correction / syndrome / summary            |
-| `src/lawmind/agent/conformal-calibration.ts` | 从修正史构建校准分数，门只在有区分度时启用                                  | 已落地；数据不足时保持关闭                      |
-| `src/lawmind/agent/factor-metrics.ts`        | 修正、综合征、回合汇总的只读聚合                                            | 已落地；内部摘要                                |
+| 文件                                         | 作用                                                                        | 状态                                                               |
+| -------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `src/lawmind/agent/evidence-provenance.ts`   | 来源根、共享根、独立性融合、决策距离                                        | 已接入 `productMerge`；双方都带 channels 时生效                    |
+| `src/lawmind/agent/syndrome-decoder.ts`      | 故障候选、最小权重译码、跨轮持续综合征                                      | 纯函数 + 单测；`persistentSyndrome` 已接观察总线，修复回路仍未接   |
+| `src/lawmind/agent/evidence-filter.ts`       | 序贯对数几率、衰减、通道去重、确定/混合/冲突判定                            | 纯函数 + 单测；已接模型提案迟滞与 witness 弱读数（值/出处/反事实） |
+| `src/lawmind/agent/syndrome-observer.ts`     | 从现有因子账本读红灯并译码                                                  | 只读观察器，不改状态                                               |
+| `src/lawmind/agent/witness-measurement.ts`   | witness 回答进弱滤波；回合末主动抽查（默认关闭）                            | 被动已接；主动由 `LAWMIND_FACTOR_WITNESS=1` 开启                   |
+| `src/lawmind/agent/factor-state.ts`          | `FactorOutcome.channels`、`recordReading` 可选来源、`productMerge` 溯源分支 | 向后兼容；无 channels 时走旧路径                                   |
+| `src/lawmind/adapters/factor-ledger/`        | 会话/案件级 JSONL 账本，schema 校验，坏行跳过                               | 已落地；有 matterId 写案件账本                                     |
+| `src/lawmind/agent/observation-bus.ts`       | 统一观察落盘，失败吞掉                                                      | 已接 correction / syndrome / summary                               |
+| `src/lawmind/agent/conformal-calibration.ts` | 从修正史构建校准分数，门只在有区分度时启用                                  | 已落地；数据不足时保持关闭                                         |
+| `src/lawmind/agent/factor-metrics.ts`        | 修正、综合征、witness 抽查、回合汇总的只读聚合                              | 已落地；内部摘要                                                   |
 
 ### 6.2 已接线的部分
 
 - `fuseSharedAnchorLines` 现在给每条能 attest 的 worker span 附一个 `spanChannel`。同一段原文被两个 outcome id 引用时，共享根被排除，结果是【待核实】，而不是让其中一侧靠重复引用变得确定。
 - 材料金额、`calculate`、检索来源、`xml_qa`、`draft_worker` 的入账也开始带来源根（material / tool / span）。这些根今天不改变读数本身，但让后续融合有「同一份证据」可查，而不是只能按模型名猜独立性。
 - `productMerge` 在双方都带来源根时走 `fuseProvenancedOutcomes`；否则保持旧的乘积逻辑，避免把未登记来源的读数误判为独立证据。
+- `persistentSyndrome` 已接回合观察：`AgentTurn.syndromeHistory` 每轮更新，只有同一红灯在最近 3 轮中至少 2 轮出现、且持续集合发生变化时才写 `syndrome` 记录；记录同时带 `transient` 位和 `round`。单轮 blip 不再进账本，回合 summary 仍统计全部红灯。
+- `evidence-filter` 已接模型提案迟滞：`fuseProposal` 以 `model` 通道记一次弱读数；当前回合仍显示冲突，跨回合后单通道提案不再进入引擎读数，第二个独立通道确认才保留。历史错值仍由采样投影清洗，不重新进入上下文。
+- `witness-measurement.ts` 把 witness 回答接进弱滤波：每个锚记录 `obeyed` / `invented` 对数几率，通道按值 / 出处 / 反事实分开；同一通道重复答对不增加独立通道，两个不同基一致才判稳定。主动抽查只在 `LAWMIND_FACTOR_WITNESS=1` 时于回合收口前问一次（reviewModel、无工具、1024 token 上限），只写观察，不改正文或判定。
 
 ### 6.3 明确没有做的部分
 
 - 没有把译码器接进 `applyProseSyndrome` 的修复回路；
-- 没有把滤波器接进 `projectReading` 或 `renderEngineReadings`；
-- 没有把 witness 的模型回答、definition-relations 的边、review-observations 的审稿意见接进生产（观察总线接口已留好，缺生产者）；
+- 没有用滤波器升级或降级读数；它只决定模型提案是否仍作为当前冲突显示，witness 也只写观察。
 - 没有新增律师可见界面或设置。
 
 这样安排是为了遵守本仓库的门禁：先有可测的只读结构，再有消融，最后才动生成回路。
@@ -257,14 +261,15 @@
 
 - **账本**：`src/lawmind/adapters/factor-ledger/` 提供 `appendFactorLedgerRecord` / `readFactorLedgerRecords`。有 `matterId` 写 `matters/<id>/factor-ledger.jsonl`，否则写 `sessions/<id>.factor-ledger.jsonl`；坏行读取时跳过。
 - **观察总线**：`src/lawmind/agent/observation-bus.ts` 统一落盘 correction / syndrome / witness / relation / review / summary。任何写盘失败都被吞掉，观察不能打断回合。
-- **修正记录**：`correction-ledger.ts` 新增 `readings`（修正前读数、纯度、grounded、决策距离）与 `fileEditsReverted`；`turn-orchestrator.ts` 在「不对」分支写一条 correction 记录。`kept` 只表示「没有被撤回」，不是正确标签。
-- **综合征观察**：`turn-orchestrator-tool-round.ts` 在每次工具结果入账后调用 `observeSyndrome`；有红灯时写一条 syndrome 记录，包含红灯、译码结果与内部说明。
+- **观察生产接线**：`observation-builders.ts` 只读校验 witness 回答、审稿观察和定义别名关系；工具结果入账后由 `turn-orchestrator-tool-round.ts` 写入对应观察记录。`draft_worker` 的结构化 `reviewObservations` 会透传到父回合。
+- **账本清理**：`cleanupFactorLedger` 只由运维/CLI 显式调用，按记录数、字节数或显式年龄清理；追加和清理共用文件锁，保留最新有效记录。
+- **修正记录**：`correction-ledger.ts` 新增 `readings`（修正前读数、纯度、grounded、决策距离）与 `fileEditsReverted`，并保存译码器选择的 `faultKinds`；`turn-orchestrator.ts` 在「不对」分支写一条 correction 记录。`kept` 只表示「没有被撤回」，不是正确标签。
 - **回合汇总**：`turn-orchestrator-finalize.ts` 在回合收口时写 summary 记录（因子数、确定/混合、红灯数、决策距离数组），不含律师正文。
 - **保形校准**：`conformal-calibration.ts` 从 correction 记录的读数快照构建校准行；只有行数 ≥8 且有区分度时才写入 `conformalScores`。全为「双源、纯度 1」的读数会被判为 `uninformative`，门保持关闭。已启用的分数随会话持久化；重新校准的清理/刷新策略还没做。
 - **指标**：`factor-metrics.ts` 聚合修正、综合征、回合汇总三类记录，输出内部摘要；不把警告数当质量。
-- **准入 cassette**：`turn-orchestrator-cassettes.test.ts` 新增一条：修正回合写 correction + summary，且下一轮请求体不含账本路径。
+- **准入 cassette**：`turn-orchestrator-cassettes.test.ts` 覆盖修正回合写 correction + summary、工具结果写 witness/relation/review 观察、以及金额修复的 fault kind 进入 correction 记录；下一轮请求体不含账本路径。
 
-P0 还没收掉的一件：witness / 关系 / 审稿三类观察缺生产者。指标已有 `pnpm lawmind:factor-ledger -- --session <id>` 出口（`--matter <id>`、`--json`、`--limit` 可选）。
+P0 观测生产接线和账本显式清理已完成；剩余风险是 witness 目前只消费显式 `witnessAnswers` 工具数据，relation 只消费已有 typed alias 边，review 只消费带锚/span 的结构化观察，不会从自由文本猜测。
 
 ### 6.5 P1 首片：金额同回合修复（默认关闭）
 
@@ -283,19 +288,19 @@ P0 还没收掉的一件：witness / 关系 / 审稿三类观察缺生产者。�
 ### P0 · 先把观测闭环补上（1–2 周）· 已落地
 
 1. **案件级账本**：把 `FactorState`、红灯谱系、译码报告、修正记录持久化到案件目录；采样只读投影。→ `adapters/factor-ledger/`，有 matterId 时写案件账本，否则写会话账本。
-2. **观测总线**：witness、关系核对、审稿观察、修正记录统一进一条只读通道；每条记录带锚、带来源、带轮次。→ `observation-bus.ts` 已接 correction / syndrome / summary；witness / relation / review 的生产者仍在 P2/P3。
-3. **校准数据**：把律师「不对」的修正记录落成带锚、带修回结果的记录；`reason` 先留空，禁止关键词自动分类。→ `correction-ledger.ts` 新增读数快照与 `fileEditsReverted`。
+2. **观测总线**：witness、关系核对、审稿观察、修正记录统一进一条只读通道；每条记录带锚、带来源、带轮次。→ 已接 correction / syndrome / summary / witness / relation / review；witness/review 只接受结构化、带锚的输入。
+3. **校准数据**：把律师「不对」的修正记录落成带锚、带修回结果的记录；`reason` 先留空，禁止关键词自动分类。→ `correction-ledger.ts` 新增读数快照、`faultKinds` 与 `fileEditsReverted`。
 4. **保形校准**：从修正记录累计 `conformalScores`，达到 `MIN_CONFORMAL_CALIBRATION` 后才启用 `projectReadingGated`；未达到时如实标注「未校准」。→ `conformal-calibration.ts` 已实现；无区分度数据时门保持关闭。
 5. **指标**：红灯谱系覆盖率、同源重复率、证据距离分布、【待核实】误报密度、过度 hedging 率。→ `factor-metrics.ts` 已量红灯数、译码结果分布、决策距离分布与修正结果；`pnpm lawmind:factor-ledger` 是只读出口。误报密度、hedging 率、同源重复率仍缺律师侧采样或来源根统计。
 
 验收：没有足够校准数据时不改变律师可见行为；门一旦启用，按校准规则改变确定/混合判定。若记录本身让延迟或 token 明显上升，先降采样。
 
-P0 剩余：witness / relation / review 的生产者接线；账本保留期与清理策略。
+P0 剩余：账本保留期与清理策略已完成；witness/relation/review 的深入语义生产仍保持结构化输入边界，后续再接弱测量滤波与真实任务评测。
 
 ### P1 · 译码器（2–3 周）· 首片已落地
 
 1. 把 `syndrome-observer` 的报告接到事件日志；→ 已接 `factor-ledger` 的 syndrome 观察；独立的 `events.jsonl` 出口仍可另接。
-2. 用修正史校准 `FaultWeightTable`；→ 未做。修正记录还没有 fault kind，需要先把译码选择写进修正记录。
+2. 用修正史校准 `FaultWeightTable`；→ 已保存 `faultKinds` 到 correction calibration rows，但还未按故障类型分层估计权重。
 3. 在 `applyProseSyndrome` 后面加一个**默认关闭**的译码修复分支：唯一解才重做，同价/无解只标混合；→ 已实现 `prose-repair.ts`，由 `LAWMIND_FACTOR_REPAIR=1` 开启；默认关闭。cassette 覆盖「错金额 → 一次反弹 → 交付核定数」。
 4. 对照臂：现状按类别修复 vs 译码器修复；→ 待跑真实任务集。
 5. 指标：根因命中率、一次修复成功率、每次修复 token、二次修正率。
@@ -306,18 +311,18 @@ P0 剩余：witness / relation / review 的生产者接线；账本保留期与�
 
 ### P2 · 弱测量与测量预算（3–4 周）
 
-1. 每个锚维护 `EvidenceFilterState`；模型句子、witness 回答、工具结果分别以不同 LLR 进入；
-2. `persistentSyndrome` 过滤单轮 blip；
-3. witness 探针按值 / 出处 / 反事实三类轮换；
-4. 用预期信息增益 / 成本决定是否探测；
-5. 指标：误报密度下降、漏报不升、每次修复 token 下降、过度 hedging 不升。
+1. 每个锚维护 `EvidenceFilterState`；模型句子、witness 回答、工具结果分别以不同 LLR 进入；→ 模型提案与 witness（值/出处/反事实）通道已接，工具结果仍走强证据、不进弱滤波。
+2. `persistentSyndrome` 过滤单轮 blip；→ 已接回合观察总线，账本同时保留瞬态位。
+3. witness 探针按值 / 出处 / 反事实三类轮换；→ 已接 `buildWitnessProbes` 的通道轮换，主动抽查每回合最多一次。
+4. 用预期信息增益 / 成本决定是否探测；→ 首片：只在「有已核金额/引用、正文没用到」时探一次，默认关闭；按成本排序的完整预算表未做。
+5. 指标：误报密度下降、漏报不升、每次修复 token 下降、过度 hedging 不升。→ witness 的通过/偏离、稳定遵守/稳定编造、通道数已进 `factor-metrics`；其余四项仍需真实任务集。
 
 验收：在固定任务集上，弱测量臂比现状少误报且不漏报；若只是把警告变少但真实缺源被隐瞒，判失败。
 
 ### P3 · 组合与上下文（3–4 周）
 
 1. 子工边际按任务锚的互信息选，而不是只看 hop 距离；
-2. `hopTruncation` 的丢弃质量进入报告；
+2. `hopTruncation` 的丢弃质量进入报告；→ 已接 `draft_worker` 结果的 `marginal` 计数，续跑保留。
 3. 压缩保真度：锚保留、冲突保留、判断保留；
 4. 所有子工融合走来源根；同一模型回合、同一检索结果只算一次；
 5. 指标：压缩后锚召回、冲突不消解率、长程红灯归因命中率。
@@ -353,6 +358,9 @@ P0 剩余：witness / relation / review 的生产者接线；账本保留期与�
 - 【待核实】误报密度（每千字 / 每份交件）；
 - 过度 hedging 率：已核事实被标成待核实的比例；
 - 译码根因命中率、一次修复成功率、每次修复 token；
+- 持续红灯事件数 / 瞬态红灯位数（`syndrome` 记录的 `bits` 与 `transient`）；
+- 陈旧提案数（单通道模型提案，跨回合不再进入引擎读数）；
+- witness 抽查：通过 / 偏离、主动探针数、反事实探针数、稳定遵守 / 稳定编造（两基一致）、独立通道数；
 - 压缩后锚召回、冲突保留率、判断保留率；
 - 证据距离分布、同源重复率；
 - 律师修改量 / 盲评偏好（有真稿时）。

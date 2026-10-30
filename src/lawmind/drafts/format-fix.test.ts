@@ -298,6 +298,41 @@ describe("已带格式修订的回稿再修", () => {
     expect(preserved.missing).toEqual([]);
   });
 
+  it("writes a different format-revision time per paragraph", () => {
+    const twoParagraphs =
+      `<w:document xmlns:w="${W}"><w:body>` +
+      `<w:p><w:r><w:t>第一段约定以书面形式为准。</w:t></w:r></w:p>` +
+      `<w:p><w:r><w:t>第二段约定以书面形式为准。</w:t></w:r></w:p>` +
+      `<w:sectPr/></w:body></w:document>`;
+    let id = 500;
+    const result = applyFormatFixesToXml({
+      documentXml: twoParagraphs,
+      blocks: [],
+      targets: [
+        {
+          paragraphIndex: 0,
+          text: "第一段约定以书面形式为准。",
+          kinds: ["body.font", "body.size"],
+        },
+        {
+          paragraphIndex: 1,
+          text: "第二段约定以书面形式为准。",
+          kinds: ["body.font", "body.size"],
+        },
+      ],
+      target: { fontFamily: "FangSong", halfPt: 32 },
+      author: "LawMind",
+      now: "2026-10-21T00:00:00Z",
+      dates: ["2026-10-21T08:05:00Z", "2026-10-21T08:47:00Z"],
+      nextTrackId: () => String(id++),
+    });
+    expect(result.appliedParagraphs).toBe(2);
+    expect(result.xml).toContain('w:date="2026-10-21T08:05:00Z"');
+    expect(result.xml).toContain('w:date="2026-10-21T08:47:00Z"');
+    // 显式给了逐段时间，就不该再有整篇共用的 now。
+    expect(result.xml).not.toContain('w:date="2026-10-21T00:00:00Z"');
+  });
+
   it("says why a paragraph was skipped instead of claiming it already conformed", () => {
     const result = applyFormatFixesToXml({
       documentXml: beforeXml,

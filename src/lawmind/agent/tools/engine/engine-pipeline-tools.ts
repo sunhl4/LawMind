@@ -1046,6 +1046,26 @@ export const draftDocument: AgentTool = {
   },
 };
 
+const GENERIC_SCAFFOLD = "请根据任务要求补足正文内容";
+
+/** A render of only the empty scaffold is not a deliverable. Field placeholders in a real contract are. */
+export function draftSubstance(draft: { sections?: { body?: string }[] }): "scaffold" | "written" {
+  const bodies = (draft.sections ?? [])
+    .map((section) => section.body?.trim() ?? "")
+    .filter(Boolean);
+  if (bodies.length === 0) {
+    return "scaffold";
+  }
+  const onlyScaffold = bodies.every((body) => {
+    const stripped = body
+      .replaceAll(GENERIC_SCAFFOLD, "")
+      .replace(/【[^】\n]{0,40}】/g, "")
+      .trim();
+    return stripped.length < 12;
+  });
+  return onlyScaffold ? "scaffold" : "written";
+}
+
 // ─────────────────────────────────────────────
 // render_document — 渲染最终交付物
 // ─────────────────────────────────────────────
@@ -1185,6 +1205,7 @@ export const renderDocument: AgentTool = {
             taskId: approvedDraft.taskId,
             title: approvedDraft.title,
             outputPath: result.outputPath,
+            deliverableSubstance: draftSubstance(approvedDraft),
             acceptance,
             ...(guardianView ? { guardian: guardianView } : {}),
             message: `文书已渲染完成（本地 Word 引擎）：${result.outputPath}`,

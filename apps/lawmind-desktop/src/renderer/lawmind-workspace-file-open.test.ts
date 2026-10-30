@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   LAWMIND_OPEN_WORKSPACE_FILE_EVENT,
+  LAWMIND_REVEAL_FILE_LOCATOR_EVENT,
   matterIdOwnedByOpenedFile,
   offsetForLine,
   requestOpenWorkspaceFile,
@@ -31,5 +32,23 @@ describe("matterIdOwnedByOpenedFile", () => {
     requestOpenWorkspaceFile("notes/memo.md", "workspace", { line: 8, column: 2 });
     window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onOpen);
     expect(seen[0]).toEqual({ relPath: "notes/memo.md", root: "workspace", line: 8, column: 2 });
+  });
+
+  it("carries a rich evidence locator for PDF and spreadsheet previews", () => {
+    const seen: Array<{ relPath?: string; locator?: string }> = [];
+    const onOpen = (event: Event) => {
+      seen.push((event as CustomEvent<{ relPath?: string; locator?: string }>).detail);
+    };
+    const revealed: Array<{ relPath: string; locator: string }> = [];
+    const onReveal = (event: Event) => {
+      revealed.push((event as CustomEvent<{ relPath: string; locator: string }>).detail);
+    };
+    window.addEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onOpen);
+    window.addEventListener(LAWMIND_REVEAL_FILE_LOCATOR_EVENT, onReveal);
+    requestOpenWorkspaceFile("cases/m/materials/ledger.xlsx", "workspace", { locator: "S1!B4" });
+    window.removeEventListener(LAWMIND_OPEN_WORKSPACE_FILE_EVENT, onOpen);
+    window.removeEventListener(LAWMIND_REVEAL_FILE_LOCATOR_EVENT, onReveal);
+    expect(seen[0]).toMatchObject({ relPath: "cases/m/materials/ledger.xlsx", locator: "S1!B4" });
+    expect(revealed[0]).toEqual({ root: "workspace", relPath: "cases/m/materials/ledger.xlsx", locator: "S1!B4" });
   });
 });

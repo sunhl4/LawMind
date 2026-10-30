@@ -7,6 +7,8 @@ import {
 import type { MatterSidebarRow } from "../lawmind-records-desk-state";
 
 import { LawmindSideExplorerSkeleton } from "./LawmindSideExplorerSkeleton";
+import { LawmindSideAccountFooter } from "./LawmindSideAccountFooter";
+import type { LawmindAppUpdateState } from "../lawmind-app-update";
 import type { LawmindMainView } from "../lawmind-main-view";
 import { LawmindBrandMark } from "./LawmindBrandMark";
 
@@ -61,6 +63,8 @@ export type LawmindAppSidebarProps = {
   onDeleteChatSession?: (sessionId: string | readonly string[]) => void | Promise<void>;
   /** Opens create-matter dialog from the matter list (no-FS / empty list). */
   onCreateMatter?: () => void;
+  /** 测试注入：底部账号行「更新」药丸的状态（默认走外部 store）。 */
+  updateStateTest?: LawmindAppUpdateState | null;
 };
 
 function knownMatterIdsFromRows(
@@ -119,6 +123,7 @@ function LawmindAppSidebarImpl({
   onRenameChatSession,
   onDeleteChatSession,
   onCreateMatter,
+  updateStateTest,
 }: LawmindAppSidebarProps) {
   // Settings owns the full shell width; do not keep the workspace rail beside it.
   if (!showAppSidebar || settingsOpen) {
@@ -174,24 +179,6 @@ function LawmindAppSidebarImpl({
           <div className="lm-brand-copy">
             <div className="lm-brand-title">LawMind</div>
           </div>
-          <button
-            type="button"
-            className={`lm-gear-btn${settingsOpen ? " is-active" : ""}`}
-            onClick={settingsOpen ? onCloseSettings : onOpenSettings}
-            aria-label={settingsOpen ? "关闭设置" : "设置"}
-            aria-pressed={settingsOpen}
-            title={settingsOpen ? "关闭设置" : "设置"}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-              <path
-                d="M6.5.75h3l.3 1.77a5.5 5.5 0 0 1 1.28.74l1.72-.58 1.5 2.6-1.42 1.19a5.6 5.6 0 0 1 0 1.06l1.42 1.19-1.5 2.6-1.72-.58a5.5 5.5 0 0 1-1.28.74l-.3 1.77h-3l-.3-1.77a5.5 5.5 0 0 1-1.28-.74l-1.72.58-1.5-2.6 1.42-1.19a5.6 5.6 0 0 1 0-1.06L1.7 5.28l1.5-2.6 1.72.58a5.5 5.5 0 0 1 1.28-.74L6.5.75Z"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinejoin="round"
-              />
-              <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
-          </button>
         </div>
 
         {/* 本机文件夹在上。最上面的新建放进工作区根目录，或设置里另选的目录。 */}
@@ -266,6 +253,14 @@ function LawmindAppSidebarImpl({
             }}
           />
         ) : null}
+
+        {/* Cursor 式账号行：左下角 头像 + 产品名 + 金色「更新」药丸 + 设置齿轮。 */}
+        <LawmindSideAccountFooter
+          settingsOpen={settingsOpen}
+          onOpenSettings={onOpenSettings}
+          onCloseSettings={onCloseSettings}
+          updateStateTest={updateStateTest}
+        />
 
       </aside>
       {!sidebarCollapsed ? (

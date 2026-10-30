@@ -267,39 +267,11 @@ export type IntentSoftAsk = {
 
 ## 70.2 能力目录：23 条与它的 8000 字上限
 
-`catalog.ts` 95 行，头注释说明了它什么时候被注入：
+未绑定回合注入 `formatCapabilityCatalogIndex()`：操作说明，加上从 `skills/builtin/*.md` 文首读出的技能 id 与 `description`。不另维护一份索引。23 个办件 id 仍在 `listCapabilityCatalog()`，不进默认提示。硬绑定仍注入瘦技能正文。`mail.contract` 的 `allowImplicit` 仍是 false，避免模型自己走邮件短路径。
 
-```text
-Codex-style capability catalog: name + description for implicit match,
-plus when/notWhen boundaries. Injected on unbound turns and on soft
-keyword/matter/genre hypotheses. Hard binds still dump lean Skill bodies.
-```
+`render_document` 成功时带 `deliverableSubstance`。只有空壳（正文只剩「请根据任务要求补足正文内容」）不算交件，完成策略再要一次。带字段占位的正式合同骨架算已写。依据是对工件做确定性检查，而不是再信收工那句话。
 
-**「未绑上时注入目录；硬绑时注入技能正文」**——这就是渐进披露的两档。
-
-### 三个数
-
-```text
-条目数        23
-索引上限      8000 字（CAPABILITY_CATALOG_MAX_CHARS）
-隐藏          1 个（mail.contract）
-```
-
-`allowImplicit: id !== "mail.contract"`——**所以目录里只有 22 条**。
-
-**为什么把 `mail.contract` 藏起来**：它的触发条件是「指令已带邮件短路径标记」。**如果它出现在隐式目录里，模型可能自己决定走这条短路径**——那就绕过了「路径已钉选」这个前提。
-
-### 目录的开头两行
-
-```text
-## 可用能力（隐式选用；律师不必点选）
-先按律师本轮原话判断要做什么。需要某条能力的质量规范时调用 `read_skill`。
-多条适用时取最小充分集。邮件合同短路径仅在指令已带短路径标记时使用。
-```
-
-**「隐式选用；律师不必点选」**——把产品姿态写进了提示词。
-
-而最后一句是**在目录里再重申一次那个前提**——所以即使目录没列它，模型也知道它存在但有条件。
+该出 Word 却没有成功的 `render_document` / `render_tracked_draft` / `fix_document_format` 时，`file-deliverable-export` 再要一次。函件核对、明确不要文件、点名写入 `.md`、改 Word（另有修订导出策略）、邮件短路径和只列追问，不走这一下。
 
 ### 那些描述里的「不要」
 

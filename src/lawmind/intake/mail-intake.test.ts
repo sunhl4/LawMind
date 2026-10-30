@@ -2,9 +2,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { loadMatter } from "../adapters/matter-storage/index.js";
+import {
+  createMatterIfMissing,
+  updateMatterProfile,
+} from "../application/services/matter-write-service.js";
 import type { FetchedMailMessage } from "../mail/imap-client.js";
 import { upsertMailAccount, type MailAccount } from "../mail/mail-accounts.js";
-import { syncIntakeMailbox, type IntakeMailFetch } from "./mail-intake.js";
+import { intakeEmailExternalKey, syncIntakeMailbox, type IntakeMailFetch } from "./mail-intake.js";
 import { listIntakeItems, readIntakeState } from "./store.js";
 import type { IntakeMailCursor } from "./store.js";
 
@@ -198,5 +203,140 @@ describe("intake mail watermark and retry behavior", () => {
     expect(second).toMatchObject({ ok: true, fetched: 2, recorded: 1 });
     expect(cursors[1]).toMatchObject({ receivedSince: boundary });
     expect(listIntakeItems(workspaceDir, { statuses: ["pending"] })).toHaveLength(2);
+  });
+
+  it("drops a failed Graph page cursor and retries from the time watermark", async () => {
+    const { workspaceDir, lawMindRoot } = workspace();
+    const account = graphAccount(workspaceDir, lawMindRoot);
+    const cursors: IntakeMailCursor[] = [];
+    let attempts = 0;
+    const fetched: IntakeMailFetch = async (_account, _root, cursor) => {
+      cursors.push(cursor);
+      attempts += 1;
+      if (attempts === 1) {
+        return {
+          messages: [message({ id: "page-1", messageId: "<page-1@example.com>" })],
+          cursor: {
+            receivedSince: "2026-10-26T00:00:00.000Z",
+            graphNextLink: "https://graph.microsoft.com/v1.0/next-page",
+          },
+        };
+      }
+      if (attempts === 2) {
+        throw new Error("graph_list_failed:400:skiptoken expired");
+      }
+      return { messages: [], cursor: { receivedSince: "2026-10-26T00:00:00.000Z" } };
+    };
+
+    const first = await syncIntakeMailbox(workspaceDir, lawMindRoot, account.id, {
+      fetch: fetched,
+      now: new Date("2026-10-26T01:00:00.000Z"),
+    });
+    expect(first).toMatchObject({ ok: true, recorded: 1 });
+    expect(readIntakeState(workspaceDir).mail[account.id]?.graphNextLink).toBe(
+      "https://graph.microsoft.com/v1.0/next-page",
+    );
+
+    const failed = await syncIntakeMailbox(workspaceDir, lawMindRoot, account.id, {
+      fetch: fetched,
+      now: new Date("2026-10-26T01:02:00.000Z"),
+    });
+    expect(failed).toMatchObject({ ok: false, error: "sync_failed" });
+    const afterFailure = readIntakeState(workspaceDir).mail[account.id];
+    expect(afterFailure?.graphNextLink).toBeUndefined();
+    expect(afterFailure?.receivedSince).toBe("2026-10-26T00:00:00.000Z");
+
+    const recovered = await syncIntakeMailbox(workspaceDir, lawMindRoot, account.id, {
+      fetch: fetched,
+      now: new Date("2026-10-26T01:04:00.000Z"),
+    });
+    expect(recovered).toMatchObject({ ok: true });
+    expect(cursors[2]).toMatchObject({ receivedSince: "2026-10-26T00:00:00.000Z" });
+    expect(cursors[2]?.graphNextLink).toBeUndefined();
+  });
+
+  it("keeps IMAP dedupe keys per UIDVALIDITY so a reused UID cannot hide new mail", async () => {
+    const { workspaceDir, lawMindRoot } = workspace();
+    const account = imapAccount(workspaceDir, lawMindRoot);
+    expect(intakeEmailExternalKey(account.id, "imap-1", "gen-a")).toBe(
+      `email:${account.id}:imap-1:gen-a`,
+    );
+
+    let attempts = 0;
+    const fetched: IntakeMailFetch = async () => {
+      attempts += 1;
+      const generation = attempts === 1 ? "gen-a" : "gen-b";
+      return {
+        messages: [
+          message({
+            id: "imap-1",
+            messageId: attempts === 1 ? "<one@example.com>" : "<two@example.com>",
+            uidValidity: generation,
+            receivedAt: "2026-10-26T00:00:00.000Z",
+          }),
+        ],
+        cursor: { uidValidity: generation, lastUid: 1 },
+      };
+    };
+
+    const first = await syncIntakeMailbox(workspaceDir, lawMindRoot, account.id, {
+      fetch: fetched,
+      now: new Date("2026-10-26T02:00:00.000Z"),
+    });
+    const second = await syncIntakeMailbox(workspaceDir, lawMindRoot, account.id, {
+      fetch: fetched,
+      now: new Date("2026-10-26T02:01:00.000Z"),
+    });
+
+    expect(first).toMatchObject({ ok: true, recorded: 1 });
+    expect(second).toMatchObject({ ok: true, recorded: 1 });
+    expect(listIntakeItems(workspaceDir, { statuses: ["pending"] })).toHaveLength(2);
+  });
+
+  it("fills empty matter fields after auto-filing an email", async () => {
+    const { workspaceDir, lawMindRoot } = workspace();
+    const account = imapAccount(workspaceDir, lawMindRoot);
+    createMatterIfMissing(workspaceDir, { matterId: "matter-a", title: "甲案" });
+    await updateMatterProfile(workspaceDir, {
+      matterId: "matter-a",
+      parties: [
+        {
+          partyId: "p-client",
+          name: "甲公司",
+          role: "client",
+          contacts: [
+            {
+              kind: "email",
+              value: "client@firm.test",
+              verified: true,
+              account: account.id,
+            },
+          ],
+        },
+      ],
+    });
+    const fetched: IntakeMailFetch = async () => ({
+      messages: [
+        message({
+          id: "auto-fields-1",
+          messageId: "<auto-fields-1@example.com>",
+          from: "甲公司 <client@firm.test>",
+          fromAddress: "client@firm.test",
+          bodyText: "案号（2026）沪01民初1001号。被告：王五。",
+          attachments: [],
+        }),
+      ],
+      cursor: { uidValidity: "uid-1", lastUid: 1 },
+    });
+
+    const result = await syncIntakeMailbox(workspaceDir, lawMindRoot, account.id, {
+      fetch: fetched,
+      now: new Date("2026-10-26T03:00:00.000Z"),
+    });
+
+    expect(result).toMatchObject({ ok: true, recorded: 1, autoAttached: 1 });
+    const matter = loadMatter(workspaceDir, "matter-a");
+    expect(matter?.docket?.caseNo).toBe("（2026）沪01民初1001号");
+    expect(matter?.counterparty).toBe("王五");
   });
 });

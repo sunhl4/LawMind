@@ -154,11 +154,19 @@ function dateInSentence(text: string, at: number, length: number): string | unde
   return hits[0]?.iso;
 }
 
-function dateForKeyword(text: string, re: RegExp): string | undefined {
+function sentenceContains(text: string, at: number, re: RegExp): boolean {
+  const bounds = sentenceBounds(text, at);
+  return new RegExp(re.source).test(text.slice(bounds.start, bounds.end));
+}
+
+function dateForKeyword(text: string, re: RegExp, sameSentence?: RegExp): string | undefined {
   const global = new RegExp(re.source, "g");
   for (let match = global.exec(text); match; match = global.exec(text)) {
     const word = match[0];
     if (word.includes("开庭") && text[match.index - 1] === "不") {
+      continue;
+    }
+    if (sameSentence && !sentenceContains(text, match.index, sameSentence)) {
       continue;
     }
     const due = dateInSentence(text, match.index, word.length);
@@ -245,7 +253,12 @@ export function extractLegalEvents(text: string): ExtractedLegalEvent[] {
       : /解除保全/.test(raw)
         ? "解除保全"
         : "保全期限";
-    const dueAt = dueFor(/保全|查封|冻结|扣押|续封|续冻|解除保全/);
+    // 同一句里要有期限用语。只提到「查封」再带一个无关日期，不算保全到期。
+    const dueAt = dateForKeyword(
+      raw,
+      /保全|查封|冻结|扣押|续封|续冻|解除保全/,
+      /期限|届满|到期|之前|以前|日前/,
+    );
     pushUnique(out, {
       eventKind: "preservation",
       title: action,
@@ -254,14 +267,14 @@ export function extractLegalEvents(text: string): ExtractedLegalEvent[] {
       confidence: dueAt ? "medium" : "low",
     });
   }
-  if (keywordAt(raw, /续签|到期|届满/) && /合同/.test(raw)) {
-    const dueAt = dueFor(/续签|到期|届满/);
+  const contractDue = dateForKeyword(raw, /续签|到期|届满/, /合同/);
+  if (contractDue) {
     pushUnique(out, {
       eventKind: "custom",
       title: "合同到期",
-      dueAt,
+      dueAt: contractDue,
       notes: raw.slice(0, 400),
-      confidence: dueAt ? "medium" : "low",
+      confidence: "medium",
     });
   }
   if (out.length === 0 && /法院|案件|案号/.test(raw)) {

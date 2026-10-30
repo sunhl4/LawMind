@@ -1153,6 +1153,27 @@ export async function handleMatterRoutes({
     return true;
   }
 
+  const queueResolve = /^\/api\/matters\/([^/]+)\/queue\/([^/]+)\/resolve$/.exec(pathname);
+  if (queueResolve && req.method === "POST") {
+    const matterId = decodeURIComponent(queueResolve[1] ?? "").trim();
+    const queueItemId = decodeURIComponent(queueResolve[2] ?? "").trim();
+    if (!isValidMatterId(matterId)) {
+      sendJson(res, 400, { ok: false, error: "invalid matter id" }, c);
+      return true;
+    }
+    if (!queueItemId) {
+      sendJson(res, 400, { ok: false, error: "invalid queue item" }, c);
+      return true;
+    }
+    const updated = transitionQueueItem(workspaceDir, matterId, queueItemId, "resolved");
+    if (!updated) {
+      sendJson(res, 404, { ok: false, error: "queue item not found" }, c);
+      return true;
+    }
+    sendJson(res, 200, { ok: true, queueItem: updated }, c);
+    return true;
+  }
+
   if (pathname === "/api/matters/search" && req.method === "GET") {
     const matterId = url.searchParams.get("matterId")?.trim() ?? "";
     const q = url.searchParams.get("q") ?? "";

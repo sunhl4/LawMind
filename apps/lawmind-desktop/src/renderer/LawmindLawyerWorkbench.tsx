@@ -123,6 +123,30 @@ type DeskMatterRow = {
   };
 };
 
+function toDatetimeLocalValue(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) {
+    return "";
+  }
+  const d = new Date(t);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fromDatetimeLocalValue(value: string): string | undefined {
+  const t = Date.parse(value);
+  if (!Number.isFinite(t)) {
+    return undefined;
+  }
+  return new Date(t).toISOString();
+}
+
+function sameMinute(a: string, b: string): boolean {
+  const left = Date.parse(a);
+  const right = Date.parse(b);
+  return Number.isFinite(left) && Number.isFinite(right) && Math.abs(left - right) < 60_000;
+}
+
 type DeadlineRow = {
   deadlineId: string;
   title: string;
@@ -962,6 +986,24 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
       .filter(Boolean)
       .join("\n");
     onGoToChat({ matterId: viewingId ?? undefined, prompt });
+  };
+
+  const patchDeadlineDue = async (deadlineId: string, dueAt: string) => {
+    if (!viewingId) {
+      return;
+    }
+    await apiSendJson(
+      apiBase,
+      `/api/matters/${encodeURIComponent(viewingId)}/deadlines/${encodeURIComponent(deadlineId)}`,
+      "PATCH",
+      { dueAt },
+    );
+    await reloadToday();
+    const dl = await apiGetJson<{ deadlines?: DeadlineRow[] }>(
+      apiBase,
+      `/api/matters/${encodeURIComponent(viewingId)}/deadlines`,
+    );
+    setDeadlines(dl.deadlines ?? []);
   };
 
   const completeDeadline = async (deadlineId: string) => {
@@ -2071,13 +2113,28 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                             </select>
                           ) : null}
                           {d.status === "open" || d.status === "snoozed" ? (
-                            <button
-                              type="button"
-                              className="lm-btn lm-btn-ghost lm-btn-sm"
-                              onClick={() => void completeDeadline(d.deadlineId)}
-                            >
-                              完成
-                            </button>
+                            <>
+                              <input
+                                type="datetime-local"
+                                className="lm-input lm-deadline-due"
+                                aria-label={`改时间：${d.title}`}
+                                defaultValue={toDatetimeLocalValue(d.dueAt)}
+                                onBlur={(event) => {
+                                  const next = fromDatetimeLocalValue(event.target.value);
+                                  if (!next || sameMinute(next, d.dueAt)) {
+                                    return;
+                                  }
+                                  void patchDeadlineDue(d.deadlineId, next);
+                                }}
+                              />
+                              <button
+                                type="button"
+                                className="lm-btn lm-btn-ghost lm-btn-sm"
+                                onClick={() => void completeDeadline(d.deadlineId)}
+                              >
+                                完成
+                              </button>
+                            </>
                           ) : (
                             <span className="lm-meta">{d.status === "completed" ? "已完成" : d.status}</span>
                           )}
@@ -2221,11 +2278,17 @@ export function LawmindLawyerWorkbench(props: LawmindLawyerWorkbenchProps): Reac
                 apiBase={apiBase}
                 matterId={selected.matterId}
                 onOpenEvidence={(filePath, lineRef) => {
-                  const line = /^L([1-9]\d*)/.exec((lineRef ?? "").trim());
-                  previewVolumeFile({
-                    path: filePath,
-                    ...(line ? { line: Number(line[1]) } : {}),
-                  });
+                  const locator = lineRef?.trim();
+                  const line = /^L([1-9]\d*)/.exec(locator ?? "");
+                  const path = resolveDeskVolumeWorkspacePath(selected.matterId, filePath, workspaceDir);
+                  if (!path) {
+                    return;
+                  }
+                  requestOpenWorkspaceFile(
+                    path,
+                    "workspace",
+                    line ? { line: Number(line[1]), locator } : { locator },
+                  );
                 }}
               />
 

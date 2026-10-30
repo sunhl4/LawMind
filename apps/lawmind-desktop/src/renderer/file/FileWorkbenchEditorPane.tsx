@@ -1,10 +1,21 @@
-import { useEffect, useRef, useState, type Dispatch, SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type PointerEvent as ReactPointerEvent,
+  SetStateAction,
+} from "react";
 import { type AnyFileRoot, type OpenFileTab, type RootKey } from "./file-workbench-types";
 import { fileTabAddress, wpsTabLabel } from "./file-tab-layout";
 import { FileTabHoverCard, fileTabHoverTarget, useFileTabHover } from "./file-tab-hover";
 import { FileTypeMark } from "./file-type-mark";
 import { lawyerCanvasTitle } from "../lawmind-explorer-lawyer-view";
 import { grantedFileRootDir } from "../lawmind-workspace-file-open";
+import { openWorkspacePaneWindow, paneDetachDragExceeded } from "../lawmind-pane-window";
+import { rememberDetachedFileTab } from "../lawmind-detached-file-tabs";
+import { parseLawmindPopoutRoute } from "../lawmind-popout-route";
 import { CanvasFileView } from "../canvas/CanvasFileView";
 import { useLawmindCanvasKind } from "../canvas/theme";
 import {
@@ -17,6 +28,9 @@ import {
   LAWMIND_REVEAL_FILE_LINE_EVENT,
   offsetForLine,
   type RevealFileLineDetail,
+  consumePendingRevealFileLocator,
+  LAWMIND_REVEAL_FILE_LOCATOR_EVENT,
+  type RevealFileLocatorDetail,
 } from "../lawmind-workspace-file-open";
 import {
   FallbackPreviewPanel,
@@ -108,6 +122,7 @@ export function FileWorkbenchEditorPane({
   const sourceRef = useRef<HTMLTextAreaElement>(null);
   const appliedReveal = useRef("");
   const [lineReveal, setLineReveal] = useState<RevealFileLineDetail | null>(null);
+  const [locatorReveal, setLocatorReveal] = useState<RevealFileLocatorDetail | null>(null);
   const canvasKind = useLawmindCanvasKind();
   const canvasPreview = canvasFile && !canvasSource;
   const markdownPreview = markdownFile && !mdSource && !canvasFile;
@@ -117,6 +132,16 @@ export function FileWorkbenchEditorPane({
   const canvasTabId = activeTab?.id;
   const [canvasTabSeen, setCanvasTabSeen] = useState(canvasTabId);
   const [canvasExportNote, setCanvasExportNote] = useState<string | null>(null);
+  /** 文件标签拖出到独立窗口：到松开时再开窗，窗口会落在鼠标所在的屏幕。 */
+  const tabDragRef = useRef<{
+    tabId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    dragging: boolean;
+  } | null>(null);
+  const suppressTabClickRef = useRef<string | null>(null);
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   if (canvasTabId !== canvasTabSeen) {
     setCanvasTabSeen(canvasTabId);
     setCanvasSource(false);
@@ -130,13 +155,28 @@ export function FileWorkbenchEditorPane({
       }
     };
     apply(consumePendingRevealFileLine());
+    const pendingLocator = consumePendingRevealFileLocator();
+    if (pendingLocator) {
+      setLocatorReveal(pendingLocator);
+    }
     const onReveal = (event: Event) => {
       const detail = (event as CustomEvent<RevealFileLineDetail>).detail ?? null;
       consumePendingRevealFileLine();
       apply(detail);
     };
+    const onLocatorReveal = (event: Event) => {
+      const detail = (event as CustomEvent<RevealFileLocatorDetail>).detail ?? null;
+      consumePendingRevealFileLocator();
+      if (detail) {
+        setLocatorReveal(detail);
+      }
+    };
     window.addEventListener(LAWMIND_REVEAL_FILE_LINE_EVENT, onReveal);
-    return () => window.removeEventListener(LAWMIND_REVEAL_FILE_LINE_EVENT, onReveal);
+    window.addEventListener(LAWMIND_REVEAL_FILE_LOCATOR_EVENT, onLocatorReveal);
+    return () => {
+      window.removeEventListener(LAWMIND_REVEAL_FILE_LINE_EVENT, onReveal);
+      window.removeEventListener(LAWMIND_REVEAL_FILE_LOCATOR_EVENT, onLocatorReveal);
+    };
   }, []);
 
   useEffect(() => {
@@ -193,6 +233,142 @@ export function FileWorkbenchEditorPane({
   const tabHover = useFileTabHover();
   const hoveredTab = fileTabHoverTarget(tabs, tabHover.hover);
 
+  /** 表格的未保存状态住在查看器内部，不在 tab 对象上；拖标签前必须问它。 */
+  const [xlsxDirtyTabIds, setXlsxDirtyTabIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const handleXlsxDirtyChange = useCallback((tabId: string, dirty: boolean) => {
+    setXlsxDirtyTabIds((prev) => {
+      if (prev.has(tabId) === dirty) {
+        return prev;
+      }
+      const next = new Set(prev);
+      if (dirty) {
+        next.add(tabId);
+      } else {
+        next.delete(tabId);
+      }
+      return next;
+    });
+  }, []);
+
+  const tabIsDirty = (tab: OpenFileTab): boolean =>
+    (tab.kind === "text" && tab.content !== tab.savedContent) ||
+    (tab.kind === "xlsx" && xlsxDirtyTabIds.has(tab.id));
+
+  const detachTabToWindow = async (tab: OpenFileTab) => {
+    if (tabIsDirty(tab)) {
+      setError("这份文件有未保存修改，先保存再拖出到新窗口。");
+      return;
+    }
+    const result = await openWorkspacePaneWindow({
+      kind: "workspace-pane",
+      pane: "middle",
+      title: wpsTabLabel(tab.name) || tab.name,
+      middleView: "file",
+      relPath: tab.path,
+      root: tab.root,
+    });
+    if (!result.ok) {
+      setError(
+        result.error === "invalid_aux_window"
+          ? "独立窗口需要重启 LawMind 后才会生效。"
+          : result.error ?? "打开独立窗口失败。",
+      );
+      return;
+    }
+    if (result.key) {
+      rememberDetachedFileTab(result.key, { root: tab.root, relPath: tab.path });
+    }
+    // 新窗口已经拿到文件；主窗口把标签移走，避免两处同时改同一份文件。
+    // 关窗时 `takeDetachedFileTab` 会把它放回来。
+    closeTab(tab.id);
+  };
+
+  const startTabDrag = (event: ReactPointerEvent<HTMLDivElement>, tab: OpenFileTab) => {
+    if (event.button !== 0) {
+      return;
+    }
+    // 独立窗里的标签不能再往外拖：它的 key 就是这扇窗自己，拖完只会在原地关掉标签。
+    if (parseLawmindPopoutRoute()?.kind === "workspace-pane") {
+      return;
+    }
+    if ((event.target as HTMLElement).closest("button.lm-file-tab-close")) {
+      return;
+    }
+    if (tabIsDirty(tab)) {
+      return;
+    }
+    tabDragRef.current = {
+      tabId: tab.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragging: false,
+    };
+    suppressTabClickRef.current = null;
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const moveTabDrag = (event: ReactPointerEvent<HTMLDivElement>, tab: OpenFileTab) => {
+    const drag = tabDragRef.current;
+    if (!drag || drag.tabId !== tab.id || drag.pointerId !== event.pointerId || drag.dragging) {
+      return;
+    }
+    if (
+      paneDetachDragExceeded(
+        { x: drag.startX, y: drag.startY },
+        { x: event.clientX, y: event.clientY },
+      )
+    ) {
+      drag.dragging = true;
+      setDraggingTabId(tab.id);
+    }
+  };
+
+  const endTabDrag = (event: ReactPointerEvent<HTMLDivElement>, tab: OpenFileTab) => {
+    const drag = tabDragRef.current;
+    if (!drag || drag.tabId !== tab.id || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    tabDragRef.current = null;
+    setDraggingTabId(null);
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
+    if (!drag.dragging) {
+      return;
+    }
+    suppressTabClickRef.current = tab.id;
+    void detachTabToWindow(tab);
+    // 在标签外松开时不一定紧跟 click；别让 suppress 卡住下一次点击。
+    window.setTimeout(() => {
+      if (suppressTabClickRef.current === tab.id) {
+        suppressTabClickRef.current = null;
+      }
+    }, 0);
+  };
+
+  const cancelTabDrag = (event: ReactPointerEvent<HTMLDivElement>, tab: OpenFileTab) => {
+    const drag = tabDragRef.current;
+    if (!drag || drag.tabId !== tab.id || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    tabDragRef.current = null;
+    setDraggingTabId(null);
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
   return (
     <section className="lm-files-editor" onClick={(e) => e.stopPropagation()}>
       {openError ? (
@@ -230,11 +406,23 @@ export function FileWorkbenchEditorPane({
                 aria-selected={selected}
                 aria-controls="lm-file-editor-panel"
                 tabIndex={selected ? 0 : -1}
-                className={`lm-file-tab${selected ? " active" : ""}${dirty ? " dirty" : ""}`}
+                className={`lm-file-tab${selected ? " active" : ""}${dirty ? " dirty" : ""}${draggingTabId === tab.id ? " is-dragging" : ""}`}
                 aria-label={dirty ? `${tab.name}，未保存` : tab.name}
                 onMouseEnter={(event) => tabHover.queueShow(tab.id, event.currentTarget)}
                 onMouseLeave={tabHover.queueHide}
-                onClick={activate}
+                onClick={(event) => {
+                  if (suppressTabClickRef.current === tab.id) {
+                    suppressTabClickRef.current = null;
+                    event.preventDefault();
+                    return;
+                  }
+                  activate();
+                }}
+                onPointerDown={(event) => startTabDrag(event, tab)}
+                onPointerMove={(event) => moveTabDrag(event, tab)}
+                onPointerUp={(event) => endTabDrag(event, tab)}
+                onPointerCancel={(event) => cancelTabDrag(event, tab)}
+                onDragStart={(event) => event.preventDefault()}
                 onMouseDown={(e) => {
                   if (e.button === 1) {
                     e.preventDefault();
@@ -361,9 +549,30 @@ export function FileWorkbenchEditorPane({
             ) : tab.kind === "image" ? (
               <ImagePreviewPanel tab={tab} actions={actions} />
             ) : tab.kind === "pdf" ? (
-              <PdfFileView tab={tab} apiBase={apiBase} actions={actions} />
+              <PdfFileView
+                tab={tab}
+                apiBase={apiBase}
+                actions={actions}
+                active={active}
+                locator={
+                  locatorReveal?.root === tab.root && locatorReveal.relPath === tab.path
+                    ? locatorReveal.locator
+                    : null
+                }
+              />
             ) : tab.kind === "xlsx" ? (
-              <XlsxFileView tab={tab} apiBase={apiBase} actions={actions} />
+              <XlsxFileView
+                tab={tab}
+                apiBase={apiBase}
+                actions={actions}
+                active={active}
+                onDirtyChange={(dirty) => handleXlsxDirtyChange(tab.id, dirty)}
+                locator={
+                  locatorReveal?.root === tab.root && locatorReveal.relPath === tab.path
+                    ? locatorReveal.locator
+                    : null
+                }
+              />
             ) : tab.kind === "pptx" ? (
               <PptxFileView tab={tab} apiBase={apiBase} actions={actions} />
             ) : tab.kind === "media" ? (

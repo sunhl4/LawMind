@@ -55,6 +55,13 @@ const BUILT_IN_TEMPLATES: BuiltInTemplateSpec[] = [
     category: "internal",
   },
   {
+    id: "word/working-draft-default",
+    format: "docx",
+    label: "工作稿",
+    variant: "workingDraft",
+    category: "internal",
+  },
+  {
     id: "word/research-report-default",
     format: "docx",
     label: "法律调研报告",
@@ -127,7 +134,7 @@ const BUILT_IN_TEMPLATES: BuiltInTemplateSpec[] = [
 ];
 
 const DEFAULT_BUILT_IN_BY_FORMAT: Record<TemplateFormat, string> = {
-  docx: "word/legal-memo-default",
+  docx: "word/working-draft-default",
   pptx: "ppt/client-brief-default",
 };
 
@@ -136,12 +143,12 @@ const DEFAULT_BUILT_IN_BY_FORMAT: Record<TemplateFormat, string> = {
  */
 const BUILT_IN_ALIASES: Record<string, string> = {
   "report-general-default": "word/research-report-default",
-  "document-general-default": "word/legal-memo-default",
+  "document-general-default": "word/working-draft-default",
   "review-contract-default": "word/contract-default",
   "letter-demand-default": "word/demand-letter-default",
   "contract-general-default": "word/contract-default",
   "contract-rental-default": "word/contract-default",
-  "litigation-outline-default": "word/legal-memo-default",
+  "litigation-outline-default": "word/working-draft-default",
   "report-esg-default": "word/research-report-default",
 };
 

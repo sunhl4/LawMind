@@ -109,6 +109,29 @@ export async function testGraphMailConnection(
   }
 }
 
+/**
+ * Graph 返回的 `internetMessageHeaders` 顺序不保证；只要任一
+ * `Authentication-Results` 写 dmarc=fail，就按 fail 处理（保守优先）。
+ */
+export function dmarcFromGraphHeaders(
+  headers: Array<{ name?: string; value?: string }> | undefined,
+): FetchedMailMessage["dmarc"] {
+  let passed = false;
+  for (const header of headers ?? []) {
+    if (header.name?.trim().toLowerCase() !== "authentication-results") {
+      continue;
+    }
+    const verdict = /\bdmarc\s*=\s*(pass|fail)\b/i.exec(header.value ?? "")?.[1]?.toLowerCase();
+    if (verdict === "fail") {
+      return "fail";
+    }
+    if (verdict === "pass") {
+      passed = true;
+    }
+  }
+  return passed ? "pass" : undefined;
+}
+
 export async function fetchGraphMessagesPage(
   account: MailAccount,
   lawMindRoot: string,
@@ -129,8 +152,8 @@ export async function fetchGraphMessagesPage(
   const token = await fetchGraphToken(cfg);
   // 默认只取 bodyPreview（轻量）；includeBody 时取完整正文（对齐 IMAP 全文语义，供合同审阅摘要）。
   const select = opts.includeBody
-    ? "id,subject,from,toRecipients,receivedDateTime,body,hasAttachments,internetMessageId,conversationId"
-    : "id,subject,from,toRecipients,receivedDateTime,bodyPreview,hasAttachments,internetMessageId,conversationId";
+    ? "id,subject,from,toRecipients,receivedDateTime,body,hasAttachments,internetMessageId,conversationId,internetMessageHeaders"
+    : "id,subject,from,toRecipients,receivedDateTime,bodyPreview,hasAttachments,internetMessageId,conversationId,internetMessageHeaders";
   const since = opts.receivedSince ? new Date(opts.receivedSince) : undefined;
   const window =
     since && !Number.isNaN(since.getTime())
@@ -162,6 +185,7 @@ export async function fetchGraphMessagesPage(
       hasAttachments?: boolean;
       internetMessageId?: string;
       conversationId?: string;
+      internetMessageHeaders?: Array<{ name?: string; value?: string }>;
     }>;
     "@odata.nextLink"?: string;
   };
@@ -216,6 +240,7 @@ export async function fetchGraphMessagesPage(
         }
       }
     }
+    const dmarc = dmarcFromGraphHeaders(row.internetMessageHeaders);
     out.push({
       id: `graph-${row.id}`,
       from,
@@ -227,6 +252,7 @@ export async function fetchGraphMessagesPage(
       ...(fromAddr?.address?.trim() ? { fromAddress: fromAddr.address.trim().toLowerCase() } : {}),
       ...(row.internetMessageId?.trim() ? { messageId: row.internetMessageId.trim() } : {}),
       ...(row.conversationId?.trim() ? { conversationId: row.conversationId.trim() } : {}),
+      ...(dmarc ? { dmarc } : {}),
     });
   }
   return { messages: out, nextLink: json["@odata.nextLink"] };

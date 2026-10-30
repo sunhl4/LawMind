@@ -755,6 +755,7 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
       : null;
 
   const isIntake = current?.intakeItemId != null || current?.id.startsWith("intake:");
+  const isFieldReview = current?.kind === "queue_item" && Boolean(current.queueItemId);
   const intakeItemId = current?.intakeItemId ?? current?.id.replace(/^intake:/, "");
   const isAutomationSend =
     current?.kind === "automation_send" || Boolean(current?.id.startsWith("automation-send:"));
@@ -787,6 +788,8 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
   const batchMixed = pickedRuns.length > 1 && !batchSends;
   const singlePrimaryLabel = isIntake
     ? "归入案件"
+    : isFieldReview
+      ? "知道了"
     : isWordCheck
     ? "去核对"
     : isDraftReview
@@ -1075,6 +1078,32 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     await postOutboundBatch(batchSends, "approve_send");
   }, [batchSends, busy, postOutboundBatch]);
 
+  const acknowledgeFieldReview = useCallback(async () => {
+    const run = current;
+    const queueItemId = run?.queueItemId?.trim();
+    const matterId = run?.matterId?.trim();
+    if (!run || run.kind !== "queue_item" || !queueItemId || !matterId || busy) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await apiSendJson(
+        apiBase,
+        `/api/matters/${encodeURIComponent(matterId)}/queue/${encodeURIComponent(queueItemId)}/resolve`,
+        "POST",
+        {},
+      );
+      onRefreshSummary?.();
+      await refresh();
+      advanceAfter(run.id);
+    } catch (e) {
+      setError(errorMessage(e, "没能收起这条核对"));
+    } finally {
+      setBusy(false);
+    }
+  }, [advanceAfter, apiBase, busy, current, onRefreshSummary, refresh]);
+
   const acknowledgeAutomationInbox = useCallback(async () => {    const run = current;
     const inboxId = run?.queueItemId?.trim();
     if (!run || !inboxId || busy) {
@@ -1160,6 +1189,10 @@ export function LawmindAgentFleetPanel(props: LawmindAgentFleetPanelProps): Reac
     }
     if (isIntake) {
       attachIntake();
+      return;
+    }
+    if (current.kind === "queue_item" && current.queueItemId) {
+      void acknowledgeFieldReview();
       return;
     }
     if (isMatterRunWait) {

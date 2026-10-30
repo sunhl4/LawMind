@@ -24,7 +24,16 @@ import type { ReviewOpenTarget } from "../LawmindChatReviewSticky";
 import type { LawmindLawyerWorkbenchProps } from "../LawmindLawyerWorkbench";
 import { LawmindLawyerWorkbench } from "../LawmindLawyerWorkbench";
 import { LawmindMiddleDraftDesk } from "../LawmindMiddleDraftDesk";
-import { openReviewedOutputInMiddleColumn } from "../lawmind-open-contract-revision";
+import { LawmindPaneDetachGrip } from "../LawmindPaneDetachGrip";
+import {
+  openWorkspacePaneWindow,
+  type LawmindPaneDetachBridge,
+} from "../lawmind-pane-window";
+import {
+  currentDraftDeskTaskId,
+  openReviewedOutputInMiddleColumn,
+} from "../lawmind-open-contract-revision";
+import { currentMiddleFile } from "../lawmind-middle-surface";
 
 export type LawmindWorkspaceMainPaneProps = {
   canUseFilesystemBridge: boolean;
@@ -117,6 +126,8 @@ export type LawmindWorkspaceMainPaneProps = {
   chatSessionsInSidebar?: boolean;
   /** 中栏案卷。有值时盖住文件预览，右侧对话仍在。 */
   deskPane?: LawmindLawyerWorkbenchProps | null;
+  /** 主窗口才有：哪些 pane 已拖出、以及隐藏/恢复通知。独立窗传 null。 */
+  paneDetach?: LawmindPaneDetachBridge | null;
 };
 
 function LawmindWorkspaceMainPaneImpl({
@@ -197,6 +208,7 @@ function LawmindWorkspaceMainPaneImpl({
   showEmptyMatterGuide,
   chatSessionsInSidebar = false,
   deskPane = null,
+  paneDetach = null,
 }: LawmindWorkspaceMainPaneProps) {
   const { selectedAssistantId, activeChatSessionId } = useLawmindChatSessionContext();
   const chatSessionId = activeChatSessionId;
@@ -210,8 +222,13 @@ function LawmindWorkspaceMainPaneImpl({
   }));
   const truthPills = composeTruthPins.map((pin) => formatTruthPinChip(pin));
   const showDesk = Boolean(deskPane);
-  const showMiddle = showDesk || (canUseFilesystemBridge && wsShowEditor);
-  const bothWorkspacePanesHidden = !wsShowChat && !showMiddle;
+  const chatDetached = Boolean(paneDetach?.chatDetached);
+  const middleDetached = Boolean(paneDetach?.middleDetached);
+  const showMiddle =
+    !middleDetached && (showDesk || (canUseFilesystemBridge && wsShowEditor));
+  const showChat = wsShowChat && !chatDetached;
+  const bothWorkspacePanesHidden = !showChat && !showMiddle;
+  const allPanesDetached = chatDetached && middleDetached;
 
   const handleDroppedChatFiles = useCallback(
     async (dt: DataTransfer) => {
@@ -254,10 +271,62 @@ function LawmindWorkspaceMainPaneImpl({
     onAddFileToChatContext ? handleDroppedChatFiles : undefined,
   );
 
+  const detachChatPane = useCallback(async () => {
+    if (!paneDetach) {
+      return;
+    }
+    const result = await openWorkspacePaneWindow({
+      kind: "workspace-pane",
+      pane: "chat",
+      title: "对话",
+      ...(chatSessionId ? { sessionId: chatSessionId } : {}),
+      ...(selectedAssistantId ? { assistantId: selectedAssistantId } : {}),
+      ...(contextMatterId ? { matterId: contextMatterId } : {}),
+    });
+    if (result.ok && result.key) {
+      paneDetach.onChatPaneDetached(result.key);
+    }
+  }, [chatSessionId, contextMatterId, paneDetach, selectedAssistantId]);
+
+  const detachMiddlePane = useCallback(async () => {
+    if (!paneDetach) {
+      return;
+    }
+    const draftTaskId = currentDraftDeskTaskId();
+    const file = currentMiddleFile();
+    const middleView = showDesk
+      ? "matter"
+      : draftTaskId
+        ? "draft"
+        : file
+          ? "file"
+          : undefined;
+    const matterId = (showDesk ? deskPane?.selectedMatterId?.trim() : "") || contextMatterId;
+    const result = await openWorkspacePaneWindow({
+      kind: "workspace-pane",
+      pane: "middle",
+      title: "中栏",
+      ...(middleView ? { middleView } : {}),
+      ...(matterId ? { matterId } : {}),
+      ...(middleView === "draft" && draftTaskId ? { draftTaskId } : {}),
+      ...(middleView === "file" && file
+        ? { relPath: file.relPath, root: file.root }
+        : {}),
+    });
+    if (result.ok && result.key) {
+      paneDetach.onMiddlePaneDetached(result.key);
+    }
+  }, [contextMatterId, deskPane?.selectedMatterId, paneDetach, showDesk]);
+
   return (
     <div className="lm-workspace-unified lm-cursor-workspace">
       <div className="lm-cursor-panes-row">
-        {bothWorkspacePanesHidden ? (
+        {allPanesDetached ? (
+          <div className="lm-pane-all-detached" role="status">
+            <p className="lm-pane-all-detached-title">对话和中栏都在独立窗口中</p>
+            <p className="lm-meta">关闭独立窗口后，面板会自动回到这里。</p>
+          </div>
+        ) : bothWorkspacePanesHidden ? (
           <LawmindWorkspacePaneRecovery
             canUseFilesystemBridge={canUseFilesystemBridge}
             onShowChat={onShowChatPane}
@@ -268,6 +337,7 @@ function LawmindWorkspaceMainPaneImpl({
           className="lm-cursor-pane-editor-host lm-file-editor-host"
           style={{
             display: showMiddle ? "flex" : "none",
+            position: "relative",
             flexDirection: "column",
             flex: showMiddle ? "1 1 0%" : "0 0 0",
             minHeight: 0,
@@ -305,8 +375,15 @@ function LawmindWorkspaceMainPaneImpl({
               });
             }}
           />
+          {showMiddle && paneDetach ? (
+            <LawmindPaneDetachGrip
+              pane="middle"
+              label="中栏"
+              onDetach={detachMiddlePane}
+            />
+          ) : null}
         </div>
-        {showMiddle && wsShowChat ? (
+        {showMiddle && showChat ? (
           <div
             className="lm-split-handle lm-split-handle-vertical"
             role="separator"
@@ -316,7 +393,7 @@ function LawmindWorkspaceMainPaneImpl({
             onPointerDown={onWsChatSplitResize}
           />
         ) : null}
-        {wsShowChat ? (
+        {showChat ? (
           <div
             className={`lm-cursor-chat-pane${paneDrop.active ? " lm-chat-drop-active" : ""}`}
             style={{
@@ -458,6 +535,13 @@ function LawmindWorkspaceMainPaneImpl({
               templateGalleryOpen={templateGalleryOpen}
               onTemplateGalleryOpenChange={setTemplateGalleryOpen}
             />
+            {paneDetach ? (
+              <LawmindPaneDetachGrip
+                pane="chat"
+                label="对话"
+                onDetach={detachChatPane}
+              />
+            ) : null}
           </div>
         ) : null}
       </div>

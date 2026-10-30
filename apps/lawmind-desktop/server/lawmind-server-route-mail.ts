@@ -511,7 +511,21 @@ export async function handleMailRoutes({
       accountId: body.accountId,
       force: body.force ?? true,
     });
-    sendJson(res, 200, { ok: true, result: result ?? { mail: [] } }, c);
+    const rows = result?.mail ?? [];
+    const failed = rows.find((row) => ! row.ok);
+    sendJson(
+      res,
+      200,
+      {
+        // 单个收案邮箱失败时，顶层 ok 不能还是 true：否则界面会把失败当成功。
+        ok: !failed,
+        result: result ?? { mail: [] },
+        ...(failed && ! failed.ok
+          ? { error: failed.error, hint: failed.hint, accountId: failed.accountId }
+          : {}),
+      },
+      c,
+    );
     return true;
   }
 
@@ -533,7 +547,19 @@ export async function handleMailRoutes({
       rememberSenderAs: body.rememberSenderAs,
       rememberSender: body.rememberSender,
     });
-    sendJson(res, result.ok ? 200 : 400, result, c);
+    if (result.ok) {
+      // 与 lead.accept、收案邮箱自动归案一致：归案后按出处规则补空字段。
+      // 抽取是附加动作，失败不回滚已经成功的归档。
+      let provenance: Awaited<ReturnType<typeof applyIntakeFieldsFromItem>> | undefined;
+      try {
+        provenance = await applyIntakeFieldsFromItem(workspaceDir, body.matterId, body.itemId);
+      } catch {
+        provenance = undefined;
+      }
+      sendJson(res, 200, { ...result, ...(provenance ? { provenance } : {}) }, c);
+    } else {
+      sendJson(res, 400, result, c);
+    }
     return true;
   }
 

@@ -31,6 +31,7 @@ import type { FileChatContextItem } from "../lawmind-file-chat-context";
 import type { TruthSourceContextPin } from "../../../../../src/lawmind/platform/compose-context-pin.ts";
 import type { LawmindComposeExtras } from "../useLawmindComposeExtras";
 import type { LawmindHealthState } from "../useLawmindAppBootstrapEffects";
+import type { LawmindPaneDetachBridge } from "../lawmind-pane-window";
 import type { LawmindMainBodyContentProps } from "./LawmindMainBodyContent";
 import { useSettingsPanelStore } from "../stores/settings-panel-store";
 import { scheduleScrollChatMessagesToLatest } from "../lawmind-chat-scroll";
@@ -175,6 +176,8 @@ export type UseLawmindMainBodyContentPropsInput = {
   onChatResumeComplete?: () => void | Promise<void>;
   /** Left rail hosts the session list (hide top tabs when true). */
   chatSessionsInSidebar?: boolean;
+  /** 主窗口的面板拆出状态；独立窗为 null。 */
+  paneDetach?: LawmindPaneDetachBridge | null;
 };
 
 export function useLawmindMainBodyContentProps(
@@ -307,6 +310,7 @@ export function useLawmindMainBodyContentProps(
     refreshActionSummary,
     onChatResumeComplete,
     chatSessionsInSidebar = false,
+    paneDetach = null,
   } = input;
 
   return useMemo((): LawmindMainBodyContentProps => {
@@ -570,6 +574,7 @@ export function useLawmindMainBodyContentProps(
       onRefreshActionSummary: refreshActionSummary,
       onChatResumeComplete,
       deskMatterFocus,
+      paneDetach,
     };
     },
     [
@@ -700,6 +705,7 @@ export function useLawmindMainBodyContentProps(
       refreshActionSummary,
       onChatResumeComplete,
       setReviewFocusListMode,
+      paneDetach,
     ],
   );
 }

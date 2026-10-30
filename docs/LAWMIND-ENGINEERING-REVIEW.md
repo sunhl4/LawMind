@@ -224,9 +224,10 @@ E2E 的 mock 侧按作用域隔离且缺省为空（`POST /__e2e__/intake { seed
 - **回归**：`MatterAdmissionCard.test.tsx`（开始收案 → 指定负责人 → 扫描 → 两项告知 → 接受；未完成时接受按钮禁用）、`apps/lawmind-desktop/server/lawmind-server-route-admission.test.ts`（建记录 + 扫描 + 婉拒）、`MatterOverviewBody.test.tsx` 等 11 个 matter 渲染测试。
 - **委托包（第二阶段）**：`src/lawmind/intake/engagement-package.ts` 生成五份 Markdown 草案——委托代理合同、授权委托书、风险告知书、AI 使用告知与同意、报价单。每份顶部有「草案 · 由 LawMind 生成，须律师核对后使用」横幅；未填字段写成 `【待填：…】`，不替律师编条款。落盘在 `matters/<id>/收案/`，`manifest.json` 记录文件哈希与 `esign: { status: "placeholder", provider: null }`。默认不覆盖已有文件（律师可能已经改过），只有 `overwrite: true` 才重写。接口是 `GET/POST /api/intake/admissions/:matterId/engagement`；收案卡里有「委托人 / 律师费」两个输入和「生成委托包」，生成后列出五份文件与电子签占位。
 - **回归（委托包）**：`engagement-package.test.ts`（五份文件 + 横幅 + 占位字段 + 已存在不覆盖 + 覆盖开关）、`MatterAdmissionCard.test.tsx`（生成后显示五份文件与电子签占位）、`lawmind-server-route-admission.test.ts`（生成 / 读取 / 409 已存在 / 覆盖）。
-- **委托包 DOCX 导出（第三阶段）**：`src/lawmind/intake/engagement-package-docx.ts` 从 `收案/*.md` 的**当前内容**渲染五份 `.docx`；律师改过 Markdown 后再导出，Word 里就是新稿。版式走新增的 `formalDocument`：只有标题和正文，不写「致 / 自 / 日期 / 事由 / 保密」备忘录抬头、不写「一、结论」摘要、不追加「本备忘录…不构成正式法律意见」，也不写入审阅备注；报价单的 Markdown 表格拍平成「项目：说明；金额」文字行（Word 原生表格还没做）。默认不覆盖已有 DOCX，`overwrite: true` 才重写；导出记录写进 `manifest.json` 的 `docx` 字段，Markdown 的哈希不变。接口 `POST /api/intake/admissions/:matterId/engagement/docx`；收案卡有「导出 DOCX / 重新导出 DOCX / 覆盖并重新导出」。
-- **回归（DOCX 导出）**：`engagement-package-docx.test.ts`（五份 + 无免责声明与备忘录抬头 + 表格拍平 + 从当前 Markdown 重读 + 不覆盖 + manifest 记录 + 缺包）、`render-docx.test.ts`（`formalDocument` 版式与 `skipDisclaimer`）、`lawmind-server-route-admission.test.ts`（导出 / 409 / 覆盖 / 404）、`MatterAdmissionCard.test.tsx`（导出按钮与结果行）。
-- **尚未接**：律所自有模板变量、电子签服务对接、DOCX 里的原生表格（报价单目前是文字行）；Markdown 仍是委托包的真相源。
+- **委托包 DOCX 导出（第三阶段）**：`src/lawmind/intake/engagement-package-docx.ts` 从 `收案/*.md` 的**当前内容**渲染五份 `.docx`；律师改过 Markdown 后再导出，Word 里就是新稿。版式走新增的 `formalDocument`：只有标题和正文，不写「致 / 自 / 日期 / 事由 / 保密」备忘录抬头、不写「一、结论」摘要、不追加「本备忘录…不构成正式法律意见」，也不写入审阅备注；正文里的 Markdown 管道表格由 `src/lawmind/artifacts/docx-tables.ts` 渲染成原生 Word 表格（细网格、表头加粗浅灰底、整行不跨页、跨页重复表头，列宽按内容分配），报价单不再拍平成文字行。默认不覆盖已有 DOCX，`overwrite: true` 才重写；导出记录写进 `manifest.json` 的 `docx` 字段，Markdown 的哈希不变。接口 `POST /api/intake/admissions/:matterId/engagement/docx`；收案卡有「导出 DOCX / 重新导出 DOCX / 覆盖并重新导出」。
+- **回归（DOCX 导出）**：`engagement-package-docx.test.ts`（五份 + 无免责声明与备忘录抬头 + 原生表格 + 从当前 Markdown 重读 + 不覆盖 + manifest 记录 + 缺包）、`docx-tables.test.ts`（表格/正文顺序、无分隔行不误判、短横线拒绝、空正文）、`render-docx.test.ts`（`formalDocument` 版式与 `skipDisclaimer`）、`lawmind-server-route-admission.test.ts`（导出 / 409 / 覆盖 / 404）、`MatterAdmissionCard.test.tsx`（导出按钮与结果行）。
+- **收案卡拆分**：委托包区块拆到 `MatterEngagementPanel.tsx`（自带加载、覆盖确认与导出状态），操作时间线拆到 `MatterAdmissionTimeline.tsx`，错误文案统一在 `matter-admission-error.ts`；`MatterAdmissionCard.tsx` 从 1071 行降到 799 行，已从 `scripts/pre-commit/file-size-baseline.json` 删除豁免。决定接受/婉拒后卡片仍显示委托包份数，由一次只读 manifest 请求补上。
+- **尚未接**：律所自有模板变量、电子签服务对接；Markdown 仍是委托包的真相源。
 
 ### P1.4 字段出处（2026-10-27 续）
 
@@ -235,7 +236,7 @@ E2E 的 mock 侧按作用域隔离且缺省为空（`POST /__e2e__/intake { seed
 - **存储**：`src/lawmind/intake/field-provenance.ts`，记录在 `lawmind/intake/provenance/<matterId>.json`（agent 工作区黑名单内）。每条包含 `field / value / itemId / quote / confidence / capturedAt / source / status`，`status` 为 `applied / same / conflict`。
 - **写入规则**：空字段写入并记 `applied`；同值只记 `same`，不重复写；不同值不覆盖，记 `conflict` 并开一条 `need_client_input`（标题如「核对案号」「核对对方当事人」，detail 带来件值、卷宗值、来源条目和原文）。`caseNo` 等 docket 字段写入时保留其它 docket 字段。
 - **确定性抽取**：`extractIntakeMatterFields()` 只抽能一眼核对的东西——案号（正则，confidence 0.9）和带「被告 / 被申请人 / 对方」标签的当事人（confidence 0.5）；`quote` 取原文所在行。置信度是抽取规则的把握程度，不是模型概率。法院、案由、日期还没有确定性抽取器，留给后续 NER/文书解析。
-- **接入收案**：`POST /api/intake/items/:id/lead` 的 `accept` 在收案成功后调用 `applyIntakeFieldsFromItem()`，把案号和对方写进卷宗并记出处；响应多一个 `provenance` 字段。抽取失败不回滚收案，律师仍可在档案里手填。
+- **接入收案**：`POST /api/intake/items/:id/lead` 的 `accept` 在收案成功后调用 `applyIntakeFieldsFromItem()`，把案号和对方写进卷宗并记出处；响应多一个 `provenance` 字段。收案邮箱自动归案、投递口/企微自动归案与 `POST /api/intake/items/attach` 手工归案也走同一出处规则：只补空字段，已有不同值只记冲突并开待办。法院和「案由：」会一并写入，并在在办留核对卡。带明确日期的期限写入提醒，同样留核对卡。抽取失败不回滚收案/归档，律师仍可在档案里手填。
 - **API**：`GET /api/intake/admissions/:matterId/provenance` 返回 entries 与 coverage；`POST` 带 `itemId`（自动抽取）或 `itemId + fields`（显式写入）。
 - **桌面**：收案卡新增只读「字段出处」区块：显示已填入字段的值、来源条目和原文；冲突字段标为「待核实（未覆盖卷宗）」；没有出处的律师手填字段标为「无出处（律师手填）」。
 - **期限链**：`GET /api/intake/items/:id/legal-events` 用现有 `extractLegalEvents()` 从来源来信抽取开庭、答辩、举证、上诉、保全等日期；`POST /api/intake/admissions/:matterId/legal-events` 走 `applyLegalEvents()`：开庭先写，其他期限挂到开庭之后，来源标 `document_extract`，带默认提醒小时数，并同步更新 `docket.hearingAt`。收案卡新增「期限」区块：抽取 → 勾选 → 写入，显示已写入的期限。

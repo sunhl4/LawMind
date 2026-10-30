@@ -402,6 +402,7 @@ describe("completion policy table", () => {
       "same-turn-verify",
       "context-deferral",
       "word-revision-export",
+      "file-deliverable-export",
       "review-board-export",
       "missing-deliverables",
       "steer",
@@ -508,6 +509,97 @@ describe("completion policy table", () => {
 
   it("returns null when no policy applies (plain delivery)", () => {
     expect(runCompletionPolicies(completionFacts())).toBeNull();
+  });
+
+  it("re-samples once when a legal assignment ends without a Word file", () => {
+    const facts = completionFacts({ instruction: "请写一份合同审查意见" });
+    const action = runCompletionPolicies(facts);
+    expect(action?.kind).toBe("resample");
+    if (action?.kind === "resample") {
+      expect(action.message).toContain("word/working-draft-default");
+      expect(action.message).toContain("render_document");
+    }
+    expect(facts.flags.fileDeliverableNudged).toBe(true);
+    expect(runCompletionPolicies(facts)).toBeNull();
+  });
+
+  it("does not demand a Word file for letter check, chat-only, or a named note", () => {
+    expect(
+      runCompletionPolicies(
+        completionFacts({
+          instruction: "核对我起草的律师函是否有误",
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      runCompletionPolicies(completionFacts({ instruction: "先口头说说，不要文件" })),
+    ).toBeNull();
+    expect(
+      runCompletionPolicies(completionFacts({ instruction: "把结论写入 意见书.md。" }))?.kind,
+    ).toBe("resample");
+    const named = completionFacts({ instruction: "把结论写入 意见书.md。" });
+    const namedAction = runCompletionPolicies(named);
+    expect(namedAction?.kind).toBe("resample");
+    if (namedAction?.kind === "resample") {
+      expect(namedAction.message).toContain("意见书.md");
+      expect(namedAction.message).not.toContain("【交件】");
+    }
+  });
+
+  it("treats a successful render_document as the office deliverable", () => {
+    const facts = completionFacts({
+      instruction: "请写一份备忘录",
+      turn: turn({
+        messages: [
+          {
+            role: "tool",
+            content: "",
+            timestamp: "t",
+            toolCallResponses: [
+              {
+                toolCallId: "1",
+                name: "render_document",
+                result: { ok: true, data: { outputPath: "备忘录.docx" } },
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    expect(runCompletionPolicies(facts)).toBeNull();
+  });
+
+  it("does not treat a scaffold-only Word as delivered", () => {
+    const facts = completionFacts({
+      instruction: "请写一份备忘录",
+      turn: turn({
+        messages: [
+          {
+            role: "tool",
+            content: "",
+            timestamp: "t",
+            toolCallResponses: [
+              {
+                toolCallId: "1",
+                name: "render_document",
+                result: {
+                  ok: true,
+                  data: {
+                    outputPath: "备忘录.docx",
+                    deliverableSubstance: "scaffold",
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    const action = runCompletionPolicies(facts);
+    expect(action?.kind).toBe("resample");
+    if (action?.kind === "resample") {
+      expect(action.message).toContain("空壳");
+    }
   });
 });
 

@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
@@ -94,6 +95,8 @@ export function ReviewWorkbench(props: Props) {
 
   const paneVisibility = useReviewPaneVisibilityStore((s) => s.visibility);
   const [signoffOpen, setSignoffOpen] = useState(false);
+  /** 编辑器有未保存内容 / 正在签批导出时，轮询到的服务端快照先别覆盖详情。 */
+  const holdDetailRefreshRef = useRef(false);
 
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [note, setNote] = useState("");
@@ -158,6 +161,7 @@ export function ReviewWorkbench(props: Props) {
     externalRefreshToken,
     onRecordsChanged,
     onExternalRefreshMessage: setActionMsg,
+    shouldHoldDetailRefresh: () => holdDetailRefreshRef.current,
   });
 
   useEffect(() => {
@@ -402,6 +406,14 @@ export function ReviewWorkbench(props: Props) {
     editorDirty,
     saveDraftContent,
   });
+
+  holdDetailRefreshRef.current =
+    editorDirty ||
+    editorSaving ||
+    actionBusy ||
+    revisionDispatchBusy ||
+    packBusy ||
+    signoffOpen;
 
   useEffect(() => {
     if (!detail) {

@@ -51,11 +51,15 @@ describe("factor observation bus", () => {
       bits: [{ stabilizer: "S2", anchor: "amount:wage" }],
       decoded: { kind: "uncorrectable", reason: "test", recheck: ["S2"] },
       note: "【译码无解】test",
+      transient: [{ stabilizer: "S4", anchor: "party:买方" }],
+      round: 2,
     };
     recordSyndromeObservation(workspaceDir, { sessionId: "s1" }, observation, "t1");
     const rows = readFactorLedgerRecords(workspaceDir, { sessionId: "s1" });
     expect(rows[0]?.kind).toBe("syndrome");
     expect(rows[0]?.payload.bits).toEqual(observation.bits);
+    expect(rows[0]?.payload.transient).toEqual(observation.transient);
+    expect(rows[0]?.payload.round).toBe(2);
     expect(rows[0]?.payload.note).toContain("【译码无解】");
   });
 

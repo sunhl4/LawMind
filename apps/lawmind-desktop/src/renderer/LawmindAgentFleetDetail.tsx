@@ -190,6 +190,13 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
     current.status !== "awaiting_clarification" &&
     current.status !== "interrupted";
 
+  const deliveryProgress =
+    current?.progress && current.progress.total > 0
+      ? `已完成 ${current.progress.completed}/${current.progress.total} 步${
+          current.progress.running?.length ? ` · 正在处理 ${current.progress.running.join("、")}` : ""
+        }`
+      : "";
+
   return (
     <section
       className={`lm-agents-wb-detail${readingMode ? " lm-agents-wb-detail--reading" : ""}`}
@@ -225,15 +232,20 @@ export function LawmindAgentFleetDetail(props: LawmindAgentFleetDetailProps): Re
               ) : null}
             </div>
             <h2>{displayTitle.replace(/^待审定：\s*/, "")}</h2>
-            {brief?.instruction || brief?.stopLine ? (
+            {brief?.instruction || brief?.stopLine || deliveryProgress ? (
               <div className="lm-agents-wb-brief" data-testid="lm-fleet-brief">
-                {brief.instruction ? (
+                {brief?.instruction ? (
                   <>
                     <div className="lm-agents-wb-brief-kicker">你交办的</div>
                     <p className="lm-agents-wb-brief-instruction">{brief.instruction}</p>
                   </>
                 ) : null}
-                {brief.stopLine ? <p className="lm-agents-wb-brief-stop">{brief.stopLine}</p> : null}
+                {brief?.stopLine ? <p className="lm-agents-wb-brief-stop">{brief.stopLine}</p> : null}
+                {deliveryProgress ? (
+                  <p className="lm-agents-wb-brief-stop" data-testid="lm-fleet-delivery-progress">
+                    {deliveryProgress}
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </header>

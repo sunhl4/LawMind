@@ -12,6 +12,7 @@ import {
 } from "./mail-intake.js";
 import { buildIntakeMatterIndex } from "./matter-index.js";
 import { readIntakeState } from "./store.js";
+import { retriageUnfiledIntake } from "./triage.js";
 import { scanWecomArchive, type WecomScanResult } from "./wecom-archive.js";
 
 export const INTAKE_MAIL_POLL_MS = 2 * 60 * 1000;
@@ -40,22 +41,35 @@ export async function runIntakeTick(
       (a) => !opts?.accountId || a.id === opts.accountId,
     );
     const hasDropzone = fs.existsSync(intakeDropzoneDir(workspaceDir));
+    const index =
+      accounts.length > 0 || hasDropzone ? buildIntakeMatterIndex(workspaceDir) : undefined;
+    // 上次入库后崩溃、还没判案的条目不依赖邮箱或投递口是否还在。
+    await retriageUnfiledIntake(workspaceDir, { now, ...(index ? { index } : {}) });
     if (accounts.length === 0 && !hasDropzone) {
       return { mail: [] };
     }
-    const index = buildIntakeMatterIndex(workspaceDir);
-    const dropzone = hasDropzone ? scanIntakeDropzone(workspaceDir, { index, now }) : undefined;
-    const wecom = hasDropzone ? scanWecomArchive(workspaceDir, { index, now }) : undefined;
+    const matterIndex = index ?? buildIntakeMatterIndex(workspaceDir);
+    const dropzone = hasDropzone
+      ? await scanIntakeDropzone(workspaceDir, { index: matterIndex, now })
+      : undefined;
+    const wecom = hasDropzone
+      ? await scanWecomArchive(workspaceDir, { index: matterIndex, now })
+      : undefined;
     const state = readIntakeState(workspaceDir);
     const mail: IntakeMailSyncResult[] = [];
     for (const account of accounts) {
-      const last = Date.parse(state.mail[account.id]?.syncedAt ?? "");
+      const cursor = state.mail[account.id];
+      const marks = [cursor?.syncedAt, cursor?.attemptedAt]
+        .map((value) => Date.parse(value ?? ""))
+        .filter((value) => Number.isFinite(value));
+      const last = marks.length > 0 ? Math.max(...marks) : Number.NaN;
+      // 成功和失败都按同一间隔退避，避免邮箱故障时每 30 秒打一次 IMAP/Graph。
       if (!opts?.force && Number.isFinite(last) && now.getTime() - last < INTAKE_MAIL_POLL_MS) {
         continue;
       }
       mail.push(
         await syncIntakeMailbox(workspaceDir, lawMindRoot, account.id, {
-          index,
+          index: matterIndex,
           now,
           ...(opts?.fetch ? { fetch: opts.fetch } : {}),
         }),

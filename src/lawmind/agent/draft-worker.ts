@@ -23,6 +23,7 @@ import {
 } from "./assistant-text.js";
 import { isolationKey, takeIsolationBudget } from "./context-isolation-budget.js";
 import {
+  DRAFT_WORKER_ANCHOR_TOOL_NAME,
   DRAFT_WORKER_READONLY_TOOL_NAMES,
   runDraftWorkerReadOnlyLoop,
 } from "./draft-worker-loop.js";
@@ -33,13 +34,15 @@ import {
 } from "./explore-folder-worker.js";
 import {
   anchorsMentionedInParts,
-  composeWorkerSystem,
-  conformalQhatFor,
+  boundaryNamedAnchors,
+  composeSubagentPrompt,
   emptyFactorState,
-  formatMarginalBlock,
+  marginalBoundary,
   marginalFactors,
+  marginalScopeReport,
   selectSkeleton,
   type FactorState,
+  type MarginalScopeReport,
 } from "./factor-state.js";
 import { callModelWithRetry, ModelCallUserAbortError } from "./runtime-model-call.js";
 import {
@@ -162,6 +165,8 @@ export type DraftWorkerOutput =
         instructions: string;
         brief: string;
         section: string;
+        /** Counts of the worker's marginal and what stayed outside it. No readings. */
+        marginal?: MarginalScopeReport;
         draft: string;
         conclusion: string;
         /** Set when draft was shortened for the parent context. */
@@ -591,6 +596,7 @@ function asWorkerAgentContext(ctx: DraftWorkerContext | undefined): AgentContext
     matterId: ctx.matterId,
     projectDir: ctx.projectDir,
     contextPins: ctx.contextPins,
+    factorState: ctx.factorState,
     chatModel: ctx.chatModel,
     reviewModel: ctx.reviewModel,
     webSearchModel: ctx.webSearchModel,
@@ -707,7 +713,9 @@ export async function runDraftWorker(
   });
   const sourceBlock = hasSource
     ? loaded.text
-    : `材料尚未读到。请先用 ${DRAFT_WORKER_READONLY_TOOL_NAMES.join(" / ")} 读取后再起草。不要编造未读文件。`;
+    : `材料尚未读到。请先用 ${DRAFT_WORKER_READONLY_TOOL_NAMES.filter(
+        (name) => name !== DRAFT_WORKER_ANCHOR_TOOL_NAME,
+      ).join(" / ")} 读取后再起草。不要编造未读文件。`;
   const instructions = review
     ? REVIEW_WORKER_DEVELOPER_INSTRUCTIONS
     : DRAFT_WORKER_DEVELOPER_INSTRUCTIONS;
@@ -728,13 +736,22 @@ export async function runDraftWorker(
       ...anchorsMentioned(factorState, named),
     ]),
   ];
-  const marginal = formatMarginalBlock(
-    marginalFactors(factorState, seeds),
-    conformalQhatFor(factorState),
-  );
-  const systemContent = composeWorkerSystem({
-    instructions: `${instructions}${sidecarConstraint}${packSuffix}\n出处必须来自材料或只读工具返回；材料没有的写进缺口。`,
-    marginal,
+  const boundaryAnchors = boundaryNamedAnchors(marginalBoundary(factorState, seeds));
+  const marginal = marginalScopeReport(factorState, seeds);
+  const readableAnchors = [
+    ...new Set([
+      ...marginalFactors(factorState, seeds).map((factor) => factor.anchor),
+      ...boundaryAnchors,
+    ]),
+  ];
+  const anchorHint =
+    boundaryAnchors.length > 0
+      ? `\n需要边界里某个锚的读数时，调用 ${DRAFT_WORKER_ANCHOR_TOOL_NAME} 按锚名读取；只能读边际或边界里列出的锚。`
+      : "";
+  const systemContent = composeSubagentPrompt({
+    instructions: `${instructions}${sidecarConstraint}${packSuffix}${anchorHint}\n出处必须来自材料或只读工具返回；材料没有的写进缺口。`,
+    state: factorState,
+    seeds,
   });
   const userContent = buildDraftUserPrompt(input, checked.brief, sourceBlock, review);
 
@@ -750,6 +767,7 @@ export async function runDraftWorker(
       ],
       ctx: agentCtx,
       abortSignal: ctx?.abortSignal,
+      readableAnchors,
       roleLabel: review ? "审查工" : "写稿工",
       closePrompt: review ? REVIEW_WORKER_CLOSE_PROMPT : undefined,
     });
@@ -837,11 +855,14 @@ export async function runDraftWorker(
       toolsUsed,
       steps,
       instructions,
+      marginal,
       persistSidecar(
         ctx,
         section,
         review ? "review" : "draft",
         withFinalAssistant(loop.messages, text),
+        readableAnchors,
+        marginal,
       ),
       isolationKey(ctx?.workspaceDir ?? "", ctx?.sessionId || "draft-worker"),
       review ? "review" : "draft",
@@ -901,7 +922,17 @@ export async function runDraftWorker(
           error: "写稿模型未返回可用正文。请父会话自行起草该节或重试。",
         };
       }
-      return successResult(checked.brief, section, parsed, loaded, "", [], [], instructions);
+      return successResult(
+        checked.brief,
+        section,
+        parsed,
+        loaded,
+        "",
+        [],
+        [],
+        instructions,
+        marginal,
+      );
     } catch (err) {
       if (err instanceof ModelCallUserAbortError || ctx?.abortSignal?.aborted) {
         return { ok: false, error: "已停止", aborted: true };
@@ -923,7 +954,17 @@ export async function runDraftWorker(
 
   const lastParsed = parseDraftWorkerModelText(lastText);
   if (lastParsed) {
-    return successResult(checked.brief, section, lastParsed, loaded, "", [], [], instructions);
+    return successResult(
+      checked.brief,
+      section,
+      lastParsed,
+      loaded,
+      "",
+      [],
+      [],
+      instructions,
+      marginal,
+    );
   }
   return {
     ok: false,
@@ -980,6 +1021,7 @@ function successResult(
   toolsUsed: string[] = [],
   steps: Array<{ tool: string; ok: boolean }> = [],
   instructions: string = DRAFT_WORKER_DEVELOPER_INSTRUCTIONS,
+  marginal?: MarginalScopeReport,
   workerId?: string,
   sessionKey?: string,
   taskRole: "review" | "draft" = "draft",
@@ -1003,6 +1045,7 @@ function successResult(
       instructions,
       brief,
       section,
+      ...(marginal ? { marginal } : {}),
       draft: visible,
       ...(clipped ? { draftClipped: true } : {}),
       ...(workerId ? { workerId } : {}),
@@ -1016,9 +1059,6 @@ function successResult(
       toolsUsed,
       steps,
       ...(parsed.patches && parsed.patches.length > 0 ? { patches: parsed.patches } : {}),
-      ...(parsed.reviewObservations !== undefined
-        ? { reviewObservations: parsed.reviewObservations }
-        : {}),
       ...(parsed.reviewObservations !== undefined
         ? { reviewObservations: parsed.reviewObservations }
         : {}),
@@ -1100,6 +1140,8 @@ function persistSidecar(
   section: string,
   role: "review" | "draft" | "explore",
   messages: import("./readonly-worker-loop.js").WorkerLoopMessage[] | undefined,
+  readableAnchors?: readonly string[],
+  marginal?: MarginalScopeReport,
 ): string | undefined {
   const workspaceDir = ctx?.workspaceDir?.trim();
   const sessionId = ctx?.sessionId?.trim();
@@ -1113,6 +1155,10 @@ function persistSidecar(
     section,
     role,
     messages,
+    ...(readableAnchors && readableAnchors.length > 0
+      ? { readableAnchors: [...readableAnchors] }
+      : {}),
+    ...(marginal ? { marginal } : {}),
     updatedAt: new Date().toISOString(),
   });
   return saved?.id;
@@ -1163,6 +1209,7 @@ async function resumeDraftWorker(
     messages: [...prior.messages, { role: "user", content: `【续跑】${follow}` }],
     ctx: agentCtx,
     abortSignal: ctx?.abortSignal,
+    readableAnchors: prior.readableAnchors,
     roleLabel: review ? "审查工" : "写稿工",
     closePrompt: review
       ? "请按续跑指示改这一争点的原句、改后句和待确认。原句必须出现在材料里。不要改原件，不要导出，不要再调用工具。"
@@ -1196,6 +1243,7 @@ async function resumeDraftWorker(
     loop.toolsUsed,
     loop.steps,
     instructions,
+    prior.marginal,
     saved?.id ?? prior.id,
     isolationKey(workspaceDir, sessionId),
     review ? "review" : "draft",

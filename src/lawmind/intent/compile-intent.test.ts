@@ -566,8 +566,13 @@ describe("compileIntent", () => {
 
   it("keeps the Codex catalog under the character budget", () => {
     const block = formatCapabilityCatalogIndex();
-    expect(block).toContain("contract.review");
+    expect(block).toContain("render_document");
+    expect(block).toContain("read_skill");
+    expect(block).toContain("`contract-playbook-review`：标准/可接受回退/永不接受三档");
+    expect(block).toContain("`delivery-language`");
     expect(block).not.toContain("mail.contract");
+    expect(block).not.toContain("contract.review");
+    expect(block).not.toContain("可用能力");
     expect(block.length).toBeLessThanOrEqual(8000);
   });
 });

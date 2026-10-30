@@ -13,7 +13,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { MATTER_MATERIALS_MAX_FILE_BYTES } from "../desk/matter-materials.js";
+import { applyIntakeFieldsFromItem } from "./field-provenance.js";
 import { buildIntakeMatterIndex } from "./matter-index.js";
+import { readDroppedFileText } from "./readable-text.js";
 import { isIntakeAudioFile } from "./recording.js";
 import type { IntakeMatterIndex } from "./resolve.js";
 import { findIntakeItemId, putIntakeBlob, recordIntakeItem, updateIntakeState } from "./store.js";
@@ -94,10 +96,10 @@ export type DropzoneScanResult = {
   tooLarge: string[];
 };
 
-export function scanIntakeDropzone(
+export async function scanIntakeDropzone(
   workspaceDir: string,
   opts?: { index?: IntakeMatterIndex; now?: Date },
-): DropzoneScanResult {
+): Promise<DropzoneScanResult> {
   const result: DropzoneScanResult = { scanned: 0, recorded: 0, autoAttached: 0, tooLarge: [] };
   const root = intakeDropzoneDir(workspaceDir);
   if (!fs.existsSync(root)) {
@@ -126,6 +128,7 @@ export function scanIntakeDropzone(
     const externalKey = `dropzone:${sha256}:${drop.hintMatterId ?? ""}`;
     if (!findIntakeItemId(workspaceDir, { externalKey })) {
       const name = path.basename(drop.abs);
+      const text = isIntakeAudioFile(name) ? "" : await readDroppedFileText(drop.abs);
       const { item, created } = recordIntakeItem(
         workspaceDir,
         {
@@ -133,7 +136,7 @@ export function scanIntakeDropzone(
           externalKey,
           receivedAt: new Date(stat.mtimeMs).toISOString(),
           subject: name,
-          text: "",
+          text,
           attachments: [{ name, sha256, size: content.length }],
           source: { dropzoneRelPath: drop.rel },
         },
@@ -148,6 +151,14 @@ export function scanIntakeDropzone(
         });
         if (triaged.status === "attached") {
           result.autoAttached += 1;
+          const matterId = triaged.filing?.matterId;
+          if (matterId) {
+            try {
+              await applyIntakeFieldsFromItem(workspaceDir, matterId, triaged.id);
+            } catch {
+              /* 抽取是附加动作：失败不影响文件已归档 */
+            }
+          }
         }
       }
     }

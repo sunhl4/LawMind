@@ -27,6 +27,7 @@ import {
 import { tryClarifyAttachSession } from "../lawmind-clarify-bring-in-bus";
 import type { DeskMatterFocus, DeskMatterFocusPane } from "./desk-matter-focus";
 import type { CommandPaletteAction } from "../LawmindCommandPalette";
+import type { LawmindPaneDetachBridge } from "../lawmind-pane-window";
 
 type ShellBundle = ReturnType<typeof useLawmindAppShell>;
 type RecordsDesk = ReturnType<typeof useLawmindRecordsDeskMatters>;
@@ -111,6 +112,10 @@ export type LawmindAppRootLayoutInput = {
   globalSearchCommands: CommandPaletteAction[];
   openMatterDossierFromSearch: (matterId: string, pane?: DeskMatterFocusPane) => void;
   setUiPrefsVersion: React.Dispatch<React.SetStateAction<number>>;
+  /** 主窗口的面板拆出状态；独立窗为 null。 */
+  paneDetach: LawmindPaneDetachBridge | null;
+  /** 独立窗隐藏首跑/配置向导，只显示被拆出的 pane。 */
+  paneWindow: boolean;
 };
 
 export function useLawmindAppRootLayout(
@@ -455,10 +460,11 @@ export function useLawmindAppRootLayout(
     sessionRequiresActions: input.sessionRequiresActions,
     refreshActionSummary: input.refreshActionSummary,
     onChatResumeComplete: input.onChatResumeComplete,
+    paneDetach: input.paneDetach,
   });
 
   const overlayProps = useLawmindAppOverlaysProps({
-    showWizard,
+    showWizard: input.paneWindow ? false : showWizard,
     wizApiKey,
     setWizApiKey,
     wizHasExistingKey,
@@ -508,7 +514,9 @@ export function useLawmindAppRootLayout(
     setMainView,
     setInput,
     composeTextareaRef: input.textareaRef,
-    suppressFirstRunAutoOpen: showWizard || health?.modelConfigured === false,
+    suppressFirstRunAutoOpen: input.paneWindow
+      ? true
+      : showWizard || health?.modelConfigured === false,
   });
 
   const settingsPanelProps = useLawmindAppSettingsPanelProps({

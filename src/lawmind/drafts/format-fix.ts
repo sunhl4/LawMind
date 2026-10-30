@@ -15,6 +15,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { auditDocumentFormat, type FormatAuditMode } from "./document-format-audit.js";
 import { loadDocxZip } from "./docx-size.js";
+import { planRevisionTimestamps } from "./revision-timestamps.js";
 import { verifyDocxRevisionPreservation } from "./word-revision/preservation-file.js";
 import type {
   WordLayoutBlock,
@@ -494,6 +495,8 @@ export type ApplyFormatFixesInput = {
   target: FormatFixTarget;
   author: string;
   now: string;
+  /** 每处目标的显示时间（与 targets 同序）。缺省时全部用 `now`。 */
+  dates?: readonly string[];
   nextTrackId: () => string;
 };
 
@@ -512,11 +515,13 @@ export function applyFormatFixesToXml(input: ApplyFormatFixesInput): {
   const replacements: Array<{ start: number; end: number; xml: string }> = [];
   const seen = new Set<number>();
 
-  for (const target of input.targets) {
+  for (const [targetIndex, target] of input.targets.entries()) {
     if (seen.has(target.paragraphIndex)) {
       continue;
     }
     seen.add(target.paragraphIndex);
+    // 每段格式修订各用各的时间；同一个时间戳铺满整篇同样是机器痕迹。
+    const trackDate = input.dates?.[targetIndex] ?? input.now;
 
     const located = locateParagraph(input.documentXml, list, target);
     if ("reason" in located) {
@@ -548,7 +553,7 @@ export function applyFormatFixesToXml(input: ApplyFormatFixesInput): {
           ...(input.target.rFontsXml ? { rFontsXml: input.target.rFontsXml } : {}),
           ...(input.target.halfPt ? { halfPt: input.target.halfPt } : {}),
         },
-        { id: input.nextTrackId(), author: input.author, date: input.now },
+        { id: input.nextTrackId(), author: input.author, date: trackDate },
       );
       paragraphXml = patched.xml;
       appliedRuns += patched.patched;
@@ -575,7 +580,7 @@ export function applyFormatFixesToXml(input: ApplyFormatFixesInput): {
             nextPPr = patchFirstLineIndent(nextPPr, input.target.firstIndentChars);
           }
           if (nextPPr !== beforePPr) {
-            const change = `<w:pPrChange w:id="${input.nextTrackId()}" w:author="${input.author}" w:date="${input.now}"><w:pPr>${beforePPr}</w:pPr></w:pPrChange>`;
+            const change = `<w:pPrChange w:id="${input.nextTrackId()}" w:author="${input.author}" w:date="${trackDate}"><w:pPr>${beforePPr}</w:pPr></w:pPrChange>`;
             const pPrXml = `<w:pPr>${nextPPr}${change}</w:pPr>`;
             const withoutPPr = removeElement(inner, "pPr");
             paragraphXml = `${open}${pPrXml}${withoutPPr}</w:p>`;
@@ -817,6 +822,22 @@ export async function applyFormatFixesToDocxFile(params: {
     .filter((value) => Number.isFinite(value));
   let nextId = (existingIds.length > 0 ? Math.max(...existingIds) : 0) + 1;
 
+  // 生产路径不让每段格式修订共用同一个时间；显式传 now 的测试/调用方保持原样。
+  let dates: string[] | undefined;
+  if (params.now === undefined) {
+    let notBefore: Date | undefined;
+    try {
+      notBefore = new Date((await fs.stat(params.inputAbs)).mtimeMs);
+    } catch {
+      /* stat 失败就只按导出时刻倒推 */
+    }
+    dates = planRevisionTimestamps({
+      count: plan.fixes.length,
+      seed: params.inputAbs,
+      ...(notBefore ? { notBefore } : {}),
+    });
+  }
+
   const applied = applyFormatFixesToXml({
     documentXml: xml,
     blocks: layout.blocks,
@@ -824,6 +845,7 @@ export async function applyFormatFixesToDocxFile(params: {
     target: plan.target,
     author: params.author,
     now: params.now ?? new Date().toISOString(),
+    ...(dates ? { dates } : {}),
     nextTrackId: () => String(nextId++),
   });
 

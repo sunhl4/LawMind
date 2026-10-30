@@ -18,6 +18,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { INTAKE_WECOM_DIRNAME, intakeDropzoneDir } from "./dropzone.js";
+import { applyIntakeFieldsFromItem } from "./field-provenance.js";
 import { buildIntakeMatterIndex } from "./matter-index.js";
 import type { IntakeMatterIndex } from "./resolve.js";
 import { findIntakeItemId, recordIntakeItem } from "./store.js";
@@ -308,10 +309,10 @@ function moveArchive(root: string, abs: string, day: string, failed: boolean): v
  * 扫描 `<workspace>/收件投递/企业微信/`：每个文件解析成多条消息，逐条入库并判案。
  * 同一个 `msgid` 反复导入只记一条。
  */
-export function scanWecomArchive(
+export async function scanWecomArchive(
   workspaceDir: string,
   opts?: { index?: IntakeMatterIndex; now?: Date },
-): WecomScanResult {
+): Promise<WecomScanResult> {
   const result: WecomScanResult = { scanned: 0, recorded: 0, duplicates: 0, errors: [] };
   const root = intakeDropzoneDir(workspaceDir);
   const dir = wecomArchiveDir(workspaceDir);
@@ -367,7 +368,17 @@ export function scanWecomArchive(
       }
       result.recorded += 1;
       index ??= buildIntakeMatterIndex(workspaceDir);
-      triageIntakeItem(workspaceDir, item, index, { now });
+      const triaged = triageIntakeItem(workspaceDir, item, index, { now });
+      if (triaged.status === "attached") {
+        const matterId = triaged.filing?.matterId;
+        if (matterId) {
+          try {
+            await applyIntakeFieldsFromItem(workspaceDir, matterId, triaged.id);
+          } catch {
+            /* 抽取是附加动作：失败不影响消息已归档 */
+          }
+        }
+      }
     }
     try {
       moveArchive(root, abs, day, false);

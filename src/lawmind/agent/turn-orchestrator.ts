@@ -1027,6 +1027,22 @@ export async function runTurn(opts: {
       }
     }
 
+    // 主动 witness（默认关闭）：只在有已核金额/引用、且正文没用到时问一次。
+    // 只写观察，不改 finalReply；失败不打断回合。
+    if (turn.status === "completed" && finalReply?.trim() && turn.factorState) {
+      try {
+        const { runActiveWitnessForTurn } = await import("./witness-measurement.js");
+        await runActiveWitnessForTurn({
+          ctx,
+          state: turn.factorState,
+          reply: finalReply,
+          turnId: turn.turnId,
+        });
+      } catch {
+        /* witness is an observation; it must not break delivery */
+      }
+    }
+
     return finalizeAgentTurn({
       shared: finalizeShared(),
       finalReply,

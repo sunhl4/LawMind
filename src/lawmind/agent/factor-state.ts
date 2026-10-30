@@ -11,6 +11,13 @@
 
 import { CONTRACT_ROLE_WORDS, extractDefinedTermsFromText } from "../drafts/terminology-adapt.js";
 import {
+  createFilter,
+  decayFilter,
+  decide,
+  observe,
+  type EvidenceFilterState,
+} from "./evidence-filter.js";
+import {
   canFuseByProvenance,
   fuseProvenancedOutcomes,
   materialChannel,
@@ -79,6 +86,16 @@ export type Factor = {
   proposalId?: string;
   /** Outcomes from before the first proposal, so a correction can invert it. */
   priorOutcomes?: FactorOutcome[];
+  /**
+   * Weak-evidence accumulator for proposals on this anchor. One model channel
+   * cannot keep a proposal alive; an independent channel can.
+   */
+  proposalFilter?: EvidenceFilterState;
+  /**
+   * Witness（记性抽查）读数累加器：`obeyed` / `invented` 两种读法，
+   * 通道按值 / 出处 / 反事实分开。同一通道重复答对不增加独立证据。
+   */
+  witnessFilter?: EvidenceFilterState;
 };
 
 export type CalculatedSlot = {
@@ -99,6 +116,8 @@ export type FactorState = {
    */
   correctionLightCone?: string[];
   adiabaticStep: number;
+  /** Monotonic turn counter for weak-evidence decay. */
+  turnEpoch?: number;
   /** Canonical terms extracted from the document. Empty means the party check stays off. */
   definedTerms?: string[];
   /** Alias → canonical term. The engine does not guess which role a word names. */
@@ -208,6 +227,7 @@ const STATED_AMOUNT_CAP = 24;
 
 /** Amounts and redlines are turn-local. Anchors from earlier turns stay for the light cone. */
 export function beginTurnFactors(state: FactorState): FactorState {
+  state.turnEpoch = (state.turnEpoch ?? 0) + 1;
   state.calculatedSlots = [];
   state.redlineFailures = [];
   state.adiabaticStep = 0;
@@ -475,12 +495,38 @@ export function marginalFactors(state: FactorState, anchors: readonly string[]):
   return selected;
 }
 
-export function formatMarginalBlock(factors: readonly Factor[], qhat?: number): string {
+export function formatMarginalBlock(
+  factors: readonly Factor[],
+  qhat?: number,
+  round?: number,
+): string {
   if (factors.length === 0) {
     return "";
   }
-  const lines = factors.map((factor) => `- ${factor.anchor}：${renderFactorBody(factor, qhat)}`);
-  return ["【约化因子】只使用下面这些锚，不要引用未列出的对话。", ...lines].join("\n");
+  const lines = factors.map(
+    (factor) => `- ${factor.anchor}：${renderFactorBody(factor, qhat, round)}`,
+  );
+  return ["【约化因子】本轮与任务相关的锚如下；未列出的父对话不要直接引用。", ...lines].join("\n");
+}
+
+/**
+ * One anchor line for a worker that asks for a named reading on demand.
+ * Returns undefined when the anchor is not in the state.
+ */
+export function formatFactorReadingLine(
+  state: FactorState | undefined,
+  anchor: string,
+  qhat?: number,
+): string | undefined {
+  const wanted = anchor.trim();
+  if (!wanted) {
+    return undefined;
+  }
+  const factor = state?.factors.find((item) => item.anchor === wanted);
+  if (!factor) {
+    return undefined;
+  }
+  return `- ${factor.anchor}：${renderFactorBody(factor, qhat, state?.turnEpoch)}`;
 }
 
 /**
@@ -568,7 +614,7 @@ export function renderEngineReadings(state: FactorState | undefined): string {
   }
   const qhat = conformalQhatFor(state);
   const lines = state.factors.map(
-    (factor) => `- ${factor.anchor}：${renderFactorBody(factor, qhat)}`,
+    (factor) => `- ${factor.anchor}：${renderFactorBody(factor, qhat, state.turnEpoch)}`,
   );
   const spans = renderCitationSpans(state.citationSpans ?? []);
   const cycles = renderDefinitionCycles(state.definitionCycles ?? []);
@@ -863,9 +909,12 @@ export function rememberSkeleton(
 
 /** Freeze the current outline when mechanical flags are clean. */
 export function commitPassedSkeleton(state: FactorState): void {
-  const blocked = state.factors.some(
-    (factor) => factor.flag === "conflict" || factor.flag === "uncorrectable",
-  );
+  const blocked = state.factors.some((factor) => {
+    if (factor.flag !== "conflict" && factor.flag !== "uncorrectable") {
+      return false;
+    }
+    return !factor.proposalId || proposalSupported(factor, state.turnEpoch);
+  });
   if (blocked) {
     return;
   }
@@ -1026,7 +1075,12 @@ export function appendMechanicalNote(prose: string, state: FactorState | undefin
     ) {
       continue;
     }
-    lines.push(`- ${factor.anchor}：${renderFactorBody(factor, conformalQhatFor(state))}`);
+    if (factor.proposalId && !proposalSupported(factor, state.turnEpoch)) {
+      continue;
+    }
+    lines.push(
+      `- ${factor.anchor}：${renderFactorBody(factor, conformalQhatFor(state), state.turnEpoch)}`,
+    );
   }
   lines.push(...sharedAmountProposalLines(state));
   if (lines.length === 0) {
@@ -1096,13 +1150,160 @@ export function editContradictsGroundedAmount(
   return undefined;
 }
 
-/** Drop any parent transcript. The marginal block is the only extra state. */
+export type MarginalBoundary = {
+  /** Seeds requested for the projection, trimmed and de-duplicated. */
+  seeds: string[];
+  /** Seeds that exist in the factor state. Empty means the projection has no evidence basis. */
+  groundedSeeds: string[];
+  /** Mechanical factors beyond 1-hop; names only, never readings. */
+  mechanicalDropped: string[];
+  /** All connected factors beyond 1-hop, mechanical ones included; names only. */
+  longRange: string[];
+  /** Factors with no path from the seeds. Kept for diagnostics; never named to a worker. */
+  isolated: string[];
+};
+
+/**
+ * Named-anchor budget for one boundary block. A large matter can connect
+ * hundreds of anchors at distance ≥ 2; names are capped so the block stays a
+ * disclosure contract rather than a second factor dump.
+ */
+export const MARGINAL_BOUNDARY_NAME_BUDGET = 24;
+
+export function marginalBoundary(state: FactorState, anchors: readonly string[]): MarginalBoundary {
+  const report = hopTruncation(state, anchors);
+  const seeds = [...new Set(anchors.map((anchor) => anchor.trim()).filter(Boolean))];
+  const known = new Set(state.factors.map((factor) => factor.anchor));
+  // The worker marginal includes the term-group widening, so anchors pulled in
+  // by it must not be reported as dropped.
+  const inside = new Set(marginalFactors(state, anchors).map((factor) => factor.anchor));
+  const dist = hopDistanceMap(state, anchors);
+  // Nearest dropped anchors are the likeliest approximation error; the cap in
+  // the formatter keeps the front of this order.
+  const nearestFirst = (left: string, right: string) =>
+    (dist.get(left) ?? Number.POSITIVE_INFINITY) - (dist.get(right) ?? Number.POSITIVE_INFINITY);
+  return {
+    seeds,
+    groundedSeeds: seeds.filter((seed) => known.has(seed)),
+    mechanicalDropped: report.mechanicalDropped
+      .filter((anchor) => !inside.has(anchor))
+      .toSorted(nearestFirst),
+    longRange: report.longRange.filter((anchor) => !inside.has(anchor)).toSorted(nearestFirst),
+    isolated: report.isolated.filter((anchor) => !inside.has(anchor)),
+  };
+}
+
+/**
+ * Graded disclosure by evidence strength. Anchors connected to the marginal
+ * are named so the worker can mark a precise gap; anchors with no path carry
+ * no evidence and are never named, so a state holding only those produces no
+ * block at all. Mechanical anchors come first because 1-hop truncation drops
+ * their exact readings.
+ */
+function orderedBoundaryAnchors(boundary: MarginalBoundary): {
+  mechanical: string[];
+  other: string[];
+  named: string[];
+} {
+  const mechanicalSet = new Set(boundary.mechanicalDropped);
+  const other = boundary.longRange.filter((anchor) => !mechanicalSet.has(anchor));
+  return {
+    mechanical: boundary.mechanicalDropped,
+    other,
+    named: [...boundary.mechanicalDropped, ...other],
+  };
+}
+
+/** Anchors the boundary names to a worker: mechanical first, nearest first, capped. */
+export function boundaryNamedAnchors(boundary: MarginalBoundary): string[] {
+  return orderedBoundaryAnchors(boundary).named.slice(0, MARGINAL_BOUNDARY_NAME_BUDGET);
+}
+
+/** Compact scope report for the parent. Counts only: no names, no readings. */
+export type MarginalScopeReport = {
+  /** Anchors inside the worker marginal (1-hop plus term widening). */
+  seen: number;
+  /** Mechanical anchors beyond 1-hop; named but not read. */
+  mechanical: number;
+  /** Other connected anchors beyond 1-hop; named but not read. */
+  longRange: number;
+  /** Anchors with no evidence path; never named. */
+  isolated: number;
+};
+
+export function marginalScopeReport(
+  state: FactorState,
+  anchors: readonly string[],
+): MarginalScopeReport {
+  const boundary = marginalBoundary(state, anchors);
+  const mechanical = boundary.mechanicalDropped.length;
+  return {
+    seen: marginalFactors(state, anchors).length,
+    mechanical,
+    longRange: boundary.longRange.length - mechanical,
+    isolated: boundary.isolated.length,
+  };
+}
+
+export function formatMarginalBoundary(boundary: MarginalBoundary): string {
+  if (boundary.groundedSeeds.length === 0) {
+    return "";
+  }
+  const { mechanical, named } = orderedBoundaryAnchors(boundary);
+  if (named.length === 0) {
+    return "";
+  }
+  const shown = boundaryNamedAnchors(boundary);
+  const mechanicalSet = new Set(mechanical);
+  const shownMechanical = shown.filter((anchor) => mechanicalSet.has(anchor));
+  const shownOther = shown.filter((anchor) => !mechanicalSet.has(anchor));
+  const lines = [
+    "【约化边界】下列锚在当前子工边际之外，这里只给名字、不给读数。任务需要时，先用材料或只读工具按名字核实；核实到就用核实到的值，核实不到再写缺口。不要把‘未提供’写成‘不存在’。",
+  ];
+  if (shownMechanical.length > 0) {
+    lines.push(`- 长程机械项：${shownMechanical.join("、")}`);
+  }
+  if (shownOther.length > 0) {
+    lines.push(`- 长程关联项：${shownOther.join("、")}`);
+  }
+  if (named.length > shown.length) {
+    lines.push(`- 其余 ${named.length - shown.length} 项未列出（同样先核实再用）。`);
+  }
+  return lines.join("\n");
+}
+
+/** Low-level join. Production goes through composeSubagentPrompt. */
 export function composeWorkerSystem(input: {
   instructions: string;
   marginal?: string;
+  boundary?: string;
   parentTranscript?: string;
 }): string {
-  return [input.instructions.trim(), input.marginal?.trim() ?? ""].filter(Boolean).join("\n");
+  return [input.instructions.trim(), input.marginal?.trim() ?? "", input.boundary?.trim() ?? ""]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Single assembly entry for a sub-worker system prompt. The marginal block and
+ * the boundary are both derived from the same state and seeds, so the prompt a
+ * worker receives cannot drift from the one the harness measures.
+ */
+export function composeSubagentPrompt(input: {
+  instructions: string;
+  state: FactorState;
+  seeds: readonly string[];
+  qhat?: number;
+}): string {
+  return composeWorkerSystem({
+    instructions: input.instructions,
+    marginal: formatMarginalBlock(
+      marginalFactors(input.state, input.seeds),
+      input.qhat ?? conformalQhatFor(input.state),
+      input.state.turnEpoch,
+    ),
+    boundary: formatMarginalBoundary(marginalBoundary(input.state, input.seeds)),
+  });
 }
 
 export function lightConeAnchors(state: FactorState, named: readonly string[]): string[] {
@@ -1189,6 +1390,24 @@ export function withholdFailedProse(message: {
  * A prose claim is not evidence. Agreement leaves the grounded reading.
  * A different id conflicts and stays reversible via priorOutcomes.
  */
+const PROPOSAL_LLR = 0.8;
+const PROPOSAL_DECAY = 0.5;
+/** Two independent channels must push a proposal above this to survive turn close. */
+const PROPOSAL_KEEP_ABOVE = 1.0;
+
+function observeProposal(state: FactorState, factor: Factor, id: string): void {
+  const round = state.turnEpoch ?? 0;
+  const filter = factor.proposalFilter ?? createFilter(factor.anchor);
+  if (filter.observations > 0 && filter.lastRound >= round) {
+    return;
+  }
+  factor.proposalFilter = observe(
+    filter,
+    { outcomeId: id, llr: PROPOSAL_LLR, round, channel: "model" },
+    { decay: PROPOSAL_DECAY },
+  );
+}
+
 export function fuseProposal(
   state: FactorState,
   anchor: string,
@@ -1211,12 +1430,49 @@ export function fuseProposal(
     factor.priorOutcomes = factor.outcomes.map((outcome) => ({ ...outcome }));
   }
   factor.proposalId = id;
+  observeProposal(state, factor, id);
   if (grounded.length === 0) {
     factor.outcomes = normalizeOutcomes([{ id, mass: 1, grounded: false }]);
     factor.flag = "mixed";
     return;
   }
   factor.flag = "conflict";
+}
+
+/**
+ * A model proposal survives only when a second independent channel confirms it.
+ * One model channel is a weak reading; the grounded ledger stays the reading.
+ * Legacy proposals without a filter keep the old visible behavior.
+ */
+export function proposalSupported(factor: Factor, round?: number): boolean {
+  if (!factor.proposalId) {
+    return false;
+  }
+  const filter = factor.proposalFilter;
+  if (!filter) {
+    return true;
+  }
+  const at = round ?? filter.lastRound;
+  // A proposal seen in the current turn is the live conflict; it becomes
+  // stale only after the turn boundary.
+  if (at <= filter.lastRound) {
+    return true;
+  }
+  const decayed = decayFilter(filter, at, { decay: PROPOSAL_DECAY });
+  const decision = decide(decayed, {
+    upper: PROPOSAL_KEEP_ABOVE,
+    margin: 0,
+    minChannels: 2,
+  });
+  return decision.kind === "definite" && decision.id === factor.proposalId;
+}
+
+/** Anchors whose proposal is currently a stale one-channel reading. */
+export function staleProposalAnchors(state: FactorState): string[] {
+  const round = state.turnEpoch ?? 0;
+  return state.factors
+    .filter((factor) => factor.proposalId && !proposalSupported(factor, round))
+    .map((factor) => factor.anchor);
 }
 
 /** Undo proposals on the named anchors, or on every open proposal, plus one hop. */
@@ -1238,6 +1494,7 @@ export function revertProposals(state: FactorState, named: readonly string[]): s
     }
     factor.priorOutcomes = undefined;
     factor.proposalId = undefined;
+    factor.proposalFilter = undefined;
     const reading = projectReading(factor.outcomes);
     factor.flag = reading.kind === "definite" ? "ok" : "mixed";
   }
@@ -1711,18 +1968,22 @@ function renderDefiniteBody(factor: Factor, chosen: string): string {
   return `${chosen}；未核：${others.join("；")}`;
 }
 
-function renderFactorBody(factor: Factor, qhat?: number): string {
+function renderFactorBody(factor: Factor, qhat?: number, round?: number): string {
   if (factor.anchor.startsWith(STATED_AMOUNT_PREFIX)) {
     const grounded = factor.outcomes.find((outcome) => outcome.grounded === true && outcome.id);
     const id = grounded?.id ?? factor.anchor.slice(STATED_AMOUNT_PREFIX.length);
     const span = grounded?.span?.trim();
     const base = span ? `${id}（材料原句：${span}）` : id;
-    if (factor.flag === "conflict" && factor.proposalId) {
+    if (factor.flag === "conflict" && factor.proposalId && proposalSupported(factor, round)) {
       return `${base}。稿里写成了${factor.proposalId}，材料里的数仍以这里为准。`;
     }
     return base;
   }
-  if ((factor.flag === "conflict" || factor.flag === "uncorrectable") && factor.proposalId) {
+  if (
+    (factor.flag === "conflict" || factor.flag === "uncorrectable") &&
+    factor.proposalId &&
+    proposalSupported(factor, round)
+  ) {
     const grounded = projectReadingGated(factor.outcomes, qhat);
     const left = grounded.kind === "definite" ? grounded.id : grounded.ids.join("；");
     const sides = [left, factor.proposalId].filter(Boolean);
@@ -2006,6 +2267,7 @@ function noteStatedAmountDrift(state: FactorState, prose: string): void {
     if (proseHasStatedAmount(prose, amount)) {
       if (factor.flag === "conflict") {
         factor.proposalId = undefined;
+        factor.proposalFilter = undefined;
         factor.flag = "ok";
       }
       continue;

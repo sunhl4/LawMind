@@ -16,6 +16,7 @@ import {
 } from "react";
 import { apiGetJson, apiSendJson, errorMessage } from "../api-client";
 import type { OpenFileTab } from "./file-workbench-types";
+import { useFileMtimeWatcher } from "./use-file-external-refresh";
 import { PreviewCommonActions, type PreviewHeaderActions } from "./preview-registry";
 import { caretIndexFromClientX } from "./xlsx-caret";
 import { formatXlsxEditValue, parseXlsxEditInput, type XlsxEditValue } from "./xlsx-edit-value";
@@ -24,6 +25,7 @@ import {
   columnLetters,
   type XlsxPreviewCellStyle,
 } from "./xlsx-preview-style";
+import { parseEvidenceLocator } from "../../../../../src/lawmind/drafts/evidence-locator.ts";
 
 type CaretIntent =
   | { mode: "click"; clientX: number }
@@ -70,6 +72,11 @@ export type XlsxFileViewProps = {
   apiBase: string;
   tab: OpenFileTab;
   actions: PreviewHeaderActions;
+  locator?: string | null;
+  /** 只有当前标签需要轮询磁盘；后台保留的标签不查。 */
+  active?: boolean;
+  /** 单元格有未保存编辑时为 true；父级据此拦住拖标签等会丢弃缓冲的操作。 */
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 const UI_ROW_CAP = 500;
@@ -273,7 +280,14 @@ function SheetGrid(props: SheetGridProps): ReactNode {
 }
 
 export function XlsxFileView(props: XlsxFileViewProps): ReactNode {
-  const { apiBase, tab, actions } = props;
+  const {
+    apiBase,
+    tab,
+    actions,
+    locator,
+    active: isActive = true,
+    onDirtyChange,
+  } = props;
   const [sheets, setSheets] = useState<XlsxSheetPreview[]>([]);
   const [truncatedSheets, setTruncatedSheets] = useState(false);
   const [sheetIndex, setSheetIndex] = useState(0);
@@ -295,6 +309,17 @@ export function XlsxFileView(props: XlsxFileViewProps): ReactNode {
     [apiBase, tab.root, tab.path, tab.mtimeMs],
   );
   const dirty = edits.size > 0;
+
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  onDirtyChangeRef.current = onDirtyChange;
+  useEffect(() => {
+    onDirtyChangeRef.current?.(dirty);
+  }, [dirty]);
+  useEffect(() => {
+    return () => {
+      onDirtyChangeRef.current?.(false);
+    };
+  }, []);
 
   const reload = useCallback(async () => {
     const body = await apiGetJson<XlsxPreviewResponse>(
@@ -342,6 +367,20 @@ export function XlsxFileView(props: XlsxFileViewProps): ReactNode {
       cancelled = true;
     };
   }, [requestKey, apiBase, tab.mtimeMs, reload]);
+
+  // 对话/另一个窗口改盘：干净时把表格重读回来；有未保存单元格时先不动。
+  useFileMtimeWatcher({
+    enabled: isActive && Boolean(apiBase.trim()),
+    root: tab.root,
+    path: tab.path,
+    mtimeMs: fileMtimeMs,
+    dirty,
+    onChanged: () => {
+      void reload().catch(() => {
+        /* 后台刷新失败留给下一轮 */
+      });
+    },
+  });
 
   const startEdit = useCallback(
     (coord: CellCoord, intent: CaretIntent, seed?: string) => {
@@ -515,6 +554,33 @@ export function XlsxFileView(props: XlsxFileViewProps): ReactNode {
   }, [dirty, saveEdits, editing, selected, sheetIndex, startEdit]);
 
   const active = sheets[sheetIndex] ?? sheets[0];
+
+  useEffect(() => {
+    const parsed = locator ? parseEvidenceLocator(locator) : null;
+    if (!parsed || (parsed.kind !== "excel_cell" && parsed.kind !== "excel_range")) {
+      return;
+    }
+    const match = /^([A-Z]+)([1-9]\d*)$/.exec(
+      parsed.kind === "excel_cell" ? parsed.cell : parsed.range.split(":")[0] ?? "",
+    );
+    if (!match) {
+      return;
+    }
+    const letters = match[1] ?? "";
+    let column = 0;
+    for (let i = 0; i < letters.length; i += 1) {
+      column = column * 26 + (letters.charCodeAt(i) - 64);
+    }
+    column -= 1;
+    const row = Number(match[2]) - 1;
+    setSheetIndex(Math.max(0, parsed.sheetIndex - 1));
+    setSelected({ sheetIndex: Math.max(0, parsed.sheetIndex - 1), row, col: column });
+    requestAnimationFrame(() => {
+      const cell = document.querySelector<HTMLElement>(`[data-testid="lm-xlsx-cell-${row}-${column}"]`);
+      cell?.scrollIntoView({ block: "center", inline: "center" });
+    });
+  }, [locator, sheets.length]);
+
 
   return (
     <div

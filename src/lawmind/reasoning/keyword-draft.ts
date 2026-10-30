@@ -365,13 +365,15 @@ function defaultTemplateId(intent: TaskIntent): string {
   ) {
     return "word/demand-letter-default";
   }
+  if (intent.deliverableType === "litigation.complaint") {
+    return "word/legal-memo-default";
+  }
   if (
     intent.deliverableType === "litigation.outline" ||
-    intent.deliverableType === "litigation.complaint" ||
     intent.deliverableType === "litigation.answer" ||
     intent.deliverableType === "litigation.brief"
   ) {
-    return "word/legal-memo-default";
+    return "word/working-draft-default";
   }
   if (intent.deliverableType === "contract.nda") {
     return "word/contract-default";
@@ -382,12 +384,17 @@ function defaultTemplateId(intent: TaskIntent): string {
     intent.deliverableType === "memo.research" ||
     intent.deliverableType === "labor.calc" ||
     intent.deliverableType === "period.calc" ||
-    intent.deliverableType === "analysis.table" ||
-    intent.deliverableType === "matter.timeline" ||
-    intent.deliverableType === "matter.exhibit_list" ||
-    intent.deliverableType === "meeting.minutes"
+    intent.deliverableType === "analysis.table"
   ) {
     return "word/legal-memo-default";
+  }
+  if (
+    intent.deliverableType === "matter.timeline" ||
+    intent.deliverableType === "matter.exhibit_list" ||
+    intent.deliverableType === "meeting.minutes" ||
+    intent.deliverableType === "document.general"
+  ) {
+    return "word/working-draft-default";
   }
   if (
     intent.deliverableType === "contract.rental" ||
@@ -408,7 +415,7 @@ function defaultTemplateId(intent: TaskIntent): string {
   if (intent.deliverableType === "report.compliance") {
     return "word/legal-memo-default";
   }
-  return "word/legal-memo-default";
+  return "word/working-draft-default";
 }
 
 function buildRentalContractSections(intent: TaskIntent): ArtifactSection[] {
@@ -1237,7 +1244,7 @@ export function buildDraft(params: BuildDraftParams): ArtifactDraft {
     taskId: intent.taskId,
     matterId: intent.matterId,
     title: draftTitle,
-    output: intent.output === "pptx" ? "pptx" : intent.output === "markdown" ? "markdown" : "docx",
+    output: intent.output === "pptx" ? "pptx" : "docx",
     templateId,
     deliverableType: intent.deliverableType,
     summary: summarizeBundle(bundle),

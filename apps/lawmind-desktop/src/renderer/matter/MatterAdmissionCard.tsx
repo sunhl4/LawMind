@@ -7,7 +7,10 @@
  */
 
 import { useEffect, useState, type ReactNode } from "react";
-import { apiGetJson, apiSendJson, errorMessage } from "../api-client";
+import { apiGetJson, apiSendJson } from "../api-client";
+import { MatterEngagementPanel, fetchEngagementManifest } from "./MatterEngagementPanel";
+import { admissionErrorMessage } from "./matter-admission-error";
+import { AdmissionTimeline } from "./MatterAdmissionTimeline";
 
 type CandidateRole = "client" | "counterparty" | "related" | "unknown";
 
@@ -25,15 +28,6 @@ type AdmissionConflictHit = {
   partyName: string;
   reason: string;
   source: string;
-};
-
-type EngagementFile = { name: string; relativePath: string; bytes: number };
-
-type EngagementManifest = {
-  generatedAt: string;
-  files: EngagementFile[];
-  esign: { status: string };
-  docx?: { generatedAt: string; files: EngagementFile[] };
 };
 
 type ProvenanceEntry = {
@@ -126,99 +120,12 @@ const ROLE_LABEL: Record<CandidateRole, string> = {
   unknown: "待定",
 };
 
-const TIMELINE_KIND_LABEL: Record<string, string> = {
-  created: "建立收案记录",
-  owner_assigned: "指定负责人",
-  candidates_added: "补登候选当事人",
-  scan_started: "开始冲突扫描",
-  scan_recorded: "写入扫描结果",
-  disclosure_acknowledged: "确认告知",
-  accepted: "接受委托",
-  declined: "婉拒",
-};
-
-const TIMELINE_BY_LABEL: Record<string, string> = {
-  system: "系统",
-  lawyer: "律师",
-};
-
-/** 收案记录自带的时间线：谁在什么时候做了什么，倒序显示。 */
-function AdmissionTimeline({
-  entries,
-}: {
-  entries: NonNullable<AdmissionView["timeline"]>;
-}): ReactNode {
-  if (entries.length === 0) {
-    return null;
-  }
-  const ordered = [...entries].toSorted((a, b) => b.at.localeCompare(a.at));
-  return (
-    <details className="lm-matter-admission-timeline" data-testid="lm-matter-admission-timeline">
-      <summary>操作记录 {ordered.length}</summary>
-      <ol className="lm-matter-admission-timeline-list">
-        {ordered.map((entry, index) => (
-          <li key={`${entry.at}-${entry.kind}-${index}`}>
-            <time dateTime={entry.at}>{new Date(entry.at).toLocaleString()}</time>
-            <span>{TIMELINE_KIND_LABEL[entry.kind] ?? entry.kind}</span>
-            <span className="lm-meta">
-              {TIMELINE_BY_LABEL[entry.by] ?? entry.by}
-              {entry.detail ? ` · ${entry.detail}` : ""}
-            </span>
-          </li>
-        ))}
-      </ol>
-    </details>
-  );
-}
-
 function errorStatus(error: unknown): number | undefined {
   if (typeof error === "object" && error !== null && "status" in error) {
     const status = (error as { status?: unknown }).status;
     return typeof status === "number" ? status : undefined;
   }
   return undefined;
-}
-
-function errorCode(error: unknown): string | undefined {
-  if (typeof error === "object" && error !== null && "body" in error) {
-    const body = (error as { body?: unknown }).body;
-    if (typeof body === "object" && body !== null && "error" in body) {
-      const code = (body as { error?: unknown }).error;
-      return typeof code === "string" ? code : undefined;
-    }
-  }
-  return undefined;
-}
-
-function admissionErrorMessage(error: unknown): string {
-  switch (errorCode(error)) {
-    case "conflict_pending":
-      return "冲突扫描还没完成，先运行扫描。";
-    case "conflict_override_required":
-      return "扫描有命中，接受委托前必须填写书面理由。";
-    case "disclosures_missing":
-      return "先确认风险告知与 AI 使用告知。";
-    case "owner_missing":
-      return "先指定本案负责人。";
-    case "no_candidates":
-      return "先添加候选当事人；空扫描不能当作无冲突。";
-    case "already_decided":
-      return "这条收案记录已经有决定，不能重复操作。";
-    case "not_found":
-      return "收案记录不存在，请先开始收案。";
-    case "exists":
-      return "委托包或 DOCX 已存在（可能被律师改过）。确认覆盖后再继续。";
-    case "missing_fields":
-      return "先填委托人和律师费。";
-    case "package_not_found":
-      return "先生成委托包草案，再导出 DOCX。";
-    case "render_failed":
-      return "DOCX 渲染失败，请检查委托包正文是否完整。";
-    case "write_failed":
-      return "DOCX 写入失败，请检查工作区是否可写。";
-    default:
-      return errorMessage(error, "收案操作失败");
-  }
 }
 
 export function MatterAdmissionCard(props: Props): ReactNode {
@@ -234,15 +141,7 @@ export function MatterAdmissionCard(props: Props): ReactNode {
   const [overrideReason, setOverrideReason] = useState("");
   const [declineOpen, setDeclineOpen] = useState(false);
   const [declineNote, setDeclineNote] = useState("");
-  const [engagement, setEngagement] = useState<EngagementManifest | null>(null);
-  const [engagementClient, setEngagementClient] = useState("");
-  const [engagementFee, setEngagementFee] = useState("");
-  const [engagementBusy, setEngagementBusy] = useState(false);
-  const [engagementErr, setEngagementErr] = useState<string | null>(null);
-  const [engagementDocxBusy, setEngagementDocxBusy] = useState(false);
-  const [engagementDocxErr, setEngagementDocxErr] = useState<string | null>(null);
-  const [overwriteOpen, setOverwriteOpen] = useState(false);
-  const [docxOverwriteOpen, setDocxOverwriteOpen] = useState(false);
+  const [engagementCount, setEngagementCount] = useState<number | null>(null);
   const [provenance, setProvenance] = useState<ProvenanceView | null>(null);
   const [legalEvents, setLegalEvents] = useState<LegalEvent[] | null>(null);
   const [selectedEvents, setSelectedEvents] = useState<Set<number>>(new Set());
@@ -251,7 +150,6 @@ export function MatterAdmissionCard(props: Props): ReactNode {
   const [createdDeadlines, setCreatedDeadlines] = useState<DeadlineView[]>([]);
 
   const path = `/api/intake/admissions/${encodeURIComponent(matterId)}`;
-  const engagementPath = `${path}/engagement`;
 
   const loadProvenance = async () => {
     try {
@@ -261,21 +159,6 @@ export function MatterAdmissionCard(props: Props): ReactNode {
       if (errorStatus(e) === 404) {
         setProvenance(null);
       }
-    }
-  };
-
-  const loadEngagement = async () => {
-    try {
-      const j = await apiGetJson<{ ok: boolean; manifest?: EngagementManifest }>(
-        apiBase,
-        engagementPath,
-      );
-      setEngagement(j.manifest ?? null);
-    } catch (e) {
-      if (errorStatus(e) === 404) {
-        setEngagement(null);
-      }
-      // 委托包读不到不阻塞收案卡；生成时会再报具体错误。
     }
   };
 
@@ -299,19 +182,27 @@ export function MatterAdmissionCard(props: Props): ReactNode {
     setErr(null);
     setMsg(null);
     void load();
-    void loadEngagement();
     void loadProvenance();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- matterId 变化时重新拉取
   }, [apiBase, matterId]);
 
+  // 决定后不再挂载委托包面板；摘要里的份数单独读一次 manifest。
   useEffect(() => {
-    if (!engagementClient && admission) {
-      const client = admission.candidates.find((row) => row.role === "client")?.name;
-      if (client) {
-        setEngagementClient(client);
-      }
+    const status = admission?.status;
+    if (status !== "accepted" && status !== "declined") {
+      setEngagementCount(null);
+      return undefined;
     }
-  }, [admission, engagementClient]);
+    let cancelled = false;
+    void fetchEngagementManifest(apiBase, matterId).then((manifest) => {
+      if (!cancelled) {
+        setEngagementCount(manifest ? manifest.files.length : 0);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, matterId, admission?.status]);
 
   const act = async (body: Record<string, unknown>, okMessage: string): Promise<boolean> => {
     setBusy(true);
@@ -368,70 +259,6 @@ export function MatterAdmissionCard(props: Props): ReactNode {
       "已添加候选当事人。",
     );
     setCandidateName("");
-  };
-
-  const generateEngagement = async (overwrite: boolean) => {
-    if (!engagementClient.trim() || !engagementFee.trim()) {
-      setEngagementErr("先填委托人和律师费。");
-      return;
-    }
-    setEngagementBusy(true);
-    setEngagementErr(null);
-    setOverwriteOpen(false);
-    setMsg(null);
-    try {
-      const j = await apiSendJson<{ ok: boolean; manifest?: EngagementManifest }>(
-        apiBase,
-        engagementPath,
-        "POST",
-        {
-          clientName: engagementClient.trim(),
-          feeText: engagementFee.trim(),
-          ...(admission?.ownerLawyerId ? { lawyerName: admission.ownerLawyerId } : {}),
-          ...(overwrite ? { overwrite: true } : {}),
-        },
-      );
-      if (j.manifest) {
-        setEngagement(j.manifest);
-      }
-      setMsg("委托包草案已生成，请律师核对后再对外。");
-    } catch (e) {
-      if (errorCode(e) === "exists") {
-        setOverwriteOpen(true);
-      }
-      setEngagementErr(admissionErrorMessage(e));
-    } finally {
-      setEngagementBusy(false);
-    }
-  };
-
-  const exportEngagementDocx = async (overwrite: boolean) => {
-    setEngagementDocxBusy(true);
-    setEngagementDocxErr(null);
-    setDocxOverwriteOpen(false);
-    setMsg(null);
-    try {
-      const j = await apiSendJson<{
-        ok: boolean;
-        generatedAt?: string;
-        files?: EngagementFile[];
-      }>(apiBase, `${engagementPath}/docx`, "POST", overwrite ? { overwrite: true } : {});
-      const generatedAt = j.generatedAt;
-      const files = j.files;
-      if (generatedAt && files) {
-        setEngagement((prev) =>
-          prev ? { ...prev, docx: { generatedAt, files } } : prev,
-        );
-      }
-      setMsg(`委托包 DOCX 已导出（${files?.length ?? 0} 份）。Markdown 仍是真相源。`);
-    } catch (e) {
-      if (errorCode(e) === "exists") {
-        setDocxOverwriteOpen(true);
-      }
-      setEngagementDocxErr(admissionErrorMessage(e));
-    } finally {
-      setEngagementDocxBusy(false);
-    }
   };
 
   const extractDeadlines = async () => {
@@ -606,8 +433,8 @@ export function MatterAdmissionCard(props: Props): ReactNode {
             </p>
             <p className="lm-meta">
               委托包：
-              {engagement
-                ? `已生成 ${engagement.files.length} 份草案（须律师核对）`
+              {engagementCount !== null && engagementCount > 0
+                ? `已生成 ${engagementCount} 份草案（须律师核对）`
                 : "未生成"}
             </p>
           </div>
@@ -774,112 +601,13 @@ export function MatterAdmissionCard(props: Props): ReactNode {
           </label>
         </fieldset>
 
-        <fieldset
-          className="lm-matter-profile-checks"
-          disabled={busy || engagementBusy || engagementDocxBusy}
-        >
-          <legend>委托包（草案）</legend>
-          {engagement ? (
-            <div className="lm-matter-engagement-summary">
-              <p className="lm-meta">
-                已生成 {engagement.files.length} 份草案 ·{" "}
-                {new Date(engagement.generatedAt).toLocaleString()} · 电子签：占位（未接入）
-              </p>
-              <ul className="lm-matter-admission-list">
-                {engagement.files.map((file) => (
-                  <li key={file.relativePath}>
-                    <span>{file.name}</span>
-                    <span className="lm-meta">{file.relativePath}</span>
-                  </li>
-                ))}
-              </ul>
-              {engagement.docx ? (
-                <p className="lm-meta">
-                  已导出 Word {engagement.docx.files.length} 份 ·{" "}
-                  {new Date(engagement.docx.generatedAt).toLocaleString()} · 从当前 Markdown 生成
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <p className="lm-meta">
-              接受委托前可先生成委托合同、授权委托书、风险告知、AI 使用告知和报价单草案；全部标注「须律师核对」。
-            </p>
-          )}
-          <div className="lm-matter-engagement-form">
-            <label className="lm-field">
-              <span>委托人</span>
-              <input
-                type="text"
-                value={engagementClient}
-                onChange={(e) => setEngagementClient(e.target.value)}
-                placeholder="委托人姓名或公司名"
-                disabled={busy || engagementBusy}
-                autoComplete="off"
-              />
-            </label>
-            <label className="lm-field">
-              <span>律师费</span>
-              <input
-                type="text"
-                value={engagementFee}
-                onChange={(e) => setEngagementFee(e.target.value)}
-                placeholder="例如 按标的额 5% 收取"
-                disabled={busy || engagementBusy}
-                autoComplete="off"
-              />
-            </label>
-          </div>
-          <div className="lm-matter-admission-actions">
-            <button
-              type="button"
-              className="lm-btn lm-btn-sm"
-              disabled={busy || engagementBusy || engagementDocxBusy}
-              onClick={() => void generateEngagement(false)}
-            >
-              {engagement ? "重新生成" : "生成委托包"}
-            </button>
-            {overwriteOpen ? (
-              <button
-                type="button"
-                className="lm-btn lm-btn-sm"
-                disabled={busy || engagementBusy || engagementDocxBusy}
-                onClick={() => void generateEngagement(true)}
-              >
-                覆盖并重新生成
-              </button>
-            ) : null}
-            {engagement ? (
-              <button
-                type="button"
-                className="lm-btn lm-btn-sm"
-                disabled={busy || engagementBusy || engagementDocxBusy}
-                onClick={() => void exportEngagementDocx(false)}
-              >
-                {engagement.docx ? "重新导出 DOCX" : "导出 DOCX"}
-              </button>
-            ) : null}
-            {docxOverwriteOpen ? (
-              <button
-                type="button"
-                className="lm-btn lm-btn-sm"
-                disabled={busy || engagementBusy || engagementDocxBusy}
-                onClick={() => void exportEngagementDocx(true)}
-              >
-                覆盖并重新导出
-              </button>
-            ) : null}
-          </div>
-          {engagementErr ? (
-            <p className="lm-error" role="alert">
-              {engagementErr}
-            </p>
-          ) : null}
-          {engagementDocxErr ? (
-            <p className="lm-error" role="alert">
-              {engagementDocxErr}
-            </p>
-          ) : null}
-        </fieldset>
+        <MatterEngagementPanel
+          apiBase={apiBase}
+          matterId={matterId}
+          clientHint={admission.candidates.find((row) => row.role === "client")?.name}
+          lawyerId={admission.ownerLawyerId}
+          disabled={busy}
+        />
 
         {provenance &&
         (latestProvenance.length > 0 ||

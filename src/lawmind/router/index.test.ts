@@ -90,6 +90,7 @@ describe("LawMind Router", () => {
     expect(route({ instruction: "出一份数据合规备忘" }).deliverableType).toBe("report.compliance");
     expect(route({ instruction: "出一份广告合规备忘" }).deliverableType).toBe("report.general");
     expect(route({ instruction: "写上诉状" }).deliverableType).toBe("document.general");
+    expect(route({ instruction: "写上诉状" }).clarificationQuestions).toBeUndefined();
     expect(route({ instruction: "写一份执行异议" }).deliverableType).toBe("document.general");
     expect(route({ instruction: "列立案材料清单" }).deliverableType).toBe("document.general");
     expect(route({ instruction: "写本案办案周报" }).deliverableType).toBe("memo.internal");

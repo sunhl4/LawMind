@@ -1,6 +1,6 @@
 import type { ArtifactDraft, TaskIntent, TaskRecord } from "../types.js";
 
-const DEFAULT_DRAFT_TEMPLATE_ID = "word/legal-memo-default";
+const DEFAULT_DRAFT_TEMPLATE_ID = "word/working-draft-default";
 
 /** 仅从任务记录还原 TaskIntent（无草稿时用于工作流续跑，如跳过 plan 后重试检索）。 */
 export function taskIntentFromRecordOnly(record: TaskRecord): TaskIntent {

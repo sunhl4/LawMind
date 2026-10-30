@@ -244,6 +244,77 @@
 - [x] **导 PDF**：`POST /api/word-surface/export-pdf`（LibreOffice soffice → 同目录 `.pdf`）+ 工具条「导 PDF」。2026-10-09
 - [ ] **拼写检查**（中文场景价值低，默认关）仍不做。
 
+### 8.1 已刻意移除：中栏修订状态小字（2026-10-30，可捞回）
+
+- **是什么**：`LawmindWordRevisionSurface` 工具条上方原来有一行 12px 灰色小字。有待定修订时显示「核对 · N 处待定」，有他人修订时再补「，另有 M 处他人修订」；没有修订时显示「核对 · 没有待定修订」；加载中/失败时显示「正在打开 / 没打开」。
+- **为什么去掉**：这行信息量低，却固定占掉中栏一整行高度。产品决定先拿掉，把空间留给正文。底部状态栏的「字数 / 修订 n / m / 缩放」原样保留，修订仍能在正文和修订栏里处理，功能不受影响。
+- **代码标记**：`apps/lawmind-desktop/src/renderer/file/LawmindWordRevisionSurface.tsx` 的 `<header className="lm-word-surface-bar">` 里有 `REMOVED(2026-10-30) word-surface-revision-status` 注释；`LawmindWordRevisionSurface.test.tsx` 用同标记说明反向断言要一起改。
+- **测试现状**：两条断言锁定工具栏不再出现「待定」和「核对 · 」。恢复时必须改回正向断言，否则测试会红。
+
+**怎么捞回**
+
+旧实现可从本文件的提交历史取回：
+
+```bash
+# 还没提交时：HEAD 仍是删除前的版本
+git show HEAD:apps/lawmind-desktop/src/renderer/file/LawmindWordRevisionSurface.tsx
+
+# 已提交后：按文案找删除它的提交，再看父提交
+git log -S"核对 · " -- apps/lawmind-desktop/src/renderer/file/LawmindWordRevisionSurface.tsx
+git show <删除它的提交>^:apps/lawmind-desktop/src/renderer/file/LawmindWordRevisionSurface.tsx
+```
+
+要恢复四块：
+
+1. `foreignCount`（紧接 `pending` 计算块之后）：
+
+```tsx
+const foreignCount = trackedRows.filter((row) => !isOwnRevisionAuthor(row.author, snapshot)).length;
+```
+
+2. `revisionStatus`（`pagePaintRef.current = pagePaintLive;` 之后、`return (` 之前）：
+
+```tsx
+const revisionStatus = !snapshot
+  ? loadError
+    ? "没打开"
+    : "正在打开"
+  : pending > 0
+    ? foreignCount > 0
+      ? `核对 · ${pending} 处待定，另有 ${foreignCount} 处他人修订`
+      : `核对 · ${pending} 处待定`
+    : trackedRows.length > 0
+      ? null
+      : "核对 · 没有待定修订";
+```
+
+3. `<header>` 的第一个子节点（原样 JSX，不加分号）：
+
+```text
+{revisionStatus ? (
+  <div className="lm-word-surface-title">
+    <span className="lm-word-surface-count">{revisionStatus}</span>
+  </div>
+) : null}
+```
+
+4. 两条样式加回 `apps/lawmind-desktop/src/renderer/styles/file-workbench.css`，然后重跑 `pnpm lawmind:sync:renderer-css`：
+
+```css
+.lm-word-surface-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.lm-word-surface-count {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+```
+
 ---
 
 ## 9. 风险与应对

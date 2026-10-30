@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { observe } from "./evidence-filter.js";
 import {
   ADIABATIC_MAX_STEPS,
   GAMMA_STAR,
@@ -7,6 +8,7 @@ import {
   applyProseSyndrome,
   applyInverseEdits,
   beginTurnFactors,
+  composeSubagentPrompt,
   composeWorkerSystem,
   bodiesForNextRender,
   consumeRedlineRepair,
@@ -16,6 +18,7 @@ import {
   editContradictsGroundedAmount,
   extractSkeletonHeadings,
   formatMarginalBlock,
+  fuseProposal,
   fuseSharedAnchorLines,
   hopTruncation,
   ingestDefinedTerms,
@@ -32,6 +35,7 @@ import {
   projectAssistantProseForSampling,
   projectReading,
   projectToolResultForSampling,
+  proposalSupported,
   purity,
   mapEditsToFactorAnchors,
   recordBodySnapshot,
@@ -176,13 +180,16 @@ describe("marginal and light cone", () => {
     expect(block).toContain("amount:wage");
     expect(block).not.toContain("citation:labor-47");
     expect(block).not.toContain("clause:管辖");
-    const system = composeWorkerSystem({
+    const system = composeSubagentPrompt({
       instructions: "只写解除这一段。",
-      marginal: block,
-      parentTranscript: "PARENT_SECRET",
+      state,
+      seeds: ["clause:解除"],
     });
     expect(system).not.toContain("PARENT_SECRET");
-    expect(system).not.toContain("citation:labor-47");
+    expect(system).toContain("【约化边界】");
+    expect(system).toContain("长程机械项：citation:labor-47");
+    expect(system).not.toContain("每满一年支付一个月工资");
+    expect(system).not.toContain("clause:管辖");
   });
 
   it("keeps the losing reading as 未核 when purity picks one side", () => {
@@ -945,5 +952,61 @@ describe("stated material amounts", () => {
     expect(foreign?.outcomes.some((outcome) => outcome.grounded === true)).not.toBe(true);
     const reading = renderEngineReadings(state);
     expect(reading).not.toContain("泰国商事法：live");
+  });
+});
+
+describe("weak-evidence proposal hysteresis", () => {
+  it("hides a one-channel model proposal from readings but keeps the grounded value", () => {
+    const state = emptyFactorState();
+    ingestToolResult(state, "calculate", { op: "economic_compensation", value: 88000 });
+    beginTurnFactors(state);
+    fuseProposal(state, "amount:economic_compensation", "amount", "99999");
+    const factor = state.factors.find((item) => item.anchor === "amount:economic_compensation");
+    expect(factor?.flag).toBe("conflict");
+    expect(factor?.proposalFilter?.observations).toBe(1);
+    expect(proposalSupported(factor!, state.turnEpoch)).toBe(true);
+    // Next turn: one model channel is not independent confirmation.
+    beginTurnFactors(state);
+    expect(proposalSupported(factor!, state.turnEpoch)).toBe(false);
+    const readings = renderEngineReadings(state);
+    expect(readings).toContain("88000");
+    expect(readings).not.toContain("99999");
+    expect(readings).not.toContain("【待核实】");
+    // Sampling still redacts the rejected proposal from assistant history.
+    const projected = projectAssistantProseForSampling("经济补偿为 99999 元。", state);
+    expect(projected).not.toContain("99999");
+  });
+
+  it("keeps a proposal confirmed on a second independent channel", () => {
+    const state = emptyFactorState();
+    ingestToolResult(state, "calculate", { op: "economic_compensation", value: 88000 });
+    beginTurnFactors(state);
+    fuseProposal(state, "amount:economic_compensation", "amount", "99999");
+    const factor = state.factors.find((item) => item.anchor === "amount:economic_compensation");
+    // Next turn: an independent witness channel keeps the proposal alive.
+    beginTurnFactors(state);
+    factor!.proposalFilter = observe(factor!.proposalFilter!, {
+      outcomeId: "99999",
+      llr: 0.8,
+      round: state.turnEpoch ?? 0,
+      channel: "witness",
+    });
+    expect(proposalSupported(factor!, state.turnEpoch)).toBe(true);
+    const readings = renderEngineReadings(state);
+    expect(readings).toContain("99999");
+    expect(readings).toContain("【待核实】");
+  });
+
+  it("does not count the same model channel twice in one turn", () => {
+    const state = emptyFactorState();
+    ingestToolResult(state, "calculate", { op: "economic_compensation", value: 88000 });
+    beginTurnFactors(state);
+    fuseProposal(state, "amount:economic_compensation", "amount", "99999");
+    fuseProposal(state, "amount:economic_compensation", "amount", "99999");
+    const factor = state.factors.find((item) => item.anchor === "amount:economic_compensation");
+    expect(factor?.proposalFilter?.observations).toBe(1);
+    expect(proposalSupported(factor!, state.turnEpoch)).toBe(true);
+    beginTurnFactors(state);
+    expect(proposalSupported(factor!, state.turnEpoch)).toBe(false);
   });
 });

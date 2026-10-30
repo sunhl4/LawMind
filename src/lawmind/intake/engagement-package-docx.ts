@@ -40,65 +40,6 @@ export type EngagementDocxDraftInput = {
   fallbackTitle: string;
 };
 
-function isTableRow(line: string): boolean {
-  return /^\s*\|.*\|\s*$/.test(line);
-}
-
-function isTableSeparator(line: string): boolean {
-  return /^\s*\|[\s:|-]+\|\s*$/.test(line) && line.includes("-");
-}
-
-function splitTableRow(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
-}
-
-/** 把一行表格压成律师能读的一行：`项目：说明；金额`。 */
-function tableRowToLine(cells: string[]): string {
-  const head = cells[0]?.trim() ?? "";
-  const rest = cells
-    .slice(1)
-    .map((cell) => cell.trim())
-    .filter((cell) => cell.length > 0 && cell !== "—" && cell !== "-");
-  const unique = rest.filter((cell, index) => rest.indexOf(cell) === index);
-  if (!head) {
-    return unique.join("；");
-  }
-  return unique.length > 0 ? `${head}：${unique.join("；")}` : head;
-}
-
-/**
- * Word 版式没有表格容器时，把 Markdown 管道表格换成逐行文字。
- * 不丢单元格；重复单元格（如报价单里「说明」和「金额」同值）只写一次。
- */
-function flattenPipeTables(lines: string[]): string[] {
-  const out: string[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i] ?? "";
-    const next = lines[i + 1] ?? "";
-    if (isTableRow(line) && isTableSeparator(next)) {
-      i += 2;
-      while (i < lines.length && isTableRow(lines[i] ?? "")) {
-        const cells = splitTableRow(lines[i] ?? "");
-        const rendered = tableRowToLine(cells);
-        if (rendered) {
-          out.push(rendered);
-        }
-        i += 1;
-      }
-      continue;
-    }
-    out.push(line);
-    i += 1;
-  }
-  return out;
-}
-
 function stripBlockquote(line: string): string {
   return line.replace(/^\s*>\s?/, "").trimEnd();
 }
@@ -109,7 +50,7 @@ function stripBlockquote(line: string): string {
  * - `# ` 作标题；
  * - 第一个 `## ` 之前的行（横幅、当事人、金额）放进无标题导语段；
  * - `## ` 起每节一个 section；
- * - 表格拍平成文字行。
+ * - 管道表格原样留在正文里，由 `formalDocument` 渲染成 Word 表格。
  */
 export function engagementMarkdownToDraft(
   markdown: string,
@@ -131,7 +72,7 @@ export function engagementMarkdownToDraft(
       if (current) {
         sections.push({
           heading: current.heading,
-          body: flattenPipeTables(current.lines).join("\n").trim(),
+          body: current.lines.join("\n").trim(),
           citations: [],
         });
       }
@@ -147,12 +88,12 @@ export function engagementMarkdownToDraft(
   if (current) {
     sections.push({
       heading: current.heading,
-      body: flattenPipeTables(current.lines).join("\n").trim(),
+      body: current.lines.join("\n").trim(),
       citations: [],
     });
   }
 
-  const introBody = flattenPipeTables(intro).join("\n").trim();
+  const introBody = intro.join("\n").trim();
   if (introBody) {
     sections.unshift({ heading: "", body: introBody, citations: [] });
   }

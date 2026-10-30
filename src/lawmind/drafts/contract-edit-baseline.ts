@@ -1,7 +1,7 @@
 /**
  * Auto-wire contract body edit baseline (uploaded `.docx`) onto ArtifactDraft.
  * Stamps contractEdit; optionally seeds paragraph sections from the baseline file.
- * Binary `.doc` is kept as a path only. Seed and export ask Word or WPS to save a sibling `.docx` before reading.
+ * Binary `.doc` stays as that path. Seeding reads the OLE body in-process. Export converts with Word, then LibreOffice.
  */
 
 import fs from "node:fs";
@@ -84,8 +84,8 @@ export function resolveExistingWordBaseline(params: {
 
 /**
  * Pull likely workspace-relative Word paths (`.docx` / `.doc`) from free text
- * (chat pins, clarification, instructions). A `.doc` path may be kept on the draft;
- * reading and revision wait until Word or WPS has saved a sibling `.docx`.
+ * (chat pins, clarification, instructions). A `.doc` path may be kept on the draft.
+ * Seed reads that file in-process; export converts it.
  */
 export function extractDocxRelativePathsFromText(text: string): string[] {
   if (!text.trim()) {
@@ -256,7 +256,7 @@ export function stampContractEditBaselineIfNeeded(params: {
   if (draft.contractEdit?.baselineRelativePath?.trim()) {
     const existingRel = draft.contractEdit.baselineRelativePath.trim();
     if (isBinaryWordDocBaseline(existingRel)) {
-      // 同步盖章不读 .doc。异步 seed / 导出再让 Word 或 WPS 另存。
+      // 同步盖章不读 .doc。seed 用进程内 OLE 切段；导出再经 Word（LibreOffice 兜底）转成 .docx。
       return draft;
     }
     const existing = resolveExistingWordBaseline({

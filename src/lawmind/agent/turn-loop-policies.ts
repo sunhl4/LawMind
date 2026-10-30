@@ -1,6 +1,11 @@
 /**
  * Ordered, individually testable policies for the model↔tool loop.
  *
+ * A Word path is not success by itself. False success is a closing claim with
+ * no real state change (arXiv:2606.09863). Agents' Last Exam checks the
+ * artifact, not the closing sentence (arXiv:2606.05405). A scaffold-only
+ * render stays open for one more sample.
+ *
  * Before this module the loop body was a single if-chain with ~14 sibling
  * `let` flags. Each branch corresponded to a production incident, so the order
  * mattered but was invisible. Policies make the order explicit and let a unit
@@ -14,6 +19,12 @@
  *     never append to history themselves — the loop owns history writes.
  */
 
+import {
+  instructionLooksLikeLetterQa,
+  isGreetingOnly,
+  isLookOnlyUtterance,
+  isNoTaskUtterance,
+} from "../intent/utterance-kind.js";
 import type { ContextPressureOutcome } from "../metrics/context-pressure.js";
 import {
   formatSameTurnCompletionBounce,
@@ -806,6 +817,124 @@ function contextDeferralPolicy(facts: CompletionFacts): PolicyAction | null {
   };
 }
 
+const CHAT_ONLY_DELIVERY_RE =
+  /只要(?:对话|口头|回话)|不要(?:另起|另存|写出?)?(?:一份)?(?:文件|Word)|先口头|不用出(?:文件|Word)/i;
+/** Explicit ask for a document. A mention of 合同 alone is not one. */
+const OFFICE_ASK_RE =
+  /起草|拟一[份个]|写一[份封个]|出一[份个]|出个\s*Word|写成\s*Word|审查意见|法律意见|备忘录|起诉状|答辩状|代理词|上诉状|律师函|催告函|催款函|时间线|证据目录|会议纪要|调研报告|研究报告/;
+const NAMED_NON_OFFICE_FILE_RE = /写入[^\n]{0,80}\.(?:md|txt|json|csv)\b/i;
+const OFFICE_EXPORT_TOOLS = new Set([
+  "render_document",
+  "render_tracked_draft",
+  "fix_document_format",
+]);
+
+function outputPathOf(data: unknown): string | undefined {
+  if (!data || typeof data !== "object") {
+    return undefined;
+  }
+  const path = (data as { outputPath?: unknown }).outputPath;
+  return typeof path === "string" && path.trim() ? path.trim() : undefined;
+}
+
+function exportSubstance(data: unknown): "scaffold" | "written" | "missing" {
+  if (!outputPathOf(data)) {
+    return "missing";
+  }
+  if (!data || typeof data !== "object") {
+    return "written";
+  }
+  const substance = (data as { deliverableSubstance?: unknown }).deliverableSubstance;
+  if (substance === "scaffold") {
+    return "scaffold";
+  }
+  return "written";
+}
+
+/** A new Word or a tracked/format copy with real body text landed this turn. */
+export function turnWroteOfficeDeliverable(turn: AgentTurn): boolean {
+  if (turn.trackedArtifactWritten === true) {
+    return true;
+  }
+  for (const msg of turn.messages ?? []) {
+    for (const resp of msg.toolCallResponses ?? []) {
+      if (!OFFICE_EXPORT_TOOLS.has(resp.name) || !resp.result.ok) {
+        continue;
+      }
+      if (exportSubstance(resp.result.data) === "written") {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+export function turnWroteScaffoldOnly(turn: AgentTurn): boolean {
+  if (turnWroteOfficeDeliverable(turn)) {
+    return false;
+  }
+  for (const msg of turn.messages ?? []) {
+    for (const resp of msg.toolCallResponses ?? []) {
+      if (!OFFICE_EXPORT_TOOLS.has(resp.name) || !resp.result.ok) {
+        continue;
+      }
+      if (exportSubstance(resp.result.data) === "scaffold") {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Named document ask only. A bare 「帮我看看」 does not add a file the lawyer did not ask for. */
+export function instructionExpectsOfficeDeliverable(instruction: string): boolean {
+  const text = instruction.trim();
+  if (!text || isGreetingOnly(text) || isNoTaskUtterance(text)) {
+    return false;
+  }
+  if (instructionLooksLikeLetterQa(text) || CHAT_ONLY_DELIVERY_RE.test(text)) {
+    return false;
+  }
+  if (NAMED_NON_OFFICE_FILE_RE.test(text)) {
+    return false;
+  }
+  if (isLookOnlyUtterance(text)) {
+    return false;
+  }
+  return OFFICE_ASK_RE.test(text);
+}
+
+export function formatFileDeliverableExportNudge(scaffoldOnly = false): string {
+  const lead = scaffoldOnly
+    ? "【交件】这一轮的 Word 还是空壳，正文没有写上。"
+    : "【交件】这一轮还没有写出 Word。";
+  return [
+    lead,
+    "新稿用 draft_document → render_document。已有 Word 要改用 apply_surgical_edits → render_tracked_draft，不要重建原件。",
+    "没点名文书种类时 template_id 用 word/working-draft-default。缺口写进稿里后仍要落文件。不要回复已完成。",
+  ].join("\n");
+}
+
+function fileDeliverableExportPolicy(facts: CompletionFacts): PolicyAction | null {
+  if (facts.wordRevision || facts.profile.requiresTrackedDraft) {
+    return null;
+  }
+  if (facts.profile.id === "mail_contract" || facts.profile.id === "consult") {
+    return null;
+  }
+  if (facts.flags.fileDeliverableNudged || turnWroteOfficeDeliverable(facts.turn)) {
+    return null;
+  }
+  if (!instructionExpectsOfficeDeliverable(facts.instruction)) {
+    return null;
+  }
+  facts.flags.fileDeliverableNudged = true;
+  return {
+    kind: "resample",
+    message: formatFileDeliverableExportNudge(turnWroteScaffoldOnly(facts.turn)),
+  };
+}
+
 function wordRevisionExportPolicy(facts: CompletionFacts): PolicyAction | null {
   if (!facts.profile.requiresTrackedDraft) {
     return null;
@@ -866,6 +995,7 @@ export const COMPLETION_POLICIES: readonly Policy<CompletionFacts>[] = [
   { id: "same-turn-verify", apply: sameTurnVerifyPolicy },
   { id: "context-deferral", apply: contextDeferralPolicy },
   { id: "word-revision-export", apply: wordRevisionExportPolicy },
+  { id: "file-deliverable-export", apply: fileDeliverableExportPolicy },
   { id: "review-board-export", apply: reviewBoardExportPolicy },
   { id: "missing-deliverables", apply: missingDeliverablesPolicy },
   { id: "steer", apply: steerPolicy },

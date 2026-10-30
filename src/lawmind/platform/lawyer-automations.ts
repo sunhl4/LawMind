@@ -7,6 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { withExclusiveFileLock, writeJsonAtomic } from "../adapters/matter-storage/io.js";
+import { matterMaterialsDir } from "../desk/matter-materials.js";
 import { ensureDocxForAttachment } from "../mail/convert-to-docx.js";
 import { DOC_NEEDS_DOCX_MESSAGE } from "../mail/doc-revision-gate.js";
 import { sanitizeMailMessageIdForPath } from "../mail/imap-client.js";
@@ -300,6 +301,11 @@ export type LawyerAutomation = {
    * 同一批来信、或同一份已被门禁拦住的附件，不再每隔一个周期重推收件箱。
    */
   lastQuietKey?: string;
+  /**
+   * 律师点了「立即运行」的时间。runner 用它区分手动重跑与定时轮询：
+   * 手动重跑必须允许同一份材料再跑一次，定时任务则按材料指纹去重。
+   */
+  runNowRequestedAt?: string;
   /** 本机事件。不填则只按墙钟跑。 */
   eventTrigger?: import("./automation-event-trigger.js").AutomationEventTrigger;
   /** 上次因事件开跑的时间，用来卡住最小间隔。 */
@@ -1369,6 +1375,71 @@ export function buildMailContractReviewSummary(
     };
   }
 
+  return finalizeMailContractReviewBuild(matterId, messages, refs);
+}
+
+const FILED_CONTRACT_NAME = /合同|协议/;
+
+/** 投递口/企微归进材料目录的合同。邮件匣里没有附件时，审阅办件仍要看见它们。 */
+export function filedContractMaterialRefs(
+  workspaceDir: string,
+  matterId: string,
+): MailContractAttachmentRef[] {
+  const root = matterMaterialsDir(workspaceDir, matterId);
+  if (!fs.existsSync(root)) {
+    return [];
+  }
+  const refs: MailContractAttachmentRef[] = [];
+  const walk = (dir: string, depth: number) => {
+    if (depth > 2 || refs.length >= 20) {
+      return;
+    }
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith(".") || entry.name.startsWith("~$")) {
+        continue;
+      }
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(abs, depth + 1);
+        continue;
+      }
+      if (!FILED_CONTRACT_NAME.test(entry.name) || !isReviewableContractAttachment(entry.name)) {
+        continue;
+      }
+      const kind = classifyContractAttachment(entry.name);
+      if (kind === "other") {
+        continue;
+      }
+      const workspaceRelativePath = path.relative(workspaceDir, abs).split(path.sep).join("/");
+      refs.push({
+        name: entry.name,
+        workspaceRelativePath,
+        messageId: `material:${workspaceRelativePath}`,
+        from: "收件归档",
+        subject: entry.name,
+        kind,
+      });
+    }
+  };
+  walk(root, 0);
+  return refs;
+}
+
+export function withExtraContractRefs(
+  matterId: string,
+  messages: LocalMailMessage[],
+  built: MailContractReviewBuild,
+  extra: MailContractAttachmentRef[],
+): MailContractReviewBuild {
+  const refs = [...built.attachmentRefs];
+  for (const ref of extra) {
+    if (!refs.some((row) => row.workspaceRelativePath === ref.workspaceRelativePath)) {
+      refs.push(ref);
+    }
+  }
+  if (refs.length === built.attachmentRefs.length) {
+    return built;
+  }
   return finalizeMailContractReviewBuild(matterId, messages, refs);
 }
 

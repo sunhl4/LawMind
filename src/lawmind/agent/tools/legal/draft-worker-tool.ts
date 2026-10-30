@@ -5,7 +5,7 @@ export const draftWorkerTool: AgentTool = {
   definition: {
     name: DRAFT_WORKER_TOOL_NAME,
     description:
-      "对话里的子工（对齐 Cursor Task / Codex spawn_agent）。律师提交任务后，由你在同一次回复里决定派不派。只用于一支要自己连读、连查再交结果的长任务；短任务不要调用。子工看不到本对话，goal 必须自包含。role=review 交结论和依据，role=draft 写条款片段，role=explore 只读探查目录。多支互不依赖的长任务在同一次回复里并行调用，section 必须互不相同；拆不开只调用一次。返回的 result 是这一支的结果，汇总时用它，不要重做子工的过程。不要用于改原件、导出或外发。续跑传 resume_id 和 follow_up。父会话只保留有界摘要。",
+      "对话里的子工（对齐 Cursor Task / Codex spawn_agent）。律师提交任务后，由你在同一次回复里决定派不派。只用于一支要自己连读、连查再交结果的长任务；短任务不要调用。子工看不到本对话，goal 必须自包含。role=review 交结论和依据，role=draft 写条款片段，role=explore 只读探查目录。多支互不依赖的长任务在同一次回复里并行调用，section 必须互不相同；拆不开只调用一次。返回的 result 是这一支的结果，汇总时用它，不要重做子工的过程。结果里的 marginal 是这次子工看到/没看到的锚计数：seen 在边际内，mechanical/longRange 在边界外已点名，isolated 未连通且不点名——isolated 不代表材料没有。不要用于改原件、导出或外发。续跑传 resume_id 和 follow_up。父会话只保留有界摘要。",
     category: "draft",
     parameters: {
       goal: {

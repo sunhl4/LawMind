@@ -236,6 +236,20 @@ describe("docket copy", () => {
     expect(docketStopLine(run({ id: "1", kind: "automation_send", status: "awaiting_approval" }))).toBe(
       "信已经写好，发出前要你看过。",
     );
+    expect(
+      docketStopLine(
+        run({
+          id: "queue:q1",
+          kind: "queue_item",
+          status: "awaiting_approval",
+          title: "核对法院",
+          note: "已写入「北京市朝阳区人民法院」。",
+        }),
+      ),
+    ).toBe("已写入「北京市朝阳区人民法院」。");
+    expect(docketRowStatusLabel(run({ id: "queue:q1", kind: "queue_item", status: "awaiting_approval" }))).toBe(
+      "待核对",
+    );
     expect(docketWhenLabel("2026-09-26T09:30:00.000Z", now)).toBe("30 分钟前");
   });
 

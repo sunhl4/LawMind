@@ -27,6 +27,7 @@ import {
 } from "./agent-fleet.js";
 import { listOpenAutomationInbox } from "./lawyer-automations.js";
 import { isOutboundToolName } from "./lawyer-outbound-decision.js";
+import { listMatterRuns } from "./matter-run-store.js";
 import { listEscalatedMatterRunWaits } from "./matter-run-store.js";
 import { MATTER_RUN_WAIT_REASON_LABELS_ZH } from "./matter-run-wait.js";
 import { listPendingToolApprovals } from "./pending-tool-approvals.js";
@@ -393,13 +394,32 @@ export async function buildAgentFleetSummary(
     if (!active && !isFleetSettledVisible(status, stamp)) {
       continue;
     }
+    const deliveryRun = job.matterId
+      ? listMatterRuns(workspaceDir, { matterId: job.matterId }).find((run) =>
+          run.steps.some((step) => step.inputRefs?.includes(`job:${job.jobId}`)),
+        )
+      : undefined;
+    const deliveryProgress = deliveryRun
+      ? {
+          total: deliveryRun.steps.length,
+          completed: deliveryRun.steps.filter(
+            (step) => step.status === "done" || step.status === "skipped",
+          ).length,
+          running: deliveryRun.steps
+            .filter((step) => step.status === "running" || step.status === "waiting")
+            .map((step) => step.stepId),
+        }
+      : undefined;
+    const deliveryNote = deliveryRun
+      ? deliveryRun.steps.find((step) => step.status === "failed")?.error
+      : undefined;
     runs.push({
       id: `job:${job.jobId}`,
       kind: "workflow_job",
       status,
       title: job.name?.trim() || job.templateId || job.workflowId || "按流程办的一件",
       subtitle: "按流程",
-      note: lawyerNote(job.error),
+      note: lawyerNote(deliveryNote ?? job.error),
       matterId: job.matterId,
       jobId: job.jobId,
       progress: job.progress
@@ -408,7 +428,7 @@ export async function buildAgentFleetSummary(
             completed: job.progress.completedSteps,
             running: job.progress.runningStepIds,
           }
-        : undefined,
+        : deliveryProgress,
       updatedAt: stamp,
       createdAt: job.createdAt,
       priority: active ? (status === "running" ? 1 : 3) : status === "failed" ? 6 : 8,
@@ -454,7 +474,8 @@ export async function buildAgentFleetSummary(
       kind: "queue_item",
       status: lawyerFacing ? "awaiting_approval" : "queued",
       title: item.title,
-      subtitle: item.phase ?? "工作队列",
+      subtitle: item.kind === "need_client_input" ? "待核对" : (item.phase ?? "工作队列"),
+      ...(item.detail?.trim() ? { note: item.detail.trim() } : {}),
       matterId: item.matterId,
       queueItemId: item.queueItemId,
       updatedAt: item.updatedAt,
