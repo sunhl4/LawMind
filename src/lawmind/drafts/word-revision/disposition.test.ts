@@ -5,6 +5,7 @@ import JSZip from "jszip";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   nextDispositionIds,
+  parseDispositionPart,
   parseDispositionXml,
   serializeDispositionXml,
   trackIdsInDocumentXml,
@@ -20,6 +21,15 @@ afterEach(async () => {
 });
 
 describe("disposition part", () => {
+  it("round-trips hunk links with the accepted ids", () => {
+    const xml = serializeDispositionXml(["2"], { "2": "hunk-1", "3": "hunk-2" });
+    expect(parseDispositionPart(xml)).toEqual({
+      acceptedIds: ["2"],
+      trackHunks: { "2": "hunk-1", "3": "hunk-2" },
+    });
+    expect(parseDispositionXml(xml)).toEqual(["2"]);
+  });
+
   it("round-trips accepted ids without removing w:ins", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-disposition-"));
     dirs.push(dir);

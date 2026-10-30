@@ -131,7 +131,7 @@
 
 **修订轨基线正则只认 `.docx`**（`WORD_BASELINE_RE = /\.docx$/i`，注释写明「`.docx` only (not `.doc` / `.docm`)」）。`resolveExistingWordBaseline` 碰到二进制 `.doc` 返回空。从自由文本里抽路径时 `.docx` / `.doc` 都会收（`extractDocxRelativePathsFromText`）。
 
-**读 `.doc` 不靠 Word 或 WPS。** `seedDraftSectionsFromContractBaseline` 与中栏 `loadWordSurface` 走 `mail/read-word-binary.ts`：进程内解析 OLE 复合文档（FIB + piece table），读出正文和已有修订。审阅导出在 `artifacts/render-docx-tracked.ts` 里把这份正文**渲染成一份新的 `.docx`**（源文件里的修订写成 `w:del` / `w:ins`，LawMind 的修订再叠上去），原 `.doc` 不改。OLE 读不出正文才停，文案是 `mail/doc-revision-gate.ts` 的 `DOC_NEEDS_DOCX_MESSAGE`。同步盖章（`stampContractEditBaselineIfNeeded`）不读 `.doc` 内容，只留路径。
+**读 `.doc` 不靠 Word 或 WPS。** `seedDraftSectionsFromContractBaseline` 与中栏 `loadWordSurface` 走 `mail/read-word-binary.ts`：进程内解析 OLE 复合文档（FIB + piece table），读出正文和已有修订。OLE 读不出正文才停，文案是 `mail/doc-revision-gate.ts` 的 `DOC_NEEDS_DOCX_MESSAGE`。同步盖章（`stampContractEditBaselineIfNeeded`）不读 `.doc` 内容，只留路径。审阅导出不重排这份正文：`renderDocxWithTrackedChanges` 调用 `convertLegacyDocToDocx`，先让本机 Microsoft Word 另存为 `.docx`，没有 Word 或另存失败再用 LibreOffice。转换稿上再叠 LawMind 的修订，原 `.doc` 不改。两个引擎都失败时停，错误码仍是 `doc_needs_docx`，不出正文替身。
 
 ### `contract-redline-craft.ts`
 
@@ -313,17 +313,17 @@
 
 桌面文件页的 Word 预览（中栏）不加载重型 docx 库，靠这一组轻量模块把修订模型投影成可渲染的片段。
 
-| 文件                       | 关键导出                                                                      | 作用                                                        |
-| -------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `word-surface.ts`          | `WordSurfaceSegment`、`WordTrackedView` 等类型与 re-export                    | 预览主入口；**接受 = 折叠并保留痕迹**（导出仍是 Word 修订） |
-| `word-surface-layout.ts`   | `WordMeasure`、`WordLineSpacing`、`WordPageBox`、`WordTrackMark` 等类型       | 页尺寸、边距、字体、行距、缩进、列表、表格的读取口径        |
-| `word-surface-pieces.ts`   | `revisionPieces`、`trackCoversHunk`、`replaceChangeAfter`                     | 修订片段计算；**渲染进程可引用，不读文件**                  |
-| `word-surface-tracked.ts`  | `rewriteTrackedMarkup`、`decideDocxTrackedRevision`                           | 接受或拒绝 docx 里已有的插入、删除和移动                    |
-| `word-surface-comments.ts` | `listWordSurfaceComments` / `add` / `update` / `remove`                       | 中栏轻量批注卡；**接受修订不会丢掉批注**                    |
-| `word-surface-breaks.ts`   | `WORD_LINE_BREAK` / `WORD_PAGE_BREAK` / `WORD_TAB`、`serializeWordRunText` 等 | 换行、分页、制表符 ↔ 可见字符；XML 实体与 run 文本序列化    |
-| `word-surface-outline.ts`  | `outlineEntriesOf`                                                            | 预览大纲；渲染进程可引用                                    |
-| `word-review.ts`           | `wordReviewPath`、`openWordReviewTicket`、`listOpenWordReviews` 等            | 审阅稿核对侧车：一份原件一份待核对，核完可收编              |
-| `word-review-marker.ts`    | `wordCheckMarker`、`splitWordCheckMarkers`、`reviewFileRel`                   | 对话里「去核对 / 用 WPS 打开」的标记与解析                  |
+| 文件                       | 关键导出                                                                      | 作用                                                     |
+| -------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `word-surface.ts`          | `WordSurfaceSegment`、`WordTrackedView` 等类型与 re-export                    | 预览主入口；接受后标记消失、正文留下结果，拒绝后修订撤回 |
+| `word-surface-layout.ts`   | `WordMeasure`、`WordLineSpacing`、`WordPageBox`、`WordTrackMark` 等类型       | 页尺寸、边距、字体、行距、缩进、列表、表格的读取口径     |
+| `word-surface-pieces.ts`   | `revisionPieces`、`trackCoversHunk`、`replaceChangeAfter`                     | 修订片段计算；**渲染进程可引用，不读文件**               |
+| `word-surface-tracked.ts`  | `rewriteTrackedMarkup`、`decideDocxTrackedRevision`                           | 接受或拒绝 docx 里已有的插入、删除和移动                 |
+| `word-surface-comments.ts` | `listWordSurfaceComments` / `add` / `update` / `remove`                       | 中栏轻量批注卡；**接受修订不会丢掉批注**                 |
+| `word-surface-breaks.ts`   | `WORD_LINE_BREAK` / `WORD_PAGE_BREAK` / `WORD_TAB`、`serializeWordRunText` 等 | 换行、分页、制表符 ↔ 可见字符；XML 实体与 run 文本序列化 |
+| `word-surface-outline.ts`  | `outlineEntriesOf`                                                            | 预览大纲；渲染进程可引用                                 |
+| `word-review.ts`           | `wordReviewPath`、`openWordReviewTicket`、`listOpenWordReviews` 等            | 审阅稿核对侧车：一份原件一份待核对，核完可收编           |
+| `word-review-marker.ts`    | `wordCheckMarker`、`splitWordCheckMarkers`、`reviewFileRel`                   | 对话里「去核对 / 用 WPS 打开」的标记与解析               |
 
 ## 44.13 `word-revision/`：OOXML 修订模型（11 个）
 

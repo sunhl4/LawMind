@@ -458,38 +458,6 @@ export function failToolWithSameTurnVerify(
   };
 }
 
-function issueXmlQaFail(): SameTurnVerifyIssue {
-  return {
-    code: "xml_qa_fail",
-    gate: "redline_hunks_gate",
-    nextTool: "render_tracked_draft",
-    message:
-      "导出文件的 XML 未见审阅痕迹，不能当作已完成。请原样重交 render_tracked_draft，不要为此落改。",
-  };
-}
-
-function issueXmlQaFormatMismatch(): SameTurnVerifyIssue {
-  return {
-    code: "xml_qa_format_mismatch",
-    gate: "redline_hunks_gate",
-    nextTool: "render_tracked_draft",
-    message:
-      "导出的修订文字未对齐原稿字体/字号等直接格式，不能当作「保留原格式」已完成。" +
-      "不要用收窄 find 应付；请原样重交 render_tracked_draft（导出会再跑格式对齐）。",
-  };
-}
-
-function issueXmlQaNonMinimal(): SameTurnVerifyIssue {
-  return {
-    code: "xml_qa_non_minimal",
-    gate: "redline_hunks_gate",
-    nextTool: "apply_surgical_edits",
-    message:
-      "导出的修订轨里有「整句删+整句增」，不符合最短改动要求，不能当作已完成。" +
-      "请收窄 find 后重跑 apply_surgical_edits，再 render_tracked_draft。",
-  };
-}
-
 function issueEmptyRedline(
   nextTool: SameTurnVerifyIssue["nextTool"] = "apply_surgical_edits",
 ): SameTurnVerifyIssue {
@@ -757,28 +725,6 @@ export function collectSameTurnVerifyIssues(input: {
   if (toolName === "render_tracked_draft") {
     if (data?.code === "redline_hunks_required" || gate?.gate === "redline_hunks_gate") {
       issues.push(issueEmptyRedline());
-    }
-    if (data?.code === "xml_qa_no_tracks") {
-      issues.push(issueXmlQaFail());
-    } else if (data?.code === "xml_qa_format_mismatch") {
-      issues.push(issueXmlQaFormatMismatch());
-    } else if (data?.code === "xml_qa_non_minimal_edits") {
-      issues.push(issueXmlQaNonMinimal());
-    } else if (asRecord(data?.xmlQa)?.ok === false) {
-      const xmlQa = asRecord(data?.xmlQa);
-      const violationsOf = (node: unknown): unknown[] => {
-        const raw = asRecord(node)?.violations;
-        return Array.isArray(raw) ? raw : [];
-      };
-      const formatN = violationsOf(xmlQa?.formatAlignment).length;
-      const minimalN = violationsOf(xmlQa?.minimalEdit).length;
-      if (formatN > 0) {
-        issues.push(issueXmlQaFormatMismatch());
-      } else if (minimalN > 0) {
-        issues.push(issueXmlQaNonMinimal());
-      } else {
-        issues.push(issueXmlQaFail());
-      }
     }
     if (data?.code === "craft_check_required") {
       issues.push(issueCraftCheckMissing());

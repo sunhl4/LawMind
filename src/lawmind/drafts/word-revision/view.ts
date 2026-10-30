@@ -1,6 +1,11 @@
 import { assignAuthorColors, rememberAuthor } from "./color.js";
 import { coalesceRuns, flattenRuns, isDeletion, isInsertion } from "./compose.js";
-import type { WordMarkupMode, WordRevisionBalloon, WordRevisionRun } from "./types.js";
+import type {
+  WordMarkupMode,
+  WordRevisionBalloon,
+  WordRevisionRun,
+  WordTrackKind,
+} from "./types.js";
 
 export function collectAuthors(runs: WordRevisionRun[]): string[] {
   const seen: string[] = [];
@@ -69,22 +74,123 @@ export function collectBalloons(
   colors: Map<string, number>,
 ): WordRevisionBalloon[] {
   const out: WordRevisionBalloon[] = [];
+  let open: WordRevisionBalloon | null = null;
+  const flush = () => {
+    if (!open) {
+      return;
+    }
+    out.push(open);
+    open = null;
+  };
   for (const run of runs) {
     const track = run.track;
-    if (!track || (track.kind === "format" && !run.text)) {
-      if (track?.kind === "format") {
-        pushBalloon(out, run, colors);
+    if (track?.kind === "format") {
+      if (open && open.author === track.author) {
+        const ids = open.revIds ?? [open.revId];
+        if (!ids.includes(track.id)) {
+          ids.push(track.id);
+        }
+        open.revIds = ids;
+        continue;
+      }
+      flush();
+      pushBalloon(out, run, colors);
+      continue;
+    }
+    if (!track || !isTextMarkup(track.kind)) {
+      // Unchanged original text splits revisions.
+      if (run.text && !run.preservedXml) {
+        flush();
       }
       continue;
     }
-    const last = out[out.length - 1];
-    if (last && last.author === track.author && last.change === track.kind) {
-      last.text += run.text;
+    if (open && open.author === track.author) {
+      const ids = open.revIds ?? [open.revId];
+      if (!ids.includes(track.id)) {
+        ids.push(track.id);
+      }
+      open.revIds = ids;
+      const parts = open.parts ?? [{ change: open.change, text: open.text }];
+      const last = parts[parts.length - 1];
+      if (last && last.change === track.kind) {
+        last.text += run.text;
+      } else {
+        parts.push({ change: track.kind, text: run.text });
+      }
+      open.parts = parts;
+      open.text = parts.map((part) => part.text).join("");
+      if (track.hunkId) {
+        const hunks = open.hunkIds ?? (open.hunkId ? [open.hunkId] : []);
+        if (!hunks.includes(track.hunkId)) {
+          hunks.push(track.hunkId);
+        }
+        open.hunkIds = hunks;
+        if (!open.hunkId) {
+          open.hunkId = track.hunkId;
+        }
+      }
       continue;
     }
-    pushBalloon(out, run, colors);
+    flush();
+    open = balloonFromRun(run, colors);
   }
+  flush();
   return out;
+}
+
+function isTextMarkup(kind: WordTrackKind): boolean {
+  return kind === "ins" || kind === "del" || kind === "moveFrom" || kind === "moveTo";
+}
+
+/** Balloon id for each run. Contiguous markup by one author shares the first id. */
+export function contiguousGroupKeys(runs: WordRevisionRun[]): string[] {
+  const keys: string[] = [];
+  let author = "";
+  let key = "";
+  for (const run of runs) {
+    const track = run.track;
+    if (!track || !isTextMarkup(track.kind)) {
+      if (track?.kind === "format" && key && track.author === author) {
+        keys.push(key);
+        continue;
+      }
+      if (track?.kind === "format" || (run.text && !run.preservedXml && !track)) {
+        author = "";
+        key = "";
+      }
+      keys.push("");
+      continue;
+    }
+    if (!key || track.author !== author) {
+      key = track.id;
+      author = track.author;
+    }
+    keys.push(key);
+  }
+  return keys;
+}
+
+function balloonFromRun(
+  run: WordRevisionRun,
+  colors: Map<string, number>,
+): WordRevisionBalloon | null {
+  const track = run.track;
+  if (!track) {
+    return null;
+  }
+  return {
+    revId: track.id,
+    revIds: [track.id],
+    change: track.kind,
+    parts: [{ change: track.kind, text: run.text }],
+    author: track.author,
+    text: run.text,
+    color: rememberAuthor(colors, track.author),
+    ...(track.date ? { date: track.date } : {}),
+    ...(track.format ? { format: track.format } : {}),
+    ...(track.disposition === "accepted" ? { disposition: "accepted" as const } : {}),
+    ...(track.hunkId ? { hunkId: track.hunkId, hunkIds: [track.hunkId] } : {}),
+  };
 }
 
 function pushBalloon(
@@ -105,5 +211,6 @@ function pushBalloon(
     ...(track.date ? { date: track.date } : {}),
     ...(track.format ? { format: track.format } : {}),
     ...(track.disposition === "accepted" ? { disposition: "accepted" as const } : {}),
+    ...(track.hunkId ? { hunkId: track.hunkId } : {}),
   });
 }

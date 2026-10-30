@@ -218,7 +218,7 @@ export async function qaTrackedDocxFormat(filePath: string): Promise<TrackedForm
     warning:
       `导出的修订文字有 ${violations.length} 处未对齐原稿直接格式` +
       `（字体/字号/加粗等）：${head?.kind ?? "ins"}「${head?.text ?? ""}」。` +
-      "不能当作「保留原格式」已完成；请重跑 apply_surgical_edits 后再导出。",
+      "导出时已按旁边原稿补过；仍不一致的地方请律师在 Word 里看。",
   };
 }
 

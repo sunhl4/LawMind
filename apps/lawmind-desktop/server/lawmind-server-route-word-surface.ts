@@ -161,6 +161,7 @@ const revisionRunSchema = z.object({
       moveName: z.string().max(80).optional(),
       format: z.string().max(80).optional(),
       disposition: z.enum(["open", "accepted"]).optional(),
+      hunkId: z.string().max(200).optional(),
     })
     .optional(),
   commentIds: z.array(z.string().max(80)).max(40).optional(),

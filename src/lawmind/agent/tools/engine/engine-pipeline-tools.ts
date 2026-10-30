@@ -304,8 +304,9 @@ async function promoteLegacyDocBaseline(
   if (!text.trim()) {
     return { ok: false, error: DOC_NEEDS_DOCX_MESSAGE };
   }
-  // 基线仍记 `.doc` 本身：导出时由 renderLegacyDocAsDocx 读出正文并产出新 `.docx`，
-  // 不能指向一个并不存在的同名 `.docx`（那样下游会报 contract_baseline_missing）。
+  // 基线仍记 `.doc` 本身。这里只确认 OLE 能读出正文；导出时
+  // renderDocxWithTrackedChanges 再调用 convertLegacyDocToDocx（Word 优先，LibreOffice 兜底）。
+  // 不能改记成一个还不存在的同名 `.docx`（下游会报 contract_baseline_missing）。
   return { ok: true, path: found.rel };
 }
 
@@ -338,7 +339,7 @@ export const updateDraft: AgentTool = {
       contract_edit_baseline_path: {
         type: "string",
         description:
-          "原合同相对工作区路径（.docx）。若是 .doc，引擎先用本机 WPS 或 Word 另存为同名 .docx 再写入基线，不直接读 .doc",
+          "原合同相对工作区路径（.docx 或 .doc）。.doc 基线仍记这份 .doc：此处用进程内 OLE 确认正文可读，并按段落重填；导出时再由 Word 另存（LibreOffice 兜底）转成 .docx 后落修订。",
       },
       contract_edit_mode: {
         type: "string",
@@ -671,7 +672,7 @@ export const draftDocument: AgentTool = {
       contract_edit_baseline_path: {
         type: "string",
         description:
-          "原合同相对工作区或项目根的路径（.docx）。若是 .doc，引擎先用本机 WPS 或 Word 另存为同名 .docx 再切正文，不直接读 .doc",
+          "原合同相对工作区或项目根的路径（.docx 或 .doc）。.docx 按 OOXML 切段。.doc 仍记原路径，用进程内 OLE 切正文；导出时再由 Word 另存（LibreOffice 兜底）转成 .docx。",
       },
       contract_review_edits: {
         type: "array",
@@ -1565,14 +1566,16 @@ export const renderTrackedDraft: AgentTool = {
         }
       }
       const degraded = result.mode === "plain_fallback" || Boolean(result.degraded);
-      const qaWarning = xmlQa && !xmlQa.ok ? xmlQa.warning : undefined;
-      // 三种 XML 不合格要分开说：① 无修订痕迹；② 整句删+整句增；③ 修订文字格式未对齐原稿。
-      const xmlNonMinimalViolations = xmlQa?.minimalEdit?.violations?.length ?? 0;
-      const xmlNonMinimal = xmlNonMinimalViolations > 0;
+      // 本地已经修过格式，也已经为「没有修订痕迹」重试过一次。结果交给律师看，不再叫模型重导。
+      const xmlNonMinimal = (xmlQa?.minimalEdit?.violations?.length ?? 0) > 0;
       const xmlFormatViolations = xmlQa?.formatAlignment?.violations?.length ?? 0;
       const xmlFormatMismatch = xmlFormatViolations > 0;
       const xmlMissingTracks = Boolean(xmlQa && !xmlQa.ok && !xmlNonMinimal && !xmlFormatMismatch);
-      const xmlQaBlocked = xmlMissingTracks || xmlNonMinimal || xmlFormatMismatch;
+      const qaNote = xmlFormatMismatch
+        ? `有 ${xmlFormatViolations} 处修订的字体或字号与旁边原稿不完全一致，请在 Word 里看一下。`
+        : xmlMissingTracks
+          ? "本地再核对过一次，文件里仍没有修订痕迹，请打开确认。"
+          : "";
       // Word 插件（就地审查）：这次渲染若对应某条排队中的插件请求，回填产物与锚点，
       // 插件即可在 Word 里取回修订轨。纯旁路：没请求/回填失败都不影响本次导出。
       //
@@ -1613,28 +1616,19 @@ export const renderTrackedDraft: AgentTool = {
       const message = [
         degraded
           ? `【降级】${result.warning || "未能完好保留原格式/审阅痕迹或未能写入全部修订"}（请自行用 Word 打开核对，不会自动打开）：${rel}`
-          : xmlFormatMismatch
-            ? `审阅稿已写出，但有 ${xmlFormatViolations} 处修订文字未对齐原稿字体/字号等直接格式，不能当作「保留原格式」已完成：${rel}`
-            : xmlNonMinimal
-              ? `审阅稿已写出，但修订轨里有 ${xmlNonMinimalViolations} 处「整句删+整句增」，不符合最短改动要求（同事无法逐处接受），不能当作已完成：${rel}`
-              : xmlMissingTracks
-                ? `审阅稿已写出但 XML 未见修订痕迹，不能当作已完成：${rel}`
-                : `已写入源文件同目录审阅修订稿（保留原格式；新修改以修订显示；请自行用 Word 打开，不会自动打开）：${rel}`,
+          : `已写入源文件同目录审阅修订稿（保留原格式；新修改以修订显示；请自行用 Word 打开，不会自动打开）：${rel}`,
+        qaNote,
         typeof result.appliedHunks === "number" ? `已叠加修订条数：${result.appliedHunks}` : "",
         typeof result.formatRepaired === "number" && result.formatRepaired > 0
           ? `已对齐修订格式 ${result.formatRepaired} 处`
           : "",
         result.conversionTool ? `基线转换：${result.conversionTool}` : "",
-        qaWarning ?? "",
         lawyerDecisions.length > 0 ? lawyerDecisions.join("\n") : "",
       ]
         .filter(Boolean)
         .join(" · ");
       const reviewCopyReady =
-        !xmlQaBlocked &&
-        result.mode !== "plain_fallback" &&
-        Boolean(baselineRel) &&
-        Boolean(result.outputPath);
+        result.mode !== "plain_fallback" && Boolean(baselineRel) && Boolean(result.outputPath);
       if (reviewCopyReady && result.outputPath) {
         const { openWordReviewTicket } = await import("../../../drafts/word-review.js");
         openWordReviewTicket({
@@ -1643,16 +1637,8 @@ export const renderTrackedDraft: AgentTool = {
           reviewAbs: result.outputPath,
         });
       }
-      const xmlQaCode = xmlFormatMismatch
-        ? "xml_qa_format_mismatch"
-        : xmlNonMinimal
-          ? "xml_qa_non_minimal_edits"
-          : xmlMissingTracks
-            ? "xml_qa_no_tracks"
-            : undefined;
       return {
-        ok: !xmlQaBlocked,
-        ...(xmlQaBlocked ? { error: message } : {}),
+        ok: true,
         data: {
           taskId,
           matterId: matterId || undefined,
@@ -1664,7 +1650,7 @@ export const renderTrackedDraft: AgentTool = {
           degraded: degraded || undefined,
           conversionTool: result.conversionTool,
           conversionFidelity: result.conversionFidelity,
-          warning: [result.warning, qaWarning].filter(Boolean).join(" ") || undefined,
+          warning: [result.warning, qaNote].filter(Boolean).join(" ") || undefined,
           appliedHunks: result.appliedHunks,
           formatRepaired: result.formatRepaired,
           ...(guardianView ? { guardian: guardianView } : {}),
@@ -1673,7 +1659,6 @@ export const renderTrackedDraft: AgentTool = {
           ...(xmlQaRetry ? { xmlQaRetry } : {}),
           ...(xmlQaAutoRetried ? { xmlQaAutoRetried: true as const } : {}),
           ...wordAddinResultPatch(wordAddinAttached),
-          ...(xmlQaCode ? { code: xmlQaCode } : {}),
           openWord: false,
           message,
         },

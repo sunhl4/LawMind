@@ -3,6 +3,7 @@
  * author, even when the caret sits inside someone else's revision.
  */
 
+import { formatRevisionTimestamp } from "../revision-timestamps.js";
 import type {
   ComposeAuthor,
   WordRevisionAtom,
@@ -14,7 +15,7 @@ import type {
 export function makeAuthorClock(
   name: string,
   startId = 1,
-  now = "2026-10-07T00:00:00.000Z",
+  now = formatRevisionTimestamp(new Date()),
 ): ComposeAuthor {
   let n = startId;
   return {
@@ -141,7 +142,8 @@ export function sameTrack(
     a.date === b.date &&
     a.moveName === b.moveName &&
     a.format === b.format &&
-    a.disposition === b.disposition
+    a.disposition === b.disposition &&
+    a.hunkId === b.hunkId
   );
 }
 
@@ -150,13 +152,14 @@ export function insertText(
   at: number,
   text: string,
   author: ComposeAuthor,
+  opts?: { reuseInsertion?: boolean },
 ): WordRevisionRun[] {
   if (!text) {
     return runs;
   }
   const atoms = flattenRuns(runs);
   const index = clamp(at, 0, atoms.length);
-  const track = trackForInsert(atoms, index, author);
+  const track = trackForInsert(atoms, index, author, opts?.reuseInsertion !== false);
   const mark = atoms[index - 1]?.mark ?? atoms[index]?.mark;
   const commentIds = atoms[index - 1]?.commentIds ?? atoms[index]?.commentIds;
   const inserted: WordRevisionAtom[] = Array.from(text, (ch) => ({
@@ -231,6 +234,7 @@ export function replaceRange(
   end: number,
   text: string,
   author: ComposeAuthor,
+  opts?: { reuseInsertion?: boolean },
 ): WordRevisionRun[] {
   const atoms = flattenRuns(runs);
   const from = clamp(Math.min(start, end), 0, atoms.length);
@@ -254,7 +258,31 @@ export function replaceRange(
     atom.track = ourDel;
     kept += 1;
   }
-  return insertText(coalesceRuns(atoms), from + kept, text, author);
+  return insertText(coalesceRuns(atoms), from + kept, text, author, opts);
+}
+
+/**
+ * Replace an all-markup range with ordinary characters. Used once a revision
+ * has been accepted: the result stays, and no w:ins / w:del is written.
+ */
+export function replacePlain(
+  runs: WordRevisionRun[],
+  start: number,
+  end: number,
+  text: string,
+): WordRevisionRun[] {
+  const atoms = flattenRuns(runs);
+  const from = clamp(Math.min(start, end), 0, atoms.length);
+  const to = clamp(Math.max(start, end), from, atoms.length);
+  const neighbor = atoms[from] ?? atoms[to - 1];
+  const mark = neighbor?.mark;
+  const commentIds = neighbor?.commentIds;
+  const inserted: WordRevisionAtom[] = Array.from(text, (ch) => ({
+    ch,
+    ...(mark ? { mark } : {}),
+    ...(commentIds && commentIds.length > 0 ? { commentIds } : {}),
+  }));
+  return coalesceRuns([...atoms.slice(0, from), ...inserted, ...atoms.slice(to)]);
 }
 
 export function decideRuns(
@@ -434,7 +462,11 @@ function trackForInsert(
   atoms: WordRevisionAtom[],
   at: number,
   author: ComposeAuthor,
+  reuse = true,
 ): WordRevisionTrack {
+  if (!reuse) {
+    return newInsertion(author);
+  }
   const left = at > 0 ? atoms[at - 1] : undefined;
   const right = at < atoms.length ? atoms[at] : undefined;
   if (

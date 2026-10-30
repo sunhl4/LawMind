@@ -283,7 +283,7 @@ PDF 导出走 `drafts/docx-export-pdf.ts`：用 LibreOffice（soffice，`externa
 
 **为什么能不再弹「授予文件访问权限」**：Word for macOS 是沙盒应用。外部路径的 AppleScript 打开会被 macOS 拦下要授权；把文件**暂存进 Word 自己的容器**（`~/Library/Containers/com.microsoft.Word/Data/Documents`）后，Word 本来就有权限，授权框不再出现。转换完成即清掉暂存目录（连同 `~$` 锁文件），不碰 Word 里正在编辑的文档，也不抢焦点（不调 `activate`）。
 
-LibreOffice headless（`external:soffice` 租约）作为兜底，两个引擎都没有时**硬失败**：不出稿，明确告诉律师需要 Word 或 LibreOffice。绝不拿「只有正文」的替身冒充原件。
+LibreOffice headless（`external:soffice` 租约）作为兜底。两个引擎都失败时**硬失败**：不出稿。文案只请律师安装或使用 Word 另存，不要求再装 LibreOffice。绝不拿「只有正文」的替身冒充原件。
 
 产物要过三重校验才算成功：合法 ZIP、含 `word/document.xml`、非空。
 
@@ -335,11 +335,20 @@ ops.toSorted((a, b) => (b.spanStart ?? 0) - (a.spanStart ?? 0));
 
 officecli 超时设的是 120 秒。修订作者默认写 `"LawMind"`。设置 → 外观里的「修订署名」写了名字后，导出改用那个名字（仍通过 `--prop revision.author=` 写入）。
 
+修订时间（`w:date`）不是「导出这一刻」一刀切。一次真人审阅不会在几秒里落下几十处修改，所以每处 hunk 会按一次审阅会话的节奏排时间：相邻修改几十秒到一分多钟，换条款时停几分钟，偶尔有十几分钟的长停顿，最后一条落在导出前几分钟。排布由 `drafts/revision-timestamps.ts` 的 `planRevisionTimestamps` 负责：
+
+- 种子取任务或文件标识（officecli 路径用 `taskId`，兜底用 hunkId 序列）；同一个种子 + 同一个导出时刻结果完全一致，测试注入 `now` 即可复现；
+- 不会早于原合同文件的 mtime；窗口不够时等比例压缩；
+- 同一处 hunk 的删除/插入共用一个时间（Word 里本来也是一次替换的两个半边）。
+
+**审计口径不变**：Word 里显示的是「审阅节奏」，真实导出时刻单独写进 manifest 的 `exportedAt`，实际落下修订的显示时间另记在 `applyResult.revisionDates`。`.doc` 转换稿、直写 XML 的兜底稿、格式修订和「比较两份 Word」生成的红线稿都走同一套排布。
+
 ### 回执清单
 
 每次导出会写一份清单文件 `.<taskId>.redline-manifest.json`。落点是 LawMind 工作区的 `cache/redline-manifests/`——刻意**不**写进律师的案件夹或交付目录，避免 Finder 里一堆 `.json`；只有没有工作区时（单测临时目录）才旁路到产物旁边。清单包含：
 
-- `applyResult`：`{applied, attempted, ambiguous, lastError}`
+- `exportedAt`：真实导出时刻（审计用；不是 Word 里显示的修订时间）
+- `applyResult`：`{applied, attempted, ambiguous, revisionDates, lastError}`
 - `applyStatus`：比如 `"ambiguous"`
 - `openWord: false`
 
@@ -390,7 +399,7 @@ officecli 超时设的是 120 秒。修订作者默认写 `"LawMind"`。设置 �
 导出的修订文字有 N 处未对齐原稿直接格式（字体/字号/加粗等）…
 ```
 
-三者对应的错误码分别是 `xml_qa_no_tracks`、`xml_qa_non_minimal_edits`、`xml_qa_format_mismatch`。
+导出后本地读文件。没有修订痕迹时再试一次，格式在导出里对齐；仍然不理想就把稿子交给律师，不再叫模型重导。整句删增只留在本地复核里。
 
 ### 自动重试一次
 
@@ -443,7 +452,7 @@ officecli 超时设的是 120 秒。修订作者默认写 `"LawMind"`。设置 �
 
 对话中间栏打开 `.docx` 时就是 **Word 审阅这份文件**。正文标记、按作者上色、改别人痕迹时的拆合、审阅窗格，都跟 Microsoft Word（打印布局 + 修订已打开）同一套显示。本机新落下的每一笔都是「设置 → 修订署名」（留空才是 LawMind）。
 
-LawMind 里的接受/拒绝不是 Word 菜单那一套：对署名是自己的修订，**接受后折叠，痕迹留在文件里**，另存审阅稿时 Word 仍看得到这条修订；**拒绝后从正文和导出拿掉**。别人的修订只显示，不提供接受/拒绝，也不能在那些字上改。他人修订在右侧默认只留一行「作者 · 删除/插入/格式」，点正文里那一处才展开这一条，再点另一处就把上一条收回去。接受态写在这份 docx 的 `word/lawmind-disposition.xml` 里，不写进 `w:ins` / `w:del`，所以 Word 仍把这些字当成修订。
+中栏的接受/拒绝和 Word 审阅一样，不看出自谁的修订。连续的删除和插入、中间没有没改过的原文隔开，算一处修订、一个气泡；被原文隔开的就是另一处。**接受后标记消失，正文留下结果；拒绝后这条修订撤回。** 插入是下划线，删除是删除线，同一作者同一种颜色。「所有标记 / 简单标记 / 无标记 / 原始状态」对应 Word 的显示以供审阅。
 
 **保存写回正在打开的那份文件**。另存审阅稿是拷一份当前带修订的副本。加载项按上面的验收做完之前，律师路径以这一页为准，不要把加载项写成已经能审。
 
@@ -829,7 +838,7 @@ revision_not_persisted: 助手未将修订写入 drafts 文件，请查看对话
 - **多处命中一律整处跳过。** 不要为了「尽量多改」退回「改第一处」的行为，那正是注释里点名禁止的。
 - **只读文件要 chmod。** 从 Finder 拷来的 0444 文件不改权限，officecli 会「0 处应用」且不报错。
 - **XML 复核的门槛（8 字 / 60%）比内存里的（6 字）严，这是有意的**，别为了少报而调低。
-- **修订文字也要对齐原稿格式。** `tracked-format-gate` 要求修订 run 继承邻接原稿 run 的直接格式（字体/字号/加粗），导出前先 repair，复核不过报 `xml_qa_format_mismatch`；别把这条当成「样式小事」关掉。
+- **修订文字也要对齐原稿格式。** 导出前先把修订 run 的字体、字号、加粗补成旁边原稿的样子。补完仍有出入，稿子照常交出，律师在 Word 里看。
 - **计划跳过原因要按真实原因统计。** 只认「跨度硬门禁」会让审稿人看不到真正的漏改。
 - **Word 插件的端口是持久化契约。** 换端口会让已侧载的窗格找不到服务，表现还是误导性的 `unauthorized` 或 `Load failed`。
 - **`needs_matter` 是旧状态。** 新流程不该再用它拦人。

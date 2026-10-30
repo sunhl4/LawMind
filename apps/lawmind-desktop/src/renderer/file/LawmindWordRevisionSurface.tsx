@@ -1,7 +1,7 @@
 /**
  * Open .docx in the chat middle column as Word Review: one tracked-change
- * model, by-author colors. Accept folds and keeps the mark for export; reject
- * removes it. Other lawyers' marks are visible only.
+ * model, by-author colors. Accept keeps the result and drops the mark; reject
+ * withdraws it. Every revision can be accepted or rejected.
  */
 
 import {
@@ -13,14 +13,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  replaceChangeAfter,
-  trackCoversHunk,
-} from "../../../../../src/lawmind/drafts/word-surface-pieces.ts";
+import { replaceChangeAfter, trackCoversHunk } from "../../../../../src/lawmind/drafts/word-surface-pieces.ts";
 import type {
   WordSurfaceHunkView,
   WordSurfaceSnapshot,
-  WordTrackedView,
 } from "../../../../../src/lawmind/drafts/word-surface.ts";
 import { outlineEntriesOf } from "../../../../../src/lawmind/drafts/word-surface-outline.ts";
 import { normalizeWordControls } from "../../../../../src/lawmind/drafts/word-surface-breaks.ts";
@@ -50,19 +46,17 @@ import {
 import type { WordRevisionRun } from "../../../../../src/lawmind/drafts/word-revision/index.ts";
 import { allMarkupText } from "../../../../../src/lawmind/drafts/word-revision/compose.ts";
 import {
-  acceptParagraphTracks,
   applyEngineDelete,
+  acceptPlainHunk,
   applyEngineFormat,
   applyEngineInsert,
   applyEngineMove,
   authorClockFor,
-  editHitsForeignTrack,
   caretEngineOffset,
   editableParagraphsOf,
   isOwnRevisionAuthor,
-  ownRevisionName,
   commentOnRange,
-  decideParagraphRuns,
+  dropDecidedRevisions,
   paragraphRunsOf,
   restoreCaret,
   snapshotHasEngine,
@@ -91,7 +85,8 @@ type SurfaceComment = {
   createdAt: string;
 };
 
-const POLL_MS = 4_000;
+/** 对话/另一窗口改盘的轮询：服务端有 `unchanged` 短路，2s 只走一次 stat。 */
+const POLL_MS = 2_000;
 /** Pause after typing / 删除线 before pushing the rail revision. */
 const SYNC_DEBOUNCE_MS = 500;
 
@@ -137,41 +132,6 @@ function surfaceQuery(
   return `/api/word-surface?${q.toString()}`;
 }
 
-function revisionCardStatus(
-  id: string,
-  hunks: WordSurfaceHunkView[],
-  tracked: WordTrackedView[],
-): "pending" | "accepted" | "rejected" {
-  const hunk = hunks.find((row) => row.hunkId === id);
-  if (hunk) {
-    return hunk.status;
-  }
-  const track = tracked.find((row) => row.revId === id);
-  if (!track) {
-    return "pending";
-  }
-  if (track.disposition === "accepted") {
-    return "accepted";
-  }
-  const covered = hunks.find((row) => trackCoversHunk(track, row));
-  return covered?.status ?? "pending";
-}
-
-function idsCoveredWithTrack(
-  row: WordTrackedView,
-  hunks: WordSurfaceHunkView[],
-  tracked: WordTrackedView[],
-): string[] {
-  const hunkMatches = hunks.filter((hunk) => trackCoversHunk(row, hunk));
-  const ids = new Set<string>([row.revId, ...hunkMatches.map((hunk) => hunk.hunkId)]);
-  for (const other of tracked) {
-    if (hunkMatches.some((hunk) => trackCoversHunk(other, hunk))) {
-      ids.add(other.revId);
-    }
-  }
-  return [...ids];
-}
-
 function snapshotKey(snap: WordSurfaceSnapshot): string {
   return JSON.stringify({
     taskId: snap.taskId,
@@ -204,8 +164,21 @@ function snapshotKey(snap: WordSurfaceSnapshot): string {
       row.text,
       row.color,
       row.disposition ?? "",
+      row.hunkId ?? "",
     ]),
   });
+}
+
+function memberIds(row: { revId: string; revIds?: string[] }): string[] {
+  return row.revIds && row.revIds.length > 0 ? row.revIds : [row.revId];
+}
+
+function rowHunkIds(row: { hunkId?: string; hunkIds?: string[] }): string[] {
+  const ids = [...(row.hunkIds ?? [])];
+  if (row.hunkId && !ids.includes(row.hunkId)) {
+    ids.unshift(row.hunkId);
+  }
+  return ids;
 }
 
 function revisionColor(hunks: WordSurfaceHunkView[], hunkId: string): number {
@@ -397,8 +370,6 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     return () => window.clearInterval(timer);
   }, [reload]);
 
-  const replacementText = (hunkId: string, after: string) => drafts[hunkId] ?? after;
-
   const syncDocument = useCallback(async (opts?: { force?: boolean }) => {
     const page = rootRef.current?.querySelector(".lm-word-surface-page");
     if (!apiBase.trim() || !page || actionBusy) {
@@ -524,7 +495,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   );
 
   const persistDocument = useCallback(
-    async (opts?: { force?: boolean }) => {
+    async (opts?: { force?: boolean; reload?: boolean }): Promise<boolean> => {
       const current = snapshotRef.current;
       const runs = paragraphRunsOf(current);
       if (snapshotHasEngine(current) && apiBase.trim()) {
@@ -568,13 +539,17 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
           seenRef.current = null;
           dirtyPlainRef.current = false;
           editingPlainRef.current = false;
-          await reload({ fresh: true });
+          if (opts?.reload !== false) {
+            await reload({ fresh: true });
+          }
+          return true;
         } catch (err) {
           setActionError(errorMessage(err, "没能写回这份文件。"));
+          return false;
         }
-        return;
       }
       await syncDocument(opts);
+      return true;
     },
     [apiBase, projectDir, relPath, reload, root, syncDocument],
   );
@@ -686,15 +661,6 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       const ctx = engineContext(event.target instanceof Node ? event.target : null);
       if (!ctx || !ctx.caret) {
         return false;
-      }
-      const editKind = event.inputType.startsWith("delete")
-        ? event.inputType.includes("Forward")
-          ? "delete-forward"
-          : "delete-back"
-        : "insert";
-      if (editHitsForeignTrack(ctx.runs, ctx.caret, ownRevisionName(ctx.current), editKind)) {
-        event.preventDefault();
-        return true;
       }
       if (event.inputType === "insertCompositionText" || event.isComposing) {
         compositionCaretRef.current = { index: ctx.index, offset: ctx.caret.start };
@@ -964,9 +930,6 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
       return false;
     }
     const caret = { offset: hit.start, start: hit.start, end: hit.end };
-    if (editHitsForeignTrack(runs, caret, ownRevisionName(current), "insert")) {
-      return false;
-    }
     paragraphs[hit.paragraphIndex] = applyEngineInsert(
       runs,
       caret,
@@ -998,7 +961,6 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     }
     const paragraphs = paragraphRunsOf(current);
     const author = authorClockFor(current);
-    const own = ownRevisionName(current);
     let last: WordFindHit | null = null;
     for (const hit of [...findHits].toReversed()) {
       const runs = paragraphs[hit.paragraphIndex];
@@ -1006,9 +968,6 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         continue;
       }
       const caret = { offset: hit.start, start: hit.start, end: hit.end };
-      if (editHitsForeignTrack(runs, caret, own, "insert")) {
-        continue;
-      }
       paragraphs[hit.paragraphIndex] = applyEngineInsert(runs, caret, replaceQuery, author);
       last = hit;
     }
@@ -1025,9 +984,6 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   const applyToolbarFormat = (format: "加粗" | "倾斜" | "下划线") => {
     const ctx = engineContext(window.getSelection()?.anchorNode ?? null);
     if (ctx?.caret && ctx.caret.end > ctx.caret.start) {
-      if (editHitsForeignTrack(ctx.runs, ctx.caret, ownRevisionName(ctx.current), "insert")) {
-        return;
-      }
       const paragraphs = paragraphRunsOf(ctx.current);
       paragraphs[ctx.index] = applyEngineFormat(ctx.runs, ctx.caret, format, authorClockFor(ctx.current));
       commitEngineRuns(paragraphs, { index: ctx.index, offset: ctx.caret.end });
@@ -1049,7 +1005,9 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     const seen = new Set<string>();
     const ids = [
       ...(snapshot?.tracked ?? []).map((row) => row.revId),
-      ...(snapshot?.hunks ?? []).map((hunk) => hunk.hunkId),
+      ...(snapshot?.hunks ?? [])
+        .filter((hunk) => !(snapshot?.tracked ?? []).some((row) => rowHunkIds(row).includes(hunk.hunkId)))
+        .map((hunk) => hunk.hunkId),
     ].filter((id) => (seen.has(id) ? false : (seen.add(id), true)));
     if (ids.length === 0) {
       return;
@@ -1127,9 +1085,6 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         const ctx = engineContext(event.target instanceof Node ? event.target : window.getSelection()?.anchorNode ?? null);
         if (ctx?.caret && ctx.caret.end > ctx.caret.start) {
           event.preventDefault();
-          if (editHitsForeignTrack(ctx.runs, ctx.caret, ownRevisionName(ctx.current), "delete-back")) {
-            return;
-          }
           const text = window.getSelection()?.toString() ?? "";
           rememberMove(text);
           pendingMoveRef.current = {
@@ -1166,9 +1121,6 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         const ctx = engineContext(event.target instanceof Node ? event.target : window.getSelection()?.anchorNode ?? null);
         if (ctx?.caret && ctx.caret.end > ctx.caret.start) {
           event.preventDefault();
-          if (editHitsForeignTrack(ctx.runs, ctx.caret, ownRevisionName(ctx.current), "insert")) {
-            return;
-          }
           const paragraphs = paragraphRunsOf(ctx.current);
           paragraphs[ctx.index] = applyEngineFormat(ctx.runs, ctx.caret, format, authorClockFor(ctx.current));
           commitEngineRuns(paragraphs, { index: ctx.index, offset: ctx.caret.end });
@@ -1388,56 +1340,6 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     scheduleSync();
   };
 
-  const foldCards = (ids: string[]) => {
-    setOpenIds((current) => {
-      const next = { ...current };
-      for (const id of ids) {
-        next[id] = false;
-      }
-      return next;
-    });
-  };
-
-  const unfoldCards = (ids: string[]) => {
-    setOpenIds((current) => {
-      const next = { ...current };
-      for (const id of ids) {
-        next[id] = true;
-      }
-      return next;
-    });
-  };
-
-  const acceptTracksInSnapshot = (current: WordSurfaceSnapshot, revIds: string[]) => {
-    const accepted = new Set(revIds);
-    const next = snapshotHasEngine(current)
-      ? snapshotWithRuns(current, acceptParagraphTracks(paragraphRunsOf(current), revIds))
-      : { ...current };
-    next.tracked = (next.tracked ?? []).map((row) =>
-      accepted.has(row.revId) ? { ...row, disposition: "accepted" as const } : row,
-    );
-    next.hunks = current.hunks.map((hunk) =>
-      accepted.has(hunk.hunkId) ? { ...hunk, status: "accepted" as const } : hunk,
-    );
-    snapshotRef.current = next;
-    pageSnapshotRef.current = next;
-    setSnapshot(next);
-  };
-
-  const rejectTracksInSnapshot = (current: WordSurfaceSnapshot, ids: string[]) => {
-    const drop = new Set(ids);
-    const next: WordSurfaceSnapshot = {
-      ...current,
-      hunks: current.hunks.map((hunk) =>
-        drop.has(hunk.hunkId) ? { ...hunk, status: "rejected" as const } : hunk,
-      ),
-      tracked: (current.tracked ?? []).filter((row) => !drop.has(row.revId)),
-    };
-    snapshotRef.current = next;
-    pageSnapshotRef.current = next;
-    setSnapshot(next);
-  };
-
   const postHunkResolve = async (taskId: string, hunkId: string, decision: "accept" | "reject") => {
     await apiSendJson(
       apiBase,
@@ -1447,110 +1349,80 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
     );
   };
 
-  const persistRejectTracks = async (revIds: string[]) => {
-    if (revIds.length === 0) {
-      return;
-    }
+  /**
+   * Accept or reject one contiguous revision. Adjacent delete and insert with
+   * no unchanged text between them move together.
+   */
+  const decideRevisionIds = async (revIds: string[], decision: "accept" | "reject") => {
     const current = snapshotRef.current;
-    const inBody = new Set(
-      paragraphRunsOf(current).flatMap((runs) => runs.map((run) => run.track?.id).filter(Boolean)),
-    );
-    const bodyIds = revIds.filter((id) => inBody.has(id));
-    const extra = revIds.filter((id) => !inBody.has(id));
-    if (current && snapshotHasEngine(current) && bodyIds.length > 0) {
-      let paragraphs = paragraphRunsOf(current);
-      for (const id of bodyIds) {
-        paragraphs = decideParagraphRuns(paragraphs, id, "reject");
-      }
-      const next = snapshotWithRuns(current, paragraphs);
-      snapshotRef.current = next;
-      pageSnapshotRef.current = next;
-      setSnapshot(next);
-      await persistDocument({ force: true });
-    }
-    if (extra.length > 0 || !(current && snapshotHasEngine(current) && bodyIds.length > 0)) {
-      for (const id of extra.length > 0 ? extra : revIds) {
-        await apiSendJson(apiBase, "/api/word-surface/tracked", "POST", {
-          root,
-          path: relPath,
-          ...(projectDir?.trim() ? { projectDir: projectDir.trim() } : {}),
-          decision: "reject",
-          revId: id,
-        });
-      }
-      keyRef.current = "";
-      seenRef.current = null;
-      dirtyPlainRef.current = false;
-      editingPlainRef.current = false;
-      await reload({ fresh: true });
-      const latest = snapshotRef.current;
-      if (latest) {
-        rejectTracksInSnapshot(latest, revIds);
-      }
-      setPageEpoch((value) => value + 1);
-    }
-  };
-
-  const decide = async (hunkId: string, decision: "accept" | "reject") => {
-    const taskId = snapshot?.taskId;
-    const hunk = snapshot?.hunks.find((row) => row.hunkId === hunkId);
-    if (!taskId || !hunk || actionBusy) {
+    if (!current || actionBusy || revIds.length === 0) {
       return;
     }
-    const before = snapshot;
-    const target = decision === "accept" ? "accepted" : "rejected";
-    const tracked = snapshot.tracked ?? [];
-    const ids = [
-      hunkId,
-      ...tracked.filter((row) => trackCoversHunk(row, hunk)).map((row) => row.revId),
+    const before = current;
+    const hunkIds = [
+      ...new Set([
+        ...paragraphRunsOf(current).flatMap((runs) =>
+          runs.flatMap((run) =>
+            run.track && revIds.includes(run.track.id) && run.track.hunkId ? [run.track.hunkId] : [],
+          ),
+        ),
+        ...revIds.flatMap((id) => {
+          const row = current.tracked?.find((item) => memberIds(item).includes(id));
+          return row ? rowHunkIds(row) : [];
+        }),
+      ]),
     ];
-    foldCards(ids);
-    if (decision === "accept") {
-      acceptTracksInSnapshot(snapshot, ids);
-    } else {
-      rejectTracksInSnapshot(snapshot, ids);
-    }
     setActionBusy(true);
     setActionError(null);
     try {
-      const after = replacementText(hunkId, hunk.after);
-      if (after !== hunk.after) {
-        await apiSendJson(
-          apiBase,
-          `/api/word-surface/hunks/${encodeURIComponent(hunkId)}/revise`,
-          "POST",
-          { taskId, after },
-        );
+      const engine = snapshotHasEngine(current);
+      if (engine) {
+        const next = dropDecidedRevisions(current, revIds, decision);
+        snapshotRef.current = next;
+        pageSnapshotRef.current = next;
+        setSnapshot(next);
+        const saved = await persistDocument({ force: true, reload: false });
+        if (!saved) {
+          snapshotRef.current = before;
+          pageSnapshotRef.current = before;
+          setSnapshot(before);
+          return;
+        }
+      } else {
+        const next = dropDecidedRevisions(current, revIds, decision);
+        snapshotRef.current = next;
+        pageSnapshotRef.current = next;
+        setSnapshot(next);
+        for (const id of revIds) {
+          await apiSendJson(apiBase, "/api/word-surface/tracked", "POST", {
+            root,
+            path: relPath,
+            ...(projectDir?.trim() ? { projectDir: projectDir.trim() } : {}),
+            decision,
+            revId: id,
+          });
+        }
       }
-      if (hunk.status !== target) {
-        await postHunkResolve(taskId, hunkId, decision);
-      }
-      setDrafts((current) => {
-        const next = { ...current };
-        delete next[hunkId];
-        return next;
-      });
-      if (decision === "reject") {
-        await persistRejectTracks(ids.filter((id) => id !== hunkId));
-      } else if (snapshotHasEngine(snapshotRef.current)) {
-        await persistDocument({ force: true });
+      const taskId = current.taskId;
+      if (taskId) {
+        for (const hunkId of hunkIds) {
+          const remains = paragraphRunsOf(snapshotRef.current).some((runs) =>
+            runs.some((run) => run.track?.hunkId === hunkId),
+          );
+          const hunk = current.hunks.find((row) => row.hunkId === hunkId);
+          if (remains || !hunk || hunk.status !== "pending") {
+            continue;
+          }
+          await postHunkResolve(taskId, hunkId, decision);
+        }
       }
       keyRef.current = "";
       seenRef.current = null;
       await reload({ fresh: true });
-      const latest = snapshotRef.current;
-      if (latest) {
-        if (decision === "accept") {
-          acceptTracksInSnapshot(latest, ids);
-        } else {
-          rejectTracksInSnapshot(latest, ids);
-        }
-      }
     } catch (err) {
       snapshotRef.current = before;
       pageSnapshotRef.current = before;
       setSnapshot(before);
-      unfoldCards(ids);
       setActionError(errorMessage(err, decision === "accept" ? "接受失败。" : "拒绝失败。"));
     } finally {
       setActionBusy(false);
@@ -1559,40 +1431,59 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
 
   const decideTracked = async (revId: string, decision: "accept" | "reject") => {
     const current = snapshotRef.current;
-    const row = current?.tracked?.find((item) => item.revId === revId);
-    if (!current || !row || actionBusy || !isOwnRevisionAuthor(row.author, current)) {
+    const row = current?.tracked?.find((item) => memberIds(item).includes(revId));
+    if (!row) {
       return;
     }
-    const before = current;
-    const target = decision === "accept" ? "accepted" : "rejected";
-    const ids = idsCoveredWithTrack(row, current.hunks ?? [], current.tracked ?? []);
-    foldCards(ids);
-    if (decision === "accept") {
-      acceptTracksInSnapshot(current, ids);
-    } else {
-      rejectTracksInSnapshot(current, ids);
+    await decideRevisionIds(memberIds(row), decision);
+  };
+
+  /** A suggestion that was never painted as a Word revision. Accept writes the result into the file. */
+  const decide = async (hunkId: string, decision: "accept" | "reject") => {
+    const taskId = snapshot?.taskId;
+    const hunk = snapshot?.hunks.find((row) => row.hunkId === hunkId);
+    const covered = [
+      ...(snapshot?.tracked ?? [])
+        .filter((row) => rowHunkIds(row).includes(hunkId))
+        .flatMap((row) => memberIds(row)),
+      ...(snapshot?.tracked ?? [])
+        .filter((row) => !row.hunkId && hunk && trackCoversHunk(row, hunk))
+        .flatMap((row) => memberIds(row)),
+    ];
+    if (covered.length > 0) {
+      await decideRevisionIds([...new Set(covered)], decision);
+      return;
     }
+    if (!taskId || !hunk || actionBusy) {
+      return;
+    }
+    const before = snapshotRef.current;
     setActionBusy(true);
     setActionError(null);
     try {
-      const taskId = current.taskId;
-      if (taskId) {
-        for (const hunk of current.hunks ?? []) {
-          if (ids.includes(hunk.hunkId) && hunk.status !== target) {
-            await postHunkResolve(taskId, hunk.hunkId, decision);
+      if (decision === "accept" && hunk.before && before && snapshotHasEngine(before)) {
+        const applied = acceptPlainHunk(paragraphRunsOf(before), hunk.before, hunk.after);
+        if (applied.applied) {
+          const next = snapshotWithRuns(before, applied.paragraphs);
+          snapshotRef.current = next;
+          pageSnapshotRef.current = next;
+          setSnapshot(next);
+          const saved = await persistDocument({ force: true, reload: false });
+          if (!saved) {
+            snapshotRef.current = before;
+            pageSnapshotRef.current = before;
+            setSnapshot(before);
+            return;
           }
         }
       }
-      if (decision === "reject") {
-        await persistRejectTracks(ids.filter((id) => (current.tracked ?? []).some((item) => item.revId === id)));
-      } else if (snapshotHasEngine(snapshotRef.current)) {
-        await persistDocument({ force: true });
+      if (hunk.status === "pending") {
+        await postHunkResolve(taskId, hunkId, decision);
       }
+      keyRef.current = "";
+      seenRef.current = null;
+      await reload({ fresh: true });
     } catch (err) {
-      snapshotRef.current = before;
-      pageSnapshotRef.current = before;
-      setSnapshot(before);
-      unfoldCards(ids);
       setActionError(errorMessage(err, decision === "accept" ? "接受失败。" : "拒绝失败。"));
     } finally {
       setActionBusy(false);
@@ -1601,59 +1492,49 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
 
   const decideAll = async (decision: "accept" | "reject") => {
     const current = snapshotRef.current;
-    const taskId = current?.taskId;
-    const pendingHunks = (current?.hunks ?? []).filter((hunk) => hunk.status === "pending");
-    const ownTracks = (current?.tracked ?? []).filter(
-      (row) => isOwnRevisionAuthor(row.author, current) && row.disposition !== "accepted",
-    );
-    if (actionBusy || (pendingHunks.length === 0 && ownTracks.length === 0)) {
+    const ids = (current?.tracked ?? []).flatMap((row) => memberIds(row));
+    if (ids.length > 0) {
+      await decideRevisionIds(ids, decision);
       return;
     }
-    if (!current || (pendingHunks.length > 0 && !taskId && ownTracks.length === 0)) {
+    const taskId = current?.taskId;
+    const pending = (current?.hunks ?? []).filter((hunk) => hunk.status === "pending");
+    if (!taskId || pending.length === 0 || actionBusy || !current) {
       return;
     }
     const before = current;
-    const ids = [
-      ...pendingHunks.map((hunk) => hunk.hunkId),
-      ...ownTracks.map((row) => row.revId),
-    ];
-    foldCards(ids);
-    if (decision === "accept") {
-      acceptTracksInSnapshot(current, ids);
-    } else {
-      rejectTracksInSnapshot(current, ids);
-    }
     setActionBusy(true);
     setActionError(null);
     try {
-      if (taskId) {
-        for (const hunk of pendingHunks) {
-          await postHunkResolve(taskId, hunk.hunkId, decision);
+      if (decision === "accept" && snapshotHasEngine(current)) {
+        let paragraphs = paragraphRunsOf(current);
+        let applied = false;
+        for (const hunk of pending) {
+          const next = acceptPlainHunk(paragraphs, hunk.before, hunk.after);
+          paragraphs = next.paragraphs;
+          applied = applied || next.applied;
+        }
+        if (applied) {
+          const savedSnap = snapshotWithRuns(current, paragraphs);
+          snapshotRef.current = savedSnap;
+          pageSnapshotRef.current = savedSnap;
+          setSnapshot(savedSnap);
+          const saved = await persistDocument({ force: true, reload: false });
+          if (!saved) {
+            snapshotRef.current = before;
+            pageSnapshotRef.current = before;
+            setSnapshot(before);
+            return;
+          }
         }
       }
-      if (decision === "reject") {
-        await persistRejectTracks(ownTracks.map((row) => row.revId));
-      } else if (snapshotHasEngine(snapshotRef.current)) {
-        await persistDocument({ force: true });
+      for (const hunk of pending) {
+        await postHunkResolve(taskId, hunk.hunkId, decision);
       }
       keyRef.current = "";
       seenRef.current = null;
       await reload({ fresh: true });
-      const latest = snapshotRef.current;
-      if (latest) {
-        if (decision === "accept") {
-          acceptTracksInSnapshot(latest, ids);
-        } else {
-          rejectTracksInSnapshot(latest, ids);
-        }
-      }
     } catch (err) {
-      if (before) {
-        snapshotRef.current = before;
-        pageSnapshotRef.current = before;
-        setSnapshot(before);
-      }
-      unfoldCards(ids);
       setActionError(errorMessage(err, decision === "accept" ? "接受失败。" : "拒绝失败。"));
     } finally {
       setActionBusy(false);
@@ -1893,36 +1774,27 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   const canExport = Boolean(snapshot) && !actionBusy;
   const serverHunks = snapshot?.hunks ?? [];
   const trackedAll = snapshot?.tracked ?? [];
-  const trackedRows = trackedAll.filter((row) => {
-    if (authorFilter !== "all" && row.author !== authorFilter) {
-      return false;
-    }
-    return revisionCardStatus(row.revId, serverHunks, trackedAll) !== "rejected";
-  });
+  const trackedRows = trackedAll.filter((row) => authorFilter === "all" || row.author === authorFilter);
   const railLive = engineMode
     ? []
     : liveEdits.filter(
         (edit) => !serverHunks.some((hunk) => hunk.before === edit.before && hunk.after === edit.after),
       );
-  const railHunks = (engineMode ? serverHunks.filter((hunk) => !hunk.placed) : serverHunks).filter((hunk) => {
+  // A Word revision already has its own balloon. A hunk card remains only when
+  // the proposal has not been painted into w:ins / w:del yet.
+  const railHunks = serverHunks.filter((hunk) => {
+    if (hunk.status !== "pending") {
+      return false;
+    }
+    if (trackedRows.some((row) => rowHunkIds(row).includes(hunk.hunkId))) {
+      return false;
+    }
     if (railLive.some((edit) => edit.before === hunk.before)) {
       return false;
     }
-    if (hunk.status === "rejected" || revisionCardStatus(hunk.hunkId, serverHunks, trackedAll) === "rejected") {
-      return false;
-    }
-    return !trackedRows.some((row) => trackCoversHunk(row, hunk));
+    return true;
   });
-  const pending =
-    trackedRows.filter(
-      (row) =>
-        isOwnRevisionAuthor(row.author, snapshot) &&
-        revisionCardStatus(row.revId, serverHunks, trackedAll) === "pending",
-    ).length +
-    railHunks.filter(
-      (hunk) => revisionCardStatus(hunk.hunkId, serverHunks, trackedAll) === "pending",
-    ).length;
-  const foreignCount = trackedRows.filter((row) => !isOwnRevisionAuthor(row.author, snapshot)).length;
+  const pending = trackedRows.length + railHunks.length;
   const lawyerName = snapshot?.lawyerDisplayName?.trim() || "律师";
   const hiddenAuthors =
     authorFilter === "all" ? undefined : new Set((snapshot?.authors ?? []).filter((name) => name !== authorFilter));
@@ -1965,27 +1837,19 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
   ) {
     pagePaintRef.current = pagePaintLive;
   }
-  const revisionStatus = !snapshot
-    ? loadError
-      ? "没打开"
-      : "正在打开"
-    : pending > 0
-      ? foreignCount > 0
-        ? `核对 · ${pending} 处待定，另有 ${foreignCount} 处他人修订`
-        : `核对 · ${pending} 处待定`
-      : trackedRows.length > 0
-        ? null
-        : "核对 · 没有待定修订";
-
   return (
     <div className="lm-word-surface" ref={rootRef} data-testid="lm-word-surface">
       <div className="lm-word-surface-main">
       <header className="lm-word-surface-bar">
-        {revisionStatus ? (
-          <div className="lm-word-surface-title">
-            <span className="lm-word-surface-count">{revisionStatus}</span>
-          </div>
-        ) : null}
+        {/*
+          REMOVED(2026-10-30) word-surface-revision-status
+          这里原来有一行「核对 · N 处待定，另有 M 处他人修订」小字（无修订时还会显示
+          「核对 · 没有待定修订」，加载/失败时显示「正在打开 / 没打开」）。产品决定：
+          这行信息量低却要占一整行高度，先从中栏拿掉，空间留给正文；底部状态栏的
+          「修订 n / m」保留。
+          如确需恢复，按 docs/lawmind/LAWMIND-MIDDLE-COLUMN-PLAN.md §8.1 的步骤捞回，
+          并删掉 LawmindWordRevisionSurface.test.tsx 里对应的反向断言。
+        */}
         <div className="lm-word-surface-actions">
           <label className="lm-word-markup">
             <select
@@ -2195,7 +2059,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
             type="button"
             className="lm-btn lm-btn-ghost lm-btn-sm"
             data-testid="lm-word-prev"
-            disabled={!snapshot || (snapshot.hunks.length === 0 && trackedRows.length === 0)}
+            disabled={!snapshot || (railHunks.length === 0 && trackedRows.length === 0)}
             onClick={() => stepRevision(-1)}
           >
             上一条
@@ -2204,7 +2068,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
             type="button"
             className="lm-btn lm-btn-ghost lm-btn-sm"
             data-testid="lm-word-next"
-            disabled={!snapshot || (snapshot.hunks.length === 0 && trackedRows.length === 0)}
+            disabled={!snapshot || (railHunks.length === 0 && trackedRows.length === 0)}
             onClick={() => stepRevision(1)}
           >
             下一条
@@ -2396,7 +2260,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
           <div className="lm-word-surface-rail-margin">
           {railLive.length === 0 && railHunks.length === 0 && trackedRows.length === 0 && railComments.length === 0 ? (
             <p className="lm-word-surface-empty">
-              右侧是这份文件里的修订。接受后折叠，导出仍带痕迹；拒绝后从正文和导出拿掉。他人修订只显示。
+              右侧是这份文件里的修订。接受后标记消失、正文留下结果；拒绝后这条修订撤回。
             </p>
           ) : markup !== "all" ? (
             <p className="lm-word-surface-empty">
@@ -2409,28 +2273,22 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
           ) : (
             <>
             <div className="lm-word-rev-spacer" aria-hidden="true" />
-            {trackedRows.map((row) => {
-              const own = isOwnRevisionAuthor(row.author, snapshot);
-              const shownStatus = revisionCardStatus(row.revId, serverHunks, trackedAll);
-              const reviewed = shownStatus === "accepted";
-              const open = own ? (openIds[row.revId] ?? !reviewed) :  openIds[row.revId];
-              return (
+            {trackedRows.map((row, rowIndex) => (
                 <TrackBalloon
-                  key={`track-${row.revId}-${row.change}`}
+                  key={`track-${row.revId}-${row.change}-${rowIndex}`}
                   row={row}
-                  own={own}
-                  accepted={reviewed}
-                  open={open}
+                  own={isOwnRevisionAuthor(row.author, snapshot)}
+                  accepted={false}
+                  open
                   selected={selectedId === row.revId}
                   busy={actionBusy}
                   onFocus={() => focusHunk(row.revId, "page")}
-                  onFold={() => setOpenIds((current) => ({ ...current, [row.revId]: false }))}
+                  onFold={() => undefined}
                   onUnfold={() => focusHunk(row.revId, "page")}
                   onAccept={() => void decideTracked(row.revId, "accept")}
                   onReject={() => void decideTracked(row.revId, "reject")}
                 />
-              );
-            })}
+              ))}
             {railLive.map((edit) => (
               <section
                 key={edit.key}
@@ -2609,8 +2467,8 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
         }, 0);
         const revIds = [
           ...new Set([
-            ...(snapshot?.hunks ?? []).map((h) => h.hunkId),
-            ...(trackedRows ?? []).map((r) => r.revId),
+            ...railHunks.map((hunk) => hunk.hunkId),
+            ...trackedRows.map((row) => row.revId),
           ]),
         ];
         const revAt = selectedId ? revIds.indexOf(selectedId) + 1 : 0;
@@ -2651,7 +2509,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
                   if (!id) {
                     return;
                   }
-                  if ((snapshot?.tracked ?? []).some((row) => row.revId === id)) {
+                  if ((snapshot?.tracked ?? []).some((row) => memberIds(row).includes(id))) {
                     void decideTracked(id, "accept");
                   } else {
                     void decide(id, "accept");
@@ -2671,7 +2529,7 @@ export function LawmindWordRevisionSurface(props: LawmindWordRevisionSurfaceProp
                   if (!id) {
                     return;
                   }
-                  if ((snapshot?.tracked ?? []).some((row) => row.revId === id)) {
+                  if ((snapshot?.tracked ?? []).some((row) => memberIds(row).includes(id))) {
                     void decideTracked(id, "reject");
                   } else {
                     void decide(id, "reject");

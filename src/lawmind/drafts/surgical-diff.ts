@@ -4,7 +4,7 @@
  * used by every redline path (see minimal-edit-script.ts).
  */
 
-import { computeMinimalEditSpans } from "./minimal-edit-script.js";
+import { computeMinimalEditSpans, MAX_CONSUMED_ANCHOR_CHARS } from "./minimal-edit-script.js";
 
 export type SurgicalEditSpan = {
   /** Offset into the baseline (before) string where the change starts. */
@@ -272,9 +272,10 @@ export function toTrackedFindReplace(params: {
     }
     // Prefer a sentence/clause terminator as the only deleted/replaced anchor.
     const punct = right.match(/^[。！？；]/)?.[0];
+    const maxN = Math.min(MAX_CONSUMED_ANCHOR_CHARS, right.length);
     const tryNs = punct
-      ? [1, ...Array.from({ length: Math.min(12, right.length) }, (_, i) => i + 1)]
-      : Array.from({ length: Math.min(12, right.length) }, (_, i) => i + 1);
+      ? [1, ...Array.from({ length: maxN }, (_, i) => i + 1)]
+      : Array.from({ length: maxN }, (_, i) => i + 1);
     const seen = new Set<number>();
     for (const n of tryNs) {
       if (seen.has(n) || n < 1 || n > right.length) {

@@ -40,13 +40,20 @@ export function trackCoversHunk(
   if (!text) {
     return false;
   }
-  if (row.change === "del" || row.change === "moveFrom") {
-    return hunk.before.includes(text);
+  const side =
+    row.change === "del" || row.change === "moveFrom"
+      ? "before"
+      : row.change === "ins" || row.change === "moveTo"
+        ? "after"
+        : null;
+  if (!side) {
+    return false;
   }
-  if (row.change === "ins" || row.change === "moveTo") {
-    return hunk.after.includes(text);
-  }
-  return false;
+  // Only a changed fragment belongs to the hunk. Matching any substring of the
+  // sentence made a short revision («付款», «日») swallow unrelated hunks.
+  return revisionPieces(hunk.before, hunk.after).some(
+    (piece) => piece.kind === "change" && piece[side].includes(text),
+  );
 }
 
 /** Edit one changed fragment. The stored sentence keeps the unchanged characters. */

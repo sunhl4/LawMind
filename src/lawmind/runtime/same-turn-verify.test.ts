@@ -37,7 +37,7 @@ describe("same-turn verify", () => {
     expect(shouldBounceSameTurnCompletion({ red: true, issues, bounceCount: 0 })).toBe(true);
   });
 
-  it("maps XML-QA miss to re-export, not surgical rewrite", () => {
+  it("does not send a missing revision track back to the model", () => {
     const issues = collectSameTurnVerifyIssues({
       toolName: "render_tracked_draft",
       result: {
@@ -46,19 +46,10 @@ describe("same-turn verify", () => {
         data: { code: "xml_qa_no_tracks" },
       },
     });
-    expect(issues[0]?.code).toBe("xml_qa_fail");
-    expect(issues[0]?.nextTool).toBe("render_tracked_draft");
-    expect(issues[0]?.message).toContain("原样重交");
-    expect(issues[0]?.message).not.toContain("apply_surgical_edits");
-    expect(formatSameTurnCompletionBounce({ red: true, issues, bounceCount: 0 })).toContain(
-      "render_tracked_draft",
-    );
-    expect(formatSameTurnCompletionBounce({ red: true, issues, bounceCount: 0 })).not.toContain(
-      "apply_surgical_edits",
-    );
+    expect(issues).toEqual([]);
   });
 
-  it("maps format mismatch without claiming missing tracks or narrow-find", () => {
+  it("does not send a format mismatch back to the model", () => {
     const issues = collectSameTurnVerifyIssues({
       toolName: "render_tracked_draft",
       result: {
@@ -67,25 +58,24 @@ describe("same-turn verify", () => {
         data: { code: "xml_qa_format_mismatch" },
       },
     });
-    expect(issues[0]?.code).toBe("xml_qa_format_mismatch");
-    expect(issues[0]?.message).toContain("未对齐原稿");
-    expect(issues[0]?.message).toContain("不要用收窄 find");
-    expect(issues[0]?.message).not.toContain("未见审阅痕迹");
-    expect(issues[0]?.nextTool).toBe("render_tracked_draft");
+    expect(issues).toEqual([]);
   });
 
-  it("maps non-minimal XML QA back to surgical rewrite", () => {
+  it("does not send non-minimal XML QA back to the model", () => {
     const issues = collectSameTurnVerifyIssues({
       toolName: "render_tracked_draft",
       result: {
-        ok: false,
-        error: "整句删增",
-        data: { code: "xml_qa_non_minimal_edits" },
+        ok: true,
+        data: {
+          code: "xml_qa_non_minimal_edits",
+          xmlQa: {
+            ok: false,
+            minimalEdit: { violations: [{ deleted: "整句", inserted: "整句" }] },
+          },
+        },
       },
     });
-    expect(issues[0]?.code).toBe("xml_qa_non_minimal");
-    expect(issues[0]?.nextTool).toBe("apply_surgical_edits");
-    expect(issues[0]?.message).toContain("整句删");
+    expect(issues).toEqual([]);
   });
 
   it("does not send infra Guardian fails back to apply_surgical_edits", () => {
@@ -396,6 +386,6 @@ describe("same-turn verify", () => {
       toolName: "render_tracked_draft",
       result: failed,
     });
-    expect(stored.map((i) => i.code).toSorted()).toEqual(["empty_redline", "xml_qa_fail"]);
+    expect(stored.map((i) => i.code).toSorted()).toEqual(["empty_redline"]);
   });
 });

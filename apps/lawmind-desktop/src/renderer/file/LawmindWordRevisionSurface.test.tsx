@@ -16,6 +16,7 @@ vi.mock("../api-client", () => ({
 }));
 
 import { LawmindWordRevisionSurface } from "./LawmindWordRevisionSurface";
+import { dropDecidedRevisions } from "./word-surface-engine";
 
 const snapshot: WordSurfaceSnapshot = {
   fileName: "补充协议.docx",
@@ -46,6 +47,14 @@ const snapshot: WordSurfaceSnapshot = {
   blocks: [],
   summary: { pending: 1, accepted: 0, rejected: 0 },
 };
+
+function mockSurface(opened: object, revId: string, decision: "accept" | "reject") {
+  const snap = opened as WordSurfaceSnapshot;
+  apiGetJson.mockImplementation(async () => {
+    const wrote = apiSendJson.mock.calls.some((call) => String(call[1]).startsWith("/api/word-surface"));
+    return { ok: true, ...(wrote ? dropDecidedRevisions(snap, [revId], decision) : snap) };
+  });
+}
 
 describe("LawmindWordRevisionSurface", () => {
   afterEach(() => {
@@ -81,7 +90,8 @@ describe("LawmindWordRevisionSurface", () => {
     const rail = host.querySelector<HTMLElement>(".lm-word-surface-rail");
     expect(host.querySelector("[data-testid='lm-word-surface-rail-split']")).toBeTruthy();
     expect(rail?.style.width).toBe("220px");
-    expect(host.textContent).toContain("核对");
+    // REMOVED(2026-10-30) word-surface-revision-status：工具栏不再显示「核对 · N 处待定」小字（见 LAWMIND-MIDDLE-COLUMN-PLAN §8.1）。
+    expect(host.querySelector(".lm-word-surface-bar")?.textContent).not.toContain("待定");
     expect(host.textContent).toContain("十日");
     expect(host.textContent).toContain("五日");
     const accept = host.querySelector("[data-testid='lm-word-accept-h1']");
@@ -185,7 +195,7 @@ describe("LawmindWordRevisionSurface", () => {
     root.unmount();
   });
 
-  it("keeps accept and reject after the hunk is accepted", async () => {
+  it("does not list a hunk once it has been accepted", async () => {
     apiSendJson.mockResolvedValue({ ok: true });
     apiGetJson.mockResolvedValue({
       ok: true,
@@ -212,30 +222,9 @@ describe("LawmindWordRevisionSurface", () => {
       await Promise.resolve();
     });
     expect(host.querySelector("textarea")).toBeNull();
-    const fold = host.querySelector("[data-testid='lm-word-fold-h1']");
-    expect(fold?.textContent).toContain("已接受");
-    await act(async () => {
-      fold?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    const accept = host.querySelector("[data-testid='lm-word-accept-h1']");
-    const reject = host.querySelector("[data-testid='lm-word-reject-h1']");
-    expect(accept).toBeInstanceOf(HTMLButtonElement);
-    expect(reject).toBeInstanceOf(HTMLButtonElement);
-    expect((accept as HTMLButtonElement).disabled).toBe(false);
-    expect((reject as HTMLButtonElement).disabled).toBe(false);
-    expect(accept?.getAttribute("aria-pressed")).toBe("true");
+    expect(host.querySelector("[data-testid='lm-word-accept-h1']")).toBeNull();
+    expect(host.querySelector("[data-testid='lm-word-fold-h1']")).toBeNull();
     expect(host.querySelector("textarea")).toBeNull();
-    expect(host.querySelector(".lm-word-rev-preview")?.textContent).toContain("五");
-    await act(async () => {
-      reject?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-    expect(apiSendJson).toHaveBeenCalledWith(
-      "http://127.0.0.1:9",
-      "/api/drafts/task-1/redline/hunks/h1/resolve",
-      "POST",
-      { decision: "reject" },
-    );
     root.unmount();
   });
 
@@ -843,7 +832,7 @@ describe("LawmindWordRevisionSurface", () => {
     root.unmount();
   });
 
-  it("folds the revision as soon as accept is clicked", async () => {
+  it("resolves the hunk when accept is clicked", async () => {
     apiGetJson.mockResolvedValue({ ok: true, ...snapshot });
     apiSendJson.mockResolvedValue({ ok: true });
     const host = document.createElement("div");
@@ -869,8 +858,13 @@ describe("LawmindWordRevisionSurface", () => {
       host.querySelector("[data-testid='lm-word-accept-h1']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
-    expect(host.querySelector("[data-testid='lm-word-fold-h1']")?.textContent).toContain("已接受");
-    expect(host.querySelector("[data-testid='lm-word-edit-h1']")).toBeNull();
+    expect(apiSendJson).toHaveBeenCalledWith(
+      "http://127.0.0.1:9",
+      "/api/drafts/task-1/redline/hunks/h1/resolve",
+      "POST",
+      { decision: "accept" },
+    );
+    expect(host.querySelector("[data-testid='lm-word-fold-h1']")).toBeNull();
     root.unmount();
   });
 
@@ -980,7 +974,7 @@ describe("LawmindWordRevisionSurface", () => {
   });
 
   it("shows native Word revisions by author and accepts them into the file", async () => {
-    apiGetJson.mockResolvedValue({
+    const opened = {
       ok: true,
       ...snapshot,
       hunks: [],
@@ -1039,7 +1033,8 @@ describe("LawmindWordRevisionSurface", () => {
         { revId: "1", change: "del", author: "李律师", text: "十日", color: 0 },
         { revId: "2", change: "ins", author: "王律师", text: "五日", color: 1 },
       ],
-    });
+    };
+    mockSurface(opened, "2", "accept");
     apiSendJson.mockResolvedValue({ ok: true, changed: 1 });
     const host = document.createElement("div");
     document.body.appendChild(host);
@@ -1065,14 +1060,14 @@ describe("LawmindWordRevisionSurface", () => {
     expect(ins?.textContent).toBe("五日");
     expect(host.textContent).toContain("李律师");
     expect(host.textContent).toContain("王律师");
-    expect(host.textContent).toContain("核对 · 1 处待定，另有 1 处他人修订");
+    expect(host.textContent).not.toContain("核对 · ");
     expect(host.querySelector("[data-testid='lm-word-track-1']")?.getAttribute("data-own-revision")).toBe(
       "false",
     );
-    expect(host.querySelector("[data-testid='lm-word-track-accept-1']")).toBeNull();
-    expect(host.querySelector("[data-testid='lm-word-track-reject-1']")).toBeNull();
-    expect(host.querySelector("[data-testid='lm-word-fold-1']")?.textContent).toContain("李律师 · 删除");
-    expect(host.querySelector("[data-testid='lm-word-track-1']")?.textContent).not.toContain("删除的内容");
+    expect(host.querySelector("[data-testid='lm-word-track-accept-1']")).toBeTruthy();
+    expect(host.querySelector("[data-testid='lm-word-track-reject-1']")).toBeTruthy();
+    expect(host.querySelector("[data-testid='lm-word-track-1']")?.textContent).toContain("删除的内容");
+    expect(host.querySelector("[data-testid='lm-word-track-1']")?.textContent).toContain("十日");
     const firstRail = host.querySelector<HTMLElement>("[data-testid='lm-word-track-1']");
     expect(firstRail?.style.top).toBe("0px");
     const scrolled: Element[] = [];
@@ -1081,7 +1076,7 @@ describe("LawmindWordRevisionSurface", () => {
     });
     await act(async () => {
       host
-        .querySelector("[data-testid='lm-word-fold-1']")
+        .querySelector("[data-testid='lm-word-track-1']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await new Promise((resolve) => window.requestAnimationFrame(() => resolve(undefined)));
     });
@@ -1091,28 +1086,26 @@ describe("LawmindWordRevisionSurface", () => {
         (node) => node.getAttribute("data-word-slot") === "page" && node.getAttribute("data-word-hunk") === "1",
       ),
     ).toBe(true);
-    expect(host.querySelector("[data-testid='lm-word-track-1']")?.textContent).toContain("删除的内容");
-    expect(host.querySelector("[data-testid='lm-word-track-1']")?.textContent).toContain("十日");
-    expect(host.querySelector("[data-testid='lm-word-fold-2']")).toBeNull();
     await act(async () => {
       host
         .querySelector("[data-testid='lm-word-track-accept-2']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
+      await Promise.resolve();
     });
-    expect(host.querySelector("[data-testid='lm-word-fold-2']")?.textContent).toContain("已接受");
-    expect(host.querySelector("[data-word-slot='page'] ins")?.textContent).toBe("五日");
-    expect(apiSendJson).not.toHaveBeenCalledWith(
+    expect(host.querySelector("[data-testid='lm-word-track-2']")).toBeNull();
+    expect(host.textContent).toContain("五日");
+    expect(apiSendJson).toHaveBeenCalledWith(
       "http://127.0.0.1:9",
       "/api/word-surface/tracked",
       "POST",
-      expect.anything(),
+      expect.objectContaining({ decision: "accept", revId: "2" }),
     );
     root.unmount();
   });
 
   it("drops an own revision from the rail after reject", async () => {
-    apiGetJson.mockResolvedValue({
+    const opened = {
       ok: true,
       ...snapshot,
       hunks: [],
@@ -1133,7 +1126,8 @@ describe("LawmindWordRevisionSurface", () => {
         },
       ],
       tracked: [{ revId: "2", change: "ins", author: "王律师", text: "五日", color: 0 }],
-    });
+    };
+    mockSurface(opened, "2", "reject");
     apiSendJson.mockResolvedValue({ ok: true, changed: 1 });
     const host = document.createElement("div");
     document.body.appendChild(host);
@@ -1423,7 +1417,7 @@ describe("LawmindWordRevisionSurface", () => {
     root.unmount();
   });
 
-  it("folds an engine track on accept and keeps the mark for export", async () => {
+  it("drops the revision mark when an engine track is accepted", async () => {
     const engineParagraph = {
       runs: [
         { text: "甲方应于" },
@@ -1437,7 +1431,7 @@ describe("LawmindWordRevisionSurface", () => {
       ],
       sourceIndex: 0,
     };
-    apiGetJson.mockResolvedValue({
+    const opened = {
       ok: true,
       ...snapshot,
       hunks: [],
@@ -1445,7 +1439,8 @@ describe("LawmindWordRevisionSurface", () => {
       blocks: [{ kind: "paragraph" as const, ...engineParagraph }],
       paragraphs: [engineParagraph],
       tracked: [{ revId: "2", change: "ins", author: "张三", text: "五日", color: 0 }],
-    });
+    };
+    mockSurface(opened, "2", "accept");
     apiSendJson.mockResolvedValue({ ok: true });
     const host = document.createElement("div");
     document.body.appendChild(host);
@@ -1471,28 +1466,156 @@ describe("LawmindWordRevisionSurface", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(host.querySelector("[data-testid='lm-word-fold-2']")?.textContent).toContain("已接受");
+    expect(host.querySelector("[data-testid='lm-word-track-2']")).toBeNull();
     expect(host.textContent).toContain("五日");
-    expect(apiSendJson).toHaveBeenCalledWith(
-      "http://127.0.0.1:9",
-      "/api/word-surface/save",
-      "POST",
-      expect.objectContaining({
-        paragraphs: [
-          expect.objectContaining({
-            runs: expect.arrayContaining([
-              expect.objectContaining({ text: "五日", track: expect.objectContaining({ author: "张三" }) }),
-            ]),
-          }),
-        ],
-      }),
-    );
+    const save = apiSendJson.mock.calls.find((call) => call[1] === "/api/word-surface/save");
+    const body = save?.[3] as
+      | { paragraphs?: { runs: { text: string; track?: { id: string } }[] }[] }
+      | undefined;
+    const runs = body?.paragraphs?.[0]?.runs ?? [];
+    expect(runs.map((run) => run.text).join("")).toBe("甲方应于五日付款。");
+    expect(runs.some((run) => run.track)).toBe(false);
     expect(apiSendJson).not.toHaveBeenCalledWith(
       "http://127.0.0.1:9",
       "/api/word-surface/tracked",
       "POST",
       expect.anything(),
     );
+    root.unmount();
+  });
+
+  it("accepts one revision id and leaves the other hunks marked", async () => {
+    const paragraph = (ids: [string, string], hunkId: string, before: string, after: string) => ({
+      runs: [
+        { text: "应于" },
+        { text: before, track: { kind: "del" as const, id: ids[0], author: "LawMind", hunkId } },
+        { text: after, track: { kind: "ins" as const, id: ids[1], author: "LawMind", hunkId } },
+        { text: "内付款。" },
+      ],
+      segments: [
+        { kind: "text" as const, text: "应于" },
+        {
+          kind: "tracked" as const,
+          revId: ids[0],
+          change: "del" as const,
+          author: "LawMind",
+          text: before,
+          color: 0,
+          hunkId,
+        },
+        {
+          kind: "tracked" as const,
+          revId: ids[1],
+          change: "ins" as const,
+          author: "LawMind",
+          text: after,
+          color: 0,
+          hunkId,
+        },
+        { kind: "text" as const, text: "内付款。" },
+      ],
+      sourceIndex: 0,
+    });
+    const twoHunks: WordSurfaceSnapshot = {
+      ...snapshot,
+      revisionAuthor: "LawMind",
+      hunks: [
+        { hunkId: "h1", before: "十", after: "五", status: "pending", color: 0, placed: true },
+        { hunkId: "h2", before: "三", after: "七", status: "pending", color: 0, placed: true },
+      ],
+      paragraphs: [
+        paragraph(["1", "2"], "h1", "十", "五"),
+        paragraph(["3", "4"], "h2", "三", "七"),
+      ],
+      blocks: [
+        { kind: "paragraph" as const, ...paragraph(["1", "2"], "h1", "十", "五") },
+        { kind: "paragraph" as const, ...paragraph(["3", "4"], "h2", "三", "七") },
+      ],
+      tracked: [
+        {
+          revId: "1",
+          revIds: ["1", "2"],
+          change: "del",
+          parts: [
+            { change: "del", text: "十" },
+            { change: "ins", text: "五" },
+          ],
+          author: "LawMind",
+          text: "十五",
+          color: 0,
+          hunkId: "h1",
+        },
+        {
+          revId: "3",
+          revIds: ["3", "4"],
+          change: "del",
+          parts: [
+            { change: "del", text: "三" },
+            { change: "ins", text: "七" },
+          ],
+          author: "LawMind",
+          text: "三七",
+          color: 0,
+          hunkId: "h2",
+        },
+      ],
+      summary: { pending: 2, accepted: 0, rejected: 0 },
+    };
+    apiGetJson.mockResolvedValue({ ok: true, ...twoHunks });
+    apiSendJson.mockResolvedValue({ ok: true });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LawmindWordRevisionSurface
+          apiBase="http://127.0.0.1:9"
+          root="workspace"
+          relPath="cases/m/补充协议.docx"
+          fileName="补充协议.docx"
+          onOpenWithSystem={() => undefined}
+          onRevealSource={() => undefined}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(host.querySelector("[data-testid='lm-word-hunk-h1']")).toBeNull();
+    expect(host.querySelector("[data-testid='lm-word-track-1']")).toBeTruthy();
+    expect(host.querySelector("[data-testid='lm-word-track-2']")).toBeNull();
+    expect(host.querySelector("[data-testid='lm-word-track-3']")).toBeTruthy();
+    await act(async () => {
+      host
+        .querySelector("[data-testid='lm-word-track-accept-1']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(apiSendJson).toHaveBeenCalledWith(
+      "http://127.0.0.1:9",
+      "/api/drafts/task-1/redline/hunks/h1/resolve",
+      "POST",
+      expect.objectContaining({ decision: "accept" }),
+    );
+    expect(apiSendJson).not.toHaveBeenCalledWith(
+      "http://127.0.0.1:9",
+      "/api/drafts/task-1/redline/hunks/h2/resolve",
+      "POST",
+      expect.anything(),
+    );
+    const save = apiSendJson.mock.calls.find(
+      (call) => call[1] === "/api/word-surface/save",
+    );
+    const body = save?.[3] as
+      | { paragraphs?: { runs: { text: string; track?: { id: string } }[] }[] }
+      | undefined;
+    const runs = body?.paragraphs?.flatMap((row) => row.runs) ?? [];
+    expect(runs.some((run) => run.track?.id === "1" || run.track?.id === "2")).toBe(false);
+    expect(runs.map((run) => run.text).join("")).toContain("五");
+    expect(runs.map((run) => run.text).join("")).not.toContain("十");
+    expect(runs.find((run) => run.track?.id === "3")?.text).toBe("三");
+    expect(runs.find((run) => run.track?.id === "4")?.text).toBe("七");
     root.unmount();
   });
 });

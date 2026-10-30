@@ -183,48 +183,46 @@ export function TrackBalloon(props: {
               {row.author}
               {row.date ? `，${formatRevisionTime(row.date)}` : ""}
             </p>
-            {props.own ? (
-              <div className="lm-word-rev-card-actions">
-                {props.accepted ? (
-                  <button type="button" className="lm-btn lm-btn-ghost lm-btn-sm" onClick={props.onFold}>
-                    收起
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-sm"
-                  data-testid={`lm-word-track-accept-${row.revId}`}
-                  aria-label="接受"
-                  title="接受后折叠，导出仍保留这条修订"
-                  aria-pressed={props.accepted}
-                  disabled={props.busy}
-                  onClick={props.onAccept}
-                >
-                  接受
-                </button>
-                <button
-                  type="button"
-                  className="lm-btn lm-btn-ghost lm-btn-sm"
-                  data-testid={`lm-word-track-reject-${row.revId}`}
-                  aria-label="拒绝"
-                  title="拒绝后从正文和导出拿掉"
-                  disabled={props.busy}
-                  onClick={props.onReject}
-                >
-                  拒绝
-                </button>
-              </div>
-            ) : null}
+            <div className="lm-word-rev-card-actions">
+              <button
+                type="button"
+                className="lm-btn lm-btn-sm"
+                data-testid={`lm-word-track-accept-${row.revId}`}
+                aria-label="接受"
+                title="接受后标记消失，正文留下结果"
+                disabled={props.busy}
+                onClick={props.onAccept}
+              >
+                接受
+              </button>
+              <button
+                type="button"
+                className="lm-btn lm-btn-ghost lm-btn-sm"
+                data-testid={`lm-word-track-reject-${row.revId}`}
+                aria-label="拒绝"
+                title="拒绝后这条修订撤回"
+                disabled={props.busy}
+                onClick={props.onReject}
+              >
+                拒绝
+              </button>
+            </div>
           </div>
           <div className="lm-word-rev-preview">
-            <p className="lm-word-rev-balloon-line">
-              <span className="lm-word-rev-balloon-label">{trackedBalloonLabel(row)}</span>
-              {row.change === "format" ? null : row.change === "del" || row.change === "moveFrom" ? (
-                <del className="lm-word-rev-del">{renderWordRunText(row.text)}</del>
-              ) : (
-                <ins className="lm-word-rev-ins">{renderWordRunText(row.text)}</ins>
-              )}
-            </p>
+            {(row.parts && row.parts.length > 1 ? row.parts : [{ change: row.change, text: row.text }]).map(
+              (part, index) => (
+                <p key={`${part.change}-${index}`} className="lm-word-rev-balloon-line">
+                  <span className="lm-word-rev-balloon-label">
+                    {trackedBalloonLabel({ ...row, change: part.change })}
+                  </span>
+                  {part.change === "format" ? null : part.change === "del" || part.change === "moveFrom" ? (
+                    <del className="lm-word-rev-del">{renderWordRunText(part.text)}</del>
+                  ) : (
+                    <ins className="lm-word-rev-ins">{renderWordRunText(part.text)}</ins>
+                  )}
+                </p>
+              ),
+            )}
           </div>
         </>
       ) : (

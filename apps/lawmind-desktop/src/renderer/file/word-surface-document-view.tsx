@@ -425,6 +425,8 @@ function renderTrackedSpan(
   const hidden = Boolean(paint.hiddenAuthors?.has(segment.author));
   const deleted = segment.change === "del" || segment.change === "moveFrom";
   const mode = paint.markup;
+  // One balloon per contiguous revision. Clicking any piece selects that group.
+  const focusId = segment.groupId || segment.revId;
   const plain = (key: number, text: string) => (
     <span key={key} style={markStyle(segment, false)} data-all-from={String(allFrom)}>
       {renderWordRunText(text)}
@@ -443,14 +445,14 @@ function renderTrackedSpan(
     return (
       <span
         key={segIndex}
-        className={`lm-word-track lm-word-rev-fmt${paint.selectedId === segment.revId ? " lm-word-track-active" : ""}`}
+        className={`lm-word-track lm-word-rev-fmt${paint.selectedId === focusId ? " lm-word-track-active" : ""}`}
         style={markStyle(segment, true)}
-        data-word-hunk={segment.revId}
+        data-word-hunk={focusId}
         data-word-slot="page"
         data-rev-color={String(segment.color)}
         data-rev-change={segment.change}
         data-all-from={String(allFrom)}
-        onClick={() => paint.onFocus(segment.revId, "rail")}
+        onClick={() => paint.onFocus(focusId, "rail")}
       >
         {renderWordRunText(segment.text)}
       </span>
@@ -460,14 +462,14 @@ function renderTrackedSpan(
   return (
     <span
       key={segIndex}
-      className={`lm-word-track${paint.selectedId === segment.revId ? " lm-word-track-active" : ""}`}
+      className={`lm-word-track${paint.selectedId === focusId ? " lm-word-track-active" : ""}`}
       style={markStyle(segment, true)}
-      data-word-hunk={segment.revId}
+      data-word-hunk={focusId}
       data-word-slot="page"
       data-rev-color={String(segment.color)}
       data-rev-change={segment.change}
       data-all-from={String(allFrom)}
-      onClick={() => paint.onFocus(segment.revId, "rail")}
+      onClick={() => paint.onFocus(focusId, "rail")}
     >
       <Tag className={deleted ? "lm-word-rev-del" : "lm-word-rev-ins"}>{renderWordRunText(segment.text)}</Tag>
     </span>
@@ -488,13 +490,17 @@ function renderSurfaceParagraph(paragraph: WordSurfaceParagraph, index: number, 
     paragraph.segments.some(
       (segment) => segment.kind === "revision" || visibleTrack(segment),
     );
-  const revisionIds = paragraph.segments.flatMap((segment) =>
-    segment.kind === "revision"
-      ? [segment.hunkId]
-      : visibleTrack(segment)
-        ? [segment.revId]
-        : [],
-  );
+  const revisionIds = [
+    ...new Set(
+      paragraph.segments.flatMap((segment) =>
+        segment.kind === "revision"
+          ? [segment.hunkId]
+          : visibleTrack(segment)
+            ? [segment.revId]
+            : [],
+      ),
+    ),
+  ];
   const editable = paint.plainEditable !== false;
   const paragraphIndex = paint.paragraphIndex ? paint.paragraphIndex.current++ : undefined;
   let allFrom = 0;

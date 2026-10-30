@@ -42,13 +42,13 @@
 
 ## 四个落槌边界（都在用同一函数）
 
-| 边界                                       | 位置                                                                             | 做什么                                                                                                                                                                                          |
-| ------------------------------------------ | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **B1 模型输入**                            | `drafts/apply-surgical-edits.ts`                                                 | 不照抄模型给的 find 粒度：重算成多段最短改动后落槌，并在回执标 `minimalSplitEdits`；过度碎片化才退回收窄                                                                                        |
-| **B2 hunk 生成**                           | `drafts/redline-proposal.ts` → `drafts/surgical-diff.ts::splitSurgicalEditSpans` | 所有模式（含 `mode: "section"`）都产出最短 span，不再出现「整节 hunk」直接落 Word                                                                                                               |
-| **B3 文件落盘（最后一道）**                | `artifacts/render-docx-tracked.ts::resolveOfficeCliFindReplaceOps`               | 把每处 hunk 展开成多段最短 op，**从右到左**落盘（officecli 歧义锚点用 lookbehind，右侧先改不影响左侧锚点）；任一 op 歧义即整处跳过，不做部分成功                                                |
-| **B4 Word 插件**                           | `integrations/word-addin/review-requests.ts::hunksFromRedlineProposal`           | 插件的锚点同样重算；纯插入改成「插入点之后 6 字锚点整体替换」，一个字都不删；过长的真换整节不上插件并如实计数                                                                                   |
-| **B5 成品复核（唯一看实际 .docx 的一道）** | `drafts/tracked-xml-qa.ts::qaTrackedDocxXml`                                     | 导出后读 `word/document.xml`，按文档顺序取 `w:del`/`w:ins` 片段，检出「删/增相邻且几乎同句」（共有 ≥8 字且占较短一侧 ≥60%）。命中即 `ok:false` + `code: xml_qa_non_minimal_edits`，不当作已完成 |
+| 边界                                       | 位置                                                                             | 做什么                                                                                                                                                                   |
+| ------------------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **B1 模型输入**                            | `drafts/apply-surgical-edits.ts`                                                 | 不照抄模型给的 find 粒度：重算成多段最短改动后落槌，并在回执标 `minimalSplitEdits`；过度碎片化才退回收窄                                                                 |
+| **B2 hunk 生成**                           | `drafts/redline-proposal.ts` → `drafts/surgical-diff.ts::splitSurgicalEditSpans` | 所有模式（含 `mode: "section"`）都产出最短 span，不再出现「整节 hunk」直接落 Word                                                                                        |
+| **B3 文件落盘（最后一道）**                | `artifacts/render-docx-tracked.ts::resolveOfficeCliFindReplaceOps`               | 把每处 hunk 展开成多段最短 op，**从右到左**落盘（officecli 歧义锚点用 lookbehind，右侧先改不影响左侧锚点）；任一 op 歧义即整处跳过，不做部分成功                         |
+| **B4 Word 插件**                           | `integrations/word-addin/review-requests.ts::hunksFromRedlineProposal`           | 插件的锚点同样重算；纯插入改成「插入点之后 6 字锚点整体替换」，一个字都不删；过长的真换整节不上插件并如实计数                                                            |
+| **B5 成品复核（唯一看实际 .docx 的一道）** | `drafts/tracked-xml-qa.ts::qaTrackedDocxXml`                                     | 导出后本地读 `word/document.xml`，不把文件交给模型。没有修订痕迹时本地再试一次；格式在导出里对齐。这两处都把稿子交给律师，不再叫模型重导。整句删增同样只留在复核结果里。 |
 
 计划侧边文件（`drafts/redline-plan.ts`）与跨文书一致改（`drafts/cross-document-edits.ts`）
 也走同一重算：前者产出最短计划项，后者对全批一致地展开（避免「A 文书拆了、B 文书没拆」）。

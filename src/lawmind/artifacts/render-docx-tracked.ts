@@ -1,11 +1,11 @@
 /**
  * Export Word with tracked changes via officecli (bundled with LawMind).
  * Prefers an uploaded contract baseline `.docx` when `draft.contractEdit` is set.
- * Binary `.doc` is not read. Word or WPS saves a sibling `.docx` first; that file is the baseline.
- * If neither can save, stop and ask the lawyer. The original `.doc` is left untouched.
+ * Binary `.doc` is converted first (Microsoft Word Save As, then LibreOffice). That `.docx` is the baseline.
+ * If neither can convert, stop and ask the lawyer. The original `.doc` is left untouched.
  *
  * Tracked changes use modern officecli:
- *   `set <file> /body --find … --replace … --prop revision.author=…`
+ *   `set <file> /body --find … --replace … --prop revision.author=… --prop revision.date=…`
  * Regex finds use the official `r"..."` prefix on --find (not a separate prop).
  * (the legacy `docx apply-redlines` subcommand is not available on current CLIs).
  */
@@ -13,10 +13,15 @@
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { computeMinimalEditSpans } from "../drafts/minimal-edit-script.js";
+import {
+  computeMinimalEditSpans,
+  consumedFindText,
+  revisionMarkupIsMinimal,
+} from "../drafts/minimal-edit-script.js";
 import { appendProvenanceEvent, createProvenanceEvent } from "../drafts/provenance.js";
 import type { RedlineHunk } from "../drafts/redline-proposal.js";
 import { readRedlineProposal } from "../drafts/redline-proposal.js";
+import { planRevisionTimestamps } from "../drafts/revision-timestamps.js";
 import {
   disambiguateLiteralFind,
   formatOfficeCliFindArg,
@@ -235,28 +240,6 @@ export type OfficeCliFindReplaceOp = {
   spanStart?: number;
 };
 
-/** 纯插入在没有正文上下文时的兜底：用左右各 16 字的 padded find 扩出一次替换。 */
-function padExpandInsertOp(
-  before: string,
-  after: string,
-  sectionBodyAfter?: string,
-): OfficeCliFindReplaceOp | null {
-  const body = sectionBodyAfter ?? "";
-  if (!after || !body.includes(after)) {
-    return null;
-  }
-  const idx = body.indexOf(after);
-  const pad = 16;
-  const start = Math.max(0, idx - pad);
-  const end = Math.min(body.length, idx + after.length + pad);
-  const replace = body.slice(start, end);
-  const find = replace.slice(0, idx - start) + replace.slice(idx - start + after.length);
-  if (!find.trim() || find === replace) {
-    return null;
-  }
-  return { find, replace };
-}
-
 /**
  * 把一处 hunk 展开为**若干互不重叠的最短 op**（最短改动硬不变量）：
  *
@@ -298,19 +281,27 @@ export function resolveOfficeCliFindReplaceOps(
       bodyAfter: sectionBodyAfter,
     });
     if (tracked) {
-      ops.push({ ...tracked, ...(spanStart !== undefined ? { spanStart } : {}) });
+      pushMinimal(ops, { ...tracked, ...(spanStart !== undefined ? { spanStart } : {}) });
       continue;
     }
-    // 纯插入且没有正文上下文时不要瞎猜；有上下文才用 padded find 兜底。
-    const fallback =
-      span.before.trim().length > 0
-        ? { find: span.before, replace: span.after }
-        : padExpandInsertOp(span.before, span.after, sectionBodyAfter);
-    if (fallback) {
-      ops.push({ ...fallback, ...(spanStart !== undefined ? { spanStart } : {}) });
+    // 纯插入定位失败时不把左右没改的字包进 find/replace。宁可这一处不落，也不写成整句删增。
+    if (span.before.trim().length > 0) {
+      pushMinimal(ops, {
+        find: span.before,
+        replace: span.after,
+        ...(spanStart !== undefined ? { spanStart } : {}),
+      });
     }
   }
   return ops.toSorted((a, b) => (b.spanStart ?? 0) - (a.spanStart ?? 0));
+}
+
+function pushMinimal(ops: OfficeCliFindReplaceOp[], op: OfficeCliFindReplaceOp): void {
+  const deleted = consumedFindText(op.find, op.regex);
+  if (!revisionMarkupIsMinimal(deleted, op.replace)) {
+    return;
+  }
+  ops.push(op);
 }
 
 /**
@@ -327,12 +318,20 @@ export async function applyRedlineHunksWithOfficeCli(params: {
   /** Pre-edit / baseline section bodies — uniqueness checks before mutating. */
   sectionBodiesBefore?: string[];
   officecliCommand?: string;
+  /** 真实导出时刻；测试可注入。默认取当下。 */
+  now?: Date;
+  /** 修订时间排布的稳定种子；默认取各 hunk 的 id。 */
+  timestampSeed?: string;
+  /** 最早可用的显示时间（原合同文件 mtime）；避免修订时间早于基线文件。 */
+  notBefore?: Date;
 }): Promise<{
   applied: number;
   attempted: number;
   ambiguous: number;
   /** matched>1 被回滚跳过的 hunk——调用方须写入 manifest 并明示 partial。 */
   ambiguousHunkIds: string[];
+  /** 各处 hunk 写进 Word 的显示时间（按 hunkId）；真实导出时刻由调用方另记。 */
+  revisionDates?: Record<string, string>;
   /** 多处命中且回滚失败：交付副本不可信，调用方不得交付。 */
   rollbackFailed?: boolean;
   lastError?: string;
@@ -355,6 +354,16 @@ export async function applyRedlineHunksWithOfficeCli(params: {
     /* ignore — some hosts ignore mode */
   }
   const author = (params.author ?? "LawMind").trim() || "LawMind";
+  // 修订时间按一次真人审阅的节奏展开；真实导出时刻不进 Word，由 manifest 记录。
+  const revisionDates = planRevisionTimestamps({
+    count: hunks.length,
+    seed: params.timestampSeed ?? (hunks.map((hunk) => hunk.hunkId).join("|") || author),
+    ...(params.now ? { now: params.now } : {}),
+    ...(params.notBefore ? { notBefore: params.notBefore } : {}),
+  });
+  const revisionDateByHunk = new Map(
+    hunks.map((hunk, index) => [hunk.hunkId, revisionDates[index]]),
+  );
   const uniquenessBodies = params.sectionBodiesBefore?.length
     ? params.sectionBodiesBefore
     : params.sectionBodiesAfter;
@@ -365,6 +374,8 @@ export async function applyRedlineHunksWithOfficeCli(params: {
   let partialOpHunks = 0;
   let rollbackFailed = false;
   const ambiguousHunkIds: string[] = [];
+  /** 至少落了一处 op 的 hunk；manifest 只记录这些 hunk 显示时间。 */
+  const appliedHunkIds = new Set<string>();
   let lastError: string | undefined;
   // 每个 op 落盘前先备份工作副本：officecli 报 matched>1 时整体回滚，
   // 歧义 hunk 绝不多处落盘（与 surgical-span-gate 的「不确定就不改」语义一致）。
@@ -434,6 +445,7 @@ export async function applyRedlineHunksWithOfficeCli(params: {
         }
         try {
           const findArg = formatOfficeCliFindArg(fr.find, fr.regex);
+          const revisionDate = revisionDateByHunk.get(h.hunkId);
           const result = await runOfficeCli(
             [
               "set",
@@ -445,6 +457,7 @@ export async function applyRedlineHunksWithOfficeCli(params: {
               fr.replace,
               "--prop",
               `revision.author=${author}`,
+              ...(revisionDate ? ["--prop", `revision.date=${revisionDate}`] : []),
               "--json",
             ],
             120_000,
@@ -490,6 +503,7 @@ export async function applyRedlineHunksWithOfficeCli(params: {
       }
       if (hunkApplied > 0) {
         appliedHunks += 1;
+        appliedHunkIds.add(h.hunkId);
       }
       if (hunkApplied > 0 && hunkApplied < resolved.length) {
         partialOpHunks += 1;
@@ -515,6 +529,12 @@ export async function applyRedlineHunksWithOfficeCli(params: {
     attempted: hunks.length,
     ambiguous,
     ambiguousHunkIds,
+    revisionDates: Object.fromEntries(
+      hunks.flatMap((hunk, index) => {
+        const date = revisionDates[index];
+        return date && appliedHunkIds.has(hunk.hunkId) ? [[hunk.hunkId, date] as const] : [];
+      }),
+    ),
     rollbackFailed: rollbackFailed || undefined,
     lastError,
     appliedHunks,
@@ -550,6 +570,8 @@ export async function renderDocxWithTrackedChanges(params: {
   requireContractBaseline?: boolean;
   /** Include section provenance as Word comments in the rendered draft fallback. */
   includeProvenance?: boolean;
+  /** 真实导出时刻；测试可注入。默认取当下。 */
+  now?: Date;
 }): Promise<TrackedDocxRenderResult> {
   const baselineAbs = resolveContractBaselineAbsPath(
     params.workspaceDir,
@@ -634,17 +656,21 @@ export async function renderDocxWithTrackedChanges(params: {
     outputDir: params.outputDir,
   });
   await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+  // 真实导出时刻（审计口径）。Word 里显示的修订时间是按审阅节奏展开的，两者分开记。
+  const exportedAt = (params.now ?? new Date()).toISOString();
   const writeManifest = async (applyResult?: {
     applied: number;
     attempted: number;
     ambiguous: number;
     ambiguousHunkIds: string[];
+    revisionDates?: Record<string, string>;
     lastError?: string;
   }) =>
     fs.writeFile(
       manifestPath,
       JSON.stringify(
         {
+          exportedAt,
           proposals: params.proposals.map((h) => ({
             hunkId: h.hunkId,
             sectionIndex: h.sectionIndex,
@@ -667,6 +693,7 @@ export async function renderDocxWithTrackedChanges(params: {
                 applied: applyResult.applied,
                 attempted: applyResult.attempted,
                 ambiguous: applyResult.ambiguous,
+                revisionDates: applyResult.revisionDates,
                 lastError: applyResult.lastError,
               }
             : undefined,
@@ -880,6 +907,15 @@ export async function renderDocxWithTrackedChanges(params: {
         ? readRedlineProposal(params.workspaceDir, params.draft.taskId)
         : undefined;
     const sectionBodiesBefore = locked?.baselineSections?.map((s) => s.body ?? "") ?? undefined;
+    let revisionNotBefore: Date | undefined;
+    if (baselineSource === "contract_file" && !legacyConvertedPath) {
+      // 修订显示时间不能早于原合同出现的时间。转换稿的 mtime 是刚生成的，不能当锚点。
+      try {
+        revisionNotBefore = new Date((await fs.stat(inputPath)).mtimeMs);
+      } catch {
+        /* stat 失败就只按导出时刻倒推 */
+      }
+    }
     const author =
       params.author !== undefined
         ? resolveWordRevisionAuthor(params.author)
@@ -895,6 +931,9 @@ export async function renderDocxWithTrackedChanges(params: {
       sectionBodiesAfter: params.draft.sections?.map((s) => s.body ?? ""),
       sectionBodiesBefore,
       officecliCommand: params.officecliCommand,
+      timestampSeed: params.draft.taskId,
+      ...(params.now ? { now: params.now } : {}),
+      ...(revisionNotBefore ? { notBefore: revisionNotBefore } : {}),
     });
     await writeManifest(apply);
 

@@ -60,6 +60,8 @@ export type WordTrackMark = {
   date?: string;
   moveName?: string;
   format?: string;
+  /** Redline hunk this track came from (LawMind sidecar; absent in Word's XML). */
+  hunkId?: string;
 };
 
 export type WordLayoutRun = {

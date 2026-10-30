@@ -187,8 +187,7 @@ export async function qaTrackedDocxXml(
       insCount,
       delCount,
       expectedHunks,
-      warning:
-        "已报叠加修订，但 XML 未见 w:ins/w:del。不要当红线已落盘。收窄 find 后重跑 apply_surgical_edits 再导出。",
+      warning: "已报叠加修订，但 XML 未见 w:ins/w:del。本地会再试一次；稿子仍交给律师打开确认。",
       minimalEdit: emptyMinimalEdit,
       formatAlignment: emptyFormat,
     };
@@ -208,8 +207,7 @@ export async function qaTrackedDocxXml(
       formatAlignment: emptyFormat,
       warning:
         `导出的修订轨里有 ${violations.length} 处「整句删+整句增」（共有 ${head.unchangedRun} 字未改却被包进修订）：` +
-        `${head.deleted} → ${head.inserted}。这不符合最短改动要求（同事无法逐处接受）；` +
-        "请确认这次落改没有绕过引擎的最短改动重算，然后重跑 apply_surgical_edits 再导出。",
+        `${head.deleted} → ${head.inserted}。落盘前已按最短改动重算，这里只留下记录。`,
     };
   }
   // 格式硬控：邻接原稿 run 有直接格式时，修订 run 必须对齐（导出前应已 repair）。

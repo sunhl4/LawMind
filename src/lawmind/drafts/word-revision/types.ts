@@ -23,6 +23,11 @@ export type WordRevisionTrack = {
   format?: string;
   /** LawMind fold. Absent or open stays expanded. Accepted stays a Word track. */
   disposition?: WordRevisionDisposition;
+  /**
+   * Which redline hunk materialized this track. Lets the review rail map a
+   * Word track back to exactly one hunk; absent for revisions Word wrote.
+   */
+  hunkId?: string;
 };
 
 /** Object-replacement placeholder for a non-text preserved run (drawing/field). */
@@ -58,13 +63,20 @@ export type WordRevisionComment = {
 
 export type WordRevisionBalloon = {
   revId: string;
+  /** Every w:id in this contiguous revision. Absent means only `revId`. */
+  revIds?: string[];
   change: WordTrackKind;
+  /** Delete/insert pieces when one revision is a replacement, not a single mark. */
+  parts?: { change: WordTrackKind; text: string }[];
   author: string;
   text: string;
   date?: string;
   color: number;
   format?: string;
   disposition?: WordRevisionDisposition;
+  hunkId?: string;
+  /** Every hunk inside one contiguous revision. */
+  hunkIds?: string[];
 };
 
 export type WordRevisionAtom = {

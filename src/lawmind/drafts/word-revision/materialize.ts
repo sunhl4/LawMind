@@ -16,14 +16,18 @@ export function materializeHunks(
   runs: WordRevisionRun[],
   hunks: readonly MaterializeHunk[],
   author: ComposeAuthor,
+  /** 与 hunks 同序的显示时间；不传时沿用 author.now。 */
+  dates?: readonly string[],
 ): WordRevisionRun[] {
   let current = runs;
-  for (const hunk of hunks) {
+  for (const [index, hunk] of hunks.entries()) {
     const before = hunk.before;
     const after = hunk.after;
     if (!before || before === after) {
       continue;
     }
+    const date = dates?.[index];
+    const hunkAuthor = date ? { ...author, now: date } : author;
     const final = finalText(current);
     const at = final.indexOf(before);
     if (at < 0) {
@@ -36,7 +40,10 @@ export function materializeHunks(
     for (const span of spans.toReversed()) {
       const start = finalOffsetToAll(current, at + span.spanStart);
       const end = finalOffsetToAll(current, at + span.spanEnd);
-      current = replaceRange(current, start, end, span.after, author);
+      // 每个 hunk 自己一条插入轨：相邻 hunk 不共用 w:id，Word 才分得开。
+      current = replaceRange(current, start, end, span.after, hunkAuthor, {
+        reuseInsertion: false,
+      });
     }
   }
   return current;

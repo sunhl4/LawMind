@@ -19,6 +19,7 @@ export {
   moveRange,
   originalOffsetToAll,
   originalText,
+  replacePlain,
   replaceRange,
   sameTrack,
 } from "./compose.js";
@@ -27,6 +28,8 @@ export {
   DISPOSITION_PART,
   acceptedIdsInRuns,
   nextDispositionIds,
+  nextTrackHunks,
+  parseDispositionPart,
   parseDispositionXml,
   serializeDispositionXml,
   trackIdsInDocumentXml,
@@ -62,6 +65,7 @@ export {
   collectAuthors,
   collectBalloons,
   colorsForRuns,
+  contiguousGroupKeys,
   paragraphHasMarkup,
   projectRuns,
 } from "./view.js";

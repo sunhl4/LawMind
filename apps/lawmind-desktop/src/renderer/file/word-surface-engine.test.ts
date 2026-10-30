@@ -3,8 +3,9 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  acceptParagraphTracks,
+  acceptPlainHunk,
   applyEngineInsert,
+  decideParagraphRuns,
   authorClockFor,
   editHitsForeignTrack,
   isOwnRevisionAuthor,
@@ -51,7 +52,14 @@ describe("word surface engine helpers", () => {
     expect(clock.name).toBe("国浩-吕盈修");
   });
 
-  it("refuses to edit inside someone else's track", () => {
+  it("writes an unpainted suggestion into the paragraph as ordinary text", () => {
+    const next = acceptPlainHunk([[{ text: "甲方应于十日内付款。" }]], "十", "五");
+    expect(next.applied).toBe(true);
+    expect(next.paragraphs[0]?.map((run) => run.text).join("")).toBe("甲方应于五日内付款。");
+    expect(next.paragraphs[0]?.some((run) => run.track)).toBe(false);
+  });
+
+  it("detects an edit that lands inside someone else's track", () => {
     const runs = [{ text: "五日", track: { kind: "ins" as const, id: "2", author: "李律师" } }];
     const inside = { offset: 1, start: 1, end: 1 };
     expect(editHitsForeignTrack(runs, inside, "国浩-吕盈修", "insert")).toBe(true);
@@ -59,12 +67,13 @@ describe("word surface engine helpers", () => {
     expect(editHitsForeignTrack(runs, { offset: 2, start: 2, end: 2 }, "国浩-吕盈修", "insert")).toBe(false);
   });
 
-  it("marks an accepted track without dropping the insertion", () => {
-    const next = acceptParagraphTracks(
+  it("accepting an insertion keeps the text and drops the mark", () => {
+    const next = decideParagraphRuns(
       [[{ text: "五日", track: { kind: "ins", id: "2", author: "国浩-吕盈修" } }]],
-      ["2"],
+      "2",
+      "accept",
     );
-    expect(next[0]?.[0]?.track).toMatchObject({ kind: "ins", id: "2", disposition: "accepted" });
+    expect(next[0]?.[0]?.track).toBeUndefined();
     expect(next[0]?.[0]?.text).toBe("五日");
   });
 

@@ -4,18 +4,20 @@ import {
   coalesceRuns,
   collectBalloons,
   colorsForRuns,
+  contiguousGroupKeys,
   decideRuns,
   deleteBackward,
   deleteForward,
   finalOffsetToAll,
+  finalText,
   flattenRuns,
   insertText,
   makeAuthorClock,
   maxTrackId,
   moveRange,
   originalOffsetToAll,
+  replacePlain,
   replaceRange,
-  withAcceptedDisposition,
   type WordMarkupMode,
   type WordRevisionRun,
 } from "../../../../../src/lawmind/drafts/word-revision/index.ts";
@@ -92,12 +94,34 @@ export function isOwnRevisionAuthor(
   return Boolean(name) && name === ownRevisionName(snapshot);
 }
 
-export function acceptParagraphTracks(
+/**
+ * Fold `before` → `after` into the first paragraph that still contains `before`.
+ * Used when a suggestion was never painted as w:ins / w:del.
+ */
+export function acceptPlainHunk(
   paragraphs: WordRevisionRun[][],
-  revIds: readonly string[],
-): WordRevisionRun[][] {
-  const ids = new Set(revIds);
-  return paragraphs.map((runs) => withAcceptedDisposition(runs, ids));
+  before: string,
+  after: string,
+): { paragraphs: WordRevisionRun[][]; applied: boolean } {
+  if (!before) {
+    return { paragraphs, applied: false };
+  }
+  let applied = false;
+  const next = paragraphs.map((runs) => {
+    if (applied) {
+      return runs;
+    }
+    const final = finalText(runs);
+    const at = final.indexOf(before);
+    if (at < 0) {
+      return runs;
+    }
+    applied = true;
+    const start = finalOffsetToAll(runs, at);
+    const end = finalOffsetToAll(runs, at + before.length);
+    return replacePlain(runs, start, end, after);
+  });
+  return { paragraphs: next, applied };
 }
 
 /** True when this edit would change a track that is not the local 修订署名. */
@@ -573,6 +597,46 @@ function snapshotWithParagraphRuns(
   });
 }
 
+function trackedIn(
+  blocks: WordSurfaceBlock[] | undefined,
+  colors: Map<string, number>,
+): WordTrackedView[] {
+  if (!blocks) {
+    return [];
+  }
+  const out: WordTrackedView[] = [];
+  const visit = (list: WordSurfaceBlock[]) => {
+    for (const block of list) {
+      if (block.kind === "table") {
+        for (const row of block.rows) {
+          for (const cell of row) {
+            visit(cell.blocks);
+          }
+        }
+        continue;
+      }
+      for (const row of collectBalloons(block.runs ?? [], colors)) {
+        out.push({
+          revId: row.revId,
+          ...(row.revIds && row.revIds.length > 0 ? { revIds: row.revIds } : {}),
+          change: row.change,
+          ...(row.parts && row.parts.length > 1 ? { parts: row.parts } : {}),
+          author: row.author,
+          text: row.text,
+          color: row.color,
+          ...(row.date ? { date: row.date } : {}),
+          ...(row.format ? { format: row.format } : {}),
+          ...(row.disposition === "accepted" ? { disposition: "accepted" as const } : {}),
+          ...(row.hunkId ? { hunkId: row.hunkId } : {}),
+          ...(row.hunkIds && row.hunkIds.length > 0 ? { hunkIds: row.hunkIds } : {}),
+        });
+      }
+    }
+  };
+  visit(blocks);
+  return out;
+}
+
 function finishSnapshot(
   snapshot: WordSurfaceSnapshot,
   nextParagraphs: WordSurfaceParagraph[],
@@ -585,17 +649,13 @@ function finishSnapshot(
   },
 ): WordSurfaceSnapshot {
   const colors = colorsForRuns(flatRuns);
-  const bodyTracked: WordTrackedView[] = collectBalloons(flatRuns, colors).map((row) => ({
-    revId: row.revId,
-    change: row.change,
-    author: row.author,
-    text: row.text,
-    color: row.color,
-    ...(row.date ? { date: row.date } : {}),
-    ...(row.format ? { format: row.format } : {}),
-    ...(row.disposition === "accepted" ? { disposition: "accepted" as const } : {}),
-  }));
-  const bodyIds = new Set(bodyTracked.map((row) => row.revId));
+  const bodyTracked = [
+    ...trackedIn(nextBlocks, colors),
+    ...trackedIn(storyBlocks?.headerBlocks, colors),
+    ...trackedIn(storyBlocks?.footnoteBlocks, colors),
+    ...trackedIn(storyBlocks?.footerBlocks, colors),
+  ];
+  const bodyIds = new Set(bodyTracked.flatMap((row) => row.revIds ?? [row.revId]));
   const extra = (snapshot.tracked ?? []).filter((row) => !bodyIds.has(row.revId));
   const tracked = [...extra, ...bodyTracked];
   return {
@@ -612,9 +672,11 @@ function finishSnapshot(
 
 function paragraphFromRuns(paragraph: WordSurfaceParagraph, runs: WordRevisionRun[]): WordSurfaceParagraph {
   const colors = colorsForRuns(runs);
+  const groups = contiguousGroupKeys(runs);
   let from = 0;
   const segments: WordSurfaceSegment[] = [];
-  for (const run of runs) {
+  runs.forEach((run, index) => {
+    const groupId = groups[index] || undefined;
     if (run.image) {
       from += run.text.length;
       segments.push({
@@ -624,11 +686,11 @@ function paragraphFromRuns(paragraph: WordSurfaceParagraph, runs: WordRevisionRu
         ...(run.image.heightPx != null ? { heightPx: run.image.heightPx } : {}),
         alt: "文档图片",
       });
-      continue;
+      return;
     }
     if (run.preservedXml && (!run.text || run.text === "\uFFFC")) {
       from += run.text.length || 1;
-      continue;
+      return;
     }
     const base = run.track
       ? {
@@ -641,12 +703,14 @@ function paragraphFromRuns(paragraph: WordSurfaceParagraph, runs: WordRevisionRu
           ...(run.track.date ? { date: run.track.date } : {}),
           ...(run.track.format ? { format: run.track.format } : {}),
           ...(run.track.disposition === "accepted" ? { disposition: "accepted" as const } : {}),
+          ...(run.track.hunkId ? { hunkId: run.track.hunkId } : {}),
+          ...(groupId ? { groupId } : {}),
           ...run.mark,
         }
       : { kind: "text" as const, text: run.text, ...run.mark };
     from += run.text.length;
     segments.push(base);
-  }
+  });
   return { ...paragraph, runs, segments };
 }
 
@@ -695,4 +759,80 @@ function closestAllFrom(paragraph: HTMLElement, node: Node): HTMLElement | null 
 
 function hiddenInView(mark: HTMLElement): boolean {
   return mark.hidden || mark.style.display === "none";
+}
+
+function segmentAfterDecision(
+  segment: WordSurfaceSegment,
+  revIds: ReadonlySet<string>,
+  decision: "accept" | "reject",
+): WordSurfaceSegment[] {
+  if (segment.kind !== "tracked" || !revIds.has(segment.revId)) {
+    return [segment];
+  }
+  const deleted = segment.change === "del" || segment.change === "moveFrom";
+  const keep = decision === "accept" ? !deleted : deleted;
+  return keep ? [{ kind: "text", text: segment.text }] : [];
+}
+
+function blocksAfterDecision(
+  blocks: WordSurfaceBlock[],
+  revIds: ReadonlySet<string>,
+  decision: "accept" | "reject",
+): WordSurfaceBlock[] {
+  return blocks.map((block) => {
+    if (block.kind === "table") {
+      return {
+        ...block,
+        rows: block.rows.map((row) =>
+          row.map((cell) => ({
+            ...cell,
+            blocks: blocksAfterDecision(cell.blocks, revIds, decision),
+          })),
+        ),
+      };
+    }
+    return {
+      ...block,
+      segments: block.segments.flatMap((segment) => segmentAfterDecision(segment, revIds, decision)),
+    };
+  });
+}
+
+/** Drop revisions that were just accepted or rejected, including when reload still lists them. */
+export function dropDecidedRevisions(
+  snapshot: WordSurfaceSnapshot,
+  revIds: readonly string[],
+  decision: "accept" | "reject",
+): WordSurfaceSnapshot {
+  if (revIds.length === 0) {
+    return snapshot;
+  }
+  if (snapshotHasEngine(snapshot)) {
+    let paragraphs = paragraphRunsOf(snapshot);
+    for (const id of revIds) {
+      paragraphs = decideParagraphRuns(paragraphs, id, decision);
+    }
+    const next = snapshotWithRuns(snapshot, paragraphs);
+    const drop = new Set(revIds);
+    // snapshotWithRuns keeps tracked rows that are no longer in the runs
+    // (header marks). A revision we just decided must not come back that way.
+    return {
+      ...next,
+      tracked: (next.tracked ?? []).filter(
+        (row) => !(row.revIds ?? [row.revId]).some((id) => drop.has(id)),
+      ),
+    };
+  }
+  const ids = new Set(revIds);
+  return {
+    ...snapshot,
+    tracked: (snapshot.tracked ?? []).filter(
+      (row) => !(row.revIds ?? [row.revId]).some((id) => ids.has(id)),
+    ),
+    paragraphs: snapshot.paragraphs.map((paragraph) => ({
+      ...paragraph,
+      segments: paragraph.segments.flatMap((segment) => segmentAfterDecision(segment, ids, decision)),
+    })),
+    blocks: blocksAfterDecision(snapshot.blocks, ids, decision),
+  };
 }

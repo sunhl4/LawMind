@@ -7,6 +7,7 @@ import JSZip from "jszip";
 import { afterEach, describe, expect, it } from "vitest";
 import { handleWordSurfaceRoutes } from "./lawmind-server-route-word-surface.js";
 import type { LawmindDispatchContext } from "./lawmind-server-route-types.js";
+import { decideRuns, type WordRevisionRun } from "../../../src/lawmind/drafts/word-revision/index.js";
 
 function mockRes(): http.ServerResponse & { body?: { ok?: boolean; fileName?: string; error?: string }; status?: number } {
   const res = {
@@ -187,6 +188,120 @@ describe("word surface route", () => {
     expect(xml).toContain("<w:t>五日</w:t>");
     expect(xml).not.toContain("<w:ins ");
     expect(xml).toContain("<w:del ");
+  });
+
+  it("keeps contiguous markup as one revision from the file through accept and reject", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "lm-word-group-"));
+    dirs.push(workspaceDir);
+    const abs = path.join(workspaceDir, "合同.docx");
+    const zip = new JSZip();
+    zip.file(
+      "word/document.xml",
+      `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p>` +
+        `<w:r><w:t>甲方应于</w:t></w:r>` +
+        `<w:del w:id="1" w:author="李律师" w:date="2026-10-30T00:00:00Z"><w:r><w:delText>十</w:delText></w:r></w:del>` +
+        `<w:ins w:id="2" w:author="李律师" w:date="2026-10-30T00:00:00Z"><w:r><w:t>五个工作</w:t></w:r></w:ins>` +
+        `<w:r><w:t>日内付款的</w:t></w:r>` +
+        `<w:del w:id="3" w:author="李律师" w:date="2026-10-30T00:00:00Z"><w:r><w:delText>好</w:delText></w:r></w:del>` +
+        `<w:ins w:id="4" w:author="李律师" w:date="2026-10-30T00:00:00Z"><w:r><w:t>优质</w:t></w:r></w:ins>` +
+        `<w:r><w:t>的客户</w:t></w:r>` +
+        `</w:p></w:body></w:document>`,
+    );
+    await fs.writeFile(abs, await zip.generateAsync({ type: "nodebuffer" }));
+    const ctx = {
+      workspaceDir,
+      envFile: undefined,
+      userEnvPath: path.join(workspaceDir, ".env.lawmind"),
+      policy: { loaded: false, policy: null },
+    } as LawmindDispatchContext;
+
+    type TrackedRow = {
+      revId: string;
+      revIds?: string[];
+      parts?: Array<{ change: string; text: string }>;
+    };
+    type Segment = { kind: string; revId?: string; groupId?: string; text?: string; change?: string };
+    type Page = {
+      ok?: boolean;
+      tracked?: TrackedRow[];
+      paragraphs?: Array<{ runs?: WordRevisionRun[]; segments?: Segment[] }>;
+    };
+
+    const getPage = async (): Promise<Page> => {
+      const res = mockRes();
+      await handleWordSurfaceRoutes({
+        ctx,
+        req: { method: "GET" } as http.IncomingMessage,
+        res,
+        url: new URL("http://127.0.0.1/api/word-surface?root=workspace&path=合同.docx"),
+        pathname: "/api/word-surface",
+        c: {},
+      });
+      return res.body as Page;
+    };
+    const saveRuns = async (paragraphs: WordRevisionRun[][]) => {
+      const stream = new PassThrough();
+      stream.end(JSON.stringify({ root: "workspace", path: "合同.docx", paragraphs }), "utf8");
+      const res = mockRes();
+      await handleWordSurfaceRoutes({
+        ctx,
+        req: Object.assign(stream, { method: "POST" }) as http.IncomingMessage,
+        res,
+        url: new URL("http://127.0.0.1/api/word-surface/save"),
+        pathname: "/api/word-surface/save",
+        c: {},
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+    };
+    const readXml = async () => {
+      const packed = await JSZip.loadAsync(await fs.readFile(abs));
+      return (await packed.file("word/document.xml")?.async("string")) ?? "";
+    };
+
+    const opened = await getPage();
+    expect(opened.tracked?.map((row) => row.revIds)).toEqual([
+      ["1", "2"],
+      ["3", "4"],
+    ]);
+    expect(opened.tracked?.[0]?.parts).toEqual([
+      { change: "del", text: "十" },
+      { change: "ins", text: "五个工作" },
+    ]);
+    const segments = (opened.paragraphs ?? []).flatMap((paragraph) => paragraph.segments ?? []);
+    expect(segments.find((segment) => segment.text === "五个工作")?.groupId).toBe("1");
+    expect(segments.find((segment) => segment.text === "优质")?.groupId).toBe("3");
+
+    let runs = (opened.paragraphs ?? []).map((paragraph) => paragraph.runs ?? []);
+    for (const id of opened.tracked?.[0]?.revIds ?? []) {
+      runs = runs.map((paragraph) => decideRuns(paragraph, id, "accept"));
+    }
+    await saveRuns(runs);
+
+    const accepted = await getPage();
+    expect(accepted.tracked?.map((row) => row.revIds)).toEqual([["3", "4"]]);
+    const acceptedXml = await readXml();
+    const marked = [...acceptedXml.matchAll(/<w:(?:t|delText)[^>]*>([^<]*)<\/w:(?:t|delText)>/g)]
+      .map((match) => match[1])
+      .join("");
+    expect(marked).toBe("甲方应于五个工作日内付款的好优质的客户");
+    expect(acceptedXml).not.toContain('w:id="1"');
+    expect(acceptedXml).not.toContain('w:id="2"');
+    expect(acceptedXml).toContain('w:id="3"');
+    expect(acceptedXml).toContain('w:id="4"');
+
+    runs = (accepted.paragraphs ?? []).map((paragraph) => paragraph.runs ?? []);
+    for (const id of accepted.tracked?.[0]?.revIds ?? []) {
+      runs = runs.map((paragraph) => decideRuns(paragraph, id, "reject"));
+    }
+    await saveRuns(runs);
+
+    const rejected = await getPage();
+    expect(rejected.tracked ?? []).toEqual([]);
+    const finalXml = await readXml();
+    expect(finalXml).not.toContain("<w:del");
+    expect(finalXml).not.toContain("<w:ins");
+    const visible = [...finalXml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((match) => match[1]).join("");
+    expect(visible).toBe("甲方应于五个工作日内付款的好的客户");
   });
 
   it("POST compare writes a sibling 比较稿 with tracked diffs", async () => {

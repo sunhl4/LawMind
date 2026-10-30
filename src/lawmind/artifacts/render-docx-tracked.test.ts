@@ -2,10 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { consumedFindText, revisionMarkupIsMinimal } from "../drafts/minimal-edit-script.js";
 import {
   applyRedlineHunksWithOfficeCli,
   renderDocxWithTrackedChanges,
   resolveOfficeCliFindReplace,
+  resolveOfficeCliFindReplaceOps,
 } from "./render-docx-tracked.js";
 import { renderDocxWithOptions } from "./render-docx.js";
 
@@ -36,6 +38,8 @@ const spawnState = vi.hoisted(() => ({
   /** Per-`set` matched overrides (shifted in call order); falls back to `matched`. */
   matchedQueue: [] as number[],
   lastSetArgs: [] as string[],
+  /** Every `set` argv, in call order. */
+  setArgs: [] as string[][],
 }));
 
 vi.mock("node:child_process", () => {
@@ -44,6 +48,7 @@ vi.mock("node:child_process", () => {
     const isClose = args[0] === "close";
     if (isSet) {
       spawnState.lastSetArgs = [...args];
+      spawnState.setArgs.push([...args]);
     }
     const matched =
       isSet && spawnState.matchedQueue.length > 0
@@ -118,6 +123,7 @@ afterEach(() => {
   spawnState.matched = 1;
   spawnState.matchedQueue = [];
   spawnState.lastSetArgs = [];
+  spawnState.setArgs = [];
 });
 
 describe("renderDocxWithTrackedChanges", () => {
@@ -238,6 +244,24 @@ describe("resolveOfficeCliFindReplace", () => {
     expect(fr?.replace).toBe("（上海）有");
   });
 
+  it("never hands officecli a find/replace that still contains a long unchanged run", () => {
+    const ops = resolveOfficeCliFindReplaceOps(
+      {
+        hunkId: "h-pad",
+        sectionIndex: 0,
+        before: "",
+        after: "额外",
+        status: "pending",
+        granularity: "surgical",
+      },
+      "并赔偿甲方因此而造成的额外实际损失。本条款永久有效",
+    );
+    expect(ops.length).toBeGreaterThan(0);
+    for (const op of ops) {
+      expect(revisionMarkupIsMinimal(consumedFindText(op.find, op.regex), op.replace)).toBe(true);
+    }
+  });
+
   it("minimizes end-of-sentence cap inserts to period anchor", () => {
     const fr = resolveOfficeCliFindReplace(
       {
@@ -319,6 +343,42 @@ describe("applyRedlineHunksWithOfficeCli", () => {
     });
     expect(r.applied).toBe(1);
     expect(spawnState.lastSetArgs).toContain("revision.author=张律师");
+  });
+
+  it("writes a different revision date for each hunk (human review rhythm)", async () => {
+    spawnState.setSucceeds = true;
+    const r = await applyRedlineHunksWithOfficeCli({
+      workingDocxPath: "/tmp/x.docx",
+      proposals: [
+        { hunkId: "a", sectionIndex: 0, before: "十日", after: "五日", status: "accepted" },
+        { hunkId: "b", sectionIndex: 0, before: "三十日", after: "十五日", status: "accepted" },
+      ],
+      now: new Date("2026-10-30T09:30:00Z"),
+      timestampSeed: "task-1",
+    });
+    expect(r.applied).toBe(2);
+    const dates = spawnState.setArgs
+      .map((args) => args.find((arg) => arg.startsWith("revision.date=")))
+      .map((arg) => arg?.slice("revision.date=".length));
+    expect(dates).toHaveLength(2);
+    expect(dates[0]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    expect(dates[0]).not.toBe(dates[1]);
+    expect(r.revisionDates?.a).toBe(dates[0]);
+    expect(r.revisionDates?.b).toBe(dates[1]);
+  });
+
+  it("does not record a revision date for hunks officecli did not apply", async () => {
+    spawnState.setSucceeds = false;
+    const r = await applyRedlineHunksWithOfficeCli({
+      workingDocxPath: "/tmp/x.docx",
+      proposals: [
+        { hunkId: "a", sectionIndex: 0, before: "十日", after: "五日", status: "accepted" },
+      ],
+      now: new Date("2026-10-30T09:30:00Z"),
+      timestampSeed: "task-1",
+    });
+    expect(r.applied).toBe(0);
+    expect(r.revisionDates).toEqual({});
   });
 
   it('uses r"..." find form for regex lookbehind (no regex=true prop)', async () => {

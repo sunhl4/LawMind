@@ -26,6 +26,7 @@ import {
   computeMinimalEditSpans,
   expressInsertAsAnchorReplace,
   insertPointInAfterText,
+  MAX_CONSUMED_ANCHOR_CHARS,
 } from "../../drafts/minimal-edit-script.js";
 import type { RedlineHunk } from "../../drafts/redline-proposal.js";
 
@@ -629,8 +630,8 @@ export function recordWordAddinSuggestionDecision(params: {
   return { ok: true, request: row };
 }
 
-/** 纯插入时取插入点之后多少字作为锚点（与 officecli lookbehind 同一思路）。 */
-const WORD_ADDIN_INSERT_ANCHOR_CHARS = 6;
+/** 纯插入锚点吃进修订的字数上限，与最短改动门槛同一口径。 */
+const WORD_ADDIN_INSERT_ANCHOR_CHARS = MAX_CONSUMED_ANCHOR_CHARS;
 /** 重算后查找串仍长过这个数，视为整段替换，不交给 Word 就地查找。 */
 const WORD_ADDIN_MAX_FIND_CHARS = 60;
 
@@ -643,7 +644,7 @@ const WORD_ADDIN_MAX_FIND_CHARS = 60;
  *
  * 三类处理：
  * - 替换类最短片段 → find/replace 直接用；
- * - 纯插入 → 换成「插入点之后 6 字锚点」的替换（插入内容 + 锚点），一个字都不删；
+ * - 纯插入 → 换成插入点之后至多 5 字锚点的替换（插入内容 + 锚点）；锚点再长就会把没改的字写进修订；
  * - 过长的改动（真换整节、或改动本身很长）→ 不上插件，计入 skippedSectionHunks。
  */
 export function hunksFromRedlineProposal(proposal: { hunks: RedlineHunk[] }): {

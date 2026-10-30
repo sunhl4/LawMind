@@ -3,7 +3,9 @@ import {
   MINIMAL_EDIT_MAX_UNCHANGED_RUN,
   auditMinimalEditSpans,
   computeMinimalEditSpans,
+  consumedFindText,
   longestUnchangedRunInside,
+  revisionMarkupIsMinimal,
   type MinimalChangeSpan,
 } from "./minimal-edit-script.js";
 
@@ -95,12 +97,27 @@ describe("computeMinimalEditSpans", () => {
     const spans = computeMinimalEditSpans(before, after);
     expect(replay(before, spans)).toBe(after);
     // Buyer→Seller 只标真正不同的字；共有的 "er" 与后半句整段都不进改动。
-    // 逐字最短对英文一视同仁（不做「整词替换」的特殊处理）：
-    // ten (10)→thirty (30) 里共有的首字母 t 与结尾 0) 都留在修订轨外。
-    expect(spans.map((s) => `${s.before}→${s.after}`)).toEqual(["Buy→Sell", "en (1→hirty (3"]);
+    // ten (10)→thirty (30)：共有的 t、空格加括号、以及结尾 0) 都留在修订轨外。
+    expect(spans.map((s) => `${s.before}→${s.after}`)).toEqual(["Buy→Sell", "en→hirty", "1→3"]);
     const covered = spans.map((s) => s.before).join("|");
     expect(covered).not.toContain("shall pay within");
     expect(covered).not.toContain("days after invoice");
+  });
+
+  it("peels a short unchanged infix when both sides still change", () => {
+    expect(
+      computeMinimalEditSpans("万分之五支付违约金", "万分之三支付赔偿金").map(
+        (span) => `${span.before}→${span.after}`,
+      ),
+    ).toEqual(["五→三", "违约→赔偿"]);
+    expect(
+      computeMinimalEditSpans("甲方于十日内付款", "乙方于五个工作日内付款").map(
+        (span) => `${span.before}→${span.after}`,
+      ),
+    ).toEqual(["甲→乙", "十→五个工作"]);
+    const rewrite = computeMinimalEditSpans("完全不同的句子甲", "另一套表述的文字乙");
+    expect(rewrite).toHaveLength(1);
+    expect(replay("完全不同的句子甲", rewrite)).toBe("另一套表述的文字乙");
   });
 
   it("identical text produces no changes", () => {
@@ -164,5 +181,30 @@ describe("auditMinimalEditSpans", () => {
     });
     expect(audit.ok).toBe(false);
     expect(audit.violations.some((v) => v.reason.includes("重叠"))).toBe(true);
+  });
+});
+
+describe("revisionMarkupIsMinimal", () => {
+  it("rejects a find/replace that wraps unchanged context around an insert", () => {
+    const left = "并赔偿甲方因此而造成的";
+    const right = "实际损失。";
+    const inserted = "额外";
+    expect(revisionMarkupIsMinimal(left + right, left + inserted + right)).toBe(false);
+  });
+
+  it("keeps a one-character anchor inside the cap", () => {
+    expect(consumedFindText("(?<=甲方：小华半导体)有", true)).toBe("有");
+    expect(revisionMarkupIsMinimal("有", "（上海）有")).toBe(true);
+    expect(longestUnchangedRunInside({ before: "有", after: "（上海）有" })).toBeLessThan(
+      MINIMAL_EDIT_MAX_UNCHANGED_RUN,
+    );
+  });
+
+  it("every span the constructor emits is minimal markup", () => {
+    const before = "甲方应当在收到发票之日起十日内付款。";
+    const after = "乙方应当在收到发票之日起五个工作日内付款。";
+    for (const span of computeMinimalEditSpans(before, after)) {
+      expect(revisionMarkupIsMinimal(span.before, span.after)).toBe(true);
+    }
   });
 });

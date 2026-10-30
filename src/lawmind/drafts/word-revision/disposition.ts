@@ -8,23 +8,50 @@ import type { WordRevisionRun } from "./types.js";
 export const DISPOSITION_PART = "word/lawmind-disposition.xml";
 
 export function parseDispositionXml(xml: string): string[] {
-  const ids: string[] = [];
+  return parseDispositionPart(xml).acceptedIds;
+}
+
+export type DispositionPart = {
+  acceptedIds: string[];
+  /** Track id → redline hunk id, for tracks LawMind materialized. */
+  trackHunks: Record<string, string>;
+};
+
+export function parseDispositionPart(xml: string): DispositionPart {
+  const acceptedIds: string[] = [];
   const pattern = /<id>([^<]*)<\/id>/g;
   for (const match of xml.matchAll(pattern)) {
     const id = decodeXml(match[1] ?? "").trim();
-    if (id && !ids.includes(id)) {
-      ids.push(id);
+    if (id && !acceptedIds.includes(id)) {
+      acceptedIds.push(id);
     }
   }
-  return ids;
+  const trackHunks: Record<string, string> = {};
+  const tracks = /<track\b[^>]*\bid="([^"]*)"[^>]*\bhunk="([^"]*)"[^>]*\/?>/g;
+  for (const match of xml.matchAll(tracks)) {
+    const id = decodeXml(match[1] ?? "").trim();
+    const hunkId = decodeXml(match[2] ?? "").trim();
+    if (id && hunkId) {
+      trackHunks[id] = hunkId;
+    }
+  }
+  return { acceptedIds, trackHunks };
 }
 
-export function serializeDispositionXml(ids: readonly string[]): string {
+export function serializeDispositionXml(
+  ids: readonly string[],
+  trackHunks?: Readonly<Record<string, string>>,
+): string {
   const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
   const body = unique.map((id) => `<id>${encodeXml(id)}</id>`).join("");
+  const tracks = Object.entries(trackHunks ?? {})
+    .map(([id, hunkId]) => [id.trim(), hunkId.trim()] as const)
+    .filter(([id, hunkId]) => id && hunkId)
+    .map(([id, hunkId]) => `<track id="${encodeXml(id)}" hunk="${encodeXml(hunkId)}"/>`)
+    .join("");
   return (
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
-    `<lawmindDisposition xmlns="urn:lawmind:revision-disposition">${body}</lawmindDisposition>`
+    `<lawmindDisposition xmlns="urn:lawmind:revision-disposition">${body}${tracks}</lawmindDisposition>`
   );
 }
 
@@ -39,6 +66,43 @@ export function acceptedIdsInRuns(paragraphs: readonly WordRevisionRun[][]): str
     }
   }
   return ids;
+}
+
+/**
+ * Track id → hunk id written in this save, plus mappings that live outside the
+ * saved runs (e.g. a story the caller did not include). Ids that were in the
+ * previous document but are gone now are dropped, so a removed revision cannot
+ * keep pointing at an old hunk.
+ */
+export function nextTrackHunks(params: {
+  previous: Readonly<Record<string, string>>;
+  previousStoryIds: ReadonlySet<string>;
+  paragraphs: readonly WordRevisionRun[][];
+}): Record<string, string> {
+  const present = new Set<string>();
+  for (const runs of params.paragraphs) {
+    for (const run of runs) {
+      if (run.track?.id) {
+        present.add(run.track.id);
+      }
+    }
+  }
+  const next: Record<string, string> = {};
+  for (const [id, hunkId] of Object.entries(params.previous)) {
+    if (!params.previousStoryIds.has(id) && !present.has(id) && id && hunkId) {
+      next[id] = hunkId;
+    }
+  }
+  for (const runs of params.paragraphs) {
+    for (const run of runs) {
+      const id = run.track?.id;
+      const hunkId = run.track?.hunkId;
+      if (id && hunkId) {
+        next[id] = hunkId;
+      }
+    }
+  }
+  return next;
 }
 
 /** Ids accepted in this save, plus accepted ids that live outside the saved story. */

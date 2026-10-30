@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import JSZip from "jszip";
 import { resolveWordRevisionAuthor } from "../../policy/word-revision-author.js";
 import type { RedlineHunk } from "../redline-proposal.js";
+import { planRevisionTimestamps } from "../revision-timestamps.js";
 import {
   defaultWordPage,
   extractDocxLayout,
@@ -14,7 +15,8 @@ import { makeAuthorClock, maxTrackId } from "./compose.js";
 import {
   DISPOSITION_PART,
   nextDispositionIds,
-  parseDispositionXml,
+  nextTrackHunks,
+  parseDispositionPart,
   serializeDispositionXml,
   trackIdsInDocumentXml,
 } from "./disposition.js";
@@ -35,6 +37,8 @@ export async function loadDocxStories(absPath: string): Promise<{
   stories: WordRevisionStory[];
   comments: WordRevisionComment[];
   acceptedRevIds: string[];
+  /** Track id → redline hunk id, read from the LawMind sidecar. */
+  trackHunks: Record<string, string>;
   zip: JSZip;
 }> {
   const zip = await JSZip.loadAsync(await fs.readFile(absPath));
@@ -63,11 +67,13 @@ export async function loadDocxStories(absPath: string): Promise<{
   }
   const commentsXml = (await zip.file("word/comments.xml")?.async("string")) ?? "";
   const dispositionXml = (await zip.file(DISPOSITION_PART)?.async("string")) ?? "";
+  const disposition = parseDispositionPart(dispositionXml);
   return {
     page: layout.page ?? defaultWordPage(),
     stories,
     comments: parseCommentsXml(commentsXml),
-    acceptedRevIds: parseDispositionXml(dispositionXml),
+    acceptedRevIds: disposition.acceptedIds,
+    trackHunks: disposition.trackHunks,
     zip,
   };
 }
@@ -84,6 +90,7 @@ export function layoutRunToRevision(run: WordLayoutRun): WordRevisionRun {
             ...(run.track.date ? { date: run.track.date } : {}),
             ...(run.track.moveName ? { moveName: run.track.moveName } : {}),
             ...(run.track.format ? { format: run.track.format } : {}),
+            ...(run.track.hunkId ? { hunkId: run.track.hunkId } : {}),
           },
         }
       : {}),
@@ -129,7 +136,11 @@ export function materializeLayoutBlocks(
     startId = Math.max(startId, maxTrackId(runs) + 1);
   }
   const author = makeAuthorClock(resolveWordRevisionAuthor(authorName), startId);
-  return paragraphs.map((runs) => materializeHunks(runs, pending, author));
+  const dates = planRevisionTimestamps({
+    count: pending.length,
+    seed: pending.map((hunk) => `${hunk.before}\u0000${hunk.after}`).join("\u0001") || authorName,
+  });
+  return paragraphs.map((runs) => materializeHunks(runs, pending, author, dates));
 }
 
 export type ParagraphRunWrite =
@@ -173,18 +184,25 @@ export async function saveParagraphRuns(params: {
     storyTrackIds.push(...trackIdsInDocumentXml(storyXml));
   }
   const previousXml = (await zip.file(DISPOSITION_PART)?.async("string")) ?? "";
+  const previousDisposition = parseDispositionPart(previousXml);
   const allRuns = [
     ...writes.map((row) => row.runs),
     ...(params.stories ?? []).flatMap((story) =>
       story.paragraphs.map((row) => (Array.isArray(row) ? row : row.runs)),
     ),
   ];
+  const previousStoryIds = new Set([...trackIdsInDocumentXml(documentXml), ...storyTrackIds]);
   const accepted = nextDispositionIds({
-    previousAccepted: parseDispositionXml(previousXml),
-    previousStoryIds: new Set([...trackIdsInDocumentXml(documentXml), ...storyTrackIds]),
+    previousAccepted: previousDisposition.acceptedIds,
+    previousStoryIds,
     paragraphs: allRuns,
   });
-  zip.file(DISPOSITION_PART, serializeDispositionXml(accepted));
+  const trackHunks = nextTrackHunks({
+    previous: previousDisposition.trackHunks,
+    previousStoryIds,
+    paragraphs: allRuns,
+  });
+  zip.file(DISPOSITION_PART, serializeDispositionXml(accepted, trackHunks));
   await ensureDispositionPart(zip);
   if (params.comments) {
     zip.file("word/comments.xml", serializeCommentsXml(params.comments));

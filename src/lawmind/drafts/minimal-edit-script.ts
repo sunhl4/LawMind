@@ -128,6 +128,93 @@ function findLongestCommonAnchor(
 }
 
 /**
+ * 4 字以上的锚点已经摘完之后，再剥短的未改原文。
+ * 2–3 字（「支付」）两侧都还有改动就剥。1 个字（「于」「的」）只在至少一侧是很短的改动时剥，
+ * 避免把整句改写切成一串单字。
+ */
+function findShortUnchangedInfix(
+  b: string,
+  a: string,
+): { bIndex: number; aIndex: number; length: number } | null {
+  for (let length = MINIMAL_ANCHOR_CHARS - 1; length >= 2; length -= 1) {
+    const hit = findAnchorOfLength(b, a, length);
+    if (hit && flanksBothChange(b, a, hit.bIndex, hit.aIndex, length)) {
+      return { ...hit, length };
+    }
+  }
+  let best: { bIndex: number; aIndex: number; align: number } | null = null;
+  for (let i = 0; i < b.length; i += 1) {
+    const ch = b[i] ?? "";
+    if (!ch || b.indexOf(ch) !== i || b.indexOf(ch, i + 1) >= 0) {
+      continue;
+    }
+    const j = a.indexOf(ch);
+    if (j < 0 || a.indexOf(ch, j + 1) >= 0) {
+      continue;
+    }
+    if (
+      !flanksBothChange(b, a, i, j, 1) ||
+      !shortFlank(b, a, i, j, 1) ||
+      !isCjkChar(ch) ||
+      flanksRearrange(b, a, i, j, 1)
+    ) {
+      continue;
+    }
+    const align = Math.abs(i - j);
+    if (!best || align < best.align) {
+      best = { bIndex: i, aIndex: j, align };
+    }
+  }
+  return best ? { bIndex: best.bIndex, aIndex: best.aIndex, length: 1 } : null;
+}
+
+function flanksBothChange(
+  b: string,
+  a: string,
+  bIndex: number,
+  aIndex: number,
+  length: number,
+): boolean {
+  const leftChanges = b.slice(0, bIndex) !== a.slice(0, aIndex);
+  const rightChanges = b.slice(bIndex + length) !== a.slice(aIndex + length);
+  return leftChanges && rightChanges;
+}
+
+function shortFlank(b: string, a: string, bIndex: number, aIndex: number, length: number): boolean {
+  const left = Math.min(bIndex, aIndex);
+  const right = Math.min(b.length - bIndex - length, a.length - aIndex - length);
+  return left <= 2 || right <= 2;
+}
+
+/** 单个汉字可以剥；英文字母、数字和括号留在原处，避免把词和「二十四（24）」切碎。 */
+function isCjkChar(ch: string): boolean {
+  return /[\u3400-\u9fff]/.test(ch);
+}
+
+function flanksRearrange(
+  b: string,
+  a: string,
+  bIndex: number,
+  aIndex: number,
+  length: number,
+): boolean {
+  const leftB = b.slice(0, bIndex);
+  const leftA = a.slice(0, aIndex);
+  const rightB = b.slice(bIndex + length);
+  const rightA = a.slice(aIndex + length);
+  const crosses = (x: string, y: string) => {
+    for (let i = 0; i < x.length; i += 1) {
+      const ch = x[i];
+      if (ch && y.includes(ch)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  return crosses(leftA, rightB) || crosses(rightA, leftB);
+}
+
+/**
  * 把任意 (before, after) 重算成一组**最长保留**的最短改动。
  * before === after 时返回空数组（无事可做）。
  */
@@ -155,7 +242,10 @@ export function computeMinimalEditSpans(before: string, after: string): MinimalC
       out.push({ spanStart: at, spanEnd: at + b.length, before: b, after: a });
       continue;
     }
-    const anchor = b === "" || a === "" ? null : findLongestCommonAnchor(b, a);
+    const anchor =
+      b === "" || a === ""
+        ? null
+        : (findLongestCommonAnchor(b, a) ?? findShortUnchangedInfix(b, a));
     if (!anchor) {
       out.push({ spanStart: at, spanEnd: at + b.length, before: b, after: a });
       continue;
@@ -181,15 +271,72 @@ export function longestUnchangedRunInside(span: { before: string; after: string 
   return anchor ? anchor.length : 0;
 }
 
-/** 纯插入时取插入点之后多少字作为锚点（Word 修订轨与 officecli lookbehind 同一思路）。 */
-export const INSERT_ANCHOR_CHARS = 6;
+/**
+ * 写进 Word 的删除串和插入串是否仍是最短改动。
+ * 定位用的前后文若被放进 find/replace，这里会变成 ≥6 字的未改片段。
+ */
+export function revisionMarkupIsMinimal(deleted: string, inserted: string): boolean {
+  return (
+    longestUnchangedRunInside({ before: deleted, after: inserted }) < MINIMAL_EDIT_MAX_UNCHANGED_RUN
+  );
+}
+
+/**
+ * officecli 正则里真正被匹配、因而会变成 w:del 的那一段。
+ * `(?<=…)` / `(?=…)` 不消耗字符，不进修订。
+ */
+export function consumedFindText(find: string, regex?: boolean): string {
+  if (!regex) {
+    return find;
+  }
+  let rest = find;
+  if (rest.startsWith("(?<=")) {
+    const end = closingParen(rest, 0);
+    if (end >= 0) {
+      rest = rest.slice(end + 1);
+    }
+  }
+  const ahead = rest.indexOf("(?=");
+  if (ahead >= 0) {
+    rest = rest.slice(0, ahead);
+  }
+  return rest;
+}
+
+function closingParen(text: string, openAt: number): number {
+  let depth = 0;
+  for (let i = openAt; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "\\") {
+      i += 1;
+      continue;
+    }
+    if (ch === "(") {
+      depth += 1;
+    } else if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
+/** 纯插入时，被 find 吃掉、又原样出现在 replace 里的锚点，最长只能到这个数。 */
+export const MAX_CONSUMED_ANCHOR_CHARS = MINIMAL_EDIT_MAX_UNCHANGED_RUN - 1;
+
+/** 纯插入时取插入点之后多少字作为锚点。不得超过 {@link MAX_CONSUMED_ANCHOR_CHARS}。 */
+export const INSERT_ANCHOR_CHARS = MAX_CONSUMED_ANCHOR_CHARS;
 
 /**
  * 把**纯插入**的最短改动表达成 find/replace。
  *
  * 有些落笔面只会做 find/replace（跨文书一致改、Word 插件）。若把这处改动写成
  * 「find 为空」，就会被误判成「本档没有该锚点」而漏改。所以改成：
- * find = 插入点之后的原文锚点；replace = 插入内容 + 该锚点 —— 一个字都不删。
+ * find = 插入点之后的原文锚点（至多 {@link MAX_CONSUMED_ANCHOR_CHARS} 字）；
+ * replace = 插入内容 + 该锚点。锚点会随替换重写一次，所以不能再长，
+ * 否则修订里会出现一段没改过的字。
  *
  * 文末插入没有右侧原文可锚：返回 null，由调用方如实计入「无法就地落改」。
  */
@@ -205,7 +352,10 @@ export function expressInsertAsAnchorReplace(params: {
   if (!inserted) {
     return null;
   }
-  const width = params.anchorChars ?? INSERT_ANCHOR_CHARS;
+  const width = Math.min(
+    Math.max(1, params.anchorChars ?? INSERT_ANCHOR_CHARS),
+    MAX_CONSUMED_ANCHOR_CHARS,
+  );
   const anchor = afterText.slice(insertAt, insertAt + width);
   if (!anchor) {
     return null;

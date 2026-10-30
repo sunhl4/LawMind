@@ -168,24 +168,97 @@ describe("Word revision compose", () => {
     ).toBeUndefined();
   });
 
-  it("lists merged balloons in document order", () => {
+  it("lists one balloon when a delete and insert are not split by original text", () => {
     const colors = colorsForRuns(sample());
     expect(collectBalloons(sample(), colors)).toEqual([
       expect.objectContaining({
         revId: "1",
+        revIds: ["1", "2"],
         change: "del",
         author: "李律师",
-        text: "十日",
-        color: 0,
-      }),
-      expect.objectContaining({
-        revId: "2",
-        change: "ins",
-        author: "李律师",
-        text: "五日",
+        parts: [
+          { change: "del", text: "十日" },
+          { change: "ins", text: "五日" },
+        ],
         color: 0,
       }),
     ]);
+  });
+
+  it("keeps two revisions when unchanged text sits between them", () => {
+    const runs: WordRevisionRun[] = [
+      {
+        text: "十",
+        track: { kind: "del", id: "1", author: "李律师", date: "2026-10-01T00:00:00Z" },
+      },
+      {
+        text: "五个工作",
+        track: { kind: "ins", id: "2", author: "李律师", date: "2026-10-01T00:00:00Z" },
+      },
+      { text: "日内付款的" },
+      {
+        text: "好",
+        track: { kind: "del", id: "3", author: "李律师", date: "2026-10-01T00:00:00Z" },
+      },
+      {
+        text: "优质",
+        track: { kind: "ins", id: "4", author: "李律师", date: "2026-10-01T00:00:00Z" },
+      },
+      { text: "的客户" },
+    ];
+    const balloons = collectBalloons(runs, colorsForRuns(runs));
+    expect(balloons.map((row) => row.revIds)).toEqual([
+      ["1", "2"],
+      ["3", "4"],
+    ]);
+  });
+
+  it("keeps every hunk when adjacent replacements form one revision", () => {
+    const runs: WordRevisionRun[] = [
+      {
+        text: "十",
+        track: {
+          kind: "del",
+          id: "1",
+          author: "李律师",
+          date: "2026-10-01T00:00:00Z",
+          hunkId: "h1",
+        },
+      },
+      {
+        text: "五",
+        track: {
+          kind: "ins",
+          id: "2",
+          author: "李律师",
+          date: "2026-10-01T00:00:00Z",
+          hunkId: "h1",
+        },
+      },
+      {
+        text: "好",
+        track: {
+          kind: "del",
+          id: "3",
+          author: "李律师",
+          date: "2026-10-01T00:00:00Z",
+          hunkId: "h2",
+        },
+      },
+      {
+        text: "优质",
+        track: {
+          kind: "ins",
+          id: "4",
+          author: "李律师",
+          date: "2026-10-01T00:00:00Z",
+          hunkId: "h2",
+        },
+      },
+    ];
+    const [balloon] = collectBalloons(runs, colorsForRuns(runs));
+    expect(balloon?.revIds).toEqual(["1", "2", "3", "4"]);
+    expect(balloon?.hunkIds).toEqual(["h1", "h2"]);
   });
 
   it("materializes a pending hunk as LawMind tracks without recoloring native marks", () => {

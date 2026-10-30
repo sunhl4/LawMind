@@ -57,6 +57,15 @@ describe("trackCoversHunk", () => {
     expect(trackCoversHunk({ change: "ins", text: "五" }, hunk)).toBe(true);
     expect(trackCoversHunk({ change: "ins", text: "付款" }, hunk)).toBe(false);
   });
+
+  it("does not treat an unchanged stretch of the sentence as the revision", () => {
+    const hunk = { before: "甲方应于十日内付款。", after: "甲方应于五日内付款。" };
+    // 「付款」is in both sides; only 「十 → 五」is the hunk.
+    expect(trackCoversHunk({ change: "del", text: "付款" }, hunk)).toBe(false);
+    expect(trackCoversHunk({ change: "ins", text: "付款" }, hunk)).toBe(false);
+    expect(trackCoversHunk({ change: "del", text: "十" }, hunk)).toBe(true);
+    expect(trackCoversHunk({ change: "ins", text: "五" }, hunk)).toBe(true);
+  });
 });
 
 describe("paintPendingRevisions", () => {
@@ -202,6 +211,83 @@ describe("composeWordSurface", () => {
     expect(baselinePage).toContain("甲方应于");
     expect(baselinePage).toContain("内付款。");
     expect(fromBaseline.hunks.find((hunk) => hunk.hunkId === "pending-1")?.placed).toBe(true);
+  });
+
+  it("does not replay an accepted hunk onto a different sentence that contains the same words", () => {
+    const section = "甲方应于十日内付款。乙方应于十日内交货。";
+    const surface = composeWordSurface({
+      fileName: "补充协议.docx",
+      relPath: "cases/m/补充协议.docx",
+      root: "workspace",
+      docxParagraphs: ["甲方应于五日内付款。", "乙方应于十日内交货。"],
+      draft: { taskId: "t-accepted" } as ArtifactDraft,
+      proposal: {
+        taskId: "t-accepted",
+        baselineSections: [{ heading: "正文", body: section }],
+        hunks: [
+          {
+            hunkId: "done",
+            sectionIndex: 0,
+            before: "十",
+            after: "五",
+            status: "accepted",
+            granularity: "surgical",
+            spanStart: section.indexOf("十"),
+            spanEnd: section.indexOf("十") + 1,
+          },
+        ],
+        updatedAt: "2026-10-30T00:00:00.000Z",
+      },
+    });
+    const texts = surface.paragraphs.map((paragraph) =>
+      paragraph.segments.map((segment) => ("text" in segment ? segment.text : "")).join(""),
+    );
+    expect(texts[0]).toContain("五日");
+    expect(texts[1]).toBe("乙方应于十日内交货。");
+    expect(surface.tracked?.some((row) => row.text === "十")).toBe(false);
+  });
+
+  it("gives every painted hunk its own document-wide track ids and a hunk link", () => {
+    const proposal: RedlineProposal = {
+      taskId: "t-ids",
+      baselineSections: [{ heading: "正文", body: "甲方应于十日内付款。\n乙方应于三日内交付。" }],
+      hunks: [
+        {
+          hunkId: "h1",
+          sectionIndex: 0,
+          before: "十",
+          after: "五",
+          status: "pending",
+          granularity: "surgical",
+        },
+        {
+          hunkId: "h2",
+          sectionIndex: 0,
+          before: "三",
+          after: "七",
+          status: "pending",
+          granularity: "surgical",
+        },
+      ],
+      updatedAt: "2026-10-30T00:00:00.000Z",
+    };
+    const surface = composeWordSurface({
+      fileName: "补充协议.docx",
+      relPath: "cases/m/补充协议.docx",
+      root: "workspace",
+      docxParagraphs: ["甲方应于十日内付款。", "乙方应于三日内交付。"],
+      draft: { taskId: "t-ids" } as ArtifactDraft,
+      proposal,
+    });
+    const rows = surface.tracked ?? [];
+    expect(rows).toHaveLength(2);
+    // 一段里紧挨着的删除和插入是一处修订；两段之间有原文，所以是两处。
+    // 底层 w:id 仍然全文档唯一，避免接受时撞号。
+    expect(rows.map((row) => row.revIds)).toEqual([
+      ["1", "2"],
+      ["3", "4"],
+    ]);
+    expect(rows.map((row) => row.hunkId)).toEqual(["h1", "h2"]);
   });
 
   it("paints a surgical insertion at the end of the matching paragraph", () => {
@@ -645,18 +731,16 @@ describe("formatted word surface", () => {
     expect(clause?.kind).toBe("paragraph");
     if (clause?.kind === "paragraph") {
       expect(clause.listLabel).toBe("1.");
-      expect(clause.segments.map((segment) => segment.text).join("")).toContain("五日");
+      expect(
+        clause.segments.map((segment) => ("text" in segment ? segment.text : "")).join(""),
+      ).toContain("五日");
       expect(clause.segments.some((segment) => segment.kind === "revision")).toBe(false);
-      const acceptedDel = clause.segments.find(
-        (segment) =>
-          segment.kind === "tracked" && segment.change === "del" && segment.text === "十",
-      );
-      const acceptedIns = clause.segments.find(
-        (segment) =>
-          segment.kind === "tracked" && segment.change === "ins" && segment.text === "五",
-      );
-      expect(acceptedDel).toMatchObject({ color: 0, author: "LawMind" });
-      expect(acceptedIns).toMatchObject({ color: 0, author: "LawMind" });
+      expect(
+        clause.segments.some(
+          (segment) =>
+            segment.kind === "tracked" && (segment.text === "十" || segment.text === "五"),
+        ),
+      ).toBe(false);
       const pendingDel = clause.segments.find(
         (segment) =>
           segment.kind === "tracked" && segment.change === "del" && segment.text === "付款",
@@ -908,17 +992,14 @@ describe("formatted word surface", () => {
     expect(surface.tracked).toEqual([
       expect.objectContaining({
         revId: "1",
+        revIds: ["1", "2"],
         change: "del",
         author: "李律师",
         color: 0,
-        text: "十日",
-      }),
-      expect.objectContaining({
-        revId: "2",
-        change: "ins",
-        author: "李律师",
-        color: 0,
-        text: "五日",
+        parts: [
+          { change: "del", text: "十日" },
+          { change: "ins", text: "五日" },
+        ],
       }),
       expect.objectContaining({ revId: "3", change: "ins", author: "王律师", color: 1 }),
     ]);
